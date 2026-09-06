@@ -74,8 +74,10 @@ export interface ModelStreamInput {
    * Called for each streamed reasoning ("thinking") delta from a reasoning
    * model. Same narrow seam as onTextDelta — providers map their reasoning
    * chunks onto plain text; absent/empty for non-reasoning models.
+   * `partId` is the AI SDK reasoning part id when the wire has one (OpenAI
+   * Responses `${itemId}:${summaryIndex}`).
    */
-  onReasoningDelta?: (text: string) => void;
+  onReasoningDelta?: (text: string, partId?: string) => void;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: {
     text: string;

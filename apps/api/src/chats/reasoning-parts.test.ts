@@ -67,6 +67,83 @@ describe('assistantParts (reasoning + tool + cap-notice ordering)', () => {
     expect(collector.parts()).toEqual([first, second]);
   });
 
+  it('inserts a paragraph break between glued reasoning-summary headings', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('**Investigating likely culprit PRs**');
+    collector.reasoning('**Inspecting message schema**');
+
+    expect(collector.parts()).toEqual([
+      {
+        type: 'reasoning',
+        text: '**Investigating likely culprit PRs**\n\n**Inspecting message schema**',
+      },
+    ]);
+  });
+
+  it('unglues a first reasoning chunk that already contains multiple summary parts', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('**A****B**');
+
+    expect(collector.parts()).toEqual([
+      { type: 'reasoning', text: '**A**\n\n**B**' },
+    ]);
+  });
+
+  it('starts a new reasoning part when the SDK part id changes', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('**Investigating**', 'rs_1:0');
+    collector.reasoning('**Inspecting schema**', 'rs_1:1');
+
+    expect(collector.parts()).toEqual([
+      { type: 'reasoning', text: '**Investigating**' },
+      { type: 'reasoning', text: '**Inspecting schema**' },
+    ]);
+  });
+
+  it('concatenates deltas that share an SDK part id without unglue', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('**Investigating**', 'rs_1:0');
+    collector.reasoning(' the logs', 'rs_1:0');
+
+    expect(collector.parts()).toEqual([
+      { type: 'reasoning', text: '**Investigating** the logs' },
+    ]);
+  });
+
+  it('does not persist breaks at streaming chunk boundaries inside inline emphasis', () => {
+    const collector = createAssistantPartCollector();
+    const streamed =
+      'the**quick**fix for the**root**cause of the**timeout**issue.';
+
+    for (const character of streamed) {
+      collector.reasoning(character);
+    }
+
+    expect(collector.parts()).toEqual([{ type: 'reasoning', text: streamed }]);
+  });
+
+  it('inserts a paragraph break when a summary heading butts onto prior prose', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning(
+      '**Simulating a greeting stream**\n\nIt feels like a streaming interaction!',
+    );
+    collector.reasoning(
+      '**Simulating a greeting stream**\n\nI want to meet the request.',
+    );
+
+    expect(collector.parts()).toEqual([
+      {
+        type: 'reasoning',
+        text: '**Simulating a greeting stream**\n\nIt feels like a streaming interaction!\n\n**Simulating a greeting stream**\n\nI want to meet the request.',
+      },
+    ]);
+  });
+
   it('text-only when there was no reasoning (no empty reasoning part)', () => {
     expect(
       assistantParts({ reasoningText: '', toolParts: [], text: 'the answer' }),

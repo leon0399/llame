@@ -465,9 +465,13 @@ export class RunExecutionService {
     // tool loop today, so every turn is one step, but the accumulation is
     // correct regardless of step count and matches the persistence branch).
     const reasoningDeltas = createDeltaBuffer();
+    let reasoningPartId: string | undefined;
     const persistReasoning = (text: string | null) => {
       if (text !== null) {
-        enqueueEvent('reasoning.delta', { text });
+        enqueueEvent('reasoning.delta', {
+          text,
+          ...(reasoningPartId !== undefined && { partId: reasoningPartId }),
+        });
       }
     };
 
@@ -734,10 +738,15 @@ export class RunExecutionService {
           // text in the log. A no-op once the other buffer is empty, so it's
           // cheap on the steady-state stream.
           persistReasoning(reasoningDeltas.flush());
+          reasoningPartId = undefined;
           persistDelta(deltas.push(text, Date.now()));
         },
-        onReasoningDelta: (text) => {
-          assistantPartCollector.reasoning(text);
+        onReasoningDelta: (text, partId) => {
+          if (partId !== reasoningPartId) {
+            persistReasoning(reasoningDeltas.flush());
+            reasoningPartId = partId;
+          }
+          assistantPartCollector.reasoning(text, partId);
           persistDelta(deltas.flush());
           persistReasoning(reasoningDeltas.push(text, Date.now()));
         },

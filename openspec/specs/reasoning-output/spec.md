@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Capture provider-authorized displayable model reasoning as durable, private, ordered assistant output without changing model-catalog reasoning semantics or frontend rendering.
+Capture provider-authorized displayable model reasoning as durable, private, ordered assistant output without changing model-catalog reasoning semantics. Headed summary parts render as distinct markdown blocks; consecutive summaries share one Thinking panel, and a tool or visible text part splits panels.
 
 ## Requirements
 
@@ -79,9 +79,35 @@ The system SHALL persist only provider-authorized displayable reasoning text in 
 
 ### Requirement: Existing UI support receives durable reasoning parts
 
-The backend SHALL use the existing AI SDK reasoning stream protocol and persisted reasoning part shape. This change SHALL NOT modify frontend rendering behavior.
+The backend SHALL use the existing AI SDK reasoning stream protocol and persisted reasoning part shape. The web chat SHALL render those parts in persisted order. Consecutive reasoning parts with no intervening tool or visible text SHALL share one Thinking panel. A tool or visible text part SHALL split panels so occurrence order is preserved.
 
 #### Scenario: Existing renderer receives historical reasoning
 
 - **WHEN** a user reloads a chat containing a persisted reasoning part
-- **THEN** the existing client receives that part in its persisted order without frontend changes
+- **THEN** the existing client receives that part in its persisted order
+
+#### Scenario: Consecutive summary parts share one Thinking panel
+
+- **WHEN** a run emits two reasoning-summary parts, then a tool call, then another reasoning-summary part
+- **THEN** the chat shows one Thinking panel for the first two summaries, the tool, then a second Thinking panel
+- **AND** it does not hoist every reasoning part above the tool
+
+### Requirement: Reasoning summaries render as distinct markdown blocks
+
+Displayable reasoning from providers that emit headed summary parts (OpenAI Responses `reasoningSummary`, and equivalent Anthropic/relay shapes) SHALL render each part as its own markdown block. When the AI SDK supplies a reasoning part id (`${itemId}:${summaryIndex}` on OpenAI Responses), each distinct id SHALL persist as its own `{ type: "reasoning" }` part. Consecutive persisted reasoning parts still share one Thinking panel. Concatenated parts that glue a heading onto the previous part (`**One****Two**`, or prose butting onto `**Heading**`) SHALL be separated by a paragraph break at display and export, including for reasoning persisted before part ids were recorded and for Chat Completions relays that never emit an id. Isolated bold titles SHALL read as section headings against the muted body.
+
+#### Scenario: Responses summary_index persists as separate parts
+
+- **WHEN** a native Responses stream emits reasoning deltas whose SDK part id changes
+- **THEN** the assistant message stores one reasoning part per id
+- **AND** the chat still shows those parts in one Thinking panel until a tool or visible text splits the group
+
+#### Scenario: Glued summary headings split before render
+
+- **WHEN** persisted or live reasoning text contains `**Investigating****Inspecting schema**`
+- **THEN** the Thinking panel renders two bold titles, not one half-bold `****` run
+
+#### Scenario: Token-streamed reasoning is not split on mid-sentence emphasis
+
+- **WHEN** reasoning text contains a bold word after whitespace (`the **signature** field`)
+- **THEN** that emphasis stays inline and no paragraph break is inserted

@@ -23,6 +23,7 @@ import { getToolName, isToolUIPart, type ChatStatus, type UIMessage } from "ai";
 
 import { CompactionBoundary } from "./compaction-boundary";
 import { EffectiveContextAction } from "./effective-context-inspector";
+import { groupAssistantParts } from "./group-assistant-parts";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
@@ -92,15 +93,33 @@ function ToolPartView({ part }: { part: UIMessage["parts"][number] }) {
   );
 }
 
-/** Renders one message part — reasoning, text, a tool call/result, a
+function ReasoningGroupView({
+  text,
+  isStreaming,
+}: {
+  text: string;
+  isStreaming: boolean;
+}) {
+  return (
+    <Reasoning isStreaming={isStreaming} defaultOpen={false}>
+      <ReasoningTrigger />
+      <ReasoningContent>{text}</ReasoningContent>
+    </Reasoning>
+  );
+}
+
+/** Renders one non-reasoning message part — text, a tool call/result, a
  *  step-cap notice, or a server-authored context item (never visible). */
 function MessagePartView({ part }: { part: UIMessage["parts"][number] }) {
   if (part.type === "reasoning") {
+    // Consecutive reasoning is grouped above this switch. A stray reasoning
+    // part here would mean the grouper missed it — still render, don't dump
+    // "unsupported part type" into the transcript.
     return (
-      <Reasoning isStreaming={part.state === "streaming"} defaultOpen={false}>
-        <ReasoningTrigger />
-        <ReasoningContent>{part.text}</ReasoningContent>
-      </Reasoning>
+      <ReasoningGroupView
+        text={part.text}
+        isStreaming={part.state === "streaming"}
+      />
     );
   }
   if (part.type === "text") {
@@ -215,12 +234,20 @@ export function ChatMessageRow({
         data-message-key={renderKey}
       >
         <MessageContent>
-          {message.parts.map((part, partIndex) => (
-            <MessagePartView
-              key={`message-part-${renderKey}-${partIndex}`}
-              part={part}
-            />
-          ))}
+          {groupAssistantParts(message.parts).map((segment) =>
+            segment.kind === "reasoning" ? (
+              <ReasoningGroupView
+                key={`message-part-${renderKey}-${segment.startIndex}`}
+                text={segment.text}
+                isStreaming={segment.isStreaming}
+              />
+            ) : (
+              <MessagePartView
+                key={`message-part-${renderKey}-${segment.index}`}
+                part={segment.part}
+              />
+            ),
+          )}
         </MessageContent>
         <ChatMessageFooter {...footerProps} />
       </Message>
