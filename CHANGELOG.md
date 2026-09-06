@@ -2,6 +2,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-06
 
+- Add the thin CLI for explicit local or hosted execution, private session
+  credentials, source reads, Run control and native-action approval.
 - Add reusable private IPC and authenticated hosted clients with explicit
   authority selection, bound credentials and resumable event cursors.
 - Add the independently launchable personal Node over private stdio or an

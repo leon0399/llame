@@ -80,6 +80,21 @@
       "entry": ["src/index.ts", "tests/*.test.mjs"],
       "project": ["src/**/*.ts", "tests/**/*.mjs"]
     },
+    "apps/cli": {
+      "entry": [
+        "bin/*.cjs",
+        "src/main.ts",
+        "tests/**/*.test.mjs",
+        "scripts/*.mjs"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.mjs",
+        "scripts/*.mjs",
+        "bin/*.cjs"
+      ],
+      "ignoreBinaries": ["script"]
+    },
     "packages/oxlint-plugin-anti-slop": {
       "entry": ["rules/**/*.test.ts"],
       "project": ["**/*.ts", "**/*.mjs"],
