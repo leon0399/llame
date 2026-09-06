@@ -198,9 +198,10 @@ by the previous snapshot's promoted ids (its declared MCP ids, present only when
 snapshot's partition was engaged: a non-empty discoverable list or at least one
 `declaration_budget_exceeded` cut, so a Run that simply fit the budget promotes nothing per
 reviewer A-F2, while a promotion that cut the whole remaining inventory still carries forward
-per a Codex finding). Candidates are admitted in that order while the declared tier still fits
-the
-budget; the rest stay discoverable (reviewer C-F3: promotion is bounded by the same budget that
+per a Codex finding). Candidates are admitted in that order while the promoted MCP declarations
+alone fit the budget, before D3's inventory cut runs, so a tool the model proved it needed
+outranks a speculative inventory entry and a promotion may itself force the cut; the rest stay
+discoverable (reviewer C-F3: promotion is bounded by the same budget that
 triggered deferral, so a long epoch cannot re-declare the whole catalog). Loads recorded on Runs
 before the active compaction checkpoint are never promoted. Compaction keeps the last messages
 verbatim, so a search result can survive in the kept tail as history; that is fine because the

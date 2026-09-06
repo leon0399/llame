@@ -58,8 +58,10 @@ ids, most recent first, followed by the previous snapshot's promoted ids (its de
 present only when that snapshot's partition was engaged: it had discoverable tools or bound at
 least one id `unavailable` with reason `declaration_budget_exceeded`). Candidates still bound
 for the new Run
-SHALL be promoted into the declared tier in that order only while the declared tier plus the
-inventory still fits the budget; the remainder SHALL stay discoverable. Loads recorded on Runs
+SHALL be promoted into the declared tier in that order while the promoted MCP declarations
+alone still fit the budget, before the inventory is fitted, so a proven load SHALL outrank
+keeping an id discoverable; the remainder SHALL stay discoverable and SHALL then be subject to
+the cut rule below. Loads recorded on Runs
 before the active compaction checkpoint SHALL NOT be promoted. A search result that survives in
 the kept tail of a compaction is history only: callability SHALL be decided by the loaded set,
 never by history. A tool that is not bound for the Run SHALL be neither discoverable, loadable,
@@ -144,13 +146,13 @@ attempt's loaded set SHALL come from that attempt's own steps alone.
 
 #### Scenario: Promotion is bounded by the budget
 
-- **WHEN** the previous Run's loaded ids and promoted ids together would push the declared tier plus the inventory over the budget
+- **WHEN** the previous Run's loaded ids and promoted ids together would push the promoted MCP declarations over the budget
 - **THEN** the most recently loaded ids are promoted first until the budget is met
-- **AND** the remainder are discoverable again
+- **AND** the remainder stay discoverable and are then subject to the inventory cut
 
 #### Scenario: Promotion survives an empty discoverable tier
 
-- **WHEN** a promoted declaration leaves too little budget for the inventory, so every remaining MCP id is cut and the new snapshot has no discoverable tools
+- **WHEN** promotion is admitted first and leaves too little budget for the inventory, so every remaining MCP id is cut and the new snapshot has no discoverable tools
 - **THEN** that Run binds no `tool_search` and loads nothing
 - **AND** the following Run of the epoch still promotes that declaration from the previous snapshot
 
