@@ -1,0 +1,24 @@
+apps/web/app/(chat)/components/chat-load-older.test.tsx
+  cb84136ca97d1c29 1-9,11-12,14-22,30-33,38-39,41-44,46-60,71,79,81-84,86,101-102,104-106,109-124,126-127,130,132-138,181
+apps/web/app/(chat)/components/chat-load-older.tsx
+  cb84136ca97d1c29 98-107,108-111,112-120,121-125,128-129,130,131,132-137,274,281-284,321
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "dbb9048cc8b33c5ec6d6b8a85ae2e393a23110d1",
+  "prompts": {
+    "cb84136ca97d1c29": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "24ef3b4c-4c12-42b0-a8c2-26e72ca13f7f",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 154,
+      "total_deletions": 1,
+      "accepted_lines": 129,
+      "overriden_lines": 22
+    }
+  }
+}
