@@ -10,6 +10,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   same frame instead of one frame late, removing the single-frame
   scroll-up flash. The header title snaps on open, reload, and chat switch;
   the typewriter runs only for same-chat title updates.
+- Add private personal-node SQLite storage, bounded conversation recall and
+  live Knowledge reads without requiring a hosted account or model provider.
 - Add authenticated Node discovery, owner-scoped conversation/Knowledge reads,
   and Run admission through existing hosted services and tenant policy.
 - Extract bounded live Markdown reads and search into

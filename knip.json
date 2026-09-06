@@ -68,6 +68,10 @@
       "entry": ["src/knowledge-filesystem.ts", "src/**/*.test.ts"],
       "project": ["src/**/*.ts"]
     },
+    "packages/personal-node": {
+      "entry": ["src/**/*.ts", "tests/**/*.test.mjs"],
+      "project": ["src/**/*.ts", "tests/**/*.mjs"]
+    },
     "packages/oxlint-plugin-anti-slop": {
       "entry": ["rules/**/*.test.ts"],
       "project": ["**/*.ts", "**/*.mjs"],
