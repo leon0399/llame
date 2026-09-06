@@ -74,7 +74,7 @@ describeIfDb('chat search — relevance eval', () => {
 
     for (const q of EVAL_QUERIES) {
       const rows = await tenantDb.runAs(u, (tx) =>
-        new ChatsRepository(tx).searchByOwner(u, q.query, K),
+        new ChatsRepository(tx).searchByOwner(u, q.query, { limit: K }),
       );
       results.push({
         category: q.category,
@@ -176,7 +176,10 @@ describeIfDb('chat search — relevance eval', () => {
         // provider error on this query — skip vector leg
       }
       const rows = await tenantDb.runAs(u, (tx) =>
-        new ChatsRepository(tx).searchByOwner(u, q.query, K, vectorParams),
+        new ChatsRepository(tx).searchByOwner(u, q.query, {
+          limit: K,
+          vector: vectorParams,
+        }),
       );
       hybridResults.push({
         category: q.category,

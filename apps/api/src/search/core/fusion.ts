@@ -116,6 +116,10 @@ export interface HybridSearchConfig {
   weights: { fts: number; trgm: number; title: number };
   limits: { fts: number; trgm: number; title: number };
   rrfK: number;
+  /** Optional range-preference bonus applied in `doc_fused`. When present,
+   *  in-range documents gain `weight / (rrfK + 1)` — a bounded additive term
+   *  that can reorder near-ties without filtering. */
+  rangePreference?: { predicate: SQL; weight: number };
   /** Weighted top-3 document aggregation per group, e.g. `[1, 0.25, 0.1]`. */
   groupTopNWeights: [number, number, number];
   /** Final chat result cap. */
@@ -253,6 +257,26 @@ function buildVectorLeg(
   `;
 }
 
+function buildRangePreferenceUnion(config: HybridSearchConfig): SQL {
+  if (!config.rangePreference) return sql``;
+  return sql`
+        UNION ALL
+        SELECT u2.group_id, u2.doc_id,
+          CASE WHEN ${config.rangePreference.predicate} THEN ${config.rangePreference.weight}::double precision / (${config.rrfK}::double precision + 1) ELSE 0 END AS t
+        FROM (SELECT DISTINCT group_id, doc_id FROM (
+          SELECT group_id, doc_id FROM fts_c
+          UNION ALL
+          SELECT group_id, doc_id FROM trgm_c${
+            config.vector
+              ? sql`
+          UNION ALL
+          SELECT group_id, doc_id FROM vec_c`
+              : sql``
+          }
+        ) all_docs) u2
+        JOIN ${sql.identifier(config.document.table)} d ON ${col('d', config.document.id)} = u2.doc_id`;
+}
+
 /**
  * RRF-fuses `fts_c`/`trgm_c` (and optionally `vec_c`) into one per-document
  * score, ranks documents within their parent group, then rolls the top 3 up
@@ -262,21 +286,20 @@ function buildDocumentRollup(config: HybridSearchConfig, refs: QueryRefs) {
   const { term, groupTopNWeights } = refs;
   const [w1, w2, w3] = groupTopNWeights;
 
-  // Glued onto the trgm_c line with no literal whitespace of its own so an
-  // absent vector leg contributes NOTHING here — required for the
-  // byte-identical-when-absent guarantee on `HybridSearchConfig.vector`.
   const vectorUnion = config.vector
     ? sql`
         UNION ALL
         SELECT group_id, doc_id, ${term(config.vector.weight, sql`rank`)} AS t FROM vec_c`
     : sql``;
 
+  const rangePrefUnion = buildRangePreferenceUnion(config);
+
   return sql`
     doc_fused AS (
       SELECT group_id, doc_id, sum(t) AS doc_score FROM (
         SELECT group_id, doc_id, ${term(config.weights.fts, sql`rank`)} AS t FROM fts_c
         UNION ALL
-        SELECT group_id, doc_id, ${term(config.weights.trgm, sql`rank`)} AS t FROM trgm_c${vectorUnion}
+        SELECT group_id, doc_id, ${term(config.weights.trgm, sql`rank`)} AS t FROM trgm_c${vectorUnion}${rangePrefUnion}
       ) u GROUP BY group_id, doc_id
     ),
     doc_ranked AS (
