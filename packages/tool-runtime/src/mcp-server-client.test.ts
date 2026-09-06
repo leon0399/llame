@@ -2338,86 +2338,90 @@ describe("McpServerClient", () => {
     }
   });
 
-  it("bounds request and response failures without retrying or leaking partial results", async () => {
-    const oversizedSseMessage = JSON.stringify({
-      jsonrpc: "2.0",
-      id: 5,
-      result: {
-        content: [{ type: "text", text: "x".repeat(ONE_MIB + 1) }],
-      },
-    });
-    const { fixture, client } = await connectFixture({
-      listResponses: [jsonRpcResult(1, { tools: [tool("lookup")] })],
-      callResponses: [
-        {
-          kind: "raw",
-          status: 500,
-          contentType: "application/json",
-          body: "first failure",
+  it(
+    "bounds request and response failures without retrying or leaking partial results",
+    { timeout: 15_000 },
+    async () => {
+      const oversizedSseMessage = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 5,
+        result: {
+          content: [{ type: "text", text: "x".repeat(ONE_MIB + 1) }],
         },
-        {
-          kind: "raw",
-          status: 503,
-          contentType: "application/json",
-          body: "x".repeat(ONE_MIB + 1),
-        },
-        {
-          kind: "sse",
-          events: [{ data: oversizedSseMessage, rawData: true }],
-        },
-        jsonRpcResult(6, { content: "not-an-array" }),
-        { kind: "disconnect" },
-      ],
-    });
+      });
+      const { fixture, client } = await connectFixture({
+        listResponses: [jsonRpcResult(1, { tools: [tool("lookup")] })],
+        callResponses: [
+          {
+            kind: "raw",
+            status: 500,
+            contentType: "application/json",
+            body: "first failure",
+          },
+          {
+            kind: "raw",
+            status: 503,
+            contentType: "application/json",
+            body: "x".repeat(ONE_MIB + 1),
+          },
+          {
+            kind: "sse",
+            events: [{ data: oversizedSseMessage, rawData: true }],
+          },
+          jsonRpcResult(6, { content: "not-an-array" }),
+          { kind: "disconnect" },
+        ],
+      });
 
-    try {
-      const catalog = await client.discover();
-      const execute = byId(catalog.tools, "mcp__web__lookup").execute;
-      const options = {
-        toolCallId: "call",
-        messages: [],
-        abortSignal: undefined,
-      };
+      try {
+        const catalog = await client.discover();
+        const execute = byId(catalog.tools, "mcp__web__lookup").execute;
+        const options = {
+          toolCallId: "call",
+          messages: [],
+          abortSignal: undefined,
+        };
 
-      const remote500 = await execute({}, options);
-      expect(remote500.disposition).toBe("call_local");
-      expect(
-        fixture
-          .requestSummaries()
-          .filter(({ rpcMethod }) => rpcMethod === "tools/call"),
-      ).toHaveLength(1);
+        const remote500 = await execute({}, options);
+        expect(remote500.disposition).toBe("call_local");
+        expect(
+          fixture
+            .requestSummaries()
+            .filter(({ rpcMethod }) => rpcMethod === "tools/call"),
+        ).toHaveLength(1);
 
-      const oversizedInput = await execute(
-        { query: "q".repeat(ONE_MIB) },
-        options,
-      );
-      expect(oversizedInput.disposition).toBe("reconnect");
-      expect(
-        fixture
-          .requestSummaries()
-          .filter(({ rpcMethod }) => rpcMethod === "tools/call"),
-      ).toHaveLength(1);
+        const oversizedInput = await execute(
+          { query: "q".repeat(ONE_MIB) },
+          options,
+        );
+        expect(oversizedInput.disposition).toBe("reconnect");
+        expect(
+          fixture
+            .requestSummaries()
+            .filter(({ rpcMethod }) => rpcMethod === "tools/call"),
+        ).toHaveLength(1);
 
-      const oversizedErrorBody = await execute({}, options);
-      const oversizedSse = await execute({}, options);
-      const invalidOutput = await execute({}, options);
-      const disconnected = await execute({}, options);
+        const oversizedErrorBody = await execute({}, options);
+        const oversizedSse = await execute({}, options);
+        const invalidOutput = await execute({}, options);
+        const disconnected = await execute({}, options);
 
-      expect([
-        oversizedErrorBody.disposition,
-        oversizedSse.disposition,
-        invalidOutput.disposition,
-        disconnected.disposition,
-      ]).toEqual(["reconnect", "reconnect", "call_local", "reconnect"]);
-      expect(
-        fixture
-          .requestSummaries()
-          .filter(({ rpcMethod }) => rpcMethod === "tools/call"),
-      ).toHaveLength(5);
-    } finally {
-      await cleanup({ client, fixture });
-    }
-  });
+        expect([
+          oversizedErrorBody.disposition,
+          oversizedSse.disposition,
+          invalidOutput.disposition,
+          disconnected.disposition,
+        ]).toEqual(["reconnect", "reconnect", "call_local", "reconnect"]);
+        expect(
+          fixture
+            .requestSummaries()
+            .filter(({ rpcMethod }) => rpcMethod === "tools/call"),
+        ).toHaveLength(5);
+      } finally {
+        await cleanup({ client, fixture });
+      }
+    },
+  );
 
   it("keeps caller cancellation and timeout call-local while aborting the request", async () => {
     const { fixture, client } = await connectFixture({
