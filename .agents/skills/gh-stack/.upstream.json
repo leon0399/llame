@@ -1,0 +1,15 @@
+{
+  "commit": "14fc42ed9b6c376a53b2f999f138d3bd26dac546",
+  "commit_date": "2026-08-03T21:12:24-04:00",
+  "default_branch": "main",
+  "files": [
+    "SKILL.md",
+    "references/commands.md",
+    "references/stack-design.md",
+    "references/troubleshooting.md"
+  ],
+  "path": "skills/gh-stack",
+  "pin": "14fc42e",
+  "ref": "main",
+  "repo": "https://github.com/github/gh-stack"
+}
