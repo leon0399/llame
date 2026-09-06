@@ -22,7 +22,7 @@
     // This workspace consumes shared configuration, safety and MCP packages as built dist
     // (exports → ./dist), so its checks need the upstream build first — the
     // root "nothing tests consume is built" rule has an exception here.
-    // Local equivalent: pnpm --filter @workspace/config-interpolation build
+    // Local equivalent: pnpm --filter @workspace/config-interpolation --filter @workspace/runtime-safety --filter @workspace/tool-runtime build
     // (bypasses turbo's cache entirely).
     "dev": { "dependsOn": ["^build"] },
     "lint": { "dependsOn": ["^build"] },
