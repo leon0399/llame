@@ -146,6 +146,38 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     );
   }
 
+  let releaseHeldTurn: (() => void) | undefined;
+
+  /** Hold a real Run at completion so overlap assertions do not race wall time. */
+  function holdNextTurn() {
+    let release = () => {};
+    let announce = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      announce = resolve;
+    });
+    releaseHeldTurn = () => release();
+    const original: typeof models.client.streamText =
+      models.client.streamText.bind(models.client);
+    const spy = vi.spyOn(models.client, 'streamText');
+    spy.mockImplementation((input) => {
+      const onFinish = input.onFinish;
+      if (!onFinish) return original(input);
+      spy.mockRestore();
+      return original({
+        ...input,
+        onFinish: async (output) => {
+          announce();
+          await held;
+          await onFinish(output);
+        },
+      });
+    });
+    return { started, release: () => release() };
+  }
+
   beforeAll(async () => {
     models = new FakeModelsService();
     const mod = await Test.createTestingModule({
@@ -201,6 +233,8 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   });
 
   afterEach(async () => {
+    releaseHeldTurn?.();
+    releaseHeldTurn = undefined;
     // Single-flight hygiene: a test that leaves a non-terminal run poisons
     // every later test on the same chat (409 at the unique index). Finish
     // any leftovers so state never leaks across tests.
@@ -853,7 +887,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   // seq-isolated contexts; runs are now serialized per chat — an overlapping
   // send is rejected outright, and a subsequent send sees the prior turn.
   it('serializes turns per chat: overlap rejected, next turn sees prior history', async () => {
-    models.client.delayMs = 50;
+    const completion = holdNextTurn();
     models.client.responses = ['answer one', 'answer two'];
     const firstId = crypto.randomUUID();
 
@@ -868,7 +902,14 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         },
       });
     const firstResponse = firstRequest.then((res) => res);
-    await waitFor(() => models.client.turns.length === 1);
+    await Promise.race([
+      completion.started,
+      firstResponse.then(() => {
+        throw new Error(
+          'First request settled before reaching the completion gate.',
+        );
+      }),
+    ]);
 
     const overlapping = await request(http)
       .post(`/api/v1/chats/${chatA}/messages`)
@@ -880,6 +921,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           parts: [{ type: 'text', text: 'Prompt two' }],
         },
       });
+    completion.release();
     expect(overlapping.status).toBe(409);
 
     const first = await firstResponse;
@@ -1094,9 +1136,8 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   // not app logic), and its transaction rolls back leaving nothing behind.
   // Same-message retries are blocked for now: id reuse is rejected on id alone.
   it('rejects a second message while a run is in flight for the chat (409)', async () => {
-    models.client.delayMs = 400;
+    const completion = holdNextTurn();
     models.client.responses = ['slow answer'];
-    const before = models.client.turns.length;
     const firstId = crypto.randomUUID();
 
     const pending = request(http)
@@ -1111,7 +1152,14 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       () => undefined,
     );
 
-    await waitFor(() => models.client.turns.length === before + 1);
+    await Promise.race([
+      completion.started,
+      settled.then(() => {
+        throw new Error(
+          'First request settled before reaching the completion gate.',
+        );
+      }),
+    ]);
 
     const secondId = crypto.randomUUID();
     const second = await request(http)
@@ -1121,6 +1169,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         modelId: 'system:openai:gpt-5.4-mini',
         message: { id: secondId, parts: [{ type: 'text', text: 'Second' }] },
       });
+    completion.release();
     expect(second.status).toBe(409);
 
     const first = await settled;
