@@ -5,24 +5,24 @@ the native file tools and can later be implemented by a managed Sandbox adapter.
 
 ## ADDED Requirements
 
-### Requirement: Bash runs only in a trusted native executor context
+### Requirement: Bash requires a managed executor boundary
 
-The alpha `bash` tool SHALL execute with the trusted native host OS authority and
-SHALL disclose that authority to the model and owner. The model SHALL NOT select
-an executor, host path, environment, network mode, or permission mode. A call
-without a trusted executor context SHALL fail closed. The tool SHALL NOT claim
-multi-user isolation or Sandbox confinement.
+The model-facing `bash` tool SHALL remain unavailable until a managed executor
+proves a secret boundary, process isolation, bounded output, bounded resources,
+and a trusted workspace mount. Direct host bash SHALL NOT be advertised by this
+capability. The model SHALL NOT select an executor, host path, environment,
+network mode, or permission mode.
 
-#### Scenario: Native command runs with disclosed authority
+#### Scenario: Missing managed boundary fails closed
 
-- **WHEN** an authorized alpha host supplies a trusted executor context and the model calls bash
-- **THEN** the command executes with that host authority
-- **AND** the result identifies the native executor class and safe working-directory context
+- **WHEN** no managed executor can prove the required secret and process boundary
+- **THEN** a bash request is unavailable
+- **AND** no direct host process starts
 
 #### Scenario: Model cannot widen execution
 
 - **WHEN** command arguments attempt to select another path, executor, or policy
-- **THEN** the host rejects the unsupported selection
+- **THEN** the managed executor rejects the unsupported selection
 - **AND** it does not widen trusted execution context
 
 ### Requirement: Bash and native file tools share one live directory

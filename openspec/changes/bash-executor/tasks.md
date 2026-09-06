@@ -23,11 +23,11 @@ master
 - [ ] 1.2 Define safe command metadata and result sanitization; verify host paths, credentials, stack traces, and unbounded output cannot enter model-visible results.
 - [ ] 1.3 Define same-directory handoff with `native-file-tools`; verify adapters cannot claim success while using a different working directory.
 
-## 2. native-host
+## 2. managed-executor-contract
 
-- [ ] 2.1 Implement the alpha native host adapter with trusted working-directory context, bounded command execution, and explicit native-authority disclosure; verify model arguments cannot select a different executor or host path.
-- [ ] 2.2 Integrate ordinary configured tools (`bash`, `grep`, `rg`, `jq`, and Python where installed) without making any one tool the canonical editor; verify command names/arguments remain bounded by the host contract.
-- [ ] 2.3 Add output, input, duration, process, and cancellation bounds; verify oversized output, timeout, non-zero exit, missing executable, and malformed command cases.
+- [ ] 2.1 Implement the managed-executor contract with trusted working-directory context, bounded command execution, and explicit isolation/secrets prerequisites; verify direct host bash is not advertised.
+- [ ] 2.2 Define ordinary configured tools (`bash`, `grep`, `rg`, `jq`, and Python where installed) without making any one tool the canonical editor; verify command names/arguments remain bounded by the future managed host contract.
+- [ ] 2.3 Add output, input, duration, process, secret-boundary, and cancellation requirements; verify the capability remains unavailable when any required boundary is missing.
 
 ## 3. file-context
 
@@ -42,7 +42,7 @@ master
 ## 5. acceptance
 
 - [ ] 5.1 Add an alpha workflow that reads a file, runs `grep`/`jq` or Python, edits a file, rereads it, and reports bounded output; verify the same path and bytes are used throughout.
-- [ ] 5.2 Run package/runtime tests, typecheck, lint, build, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify no Git submit, Markdown processor, URL loader, or managed Sandbox is claimed.
+- [ ] 5.2 Run package/runtime contract tests, typecheck, lint, build, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify no direct host bash, Git submit, Markdown processor, or URL loader is claimed.
 
 ## 6. finalize
 

@@ -14,9 +14,10 @@ capability. They SHALL operate only on regular files in this iteration. A model
 argument SHALL NOT select a different executor, owner, tenant, permission mode,
 or remote authority. A host that cannot intentionally accept native authority
 SHALL leave these tools unavailable rather than silently substituting a hosted
-or Sandbox path. A Run that begins native mutation SHALL remain bound to the
-trusted native executor identity that admitted it; another executor SHALL fail
-closed.
+or Sandbox path. A Run SHALL bind to the trusted native executor identity on its
+first native operation, including `read`, and SHALL remain bound to it; a later
+reattachment to another executor SHALL fail closed rather than resolving the
+physical path there.
 
 #### Scenario: Coding file is read by absolute path
 
@@ -38,8 +39,8 @@ closed.
 
 ### Requirement: Read selectors and context are deterministic
 
-`read` SHALL accept trailing one-based inclusive selectors `:N-M`, `:N+K`, and
-`:raw`. A valid selector SHALL be normalized once to the internal zero-based
+`read` SHALL accept trailing one-based inclusive selectors `:N-M`, `:N+K`,
+`:raw`, and `:raw:N-M`. A valid selector SHALL be normalized once to the internal zero-based
 range. Existing literal paths SHALL take precedence over selector parsing.
 Ordinary bounded ranges SHALL include one preceding and one following source
 line when available. The extended lines SHALL appear in the same `content` block

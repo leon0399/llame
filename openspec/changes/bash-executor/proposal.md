@@ -9,15 +9,17 @@ submission.
 
 ## What Changes
 
-- Add a model-facing `bash` operation for an explicitly trusted native executor.
+- Define a model-facing `bash` operation for a managed executor contract.
 - Run commands with a declared working directory, bounded duration, bounded
   stdout/stderr, and a safe result envelope.
 - Keep configured tools and native `read`/`edit`/`write` pointed at the same
   workspace when they share an executor.
 - Record command attempts before execution and refuse automatic replay of unknown
   side effects.
-- Add a replaceable managed-Sandbox adapter later without changing the model
-  command contract.
+- Do not advertise direct host bash in this proposal; native host bash would
+  expose arbitrary readable secrets and needs a separate explicit alpha decision.
+- Add a replaceable managed-Sandbox adapter without changing the model command
+  contract.
 
 ## Capabilities
 
@@ -28,15 +30,15 @@ submission.
 
 ### Modified Capabilities
 
-- `tool-calling`: admit `bash` as an exact alpha-native execution tool with
-  pre-start attempt persistence and no automatic replay after unknown effects.
+None. Tool-calling admission waits for the managed executor/security boundary.
 
 ## Impact
 
-The first host runs as an alpha native OS-user capability. It is not a hosted
-multi-user sandbox and does not implement permission policy. The executor must
-disclose its authority and keep command output bounded. Future Sandbox work can
-mount the same workspace and configured tools behind a stronger isolation class.
+The first implementation is a managed-executor contract and adapter seam. It does
+not run arbitrary commands with direct host authority. A future Sandbox must
+provide a secret boundary, output boundary, process isolation, and same-workspace
+mount before bash is advertised to the model. Future Sandbox work can mount the
+same workspace and configured tools behind a stronger isolation class.
 
 This proposal does not add Git commits, URL fetches, Markdown processing,
 provider review, or a general approval/RBAC system.

@@ -41,8 +41,8 @@ using normal OS semantics and reports the same path in result details. The model
 does not supply an owner, tenant, configured Knowledge root, or alternate
 authority. This is an alpha native-authority capability and is unavailable to a
 host that cannot intentionally accept that authority. A trusted native executor
-identity is bound when the Run first uses a mutating native tool; later worker or
-host reattachment with a different executor identity fails closed rather than
+identity is bound on the first native operation, including `read`; later worker
+or host reattachment with a different executor identity fails closed rather than
 resolving the physical path on another machine.
 
 Future resource schemes such as `kb://<space-id>/<path>` and
@@ -68,10 +68,16 @@ members, SQLite selectors, and scheme-specific grammars are deferred.
 The accepted grammar is:
 
 ```text
-selector := ":" range | ":raw"
+selector := ":" range | ":raw" | ":raw:" range
 range    := positiveInteger "-" positiveInteger
           | positiveInteger "+" positiveInteger
 ```
+
+Integers are safe one-based integers. `end >= start` for a range; the `+` count
+is at least one; overflow, zero, negative, reversed, empty, or malformed forms
+fail as selector errors. A valid selector may be written as `:10-20`, `:10+11`,
+`:raw`, or `:raw:10-20`. An invalid suffix remains part of a literal path when
+that literal path exists; otherwise the host returns a path/selector error.
 
 Integers are safe one-based integers. `end >= start` for a range; the `+` count
 is at least one; overflow, zero, negative, reversed, empty, or malformed forms

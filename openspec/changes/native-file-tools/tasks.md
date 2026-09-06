@@ -21,7 +21,7 @@ Markdown, or adds URL loading.
 ## 1. reader-core
 
 - [ ] 1.1 Create `packages/native-file-tools` with zero application-framework dependencies; verify package build, lint, typecheck, and focused tests run independently.
-- [ ] 1.2 Implement absolute-path resolution, regular-file checks, literal-path precedence, and selector parsing for `:N-M`, `:N+K`, and `:raw`; verify one-based selectors, malformed selectors, missing paths, directories, special files, and literal colon-suffixed filenames.
+- [ ] 1.2 Implement absolute-path resolution, regular-file checks, literal-path precedence, and selector parsing for `:N-M`, `:N+K`, `:raw`, and `:raw:N-M`; verify one-based selectors, malformed/overflow/reversed selectors, missing paths, directories, special files, and literal colon-suffixed filenames.
 - [ ] 1.3 Reuse or extract the current logical-line parser with LF/CRLF/lone-CR handling, terminal-delimiter behavior, bounded UTF-8 reads, and whole-line output limits; verify against the existing Knowledge filesystem tests.
 - [ ] 1.4 Implement one-line preceding/following context expansion and details for requested range, shown range, representation, absolute path, and truncation; verify start-of-file, EOF, selector continuation, raw mode, and cap behavior.
 - [ ] 1.5 Implement the OMP-inspired result envelope with one content block and path-specific details; verify generated line prefixes are presentation metadata and raw content remains verbatim.
@@ -32,7 +32,7 @@ Markdown, or adds URL loading.
 - [ ] 2.1 Implement per-path sequential mutation execution without model-visible coordination; verify two same-path exact edits execute in order and the second cannot overwrite the first.
 - [ ] 2.2 Implement exact unique `oldText` replacement with empty `newText` deletion, atomic temporary-file replacement, line-ending preservation, bounded diff, and post-edit one-line context; verify missing, ambiguous, no-op, multiline, CRLF, and EOF cases.
 - [ ] 2.3 Implement creation-only `write`; verify absent targets are created and existing targets return `file_exists` without touching content.
-- [ ] 2.4 Integrate alpha native host authority, trusted executor identity, and explicit disclosure; verify the model can use absolute paths only on the admitting host and no permission policy or remote-path fallback is silently implied.
+- [ ] 2.4 Integrate alpha native host authority, bind trusted executor identity on the first native operation, and disclose it; verify the model can use absolute paths only on the admitting host and no permission policy or remote-path fallback is silently implied.
 - [ ] 2.5 Add the durable native mutation attempt marker and retry fence before edit/write bytes change; verify known results settle before model continuation, open attempts become `outcome_unknown`, and queue retries never replay an unsettled mutation.
 
 ## 3. knowledge-adapter

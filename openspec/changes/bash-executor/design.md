@@ -2,15 +2,15 @@
 
 Native `read`, `edit`, and `write` operate on live absolute local paths. Bash is
 the complementary escape hatch for searches and mass changes, but its command
-can mutate many files and run arbitrary installed programs. The model-facing
-contract therefore needs bounded execution and honest lifecycle results before a
-managed Sandbox adapter is considered.
+can mutate many files and run arbitrary installed programs. This proposal defines
+the managed-executor contract; it does not expose direct host bash until an
+enforceable secret and process-isolation boundary exists.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- One bounded `bash` contract for the alpha native executor.
+- One bounded `bash` contract for a managed executor.
 - Same working directory and bytes as the native file tools when attached to one
   executor context.
 - Explicit command attempt, timeout, cancellation, output, and unknown-outcome
@@ -19,7 +19,7 @@ managed Sandbox adapter is considered.
 
 **Non-Goals:**
 
-- A production permission engine or multi-user path authorization.
+- A direct native host bash implementation.
 - Git submission, commit staging, PRs, or Knowledge acceptance.
 - A Sandbox implementation in this proposal; the adapter seam is the contract.
 - Automatic package installation, model-runtime management, network brokering,
@@ -27,16 +27,14 @@ managed Sandbox adapter is considered.
 
 ## Decisions
 
-### D1: Native bash is an explicit alpha host capability
+### D1: Bash waits for a managed executor boundary
 
-The alpha native executor runs a command with the OS user's authority and reports
-that authority in the execution context. The model supplies only command text
-and bounded arguments; it cannot select another executor, host, environment, or
-permission mode. The host chooses the working directory from trusted execution
-context. The tool is unavailable when that context is absent.
-
-This is deliberately compatible with the native file-tool alpha assumption. It
-must not be advertised as a production Sandbox or a tenant isolation boundary.
+The model-facing bash tool remains unavailable until a managed executor proves a
+secret boundary, process isolation, output filtering, bounded resources, and a
+trusted workspace mount. The model supplies only command text and bounded
+arguments; it cannot select an executor, host path, environment, or policy.
+Direct host bash is intentionally deferred because finite output limits cannot
+prevent `env`, credential-file reads, or encoded secrets from reaching context.
 
 ### D2: Same executor means same directory
 
