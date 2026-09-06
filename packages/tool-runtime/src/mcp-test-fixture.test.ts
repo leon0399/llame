@@ -76,6 +76,14 @@ const requestSummaryCases = [
 ] as const;
 
 describe("MCP Streamable HTTP test fixture", () => {
+  it("pins the supported Streamable HTTP revisions", () => {
+    expect(MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS).toEqual([
+      "2025-03-26",
+      "2025-06-18",
+      "2025-11-25",
+    ]);
+  });
+
   it.each(MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS)(
     "creates an initialize response for supported Streamable HTTP revision %s only",
     (protocolVersion) => {

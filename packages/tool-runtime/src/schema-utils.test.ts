@@ -53,6 +53,7 @@ describe("buildJsonSchemaValidator", () => {
     const validate = buildJsonSchemaValidator(schema);
     expect(validate).toBeDefined();
     expect(validate!({ items: ["hello"] }).success).toBe(true);
+    expect(validate!({ items: [42] }).success).toBe(false);
   });
 
   it("returns undefined for an unsupported dialect (3.7)", () => {
