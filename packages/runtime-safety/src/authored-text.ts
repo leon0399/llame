@@ -55,11 +55,11 @@ const RESERVED_TAG_NAMES: ReadonlySet<string> = new Set([
   // unrelated to the rail and stays reserved — dropping them with the rail's
   // would be an escaping regression a test that only forges `system-reminder`
   // would never catch.
-  'system-reminder',
-  'tool-call',
-  'tool-result',
-  'user_chat_history',
-  'user_personalization',
+  "system-reminder",
+  "tool-call",
+  "tool-result",
+  "user_chat_history",
+  "user_personalization",
 ]);
 
 /**
@@ -83,7 +83,7 @@ const CLOSER = /^<\/([A-Za-z][\w.:-]*)>$/u;
 const CLOSER_INTENT = /^<\s*\//u;
 
 const escapeAngles = (token: string) =>
-  token.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  token.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 /**
  * The markup-ish token starting at `lt`. A token runs to the next `>`, unless
@@ -91,8 +91,8 @@ const escapeAngles = (token: string) =>
  * `<` begins its own token.
  */
 function nextToken(value: string, lt: number) {
-  const gt = value.indexOf('>', lt + 1);
-  const nextLt = value.indexOf('<', lt + 1);
+  const gt = value.indexOf(">", lt + 1);
+  const nextLt = value.indexOf("<", lt + 1);
   const complete = gt !== -1 && (nextLt === -1 || gt < nextLt);
   const end = complete ? gt + 1 : nextLt === -1 ? value.length : nextLt;
   return { token: value.slice(lt, end), end, complete };
@@ -127,7 +127,7 @@ function emitToken(
 
   const opener = complete ? OPENER.exec(token) : null;
   if (opener !== null) {
-    if (!token.endsWith('/>')) {
+    if (!token.endsWith("/>")) {
       stack.push(opener[1].toLowerCase());
     }
     return token;
@@ -147,7 +147,7 @@ export function sanitizeAuthoredText(value: string): string {
   let index = 0;
 
   while (index < value.length) {
-    const lt = value.indexOf('<', index);
+    const lt = value.indexOf("<", index);
     if (lt === -1) {
       out.push(value.slice(index));
       break;
@@ -159,5 +159,5 @@ export function sanitizeAuthoredText(value: string): string {
     out.push(emitToken(token, complete, stack));
   }
 
-  return out.join('');
+  return out.join("");
 }

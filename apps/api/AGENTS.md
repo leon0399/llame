@@ -58,7 +58,7 @@ Traps:
   presence of `models[].reasoning` declares availability.
 - Prompt context is an explicit projection, never a user/database record.
 - Never patch shared `Handlebars.Utils`. Sanitize in
-  `instance-config/authored-text.ts` and keep the web mirror byte-identical.
+  `packages/runtime-safety/src/authored-text.ts` and keep the web mirror byte-identical.
 - `SafeString("")` is truthy; omit absent/trimmed-empty keys.
 
 Specs: [instance config](../../openspec/specs/instance-config/spec.md),

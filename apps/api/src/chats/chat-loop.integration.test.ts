@@ -60,7 +60,7 @@ import {
   type EffectiveContextSnapshotInput,
 } from '../runs/effective-context-resolver';
 import * as effectiveContextResolver from '../runs/effective-context-resolver';
-import { hashWithDomain } from '../canonical-json';
+import { hashWithDomain } from '@workspace/runtime-safety';
 import {
   hashToolAvailabilityManifest,
   TOOL_AVAILABILITY_UNOBSERVED,

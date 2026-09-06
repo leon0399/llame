@@ -42,7 +42,7 @@
           "apps/api/src/instance-config/config-loader.ts",
           "apps/api/src/instance-config/worker-profile.service.ts",
           "apps/api/src/main.ts",
-          "apps/api/src/mcp/mcp-stdio-test-fixture.mjs",
+          "packages/tool-runtime/src/mcp-stdio-test-fixture.mjs",
           "apps/api/src/queue/queue.module.ts",
           "apps/api/src/runs/worker-harness.ts",
           "apps/api/src/search/operations/cli.ts",

@@ -19,7 +19,7 @@
 import {
   McpServerClient,
   type McpDiscoveredTool,
-} from '../src/mcp/mcp-server-client';
+} from '@workspace/tool-runtime/mcp-server-client';
 import { isRecord } from '@workspace/runtime-safety';
 
 const ENV_NAMES = [

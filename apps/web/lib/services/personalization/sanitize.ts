@@ -1,5 +1,5 @@
 /**
- * Mirror of `apps/api/src/instance-config/authored-text.ts` — keep the two
+ * Mirror of `packages/runtime-safety/src/authored-text.ts` — keep the two
  * byte-identical in behavior; the parity tests in `sanitize.test.ts` carry
  * real weight because this is a tokenizer, not a character map.
  *

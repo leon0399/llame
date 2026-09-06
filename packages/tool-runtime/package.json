@@ -1,0 +1,42 @@
+{
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives",
+    "lint:fix": "oxlint --deny-warnings --fix",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage && crap-typescript --threshold 42 --format none src",
+    "test:mutation": "pnpm --filter @workspace/runtime-safety build && stryker run",
+    "test:mutation:dry": "pnpm --filter @workspace/runtime-safety build && stryker run --dryRunOnly",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/typescript-checker": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
+    "@barney-media/crap-typescript": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "@workspace/config-typescript": "workspace:*",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "name": "@workspace/tool-runtime",
+  "description": "Framework-independent MCP transport, declaration admission, and tool schema validation shared by node and CLI.",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": "./dist/*.js"
+  },
+  "dependencies": {
+    "@ai-sdk/mcp": "catalog:",
+    "@modelcontextprotocol/sdk": "catalog:",
+    "ai": "catalog:",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "zod": "catalog:",
+    "@workspace/runtime-safety": "workspace:*"
+  }
+}

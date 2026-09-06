@@ -59,7 +59,8 @@ catalog:
   "@hookform/resolvers": ^5.1.1
   "@radix-ui/react-use-controllable-state": 1.2.3
   # Pinned exact, alongside `@ai-sdk/mcp`: apps/api pairs the AI SDK's MCP
-  # client with this package's `StdioClientTransport`, so the two move
+  # client with this package's `StdioClientTransport` through shared tool-runtime,
+  # so the two move
   # together. Only the stdio transport is used from here — the HTTP path
   # stays on `@ai-sdk/mcp`'s own transport.
   "@modelcontextprotocol/sdk": 1.29.0

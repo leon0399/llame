@@ -20,7 +20,10 @@ import {
   type SearchConversationsContentResult,
 } from './search-conversations';
 import { parseConversationSourceCoordinates } from './conversation-source-coordinates';
-import { isZodSchema, resolveJsonSchema } from './schema-utils';
+import {
+  isZodSchema,
+  resolveJsonSchema,
+} from '@workspace/tool-runtime/schema-utils';
 import { type ToolContext, type ToolResult } from './types';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
