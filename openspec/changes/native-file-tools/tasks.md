@@ -45,7 +45,7 @@ Markdown, or adds URL loading.
 
 - [x] 4.1 Add unit and integration coverage for every `native-file-tools` requirement, including absolute paths, selectors, context, raw mode, truncation, exact edit, sequential same-path calls, create-only write, and deprecated Knowledge delegation.
 - [x] 4.2 Add a local alpha model-loop smoke test that reads, edits, rereads, and creates a file through the same native host; verify edit output prefixes are treated as metadata rather than source bytes.
-- [ ] 4.3 Run affected package/API lint, typecheck, tests, build, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify no Git, bash, Markdown, URL, or permission work is claimed.
+- [x] 4.3 Run affected package/API lint, typecheck, tests, build, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify no Git, bash, Markdown, URL, or permission work is claimed.
 
 ## 5. finalize
 
