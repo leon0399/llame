@@ -2,6 +2,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-06
 
+- Add reusable private IPC and authenticated hosted clients with explicit
+  authority selection, bound credentials and resumable event cursors.
 - Add the independently launchable personal Node over private stdio or an
   owner-controlled Unix socket, without a CLI or hosted account dependency.
 - Add private personal-node IPC with strict version negotiation, bounded frames,
