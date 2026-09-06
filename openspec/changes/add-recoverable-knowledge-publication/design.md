@@ -92,6 +92,11 @@ rename, non-Markdown output, or oversized content fail before preparation.
 A trusted durable row keyed uniquely by Run owns one canonical publication.
 Record the Space, target, base bytes/digest or absence, desired bytes/digest,
 trusted author/provenance, intended parent, and deterministic commit fields.
+The publisher-owned accepted ref is `refs/heads/main`; initialization binds HEAD
+to it without creating a commit. Retain that exact ref, expected parent OID (or
+unborn), planned candidate OID once computed, desired target digest, and the
+last durably known ref/installation phase. Recompute an unrecorded candidate OID
+only from the frozen commit fields, never from regenerated model output.
 The one-slot key does not depend on provider tool-call IDs, which may change on
 regeneration. Identical retry returns the prior outcome; a distinct request after
 slot preparation returns `publication_already_attempted`. This cut does not reset
@@ -219,3 +224,7 @@ Git history, and intents. Do not remove schema with unresolved intents.
 
 - v1: initial publication design with managed writer ownership, one Run slot,
   deterministic commit reconstruction, and a single-file installation protocol.
+- v2: makes durable ref/candidate/installation evidence explicit and adds
+  crash-then-revocation and personal-adapter acceptance scenarios. Review requests
+  to duplicate existing same-view ordering or couple Knowledge identity to a
+  Sandbox definition were rejected against the existing delta and source model.

@@ -129,6 +129,13 @@ SHALL occur without current authorization. Once a publication is installed,
 later revocation SHALL NOT rewrite that historical outcome. Cancellation after
 preparation SHALL NOT falsely promise rollback of an installed change.
 
+Durable reconciliation evidence SHALL distinguish candidate-object creation,
+accepted-ref advancement, live-target installation, and receipt settlement.
+Recovery SHALL compare the exact candidate identity, expected accepted parent,
+observed ref, and recorded target bytes rather than inferring success from a
+commit's existence. It SHALL settle a proven already-installed effect after
+revocation without treating that inspection as authority for a new installation.
+
 #### Scenario: Pending commit remains distinct from live content
 
 - **WHEN** a commit is prepared but the live target has not been installed
@@ -140,6 +147,18 @@ preparation SHALL NOT falsely promise rollback of an installed change.
 - **WHEN** recovery finds live bytes different from both the recorded base and desired bytes
 - **THEN** it preserves those bytes and reports a conflict
 - **AND** it retains the original intent for inspection without resetting history
+
+#### Scenario: Accepted ref advances before installation
+
+- **WHEN** the worker stops after advancing the accepted ref to the recorded candidate but before installing the target
+- **THEN** recovery identifies that exact ref transition and does not create another commit
+- **AND** it installs only the recorded target after current authorization and base checks, or preserves a conflict or recovery-pending outcome
+
+#### Scenario: Installation succeeds before crash and revocation
+
+- **WHEN** live installation succeeds, the worker dies before receipt settlement, and access is then revoked
+- **THEN** trusted owner-scoped recovery may inspect the recorded ref and exact target bytes to settle that already-installed outcome
+- **AND** it neither repeats installation nor grants new access, recreates a deleted Run, or discloses the receipt to another owner
 
 #### Scenario: Access is revoked before installation
 
@@ -182,3 +201,9 @@ first owner's notes and history. Missing Git SHALL block publication only.
 - **WHEN** Chat A publishes researched Knowledge and Chat B retrieves it later
 - **THEN** Chat B reads the published live bytes through existing Knowledge tools
 - **AND** a later authorized recall can inspect Chat A without making the Chat the note's source of truth
+
+#### Scenario: Personal publication works without a Sandbox
+
+- **WHEN** the standalone personal owner enables publication, approves a FileView edit and publication, and the local worker restarts after candidate creation
+- **THEN** the local adapter recovers the same intent, reports explicit acceptance only after live installation, and a new Chat reads those bytes through `knowledge_read`
+- **AND** this path requires no C3 Sandbox, remote service, or account; hosted execution of the same contract separately proves second-owner denial
