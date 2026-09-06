@@ -113,4 +113,26 @@ describe('authenticated Node controller boundary', () => {
     expect(JSON.stringify(result)).not.toContain('private database');
     expect(f.response.listenerCount('close')).toBe(0);
   });
+
+  it('returns cancellation at the deadline when a bound query ignores it', async () => {
+    const f = fixture();
+    const timeout = AbortSignal.timeout(10);
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(timeout);
+    const pending: ReturnType<NodeAccessPort['query']> = new Promise(() => {});
+    f.query.mockReturnValue(pending);
+
+    try {
+      const result = await f.controller.request(
+        owner,
+        f.body,
+        f.request,
+        f.response,
+      );
+      expect(result).toMatchObject({ error: { data: { code: 'cancelled' } } });
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
 });

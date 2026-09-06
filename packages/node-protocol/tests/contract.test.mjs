@@ -276,6 +276,30 @@ test("cancelled, oversized and exceptional operations never leak private excepti
   assert.equal(wrong.error.data.code, "result_invalid");
 });
 
+test("returns cancellation while a bound port query is still pending", async () => {
+  const pending = new Promise(() => {});
+  let started = false;
+  const port = {
+    describe: () => description(),
+    query: async () => {
+      started = true;
+      return pending;
+    },
+  };
+  const response = accessRequest(
+    request("realm.conversations.search", { query: "notes" }),
+    port,
+    AbortSignal.timeout(10),
+  );
+  const deadline = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("access request did not cancel")), 100),
+  );
+  const reply = await Promise.race([response, deadline]);
+
+  assert.equal(started, true);
+  assert.equal(reply.error.data.code, "cancelled");
+});
+
 test("admission schemas reject a missing message contract", () => {
   assert.throws(() => nodeAdmissionSchemas({}));
 });
