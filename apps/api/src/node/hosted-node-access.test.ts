@@ -83,7 +83,7 @@ describe('hosted Node reuses canonical capabilities under the session owner', ()
         tenantDb: tenant,
         abortSignal: signal,
       }),
-      { query: 'notes', limit: 5 },
+      { mode: 'content', query: 'notes', limit: 5 },
     );
   });
   it('Knowledge reads cannot resolve another owner’s binding and match missing-resource behavior', async () => {

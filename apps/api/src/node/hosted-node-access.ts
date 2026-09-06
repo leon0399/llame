@@ -101,7 +101,10 @@ export class HostedNodeAccess {
     };
     switch (query.method) {
       case 'realm.conversations.search':
-        return searchConversationsTool.execute(context, query.params);
+        return searchConversationsTool.execute(context, {
+          mode: 'content',
+          ...query.params,
+        });
       case 'realm.conversations.read':
         return conversationReadTool.execute(context, query.params);
       case 'realm.knowledge.search':
