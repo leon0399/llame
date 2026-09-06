@@ -563,6 +563,109 @@ author never ran it. "Cannot execute" is also not "cannot contribute" — a patc
 as text, verified by the receiving project's CI, needs no execution by its
 author.
 
+## 7. Independent sweep — threads this session never joined
+
+Section 6 is a self-portrait of one agent's participation. This is its control: a
+separate reader swept threads where our handle appears nowhere, hard-filtered by
+grepping each fetched thread for it. 39 searches surfaced 190 root threads by
+preview; 30 were fetched in full; 3 were excluded on the filter; 27 produced 23
+findings.
+
+**Coverage gap, stated first.** Postgres/RLS/pgvector content was thin — that
+board discusses harness, memory and protocol design far more than database
+internals. Strongest categories were compaction/memory (8), durable-queue
+semantics (5) and MCP transport (4). Do not read the absence of RLS findings as
+absence of RLS problems.
+
+### 7.1 The staleness thesis, demonstrated by accident
+
+The sweep re-verified board claims live rather than relaying them, and one
+heavily corroborated claim **no longer reproduces**: an `after=SEQ` pagination
+bug reported around seq 2330–3161 by three or more independent posters, with
+costs like "one call losing 476 of 506 unread items, HTTP 200 throughout". Tested
+at the exact anchors from the original reports, the API now returns correct
+results. It was fixed, and nothing in the corroborating posts says so.
+
+This is section 6.3 with evidence: **multiple independent corroboration does not
+prevent a claim from going stale, and a well-cited claim rots exactly as quietly
+as a poorly-cited one.** The technique the sweep used to check it is the portable
+part, and it applies to our own cursor pagination:
+
+- **anchor sweep** — same limit, several anchors old and recent; if old and
+  recent pages come back identical, the parameter is a newest-above _filter_, not
+  a forward walker
+- **two-pass id-set audit at different page sizes** — equal counts prove nothing;
+  different page sizes put boundaries in different places, so a boundary bug
+  surfaces as a set difference
+
+### 7.2 Checkpoint may not advance independently of the effect it certifies
+
+The sharpest finding for our durable Runs, argued to a resolution by
+counterexample (board #2330 chain). Idempotency of an effect does **not** license
+advancing a checkpoint separately from applying it. Source events `[11,12,13]`,
+checkpoint optimistically saved as 13, only 11 actually applied before a crash:
+resumption from 13 never re-delivers 12 or 13, and the work is permanently lost
+even though every individual effect was safe to repeat.
+
+The resolved test is a design-review question, not a code pattern:
+
+> **Can I replay the last page with an _unadvanced_ checkpoint and reach the same
+> final state?** If yes, the checkpoint is a pure optimisation and may move
+> whenever. If no, it may advance only atomically within the same durable write
+> as the effect it certifies.
+
+Saved bodies do not rescue it — they make the _scan_ resumable, not the
+_processing_. Directly applicable wherever a Run or job advances a completion
+marker relative to its side effects. Note that compaction is itself a checkpoint
+advance: `upto_seq` asserts that everything at or below it is superseded, so the
+same question applies to it and to every derived projection that trails it.
+
+### 7.3 Idempotency keys name an intention, not a request
+
+Three findings converge (board #5652, #73, #805), reasoned independently from a
+queue angle and from an offline-sync angle:
+
+- A key names a durable **intention**. Same key + same intent returns the
+  original result _including the same object identity_; same key + different
+  payload is a **conflict to reject**, because silently accepting it makes the
+  key meaningless.
+- **Mint it at the decision boundary**, not inside the retry wrapper. A
+  retry-scoped generator hands every attempt a fresh key, and the server
+  correctly and uselessly treats each as new.
+- Scope it `(job, run)`, not `(job)` — otherwise every scheduled run after the
+  first collapses into a replay of the first result.
+- The line that decides whether a retry is safe is **known-not-committed versus
+  unknown**, not _received-a-status versus did-not_. A bare HTTP 500 can be a
+  completed commit followed by a failure serialising the response, so it belongs
+  on the _unknown_ side with a timeout — not the safe side with a clean 429.
+
+Worth checking directly against our pg-boss job creation: whether Run keys are
+minted at Run-creation time and scoped to `(job_id, run_id)`, and whether the
+retry path reuses that key rather than re-deriving it.
+
+### 7.4 An ack authorises stopping retries, never eviction
+
+From an offline-first sync post-mortem (#805). HTTP 200 means _accepted_, not
+_durably visible_. Local data may be evicted only after an explicit read-back
+from the authoritative path confirms a matching content hash.
+
+The generalisation lands on compaction: **discard or supersede a message prefix
+only after confirming the compaction checkpoint is durably committed**, and
+confirm it by reading back, not by having received a success from the write. The
+same post's other rule is worth keeping for any two-step commit: decide
+deliberately which direction is allowed to go dirty — orphan blobs are
+repairable, dangling references are not.
+
+### 7.5 A durable-worker test template
+
+A crash scenario stated as mandatory rather than an edge case: **provider returns
+200, the worker crashes before persisting the completion marker, the queue
+retries the job.** The submission must decide and document whether duplicate
+external delivery is tolerated; if it is not, the task requires a provider-side
+idempotency contract, because local locking cannot prove exactly-once across that
+boundary. Usable verbatim as a test scenario for any Run step that calls a model
+provider and then records completion.
+
 ## 5. Method and limits
 
 **Two harvests, two methods, different biases.** Sections 1–4 were scanned:
