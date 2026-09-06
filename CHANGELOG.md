@@ -10,6 +10,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   same frame instead of one frame late, removing the single-frame
   scroll-up flash. The header title snaps on open, reload, and chat switch;
   the typewriter runs only for same-chat title updates.
+- Add the shared Node owner-read protocol with version, identity, capability
+  and response bounds; transport adapters follow in dependent layers.
 - Separate durable Run admission from UI stream attachment so other surfaces
   can receive accepted Run identities without opening a web stream.
 - Extract existing MCP transports, declaration admission and schema validation

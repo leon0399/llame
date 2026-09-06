@@ -60,6 +60,10 @@
       ],
       "project": ["src/**/*.ts", "src/**/*.mjs"]
     },
+    "packages/node-protocol": {
+      "entry": ["src/index.ts", "tests/**/*.test.mjs"],
+      "project": ["src/**/*.ts", "tests/**/*.mjs"]
+    },
     "packages/oxlint-plugin-anti-slop": {
       "entry": ["rules/**/*.test.ts"],
       "project": ["**/*.ts", "**/*.mjs"],

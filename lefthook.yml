@@ -31,6 +31,10 @@ pre-commit:
       glob: "{packages/tool-runtime/**/*.{ts,js,mjs},packages/tool-runtime/.oxlintrc.json}"
       run: pnpm --filter @workspace/tool-runtime lint
 
+    - name: node protocol lint
+      glob: "{packages/node-protocol/**/*.{ts,js,mjs},packages/node-protocol/.oxlintrc.json}"
+      run: pnpm --filter @workspace/node-protocol lint
+
     - name: code lint
       glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,turbo.json,package.json}"
       run: pnpm lint:code
