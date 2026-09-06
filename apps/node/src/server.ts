@@ -11,6 +11,7 @@ import {
 import { NodeSession } from "@workspace/personal-node/node-session";
 import {
   claimServer,
+  recoverServer,
   socketPath,
   entryExists,
 } from "@workspace/personal-node/socket";
@@ -136,8 +137,9 @@ async function serveSocket(boot: NodeBoot): Promise<void> {
 export async function main(): Promise<void> {
   const env = environment();
   const defaults = defaultPaths(env);
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
     strict: true,
+    allowPositionals: true,
     options: {
       config: { type: "string" },
       "data-dir": { type: "string" },
@@ -149,10 +151,12 @@ export async function main(): Promise<void> {
   });
   if (values.help) {
     process.stdout.write(
-      "llame-node [--stdio] [--config FILE] [--data-dir DIR] [--native --cwd DIR]\nStarts an independent personal Node; default transport is a private Unix socket.\n",
+      "llame-node [recover] [--stdio] [--config FILE] [--data-dir DIR] [--native --cwd DIR]\nStarts an independent personal Node; default transport is a private Unix socket.\n",
     );
     return;
   }
+  if (recoverCommand(positionals, resolve(values["data-dir"] ?? defaults.data)))
+    return;
   await serveNode({
     config: resolve(values.config ?? defaults.config),
     data: resolve(values["data-dir"] ?? defaults.data),
@@ -161,6 +165,26 @@ export async function main(): Promise<void> {
     transport: values.stdio ? "stdio" : "unix",
     env,
   });
+}
+
+function stdioRequested(args: ReadonlyArray<string>): boolean {
+  return args.some((arg) => arg === "--stdio" || arg === "--stdio=true");
+}
+
+function recoverCommand(
+  positionals: ReadonlyArray<string>,
+  data: string,
+): boolean {
+  const [command, ...extra] = positionals;
+  if (command === undefined) return false;
+  if (command !== "recover" || extra.length)
+    throw new CliError(
+      "arguments",
+      "Use `llame-node recover` or start the Node without a command.",
+    );
+  recoverServer(data);
+  process.stdout.write("Local Node server ownership recovered.\n");
+  return true;
 }
 
 export function runMain(): void {
@@ -172,13 +196,14 @@ export function runMain(): void {
             "node_start_failed",
             "Local Node could not start. No action was retried.",
           );
-    process.stdout.write(
+    const frame =
       JSON.stringify({
         jsonrpc: "2.0",
         method: "core.error",
         params: { code: failure.code, message: failure.message },
-      }) + "\n",
-    );
+      }) + "\n";
+    if (stdioRequested(process.argv.slice(2))) process.stdout.write(frame);
+    else process.stderr.write(`${failure.code}: ${failure.message}\n`);
     process.exitCode = failure.exitCode;
   });
 }
