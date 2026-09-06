@@ -257,9 +257,8 @@ function ChatSessionMain({
   status,
   onInspectContext,
 }: ChatSessionMainProps) {
-  if (markdown.error !== null) {
+  if (markdown.failed)
     return <ChatMarkdownUnavailable retry={markdown.retry} />;
-  }
   if (markdown.renderers === null) return <ChatMarkdownLoading />;
   return (
     <ChatTranscript
