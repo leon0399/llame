@@ -67,6 +67,10 @@ export default defineConfig({
         find: /^@workspace\/config-interpolation$/,
         replacement: pkgSrc('config-interpolation'),
       },
+      {
+        find: /^@workspace\/native-file-tools$/,
+        replacement: pkgSrc('native-file-tools'),
+      },
     ],
   },
   // NestJS DI resolves constructor parameters from reflect-metadata's
