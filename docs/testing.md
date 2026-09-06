@@ -50,7 +50,7 @@ expected values come from that same list.
 
 ## Mutation testing
 
-Mutation covers API and config-interpolation business logic. Web/UI, tooling,
+Mutation covers API, config-interpolation and runtime-safety business logic. Web/UI, tooling,
 browser, integration, and E2E behavior stay in their existing gates.
 
 ```bash
@@ -59,7 +59,7 @@ pnpm test:mutation
 ```
 
 CI partitions API source files into stable shards and aggregates their reports.
-The merged API report and config-interpolation run enforce 80% MSI. Each package
+The merged API report and each shared-package run enforce 80% MSI. Each package
 remains runnable directly; reports live under ignored workspace `reports/`
 directories.
 

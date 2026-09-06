@@ -26,7 +26,7 @@ import {
 } from 'drizzle-orm';
 import { type Message, type MessageRole, chats, messages } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { isString, type UnknownRecord } from '../unknown-record';
+import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 import { eligibleMessagePredicate } from './message-eligibility';
 
 // Fixed application budget, not operator configuration. Current writers are

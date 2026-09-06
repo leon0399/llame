@@ -4,13 +4,13 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
+} from "./unknown-record";
 
-export const PROTECTED_VALUE_REDACTION_MARKER = '[REDACTED]';
+export const PROTECTED_VALUE_REDACTION_MARKER = "[REDACTED]";
 
 export type ProtectedValueSanitizationResult =
   | { readonly success: true; readonly value: unknown }
-  | { readonly success: false; readonly reason: 'protected_value_key' };
+  | { readonly success: false; readonly reason: "protected_value_key" };
 
 /**
  * Removes values that cannot identify a secret and establishes a deterministic
@@ -63,7 +63,7 @@ export function redactProtectedString(
 
   while (cursor < value.length) {
     let earliestIndex = -1;
-    let match = '';
+    let match = "";
 
     for (const protectedValue of protectedValues) {
       const index = value.indexOf(protectedValue, cursor);
@@ -90,7 +90,7 @@ export function redactProtectedString(
     cursor = earliestIndex + match.length;
   }
 
-  return output.join('');
+  return output.join("");
 }
 
 /**
@@ -202,7 +202,7 @@ function sanitizeProtectedValueRecord(
   const safeEntries: Array<[string, unknown]> = [];
   for (const [key, item] of Object.entries(value)) {
     if (containsProtectedString(key, protectedValues)) {
-      return { success: false, reason: 'protected_value_key' };
+      return { success: false, reason: "protected_value_key" };
     }
     const result = sanitizeNormalizedProtectedValueJson(item, protectedValues);
     if (!result.success) return result;

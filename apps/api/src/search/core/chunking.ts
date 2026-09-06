@@ -1,4 +1,4 @@
-import { codePointSafeCutIndex } from '../../code-point-boundary';
+import { codePointSafeCutIndex } from '@workspace/runtime-safety';
 
 /**
  * Corpus-agnostic chunking toolkit (search/core). Groups an ordered list of

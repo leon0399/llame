@@ -2,7 +2,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
 import { type Session } from '../db/schema';
-import { isString } from '../unknown-record';
+import { isString } from '@workspace/runtime-safety';
 import { SessionsRepository } from './sessions.repository';
 
 type LoggedQuery = { sql: string; params: Array<unknown> };

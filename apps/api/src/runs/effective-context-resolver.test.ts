@@ -6,7 +6,7 @@ import { afterEach, vi } from 'vitest';
 
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { type Tool } from '../tools/types';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 import {
   canonicalJson,
   resolveEffectiveContext,

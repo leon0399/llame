@@ -23,6 +23,10 @@ pre-commit:
       glob: "{packages/config-interpolation/**/*.{ts,js,mjs},packages/config-interpolation/.oxlintrc.json}"
       run: pnpm --filter @workspace/config-interpolation lint
 
+    - name: runtime safety lint
+      glob: "{packages/runtime-safety/**/*.{ts,js,mjs},packages/runtime-safety/.oxlintrc.json}"
+      run: pnpm --filter @workspace/runtime-safety lint
+
     - name: code lint
       glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,turbo.json,package.json}"
       run: pnpm lint:code

@@ -14,7 +14,7 @@ import {
 } from './knowledge-filesystem';
 import { runTool } from '../tools/runner';
 import { isZodSchema } from '../tools/schema-utils';
-import { isString } from '../unknown-record';
+import { isString } from '@workspace/runtime-safety';
 import { type KnowledgeSpaceCursor } from './knowledge-space.cursor';
 import { encodeKnowledgeSearchCursor } from './knowledge-search.cursor';
 import {

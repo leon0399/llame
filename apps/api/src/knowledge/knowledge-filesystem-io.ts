@@ -4,7 +4,7 @@
  * acquisition/close, and the one `errno` sniff every caller needs.
  */
 
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 import { KnowledgeFilesystemError } from './knowledge-filesystem-errors';
 

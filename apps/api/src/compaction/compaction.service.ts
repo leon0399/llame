@@ -31,7 +31,7 @@ import {
 } from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
 import { type Message, type ModelToolDeclaration } from '../db/schema';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import {

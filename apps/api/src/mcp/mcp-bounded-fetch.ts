@@ -1,4 +1,4 @@
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 export class McpBodyLimitError extends Error {
   constructor(limit: number) {

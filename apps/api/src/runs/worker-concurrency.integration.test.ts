@@ -19,10 +19,8 @@ import postgres from 'postgres';
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { type RunStreamResponder } from './run-stream-bridge';
-import {
-  ChatLoopService,
-  isInflightUniqueViolation,
-} from '../chats/chat-loop.service';
+import { ChatLoopService } from '../chats/chat-loop.service';
+import { isInflightUniqueViolation } from '../chats/inflight-unique-violation';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { MessagesRepository } from '../chats/chats-repository';
 import { InstanceConfigService } from '../instance-config/instance-config.service';

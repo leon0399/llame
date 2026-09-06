@@ -10,7 +10,7 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
+} from '@workspace/runtime-safety';
 
 /**
  * Transport-level protocol behaviour driven by a `fetch` double rather than the

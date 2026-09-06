@@ -1,4 +1,4 @@
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 /**
  * Extracts the Postgres SQLSTATE from a raw driver error or a Drizzle

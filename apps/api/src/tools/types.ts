@@ -1,3 +1,4 @@
+import { type ToolResult, type UnknownRecord } from '@workspace/runtime-safety';
 import { type z } from 'zod';
 
 import { type TenantRunner } from '../db/tenant-db.service';
@@ -7,7 +8,6 @@ import {
   type KnowledgeFilesystemBinding,
 } from '../knowledge/knowledge-filesystem';
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
-import { type UnknownRecord } from '../unknown-record';
 
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
@@ -85,9 +85,7 @@ export type ToolClassification =
  * `status` discriminant lets the model react to failures as data, not
  * exceptions (D6: tool failure is an observation, not a crash).
  */
-export type ToolResult =
-  | ({ status: 'success' } & UnknownRecord)
-  | { status: 'error'; type: string; message: string };
+export type { ToolResult } from '@workspace/runtime-safety';
 
 /**
  * A registered tool (design D2): `{ id, description, inputSchema,

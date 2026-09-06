@@ -29,7 +29,7 @@ import {
   cookieOf,
   expectRegisteredUserId,
 } from '../testing/support';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;

@@ -17,7 +17,7 @@ import {
   type ToolAvailabilityManifestV1,
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
-import { isString, type UnknownRecord } from '../unknown-record';
+import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 import {
   createRenderedContextItem,
   isExactRecord,

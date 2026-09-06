@@ -1,4 +1,4 @@
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 
 /**
  * A turn is complete iff its assistant message carries completed usage —

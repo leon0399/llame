@@ -42,7 +42,7 @@ import {
   isRecord,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
+} from '@workspace/runtime-safety';
 
 const DEFAULT_CONFIG_FILENAME = 'llame.config.json';
 

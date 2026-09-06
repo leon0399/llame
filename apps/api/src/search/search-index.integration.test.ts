@@ -22,7 +22,7 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { CHUNKER_VERSION } from './chat/conversation-chunker';
 import { SearchIndexService } from './search-index.service';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;

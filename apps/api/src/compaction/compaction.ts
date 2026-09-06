@@ -19,7 +19,7 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { buildCompactionToolReplacementRecords } from '../chats/tool-observation-part';
-import { isString } from '../unknown-record';
+import { isString } from '@workspace/runtime-safety';
 import type { CompactionReplacementMessage } from '../db/schema';
 import { isCompletedAssistantTurn } from '../chats/chats-repository';
 import { type ModelToolDeclaration } from '../db/schema';
