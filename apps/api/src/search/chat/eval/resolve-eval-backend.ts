@@ -6,7 +6,7 @@ import {
   type OpenAIEmbeddingBackendConfig,
 } from '../../openai-embedding-backend';
 import { type EmbeddingBackend } from '../../core/embedding-backend';
-import { isRecord } from '../../../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 
 export type EvalEmbedBackend = {
   backend: EmbeddingBackend;

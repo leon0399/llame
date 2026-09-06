@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
-import { PROTECTED_VALUE_REDACTION_MARKER } from './protected-values';
+import { PROTECTED_VALUE_REDACTION_MARKER } from '@workspace/runtime-safety';
 import {
   BoundedReadBuffer,
   BoundedStdioTransport,

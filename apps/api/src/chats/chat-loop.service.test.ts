@@ -29,10 +29,8 @@ import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { TOOL_REGISTRY } from '../tools/registry';
-import {
-  ChatLoopService,
-  isInflightUniqueViolation,
-} from './chat-loop.service';
+import { ChatLoopService } from './chat-loop.service';
+import { isInflightUniqueViolation } from './inflight-unique-violation';
 import {
   ChatsRepository,
   CompactionsRepository,

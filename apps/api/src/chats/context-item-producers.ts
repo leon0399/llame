@@ -32,7 +32,7 @@ import {
   isNumber,
   isString,
   type UnknownRecord,
-} from '../unknown-record';
+} from '@workspace/runtime-safety';
 import {
   createRenderedContextItem,
   isExactRecord,

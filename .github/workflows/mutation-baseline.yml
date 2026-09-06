@@ -79,12 +79,16 @@ jobs:
       - run: pnpm test:mutation:check
         working-directory: apps/api
 
-  config-interpolation:
-    name: Forced config-interpolation mutation run
+  packages:
+    name: Forced ${{ matrix.package }} mutation run
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [config-interpolation, runtime-safety]
     concurrency:
-      group: mutation-trusted-config-interpolation
+      group: mutation-trusted-${{ matrix.package }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -96,10 +100,11 @@ jobs:
       - uses: ./.github/actions/stryker-baseline
         id: baseline
         with:
-          workspace: packages/config-interpolation
+          workspace: packages/${{ matrix.package }}
+          cache-suffix: ${{ matrix.package }}
 
       - run: >-
-          pnpm --filter @workspace/config-interpolation test:mutation
+          pnpm --filter @workspace/${{ matrix.package }} test:mutation
           --incremental --force
           --reporters clear-text,html,json,progress-append-only
 
@@ -107,14 +112,14 @@ jobs:
         if: success()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: packages/config-interpolation/reports/stryker-incremental.json
+          path: packages/${{ matrix.package }}/reports/stryker-incremental.json
           key: ${{ steps.baseline.outputs.prefix }}trusted-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload mutation report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: mutation-report-forced-config-interpolation
-          path: packages/config-interpolation/reports/mutation/
+          name: mutation-report-forced-${{ matrix.package }}
+          path: packages/${{ matrix.package }}/reports/mutation/
           retention-days: 30
           if-no-files-found: warn

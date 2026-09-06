@@ -12,7 +12,7 @@ import {
   type ContextItemForm,
 } from './context-item';
 import { compareCodePoints } from '../canonical-json';
-import { isRecord, type UnknownRecord } from '../unknown-record';
+import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 
 export function isExactRecord(
   value: unknown,

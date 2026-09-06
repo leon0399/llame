@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 
 /**
  * Guards `meta/_journal.json` against the two silent failure modes of

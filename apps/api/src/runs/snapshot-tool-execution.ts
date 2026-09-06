@@ -1,5 +1,5 @@
 import { type ModelToolDeclaration } from '../db/schema';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 import { TOOL_REGISTRY } from '../tools/registry';
 import { resolveJsonSchema, toFlexibleSchema } from '../tools/schema-utils';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';

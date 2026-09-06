@@ -70,11 +70,11 @@ jobs:
       # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
       - run: pnpm test:metrics
 
-      - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation'
+      - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation' --filter='!@workspace/runtime-safety'
 
       # Coverage and function-level CRAP replace the plain test command for
       # these workspaces, so the suite runs once and both thresholds gate CI.
-      - run: pnpm exec turbo run test:coverage --filter=web --filter=@workspace/config-interpolation
+      - run: pnpm exec turbo run test:coverage --filter=web --filter=@workspace/config-interpolation --filter=@workspace/runtime-safety
 
   build:
     name: Build
@@ -189,13 +189,17 @@ jobs:
       - run: pnpm test:mutation:check
         working-directory: apps/api
 
-  mutation-config-interpolation:
-    name: Mutation testing (Config interpolation)
+  mutation-packages:
+    name: Mutation testing (${{ matrix.package }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: [typecheck, unit]
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [config-interpolation, runtime-safety]
     concurrency:
-      group: ${{ github.event_name == 'pull_request' && format('mutation-pr-{0}-config-interpolation', github.event.pull_request.number) || 'mutation-trusted-config-interpolation' }}
+      group: ${{ github.event_name == 'pull_request' && format('mutation-pr-{0}-{1}', github.event.pull_request.number, matrix.package) || format('mutation-trusted-{0}', matrix.package) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -207,25 +211,26 @@ jobs:
       - uses: ./.github/actions/stryker-baseline
         id: baseline
         with:
-          workspace: packages/config-interpolation
+          workspace: packages/${{ matrix.package }}
+          cache-suffix: ${{ matrix.package }}
 
       - run: >-
-          pnpm --filter @workspace/config-interpolation test:mutation --incremental
+          pnpm --filter @workspace/${{ matrix.package }} test:mutation --incremental
           --reporters clear-text,html,json,progress-append-only
 
       - name: Save refreshed mutation baseline
         if: success()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: packages/config-interpolation/reports/stryker-incremental.json
+          path: packages/${{ matrix.package }}/reports/stryker-incremental.json
           key: ${{ steps.baseline.outputs.prefix }}${{ steps.baseline.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload mutation report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: mutation-report-config-interpolation
-          path: packages/config-interpolation/reports/mutation/
+          name: mutation-report-${{ matrix.package }}
+          path: packages/${{ matrix.package }}/reports/mutation/
           retention-days: 14
           if-no-files-found: warn
 

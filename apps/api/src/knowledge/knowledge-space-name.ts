@@ -1,4 +1,4 @@
-import { isString } from '../unknown-record';
+import { isString } from '@workspace/runtime-safety';
 
 const INVALID_NAME_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 

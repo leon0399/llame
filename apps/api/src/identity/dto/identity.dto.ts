@@ -18,7 +18,7 @@ import {
   type OrgUnitType,
 } from '../../db/schema';
 import { type OrgUnitWithSummary } from '../identity-repository';
-import { isRecord, type UnknownRecord } from '../../unknown-record';
+import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 
 const ORG_UNIT_TYPES = [
   'organization',

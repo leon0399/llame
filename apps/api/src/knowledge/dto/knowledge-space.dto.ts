@@ -13,7 +13,7 @@ import {
   type ValidatorConstraintInterface,
 } from 'class-validator';
 
-import { isString } from '../../unknown-record';
+import { isString } from '@workspace/runtime-safety';
 import { KNOWLEDGE_SPACE_UNAVAILABLE } from '../knowledge-space.local-resolver';
 import {
   isValidKnowledgeSpaceName,

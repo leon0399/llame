@@ -8,7 +8,7 @@ import { AppModule } from '../app.module';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp, createOpenApiDocument } from '../app.setup';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
-import { isRecord } from '../unknown-record';
+import { isRecord } from '@workspace/runtime-safety';
 import { type UpdateMemoryDto } from './dto/memory.dto';
 
 type MemoryPatchBody = UpdateMemoryDto | (UpdateMemoryDto & { userId: string });

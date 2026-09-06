@@ -6,7 +6,7 @@ import {
   MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS,
   type McpFixtureResponse,
 } from './mcp-test-fixture';
-import { type UnknownRecord } from '../unknown-record';
+import { type UnknownRecord } from '@workspace/runtime-safety';
 
 const ONE_MIB = 1024 * 1024;
 

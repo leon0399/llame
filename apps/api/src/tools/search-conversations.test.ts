@@ -22,7 +22,7 @@ import {
 import { parseConversationSourceCoordinates } from './conversation-source-coordinates';
 import { isZodSchema, resolveJsonSchema } from './schema-utils';
 import { type ToolContext, type ToolResult } from './types';
-import { isRecord, isString } from '../unknown-record';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 /**
  * `ToolResult`'s success variant is `{ status: 'success' } & UnknownRecord`

@@ -10,6 +10,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   same frame instead of one frame late, removing the single-frame
   scroll-up flash. The header title snaps on open, reload, and chat switch;
   the typewriter runs only for same-chat title updates.
+- Extract API redaction, Unicode clipping and tool-result bounds into
+  `@workspace/runtime-safety`, retaining tests and quality gates for reuse by
+  personal execution.
 - **Episodic timeline search (#198)**: `search_conversations` gains a two-mode
   contract. Content mode adds optional time ranges (`required` filters,
   `preferred` boosts near-ties). Timeline mode returns activity pointers
