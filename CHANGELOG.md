@@ -2,6 +2,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-06
 
+- Add personal model/MCP execution, durable execution locks and explicit native
+  Workspace grants with per-action approvals.
 - **Chat load without layout shift** (#662): the transcript stays behind a
   centered spinner with a disabled composer until the markdown and reasoning
   renderer chunks are real module handles, so a reload no longer paints
