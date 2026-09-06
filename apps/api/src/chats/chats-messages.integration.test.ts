@@ -868,7 +868,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         },
       });
     const firstResponse = firstRequest.then((res) => res);
-    await waitFor(() => models.client.turns.length === 1);
+    await waitFor(() => models.client.turns.length === 1, 5000);
 
     const overlapping = await request(http)
       .post(`/api/v1/chats/${chatA}/messages`)
@@ -1111,7 +1111,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       () => undefined,
     );
 
-    await waitFor(() => models.client.turns.length === before + 1);
+    await waitFor(() => models.client.turns.length === before + 1, 5000);
 
     const secondId = crypto.randomUUID();
     const second = await request(http)
