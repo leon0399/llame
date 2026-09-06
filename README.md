@@ -1,8 +1,10 @@
 # llame
 
-llame is a self-hosted, personal-first AI assistant platform. Durable chat and
-agent execution on your infrastructure, with multi-user isolation for
-households, teams, or organizations.
+llame is a self-hosted, personal-first **meta-harness**: durable chat and agent
+execution on your infrastructure, with multi-user isolation for households,
+teams, or organizations. It keeps ownership of Chat and Run identity while
+aiming to dispatch peer coding agents over protocols such as ACP and A2A
+(similar to goose) as executor adapters — not a second session system.
 
 ## What runs today
 
@@ -33,8 +35,10 @@ llame targets an assistant with external tools, a Git-backed Markdown knowledge
 base, prior-work recall, and self-improving context through recoverable writes.
 Knowledge currently reads live
 owner-scoped files; Git-backed writes begin in #212. Workspaces, artifacts, child
-agents, automation, external coding harnesses, and messaging channels follow
-only after that core loop works. See [VISION.md](VISION.md).
+agents, automation, peer harness adapters (ACP/A2A and similar), and messaging
+channels follow only after that core loop works. See [VISION.md](VISION.md).
+Prior art for those adapters:
+[docs/research/harnesses/REFERENCE-HARNESSES.md](docs/research/harnesses/REFERENCE-HARNESSES.md).
 
 ## Getting started
 
@@ -108,6 +112,8 @@ read-only. See [docs/mcp-tools.md](docs/mcp-tools.md).
 - [AGENTS.md](AGENTS.md): repository workflow and engineering rules
 - [docs/knowledge.md](docs/knowledge.md): personal Knowledge operator runbook
 - [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook
+- [docs/research/harnesses/REFERENCE-HARNESSES.md](docs/research/harnesses/REFERENCE-HARNESSES.md):
+  peer harness / protocol prior art (noncanonical)
 
 TypeScript throughout: Next.js (`apps/web`), NestJS + worker (`apps/api`),
 shared components (`packages/ui`).
