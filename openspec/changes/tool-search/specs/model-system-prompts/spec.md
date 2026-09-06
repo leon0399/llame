@@ -82,7 +82,7 @@ The owner SHALL be able to retrieve an immutable context receipt for each new Ru
 - **WHEN** the chat owner opens the receipt for a Run whose catalog exceeded the declaration budget
 - **THEN** every bound declaration is shown with its tier and the strategy label
 - **AND** the `tool_search` declaration is shown exactly as bound, including the enumerated discoverable ids under the `harness` strategy
-- **AND** a Run whose catalog fit the budget shows every declaration as declared and no `tool_search`
+- **AND** a Run whose catalog fit the budget shows every declaration as declared, no strategy label, and no `tool_search`
 
 #### Scenario: Owner inspects migrated historical availability
 

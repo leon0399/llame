@@ -2,12 +2,12 @@
 
 ### Requirement: Per-model tool-search threshold
 
-Each `models[]` entry MAY include an optional non-negative integer `toolSearchThresholdTokens`.
-When present it SHALL be the declaration budget for that model; when absent the budget SHALL
-resolve to one tenth of the entry's `contextWindowTokens` rounded down. A value of `0` SHALL
-mean every turn on that model defers MCP tools. There SHALL be no instance-level tool-search
-setting, matching the rule that context-window behavior is declared per model. The published
-JSON Schema SHALL declare the key, and a non-integer or negative value SHALL fail startup naming
+Each `models[]` entry MAY include an optional positive integer `toolSearchThresholdTokens`.
+When present it SHALL be the declaration budget for that model's deferrable (MCP) declarations;
+when absent the budget SHALL resolve to one tenth of the entry's `contextWindowTokens` rounded
+down. There SHALL be no instance-level tool-search setting, matching the rule that
+context-window behavior is declared per model. The published JSON Schema SHALL declare the key,
+and a non-integer, zero, or negative value SHALL fail startup naming
 the model id and the key.
 
 #### Scenario: Threshold defaults from the context window
@@ -20,14 +20,16 @@ the model id and the key.
 - **WHEN** a model entry sets `toolSearchThresholdTokens` to a positive integer
 - **THEN** that value is the budget regardless of `contextWindowTokens`
 
-#### Scenario: Zero forces deferral
+#### Scenario: Tiny threshold defers everything it can
 
-- **WHEN** a model entry sets `toolSearchThresholdTokens` to `0`
-- **THEN** every Run on that model with at least one eligible MCP tool binds `tool_search` and defers MCP tools
+- **WHEN** a model entry sets `toolSearchThresholdTokens` to `1` and the model has eligible MCP tools
+- **THEN** every Run on that model defers every MCP tool and binds `tool_search`
+- **AND** MCP tools whose inventory does not fit are bound as `unavailable` with reason `declaration_budget_exceeded`
+- **AND** the code-owned tools remain declared
 
 #### Scenario: Invalid threshold fails startup
 
-- **WHEN** a model entry sets `toolSearchThresholdTokens` to a negative number, a fraction, or a string
+- **WHEN** a model entry sets `toolSearchThresholdTokens` to zero, a negative number, a fraction, or a string
 - **THEN** startup fails naming the model id and `toolSearchThresholdTokens`
 
 ### Requirement: Per-model tool-search strategy

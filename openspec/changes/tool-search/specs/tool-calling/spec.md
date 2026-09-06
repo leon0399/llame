@@ -4,12 +4,14 @@
 
 Every new Run SHALL resolve a per-model declaration budget in tokens: the model's
 `toolSearchThresholdTokens` when configured, otherwise one tenth of its `contextWindowTokens`
-rounded down. The system SHALL estimate the size of every eligible admitted declaration for the
-turn with the same deterministic provider-independent estimator used for compaction. When the
-estimate does not exceed the budget, every eligible declaration SHALL be declared to the model on
-every step exactly as before this capability, no `tool_search` tool SHALL exist for that Run, and
-the Run's bound declarations, hashes, and receipt SHALL be identical to those produced without
-this capability.
+rounded down. The budget SHALL govern only the deferrable declarations: code-owned tools are
+always declared and SHALL NOT be counted against it. The system SHALL estimate the size of every
+eligible admitted MCP declaration for the turn with the same deterministic provider-independent
+estimator used for compaction. When that estimate does not exceed the budget, every eligible
+declaration SHALL be declared to the model on every step exactly as before this capability, no
+`tool_search` tool SHALL exist for that Run, the Run's bound declarations and hashes SHALL be
+identical to those produced without this capability, and its receipt SHALL differ only by
+marking every declaration as declared.
 
 When the estimate exceeds the budget, the Run SHALL still bind every eligible admitted
 declaration. Each bound tool SHALL belong to exactly one tier for that Run: **declared**, sent as
@@ -47,11 +49,14 @@ the kept tail of a compaction is history only: callability SHALL be decided by t
 never by history. A tool that is not bound for the Run SHALL be neither discoverable, loadable,
 nor callable, regardless of history.
 
-The inventory disclosed to the model SHALL be counted against the budget. When the declared
-tier plus the inventory would exceed the budget, MCP tools SHALL be cut in descending id order
-until it fits, and each cut id SHALL be bound as `unavailable` with the closed reason
-`declaration_budget_exceeded`, disclosed through the availability manifest, the availability
-reminder, and the receipt; no bound tool SHALL be silently omitted.
+The inventory disclosed to the model SHALL be counted against the budget with one
+strategy-neutral estimate, the ids plus admitted descriptions of the discoverable tools, so
+every strategy partitions the same catalog identically. When the promoted MCP declarations plus
+the inventory would exceed the budget, MCP tools SHALL be cut from the discoverable set in
+descending id order until it fits, and each cut id SHALL be bound as `unavailable` with the
+closed reason `declaration_budget_exceeded`, disclosed through the availability manifest, the
+availability reminder, and the receipt; no bound tool SHALL be silently omitted. Because
+code-owned tools are outside the budget, the cut always terminates.
 
 For availability disclosure, a discoverable tool SHALL count as callable: it is bound,
 allowlisted, and reachable through the inventory, so it belongs in `Added tools` and never in an
@@ -76,6 +81,7 @@ snapshot and the replayed steps alone.
 - **THEN** every eligible declaration is declared on every step
 - **AND** no `tool_search` declaration is bound
 - **AND** the tool hash, content hash, and availability hash equal those of the same turn without this capability
+- **AND** the receipt differs from the pre-capability receipt only by marking each declaration as declared
 
 #### Scenario: Catalog beyond budget defers MCP tools
 
@@ -127,8 +133,9 @@ snapshot and the replayed steps alone.
 
 #### Scenario: Inventory alone exceeds the budget
 
-- **WHEN** the code-owned tools plus the discoverable inventory would exceed the budget
+- **WHEN** the discoverable inventory alone would exceed the budget
 - **THEN** MCP tools are cut in descending id order until it fits
+- **AND** the code-owned tools stay declared regardless of the budget
 - **AND** each cut id is bound as `unavailable` with reason `declaration_budget_exceeded` in the manifest, the reminder, and the receipt
 
 #### Scenario: Threshold crossing emits no availability reminder
@@ -148,7 +155,9 @@ snapshot and the replayed steps alone.
 
 - **WHEN** a tool is refused by admission, matches no allowlist rule, or is unavailable for a closed reason
 - **THEN** it is absent from the `tool_search` enumeration and from every search result
-- **AND** selecting it by id returns it under the not-found list without loading anything
+- **AND** under `harness` selecting it by id is refused by input validation as `invalid_input` before the executor runs
+- **AND** under `openai` selecting it by id returns it under the not-found list
+- **AND** nothing is loaded either way
 
 #### Scenario: Tool search counts toward the step cap
 

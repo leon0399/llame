@@ -112,17 +112,22 @@ availability transition.
 
 ### D3. Per-model threshold, constant ratio, existing estimator
 
-`budget = models[].toolSearchThresholdTokens ?? floor(contextWindowTokens × 0.1)`. The catalog
-estimate is the ~4 chars/token estimator over the canonical JSON of every eligible declaration,
-computed once at accept from already-canonical declarations. Deferral engages only when
-`estimate > budget` (strict; #338's sketch wrote `>=`, the difference is one token). A per-model
-integer override mirrors `compactionThresholdTokens` exactly; `0` means always defer (useful for
-evals). The inventory itself is counted against the same budget: under `harness` the enum of
-discoverable ids, under `openai` the deferred names and descriptions the provider keeps visible.
-When even the declared tier plus the inventory would exceed the budget, MCP tools are cut in
-descending id order until it fits and the cut ids are bound as `unavailable` with the closed
-reason `declaration_budget_exceeded`, so they appear in the manifest, the reminder, and the
-receipt rather than vanishing (reviewer C-F7; a 1,000-id enum is ~16k tokens, above a 128k
+`budget = models[].toolSearchThresholdTokens ?? floor(contextWindowTokens × 0.1)`. The budget
+governs only the deferrable part of the catalog: code-owned tools are always declared and never
+counted, so the cut below always terminates and a tiny override cannot make a Run unsatisfiable
+(Codex PR finding). The MCP estimate is the ~4 chars/token estimator over the canonical JSON of
+every eligible MCP declaration, computed once at accept from already-canonical declarations.
+Deferral engages only when `mcpEstimate > budget` (strict; #338's sketch wrote `>=`, the
+difference is one token). A per-model positive-integer override mirrors
+`compactionThresholdTokens`; a value of `1` is the eval setting that defers everything it can.
+The inventory is counted against the same budget with one strategy-neutral estimate, ids plus
+admitted descriptions, which is the surface the `openai` strategy keeps visible and a
+conservative over-count for the `harness` enum; charging the two strategies differently would
+make them partition the same catalog differently (Codex PR finding). When promoted MCP
+declarations plus the inventory would exceed the budget, MCP tools are cut from the discoverable
+set in descending id order until it fits and the cut ids are bound as `unavailable` with the
+closed reason `declaration_budget_exceeded`, so they appear in the manifest, the reminder, and
+the receipt rather than vanishing (reviewer C-F7; a 1,000-id enum is ~16k tokens, above a 128k
 model's budget). No instance-level knob, per the `instance-config`
 rule against instance-level context-window settings. Rejected: an instance-level percentage
 (contradicts that rule), a flat tool-count cap (#338 explains why the two limits must not be

@@ -18,5 +18,5 @@ discovery that breaches a limit SHALL fail exactly as it does without deferral.
 #### Scenario: Deferral does not narrow discovery
 
 - **WHEN** a server's admitted catalog is within every discovery limit but exceeds the model's declaration budget
-- **THEN** every admitted tool is bound for the Run and reachable through `tool_search`
+- **THEN** every admitted tool is bound for the Run, reachable through `tool_search` or bound `unavailable` with the closed reason `declaration_budget_exceeded`
 - **AND** the discovery limits are not consulted when deciding tiers
