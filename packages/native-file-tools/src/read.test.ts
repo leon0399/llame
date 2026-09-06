@@ -1,9 +1,10 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  loadText,
+  selectSourceLines,
   readFile,
-  MAX_FILE_BYTES,
   MAX_RESULT_CODE_UNITS,
   splitSourceLines,
 } from "./read";
@@ -106,16 +107,11 @@ describe("native source reads", () => {
     expect(result.nextOffset).toBe(result.shownRange?.endLine);
   });
 
-  it("rejects invalid UTF-8 and oversized source", async () => {
+  it("rejects invalid UTF-8 in the scanned source", async () => {
     await writeFile(path, Buffer.from([0xff]));
     expect(await readFile({ path })).toMatchObject({
       status: "error",
       type: "invalid_utf8",
-    });
-    await writeFile(path, Buffer.alloc(MAX_FILE_BYTES + 1));
-    expect(await readFile({ path })).toMatchObject({
-      status: "error",
-      type: "file_too_large",
     });
   });
 
@@ -132,5 +128,62 @@ describe("native source reads", () => {
       status: "error",
       type: "not_regular_file",
     });
+  });
+  it("reads a bounded range from a source larger than one MiB", async () => {
+    await writeFile(path, "prefix\n" + "x\n".repeat(600_000) + "tail\n");
+    expect(await readFile({ path: `${path}:raw:600002-600002` })).toMatchObject(
+      { status: "success", content: "tail\n" },
+    );
+  });
+
+  it("reads the head without buffering a huge sparse trailing line", async () => {
+    const file = await open(path, "w");
+    try {
+      await file.write("first\nsecond\nthird\n");
+      await file.truncate(256 * 1024 * 1024);
+    } finally {
+      await file.close();
+    }
+    expect(await readFile({ path: `${path}:1-1` })).toMatchObject({
+      status: "success",
+      content: "1: first\n2: second\n",
+      truncated: false,
+    });
+  });
+  it("loads complete edit input without a Knowledge-size ceiling", async () => {
+    const source = "x".repeat(1_048_577);
+    await writeFile(path, source);
+    expect(await loadText(path)).toBe(source);
+    await writeFile(path, Buffer.from([0xff]));
+    await expect(loadText(path)).rejects.toMatchObject({
+      type: "invalid_utf8",
+    });
+    await expect(loadText(directory)).rejects.toMatchObject({
+      type: "not_regular_file",
+    });
+  });
+
+  it("shares line and result semantics with buffered edit previews", async () => {
+    const source = "a\r\nb\nc";
+    await writeFile(path, source);
+    const target = { path, offset: 1, limit: 1, raw: false };
+    const buffered = selectSourceLines(source, target);
+    expect(buffered.content).toBe("1: a\r\n2: b\n3: c");
+    expect(await readFile({ path: `${path}:2-2` })).toEqual(buffered);
+    expect(selectSourceLines(source, { ...target, raw: true }).content).toBe(
+      "b\n",
+    );
+    expect(
+      selectSourceLines("", { path, offset: 0, raw: false }),
+    ).toMatchObject({ content: "", requestedRange: null });
+    expect(() => selectSourceLines(source, { ...target, offset: 3 })).toThrow(
+      "invalid_selector",
+    );
+    expect(
+      selectSourceLines("x".repeat(30_000), { path, offset: 0, raw: false }),
+    ).toMatchObject({ content: "", truncated: true });
+    expect(
+      selectSourceLines("x\n".repeat(2001), { path, offset: 0, raw: false }),
+    ).toMatchObject({ truncated: true, nextOffset: 2000 });
   });
 });

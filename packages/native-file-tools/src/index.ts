@@ -5,7 +5,6 @@ export {
   loadText,
   splitSourceLines,
   selectSourceLines,
-  MAX_FILE_BYTES,
   MAX_READ_LINES,
   MAX_RESULT_CODE_UNITS,
 } from "./read";

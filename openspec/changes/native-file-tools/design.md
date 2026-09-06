@@ -137,6 +137,12 @@ SQLite. A future representation processor receives the normalized source plus
 source metadata and adds sibling result details such as `toc`; it never inserts
 generated material into source `content` or changes source line coordinates.
 
+Native files have no blanket 1 MiB size ceiling. Local reads stream the selected
+window with bounded memory and output, following OMP/OpenCode. The initial exact
+editor may buffer a whole file, as Pi does; it remains subject to host resource
+limits rather than a Knowledge-specific file-size policy. The deprecated
+Knowledge adapter retains its existing byte limits.
+
 ### D5: Make `edit` exact, unique, and sequential
 
 The model calls:
