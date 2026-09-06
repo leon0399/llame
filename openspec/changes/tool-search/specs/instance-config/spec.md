@@ -33,8 +33,9 @@ the model id and the key.
 ### Requirement: Per-model tool-search strategy
 
 Each `models[]` entry MAY include an optional `toolSearch` string, one of `harness` or `openai`,
-defaulting to `harness`. `openai` SHALL be accepted only when the entry's provider is the native
-OpenAI provider; any other provider SHALL fail startup naming the model id and `toolSearch`. An
+defaulting to `harness`. `openai` SHALL be accepted only when the entry's provider is the
+provider entry whose `id` is exactly `openai`, the same entry the runtime already routes to the
+Responses API; any other provider SHALL fail startup naming the model id and `toolSearch`. An
 unknown value SHALL fail startup the same way. The published JSON Schema SHALL declare the key
 and its enumeration. The setting SHALL NOT be verified against the provider's model support at
 startup; the operator declares it for models that support the provider's tool search.
@@ -46,7 +47,7 @@ startup; the operator declares it for models that support the provider's tool se
 
 #### Scenario: OpenAI strategy on the native provider
 
-- **WHEN** a model on the native OpenAI provider sets `toolSearch` to `openai`
+- **WHEN** a model on the provider entry with id `openai` sets `toolSearch` to `openai`
 - **THEN** startup succeeds and its Runs use the `openai` strategy
 
 #### Scenario: OpenAI strategy on a compatible endpoint

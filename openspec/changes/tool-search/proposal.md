@@ -26,8 +26,8 @@ threshold. This proposal is not on the v0.7 critical path.
   hash is byte-identical to today.
 - When the catalog exceeds the budget, the Run still **binds every eligible declaration**, but
   code-owned tools are declared to the model directly while MCP tools become **discoverable**: not
-  declared on the first step, listed by id inside a harness-owned `tool_search` tool, and declared
-  on later steps once the model loads them.
+  declared on the first step, disclosed only as an inventory of names, and declared on later
+  steps once the model loads them through `tool_search`.
 - Add the reserved, read-only, harness-synthesized `tool_search` tool: exact-id `select` (schema
   enum of the discoverable ids) plus a small keyword search over ids and descriptions. Its result
   returns the loaded declarations, and those tools are declared natively on every following step of
@@ -79,9 +79,10 @@ None.
   model client.
 - `apps/api/src/models`: the `openai` strategy in `openai-model-client.ts` using the installed
   `@ai-sdk/openai` `toolSearch` factory and `deferLoading` provider option; no SDK upgrade.
-- `apps/api/src/db`: one nullable field on the effective-context snapshot for the sorted
-  discoverable-id list and one on the Run for the ids it loaded; no change to the availability
-  manifest version.
+- `apps/api/src/db`: two nullable fields on the effective-context snapshot (sorted
+  discoverable-id list, strategy), one on the Run for the ids it loaded, one new closed
+  unavailable reason `declaration_budget_exceeded`; no change to the availability manifest
+  version.
 - `apps/api/src/instance-config`: the new optional model key and its JSON Schema entry.
 - `apps/web`: receipt view marks discoverable declarations; `tool_search` calls render through the
   existing generic tool part.

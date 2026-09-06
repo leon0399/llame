@@ -97,23 +97,33 @@ execution class, out of scope under §13.5).
 ### D2. Bind everything at accept; the snapshot records the partition
 
 Every eligible admitted declaration is bound exactly as today, plus the synthesized `tool_search`
-declaration when deferral engages. The snapshot gains one sorted list, `discoverableToolIds`
-(bound ids not declared on the first step). `toolHash` keeps covering the exact bound declaration
-set (now including `tool_search`, whose schema enum lists the discoverable ids). `contentHash`
-covers `{ systemPrompt, toolDeclarations, discoverableToolIds }` with the key omitted when the
-list is empty, so every pre-existing snapshot hash is preserved and content-address reuse stays
-valid. The availability manifest is untouched: `available` keeps meaning bound-and-callable
-(after loading, for a discoverable tool), the reminder diff ignores exposure, and no manifest v2
-is introduced. Alternative rejected: a manifest v2 with an `exposure` field per entry forces a
-parser fork and migration for a field the reminder logic must ignore anyway.
+declaration when deferral engages. The snapshot gains two nullable fields: `discoverableToolIds`
+(sorted bound ids not declared on the first step) and `toolSearchStrategy`, both `NULL` when no
+tool is discoverable and both included in `contentHash` and in the stored-content equality check
+only when present, so every pre-existing snapshot keeps its hash and a pre-change row never
+collides with a post-change one (reviewer C-F5). `toolHash` keeps covering the exact bound
+declaration set, now including `tool_search`. The availability manifest is untouched and
+`tool_search` does not enter it: exposure is receipt-only state, the manifest keeps describing
+eligibility and availability, and a threshold crossing therefore never produces an `Added tools`
+or `Removed tools` reminder (reviewers A-F4, C-F4). Rejected: a manifest v2 with an `exposure`
+field per entry, which forces a parser fork and migration for a field the reminder logic must
+ignore anyway; listing `tool_search` in the manifest, which the existing diff would report as an
+availability transition.
 
 ### D3. Per-model threshold, constant ratio, existing estimator
 
 `budget = models[].toolSearchThresholdTokens ?? floor(contextWindowTokens × 0.1)`. The catalog
 estimate is the ~4 chars/token estimator over the canonical JSON of every eligible declaration,
 computed once at accept from already-canonical declarations. Deferral engages only when
-`estimate > budget`. A per-model integer override mirrors `compactionThresholdTokens` exactly;
-`0` means always defer (useful for evals). No instance-level knob, per the `instance-config`
+`estimate > budget` (strict; #338's sketch wrote `>=`, the difference is one token). A per-model
+integer override mirrors `compactionThresholdTokens` exactly; `0` means always defer (useful for
+evals). The inventory itself is counted against the same budget: under `harness` the enum of
+discoverable ids, under `openai` the deferred names and descriptions the provider keeps visible.
+When even the declared tier plus the inventory would exceed the budget, MCP tools are cut in
+descending id order until it fits and the cut ids are bound as `unavailable` with the closed
+reason `declaration_budget_exceeded`, so they appear in the manifest, the reminder, and the
+receipt rather than vanishing (reviewer C-F7; a 1,000-id enum is ~16k tokens, above a 128k
+model's budget). No instance-level knob, per the `instance-config`
 rule against instance-level context-window settings. Rejected: an instance-level percentage
 (contradicts that rule), a flat tool-count cap (#338 explains why the two limits must not be
 conflated).
@@ -152,35 +162,40 @@ system-prompt section (moves the inventory into `promptHash` and requires a proj
 Worst case at the 1,000-tool guard: ~64k characters of ids, still one order of magnitude below
 the schemas it replaces.
 
-### D6. Loaded means delivered; promotion reads the previous Run
+### D6. Loaded means delivered; promotion is bounded and reads the previous Run
 
 A tool is loaded only when its full declaration was delivered in a `tool_search` result. The
 executor sizes the result itself, dropping whole declarations that would not fit the tool result
 cap and listing them as `notLoaded`, so the recorded structured result is never truncated and is
-the single record of the loaded set. Within a Run, `prepareStep` derives the loaded set from the
-prior steps' delivered `tool_search` results; a queue retry restarts the loop from step one, so the
-derivation is deterministic. The worker also writes the loaded ids onto the Run row as each
-`tool_search` call completes, so a Run that fails or is cancelled afterward still carries them.
+the single record of the loaded set. The worker writes the loaded ids, in load order, onto the Run
+row as each `tool_search` call completes, so a Run that fails or is cancelled afterward still
+carries them.
 
-Across Runs, acceptance already loads `previousRun` and `previousSnapshot` (`turn-context.ts`) to
-diff availability; promotion reuses them: declared tier = default partition ∪ previous snapshot's
-declared tier ∪ previous Run's recorded loaded ids, each filtered to ids still bound for the new
-Run. Folding the previous declared tier in gives transitive coverage of the epoch without scanning
-message parts. A new compaction checkpoint starts a new disclosure epoch (the same signal the
-availability reminder uses) and resets to D4. Under the `openai` strategy the provider carries the
-loaded set itself through the replayed `tool_search_output` items, so promotion does not change
-the wire (a promoted tool stays `defer_loading: true`, which also preserves the provider cache);
-the recorded loaded ids still feed the receipt, and compaction resets both strategies the same
-way because the replayed items disappear with the compacted prefix. Needed because inactive tools are refused (see
-Context): without promotion the model would see itself calling a tool in history and be refused
-when it calls it again.
+llame's executor wrapper is the authority on the loaded set under every strategy: a call to a
+discoverable tool that is not in the Run's loaded set is refused with the recorded
+`not_available` error before any executor runs (reviewer A-F3). Under `harness` the SDK also
+refuses it earlier through `activeTools`; under `openai` the deferred tool must stay in the
+request, so the wrapper is the only gate.
+
+Across Runs, acceptance already loads `previousRun` and `previousSnapshot` (`turn-context.ts`).
+The promotion candidates are the previous Run's recorded loaded ids (most recent first) followed
+by the previous snapshot's promoted ids (its declared MCP ids, present only when that snapshot
+had a non-empty discoverable list, so a Run that simply fit the budget promotes nothing:
+reviewer A-F2). Candidates are admitted in that order while the declared tier still fits the
+budget; the rest stay discoverable (reviewer C-F3: promotion is bounded by the same budget that
+triggered deferral, so a long epoch cannot re-declare the whole catalog). Loads recorded on Runs
+before the active compaction checkpoint are never promoted. Compaction keeps the last messages
+verbatim, so a search result can survive in the kept tail as history; that is fine because the
+wrapper, not history, decides callability: the model is refused once and searches again
+(reviewer A-F1).
 
 ### D7. Search is exact ids plus token match, top-N
 
 `select` resolves exact ids (enum-validated). `query` matches case-insensitive tokens against the
 id split on `_`/`-` and the neutralized description, ranking exact id > id token > description
 token, ties by id. `limit` default 5, maximum 20. The result is
-`{ status: 'success', tools: [{ id, description, inputSchema }], notFound: [...] }`. Loaded
+`{ status: 'success', tools: [{ id, description, inputSchema }], notFound: [...], notLoaded: [...] }`.
+Loaded
 declarations are the same neutralized, admitted declarations that were bound; no new trust
 boundary. Rejected: BM25 (Codex's choice; a dependency for ≤1,000 short documents), embeddings
 (latency and a provider call inside the loop for no measured gain).
@@ -189,13 +204,13 @@ boundary. Rejected: BM25 (Codex's choice; a dependency for ≤1,000 short docume
 
 The registry refuses `tool_search` like it refuses `mcp__*`; it is never a `tools.allowed` entry
 and boot fails if listed. It is synthesized only when deferral engages, classified `read_only`,
-needs no tenant database access, appears in the manifest as `available` with its declaration hash,
-and is shown in the receipt. A step that only calls `tool_search` counts toward `maxStepsPerRun`;
-the cap still wins in `prepareStep`. Because it is a manifest entry, a catalog crossing the
-threshold between turns yields an `Added tools: tool_search` or `Removed tools: tool_search`
-availability reminder; that is deliberate, since the model's callable surface did change. The
-allowlist half of the reserved-id rule is already implied by "unknown allowlist id fails boot";
-the registry refusal is the new behavior.
+needs no tenant database access, is absent from the availability manifest (D2), and is shown in
+the receipt through the bound declarations. A step that only calls `tool_search` counts toward `maxStepsPerRun`;
+the cap still wins in `prepareStep`. The worker resolves it to a synthetic executor
+built from the snapshot at the same seam that binds every other declaration, validated by the
+same declaration hash (reviewer C-F6: `resolveBoundExecutableTools` throws for an id with no
+executor, so the seam must know the reserved id). The allowlist half of the reserved-id rule is
+already implied by "unknown allowlist id fails boot"; the registry refusal is the new behavior.
 
 ### D9. Refusal text is the SDK's; the prompt carries the guidance
 
@@ -208,20 +223,38 @@ sentence about loading discoverable tools with `tool_search`. Rejected: rewritin
 into `tool_search { select: [id] }` inside `repairToolCall`, which would persist a call the model
 never authored and still costs the same extra step.
 
-### D11. The `openai` strategy: client execution, deferred schemas, no enum
+### D11. The `openai` strategy: client execution, deferred schemas, no enum, llame-owned promotion
 
 Discoverable declarations are sent with `providerOptions.openai.deferLoading: true` instead of
 omitted, and the bound `tool_search` declaration is `openai.tools.toolSearch({ execution:
 'client', parameters })` with the same `select`/`query`/`limit` shape minus the enum, since the
-model already sees every deferred function's name and description natively. llame's executor
-answers the `tool_search_call` and the SDK returns the loaded declarations as
-`tool_search_output`; from then on OpenAI declares them from history, so no `activeTools`
-bookkeeping is needed and `prepareStep` only enforces the cap. Loaded means delivered holds
-because the `tools` array of that output is exactly the record. Rejected: server execution
-(OpenAI's ranking and inventory, which the receipt cannot describe; revisit as an opt-in if its
-quality proves better) and OpenAI namespaces (one per MCP server would hide member names behind
-a server description llame does not have; the only candidate source is the server's own
-`initialize` text, which is untrusted and needs its own spec).
+model already sees every deferred function's name and description natively. An adapter owns the
+wire mapping (reviewer C-F1): the SDK hands `execute` `{ arguments, call_id }`, so the adapter
+unwraps `arguments` into the shared executor's input and maps each delivered declaration to
+`{ type: 'function', name, description, parameters, defer_loading: true }` in the returned
+`tools` array, which the SDK emits as `tool_search_output` with the echoed `call_id`; `notFound`
+and `notLoaded` cannot cross that output schema and are recorded on llame's side only. Within a
+Run the provider declares the loaded tools from that output; the wrapper in D6 still gates calls.
+
+Across Runs, llame does not rely on provider history: promoted tools (D6) are sent as ordinary
+declarations without `defer_loading`, exactly as under `harness`, so both strategies share one
+promotion and compaction story. This is forced by replay: llame replays every persisted tool
+result as text (`tool-observation-part.ts:233-252`), so a prior Run's search never becomes a
+`tool_search_output` item (reviewer C-F2). What the replayed pair `tool_search_call` plus a text
+function output does to the Responses API is unverified; task 3.0 settles it against the real
+API before any other native work, with two candidates: persist the structured output for
+`tool_search` observations so the SDK emits `tool_search_output` (then a promoted tool must not
+also be redeclared, or the API is checked to tolerate it), or replay prior searches as plain
+function calls under the reserved id. Codex also claimed the serializer requires a `namespace`
+on deferred function calls; the installed code spreads it only when present
+(`dist/index.mjs:3361-3367`), so that claim is rejected.
+
+Rejected: server execution (OpenAI's ranking and inventory, which the receipt cannot describe;
+revisit as an opt-in if its quality proves better) and OpenAI namespaces (one per MCP server
+would hide member names behind a server description llame does not have; the only candidate
+source is the server's own `initialize` text, which is untrusted and needs its own spec).
+Namespaces are the lever if the visible inventory, not the schemas, becomes the budget problem
+under this strategy; D3's `declaration_budget_exceeded` cut is the bound until then.
 
 ### D10. Surfaces stay generic
 
@@ -241,22 +274,24 @@ shows the `tool_search` declaration like any other. No new UI component.
   declarations to fit the cap, so the result is never truncated and loaded means delivered.
 - [A Run expires before its loaded ids are recorded] → the ids are written per `tool_search`
   completion, not at finish; anything lost costs the model one search, never a wrong tier.
-- [Provider caches] → the declared set changes only when a load happens, so the stable prefix
-  changes at most once per load; under `openai` the loaded set lives in history and the
-  deferred set is stable across turns.
+- [Provider caches] → the declared set changes only when a load or a promotion happens, under
+  both strategies.
+- [Inventory alone exceeds the budget] → deterministic `declaration_budget_exceeded` cut,
+  disclosed through the manifest and reminder, never a silent omission.
 - [`openai` strategy on an unsupported model] → the strategy is a per-model declaration, and the
   provider's rejection of `tool_search` surfaces as the existing recorded run error rather than
   a silent fallback; operators declare it only on `gpt-5.4`-and-later models.
-- [Replayed history must keep `tool_search_output` items in place] → llame already preserves
-  `messages.parts` and stored order; the SDK rebuilds the item from the persisted tool-result
-  part, and a compaction prefix removes it together with the loads it carried.
+- [Replayed prior searches under `openai` may be rejected by the Responses API] → task 3.0 spike
+  gates the native layer; cross-Run loads never depend on that replay.
 
 ## Migration Plan
 
 Additive: two nullable snapshot fields (discoverable ids, strategy), one nullable Run field for
-loaded ids, two optional config keys. Existing snapshots have no
-`discoverableToolIds` and keep their hashes. Rollback is removing the code; bound snapshots with
-a non-empty list still execute because every listed tool is bound.
+loaded ids, one new closed unavailable reason, two optional config keys. Existing snapshots have
+neither field and keep their hashes. Rollback is not free (reviewer C-F8): a queued or retried
+Run bound with a `tool_search` declaration needs the synthetic executor, so removing the feature
+means keeping that executor until every such Run is terminal, or accepting that those Runs fail
+closed before the provider request.
 
 ## Open Questions
 
