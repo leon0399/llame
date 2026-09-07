@@ -41,7 +41,6 @@ export function selectSourceLines(
   const requestedEnd = target.offset + (target.limit ?? MAX_READ_LINES);
   const boundedEnd = Math.min(
     lines.length,
-    requestedEnd,
     target.offset + boundedReadLineCount(target.limit),
   );
   const start = target.raw ? target.offset : Math.max(0, target.offset - 1);
