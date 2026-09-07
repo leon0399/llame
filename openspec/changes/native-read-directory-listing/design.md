@@ -43,8 +43,9 @@ counted for `… N more` only.
 ### D3: Directories first, `localeCompare` on name, no metadata
 
 Name order matches how the owner sees the vault and is stable across calls.
-`localeCompare` is what OMP and OpenCode use; determinism is declared relative
-to the host collation. mtime and size are excluded so unchanged directories
+`localeCompare` is OpenCode's comparator and OMP's tiebreak under its recency
+sort; only the comparator is borrowed. Determinism is declared relative to the
+host collation. mtime and size are excluded so unchanged directories
 render identically and prompt caches survive.
 
 ### D4: Symbolic links are listed with `@` and never descended
@@ -52,21 +53,30 @@ render identically and prompt caches survive.
 Node dirents report `isSymbolicLink` for free. Following would need realpath
 plus a visited set and would escape the requested subtree, which the Knowledge
 walker forbids. The root target itself still resolves through `open()` as files
-do today. OpenCode stats the link and renders `name/`; we prefer the explicit
+do today; the spec carries that as a scenario. A trailing separator is optional
+on a directory path and fails as `not_found` on a file, which is what `lstat`
+returns for `file/`. OpenCode stats the link and renders `name/`; we prefer the explicit
 marker because it tells the model why nothing appears beneath it.
 
 ### D5: Bounds apply in a fixed order
 
 1. Assemble: root unbounded, each child keeps 20 entries plus `… N more`.
 2. Render lines.
-3. If over the common cap, drop depth-2 lines last-first and append an elided
-   count. This is OMP's `applyLineCap` protected-depth rule.
+3. If over the common cap, drop whole child blocks last-first and append an
+   elided-block count. This is OMP's `applyLineCap` protected-depth rule made
+   block-granular, so a child never looks like it has fewer entries than it
+   does.
 4. If the requested level alone still overflows, reuse the existing whole-line
-   prefix truncation with `nextOffset`, paged by `dir:N-M` selectors that slice
-   rendered lines without context.
+   prefix truncation with `nextOffset` over entries.
 
+A range selector is a mode switch, not a slice of the tree: it returns the
+header plus the selected requested-level entries and nothing beneath them,
+even when the tree would fit. Paging a tree whose elision depends on total size
+is not stable across pages; paging a flat entry list is. The header is printed
+on every page and never counted, so `nextOffset` and `:N-M` index entries only.
 `:raw` has no meaning for a listing and fails as a selector error rather than
-silently rendering the same text.
+silently rendering the same text. Context expansion stays a regular-file rule;
+the delta narrows that requirement so the two do not collide.
 
 ### D6: Native package owns the walker behind an `opendir` port
 
@@ -98,3 +108,12 @@ population is sockets, devices, and FIFOs. `edit` and `write` are untouched.
 
 Additive. Ship the reader change, tool description, and docs in one layer; no
 data, config, or migration impact. Rollback is reverting the layer.
+
+## Revision history
+
+- **v2 (2026-09-07):** Round-1 review. Range selectors now a flat requested-level
+  mode (resolved selector vs two-level contradiction); context expansion scoped
+  to regular files via a second MODIFIED requirement; header never counted;
+  symlinked root promoted to a spec scenario; elision is whole child blocks;
+  optional trailing separator; task 1.6 retargeted to real tests; D3 wording.
+- **v1 (2026-09-07):** Initial draft after the #704 grilling session.

@@ -17,12 +17,12 @@ metadata, ordering selectors, or symlink following.
 
 ## 1. listing
 
-- [ ] 1.1 Add a directory walker in `packages/native-file-tools` behind an injected `{ lstat, opendir }` port; verify with tests that it reads two levels, counts grandchildren without rendering them, lists symbolic links with `@` and never descends them, and returns `(empty directory)` for an empty root.
+- [ ] 1.1 Add a directory walker in `packages/native-file-tools` behind an injected `{ lstat, opendir }` port; verify with tests that it reads two levels, counts grandchildren without rendering them, lists symbolic links with `@` and never descends them, follows a symbolic link given as the target path, and returns `(empty directory)` for an empty root. Update the existing `read.test.ts` assertion that a directory read returns `not_regular_file` to assert a listing, and keep the `loadText` directory assertion unchanged.
 - [ ] 1.2 Implement ordering and rendering: directories first, `localeCompare` names, absolute-path header, two-space indent, `- name/` / `- name` / `- name@`; verify byte-identical output across two reads of an unchanged fixture and a directories-before-files ordering test.
-- [ ] 1.3 Implement bounds: child cap of 20 with `… N more`, depth-2 elision last-first with an elided-count line when over the common result cap, then whole-line truncation with `nextOffset` for an oversized requested level; verify each stage with fixtures that trigger exactly one stage.
-- [ ] 1.4 Route directory targets through `read`: range selectors slice requested-level listing lines without context, `:raw` fails with `invalid_selector`, `edit` and `write` on a directory still return `not_regular_file`; verify with reader and mutate tests.
+- [ ] 1.3 Implement bounds: child cap of 20 with `… N more`, whole-child-block elision last-first with an elided-block count line when over the common result cap, then entry truncation with `nextOffset` for an oversized requested level; verify each stage with fixtures that trigger exactly one stage, including that no partially rendered child block survives elision.
+- [ ] 1.4 Route directory targets through `read`: a range selector returns the header plus the selected requested-level entries only, with no child entries and no context; the header is never counted; `:raw` fails with `invalid_selector`; a trailing separator is accepted on a directory and returns `not_found` on a file; `edit` and `write` on a directory still return `not_regular_file`; verify with reader and mutate tests including a small directory read with `:1-5`.
 - [ ] 1.5 Update the `read` tool description and `docs/native-files.md` to describe directory listings and bounds; verify `pnpm lint:markdown` and `pnpm format:check` pass.
-- [ ] 1.6 Run `packages/native-file-tools` and `apps/api` lint, typecheck, and focused tests; verify the API tool-runner test that asserts a directory read fails is updated to assert the listing.
+- [ ] 1.6 Add an `apps/api` native-files test that reads a directory through the tool and asserts a listing result with `kind: "directory"`; run `packages/native-file-tools` and `apps/api` lint, typecheck, and focused tests; verify all pass.
 
 ## 2. finalize
 

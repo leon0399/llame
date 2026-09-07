@@ -10,7 +10,8 @@ answer to issue #704.
 ## What Changes
 
 - Make `read` on an absolute local directory return a bounded, deterministic
-  depth-2 listing instead of an error.
+  depth-2 listing instead of an error. A trailing path separator is optional
+  on a directory path.
 - Render the listing as the absolute directory path followed by two-space
   indented entries: `- name/` for directories, `- name` for files, `- name@` for
   symbolic links, which are never descended. Empty directories render
@@ -20,9 +21,10 @@ answer to issue #704.
   directory up to 20 entries followed by `… N more`. Grandchildren are counted,
   never rendered.
 - Keep the shared result envelope: when the rendered listing exceeds the common
-  result cap, elide depth-2 lines last-first with an explicit elided-line
-  marker before truncating the requested level, and let range selectors page
-  the requested level's lines.
+  result cap, elide whole child blocks last-first with an explicit marker
+  before truncating the requested level. A range selector switches the read to
+  a flat, paged listing of the requested level only; the header line is never
+  counted as an entry.
 - Narrow `not_regular_file` to sockets, devices, FIFOs, and other special
   entries; `edit` and `write` on a directory keep failing with it.
 - Show entries verbatim: no hidden-file, ignore-file, or metadata handling in
@@ -39,7 +41,8 @@ None.
 
 - `native-file-tools`: directories become a valid `read` target with a
   deterministic bounded listing contract; the non-regular-target failure
-  requirement narrows accordingly.
+  requirement narrows accordingly, and the selector/context requirement scopes
+  context expansion to regular-file reads.
 
 ## Impact
 
