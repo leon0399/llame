@@ -3,30 +3,47 @@
 ## Purpose
 
 Provides the managed-executor bash contract that shares a live file context with
-the native file tools and can later be implemented by a managed Sandbox adapter.
-Direct host bash is not advertised. This capability is not tenant isolation.
+the native file tools. Alpha host bash may run under the same
+`tools.nativeExecutorId` gate as native file tools. A future managed Sandbox
+adapter can replace the host process without changing the model command
+contract. This capability is not tenant isolation.
 
 ## Requirements
 
-### Requirement: Bash requires a managed executor boundary
+### Requirement: Alpha host bash uses the native executor gate
 
-The model-facing `bash` tool SHALL remain unavailable until a managed executor
-proves a secret boundary, process isolation, bounded output, bounded resources,
-and a trusted workspace mount. Direct host bash SHALL NOT be advertised by this
-capability. The model SHALL NOT select an executor, host path, environment,
-network mode, or permission mode.
+When `tools.nativeExecutorId` is configured and `bash` is present in
+`tools.allowed`, the model-facing `bash` tool SHALL be available on that native
+host. The model supplies shell text only; the host invokes `bash -c` in a
+trusted working directory. The model SHALL NOT select an executor, host path,
+environment, network mode, or permission mode. Bounded output, input, duration,
+and process limits SHALL still apply. This alpha path is explicit host
+authority, not multi-tenant isolation. A later managed Sandbox and a separate
+permission proposal MAY strengthen isolation and approval without changing the
+command/result contract.
 
-#### Scenario: Missing managed boundary fails closed
+#### Scenario: Missing native executor fails closed
 
-- **WHEN** no managed executor can prove the required secret and process boundary
+- **WHEN** `tools.nativeExecutorId` is unset
 - **THEN** a bash request is unavailable
-- **AND** no direct host process starts
+- **AND** no host process starts
+
+#### Scenario: Allowlist omit fails closed
+
+- **WHEN** `bash` is absent from `tools.allowed`
+- **THEN** bash is neither advertised nor executed
 
 #### Scenario: Model cannot widen execution
 
 - **WHEN** command arguments attempt to select another path, executor, or policy
 - **THEN** the managed executor rejects the unsupported selection
 - **AND** it does not widen trusted execution context
+
+#### Scenario: Shell text runs via bash -c
+
+- **WHEN** the model calls `bash` with shell text
+- **THEN** the host runs that text as `bash -c`
+- **AND** the model does not pick a different configured tool basename
 
 ### Requirement: Bash and native file tools share one live directory
 

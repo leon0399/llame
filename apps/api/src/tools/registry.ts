@@ -2,8 +2,8 @@ import {
   nativeReadTool,
   nativeEditTool,
   nativeWriteTool,
-  isNativeFileTool,
 } from './native-files';
+import { bashTool, isHostCapabilityTool } from './bash';
 import {
   knowledgeReadTool,
   knowledgeSearchTool,
@@ -23,6 +23,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
   nativeReadTool,
   nativeEditTool,
   nativeWriteTool,
+  bashTool,
   searchConversationsTool,
   conversationReadTool,
   knowledgeSearchTool,
@@ -125,7 +126,7 @@ export function resolveAdvertisedTools(
   const allowedRules = Array.isArray(allowed) ? allowed : [...allowed];
   return [...candidates].filter(
     (tool) =>
-      (tool.classification === 'read_only' || isNativeFileTool(tool)) &&
+      (tool.classification === 'read_only' || isHostCapabilityTool(tool)) &&
       (tool.id.startsWith('mcp__')
         ? matchesAllowedToolId(tool.id, allowedRules)
         : matchesCodeOwnedToolId(tool.id, allowedRules)),

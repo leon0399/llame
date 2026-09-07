@@ -75,7 +75,8 @@
     "rxjs": "^7.8.1",
     "zod": "catalog:",
     "@workspace/runtime-safety": "workspace:*",
-    "@workspace/native-file-tools": "workspace:*"
+    "@workspace/native-file-tools": "workspace:*",
+    "@workspace/bash-executor": "workspace:*"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.15",

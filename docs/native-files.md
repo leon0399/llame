@@ -10,15 +10,21 @@ Enable it in `llame.config.json`, then restart the API and worker:
 {
   "tools": {
     "nativeExecutorId": "personal-host-a",
-    "allowed": ["read", "edit", "write"]
+    "allowed": ["read", "edit", "write", "bash"]
   }
 }
+```
+
+Optional trusted bash cwd (defaults to the API process cwd):
+
+```bash
+BASH_WORKING_DIRECTORY=/absolute/project
 ```
 
 Keep any other desired tool ids in `allowed`. Each distinct host filesystem
 needs a distinct, stable `nativeExecutorId`. Co-located API and worker processes
 that use the same native filesystem should use the same identity. Without it,
-native tools are unavailable even when allowlisted.
+native file tools and `bash` are unavailable even when allowlisted.
 
 ## Calls
 
@@ -50,10 +56,12 @@ Native files have no blanket size cap. Reads stream a bounded window; exact
 editing currently buffers the file in memory. Normal reads default to 2,000
 requested lines, plus available adjacent context. Serialized native results
 are bounded to the shared 16,000 UTF-16 code-unit cap and retain whole source lines.
-Markdown processing, URLs, logical resource schemes, and bash are separate
-capabilities. Directory reads are bounded by a 10,000-entry traversal budget
-per directory. When the rendered two-level listing exceeds the result cap,
-child blocks are elided last-first into `… N entries` markers before
+Markdown processing, URLs, and logical resource schemes are separate
+capabilities. Allowlisted `bash` shares this native host gate: the model supplies
+shell text and the host runs `bash -c` in `BASH_WORKING_DIRECTORY` (or the API
+cwd). It is not tenant isolation. Directory reads are bounded by a 10,000-entry
+traversal budget per directory. When the rendered two-level listing exceeds the
+result cap, child blocks are elided last-first into `… N entries` markers before
 root-level entries are truncated with `nextOffset`.
 
 ## Mutation recovery

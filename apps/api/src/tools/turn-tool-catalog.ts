@@ -1,4 +1,4 @@
-import { isNativeFileTool } from './native-files';
+import { isHostCapabilityTool } from './bash';
 import { Logger } from '@nestjs/common';
 
 import {
@@ -374,7 +374,7 @@ function groupEligibleTurnToolCandidates(
         !(
           candidate.source.type === 'code_owned' &&
           candidate.state === 'available' &&
-          isNativeFileTool(candidate.tool)
+          isHostCapabilityTool(candidate.tool)
         ))
     ) {
       continue;

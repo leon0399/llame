@@ -1,3 +1,4 @@
+import { isBashTool, isHostCapabilityTool } from './bash';
 import { isNativeFileTool } from './native-files';
 import { Logger } from '@nestjs/common';
 
@@ -111,7 +112,7 @@ export async function runTool(
       composedSignal,
     );
     if (
-      isNativeFileTool(tool) &&
+      isHostCapabilityTool(tool) &&
       result.status === 'error' &&
       result.type === 'outcome_unknown'
     )
@@ -132,13 +133,13 @@ function classifyToolExecutionError(
   timeoutSignal: AbortSignal,
   tool: Tool,
 ): ToolResult {
-  if (isNativeFileTool(tool) && tool.id !== 'read') {
+  if (isBashTool(tool) || (isNativeFileTool(tool) && tool.id !== 'read')) {
     context.onNativeMutationUnknown?.();
     return {
       status: 'error',
       type: 'outcome_unknown',
       message:
-        'The native mutation did not settle before interruption. Do not repeat it automatically.',
+        'The host command or mutation did not settle before interruption. Do not repeat it automatically.',
     };
   }
   const toolId = tool.id;

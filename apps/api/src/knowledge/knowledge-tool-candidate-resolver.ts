@@ -1,4 +1,4 @@
-import { isNativeFileTool } from '../tools/native-files';
+import { isHostCapabilityTool } from '../tools/bash';
 import { Inject, Injectable } from '@nestjs/common';
 
 import { type Db } from '../db/tenant-db.service';
@@ -50,7 +50,7 @@ export class KnowledgeToolCandidateResolver {
   ): Promise<Array<TurnToolCandidate>> {
     const tools = [...(input.codeOwnedTools ?? TOOL_REGISTRY.values())].filter(
       (tool) =>
-        !isNativeFileTool(tool) ||
+        !isHostCapabilityTool(tool) ||
         this.instanceConfig.config.tools.nativeExecutorId !== undefined,
     );
     const shouldResolveOwner = tools.some(
