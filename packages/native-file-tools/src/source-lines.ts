@@ -66,6 +66,18 @@ function renderSelection(
   return result;
 }
 
+/** Retry point for a line dropped only by content accumulated earlier in
+ * this same call — a fresh read starting here has an empty budget again. */
+function retryOffset(target: ReadTarget, index: number): number {
+  return Math.max(
+    target.offset,
+    Math.min(
+      index,
+      target.offset + Math.min(target.limit ?? MAX_READ_LINES, MAX_READ_LINES),
+    ),
+  );
+}
+
 export function appendReadLine(
   result: ReadSuccess,
   text: string | undefined,
@@ -86,20 +98,25 @@ export function appendReadLine(
       endLine: index + 1,
     },
   };
-  if (
+  const isFirstLineOfResult = result.content === "";
+  const overflows =
     line === undefined ||
     JSON.stringify({ ...candidate, nextOffset: index + 1 }).length >
-      MAX_RESULT_CODE_UNITS
-  ) {
+      MAX_RESULT_CODE_UNITS;
+  // The only index below the requested offset is the single preceding
+  // context line. One that cannot be rendered is unavailable context, not a
+  // truncated result, so dropping it keeps the requested range reachable
+  // instead of stalling every continuation read on the same line.
+  if (overflows && isFirstLineOfResult && index < target.offset) return true;
+  if (overflows) {
     result.truncated = true;
-    result.nextOffset = Math.max(
-      target.offset,
-      Math.min(
-        index,
-        target.offset +
-          Math.min(target.limit ?? MAX_READ_LINES, MAX_READ_LINES),
-      ),
-    );
+    // A line that is unreadable on its own (`line === undefined`), or that
+    // overflows even as the first line of a fresh result, fails again at
+    // this same index on any retry — nextOffset must skip past it instead.
+    result.nextOffset =
+      line === undefined || isFirstLineOfResult
+        ? index + 1
+        : retryOffset(target, index);
     return false;
   }
   Object.assign(result, candidate);

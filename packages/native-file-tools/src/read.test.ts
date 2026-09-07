@@ -40,9 +40,61 @@ describe("native source reads", () => {
     expect(await readFile({ path })).toMatchObject({
       content: "",
       shownRange: null,
-      nextOffset: 0,
+      nextOffset: 1,
       truncated: true,
     });
+  });
+
+  it("advances nextOffset past an oversized line instead of retrying it forever", async () => {
+    await writeFile(
+      path,
+      "x".repeat(MAX_RESULT_CODE_UNITS) + "\nsecond\nthird\n",
+    );
+    const first = await readFile({ path: `${path}:1-1` });
+    expect(first).toMatchObject({
+      content: "",
+      nextOffset: 1,
+      truncated: true,
+    });
+    if (first.status !== "success") throw new Error("Expected source result");
+
+    // A second read at nextOffset reaches the line right after the poison
+    // one instead of re-fetching the same unreadable line forever.
+    const resumeLine = first.nextOffset! + 1;
+    expect(
+      await readFile({ path: `${path}:raw:${resumeLine}-${resumeLine}` }),
+    ).toMatchObject({ status: "success", content: "second\n" });
+  });
+
+  it("drops an unrenderable context line so a prefixed continuation advances", async () => {
+    await writeFile(
+      path,
+      "x".repeat(MAX_RESULT_CODE_UNITS) + "\nsecond\nthird\n",
+    );
+    const first = await readFile({ path });
+    expect(first).toMatchObject({
+      content: "",
+      nextOffset: 1,
+      truncated: true,
+    });
+    if (first.status !== "success") throw new Error("Expected source result");
+
+    // The default prefixed read shows one preceding line, which lands back on
+    // the unreadable line; dropping it is what keeps the range reachable.
+    const resumeLine = first.nextOffset! + 1;
+    expect(
+      await readFile({ path: `${path}:${resumeLine}-${resumeLine}` }),
+    ).toMatchObject({ status: "success", content: "2: second\n3: third\n" });
+  });
+
+  it("terminates with invalid_selector instead of looping when the oversized line is the file's last line", async () => {
+    await writeFile(path, "x".repeat(MAX_RESULT_CODE_UNITS));
+    const first = await readFile({ path: `${path}:1-1` });
+    if (first.status !== "success") throw new Error("Expected source result");
+    const resumeLine = first.nextOffset! + 1;
+    expect(
+      await readFile({ path: `${path}:raw:${resumeLine}-${resumeLine}` }),
+    ).toMatchObject({ status: "error", type: "invalid_selector" });
   });
 
   it("returns adjacent live lines in content with requested continuation", async () => {
