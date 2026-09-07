@@ -19,9 +19,9 @@ master
 
 ## 1. contract
 
-- [ ] 1.1 Create the `packages/bash-executor` contract with command input, bounded result, executor context, attempt receipt, cancellation, and unknown-outcome types; verify no Git, Markdown, URL, or permission implementation is imported.
-- [ ] 1.2 Define safe command metadata and result sanitization; verify host paths, credentials, stack traces, and unbounded output cannot enter model-visible results.
-- [ ] 1.3 Define same-directory handoff with `native-file-tools`; verify adapters cannot claim success while using a different working directory.
+- [x] 1.1 Create the `packages/bash-executor` contract with command input, bounded result, executor context, attempt receipt, cancellation, and unknown-outcome types; verify no Git, Markdown, URL, or permission implementation is imported.
+- [x] 1.2 Define safe command metadata and result sanitization; verify host paths, credentials, stack traces, and unbounded output cannot enter model-visible results.
+- [x] 1.3 Define same-directory handoff with `native-file-tools`; verify adapters cannot claim success while using a different working directory.
 
 ## 2. managed-executor-contract
 
