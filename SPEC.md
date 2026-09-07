@@ -157,6 +157,18 @@ owner/Space boundary and exact-range response while sharing reader primitives.
 Removal is tracked in #691. See [native file behavior](openspec/specs/native-file-tools/spec.md)
 and [operator setup](docs/native-files.md).
 
+### 13.8 Managed bash contract
+
+`@workspace/bash-executor` defines the managed-executor bash contract shared with
+native file tools: one live working directory, bounded input/output/duration/
+process limits, attempt recording before start, known results only after
+process-tree quiescence, and `outcome_unknown` fencing without automatic replay.
+Direct host bash is not advertised. The model cannot select executor, host path,
+environment, network, or permission mode. A future managed Sandbox adapter and a
+separate permission proposal must land before model-facing bash is enabled behind
+a stronger isolation class. This contract is not tenant isolation. See
+[bash execution](openspec/specs/bash-execution/spec.md).
+
 ## 14. Provider and model configuration
 
 Operators configure providers, models, defaults, secret references, and optional whole-file per-model system-prompt overrides in `llame.config.json`. Omitted overrides use the packaged project default; invalid configured files fail startup rather than silently falling back. The optional `knowledge.root` is one absolute operator-owned process-local path; configuration loading validates its shape without probing the filesystem. The API exposes executable model metadata and routes opaque model ids without exposing host prompt paths. User BYOK does not ship. See [`instance-config`](openspec/specs/instance-config/spec.md), [`available-models`](openspec/specs/available-models/spec.md), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).

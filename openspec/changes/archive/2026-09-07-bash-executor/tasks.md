@@ -46,5 +46,5 @@ master
 
 ## 6. finalize
 
-- [ ] 6.1 Sync the `bash-execution` spec and record the future managed-Sandbox and permission proposals; verify strict OpenSpec validation and no native host authority is accidentally described as tenant isolation.
-- [ ] 6.2 Archive only after every task is checked and acceptance evidence is complete; run strict specs/all validation and final formatting gates.
+- [x] 6.1 Sync the `bash-execution` spec and record the future managed-Sandbox and permission proposals; verify strict OpenSpec validation and no native host authority is accidentally described as tenant isolation.
+- [x] 6.2 Archive only after every task is checked and acceptance evidence is complete; run strict specs/all validation and final formatting gates.
