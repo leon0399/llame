@@ -1,10 +1,6 @@
 import { constants } from "node:fs";
-import { lstat, opendir, open } from "node:fs/promises";
-
-function isNodeError(value: unknown): value is NodeJS.ErrnoException {
-  return value instanceof Error && "code" in value;
-}
-import { NativeFileError, resolveReadTarget } from "./path";
+import { opendir, open } from "node:fs/promises";
+import { isNodeError, NativeFileError, resolveReadTarget } from "./path";
 import { streamFileWindow } from "./stream-read";
 import {
   listDirectory,
@@ -21,7 +17,6 @@ export {
 } from "./directory-listing";
 
 const NODE_DIRECTORY_PORT: DirectoryPort = {
-  lstat: (path) => lstat(path),
   opendir: (path) => opendir(path),
 };
 

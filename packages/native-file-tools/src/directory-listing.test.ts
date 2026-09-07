@@ -118,7 +118,6 @@ describe("directory listing", () => {
   });
 
   it("returns directory_too_large for a root over the traversal budget", async () => {
-    // uses static import at top of file
     const mockEntries: Array<{
       name: string;
       isFile: () => boolean;
@@ -135,7 +134,6 @@ describe("directory listing", () => {
     }
     let idx = 0;
     const mockPort: DirectoryPort = {
-      lstat: () => Promise.resolve({ isDirectory: () => true }),
       opendir: () =>
         Promise.resolve({
           read: () =>
@@ -151,19 +149,14 @@ describe("directory listing", () => {
       type: "directory_too_large",
     });
     if (result.status !== "error") throw new Error();
-    // SAFETY: narrowed by status check above
-    expect((result as { count: number }).count).toBe(
-      DIRECTORY_TRAVERSAL_BUDGET + 100,
-    );
+    expect(result.count).toBe(DIRECTORY_TRAVERSAL_BUDGET + 100);
   });
 
   it("elides a child over the traversal budget", async () => {
-    // uses static import at top of file
     const bigChildCount = DIRECTORY_TRAVERSAL_BUDGET + 50;
     let rootRead = false;
     let childIdx = 0;
     const mockPort: DirectoryPort = {
-      lstat: () => Promise.resolve({ isDirectory: () => true }),
       opendir: (_path: string) => {
         if (!rootRead) {
           rootRead = true;
@@ -258,9 +251,7 @@ describe("directory listing", () => {
   });
 
   it("marks special entries with ? and never opens them", async () => {
-    // uses static import at top of file
     const mockPort: DirectoryPort = {
-      lstat: () => Promise.resolve({ isDirectory: () => true }),
       opendir: () => {
         const entries = [
           {

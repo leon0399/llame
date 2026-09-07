@@ -6,7 +6,6 @@ export const DIRECTORY_TRAVERSAL_BUDGET = 10_000;
 export const DIRECTORY_CHILD_CAP = 20;
 
 export type DirectoryPort = {
-  lstat: (path: string) => Promise<{ isDirectory(): boolean }>;
   opendir: (path: string) => Promise<{
     read(): Promise<Dirent | null>;
     close(): Promise<void>;
@@ -45,7 +44,6 @@ export type DirectoryFailure = {
 
 type ChildBlockInfo = {
   name: string;
-  headerLine: string;
   childLines: Array<string>;
   totalCount: number;
 };
@@ -75,6 +73,10 @@ function compareEntries(a: DirEntry, b: DirEntry): number {
   const bDir = b.kind === "directory" ? 0 : 1;
   if (aDir !== bDir) return aDir - bDir;
   return a.name.localeCompare(b.name);
+}
+
+function elisionMarker(totalCount: number): string | undefined {
+  return totalCount > 0 ? `    … ${totalCount} entries` : undefined;
 }
 
 async function readDirEntries(
@@ -132,29 +134,30 @@ async function readChildDirs(
   targetPath: string,
   port: DirectoryPort,
 ): Promise<Array<ChildDir>> {
-  const children: Array<ChildDir> = [];
-  for (const entry of rootEntries) {
-    if (entry.kind !== "directory") continue;
-    const childPath = `${targetPath}/${entry.name}`;
-    try {
-      const child = await readDirEntries(port, childPath);
-      child.entries.sort(compareEntries);
-      children.push({
-        name: entry.name,
-        entries: child.entries,
-        totalCount: child.totalCount,
-        overBudget: child.overBudget,
-      });
-    } catch {
-      children.push({
-        name: entry.name,
-        entries: [],
-        totalCount: 0,
-        overBudget: false,
-      });
-    }
-  }
-  return children;
+  const dirEntries = rootEntries.filter((e) => e.kind === "directory");
+  return Promise.all(
+    dirEntries.map(async (entry) => {
+      const childPath = `${targetPath}/${entry.name}`;
+      try {
+        const child = await readDirEntries(port, childPath);
+        child.entries.sort(compareEntries);
+        return {
+          name: entry.name,
+          entries: child.entries,
+          totalCount: child.totalCount,
+          overBudget: child.overBudget,
+        };
+      } catch {
+        // Unreadable child renders as empty; no distinguishing marker in this iteration.
+        return {
+          name: entry.name,
+          entries: [],
+          totalCount: 0,
+          overBudget: false,
+        };
+      }
+    }),
+  );
 }
 
 export async function listDirectory(
@@ -205,7 +208,7 @@ function renderFlatListing(
     end < entries.length,
     end < entries.length ? end : undefined,
   );
-  return boundDirectoryResult(result);
+  return boundFlatResult(result, offset);
 }
 
 function renderChildBlock(child: ChildDir) {
@@ -238,15 +241,13 @@ function assembleTreeLines(
   const lines: Array<string> = [targetPath];
 
   for (const entry of rootEntries) {
-    const headerLine = formatEntry(entry, "  ");
-    lines.push(headerLine);
+    lines.push(formatEntry(entry, "  "));
     if (entry.kind !== "directory") continue;
     const child = childMap.get(entry.name);
     if (!child) continue;
     const block = renderChildBlock(child);
     childBlocks.push({
       name: entry.name,
-      headerLine,
       childLines: block.lines,
       totalCount: child.totalCount,
     });
@@ -330,7 +331,8 @@ function buildContent(
     const block = blocksByName.get(entry.name);
     if (!block) continue;
     if (elided.has(entry.name)) {
-      if (block.totalCount > 0) lines.push(`    … ${block.totalCount} entries`);
+      const marker = elisionMarker(block.totalCount);
+      if (marker) lines.push(marker);
     } else {
       for (const line of block.childLines) lines.push(line);
     }
@@ -338,13 +340,13 @@ function buildContent(
   return lines.join("\n") + "\n";
 }
 
-function markerForElided(
-  block: ChildBlockInfo | undefined,
-  elidedNames: Set<string>,
-): string | undefined {
-  if (!block || !elidedNames.has(block.name) || block.totalCount === 0)
-    return undefined;
-  return `    … ${block.totalCount} entries`;
+function indexChildBlocks(childBlocks: Array<ChildBlockInfo>) {
+  const byName = new Map<string, ChildBlockInfo>();
+  for (const block of childBlocks) byName.set(block.name, block);
+  const elided = new Set(
+    childBlocks.filter((b) => b.childLines.length > 0).map((b) => b.name),
+  );
+  return { byName, elided };
 }
 
 function truncateRequestedLevel(
@@ -352,19 +354,17 @@ function truncateRequestedLevel(
   rootEntries: Array<DirEntry>,
   childBlocks: Array<ChildBlockInfo>,
 ): DirectorySuccess {
-  const blocksByName = new Map<string, ChildBlockInfo>();
-  for (const block of childBlocks) blocksByName.set(block.name, block);
-  const allElided = new Set(
-    childBlocks.filter((b) => b.childLines.length > 0).map((b) => b.name),
-  );
+  const { byName, elided } = indexChildBlocks(childBlocks);
 
   let entryIndex = 0;
   const lines: Array<string> = [targetPath];
   for (const entry of rootEntries) {
     const entryLine = formatEntry(entry, "  ");
+    const block =
+      entry.kind === "directory" ? byName.get(entry.name) : undefined;
     const marker =
-      entry.kind === "directory"
-        ? markerForElided(blocksByName.get(entry.name), allElided)
+      block && elided.has(block.name)
+        ? elisionMarker(block.totalCount)
         : undefined;
 
     const candidate = [...lines, entryLine];
@@ -391,7 +391,10 @@ function truncateRequestedLevel(
   return directoryResult(targetPath, lines.join("\n") + "\n", false);
 }
 
-function boundDirectoryResult(result: DirectorySuccess): DirectorySuccess {
+function boundFlatResult(
+  result: DirectorySuccess,
+  requestOffset: number,
+): DirectorySuccess {
   if (fitsResultCap(result)) return result;
 
   const lines = result.content.split("\n");
@@ -406,13 +409,11 @@ function boundDirectoryResult(result: DirectorySuccess): DirectorySuccess {
     lines.pop();
   }
 
-  const entryLines = lines.slice(1).filter((l) => l.length > 0);
+  const keptEntries = lines.slice(1).filter((l) => l.length > 0).length;
   return directoryResult(
     result.path,
     lines.join("\n") + "\n",
     true,
-    (result.nextOffset ?? 0) > 0
-      ? result.nextOffset
-      : entryLines.length + (result.nextOffset ?? 0),
+    requestOffset + keptEntries,
   );
 }

@@ -1,7 +1,7 @@
 import { lstat, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 
-function isNodeError(value: unknown): value is NodeJS.ErrnoException {
+export function isNodeError(value: unknown): value is NodeJS.ErrnoException {
   return value instanceof Error && "code" in value;
 }
 
@@ -52,6 +52,16 @@ function parseRange(value: string) {
   return { offset: start - 1, limit: end - start + 1 };
 }
 
+async function isDirectoryTarget(path: string): Promise<boolean> {
+  const lstats = await lstat(path);
+  if (lstats.isDirectory()) return true;
+  if (lstats.isSymbolicLink()) {
+    const target = await stat(path);
+    return target.isDirectory();
+  }
+  return false;
+}
+
 export async function resolveReadTarget(input: string): Promise<ReadTarget> {
   if (!isAbsolute(input) || input.includes("\0"))
     throw new NativeFileError("invalid_path");
@@ -60,15 +70,8 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
   const cleanPath = hasTrailingSep ? input.slice(0, -1) : input;
 
   try {
-    const lstats = await lstat(cleanPath);
-    if (lstats.isDirectory()) {
+    if (await isDirectoryTarget(cleanPath)) {
       return { path: cleanPath, offset: 0, raw: false, directory: true };
-    }
-    if (lstats.isSymbolicLink()) {
-      const target = await stat(cleanPath);
-      if (target.isDirectory()) {
-        return { path: cleanPath, offset: 0, raw: false, directory: true };
-      }
     }
     if (hasTrailingSep) throw new NativeFileError("not_found");
     return { path: cleanPath, offset: 0, raw: false };
@@ -107,11 +110,8 @@ function parseSelector(input: string): ReadTarget {
 
 async function classifyParsedTarget(target: ReadTarget): Promise<ReadTarget> {
   try {
-    const lstats = await lstat(target.path);
-    if (lstats.isDirectory()) return { ...target, directory: true };
-    if (lstats.isSymbolicLink()) {
-      const s = await stat(target.path);
-      if (s.isDirectory()) return { ...target, directory: true };
+    if (await isDirectoryTarget(target.path)) {
+      return { ...target, directory: true };
     }
   } catch {
     // Let downstream handle missing paths.

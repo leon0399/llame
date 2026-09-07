@@ -1,4 +1,4 @@
-export { NativeFileError, resolveReadTarget } from "./path";
+export { isNodeError, NativeFileError, resolveReadTarget } from "./path";
 export type { ReadTarget } from "./path";
 export {
   readFile,
