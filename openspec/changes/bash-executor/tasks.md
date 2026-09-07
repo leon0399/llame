@@ -31,8 +31,8 @@ master
 
 ## 3. file-context
 
-- [ ] 3.1 Run native `read`, `edit`, and `write` and bash against one live directory; verify each direction sees the other's known changes.
-- [ ] 3.2 Add same-path and concurrent-process tests; verify known sequential calls observe current bytes and unsupported shared-directory guarantees fail closed.
+- [x] 3.1 Run native `read`, `edit`, and `write` and bash against one live directory; verify each direction sees the other's known changes.
+- [x] 3.2 Add same-path and concurrent-process tests; verify known sequential calls observe current bytes and unsupported shared-directory guarantees fail closed.
 
 ## 4. recovery
 
