@@ -62,7 +62,7 @@ unselected files, or infer scope from the whole dirty worktree. If another agent
 changes are present in a selected file, they are included; the result does not
 claim per-line authorship. Line-level staging requires a later revision service.
 
-An empty path list, missing path, non-Markdown path, path outside the Space, or
+An empty path list, missing path, path outside the Space, or
 unavailable repository fails before commit. Existing unselected dirty and
 untracked files remain untouched and unstaged.
 
