@@ -1,13 +1,20 @@
-import type { Dirent } from "node:fs";
 import { MAX_RESULT_CODE_UNITS } from "./source-lines";
 import { measureNativeModelOutput } from "./serialization";
 
 export const DIRECTORY_TRAVERSAL_BUDGET = 10_000;
 export const DIRECTORY_CHILD_CAP = 20;
 
+/** The subset of node:fs's Dirent the walker reads; a real Dirent satisfies this structurally. */
+export type DirentLike = {
+  name: string;
+  isFile(): boolean;
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
+};
+
 export type DirectoryPort = {
   opendir: (path: string) => Promise<{
-    read(): Promise<Dirent | null>;
+    read(): Promise<DirentLike | null>;
     close(): Promise<void>;
   }>;
 };
@@ -48,7 +55,7 @@ type ChildBlockInfo = {
   totalCount: number;
 };
 
-function classifyEntry(entry: Dirent): EntryKind {
+function classifyEntry(entry: DirentLike): EntryKind {
   if (entry.isSymbolicLink()) return "symlink";
   if (entry.isDirectory()) return "directory";
   if (entry.isFile()) return "file";
