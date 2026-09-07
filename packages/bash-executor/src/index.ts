@@ -26,8 +26,14 @@ export {
 } from "./tools";
 export type { ConfiguredTool } from "./tools";
 export {
+  clearFence,
   createAttemptReceipt,
   executeManagedBash,
+  getAttempt,
   MANAGED_EXECUTOR,
+  recoverIncompleteAttempts,
+  refusesUnknownReplay,
+  releaseUnknownCommands,
+  resetManagedExecutorForTests,
 } from "./execute";
 export type { ExecuteManagedBashOptions } from "./execute";

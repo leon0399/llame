@@ -1,30 +1,38 @@
 import { randomUUID } from "node:crypto";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import type {
   BashAttemptReceipt,
   BashCommandInput,
   BashExecutorContext,
-  BashKnownResult,
   BashResult,
   BashUnavailableResult,
 } from "./types";
-import { managedChildPath } from "./env";
 import {
-  requireManagedBoundary,
-  safeCommandMetadata,
-  sanitizeKnownResult,
-} from "./sanitize";
+  clearFence,
+  getAttempt,
+  isDirectoryFenced,
+  recordAttemptStart,
+  recoverIncompleteAttempts,
+  refusesUnknownReplay,
+  releaseUnknownCommands,
+  resetAttemptLedgerForTests,
+} from "./attempt-ledger";
+import { managedChildPath } from "./env";
+import { MANAGED_EXECUTOR } from "./managed-constants";
+import { requireManagedBoundary, safeCommandMetadata } from "./sanitize";
 import { sharedWorkingDirectory } from "./workspace";
 import { resolveConfiguredTool } from "./tools";
+import { watchManagedChild } from "./watch";
 
-/** Advertised executor class. Direct host bash is never named here. */
-export const MANAGED_EXECUTOR = "managed" as const;
+export { MANAGED_EXECUTOR };
 
 let activeProcesses = 0;
 
 export type ExecuteManagedBashOptions = {
   readonly signal?: AbortSignal;
   readonly protectedValues?: ReadonlyArray<string>;
+  /** Opaque model tool-call identity; never invents a replay. */
+  readonly toolCallId?: string;
 };
 
 type RunRequest = {
@@ -34,18 +42,7 @@ type RunRequest = {
   readonly cwd: string;
   readonly attempt: BashAttemptReceipt;
   readonly options: ExecuteManagedBashOptions;
-};
-
-type StreamState = {
-  stdout: string;
-  stderr: string;
-  stdoutTruncated: boolean;
-  stderrTruncated: boolean;
-};
-
-type BoundChunk = {
-  readonly text: string;
-  readonly truncated: boolean;
+  readonly toolCallId: string | null;
 };
 
 export function createAttemptReceipt(
@@ -58,6 +55,20 @@ export function createAttemptReceipt(
     recordedAt: new Date().toISOString(),
     commandDigest: meta.commandDigest,
   };
+}
+
+export {
+  clearFence,
+  getAttempt,
+  recoverIncompleteAttempts,
+  releaseUnknownCommands,
+  refusesUnknownReplay,
+  resetAttemptLedgerForTests,
+};
+
+export function resetManagedExecutorForTests(): void {
+  activeProcesses = 0;
+  resetAttemptLedgerForTests();
 }
 
 function measureInput(input: BashCommandInput): number {
@@ -73,14 +84,11 @@ function isBashUnavailable(
   return typeof value !== "string";
 }
 
-function rejectIfNotAdmitted(
+function rejectLimits(
   input: BashCommandInput,
   context: BashExecutorContext,
   options: ExecuteManagedBashOptions,
 ): BashUnavailableResult | null {
-  const boundary = requireManagedBoundary(context);
-  if (boundary) return boundary;
-
   const tool = resolveConfiguredTool(input.command);
   if (tool === null) {
     return {
@@ -113,16 +121,45 @@ function rejectIfNotAdmitted(
   return null;
 }
 
+function rejectIfNotAdmitted(
+  input: BashCommandInput,
+  context: BashExecutorContext,
+  options: ExecuteManagedBashOptions,
+  cwd: string,
+): BashUnavailableResult | null {
+  const boundary = requireManagedBoundary(context);
+  if (boundary) return boundary;
+  if (isDirectoryFenced(cwd)) {
+    return {
+      status: "error",
+      type: "unavailable",
+      message: "Executor context is fenced after an unknown command outcome.",
+    };
+  }
+  const limits = rejectLimits(input, context, options);
+  if (limits) return limits;
+  const digest = safeCommandMetadata("probe", input).commandDigest;
+  if (refusesUnknownReplay(digest)) {
+    return {
+      status: "error",
+      type: "unavailable",
+      message:
+        "Unknown command outcomes are not replayed under a new tool-call ID.",
+    };
+  }
+  return null;
+}
+
 function admitExecution(
   input: BashCommandInput,
   context: BashExecutorContext,
   options: ExecuteManagedBashOptions,
 ): RunRequest | BashUnavailableResult {
-  const rejected = rejectIfNotAdmitted(input, context, options);
-  if (rejected) return rejected;
-
   const cwdResult = sharedWorkingDirectory(context);
   if (isBashUnavailable(cwdResult)) return cwdResult;
+
+  const rejected = rejectIfNotAdmitted(input, context, options, cwdResult);
+  if (rejected) return rejected;
 
   const tool = resolveConfiguredTool(input.command);
   if (tool === null) {
@@ -140,6 +177,7 @@ function admitExecution(
     cwd: cwdResult,
     attempt: createAttemptReceipt(input),
     options,
+    toolCallId: options.toolCallId ?? null,
   };
 }
 
@@ -158,6 +196,7 @@ export async function executeManagedBash(
 }
 
 async function runAdmitted(request: RunRequest): Promise<BashResult> {
+  recordAttemptStart(request.attempt, request.cwd, request.toolCallId);
   activeProcesses += 1;
   try {
     return await spawnManaged(request);
@@ -173,171 +212,16 @@ function spawnManaged(request: RunRequest): Promise<BashResult> {
       env: { PATH: managedChildPath(), LANG: "C.UTF-8" },
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
+      detached: true,
     });
-    watchChild(child, request, resolve);
+    watchManagedChild(
+      child,
+      {
+        context: request.context,
+        attemptId: request.attempt.attemptId,
+        options: request.options,
+      },
+      resolve,
+    );
   });
-}
-
-type WatchControls = {
-  timer?: NodeJS.Timeout;
-  onAbort?: () => void;
-};
-
-function emptyStreams(): StreamState {
-  return {
-    stdout: "",
-    stderr: "",
-    stdoutTruncated: false,
-    stderrTruncated: false,
-  };
-}
-
-function newControls(): WatchControls {
-  return {};
-}
-
-function watchChild(
-  child: ChildProcess,
-  request: RunRequest,
-  resolve: (result: BashResult) => void,
-): void {
-  const streams = emptyStreams();
-  const controls = newControls();
-  const finish = once(resolve, () => clearWatch(request, controls));
-  wireCancellation(child, request, controls, finish);
-  armTimeout(child, request, controls, finish);
-  attachStreamReaders(child, request.context.outputBound, streams);
-  wireExit(child, request, streams, finish);
-}
-
-function clearWatch(request: RunRequest, controls: WatchControls): void {
-  if (controls.timer !== undefined) clearTimeout(controls.timer);
-  if (controls.onAbort) {
-    request.options.signal?.removeEventListener("abort", controls.onAbort);
-  }
-}
-
-function wireCancellation(
-  child: ChildProcess,
-  request: RunRequest,
-  controls: WatchControls,
-  finish: (result: BashResult) => void,
-): void {
-  controls.onAbort = () => {
-    child.kill("SIGKILL");
-    finish({
-      status: "error",
-      type: "cancelled",
-      message: "Command was cancelled.",
-    });
-  };
-  request.options.signal?.addEventListener("abort", controls.onAbort, {
-    once: true,
-  });
-}
-
-function armTimeout(
-  child: ChildProcess,
-  request: RunRequest,
-  controls: WatchControls,
-  finish: (result: BashResult) => void,
-): void {
-  controls.timer = setTimeout(() => {
-    child.kill("SIGKILL");
-    finish({
-      status: "error",
-      type: "outcome_unknown",
-      attemptId: request.attempt.attemptId,
-      message: "Command outcome could not be established; it was not replayed.",
-    });
-  }, request.context.durationMs);
-}
-
-function wireExit(
-  child: ChildProcess,
-  request: RunRequest,
-  streams: StreamState,
-  finish: (result: BashResult) => void,
-): void {
-  child.on("error", () => {
-    finish({
-      status: "error",
-      type: "unavailable",
-      message: "Configured tool could not be started.",
-    });
-  });
-  child.on("close", (code, signal) => {
-    finish(closeResult(code, signal, request, streams));
-  });
-}
-
-function once(
-  resolve: (result: BashResult) => void,
-  cleanup: () => void,
-): (result: BashResult) => void {
-  let settled = false;
-  return (result) => {
-    if (settled) return;
-    settled = true;
-    cleanup();
-    resolve(result);
-  };
-}
-
-function attachStreamReaders(
-  child: ChildProcess,
-  bound: number,
-  streams: StreamState,
-): void {
-  child.stdout?.on("data", (chunk: Buffer) => {
-    const next = appendBound(streams.stdout, chunk, bound);
-    streams.stdout = next.text;
-    streams.stdoutTruncated ||= next.truncated;
-  });
-  child.stderr?.on("data", (chunk: Buffer) => {
-    const next = appendBound(streams.stderr, chunk, bound);
-    streams.stderr = next.text;
-    streams.stderrTruncated ||= next.truncated;
-  });
-}
-
-function appendBound(
-  current: string,
-  chunk: Buffer,
-  bound: number,
-): BoundChunk {
-  if (current.length >= bound) return { text: current, truncated: true };
-  const merged = current + chunk.toString("utf8");
-  if (merged.length <= bound) return { text: merged, truncated: false };
-  return { text: merged.slice(0, bound), truncated: true };
-}
-
-function closeResult(
-  code: number | null,
-  signal: NodeJS.Signals | null,
-  request: RunRequest,
-  streams: StreamState,
-): BashResult {
-  if (signal !== null && request.options.signal?.aborted) {
-    return {
-      status: "error",
-      type: "cancelled",
-      message: "Command was cancelled.",
-    };
-  }
-  const exitCode = code ?? 1;
-  const raw: BashKnownResult = {
-    status: exitCode === 0 ? "success" : "error",
-    operation: "bash",
-    executor: MANAGED_EXECUTOR,
-    exitCode,
-    stdout: streams.stdout,
-    stderr: streams.stderr,
-    truncated: streams.stdoutTruncated || streams.stderrTruncated,
-  };
-  return sanitizeKnownResult(
-    raw,
-    request.context,
-    request.options.protectedValues ?? [],
-  );
 }

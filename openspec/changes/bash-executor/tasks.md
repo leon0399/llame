@@ -36,8 +36,8 @@ master
 
 ## 4. recovery
 
-- [ ] 4.1 Persist an attempt identity before command start and record known completion only after process-tree quiescence; verify normal completion, timeout, cancellation, host crash, and surviving descendants.
-- [ ] 4.2 Mark uncertain effects `outcome_unknown`, fence the context, and prohibit automatic replay; verify a new tool-call ID cannot rerun the unknown command.
+- [x] 4.1 Persist an attempt identity before command start and record known completion only after process-tree quiescence; verify normal completion, timeout, cancellation, host crash, and surviving descendants.
+- [x] 4.2 Mark uncertain effects `outcome_unknown`, fence the context, and prohibit automatic replay; verify a new tool-call ID cannot rerun the unknown command.
 
 ## 5. acceptance
 
