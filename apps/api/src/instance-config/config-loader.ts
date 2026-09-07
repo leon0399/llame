@@ -160,7 +160,12 @@ function resolveToolsConfig(
   env: NodeJS.ProcessEnv,
   mcpServers: Readonly<Record<string, McpServerConfig>>,
 ): LlameConfig['tools'] {
-  return {
+  const nativeExecutorId = resolveNullableString({
+    configPath: 'tools.nativeExecutorId',
+    ...readLeaf(raw, 'tools', 'nativeExecutorId'),
+    env,
+  });
+  const tools: LlameConfig['tools'] = {
     allowed: resolveToolAllowlist({
       configPath: 'tools.allowed',
       ...readLeaf(raw, 'tools', 'allowed'),
@@ -187,6 +192,8 @@ function resolveToolsConfig(
       'tools.callTimeoutSeconds',
     ),
   };
+  if (nativeExecutorId) tools.nativeExecutorId = nativeExecutorId;
+  return tools;
 }
 
 /** Load, validate, interpolate, and apply file > built-in-default precedence (the environment reaches config only via {env:...} tokens in the file). Throws InstanceConfigError on any failure — the only correct response is to abort boot (D6). */

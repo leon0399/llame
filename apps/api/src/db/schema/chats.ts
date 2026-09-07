@@ -331,9 +331,8 @@ export const runs = pgTable(
     // another tenant's snapshot.
     modelContextSnapshotId: uuid('model_context_snapshot_id'),
     status: runStatus('status').notNull().default('queued'),
-    // Which worker claimed the run (#48). Dead column today (no caller
-    // populates it via markStarted) — out of scope for the liveness collapse
-    // (durable-run-workers D7), left for a separate cleanup.
+    // Trusted native executor identity, bound by the first native file call.
+    // Retained across queue claims so physical paths cannot move to another host.
     workerId: text('worker_id'),
     // Cancellation request marker (#48): set by the API, honored by the worker —
     // at pickup (skip execution) or mid-flight (abort the model call). The DB is

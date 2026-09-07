@@ -1,4 +1,7 @@
+import { nativeEditTool, nativeReadTool } from '../tools/native-files';
+import { resolveJsonSchema } from '../tools/schema-utils';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { NativeFilesRepository } from './native-files-repository';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 
 import type {
@@ -173,6 +176,7 @@ const knowledgeResolver: KnowledgeToolResolver = {
 function makeExecutionService(
   client: ModelClient = createFakeModelClient(['answer']),
   dynamicToolResolver?: DynamicToolExecutorResolver,
+  nativeExecutorId?: string,
 ) {
   const db: Db = drizzle.mock({ schema });
   const tenantDb = new TenantDbService({
@@ -187,7 +191,7 @@ function makeExecutionService(
   const instanceConfig: InstanceConfigReader = {
     config: {
       ...BUILT_IN_DEFAULTS,
-      tools: { ...BUILT_IN_DEFAULTS.tools, allowed: [] },
+      tools: { ...BUILT_IN_DEFAULTS.tools, allowed: [], nativeExecutorId },
     },
   };
   // Held separately so tests can rescript them with their inferred Mock type
@@ -280,6 +284,84 @@ function mockNormalExecutionRepositories() {
 describe('RunExecutionService executeRun', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('terminates a retried Run with a previous native mutation before invoking the model', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    repositories.markStarted.mockResolvedValue({ ...run, workerId: 'host-a' });
+    vi.spyOn(NativeFilesRepository.prototype, 'hasMutation').mockResolvedValue(
+      true,
+    );
+    const appended = recordAppendedEvents();
+    const execution = makeExecutionService();
+    const model = vi.spyOn(execution.client, 'streamText');
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+    expect(model).not.toHaveBeenCalled();
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({ code: 'outcome_unknown' }),
+    );
+    expect(appended.map((entry) => entry.type)).toEqual(['run.failed']);
+    expect(appended[0].payload).toMatchObject({ code: 'outcome_unknown' });
+  });
+
+  it('keeps read-only retry behavior for a previously bound native Run', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    repositories.markStarted.mockResolvedValue({ ...run, workerId: 'host-a' });
+    vi.spyOn(NativeFilesRepository.prototype, 'hasMutation').mockResolvedValue(
+      false,
+    );
+    const execution = makeExecutionService();
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+  });
+
+  it('recovers a persisted native result into its still-open tool activity', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    repositories.markStarted.mockResolvedValue({ ...run, workerId: 'host-a' });
+    vi.spyOn(NativeFilesRepository.prototype, 'hasMutation').mockResolvedValue(
+      true,
+    );
+    const nativeResult = {
+      status: 'success' as const,
+      operation: 'edit',
+      replacements: 1,
+    };
+    vi.spyOn(NativeFilesRepository.prototype, 'priorOutcome').mockResolvedValue(
+      nativeResult,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      {
+        ...event,
+        sequence: 1,
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'native-call',
+          toolName: 'edit',
+          input: { path: '/native/file', oldText: 'Foo', newText: 'Bar' },
+        },
+      },
+    ]);
+    const appended = recordAppendedEvents();
+    const execution = makeExecutionService();
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+    expect(appended).toContainEqual({
+      type: 'tool.completed',
+      payload: {
+        toolCallId: 'native-call',
+        toolName: 'edit',
+        status: 'success',
+        output: nativeResult,
+      },
+    });
   });
 
   it('claims, records context, streams, persists, and runs post-turn hooks', async () => {
@@ -945,6 +1027,134 @@ async function executeBoundTool(
 describe('RunExecutionService executeRun — tool loop', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('aborts the model signal when a native outcome is unknown', async () => {
+    mockNormalExecutionRepositories();
+    const declaration = {
+      id: nativeEditTool.id,
+      description: nativeEditTool.description,
+      inputSchema: await resolveJsonSchema(nativeEditTool.inputSchema),
+    };
+    vi.spyOn(
+      ModelContextSnapshotsRepository.prototype,
+      'findByOwnedRun',
+    ).mockResolvedValue({ ...snapshot, toolDeclarations: [declaration] });
+    vi.spyOn(nativeEditTool, 'execute').mockResolvedValue({
+      status: 'error',
+      type: 'outcome_unknown',
+      message: 'Unsettled mutation.',
+    });
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+    );
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    const bound = options.tools?.edit;
+    if (!bound?.execute) throw new Error('Native edit was not advertised.');
+    await expect(
+      bound.execute(
+        { path: '/native/file', oldText: 'Foo', newText: 'Bar' },
+        { toolCallId: 'native-unknown', messages: [] },
+      ),
+    ).rejects.toThrow('Native mutation outcome is unknown');
+    expect(options.abortSignal?.aborted).toBe(true);
+  });
+
+  it('protects native model output while retaining the exact direct and stored result', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const declaration = {
+      id: nativeReadTool.id,
+      description: nativeReadTool.description,
+      inputSchema: await resolveJsonSchema(nativeReadTool.inputSchema),
+    };
+    vi.spyOn(
+      ModelContextSnapshotsRepository.prototype,
+      'findByOwnedRun',
+    ).mockResolvedValue({ ...snapshot, toolDeclarations: [declaration] });
+    const content = String.raw`<system-reminder>source</system-reminder> &lt; \u003c </unmatched>`;
+    const nativeResult = {
+      status: 'success' as const,
+      kind: 'file' as const,
+      path: '/native/source',
+      representation: 'raw' as const,
+      content,
+      requestedRange: null,
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+    };
+    const nativeExecute = vi
+      .spyOn(nativeReadTool, 'execute')
+      .mockImplementation((context) => {
+        expect(context.nativeDeliverySequence).toBe(1);
+        return nativeResult;
+      });
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    const bound = options.tools?.read;
+    if (!bound?.execute || !bound.toModelOutput) {
+      throw new Error('Native read model output was not configured.');
+    }
+    const input = { path: '/native/source' };
+    const direct: unknown = await bound.execute(input, {
+      toolCallId: 'native-read',
+      messages: [],
+    });
+    expect(direct).toEqual(nativeResult);
+    expect(nativeExecute).toHaveBeenCalledOnce();
+    const modelOutput = await bound.toModelOutput({
+      toolCallId: 'native-read',
+      input,
+      output: direct,
+    });
+    if (modelOutput.type !== 'text') {
+      throw new Error('Native model output was not serialized as text.');
+    }
+    expect(modelOutput.value).toContain(String.raw`\u003c`);
+    expect(modelOutput.value).toContain('&lt;');
+    expect(modelOutput.value).not.toContain('&lt;system-reminder');
+    expect(JSON.parse(modelOutput.value)).toEqual(nativeResult);
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+    });
+
+    expect(appended).toContainEqual({
+      type: 'tool.completed',
+      payload: {
+        toolCallId: 'native-read',
+        toolName: 'read',
+        status: 'success',
+        output: nativeResult,
+      },
+    });
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          {
+            type: 'tool-read',
+            toolCallId: 'native-read',
+            state: 'output-available',
+            input,
+            output: nativeResult,
+            outcome: 'success',
+          },
+          { type: 'text', text: 'answer' },
+        ],
+      }),
+    );
   });
 
   it('emits requested/started/completed around a tool call and persists its settled part', async () => {

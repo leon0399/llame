@@ -1,0 +1,60 @@
+# Native file tools
+
+Native `read`, `edit`, and `write` execute on the worker's filesystem with its
+OS user's authority. This alpha capability is for an intentionally trusted
+host. It supplies no per-user or per-path filesystem permissions or sandbox.
+
+Enable it in `llame.config.json`, then restart the API and worker:
+
+```json
+{
+  "tools": {
+    "nativeExecutorId": "personal-host-a",
+    "allowed": ["read", "edit", "write"]
+  }
+}
+```
+
+Keep any other desired tool ids in `allowed`. Each distinct host filesystem
+needs a distinct, stable `nativeExecutorId`. Co-located API and worker processes
+that use the same native filesystem should use the same identity. Without it,
+native tools are unavailable even when allowlisted.
+
+## Calls
+
+- `read({ path: "/absolute/file.md:10-20" })` returns lines 10 through 20,
+  plus one live line on either side when available. `:10+11` selects the same
+  requested range. `:raw` and `:raw:10-20` return verbatim source, without line
+  numbers or added context. Existing literal filenames take precedence over
+  selector syntax.
+- `edit({ path, oldText, newText })` replaces exactly one current match.
+  Empty `newText` deletes the match. Missing or ambiguous matches fail without
+  changing the file. No previous-read requirement is enforced yet.
+- `write({ path, content })` creates a new file in an existing parent directory.
+  Every existing target, including a dangling symlink, returns `file_exists`.
+
+Line numbers are display metadata, not source. Continuation uses zero-based
+`nextOffset`; add one when composing the next one-based read selector.
+
+Native files have no blanket size cap. Reads stream a bounded window; exact
+editing currently buffers the file in memory. Normal reads default to 2,000
+requested lines, plus available adjacent context. Serialized native results
+are bounded to the shared 16,000 UTF-16 code-unit cap and retain whole source lines.
+Markdown processing, directories, URLs, logical resource schemes, and bash
+are separate capabilities.
+
+## Mutation recovery
+
+The first native operation binds its Run to the configured executor identity.
+A different executor cannot resolve those physical paths on reattachment.
+Mutations are ordered in the host process, including symlink aliases; external
+editors and other uncoordinated processes are outside that guarantee.
+
+Before an edit or write changes bytes, its attempt is committed to the existing
+owner-scoped Run event log. The result is committed before the model continues.
+A recovered open attempt returns `outcome_unknown`; a queue retry of a Run that
+started a mutation terminates instead of replaying its model loop. Reconnecting
+clients replay recorded activity without running tools again.
+
+After an unknown outcome, read the file's current state before authoring a new
+attempt. Do not assume a timeout means the file was unchanged.

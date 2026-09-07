@@ -1,3 +1,4 @@
+import { isNativeFileTool } from './native-files';
 import { Logger } from '@nestjs/common';
 
 import {
@@ -369,7 +370,12 @@ function groupEligibleTurnToolCandidates(
     if (
       !isToolId(id) ||
       !candidateIsAllowlisted(candidate, id, allowedToolRules) ||
-      candidateClassification(candidate) !== 'read_only'
+      (candidateClassification(candidate) !== 'read_only' &&
+        !(
+          candidate.source.type === 'code_owned' &&
+          candidate.state === 'available' &&
+          isNativeFileTool(candidate.tool)
+        ))
     ) {
       continue;
     }

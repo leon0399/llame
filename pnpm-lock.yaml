@@ -227,6 +227,9 @@ importers:
       '@workspace/config-interpolation':
         specifier: workspace:*
         version: link:../../packages/config-interpolation
+      '@workspace/native-file-tools':
+        specifier: workspace:*
+        version: link:../../packages/native-file-tools
       '@workspace/runtime-safety':
         specifier: workspace:*
         version: link:../../packages/runtime-safety

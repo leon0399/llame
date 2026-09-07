@@ -377,6 +377,8 @@ export type RunEventType =
   | 'tool.requested'
   | 'tool.started'
   | 'tool.completed'
+  | 'native.attempt'
+  | 'native.result'
   | 'run.step_cap_reached';
 
 export class RunEventsRepository {

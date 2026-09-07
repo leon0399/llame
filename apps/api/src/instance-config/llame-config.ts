@@ -289,6 +289,8 @@ export type LlameConfig = {
    * the ENTIRE availability story this slice — no policy engine exists yet.
    */
   tools: {
+    /** Stable trusted alpha host identity; absent means native tools are unavailable. */
+    nativeExecutorId?: string;
     /** Code-owned ids or exact / canonical configured-MCP namespace permissions admitted for advertisement/execution. Default: empty. */
     allowed: ReadonlyArray<string>;
     /** Hard step cap for the tool-calling loop. */

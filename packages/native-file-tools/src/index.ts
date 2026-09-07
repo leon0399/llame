@@ -9,3 +9,8 @@ export {
   MAX_RESULT_CODE_UNITS,
 } from "./read";
 export type { ReadSuccess, FileFailure, LineRange } from "./read";
+export { editFile, createFile } from "./mutate";
+export {
+  measureNativeModelOutput,
+  serializeNativeModelOutput,
+} from "./serialization";

@@ -1,3 +1,6 @@
+import { isNativeFileTool } from '../tools/native-files';
+import { NativeFilesRepository } from './native-files-repository';
+import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
@@ -58,7 +61,10 @@ import {
   type ToolResult,
 } from '../tools/types';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
-import { toolTerminationMessage } from './tool-settlement';
+import {
+  toolTerminationMessage,
+  toolTerminationResult,
+} from './tool-settlement';
 import {
   RunEventsRepository,
   RunsRepository,
@@ -131,6 +137,7 @@ export class RunNotRunnableError extends Error {
  * timeout is recorded as run.expired, never run.cancelled.
  */
 export const RUN_TIMEOUT_ABORT_REASON = 'run-timeout';
+export const NATIVE_MUTATION_ABORT_REASON = 'native-mutation-unknown';
 
 /**
  * Classify an aborted run's terminal status from the signal that aborted it:
@@ -141,7 +148,8 @@ export const RUN_TIMEOUT_ABORT_REASON = 'run-timeout';
  */
 export function classifyAbortedRun(
   signal: AbortSignal | undefined,
-): 'cancelled' | 'expired' {
+): 'cancelled' | 'expired' | 'failed' {
+  if (signal?.reason === NATIVE_MUTATION_ABORT_REASON) return 'failed';
   return signal?.reason === RUN_TIMEOUT_ABORT_REASON ? 'expired' : 'cancelled';
 }
 
@@ -236,8 +244,19 @@ export class RunExecutionService {
   }
 
   async executeRun(
-    input: ExecuteRunInput,
+    request: ExecuteRunInput,
   ): Promise<ReturnType<ModelClient['streamText']>> {
+    const nativeAbort = this.instanceConfig.config.tools.nativeExecutorId
+      ? new AbortController()
+      : undefined;
+    const input = nativeAbort
+      ? {
+          ...request,
+          abortSignal: request.abortSignal
+            ? AbortSignal.any([request.abortSignal, nativeAbort.signal])
+            : nativeAbort.signal,
+        }
+      : request;
     const { client } = input;
 
     // Claim before any context preparation can invoke a model. Transition
@@ -286,6 +305,13 @@ export class RunExecutionService {
         return false;
       }
 
+      if (
+        started.workerId != null &&
+        (await new NativeFilesRepository(tx).hasMutation(input.runId))
+      ) {
+        return { nativeRecovery: true };
+      }
+
       // The claim returns the persisted effort rather than setting an outer
       // variable: it is read inside the transaction (the run row is the single
       // source of truth for what this run executes at, not the queue payload)
@@ -293,10 +319,25 @@ export class RunExecutionService {
       // Deliberately never re-resolved or re-validated against current
       // configuration — a level the operator has since withdrawn is still sent
       // verbatim, and a run that stored none sends no provider option at all.
-      await events.append(input.runId, 'run.started');
-      return { effort: started.effort ?? undefined };
+      const startedEvent = await events.append(input.runId, 'run.started');
+      return {
+        effort: started.effort ?? undefined,
+        nativeDeliverySequence: startedEvent.sequence,
+      };
     });
     if (!claim) {
+      throw new RunNotRunnableError(input.runId);
+    }
+    if ('nativeRecovery' in claim) {
+      const message =
+        'A previous native mutation may have executed. This Run will not replay it.';
+      await this.settleTerminalRun({
+        userId: input.userId,
+        runId: input.runId,
+        status: 'failed',
+        error: { code: 'outcome_unknown', message },
+        runPayload: { code: 'outcome_unknown', message },
+      });
       throw new RunNotRunnableError(input.runId);
     }
     const { effort } = claim;
@@ -476,6 +517,11 @@ export class RunExecutionService {
     // model (authorization identity from a trusted source only). Matches
     // ToolContext (tools/types.ts) exactly.
     const toolContext: ToolContext = {
+      runId: input.runId,
+      nativeExecutorId: this.instanceConfig.config.tools.nativeExecutorId,
+      nativeDeliverySequence: claim.nativeDeliverySequence,
+      onNativeMutationUnknown: () =>
+        nativeAbort?.abort(NATIVE_MUTATION_ABORT_REASON),
       userId: input.userId,
       chatId: input.chatId,
       tenantDb: this.tenantDb,
@@ -562,15 +608,15 @@ export class RunExecutionService {
     const settleOpenToolCalls = (
       status: 'cancelled' | 'expired' | 'failed',
     ) => {
-      const message = toolTerminationMessage(status);
       // recordToolCompleted deletes the current key; removing the entry being
       // visited is well-defined for a Map iterator, so no snapshot is needed.
       for (const [toolCallId, { toolName, toolInput }] of openToolCalls) {
-        recordToolCompleted(toolCallId, toolName, toolInput, {
-          status: 'error',
-          type: 'cancelled',
-          message,
-        });
+        recordToolCompleted(
+          toolCallId,
+          toolName,
+          toolInput,
+          toolTerminationResult(status, toolName),
+        );
       }
     };
 
@@ -580,8 +626,8 @@ export class RunExecutionService {
     let parentAbortSettlement: Promise<void> | undefined;
 
     // The immutable snapshot is the authority for what the model sees. The
-    // registry supplied only compatible read-only executor functions above;
-    // the mutable operator allowlist is intentionally not re-applied here.
+    // registry supplied compatible executor functions above. Native calls also
+    // recheck trusted host authority; the mutable allowlist is not re-applied.
     const toolSet: ToolSet = Object.fromEntries(
       executableTools.map(({ declaration, executor }) => [
         declaration.id,
@@ -603,6 +649,11 @@ export class RunExecutionService {
               toolCallId,
               toolName: declaration.id,
             });
+            if (isNativeFileTool(executor)) {
+              await deltaWrites;
+              if (progressWriteFailed)
+                throw new Error('Native tool activity could not be recorded.');
+            }
             const result = await runTool(
               executor,
               args,
@@ -616,8 +667,26 @@ export class RunExecutionService {
               // model reads is neutralized.
               recordToolCompleted(toolCallId, declaration.id, args, result);
             }
-            return neutralizeToolResult(result);
+            if (
+              isNativeFileTool(executor) &&
+              result.status === 'error' &&
+              result.type === 'outcome_unknown'
+            ) {
+              await deltaWrites;
+              throw new Error(
+                'Native mutation outcome is unknown; the Run cannot continue.',
+              );
+            }
+            return isNativeFileTool(executor)
+              ? result
+              : neutralizeToolResult(result);
           },
+          ...(isNativeFileTool(executor) && {
+            toModelOutput: ({ output }) => ({
+              type: 'text' as const,
+              value: serializeNativeModelOutput(output),
+            }),
+          }),
         }),
       ]),
     );
@@ -1134,7 +1203,11 @@ export class RunExecutionService {
     return rebuilt.contextItems;
   }
 
-  private abortedRunMessage(status: 'cancelled' | 'expired'): string {
+  private abortedRunMessage(
+    status: 'cancelled' | 'expired' | 'failed',
+  ): string {
+    if (status === 'failed')
+      return 'Native mutation outcome is unknown; inspect the file before a new attempt.';
     return status === 'expired'
       ? 'Run timed out: exceeded its wall-clock budget.'
       : 'Run was cancelled before model inference.';
@@ -1349,11 +1422,15 @@ export class RunExecutionService {
               `Run ${input.runId} cannot complete with durable tool calls still open.`,
             );
           }
-          const result: ToolResult = {
-            status: 'error',
-            type: 'cancelled',
-            message: toolTerminationMessage(input.status),
-          };
+          const nativeResult =
+            toolName === 'edit' || toolName === 'write'
+              ? await new NativeFilesRepository(tx).priorOutcome(
+                  input.runId,
+                  toolCallId,
+                )
+              : undefined;
+          const result =
+            nativeResult ?? toolTerminationResult(input.status, toolName);
           // One transaction owns the run row before reaching here. Appending
           // settlement, projecting its assistant part, and publishing the
           // terminal event therefore form one fail-closed ordering domain.

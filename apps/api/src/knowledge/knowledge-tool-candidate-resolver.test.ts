@@ -1,4 +1,9 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
+import {
+  nativeReadTool,
+  nativeEditTool,
+  nativeWriteTool,
+} from '../tools/native-files';
 
 import * as schema from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -42,6 +47,46 @@ function makeInput(
 
 describe('KnowledgeToolCandidateResolver', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('omits native tools without an explicitly configured host capability', async () => {
+    const resolver = new KnowledgeToolCandidateResolver(makeConfig(undefined));
+    expect(
+      await makeInput(resolver, {
+        allowedToolRules: ['read', 'edit', 'write'],
+        codeOwnedTools: [nativeReadTool, nativeEditTool, nativeWriteTool],
+      }),
+    ).toEqual([]);
+  });
+
+  it('offers native candidates when the operator declares host authority', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
+      },
+    });
+    const candidates = await makeInput(resolver, {
+      allowedToolRules: ['read', 'edit', 'write'],
+      codeOwnedTools: [nativeReadTool, nativeEditTool, nativeWriteTool],
+    });
+    expect(candidates).toEqual([
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeReadTool,
+      },
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeEditTool,
+      },
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeWriteTool,
+      },
+    ]);
+  });
 
   it('does not query the owner row when no Knowledge tool is allowlisted', async () => {
     const findForOwnerForBinding = vi.spyOn(

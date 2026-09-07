@@ -1,3 +1,4 @@
+import { isNativeFileTool } from '../tools/native-files';
 import { type ModelToolDeclaration } from '../db/schema';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { TOOL_REGISTRY } from '../tools/registry';
@@ -100,7 +101,7 @@ async function resolveCodeOwnedTool(
   declaration: ModelToolDeclaration,
   executor: Tool,
 ): Promise<BoundExecutableTool> {
-  if (executor.classification !== 'read_only') {
+  if (executor.classification !== 'read_only' && !isNativeFileTool(executor)) {
     throw new ModelContextExecutionError(
       `Bound model context tool "${declaration.id}" is no longer read-only.`,
     );

@@ -13,15 +13,10 @@ import type {
   ToolResultPart as SdkToolResultPart,
 } from 'ai';
 
+import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
-import { canonicalize, type CanonicalJsonValue } from '../canonical-json';
 import type { CompactionReplacementMessage } from '../db/schema/chats';
-import {
-  isRecord,
-  isString,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
-import { type ToolResult } from '../tools/types';
+import { isRecord, isString } from '@workspace/runtime-safety';
 import type { MessagePart, StoredMessage } from './context-builder';
 import {
   isStoredReplacementToolPart,
@@ -145,65 +140,29 @@ function resolveOutcome(part: StoredToolPart): string {
   return normalizeToolObservationOutcome(part.outcome, fallback);
 }
 
-function serializePayload(value: unknown): string {
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- native payloads are persisted as unknown tool-part output; the native branch delegates to its JSON serializer and the legacy branch preserves the existing string/JSON handling.
+function serializePayload(value: unknown, native: boolean): string {
+  if (native) return serializeNativeModelOutput(value);
   if (isString(value)) return value;
   return JSON.stringify(value ?? null) ?? 'null';
 }
 
-function resolveResultBody(part: StoredToolPart): string | null {
+function isNativeToolName(toolName: string): boolean {
+  return toolName === 'read' || toolName === 'edit' || toolName === 'write';
+}
+
+function resolveResultBody(
+  part: StoredToolPart,
+  native: boolean,
+): string | null {
   if (part.state === 'output-available' && part.output !== undefined) {
-    return serializePayload(part.output);
+    return serializePayload(part.output, native);
   }
   return isString(part.errorText) && part.errorText.length > 0
-    ? part.errorText
+    ? native
+      ? serializeNativeModelOutput(part.errorText)
+      : part.errorText
     : null;
-}
-
-/**
- * Neutralize reserved delimiters in a tool result **before the model sees it**.
- *
- * `resultText` below already does this for a persisted observation replayed on
- * a later turn, but a result returned during the turn that produced it reaches
- * the model through the SDK's own tool-result message, before any replay path
- * runs. Tool output is remote-authored on the MCP path, so without this a
- * server can emit a complete context-item envelope beside the genuine ones.
- *
- * Applied to what is SENT, never to what is recorded: the stored observation
- * keeps the tool's exact output.
- */
-export function neutralizeToolResult(result: ToolResult): ToolResult {
-  if (result.status === 'error') {
-    return {
-      status: 'error',
-      type: result.type,
-      message: sanitizeAuthoredText(result.message),
-    };
-  }
-  const { status, ...rest } = result;
-  return { status, ...neutralizeJsonStrings(rest) };
-}
-
-function neutralizeJsonStrings(value: UnknownRecord): UnknownRecord {
-  return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [
-      key,
-      neutralizeValue(canonicalize(entry)),
-    ]),
-  );
-}
-
-function neutralizeValue(value: CanonicalJsonValue): CanonicalJsonValue {
-  if (isString(value)) return sanitizeAuthoredText(value);
-  if (Array.isArray(value)) return value.map(neutralizeValue);
-  if (isRecord(value)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [
-        key,
-        neutralizeValue(entry),
-      ]),
-    );
-  }
-  return value;
 }
 
 function resultText(outcome: string, body: string | null): string {
@@ -453,7 +412,7 @@ function storedObservations(
           ? 'incomplete'
           : outcome,
       input: part.input,
-      resultBody: resolveResultBody(part),
+      resultBody: resolveResultBody(part, isNativeToolName(toolName)),
     });
   });
   return observations;
@@ -572,3 +531,5 @@ export function buildCompactionToolReplacementRecords(input: {
   }
   return records;
 }
+
+export { neutralizeToolResult } from './tool-observation-neutralizer';

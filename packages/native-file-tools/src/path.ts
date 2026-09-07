@@ -10,6 +10,11 @@ export class NativeFileError extends Error {
       | "not_regular_file"
       | "file_too_large"
       | "invalid_utf8"
+      | "invalid_input"
+      | "file_exists"
+      | "old_text_not_found"
+      | "old_text_ambiguous"
+      | "outcome_unknown"
       | "executor_unavailable",
   ) {
     super(type);

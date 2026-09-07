@@ -1,4 +1,10 @@
 import {
+  nativeReadTool,
+  nativeEditTool,
+  nativeWriteTool,
+  isNativeFileTool,
+} from './native-files';
+import {
   knowledgeReadTool,
   knowledgeSearchTool,
 } from '../knowledge/knowledge-tools';
@@ -14,6 +20,9 @@ import { isString } from '@workspace/runtime-safety';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
 export const TOOLS: ReadonlyArray<Tool> = [
+  nativeReadTool,
+  nativeEditTool,
+  nativeWriteTool,
   searchConversationsTool,
   conversationReadTool,
   knowledgeSearchTool,
@@ -107,15 +116,8 @@ export function getRegisteredToolIds(): ReadonlyArray<string> {
   return [...TOOL_REGISTRY.keys()];
 }
 
-/**
- * Fail-closed operator availability gate (design D3): the set of tools
- * offered to the model for a turn is ALWAYS `allowlisted ∩ read_only` — no
- * policy-verdict composition exists yet (that seam is #133, parked). Applied
- * in ONE direction here (what to advertise); the other direction (refusing a
- * request for anything not in this set) falls out for free because the model
- * is never given a declaration for an unadvertised tool — see
- * run-execution.service.ts's `experimental_repairToolCall` handling.
- */
+/** Operator allowlist intersected with read-only or exact native executors.
+ * The native host capability is checked when constructing candidates and at execution. */
 export function resolveAdvertisedTools(
   allowed: ReadonlySet<string> | ReadonlyArray<string>,
   candidates: Iterable<Tool> = TOOL_REGISTRY.values(),
@@ -123,7 +125,7 @@ export function resolveAdvertisedTools(
   const allowedRules = Array.isArray(allowed) ? allowed : [...allowed];
   return [...candidates].filter(
     (tool) =>
-      tool.classification === 'read_only' &&
+      (tool.classification === 'read_only' || isNativeFileTool(tool)) &&
       (tool.id.startsWith('mcp__')
         ? matchesAllowedToolId(tool.id, allowedRules)
         : matchesCodeOwnedToolId(tool.id, allowedRules)),

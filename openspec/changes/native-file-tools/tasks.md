@@ -29,11 +29,11 @@ Markdown, or adds URL loading.
 
 ## 2. edit-write
 
-- [ ] 2.1 Implement per-path sequential mutation execution without model-visible coordination; verify two same-path exact edits execute in order and the second cannot overwrite the first.
-- [ ] 2.2 Implement exact unique `oldText` replacement with empty `newText` deletion, atomic temporary-file replacement, line-ending preservation, bounded diff, and post-edit one-line context; verify missing, ambiguous, no-op, multiline, CRLF, and EOF cases.
-- [ ] 2.3 Implement creation-only `write`; verify absent targets are created and existing targets return `file_exists` without touching content.
-- [ ] 2.4 Integrate alpha native host authority, bind trusted executor identity on the first native operation, and disclose it; verify the model can use absolute paths only on the admitting host and no permission policy or remote-path fallback is silently implied.
-- [ ] 2.5 Add the durable native mutation attempt marker and retry fence before edit/write bytes change; verify known results settle before model continuation, open attempts become `outcome_unknown`, and queue retries never replay an unsettled mutation.
+- [x] 2.1 Implement per-path sequential mutation execution without model-visible coordination; verify two same-path exact edits execute in order and the second cannot overwrite the first.
+- [x] 2.2 Implement exact unique `oldText` replacement with empty `newText` deletion, atomic temporary-file replacement, line-ending preservation, bounded diff, and post-edit one-line context; verify missing, ambiguous, no-op, multiline, CRLF, and EOF cases.
+- [x] 2.3 Implement creation-only `write`; verify absent targets are created and existing targets return `file_exists` without touching content.
+- [x] 2.4 Integrate alpha native host authority, bind trusted executor identity on the first native operation, and disclose it; verify the model can use absolute paths only on the admitting host and no permission policy or remote-path fallback is silently implied.
+- [x] 2.5 Add the durable native mutation attempt marker and retry fence before edit/write bytes change; verify known results settle before model continuation, open attempts become `outcome_unknown`, and queue retries never replay an unsettled mutation.
 
 ## 3. knowledge-adapter
 

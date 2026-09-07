@@ -52,6 +52,13 @@ export type KnowledgeToolResolver = {
  * engages RLS, scoping every read to the user.
  */
 export interface ToolContext {
+  /** Trusted Run and native host identity; never model supplied. */
+  readonly runId?: string;
+  readonly nativeExecutorId?: string;
+  /** The durable run.started event claimed by this worker delivery. */
+  readonly nativeDeliverySequence?: number;
+  /** Stops this Run when a native mutation cannot be safely settled. */
+  readonly onNativeMutationUnknown?: () => void;
   readonly userId: string;
   readonly chatId: string;
   readonly tenantDb: TenantRunner;
@@ -64,13 +71,8 @@ export interface ToolContext {
   readonly queryEmbedder?: QueryEmbedderPort;
 }
 
-/**
- * SPEC §13.5 tool safety classification — verbatim enum. This slice executes
- * ONLY `read_only`; the rest are reserved so a tool's classification is
- * always one of the seven SPEC-mandated values (design D2: foundation over
- * YAGNI — one union type now avoids re-touching every tool definition when
- * the first write tool + §7.5 approvals land).
- */
+/** SPEC §13.5 classification. Non-read-only execution requires an exact,
+ * code-owned capability; classification alone never grants write authority. */
 export type ToolClassification =
   | 'read_only'
   | 'write_low_risk'

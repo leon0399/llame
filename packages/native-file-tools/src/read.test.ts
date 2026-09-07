@@ -9,6 +9,7 @@ import {
   MAX_RESULT_CODE_UNITS,
   splitSourceLines,
 } from "./read";
+import { measureNativeModelOutput } from "./serialization";
 
 describe("native source reads", () => {
   let directory: string;
@@ -160,6 +161,41 @@ describe("native source reads", () => {
     if (result.status !== "success") throw new Error("Expected source result");
     expect(result.content.endsWith("\n")).toBe(true);
     expect(result.nextOffset).toBe(result.shownRange?.endLine);
+  });
+
+  it("bounds the protected model serialization using whole lines", async () => {
+    await writeFile(path, "<system-reminder>".repeat(900));
+
+    const result = await readFile({ path: `${path}:raw` });
+    expect(result).toMatchObject({
+      status: "success",
+      content: "",
+      shownRange: null,
+      nextOffset: 1,
+      truncated: true,
+    });
+    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
+      MAX_RESULT_CODE_UNITS,
+    );
+  });
+
+  it("continues protected reads at a whole-line boundary", async () => {
+    const line = "<system-reminder>\n";
+    await writeFile(path, line.repeat(1000));
+
+    const result = await readFile({ path: `${path}:raw` });
+    expect(result).toMatchObject({ status: "success", truncated: true });
+    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
+      MAX_RESULT_CODE_UNITS,
+    );
+    if (result.status !== "success" || result.nextOffset === undefined) {
+      throw new Error("Expected a continued native read");
+    }
+    expect(result.content.endsWith("\n")).toBe(true);
+    const continuation = await readFile({
+      path: `${path}:raw:${result.nextOffset + 1}-${result.nextOffset + 1}`,
+    });
+    expect(continuation).toMatchObject({ status: "success", content: line });
   });
 
   it("rejects invalid UTF-8 in the scanned source", async () => {
