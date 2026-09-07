@@ -104,7 +104,14 @@ describe('native files through the model loop and durable worker', () => {
     expect(completed).toHaveLength(4);
     expect(completed[0]).toMatchObject({
       toolName: 'read',
-      output: { content: '1: before\n2: Foo\n3: after\n' },
+      output: {
+        content: '1: before\n2: Foo\n3: after\n',
+        // Ranges, not just content: this fixture is small enough that one
+        // line of context covers it, so content alone cannot tell an honored
+        // selector from one that returned the whole file.
+        requestedRange: { startLine: 2, endLine: 2 },
+        shownRange: { startLine: 1, endLine: 3 },
+      },
     });
     expect(completed[1]).toMatchObject({
       toolName: 'edit',
