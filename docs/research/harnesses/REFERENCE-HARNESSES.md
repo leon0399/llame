@@ -39,6 +39,7 @@ Broad persistence and memory lessons are retained as noncanonical provenance in 
 - [Gemini CLI](#gemini-cli) — Policy engine + confirmation bus; sharp #133 feed
 - [oh-my-pi](#oh-my-pi) — Session/compaction model closest to messages.parts
 - [nanoclaw](#nanoclaw) — Container-per-agent bot host; contrast case
+- [ELAI](#elai) — Abandoned harness archive; measurement-honesty patterns and the overengineering postmortem
 - [Buzz](#buzz) — Formal multi-tenant RLS axioms (TLA+/Tamarin)
 
 ## Platform and chat stack
@@ -322,6 +323,76 @@ Minimal self-hosted "personal Claude" **bot host** (headless, no web frontend): 
 1. **container-per-agent sandboxing + a mount allowlist** stored outside the project root (`src/modules/mount-security/`, `src/container-runner.ts`) — real filesystem isolation for agent tool execution, relevant if llame ever runs connectors/tools in containers vs. trusting in-process code;
 2. an **admin-approval flow for agent self-modification** (agent requesting its own packages/MCP servers — `src/modules/self-mod/`) worth mining for llame's skill/connector-install-with-approval UX and as a trust surface to scrutinize;
 3. a **two-SQLite-per-session polling interface** (host writes `inbound.db`, container writes `outbound.db`; that's the _entire_ host↔container boundary — no IPC/stdin/watchers) as a simple durable-message pattern to contrast with our pg-boss run worker. Note: core agent execution is delegated to an external `@onecli-sh/sdk` (not in-repo), and channel adapters (Telegram/Discord/Slack/WhatsApp) live on **sibling git branches**, not trunk. Not useful for: frontend, Postgres/Drizzle schema, multi-tenant RLS, or provider routing (llame's AI-SDK BYOK routing is already more general).
+
+### ELAI
+
+- **Upstream:** [DITlieD/ELAI-archive](https://github.com/DITlieD/ELAI-archive)
+- **Stack:** Rust workspace (23 crates) + Python + Svelte/Tauri, MIT, single author
+- **Observed:** 2026-09-07 @ `26bf2bc`
+- **Key paths:** `POSTMORTEM.md`, `BENCHMARKS.md`, `SALVAGE-MAP.md`, `.elai_cc/wire-dark-allowlist.toml`, `.elai_cc/crates/orchestrator/src/{governance_coverage.rs,completion_gate.rs,evidence.rs,observability/replay.rs}`
+
+An abandoned local-first agent-harness experiment, published as a research archive
+two days after it was written off: 889 commits (883 sanitized historical plus
+archive prep), 2235 `.rs` files / ~937k lines, and a 659-entry feature catalog its
+own README calls "plan units and experiments, not 659 working features". Nothing was
+rebuilt or rerun for publication. **The only negative case in this file, and the
+reason to read it is the author's accounting, not the code.** Its stated lesson —
+build the software you use, not every problem you can see — lands directly on
+llame's own scope surface (`VISION.md`, `ROADMAP.md`).
+
+**Study**
+
+1. **`BENCHMARKS.md` is the piece nothing else here has**: an author auditing his
+   own numbers and publishing the chain **harness → exact fixture → saved result →
+   stated limitations**, with the disagreements left in. The PRMBench row records a
+   hand-written 20-case fixture whose saved report says accuracy 0.5 / precision 0.5
+   / recall 1.0 **while its own gate says pass**; the canary row reports a passing
+   component run whose same report notes the CLI emitted no evidence row. Its rule —
+   "a registered benchmark, CLI command, plan marked DONE or file called calibration
+   is not a result" — is the standard llame's `RUN_SEARCH_EVAL` and `baseline.test.ts`
+   should be held to.
+2. **`ViewStatus::Unmeasured { reason }` as a first-class third status**
+   (`governance_coverage.rs`): of five governance views, two whose upstream
+   producers do not exist are hard-wired to an Unmeasured arm citing the paths it
+   probed, and a fifth reports Unmeasured unless a caller drives the real
+   measurement — "never a synthetic number", with the stated contract that inventing
+   coverage must be impossible. **Third independent instance of the same shape**
+   after agent-memory's `Unlocked: true` and the review-stamp `UNCHECKABLE` field:
+   declared blindness beats a missing field beats a false `checked`. Treat it as a
+   pattern, and the answer to a coverage or eval number that has no way to come back
+   negative.
+3. **The flag registry's schema, and its rot, in one file**: `wire-dark-allowlist.toml`
+   requires six fields per default-OFF flag — name, `kill_switch` vs `experiment`,
+   owner, hard `expiry_date`, the `promotion_plan_id` that flips it on, and the named
+   `smoke_test` driving the ON path — and states that a row missing any field grants
+   no exemption. Finer than gemini-cli's `Stage`/`default_enabled` registry. But
+   expiry is enforced only by per-plan contract tests over the two rows each plan
+   owns (`crates/contracts/tests/j24_wire_dark_allowlist_rows.rs`), never
+   registry-wide, and **103 of its 172 rows are past their own expiry date**. The
+   sibling obligation allowlist does enforce it properly, in Rust, treating an
+   expired row as absent (`formal_verify/closure_scan.rs:237-245`) — so the gap is
+   scope, not capability. A governance rule enforced only where someone bothered to
+   write the check is a rule that reads as shipped and rots silently.
+4. `SALVAGE-MAP.md` is a good format to copy independently of its content: per area,
+   _what source exists_, _what it does not prove_, and _what is worth extracting_ —
+   three columns that make "source present" and "works" impossible to conflate.
+
+**Caution**
+
+**Its headline idea does not survive its own code.** "Evidence outside the
+generating agent" is the first of five ideas in the README, but `evidence.rs` has
+the caller populate `TransitionContext` with the evidence data, and the salvage map
+concedes that caller-supplied evidence is not independent evidence. The completion
+gate is 42 lines and one env var (`ELAI_J25_COMPLETION_GATE_DISABLE`) turns it into
+a no-op — both the open-task query and the Passed→Partial downgrade return early —
+and `task_runner.rs` carries a dozen more such bypasses. `replay.rs` disclaims
+deterministic replay in its own header (no KV capture, no clock/RNG interception, no
+cross-runtime translation), so cite it as a checkpoint-patch validator only. Every
+"shipped", "verified", "deterministic" or "DONE" in the tree is a claim made at the
+time against a fixture, a seam or a disabled path — the archive says so itself.
+Zero tenancy in its own code (`rg -il 'multi.?tenant|tenancy|row.level security'`
+matches only its research documents), and it is unmaintained by declaration: no
+fixes, no releases, no PR review.
 
 ### Buzz
 
