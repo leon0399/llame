@@ -4,7 +4,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Add opt-in native host `read`, exact `edit`, and create-only `write` tools
   (#212). Runs bind to a stable executor identity on first native use; durable
-  mutation attempts prevent queue retries from repeating file changes.
+  mutation attempts prevent queue retries from repeating file changes, model
+  source output stays lossless, and stale Run delivery is fenced.
 - Make the global embedding-prune integration test tolerate additional eligible
   owners while retaining exact checks on its two target owners.
 
