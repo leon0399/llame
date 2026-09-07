@@ -120,12 +120,11 @@ describe('native files through the model loop and durable worker', () => {
           isRecord(event.payload) && event.payload.toolCallId === callId,
       );
       const types = matching.map((event) => event.eventType);
-      expect(types.indexOf('native.attempt')).toBeLessThan(
-        types.indexOf('native.result'),
-      );
-      expect(types.indexOf('native.result')).toBeLessThan(
-        types.indexOf('tool.completed'),
-      );
+      expect(
+        types.filter((type) =>
+          ['native.attempt', 'native.result', 'tool.completed'].includes(type),
+        ),
+      ).toEqual(['native.attempt', 'native.result', 'tool.completed']);
     }
   });
 
@@ -167,11 +166,26 @@ describe('native files through the model loop and durable worker', () => {
       modelId,
       allowedTools: tools,
     });
+    const deliverySequence = await harness.tenantDb.runAs(
+      userId,
+      async (tx) => {
+        const started = await new RunsRepository(tx).markStarted(
+          seeded.runId,
+          userId,
+          { workerId: 'native-acceptance-host' },
+        );
+        if (!started) throw new Error('Native recovery Run did not start.');
+        return (
+          await new RunEventsRepository(tx).append(seeded.runId, 'run.started')
+        ).sequence;
+      },
+    );
     await harness.tenantDb.runAs(userId, (tx) =>
       new NativeFilesRepository(tx).begin({
         runId: seeded.runId,
         userId,
         executorId: 'native-acceptance-host',
+        deliverySequence,
         toolCallId: 'native-edit',
         operation: 'edit',
         path,
