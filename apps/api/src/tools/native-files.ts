@@ -78,7 +78,7 @@ function performNative(
 }
 
 const PATH_GUIDANCE =
-  "Use an absolute path on this native host. This alpha tool has the host OS user's file authority. Output line-number prefixes are navigation metadata, never file bytes.";
+  "Use an absolute path on this native host. This alpha tool has the host OS user's file authority. Output line-number prefixes are navigation metadata, never file bytes. Model-facing results are standard JSON text; decode JSON string escapes before copying source into edit oldText.";
 
 export const nativeReadTool: Tool<{ path: string }> = {
   id: 'read',

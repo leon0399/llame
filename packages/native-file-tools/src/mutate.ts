@@ -8,6 +8,7 @@ import {
   selectSourceLines,
   splitSourceLines,
 } from "./read";
+import { measureNativeModelOutput } from "./serialization";
 import type { FileFailure, LineRange } from "./read";
 
 type EditInput = { path: string; oldText: string; newText: string };
@@ -117,7 +118,7 @@ function boundMutationResult(result: MutationSuccess): MutationSuccess {
   const diffLines = splitSourceLines(result.diff);
   result.diff = "";
   const contentLines = splitSourceLines(result.content);
-  while (JSON.stringify(result).length > MAX_RESULT_CODE_UNITS) {
+  while (measureNativeModelOutput(result) > MAX_RESULT_CODE_UNITS) {
     result.truncated = true;
     if (contentLines.length === 0) throw new NativeFileError("invalid_path");
     contentLines.pop();
@@ -134,7 +135,8 @@ function boundMutationResult(result: MutationSuccess): MutationSuccess {
       ...result,
       diff: diffLines.slice(0, middle).join(""),
     };
-    if (JSON.stringify(candidate).length <= MAX_RESULT_CODE_UNITS) low = middle;
+    if (measureNativeModelOutput(candidate) <= MAX_RESULT_CODE_UNITS)
+      low = middle;
     else high = middle - 1;
   }
   result.diff = diffLines.slice(0, low).join("");

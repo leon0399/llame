@@ -1,5 +1,6 @@
 import { RESULT_TRUNCATE_CHARS } from "@workspace/runtime-safety";
 import { NativeFileError, type ReadTarget } from "./path";
+import { measureNativeModelOutput } from "./serialization";
 export const MAX_READ_LINES = 2000;
 export const MAX_RESULT_CODE_UNITS = RESULT_TRUNCATE_CHARS;
 
@@ -101,7 +102,7 @@ export function appendReadLine(
   const isFirstLineOfResult = result.content === "";
   const overflows =
     line === undefined ||
-    JSON.stringify({ ...candidate, nextOffset: index + 1 }).length >
+    measureNativeModelOutput({ ...candidate, nextOffset: index + 1 }) >
       MAX_RESULT_CODE_UNITS;
   // The only index below the requested offset is the single preceding
   // context line. One that cannot be rendered is unavailable context, not a
@@ -139,7 +140,7 @@ export function emptyReadResult(
     truncated: false,
   };
   if (
-    JSON.stringify({ ...result, nextOffset: target.offset }).length >
+    measureNativeModelOutput({ ...result, nextOffset: target.offset }) >
     MAX_RESULT_CODE_UNITS
   )
     throw new NativeFileError("invalid_path");

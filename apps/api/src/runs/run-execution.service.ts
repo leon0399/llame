@@ -1,5 +1,6 @@
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
+import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
@@ -672,8 +673,16 @@ export class RunExecutionService {
                 'Native mutation outcome is unknown; the Run cannot continue.',
               );
             }
-            return neutralizeToolResult(result);
+            return isNativeFileTool(executor)
+              ? result
+              : neutralizeToolResult(result);
           },
+          ...(isNativeFileTool(executor) && {
+            toModelOutput: ({ output }) => ({
+              type: 'text' as const,
+              value: serializeNativeModelOutput(output),
+            }),
+          }),
         }),
       ]),
     );

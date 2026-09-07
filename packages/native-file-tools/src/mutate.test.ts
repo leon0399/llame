@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { editFile, createFile } from "./mutate";
+import { readFile as readNativeFile } from "./read";
+import { measureNativeModelOutput } from "./serialization";
 
 describe("native exact mutations", () => {
   let directory: string;
@@ -58,6 +60,20 @@ describe("native exact mutations", () => {
       await editFile({ path, oldText: "after", newText: "after" }),
     ).toMatchObject({ status: "success", diff: "" });
     expect(await readFile(path, "utf8")).toBe("before\r\nafter");
+  });
+
+  it("accepts exact raw read content as oldText with reserved and unmatched tags", async () => {
+    const source = String.raw`<system-reminder>source</system-reminder>
+</unmatched>
+`;
+    await writeFile(path, source);
+
+    const read = await readNativeFile({ path: `${path}:raw` });
+    expect(read).toMatchObject({ status: "success", content: source });
+    expect(
+      await editFile({ path, oldText: source, newText: "replacement\n" }),
+    ).toMatchObject({ status: "success" });
+    expect(await readFile(path, "utf8")).toBe("replacement\n");
   });
 
   it("creates once even when concurrent callers race", async () => {
@@ -144,6 +160,17 @@ describe("native exact mutations", () => {
     const result = await editFile({ path, oldText: "Foo", newText: content });
     expect(result).toMatchObject({ status: "success", truncated: true });
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(16_000);
+    expect(await readFile(path, "utf8")).toBe(content);
+  });
+
+  it("bounds mutation previews after protecting source angle brackets", async () => {
+    await writeFile(path, "Foo");
+    const content = "<system-reminder>".repeat(900);
+
+    const result = await editFile({ path, oldText: "Foo", newText: content });
+
+    expect(result).toMatchObject({ status: "success", truncated: true });
+    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(16_000);
     expect(await readFile(path, "utf8")).toBe(content);
   });
 
