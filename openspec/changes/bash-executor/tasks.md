@@ -25,9 +25,9 @@ master
 
 ## 2. managed-executor-contract
 
-- [ ] 2.1 Implement the managed-executor contract with trusted working-directory context, bounded command execution, and explicit isolation/secrets prerequisites; verify direct host bash is not advertised.
-- [ ] 2.2 Define ordinary configured tools (`bash`, `grep`, `rg`, `jq`, and Python where installed) without making any one tool the canonical editor; verify command names/arguments remain bounded by the future managed host contract.
-- [ ] 2.3 Add output, input, duration, process, secret-boundary, and cancellation requirements; verify the capability remains unavailable when any required boundary is missing.
+- [x] 2.1 Implement the managed-executor contract with trusted working-directory context, bounded command execution, and explicit isolation/secrets prerequisites; verify direct host bash is not advertised.
+- [x] 2.2 Define ordinary configured tools (`bash`, `grep`, `rg`, `jq`, and Python where installed) without making any one tool the canonical editor; verify command names/arguments remain bounded by the future managed host contract.
+- [x] 2.3 Add output, input, duration, process, secret-boundary, and cancellation requirements; verify the capability remains unavailable when any required boundary is missing.
 
 ## 3. file-context
 
