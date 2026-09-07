@@ -251,8 +251,10 @@ describe("directory listing", () => {
   });
 
   it("marks special entries with ? and never opens them", async () => {
+    const openedPaths: Array<string> = [];
     const mockPort: DirectoryPort = {
-      opendir: () => {
+      opendir: (path: string) => {
+        openedPaths.push(path);
         const entries = [
           {
             name: "pipe",
@@ -273,5 +275,6 @@ describe("directory listing", () => {
     expect(result).toMatchObject({ status: "success" });
     if (result.status !== "success") throw new Error();
     expect(result.content).toContain("  - pipe?");
+    expect(openedPaths).toEqual(["/test"]);
   });
 });
