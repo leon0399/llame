@@ -15,7 +15,9 @@ owner-scoped Knowledge authority for `kb://` locators; they are not a general
 permission engine or a remote MCP write grant. The candidate resolver SHALL admit
 the three native tools when the process has accepted native host authority or
 has a configured Knowledge root, and SHALL leave them unavailable when it has
-neither.
+neither. A configured Knowledge root admits only `read`, `edit`, and `write`;
+`bash` and every other host-capability tool remain admitted solely by accepted
+native host authority.
 
 The `mcp__` tool-id prefix SHALL be reserved for ids produced by the MCP
 capability. A code-owned or other non-MCP registry entry beginning with that
@@ -38,6 +40,12 @@ grant authority across source kinds.
 - **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `read`, `edit`, and `write`
 - **THEN** the three tools are advertised and executable for `kb://` locators
 - **AND** an absolute path fails closed with `executor_unavailable`
+
+#### Scenario: Knowledge root does not admit bash
+
+- **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `bash`
+- **THEN** `bash` is neither advertised nor executable
+- **AND** the Run manifest records it unavailable exactly as before this change
 
 #### Scenario: Non-read-only tool is refused even when allowlisted
 

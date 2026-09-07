@@ -2,7 +2,7 @@
 
 Use `$gh-stack` and `$openspec-apply-change` after proposal approval.
 `native-read-directory-listing/finalize` must archive before the first
-implementation layer; rebase this stack on that merge and re-verify the
+implementation layer (see design Migration Plan); rebase this stack on that merge and re-verify the
 `native-file-tools` MODIFIED blocks against the main spec.
 
 ```text
@@ -19,7 +19,7 @@ the #701 tracker.
 ## 1. locator
 
 - [ ] 1.1 Add `scheme://` recognition ahead of selector splitting in `packages/native-file-tools` and refuse unimplemented schemes with `invalid_path` on `read`, `edit`, and `write`; verify unit tests cover `kb://` with and without selectors, `vault://x`, a literal absolute filename containing `://`, and that no file named after a scheme is created.
-- [ ] 1.2 Add the `kb://` resolver step in `apps/api/src/tools/native-files.ts`: parse `<space-id>`/`<path>`, resolve the binding under `runAs` via the Knowledge resolver, apply Knowledge path rules plus `:` rejection and symlink refusal, then call the native reader on the resolved host path; verify unit tests for absent, other-owner, and malformed identifiers return an identical `knowledge_space_not_found`, and binding failure returns `knowledge_space_unavailable`, with no host path in any result.
+- [ ] 1.2 Add the `kb://` resolver step in `apps/api/src/tools/native-files.ts`: parse `<space-id>`/`<path>`, resolve the binding under `runAs` via the Knowledge resolver, apply Knowledge path rules plus `:` rejection and per-component symlink refusal, then call the native reader on the resolved host path with `followSymlinks: false` so the package opens with `O_NOFOLLOW`; verify unit tests for absent, other-owner, and malformed identifiers return an identical `knowledge_space_not_found`, and binding failure returns `knowledge_space_unavailable`, with no host path in any result, and a symlink swapped in at the target after validation returns `not_found`.
 - [ ] 1.3 Add `notice`, Space identifier, display name, and locator to `kb://` read and listing results, keeping content verbatim; verify a note containing `<system>` reads back byte-identical and the result carries the notice.
 - [ ] 1.4 Support `kb://<id>` and `kb://<id>/` directory reads through the shipped listing and reject bare `kb://`; verify listing header is the locator and every entry kind renders as native listings do.
 - [ ] 1.5 Widen candidate resolution and advertisement so `read`, `edit`, and `write` are admitted when `tools.nativeExecutorId` or `knowledge.root` is configured; verify tests that a Knowledge-root-only process advertises all three, `kb://` reads succeed, and an absolute path returns `executor_unavailable`.
@@ -35,8 +35,7 @@ the #701 tracker.
 - [ ] 2.1 Route `kb://` `edit` and `write` through the resolver from 1.2 and the native mutation functions; verify integration tests for exact edit, ambiguous edit, create-only write, `file_exists`, and other-owner refusal with no mutation.
 - [ ] 2.2 Make `NativeFilesRepository.begin` take an optional executor and skip the `runs.workerId` bind for `kb://`, recording the locator as the attempt target; verify a retry on a different worker returns `outcome_unknown` without `executor_unavailable` and never re-executes the mutation.
 - [ ] 2.3 Create missing intermediate directories on `write` for every scheme and fail `not_regular_file` when an intermediate is a file; verify package unit tests for absolute paths and integration tests for `kb://`.
-- [ ] 2.4 Drive-by: edit `openspec/changes/knowledge-submit/design.md` D2 to drop the non-Markdown rejection; verify `pnpm exec openspec validate knowledge-submit --strict` still passes.
-- [ ] 2.5 Confirm `kb://` mutations bypass no fence path and that `bash` admission is unchanged; verify the existing native fence and bash tests pass unmodified.
+- [ ] 2.4 Confirm `kb://` mutations bypass no fence path and that `bash` admission is unchanged; verify the existing native fence and bash tests pass unmodified.
 
 ## 3. finalize
 

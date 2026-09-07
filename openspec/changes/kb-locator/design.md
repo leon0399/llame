@@ -37,6 +37,7 @@ See `proposal.md` for motivation. Facts that shape the approach:
   for `edit` (#706), Git submission (#212), shared Spaces, slugs (#332).
 - Search over non-Markdown files; search stays Markdown-only.
 - Any change to what host-path results look like or how they are neutralized.
+- Web changes: `kb://` results render through the generic tool UI.
 
 ## Decisions
 
@@ -58,8 +59,14 @@ returning `executor_unavailable` without the id.
 The `kb://` branch parses `<space-id>` and `<path>`, resolves the binding through
 `KnowledgeToolResolver.resolveBindingForOwnerById` under `runAs`, validates the
 path with the existing Knowledge rules (plus the new `:` rejection), refuses
-symlinks, and then calls the native package on the resolved host path. The
-native package never sees a tenant. Errors from the binding layer map to
+symlinks component by component with `lstat`, and then calls the native package
+on the resolved host path with a `followSymlinks: false` option, under which the
+package opens with `O_NOFOLLOW` and treats a symbolic link at the target as
+`not_found`. Absolute paths keep following links as today. The native package
+never sees a tenant. Alternative rejected: routing `kb://` reads through the
+Knowledge filesystem's own open primitives via the D6 `{lstat, opendir}` port,
+which would keep two readers alive; the `O_NOFOLLOW` option closes the same
+window with one. Errors from the binding layer map to
 `knowledge_space_not_found` / `knowledge_space_unavailable`; everything after
 resolution uses the native `FileFailure` vocabulary. Alternative rejected: a
 Knowledge-specific reader adapter, which is the layer being deleted.
@@ -133,6 +140,37 @@ keeps rendering historical `knowledge_read` parts.
 Space segment: `knowledge_space_not_found` (absent, other-owner, malformed
 identifier, all identical) and `knowledge_space_unavailable` (binding failure).
 Path and file: native `FileFailure` types. One vocabulary per tool.
+
+## Threats
+
+- Cross-tenant read or write through a guessed or observed Space identifier →
+  resolution runs under `runAs` with RLS and an explicit owner predicate on every
+  call; absent and other-owner identifiers return one identical closed result;
+  the locator layer ships a negative isolation test.
+- Escape from the Space via `..`, absolute segments, or a symbolic link swapped
+  in after validation → Knowledge path rules, per-component `lstat`, and
+  `O_NOFOLLOW` at open time; a link at the target is `not_found`.
+- Host path or owner identity leaking into results, attempt events, or errors →
+  results carry the locator and Space identity only; the attempt event records
+  the locator; binding errors map to the two closed Knowledge results.
+- First model-driven mutation of owner data on hosted workers with no approval
+  gate → `edit` is exact-match and `write` is create-only; the fence stops the
+  Run on an unknown outcome; #133 owns a policy engine and is out of scope.
+- Prompt injection from owner notes → recall-time notice on every `kb://` read
+  and listing; content is not rewritten, as recorded in D4.
+
+## Migration Plan
+
+1. Land `native-read-directory-listing/finalize`, rebase this stack, re-diff the
+   two shared `native-file-tools` MODIFIED blocks.
+2. Before deploying the locator layer to Leo's instance, remove `knowledge_read`
+   from `tools.allowed` in the live `llame.config.json`; boot rejects the id.
+3. The `knowledge_search` schema and the native tool descriptions change, so the
+   deploy follows the existing declaration cutover: quiesce Run acceptance,
+   drain Runs bound to the prior declarations, deploy matching API and worker
+   binaries, resume. Rollback drains Runs bound to the new declarations first.
+4. No database migration. Existing `knowledge_read` observations stay as
+   recorded.
 
 ## Risks / Trade-offs
 
