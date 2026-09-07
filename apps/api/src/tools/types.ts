@@ -55,6 +55,8 @@ export interface ToolContext {
   /** Trusted Run and native host identity; never model supplied. */
   readonly runId?: string;
   readonly nativeExecutorId?: string;
+  /** The durable run.started event claimed by this worker delivery. */
+  readonly nativeDeliverySequence?: number;
   /** Stops this Run when a native mutation cannot be safely settled. */
   readonly onNativeMutationUnknown?: () => void;
   readonly userId: string;

@@ -12,17 +12,20 @@ export class NativeFilesRepository {
     runId: string;
     userId: string;
     executorId: string;
+    deliverySequence?: number;
     toolCallId: string;
     operation: 'read' | 'edit' | 'write';
     path: string;
   }): Promise<ToolResult | undefined> {
-    if (!(await this.bind(input.runId, input.userId, input.executorId))) {
-      return {
-        status: 'error',
-        type: 'executor_unavailable',
-        message: 'This Run cannot use this native executor.',
-      };
-    }
+    if (!(await this.lockRun(input.runId, input.userId)))
+      return executorUnavailable();
+    if (
+      input.deliverySequence === undefined ||
+      (await this.latestStartedSequence(input.runId)) !== input.deliverySequence
+    )
+      return executorUnavailable();
+    if (!(await this.bind(input.runId, input.userId, input.executorId)))
+      return executorUnavailable();
     if (input.operation === 'read') return undefined;
     const outcome = await this.priorOutcome(input.runId, input.toolCallId);
     if (outcome) return outcome;
@@ -36,6 +39,30 @@ export class NativeFilesRepository {
       },
     );
     return undefined;
+  }
+
+  private async lockRun(runId: string, userId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
+      .for('update')
+      .limit(1);
+    return rows.length === 1;
+  }
+
+  private async latestStartedSequence(
+    runId: string,
+  ): Promise<number | undefined> {
+    const [latestStarted] = await this.db
+      .select({ sequence: runEvents.sequence })
+      .from(runEvents)
+      .where(
+        and(eq(runEvents.runId, runId), eq(runEvents.eventType, 'run.started')),
+      )
+      .orderBy(desc(runEvents.sequence))
+      .limit(1);
+    return latestStarted?.sequence;
   }
 
   async bind(
@@ -118,4 +145,12 @@ export class NativeFilesRepository {
         'A previous native mutation may have executed; it will not be repeated.',
     };
   }
+}
+
+function executorUnavailable(): ToolResult {
+  return {
+    status: 'error',
+    type: 'executor_unavailable',
+    message: 'This Run cannot use this native executor.',
+  };
 }

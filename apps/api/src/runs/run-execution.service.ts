@@ -319,8 +319,11 @@ export class RunExecutionService {
       // Deliberately never re-resolved or re-validated against current
       // configuration — a level the operator has since withdrawn is still sent
       // verbatim, and a run that stored none sends no provider option at all.
-      await events.append(input.runId, 'run.started');
-      return { effort: started.effort ?? undefined };
+      const startedEvent = await events.append(input.runId, 'run.started');
+      return {
+        effort: started.effort ?? undefined,
+        nativeDeliverySequence: startedEvent.sequence,
+      };
     });
     if (!claim) {
       throw new RunNotRunnableError(input.runId);
@@ -516,6 +519,7 @@ export class RunExecutionService {
     const toolContext: ToolContext = {
       runId: input.runId,
       nativeExecutorId: this.instanceConfig.config.tools.nativeExecutorId,
+      nativeDeliverySequence: claim.nativeDeliverySequence,
       onNativeMutationUnknown: () =>
         nativeAbort?.abort(NATIVE_MUTATION_ABORT_REASON),
       userId: input.userId,

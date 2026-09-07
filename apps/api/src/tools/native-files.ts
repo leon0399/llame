@@ -32,6 +32,7 @@ async function executeNativeBound(
   call: NativeCall,
 ): Promise<ToolResult> {
   const { runId, nativeExecutorId, toolCallId, userId } = context;
+  const nativeDeliverySequence = context.nativeDeliverySequence;
   if (!runId || !nativeExecutorId || !toolCallId)
     return {
       status: 'error',
@@ -44,6 +45,7 @@ async function executeNativeBound(
       runId,
       userId,
       executorId: nativeExecutorId,
+      deliverySequence: nativeDeliverySequence,
       toolCallId,
       operation: call.operation,
       path: call.input.path,

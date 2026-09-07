@@ -1086,7 +1086,12 @@ describe('RunExecutionService executeRun — tool loop', () => {
       shownRange: { startLine: 1, endLine: 1 },
       truncated: false,
     };
-    vi.spyOn(nativeReadTool, 'execute').mockResolvedValue(nativeResult);
+    const nativeExecute = vi
+      .spyOn(nativeReadTool, 'execute')
+      .mockImplementation((context) => {
+        expect(context.nativeDeliverySequence).toBe(1);
+        return nativeResult;
+      });
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(
@@ -1107,6 +1112,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       messages: [],
     });
     expect(direct).toEqual(nativeResult);
+    expect(nativeExecute).toHaveBeenCalledOnce();
     const modelOutput = await bound.toModelOutput({
       toolCallId: 'native-read',
       input,

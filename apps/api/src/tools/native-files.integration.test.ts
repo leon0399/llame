@@ -41,7 +41,7 @@ describe('native file authority and durable effects', () => {
     path = join(directory, 'notes');
     await writeFile(path, 'before\nFoo\nafter\n');
     const chatId = randomUUID();
-    runId = await tenantDb.runAs(owner, async (tx) => {
+    const run = await tenantDb.runAs(owner, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
         ownerUserId: owner,
@@ -67,14 +67,20 @@ describe('native file authority and durable effects', () => {
         modelContextSnapshotId: snapshot.id,
       });
       await runs.markStarted(run.id, owner);
-      return run.id;
+      const started = await new RunEventsRepository(tx).append(
+        run.id,
+        'run.started',
+      );
+      return { id: run.id, startedSequence: started.sequence };
     });
+    runId = run.id;
     context = {
       userId: owner,
       chatId,
       tenantDb,
       runId,
       nativeExecutorId: 'host-a',
+      nativeDeliverySequence: run.startedSequence,
       toolCallId: randomUUID(),
     };
   });
@@ -88,6 +94,37 @@ describe('native file authority and durable effects', () => {
       await sql.end();
     }
   });
+
+  const claimDelivery = () =>
+    tenantDb.runAs(owner, async (tx) => {
+      const started = await new RunsRepository(tx).markStarted(runId, owner);
+      if (!started) return undefined;
+      if (
+        started.workerId !== null &&
+        (await new NativeFilesRepository(tx).hasMutation(runId))
+      ) {
+        return undefined;
+      }
+      return (await new RunEventsRepository(tx).append(runId, 'run.started'))
+        .sequence;
+    });
+
+  const begin = (input: {
+    deliverySequence?: number;
+    toolCallId: string;
+    operation: 'read' | 'edit' | 'write';
+  }) =>
+    tenantDb.runAs(owner, (tx) =>
+      new NativeFilesRepository(tx).begin({
+        runId,
+        userId: owner,
+        executorId: 'host-a',
+        deliverySequence: input.deliverySequence,
+        toolCallId: input.toolCallId,
+        operation: input.operation,
+        path,
+      }),
+    );
 
   it('binds on the first read and rejects another host before mutation', async () => {
     expect(await runTool(nativeReadTool, { path }, context, 5)).toMatchObject({
@@ -119,10 +156,11 @@ describe('native file authority and durable effects', () => {
       new RunEventsRepository(tx).listByRunId(runId, owner),
     );
     expect(events.map((event) => event.eventType)).toEqual([
+      'run.started',
       'native.attempt',
       'native.result',
     ]);
-    expect(events[1].payload).toEqual({
+    expect(events[2].payload).toEqual({
       toolCallId: context.toolCallId,
       result,
     });
@@ -137,6 +175,7 @@ describe('native file authority and durable effects', () => {
         runId,
         userId: owner,
         executorId: 'host-a',
+        deliverySequence: context.nativeDeliverySequence,
         toolCallId: context.toolCallId!,
         operation: 'edit',
         path,
@@ -156,6 +195,197 @@ describe('native file authority and durable effects', () => {
         new NativeFilesRepository(tx).hasMutation(runId),
       ),
     ).toBe(true);
+  });
+
+  it('allows only the newest concurrent delivery to admit a native mutation', async () => {
+    const sequences = await Promise.all([claimDelivery(), claimDelivery()]);
+    expect(
+      sequences.every((sequence): sequence is number => sequence !== undefined),
+    ).toBe(true);
+    const latestSequence = Math.max(
+      ...sequences.filter((sequence) => sequence !== undefined),
+    );
+    const latestIndex = sequences.indexOf(latestSequence);
+    const calls = sequences.map((_, index) => `delivery-${index}`);
+    const results = await Promise.all(
+      sequences.map((deliverySequence, index) =>
+        runTool(
+          nativeEditTool,
+          { path, oldText: 'Foo', newText: `Bar-${index}` },
+          {
+            ...context,
+            nativeDeliverySequence: deliverySequence,
+            toolCallId: calls[index],
+          },
+          5,
+        ),
+      ),
+    );
+
+    expect(results[latestIndex]).toMatchObject({
+      status: 'success',
+      replacements: 1,
+    });
+    expect(results[1 - latestIndex]).toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
+    });
+    expect(await readFile(path, 'utf8')).toBe(
+      `before\nBar-${latestIndex}\nafter\n`,
+    );
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    const attempts = events.filter(
+      (event) => event.eventType === 'native.attempt',
+    );
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]?.payload).toMatchObject({
+      toolCallId: calls[latestIndex],
+    });
+  });
+
+  it('rejects a stale read after a newer delivery claim', async () => {
+    const sequences = await Promise.all([claimDelivery(), claimDelivery()]);
+    const olderSequence = Math.min(
+      ...sequences.filter(
+        (sequence): sequence is number => sequence !== undefined,
+      ),
+    );
+    const newerSequence = Math.max(
+      ...sequences.filter(
+        (sequence): sequence is number => sequence !== undefined,
+      ),
+    );
+
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path },
+        {
+          ...context,
+          nativeDeliverySequence: olderSequence,
+          toolCallId: 'stale-read',
+        },
+        5,
+      ),
+    ).toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
+    });
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path },
+        {
+          ...context,
+          nativeDeliverySequence: newerSequence,
+          toolCallId: 'current-read',
+        },
+        5,
+      ),
+    ).toMatchObject({ status: 'success' });
+  });
+
+  it('does not bind a stale delivery host before the current delivery succeeds', async () => {
+    const sequences = await Promise.all([claimDelivery(), claimDelivery()]);
+    const olderSequence = Math.min(
+      ...sequences.filter(
+        (sequence): sequence is number => sequence !== undefined,
+      ),
+    );
+    const newerSequence = Math.max(
+      ...sequences.filter(
+        (sequence): sequence is number => sequence !== undefined,
+      ),
+    );
+
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path },
+        {
+          ...context,
+          nativeExecutorId: 'host-a',
+          nativeDeliverySequence: olderSequence,
+          toolCallId: 'stale-host',
+        },
+        5,
+      ),
+    ).toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
+    });
+    expect(
+      await tenantDb.runAs(owner, (tx) =>
+        new RunsRepository(tx).findById(runId, owner),
+      ),
+    ).toMatchObject({ workerId: null });
+
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path },
+        {
+          ...context,
+          nativeExecutorId: 'host-b',
+          nativeDeliverySequence: newerSequence,
+          toolCallId: 'current-host',
+        },
+        5,
+      ),
+    ).toMatchObject({ status: 'success' });
+    expect(
+      await tenantDb.runAs(owner, (tx) =>
+        new RunsRepository(tx).findById(runId, owner),
+      ),
+    ).toMatchObject({ workerId: 'host-b' });
+  });
+
+  it('rejects a redelivery after the first native mutation is admitted', async () => {
+    const sequence = context.nativeDeliverySequence;
+    const first = await begin({
+      deliverySequence: sequence,
+      toolCallId: 'first-mutation',
+      operation: 'edit',
+    });
+    expect(first).toBeUndefined();
+
+    expect(await claimDelivery()).toBeUndefined();
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    expect(
+      events.filter((event) => event.eventType === 'run.started'),
+    ).toHaveLength(1);
+    expect(
+      events.filter((event) => event.eventType === 'native.attempt'),
+    ).toHaveLength(1);
+  });
+
+  it('deduplicates concurrent admissions with the same tool call id', async () => {
+    const results = await Promise.all([
+      begin({
+        deliverySequence: context.nativeDeliverySequence,
+        toolCallId: 'same-call',
+        operation: 'edit',
+      }),
+      begin({
+        deliverySequence: context.nativeDeliverySequence,
+        toolCallId: 'same-call',
+        operation: 'edit',
+      }),
+    ]);
+    expect(results.filter((result) => result === undefined)).toHaveLength(1);
+    expect(
+      results.filter((result) => result?.type === 'outcome_unknown'),
+    ).toHaveLength(1);
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    expect(
+      events.filter((event) => event.eventType === 'native.attempt'),
+    ).toHaveLength(1);
   });
 
   it('does not let another tenant bind or mutate through an owned Run', async () => {
