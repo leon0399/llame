@@ -153,8 +153,3 @@ export function renderSourceLine(
 ): string {
   return raw ? source : `${index + 1}: ${source}`;
 }
-
-/** Escaped source cost inside a JSON string, excluding its enclosing quotes. */
-export function serializedContentLength(content: string): number {
-  return JSON.stringify(content).length - 2;
-}

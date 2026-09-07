@@ -1,9 +1,3 @@
-import {
-  boundedReadLineCount,
-  renderSourceLine,
-  serializedContentLength,
-  splitSourceLines,
-} from '@workspace/native-file-tools';
 /**
  * Byte- and line-level reading of one already-open, already-validated
  * Knowledge file or directory: the streaming line-selection accumulator
@@ -12,6 +6,11 @@ import {
  * close-then-translate cleanup both paths rely on.
  */
 
+import {
+  boundedReadLineCount,
+  renderSourceLine,
+  splitSourceLines,
+} from '@workspace/native-file-tools';
 import {
   KNOWLEDGE_MAX_READ_BYTES,
   KNOWLEDGE_MAX_READ_LINES,
@@ -94,7 +93,7 @@ function appendKnowledgeLine(
     !state.selectionStorageFull
   ) {
     const rendered = renderSourceLine(sourceLine, state.lineIndex);
-    const renderedCodeUnits = serializedContentLength(rendered);
+    const renderedCodeUnits = serializedStringLength(rendered);
     if (
       state.serializedContentCodeUnits + renderedCodeUnits >
       budget.maxResultCodeUnits - budget.fixedResultCodeUnits
@@ -366,6 +365,11 @@ function flushDecoder(decoder: TextDecoder): string {
   } catch {
     throw new KnowledgeFilesystemError('knowledge_content_invalid');
   }
+}
+
+/** Escaped source cost inside a JSON string, excluding its enclosing quotes. */
+function serializedStringLength(value: string): number {
+  return JSON.stringify(value).length - 2;
 }
 
 export function serializedFixedReadResultLength(value: {
