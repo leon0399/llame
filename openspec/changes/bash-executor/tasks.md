@@ -41,8 +41,8 @@ master
 
 ## 5. acceptance
 
-- [ ] 5.1 Add an alpha workflow that reads a file, runs `grep`/`jq` or Python, edits a file, rereads it, and reports bounded output; verify the same path and bytes are used throughout.
-- [ ] 5.2 Run package/runtime contract tests, typecheck, lint, build, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify no direct host bash, Git submit, Markdown processor, or URL loader is claimed.
+- [x] 5.1 Add an alpha workflow that reads a file, runs `grep`/`jq` or Python, edits a file, rereads it, and reports bounded output; verify the same path and bytes are used throughout.
+- [x] 5.2 Run package/runtime contract tests, typecheck, lint, build, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify no direct host bash, Git submit, Markdown processor, or URL loader is claimed.
 
 ## 6. finalize
 
