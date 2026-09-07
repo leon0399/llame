@@ -1,5 +1,16 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-08
+
+- `read` now returns a bounded two-level listing for a directory path (#704)
+  instead of failing as a non-regular file. Directories come before files at
+  each level, symbolic links are marked `@` and never descended, special
+  entries are marked `?` and never opened, and a range selector switches the
+  read to a flat page of the requested level. Bounds are deterministic: a
+  10,000-entry traversal budget per directory, 20 rendered entries per child,
+  whole-child elision last-first when the result cap is exceeded, then ordinary
+  truncation with `nextOffset` over the requested level.
+
 # 2026-09-07
 
 - Fix Git hooks from linked worktrees, where `pre-push` never ran a lint task.
