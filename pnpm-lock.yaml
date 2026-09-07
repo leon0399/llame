@@ -623,6 +623,37 @@ importers:
 
   packages/config-typescript: {}
 
+  packages/native-file-tools:
+    dependencies:
+      '@workspace/runtime-safety':
+        specifier: workspace:*
+        version: link:../runtime-safety
+    devDependencies:
+      '@barney-media/crap-typescript':
+        specifier: 'catalog:'
+        version: 0.5.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.16.5
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
+      '@workspace/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.78.0(oxlint-tsgolint@7.0.2001)
+      oxlint-tsgolint:
+        specifier: 'catalog:'
+        version: 7.0.2001
+      typescript:
+        specifier: 'catalog:'
+        version: 5.7.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0)(supports-color@8.1.1))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.2)(tsx@4.23.12)(yaml@2.9.0))
+
   packages/oxlint-plugin-anti-slop:
     devDependencies:
       oxlint:

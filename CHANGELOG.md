@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-06
 
+- Add the framework-independent native file reader package (#212), with absolute
+  paths, one-based selectors, verbatim raw reads, adjacent source context, and
+  bounded UTF-8 output. Model tool registration follows in the next layer.
+
 - **Chat load without layout shift** (#662): the transcript stays behind a
   centered spinner with a disabled composer until the markdown and reasoning
   renderer chunks are real module handles, so a reload no longer paints

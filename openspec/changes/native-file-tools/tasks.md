@@ -20,12 +20,12 @@ Markdown, or adds URL loading.
 
 ## 1. reader-core
 
-- [ ] 1.1 Create `packages/native-file-tools` with zero application-framework dependencies; verify package build, lint, typecheck, and focused tests run independently.
-- [ ] 1.2 Implement absolute-path resolution, regular-file checks, literal-path precedence, and selector parsing for `:N-M`, `:N+K`, `:raw`, and `:raw:N-M`; verify one-based selectors, malformed/overflow/reversed selectors, missing paths, directories, special files, and literal colon-suffixed filenames.
-- [ ] 1.3 Reuse or extract the current logical-line parser with LF/CRLF/lone-CR handling, terminal-delimiter behavior, bounded UTF-8 reads, and whole-line output limits; verify against the existing Knowledge filesystem tests.
-- [ ] 1.4 Implement one-line preceding/following context expansion and details for requested range, shown range, representation, absolute path, and truncation; verify start-of-file, EOF, selector continuation, raw mode, and cap behavior.
-- [ ] 1.5 Implement the OMP-inspired result envelope with one content block and path-specific details; verify generated line prefixes are presentation metadata and raw content remains verbatim.
-- [ ] 1.6 Keep all mutations disabled in the reader layer; verify no Git, URL, Markdown, directory, SQLite, or permission dependency enters the package.
+- [x] 1.1 Create `packages/native-file-tools` with zero application-framework dependencies; verify package build, lint, typecheck, and focused tests run independently.
+- [x] 1.2 Implement absolute-path resolution, regular-file checks, literal-path precedence, and selector parsing for `:N-M`, `:N+K`, `:raw`, and `:raw:N-M`; verify one-based selectors, malformed/overflow/reversed selectors, missing paths, directories, special files, and literal colon-suffixed filenames.
+- [x] 1.3 Reuse or extract the current logical-line parser with LF/CRLF/lone-CR handling, terminal-delimiter behavior, bounded UTF-8 reads, and whole-line output limits; verify against the existing Knowledge filesystem tests.
+- [x] 1.4 Implement one-line preceding/following context expansion and details for requested range, shown range, representation, absolute path, and truncation; verify start-of-file, EOF, selector continuation, raw mode, and cap behavior.
+- [x] 1.5 Implement the OMP-inspired result envelope with one content block and path-specific details; verify generated line prefixes are presentation metadata and raw content remains verbatim.
+- [x] 1.6 Keep all mutations disabled in the reader layer; verify no Git, URL, Markdown, directory, SQLite, or permission dependency enters the package.
 
 ## 2. edit-write
 
