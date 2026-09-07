@@ -171,7 +171,7 @@ describe("native source reads", () => {
       status: "success",
       content: "",
       shownRange: null,
-      nextOffset: 0,
+      nextOffset: 1,
       truncated: true,
     });
     expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(

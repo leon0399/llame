@@ -12,7 +12,7 @@ export class NativeFilesRepository {
     runId: string;
     userId: string;
     executorId: string;
-    deliverySequence?: number;
+    deliverySequence: number | undefined;
     toolCallId: string;
     operation: 'read' | 'edit' | 'write';
     path: string;
