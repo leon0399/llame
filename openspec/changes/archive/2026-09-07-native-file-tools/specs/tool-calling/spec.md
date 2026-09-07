@@ -46,7 +46,7 @@ The loop remains queue-processed and durable.
 #### Scenario: Step cap reached fails closed to answering
 
 - **WHEN** a Run reaches the configured maximum tool steps
-- **THEN** no further calls execute and the cap is recorded in Run events
+- **THEN** no further calls execute, the model is driven to answer from what it has, and the Run completes with the cap recorded in Run events
 
 ### Requirement: Tool registry with mandatory safety classification
 

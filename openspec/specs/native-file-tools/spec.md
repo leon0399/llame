@@ -70,7 +70,7 @@ content without generated line prefixes, context expansion, or processors.
 
 - **WHEN** the model calls `read` with the `:raw` selector
 - **THEN** the result contains the selected source bytes without line prefixes or generated helpers
-- **AND** the result remains subject only to common output bounds
+- **AND** the result remains subject to the common output bounds, including the shared 2,000-line read ceiling
 
 #### Scenario: Truncated result reports the shown range
 
