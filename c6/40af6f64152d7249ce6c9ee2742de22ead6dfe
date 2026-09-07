@@ -1,0 +1,36 @@
+packages/native-file-tools/src/read.test.ts
+  7d6acc8d5f25ee7e 43,48-56,58-77,79-97
+packages/native-file-tools/src/source-lines.ts
+  7d6acc8d5f25ee7e 69-80,101-102,105-111,113-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "c640af6f64152d7249ce6c9ee2742de22ead6dfe",
+  "prompts": {
+    "1759b94d5557912b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077dd-d279-71b3-b682-d9e1d85aa6ce",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 905,
+      "total_deletions": 76,
+      "accepted_lines": 772,
+      "overriden_lines": 0
+    },
+    "7d6acc8d5f25ee7e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7c08a0c6-5e94-427d-ba6b-5cdd45825cfe",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 92,
+      "total_deletions": 31,
+      "accepted_lines": 79,
+      "overriden_lines": 2
+    }
+  }
+}
