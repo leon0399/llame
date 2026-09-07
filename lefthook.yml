@@ -1,5 +1,7 @@
 # Installed by the root `prepare` script. Hooks never mutate files.
 
+rc: '"$(git rev-parse --show-toplevel)/.lefthookrc"'
+
 pre-commit:
   parallel: true
   jobs:

@@ -1,0 +1,25 @@
+# Sourced by the generated .git/hooks/* shim before Lefthook is dispatched.
+# The shim is a single file shared by every linked worktree, so this script
+# must resolve everything from the working tree git is running the hook in,
+# never from a path fixed at install time.
+
+# Git exports GIT_DIR to a hook only from a linked worktree, pointing at
+# .git/worktrees/<name>; the main checkout gets it unset. Every job inherits
+# it, and turbo then hangs instead of linting. The githooks manual prescribes
+# exactly this: a hook invoking Git elsewhere "should clear these environment
+# variables so they do not interfere". Upstream: evilmartians/lefthook#1077,
+# #1265. GIT_INDEX_FILE is deliberately kept — git points it at a temporary
+# index for a partial commit, and Lefthook must read that one to see what is
+# actually being committed.
+unset GIT_DIR
+
+# Pin dispatch to this working tree's Lefthook. The shim otherwise prefers any
+# lefthook on PATH, then a node_modules path baked in by whichever worktree
+# installed last — which silently no-ops once that worktree is gone, letting a
+# commit pass with every gate skipped. Upstream: evilmartians/lefthook#1398.
+if [ -x node_modules/.bin/lefthook ]; then
+  LEFTHOOK_BIN=node_modules/.bin/lefthook
+else
+  echo "lefthook: no node_modules in $(pwd) — run 'pnpm install' here." >&2
+  exit 1
+fi
