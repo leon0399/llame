@@ -71,6 +71,10 @@ export default defineConfig({
         find: /^@workspace\/native-file-tools$/,
         replacement: pkgSrc('native-file-tools'),
       },
+      {
+        find: /^@workspace\/bash-executor$/,
+        replacement: pkgSrc('bash-executor'),
+      },
     ],
   },
   // NestJS DI resolves constructor parameters from reflect-metadata's

@@ -163,10 +163,12 @@ and [operator setup](docs/native-files.md).
 native file tools: one live working directory, bounded input/output/duration/
 process limits, attempt recording before start, known results only after
 process-tree quiescence, and `outcome_unknown` fencing without automatic replay.
-Direct host bash is not advertised. The model cannot select executor, host path,
-environment, network, or permission mode. A future managed Sandbox adapter and a
-separate permission proposal must land before model-facing bash is enabled behind
-a stronger isolation class. This contract is not tenant isolation. See
+When `tools.nativeExecutorId` is set and `bash` is allowlisted, model-facing
+`bash` runs on that alpha host as `bash -c` over model-supplied shell text. The
+model cannot select executor, host path, environment, network, or permission
+mode. This is explicit host authority, not tenant isolation. A future managed
+Sandbox adapter and a separate permission proposal may strengthen isolation
+without changing the command/result contract. See
 [bash execution](openspec/specs/bash-execution/spec.md).
 
 ## 14. Provider and model configuration

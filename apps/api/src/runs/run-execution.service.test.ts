@@ -1060,7 +1060,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         { path: '/native/file', oldText: 'Foo', newText: 'Bar' },
         { toolCallId: 'native-unknown', messages: [] },
       ),
-    ).rejects.toThrow('Native mutation outcome is unknown');
+    ).rejects.toThrow('Host command or mutation outcome is unknown');
     expect(options.abortSignal?.aborted).toBe(true);
   });
 

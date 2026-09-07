@@ -1,3 +1,4 @@
+import { isHostCapabilityTool } from '../tools/bash';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
@@ -668,13 +669,13 @@ export class RunExecutionService {
               recordToolCompleted(toolCallId, declaration.id, args, result);
             }
             if (
-              isNativeFileTool(executor) &&
+              isHostCapabilityTool(executor) &&
               result.status === 'error' &&
               result.type === 'outcome_unknown'
             ) {
               await deltaWrites;
               throw new Error(
-                'Native mutation outcome is unknown; the Run cannot continue.',
+                'Host command or mutation outcome is unknown; the Run cannot continue.',
               );
             }
             return isNativeFileTool(executor)

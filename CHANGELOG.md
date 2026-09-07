@@ -21,11 +21,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `evilmartians/lefthook#1077`, `#1265`, `#1398`; no release through 2.1.12
   addresses them.
 
+- Enable alpha host `bash` behind `tools.nativeExecutorId` and `tools.allowed`
+  (#697): model shell text runs as `bash -c` in a trusted working directory,
+  sharing the native file workspace. Not tenant isolation; managed Sandbox and
+  permissions remain follow-ups.
+
 - Add the managed bash-executor contract package (#697): bounded allowlisted
   commands, same-directory handoff with native file tools, attempt receipts,
   process-group quiescence, and `outcome_unknown` fencing without automatic
-  replay. Direct host bash is not advertised; a future managed Sandbox and
-  permission proposals remain required before model-facing enablement.
+  replay.
 
 - Synchronize chat-overlap integration tests at Run completion instead of
   depending on short delays.
