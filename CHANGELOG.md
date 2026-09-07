@@ -2,6 +2,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-07
 
+- Fix Git hooks from linked worktrees, where `pre-push` never ran a lint task.
+  Git exports `GIT_DIR` to a hook only from a worktree, pointing at
+  `.git/worktrees/<name>`; every Lefthook job inherited it and `turbo` then
+  hung. Measured from a worktree: `pnpm lint:code` with `GIT_DIR` set hung past
+  a 300 s timeout having linted 0 of 9 packages, and passed in 24.5 s without
+  it. A new `.lefthookrc`, sourced by the generated shim, now unsets `GIT_DIR`
+  as the githooks manual prescribes, and pins `LEFTHOOK_BIN` to the working
+  tree's own `node_modules/.bin/lefthook` — the shim otherwise preferred any
+  Lefthook on `PATH`, silently running 2.1.4 against a 2.1.9 configuration,
+  then a `node_modules` path baked in by whichever worktree installed last,
+  which no-ops once that worktree is gone and lets a commit pass with every
+  gate skipped. A worktree with no install now fails with an actionable message
+  instead of blocking on `pnpm`'s TTY-less prompt. The rc path resolves through
+  `git rev-parse --show-toplevel` at hook time, so one shared `.git/hooks` file
+  serves every worktree, and `.gitattributes` pins the file to LF because a
+  single CR would abort every hook. Upstream, all open:
+  `evilmartians/lefthook#1077`, `#1265`, `#1398`; no release through 2.1.12
+  addresses them.
+
 - Synchronize chat-overlap integration tests at Run completion instead of
   depending on short delays.
 

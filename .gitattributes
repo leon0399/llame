@@ -24,3 +24,6 @@ apps/api/src/db/migrations/meta/** linguist-generated=true
 *.webp  binary
 *.woff  binary
 *.woff2 binary
+
+# Sourced by the generated git hook shim; a CR would abort every hook.
+.lefthookrc text eol=lf
