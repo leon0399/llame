@@ -2,6 +2,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-07
 
+- Synchronize chat-overlap integration tests at Run completion instead of
+  depending on short delays.
+
 - Add opt-in native host `read`, exact `edit`, and create-only `write` tools
   (#212). Runs bind to a stable executor identity on first native use; durable
   mutation attempts prevent queue retries from repeating file changes, model
