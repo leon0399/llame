@@ -112,8 +112,13 @@ availability transition.
 
 ### D3. Per-model threshold, constant ratio, existing estimator
 
-`budget = models[].toolSearchThresholdTokens ?? floor(contextWindowTokens × 0.1)`. The budget
-governs only the deferrable part of the catalog: code-owned tools are always declared and never
+`budget = models[].toolSearchThresholdTokens ?? floor(usableContextTokens × 0.1)`, where
+`usableContextTokens` is the model's compaction trigger threshold, resolved by the existing
+`resolveCompactionThreshold` (`compaction.ts`) rather than restated here, so a future ratio
+change moves both together. The window is the wrong denominator: declarations compete with the
+conversation for the tokens available _before_ compaction, so on a 1M-window model configured
+with a 200k `compactionThresholdTokens`, a 100k catalog is half the usable context, not a tenth
+of anything. The budget governs only the deferrable part of the catalog: code-owned tools are always declared and never
 counted, so the cut below always terminates and a tiny override cannot make a Run unsatisfiable
 (Codex PR finding). The MCP estimate is the ~4 chars/token estimator over the canonical JSON of
 every eligible MCP declaration, computed once at accept from already-canonical declarations.
@@ -121,7 +126,8 @@ Deferral engages only when `mcpEstimate > budget` (strict; #338's sketch wrote `
 difference is one token). A per-model positive-integer override mirrors
 `compactionThresholdTokens`; a threshold below every inventory entry cuts every MCP tool into
 `declaration_budget_exceeded` and binds no `tool_search`, which is the honest outcome rather
-than a special eval mode.
+than a special eval mode. An override _above_ the usable context is likewise the operator's
+call and is not validated, for the same reason the too-small case is not a startup failure.
 The inventory is counted against the same budget with one strategy-neutral estimate, ids plus
 admitted descriptions, which is the surface the `openai` strategy keeps visible and a
 conservative over-count for the `harness` enum; charging the two strategies differently would
@@ -133,10 +139,12 @@ the receipt rather than vanishing (reviewer C-F7; a 1,000-id enum is ~16k tokens
 model's budget). No instance-level knob, per the `instance-config`
 rule against instance-level context-window settings. Rejected: an instance-level percentage
 (contradicts that rule), a flat tool-count cap (#338 explains why the two limits must not be
-conflated).
+conflated), and a ratio taken against `contextWindowTokens`, which silently widens the budget on
+any model whose compaction threshold is configured below its window.
 
-Why no tokenizer: the estimate feeds a trip-wire at 10% of the window, which tolerates a ±30%
-error, and no local tokenizer can be exact about tool definitions anyway, because each provider
+Why no tokenizer: the estimate feeds a trip-wire at 10% of the usable context — 8% of the window
+in the default case, so tighter than the Claude Code row's 10%-of-window trigger, deliberately —
+which tolerates a ±30% error, and no local tokenizer can be exact about tool definitions anyway, because each provider
 renders them through its own template (OpenAI compacts JSON Schema into a TypeScript-like
 namespace, Anthropic prepends a tool-use preamble, open models follow their chat template) before
 tokenizing. Measured with `o200k_base` on canonical JSON of three representative declarations
@@ -298,7 +306,7 @@ shows the `tool_search` declaration like any other. No new UI component.
 - [Enum of many ids is itself large] → bounded by the 1,000-tool guard; an order of magnitude
   below the schemas replaced; recorded in the receipt so the cost is visible.
 - [Crude token estimate misjudges the budget] → the estimate errs the same way compaction's does;
-  the override exists for a model where 10% is wrong.
+  the override exists for a model where 10% of the usable context is wrong.
 - [Loaded schemas inflate a `tool_search` result] → `limit ≤ 20` and the executor drops whole
   declarations to fit the cap, so the result is never truncated and loaded means delivered.
 - [A Run expires before its loaded ids are recorded] → the ids are written per `tool_search`
