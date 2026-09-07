@@ -9,7 +9,18 @@ import {
   MAX_RESULT_CODE_UNITS,
   splitSourceLines,
 } from "./read";
+import type { ReadSuccess } from "./source-lines";
 import { measureNativeModelOutput } from "./serialization";
+
+function assertFileSuccess(result: unknown): asserts result is ReadSuccess {
+  if (
+    typeof result !== "object" ||
+    result === null ||
+    (result as { status: string }).status !== "success" ||
+    (result as { kind: string }).kind !== "file"
+  )
+    throw new Error("Expected file success result");
+}
 
 describe("native source reads", () => {
   let directory: string;
@@ -57,7 +68,7 @@ describe("native source reads", () => {
       nextOffset: 1,
       truncated: true,
     });
-    if (first.status !== "success") throw new Error("Expected source result");
+    assertFileSuccess(first);
 
     // A second read at nextOffset reaches the line right after the poison
     // one instead of re-fetching the same unreadable line forever.
@@ -78,7 +89,7 @@ describe("native source reads", () => {
       nextOffset: 1,
       truncated: true,
     });
-    if (first.status !== "success") throw new Error("Expected source result");
+    assertFileSuccess(first);
 
     // The default prefixed read shows one preceding line, which lands back on
     // the unreadable line; dropping it is what keeps the range reachable.
@@ -91,7 +102,7 @@ describe("native source reads", () => {
   it("terminates with invalid_selector instead of looping when the oversized line is the file's last line", async () => {
     await writeFile(path, "x".repeat(MAX_RESULT_CODE_UNITS));
     const first = await readFile({ path: `${path}:1-1` });
-    if (first.status !== "success") throw new Error("Expected source result");
+    assertFileSuccess(first);
     const resumeLine = first.nextOffset! + 1;
     expect(
       await readFile({ path: `${path}:raw:${resumeLine}-${resumeLine}` }),
@@ -158,7 +169,7 @@ describe("native source reads", () => {
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(16_000);
     expect(truncateOversizedResult(result)).toBe(result);
     expect(result).toMatchObject({ status: "success", truncated: true });
-    if (result.status !== "success") throw new Error("Expected source result");
+    assertFileSuccess(result);
     expect(result.content.endsWith("\n")).toBe(true);
     expect(result.nextOffset).toBe(result.shownRange?.endLine);
   });
@@ -211,13 +222,19 @@ describe("native source reads", () => {
       status: "error",
       type: "not_found",
     });
-    expect(await readFile({ path: directory })).toMatchObject({
-      status: "error",
-      type: "not_regular_file",
-    });
     expect(await readFile({ path: "/dev/null" })).toMatchObject({
       status: "error",
       type: "not_regular_file",
+    });
+  });
+
+  it("returns a directory listing for a directory target", async () => {
+    await writeFile(path, "content");
+    const result = await readFile({ path: directory });
+    expect(result).toMatchObject({
+      status: "success",
+      kind: "directory",
+      path: directory,
     });
   });
   it("reads a bounded range from a source larger than one MiB", async () => {
