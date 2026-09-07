@@ -1,0 +1,24 @@
+CHANGELOG.md
+  aadb417da3031563 5-22
+.lefthookrc
+  aadb417da3031563 1-4,6-13,16-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "e90eb36bc4948b4526e549613f7f76ffcac23fb1",
+  "prompts": {
+    "aadb417da3031563": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e4d9dff8-2bb5-4a63-85be-4269a78d5bd4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 38,
+      "total_deletions": 22,
+      "accepted_lines": 34,
+      "overriden_lines": 0
+    }
+  }
+}
