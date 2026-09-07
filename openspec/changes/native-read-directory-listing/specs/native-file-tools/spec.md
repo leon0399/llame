@@ -103,8 +103,10 @@ entries, two levels deep. The first content line SHALL be the header: the
 directory path as given by the caller. The header SHALL NOT count as a listing
 entry. Each entry SHALL be rendered on its own line, indented two spaces per
 level below the requested directory, as `- name/` for a directory, `- name` for
-a regular file, and `- name@` for a symbolic link of any target kind. Symbolic
-links found as entries SHALL NOT be descended. A symbolic link given as the
+a regular file, `- name@` for a symbolic link of any target kind, and
+`- name?` for any other entry kind such as a FIFO, socket, or device. Symbolic
+links found as entries SHALL NOT be descended, and special entries SHALL NOT be
+opened or followed. A symbolic link given as the
 target path SHALL resolve to its target directory as file reads resolve today.
 Entries below the second level SHALL be counted but never rendered. A directory
 with no entries SHALL render `(empty directory)` as its only line after the
@@ -121,6 +123,12 @@ prefixes.
 
 - **WHEN** the model reads a directory containing files, subdirectories, and a symbolic link
 - **THEN** content starts with the header, lists directories before files at each level, renders each child directory's entries indented beneath it, and marks the symbolic link with `@` without listing anything beneath it
+
+#### Scenario: Special entry is marked and never opened
+
+- **WHEN** the model reads a directory containing a FIFO
+- **THEN** the FIFO appears as `- name?` in order among the files
+- **AND** the read completes without opening it
 
 #### Scenario: Symbolic link target is listed
 
@@ -140,7 +148,13 @@ prefixes.
 
 ### Requirement: Directory listing bounds favor the requested level
 
-The requested directory's own entries SHALL NOT be capped by a per-level limit.
+Each directory read for a listing, requested or child, SHALL retain at most
+10,000 entry names for ordering while continuing to count entries beyond that
+budget. A requested directory over the budget SHALL fail closed with a
+`directory_too_large` error that states the count and no listing. A child
+directory over the budget SHALL render only its `- name/` line followed by an
+indented `… N entries` line with the exact count. Within that budget, the
+requested directory's own entries SHALL NOT be capped by a per-level limit.
 Each child directory SHALL render at most 20 entries in order, followed by one
 `… N more` line stating the number of omitted entries when any were omitted.
 When the rendered two-level listing exceeds the common native result cap, the
@@ -149,16 +163,30 @@ line rendered beneath one child directory including its `… N more` line, with
 one indented `… N entries` line stating that child's total entry count; the
 requested level's own lines SHALL be preserved by that step. An empty child
 directory SHALL render as its `- name/` line alone, so a bare child line means
-empty and an `… N entries` line means elided. The `… N entries` markers count as requested-level lines for the next step.
-Only when the requested level's own lines still exceed the cap SHALL the tool
-apply the ordinary truncation metadata, including `nextOffset`, over the
-requested level's entries and their markers in order.
+empty and an `… N entries` line means elided. The `… N entries` markers count toward the size of the requested level for
+the next step but SHALL NOT occupy entry index positions. Only when the
+requested level's entries and their markers still exceed the cap SHALL the tool
+apply the ordinary truncation metadata over the requested-level entries in
+order, each marker travelling with the entry it hangs from; `nextOffset` SHALL
+identify the next requested-level entry index that was not emitted.
 A range selector on a directory path SHALL switch the read to a flat listing of
 the requested level: the header, then the selected entries by one-based entry
 index, with no child entries and no context expansion, regardless of whether
 the two-level listing would have fit. `nextOffset` SHALL identify the next
 entry index of the requested level. The `:raw` selector on a directory SHALL
 fail with a selector error.
+
+#### Scenario: Requested directory over the traversal budget fails closed
+
+- **WHEN** the model reads a directory holding more than 10,000 entries
+- **THEN** the tool returns `directory_too_large` with the entry count
+- **AND** it emits no listing
+
+#### Scenario: Child directory over the traversal budget is elided
+
+- **WHEN** a child directory holds more than 10,000 entries
+- **THEN** the listing shows that child's `- name/` line followed by `… N entries` with the exact count
+- **AND** no entry of that child is rendered
 
 #### Scenario: Large child directory is summarized
 

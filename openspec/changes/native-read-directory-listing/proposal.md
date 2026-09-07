@@ -18,8 +18,13 @@ answer to issue #704.
   `(empty directory)`.
 - Order entries with directories first, then names under the host collation.
 - List the requested directory without a per-level cap, and each child
-  directory up to 20 entries followed by `… N more`. Grandchildren are counted,
-  never rendered.
+  directory up to 20 entries followed by `… N more`. Entries below the second
+  level are counted, never rendered. Special entries such as FIFOs render as
+  `- name?` and are never opened.
+- Bound traversal, not only output: at most 10,000 entry names are retained
+  per directory read. The requested directory fails closed with
+  `directory_too_large` over that budget; a child over it renders in its
+  elided form.
 - Keep the shared result envelope: when the rendered listing exceeds the common
   result cap, replace whole child blocks last-first with `… N entries`
   markers before truncating the requested level. A range selector switches the read to

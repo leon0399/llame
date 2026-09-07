@@ -40,8 +40,8 @@ protect. Selectors already give `read` a place for future listing options.
 The requested directory answers "what is here"; children answer "how is it
 organised". A flat listing forces the model to walk, which it skips. OMP's 12
 per directory is too small for a notes folder; 20 keeps one vault subfolder
-readable without letting a `node_modules` child dominate. Grandchildren are
-counted for `… N more` only.
+readable without letting a `node_modules` child dominate. Entries below the
+second level are counted for `… N more` only.
 
 ### D3: Directories first, `localeCompare` on name, no metadata
 
@@ -74,8 +74,10 @@ marker because it tells the model why nothing appears beneath it.
    it does, and an elided child is distinguishable from an empty one, which
    renders as a bare `- name/` line.
 4. If the requested level plus its `… N entries` markers still overflows,
-   reuse the existing whole-line prefix truncation with `nextOffset` over that
-   sequence, so no state falls between steps 3 and 4.
+   reuse the existing whole-line prefix truncation over the requested-level
+   entries, each marker travelling with its entry. Markers count toward size,
+   never toward index positions, so `nextOffset` and `:N-M` always name real
+   entries and no state falls between steps 3 and 4.
 
 A range selector is a mode switch, not a slice of the tree: it returns the
 header plus the selected requested-level entries and nothing beneath them,
@@ -94,6 +96,18 @@ implementation. The Knowledge walker is not refactored now. Recorded option
 for issue #702: a scheme parser reads `kb://`, extracts the Space ID, verifies access, and
 maps to this native call.
 
+### D8: Bound traversal with a 10,000-entry budget per directory
+
+Deterministic ordering needs every name of a level in memory before rendering,
+so an output cap alone leaves I/O and memory unbounded for a model-facing tool.
+Each directory read keeps at most 10,000 names and keeps counting past that.
+The requested directory fails closed with `directory_too_large` because a
+deterministic first page of an unsorted overflow does not exist; a child over
+budget degrades to its elided `… N entries` form since the count is exact and
+nothing else about it is. The Knowledge walker already applies the same idea
+with `KNOWLEDGE_MAX_ENTRIES`; this value is per directory rather than per walk
+because the listing is shallow.
+
 ### D7: Narrow `not_regular_file` instead of adding a type
 
 Directories move from the error branch to a success branch; the remaining error
@@ -101,9 +115,10 @@ population is sockets, devices, and FIFOs. `edit` and `write` are untouched.
 
 ## Risks / Trade-offs
 
-- [Coding checkout roots list thousands of entries] → requested level is
-  unbounded by design; the common cap plus `nextOffset` paging keeps the result
-  bounded and the model can page or read a child directly.
+- [Coding checkout roots list thousands of entries] → requested level has no
+  display cap by design; the common cap plus `nextOffset` paging keeps the
+  result bounded and the model can page or read a child directly. Past 10,000
+  entries the read fails closed (D8).
 - [Collation differs between hosts] → determinism is specified per host; a
   future ordering selector, tracked under #701, can offer a locale-free order.
 - [Verbatim listing exposes dotfiles and secrets by name] → names only, never
@@ -120,6 +135,9 @@ data, config, or migration impact. Rollback is reverting the layer.
 
 ## Revision history
 
+- **v5 (2026-09-07):** CodeRabbit round. Traversal budget (D8, new error);
+  special entries render `- name?`; markers never occupy index positions; depth
+  wording aligned; finalize gains `git diff --check`.
 - **v4 (2026-09-07):** Leo's Plannotator notes. Follow-up issues #711-#714
   named in Non-Goals, D3, D4; `kb://` integration stated as a non-goal.
 - **v3 (2026-09-07):** Round-2 review. Elided child blocks render as
