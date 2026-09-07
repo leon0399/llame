@@ -85,7 +85,7 @@ const PATH_GUIDANCE =
 export const nativeReadTool: Tool<{ path: string }> = {
   id: 'read',
   classification: 'read_only',
-  description: `Read a local UTF-8 regular file. ${PATH_GUIDANCE} Select one-based lines with :N-M or :N+K. Normal reads include one live line on either side. :raw and :raw:N-M return verbatim source without prefixes or context. nextOffset is zero-based: resume at nextOffset + 1.`,
+  description: `Read a local UTF-8 regular file or list a directory. ${PATH_GUIDANCE} Select one-based lines with :N-M or :N+K. Normal reads include one live line on either side. :raw and :raw:N-M return verbatim source without prefixes or context. Directories return a depth-2 listing (- name/, - name, - name@, - name?). A trailing / is optional on directories. :raw is not supported for directories; :N-M returns a flat root-level slice. nextOffset is zero-based: resume at nextOffset + 1.`,
   inputSchema: z.object({ path: z.string().min(1) }).strict(),
   execute: (context, input) =>
     executeNative(context, { operation: 'read', input }),
