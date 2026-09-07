@@ -1,10 +1,12 @@
+# native-file-tools
+
 ## Purpose
 
 Provides one bounded native file interface for local coding and file-backed
 Knowledge work, with exact edits, create-only writes, selector-based reads, and
 future source/type extensions behind one result shape.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Native tools operate on absolute local regular files
 
@@ -45,7 +47,10 @@ range. Existing literal paths SHALL take precedence over selector parsing.
 Ordinary bounded ranges SHALL include one preceding and one following source
 line when available. The extended lines SHALL appear in the same `content` block
 as the requested lines. Result details SHALL identify requested and shown ranges,
-representation, path, and common truncation state. `nextOffset` SHALL identify
+representation, path, and common truncation state. Requested bounds SHALL remain
+the normalized request even when the displayed source ends earlier; shown bounds
+SHALL describe only emitted source lines. Empty files SHALL return null ranges.
+`nextOffset` SHALL identify
 the next requested source line. Raw reads SHALL return verbatim selected source
 content without generated line prefixes, context expansion, or processors.
 
@@ -65,7 +70,7 @@ content without generated line prefixes, context expansion, or processors.
 
 - **WHEN** the model calls `read` with the `:raw` selector
 - **THEN** the result contains the selected source bytes without line prefixes or generated helpers
-- **AND** the result remains subject only to common output bounds
+- **AND** the result remains subject to the common output bounds, including the shared 2,000-line read ceiling
 
 #### Scenario: Truncated result reports the shown range
 

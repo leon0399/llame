@@ -17,6 +17,12 @@ The `mcp__` prefix SHALL remain reserved for MCP-generated ids.
 - **WHEN** an allowlisted tool classified `read_only` is called
 - **THEN** it executes
 
+#### Scenario: Alpha native file tool executes only in its host capability
+
+- **WHEN** an exact code-owned native tool is allowlisted and its trusted alpha native capability is present
+- **THEN** it executes with the native host authority declared by that capability
+- **AND** it is not substituted with a hosted path or remote MCP operation
+
 #### Scenario: Knowledge submit executes only in its native capability
 
 - **WHEN** exact code-owned `knowledge_submit` is allowlisted and trusted native Knowledge capability is present
@@ -53,6 +59,12 @@ settlement. The capability SHALL durably record a pre-effect attempt and fence
 retries until it reconciles a known commit or returns `outcome_unknown`.
 Client reconnect SHALL replay recorded activity without executing the effect.
 
+#### Scenario: Known native mutation result is replayed without execution
+
+- **WHEN** a native edit or write settled before a client reconnect
+- **THEN** replay returns the recorded tool result
+- **AND** the filesystem mutation is not executed again
+
 #### Scenario: Worker death mid-loop does not resume tool state
 
 - **WHEN** the worker dies after several completed tool steps and the Run expires
@@ -62,6 +74,12 @@ Client reconnect SHALL replay recorded activity without executing the effect.
 
 - **WHEN** a client reconnects after a submit result was settled
 - **THEN** replay reconstructs the result without running Git again
+
+#### Scenario: Worker failure does not replay a native mutation
+
+- **WHEN** a worker fails after a native mutation may have started but before its result is known
+- **THEN** the mutation is recorded as `outcome_unknown` or the native attempt fails terminally
+- **AND** a queue retry does not invoke that mutation again
 
 #### Scenario: A queue retry re-executes the loop from the start
 
@@ -73,3 +91,9 @@ Client reconnect SHALL replay recorded activity without executing the effect.
 
 - **WHEN** a job retries for a terminal Run
 - **THEN** the Run is not reopened and no tool executes
+
+#### Scenario: Read-only retry remains unchanged
+
+- **WHEN** a claimable Run contains only read-only tools and its job retries
+- **THEN** the existing read-only retry behavior remains available
+- **AND** no native mutation is inferred from the read-only result

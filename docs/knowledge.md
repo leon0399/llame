@@ -4,6 +4,8 @@ Opt-in, owner-scoped read access to live Markdown under multiple Knowledge
 Spaces. Disk contents are authoritative, including uncommitted edits.
 
 `knowledge_read` is deprecated in favor of native `read` on trusted local hosts.
+Drain pre-cutover Runs before deploying its changed declaration; historical
+observations remain unchanged.
 It remains available with its existing owner/Space checks, 1 MiB source limit,
 and exact requested-range response. Both tools share line splitting, range
 bounds, numbering, and serialized-content budgeting. Native host setup and

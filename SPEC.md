@@ -24,7 +24,7 @@ When prose conflicts with code or a capability spec, treat the prose as stale an
 
 ## 1. Product boundary
 
-llame currently provides authenticated multi-user chat, durable agentic Runs, operator-configured models, owner-only Projects, hybrid chat search, owner-scoped personal Markdown Knowledge reads, and a bounded read-only tool loop over native, Knowledge, and operator-configured remote MCP tools.
+llame currently provides authenticated multi-user chat, durable agentic Runs, operator-configured models, owner-only Projects, hybrid chat search, owner-scoped personal Markdown Knowledge reads, and a bounded tool loop over conversation, Knowledge, configured native file, and operator-configured remote MCP tools.
 
 A Project currently groups one owner's Chats. It does not grant shared membership, own knowledge, attach tools, or provide a filesystem workspace. See [`openspec/specs/projects`](openspec/specs/projects/spec.md).
 
@@ -112,21 +112,21 @@ Reserved delimiters are neutralized on the user and tool rails so untrusted cont
 
 ## 13. Tools and integrations
 
-The current Run loop interleaves model output with tool calls within an operator step cap. The code-owned tools are `search_conversations` (two-mode: keyword content search with optional time ranges, and timeline activity-pointer discovery), the optional `conversation_read`, and the optional personal Knowledge readers; operators may also configure instance-scoped Streamable HTTP MCP servers through the restart-applied top-level `mcpServers` map. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the immutable Run snapshot.
+The current Run loop interleaves model output with tool calls within an operator step cap. The code-owned tools are `search_conversations` (two-mode: keyword content search with optional time ranges, and timeline activity-pointer discovery), the optional `conversation_read`, the personal Knowledge readers, and the opt-in native file tools; operators may also configure instance-scoped Streamable HTTP MCP servers through the restart-applied top-level `mcpServers` map. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the immutable Run snapshot.
 
 Remote ids are stable `mcp__<server>__<tool>` names. Only the exact ids in `tools.allowed` may be advertised or executed, and an MCP allowlist entry is the operator's attestation that the operation is read-only—not automated semantic verification. Write, send, delete, execute, financial, and administrative MCP operations are prohibited. Two transports ship: remote Streamable HTTP, and local stdio servers llame runs as child processes. Supported protocol revisions are the session-capable `2025-03-26`, `2025-06-18`, and `2025-11-25` on both; sessionless MCP `2026-07-28` and deprecated HTTP+SSE do not ship. A stdio child receives only its declared `env` over the MCP SDK's base allowlist — llame's own environment is not passed through — and executes unsandboxed as the llame user.
 
 Each API or worker process eagerly owns independent per-server clients and sessions. Disconnect and discovery failures withdraw only that server; turns never wait for remote discovery or reconnect, and workers execute only an exact declaration-hash match from the immutable Run snapshot. Configured endpoints are operator-approved outbound data boundaries. Redirects are disabled, while private endpoints are intentionally allowed for self-hosted services. See [`mcp-tools`](openspec/specs/mcp-tools/spec.md) and [docs/mcp-tools.md](docs/mcp-tools.md).
 
-Queue retries restart a still-claimable Run's tool loop from its first step. That is safe only while every executable tool is read-only. The first write-capable tool must ship checkpoint-or-dedupe semantics that prevent a retry from applying the same effect twice; classification and approval alone do not solve replay.
+Queue retries may restart read-only Runs from their first step. A Run that started a native mutation fails on recovery instead of replaying its model loop. The existing owner-scoped event log records native attempts before file changes and settles known results before continuation; client replay executes no filesystem operation.
 
 ### 13.5 Tool safety classification
 
-Every tool declares one classification: `read_only`, `write_low_risk`, `write_high_risk`, `execute_code`, `external_send`, `financial_or_sensitive`, or `admin`. The current runtime executes only operator-allowlisted `read_only` tools. See [`tool-calling`](openspec/specs/tool-calling/spec.md).
+Every tool declares one classification: `read_only`, `write_low_risk`, `write_high_risk`, `execute_code`, `external_send`, `financial_or_sensitive`, or `admin`. The runtime executes operator-allowlisted `read_only` tools and the exact configured native file capability; classification alone never grants write access. See [`tool-calling`](openspec/specs/tool-calling/spec.md).
 
 ### 13.6 Personal Knowledge reads
 
-The code-owned `knowledge_search` and `knowledge_read` tools are optional,
+The code-owned `knowledge_search` and deprecated `knowledge_read` tools are optional,
 operator-allowlisted `read_only` tools. Run acceptance resolves availability
 for the authenticated owner inside the Run-binding RLS transaction, without
 probing the API process filesystem. Workers resolve the binding from trusted Run
@@ -139,6 +139,23 @@ the same Knowledge-relative attribution. See
 [`knowledge-tools`](openspec/specs/knowledge-tools/spec.md),
 [`tool-calling`](openspec/specs/tool-calling/spec.md), and the
 [operator runbook](docs/knowledge.md).
+
+### 13.7 Native file execution
+
+An operator-provided `tools.nativeExecutorId` enables native host authority for
+allowlisted `read`, `edit`, and `write`. Paths are absolute, regular-file reads
+stream bounded source windows, edits replace one exact unique current match,
+and writes create only. Host process mutations are serialized, including
+symlink aliases; other processes and external editors are outside that guarantee.
+
+The first native call binds the Run's existing `worker_id` to that stable host
+identity. Native mutation attempts and results use the owner-scoped event log.
+An unsettled attempt never executes again; an unknown result aborts the model
+loop. Native files have no Knowledge-specific size ceiling, and their output
+shares the common result cap. The legacy Knowledge adapter retains its own
+owner/Space boundary and exact-range response while sharing reader primitives.
+Removal is tracked in #691. See [native file behavior](openspec/specs/native-file-tools/spec.md)
+and [operator setup](docs/native-files.md).
 
 ## 14. Provider and model configuration
 
@@ -196,11 +213,11 @@ expected hash, revision, host path, or alternate locator. Historical persisted
 results may retain the earlier hash-bearing shape and remain immutable. Later
 access changes affect the next check but do not rewrite historical results.
 
-Git history, recoverable agent writes, accepted revisions, and synchronization
+Git history, versioned publication, accepted revisions, and synchronization
 begin in #212 or later capabilities. No Knowledge index or embedding projection,
 heading-aware search, table of contents, generated synopsis, stable citation or
 Git revision contract, OKF/OpenWiki behavior, management UI, upload/import flow,
-delete lifecycle, generic filesystem, Workspace, Sandbox, local Node, or
+delete lifecycle, portable resource schemes, Workspace, Sandbox, local Node, or
 Personal Realm synchronization ships here.
 
 The configured root and all child directories are trusted-writer-only. The

@@ -2,59 +2,102 @@
 
 ## Purpose
 
-The durable, multi-step tool-calling run loop: inside the transport-agnostic run executor, a run may interleave model output with tool invocations — the model requests a tool, the loop executes it (tenant-scoped for code-owned tools, timeout-bounded), appends the result, and continues until a final answer or the operator step cap. Every executable tool in this slice is classified or operator-attested `read_only`; availability is a fail-closed operator allowlist (`tools.allowed`, default empty) over code-owned tools and explicitly configured remote MCP tools. Tool activity persists as AI-SDK tool parts + run events (replayable, rendered live and from history, excluded from public shares) and is replayed into later model turns as conventional tool-call/tool-result parts — labelled untrusted, escape-proofed, bounded per call and per turn. Approval flows (§7.5), write/execute tools, org/user grants, and the policy engine's deny-composition remain out of scope and extend this loop rather than replace it.
+The durable tool loop interleaves model output with operator-allowlisted read-only
+tools and the exact configured native file capability. Datastore operations stay
+owner-scoped under RLS; native file operations use explicitly accepted host OS
+authority. Tool activity persists for replay. Native mutations have durable
+pre-effect fencing and an unknown outcome stops the Run. General permission
+policy and write-capable MCP tools remain separate work.
 
 ## Requirements
 
 ### Requirement: Multi-step tool-calling run loop
 
-The run executor SHALL support multi-step runs: when the model requests tool invocations, the loop SHALL execute them, append the results to the run's model context, and continue the same run — repeating until the model produces a final answer or the step cap is reached. A **step** is one model turn that requested at least one tool. A model MAY request multiple tool calls in a single turn: they count as **one** step and execute **concurrently** (safe: read-only + individually timeout-bounded), each producing its own call/result parts. The step cap SHALL be evaluated per step, atomically: the turn that reaches the cap executes ALL of its requested calls; no call within an accepted step is refused because of the cap. The loop SHALL run inside the existing durable worker execution (queue-processed, heartbeated, resumable) — never on the request thread.
+The run executor SHALL support multi-step runs: when the model requests tool
+invocations, the loop SHALL execute them, append the results to the run's model
+context, and continue the same run until the model produces a final answer or
+the step cap is reached. A step is one model turn that requested at least one
+tool. Multiple independent read-only calls MAY execute concurrently. Calls that
+mutate the same native file path SHALL execute sequentially in provider-emitted
+order, each producing its own call/result parts. The step cap SHALL be evaluated
+per step, atomically: the turn that reaches the cap executes all accepted calls.
+The loop remains queue-processed and durable.
 
 #### Scenario: Model calls a tool and continues
 
 - **WHEN** the model requests an available tool with valid arguments
-- **THEN** the tool executes, its result enters the model context, and the model continues the same run to a final answer
+- **THEN** the tool executes, its result enters model context, and the model continues
 
 #### Scenario: Multiple sequential tool steps
 
-- **WHEN** the model chains several tool-requesting turns within one run
-- **THEN** each executes in order and the conversation context accumulates every call and result
+- **WHEN** the model chains several tool-requesting turns within one Run
+- **THEN** each executes in order and context accumulates every call and result
+
+#### Scenario: Independent read-only calls can run concurrently
+
+- **WHEN** the model requests independent read-only calls in one turn
+- **THEN** they may execute concurrently and the step counter increments once
 
 #### Scenario: Parallel tool calls within one turn count as one step
 
-- **WHEN** the model requests three tool calls in a single turn
-- **THEN** all three execute concurrently, each with its own call/result parts, and the step counter increments by one
+- **WHEN** the model requests three independent read-only tool calls in one turn
+- **THEN** all three may execute concurrently, each with its own call/result parts, and the step counter increments by one
+
+#### Scenario: Same-path native mutations are serialized
+
+- **WHEN** one model turn requests two native mutations against the same absolute path
+- **THEN** they execute sequentially in provider order
+- **AND** the later call observes the earlier call's current bytes
 
 #### Scenario: The cap-reaching step completes atomically
 
-- **WHEN** the step cap is 8, seven steps have run, and the model requests three tool calls in its eighth tool-requesting turn
-- **THEN** all three calls of that step execute; afterwards no further tools are offered or executed
+- **WHEN** the step cap is 8, seven steps have run, and the model requests three calls in its eighth tool turn
+- **THEN** all three accepted calls execute before further tools are refused
 
 #### Scenario: Step cap reached fails closed to answering
 
-- **WHEN** a run reaches the configured maximum tool steps
-- **THEN** no further tool calls execute; the model is driven to answer from what it has, and the run completes with the cap visibly recorded in the run's events
+- **WHEN** a Run reaches the configured maximum tool steps
+- **THEN** no further calls execute, the model is driven to answer from what it has, and the Run completes with the cap recorded in Run events
 
 ### Requirement: Tool registry with mandatory safety classification
 
-Every registered tool SHALL declare a safety classification from the SPEC §13.5 set (`read_only`, `write_low_risk`, `write_high_risk`, `execute_code`, `external_send`, `financial_or_sensitive`, `admin`). In this slice the loop SHALL execute **only `read_only`** tools: a tool with any other classification SHALL be neither advertised to the model nor executed, even if registered and allowlisted — approval machinery (§7.5) arrives with the first write-capable tool.
+Every registered tool SHALL declare a safety classification from the SPEC §13.5
+set (`read_only`, `write_low_risk`, `write_high_risk`, `execute_code`,
+`external_send`, `financial_or_sensitive`, `admin`). The loop SHALL execute
+allowlisted `read_only` tools and exact code-owned tools registered by an
+approved alpha-native capability. The initial native set is `read` classified
+`read_only`, plus `edit` and `write` classified `write_low_risk`; later native
+capabilities such as Knowledge submit or bash must declare their own exact tools
+and retry policy. Classification alone SHALL NOT admit any other write or
+execution tool. Alpha-native tools carry explicit host authority; they are not a
+general permission engine or a remote MCP write grant.
 
-The `mcp__` tool-id prefix SHALL be reserved for ids produced by the MCP capability. A code-owned or other non-MCP registry entry beginning with that prefix SHALL fail registration, so ID-only namespace permission matching cannot grant authority across source kinds.
+The `mcp__` tool-id prefix SHALL be reserved for ids produced by the MCP
+capability. A code-owned or other non-MCP registry entry beginning with that
+prefix SHALL fail registration, so ID-only namespace permission matching cannot
+grant authority across source kinds.
 
 #### Scenario: Read-only tool executes
 
 - **WHEN** an allowlisted tool classified `read_only` is called
 - **THEN** it executes
 
+#### Scenario: Alpha native file tool executes only in its host capability
+
+- **WHEN** an exact code-owned native tool is allowlisted and its trusted alpha native capability is present
+- **THEN** it executes with the native host authority declared by that capability
+- **AND** it is not substituted with a hosted path or remote MCP operation
+
 #### Scenario: Non-read-only tool is refused even when allowlisted
 
-- **WHEN** a tool classified other than `read_only` is registered and allowlisted, and the model requests it
-- **THEN** it is not advertised to the model, and a direct request for it is refused with a recorded, non-fatal tool error
+- **WHEN** a tool outside the exact alpha native file set is classified other than `read_only`, registered and allowlisted, and the model requests it
+- **THEN** it is not advertised or executed
+- **AND** a direct request receives a recorded non-fatal refusal
 
 #### Scenario: Unclassified tool cannot register
 
 - **WHEN** a tool without a classification is registered
-- **THEN** registration fails at startup (fail loud, not at call time)
+- **THEN** registration fails at startup
 
 #### Scenario: Duplicate tool id cannot register
 
@@ -72,7 +115,7 @@ Tool eligibility SHALL be governed by the operator allowlist in `llame.config.js
 
 Exact and namespace MCP entries SHALL grant eligibility only to exact identities learned from safely admitted declarations for that server. When a live process loses the server transport, the last completely admitted identity set SHALL remain source inventory in an unavailable state; when complete discovery succeeds, its newly admitted identity set SHALL replace the prior set authoritatively. Neither permission form SHALL fabricate identities before first successful discovery or expose refused declarations. An eligible dynamic tool SHALL become advertisable or executable only while the source supplies a currently admitted declaration for that exact id under the operator's read-only attestation.
 
-The restart-applied allowlist decision SHALL be bound into the immutable Run snapshot as filtered exact ids and exact declarations when a turn is accepted; wildcard patterns SHALL NOT enter provider requests, manifests, receipts, persistence, or execution binding. Removing an exact entry or namespace wildcard from later instance configuration SHALL affect newly accepted Runs but SHALL NOT retroactively rebind an already accepted Run or its queue retries. Immediate live revocation is outside this capability and requires the future permission-policy system; this bound authorization is permitted here only because every admitted remote tool is operator-attested read-only. Write-capable tools remain prohibited even when they claim idempotence; durable side-effect checkpointing and permission policy are separate follow-ups.
+The restart-applied allowlist decision SHALL be bound into the immutable Run snapshot as filtered exact ids and exact declarations when a turn is accepted; wildcard patterns SHALL NOT enter provider requests, manifests, receipts, persistence, or execution binding. Removing an exact entry or namespace wildcard from later instance configuration SHALL affect newly accepted Runs but SHALL NOT retroactively rebind an already accepted Run or its queue retries. Immediate live revocation is outside this capability and requires the future permission-policy system; this bound authorization is permitted here only because every admitted remote tool is operator-attested read-only. Write-capable MCP tools remain prohibited even when they claim idempotence; durable side-effect checkpointing and permission policy are separate follow-ups.
 
 #### Scenario: Default is no tools
 
@@ -206,6 +249,11 @@ Tool calls and results SHALL persist as structured parts on the assistant messag
 - **THEN** the public payload contains no tool parts
 
 ### Requirement: Tool failure is an observation, not a crash
+
+An uncertain native `edit` or `write` outcome SHALL abort the model execution
+signal and settle the Run without further tool steps. Its tool observation SHALL
+report `outcome_unknown` unless a known result is already durable. Ordinary
+isolated failures retain the continuation behavior below.
 
 A tool that throws, times out, becomes unavailable, dynamically loses its trusted executor, or returns invalid output SHALL produce a structured error result — recorded, streamed, and visible to the model — and the run SHALL continue whenever the failure is isolated to that tool. Tool execution SHALL be bounded by the global `tools.callTimeoutSeconds` (operator config, documented built-in default 120). A trusted per-tool registration MAY only reduce that value and MUST be finite, positive, and no greater than the configured global maximum; an invalid override SHALL fail registration/admission before advertisement. The effective abort signal SHALL be forwarded into the executor and remote transport, and a timed-out MCP request/body SHALL be aborted and cleaned up before the structured timeout result settles. Tool errors SHALL never expose internal stack traces, remote exception bodies, or secrets in the recorded result.
 
@@ -780,29 +828,54 @@ that produced them.
 
 ### Requirement: No mid-run tool-state checkpointing (read-only slice; write-tool landmine)
 
-This slice SHALL NOT checkpoint tool-loop state across worker death: a run that fails or expires mid-loop is not resumed — a retry re-executes tools from the start, which is acceptable **only because every executable tool is read-only**. The first write-capable tool SHALL NOT ship without introducing checkpoint-or-dedupe semantics for tool execution on retry. (Client refresh during a live run is unaffected — run-event replay reconstructs tool activity without re-execution.)
+The existing read-only loop may retry a claimable Run from its first step. A Run
+that has executed an alpha native `edit` or `write` SHALL NOT automatically
+replay that mutation after a worker failure, timeout, or unknown settlement.
+The host SHALL settle the mutation as `outcome_unknown` or fail the containing
+native mutation attempt and require a new explicit user/model attempt. Client
+reconnect SHALL replay recorded tool activity without executing the mutation
+again. A future durable effect-dedupe capability may replace this terminal
+behavior; it is outside this change.
 
-The retry that makes this load-bearing is concrete and always on: the run queue retries a failed **job attempt** under its own policy. A job attempt failing is not the same as the run reaching a terminal state — a retried attempt re-enters the tool loop from the first step only while its run is still claimable, and a run already terminal is never reopened. Re-execution is therefore the default behavior on infrastructure failure, not an edge case — a write-capable tool added without checkpoint-or-dedupe semantics would double-apply its effect on any transient worker failure, with no configuration change required to trigger it.
+#### Scenario: Known native mutation result is replayed without execution
+
+- **WHEN** a native edit or write settled before a client reconnect
+- **THEN** replay returns the recorded tool result
+- **AND** the filesystem mutation is not executed again
 
 #### Scenario: Worker death mid-loop does not resume tool state
 
 - **WHEN** the worker dies after several completed tool steps and the run is expired by the deadman
-- **THEN** the run terminates per existing semantics; no partial tool-loop state is resumed on a new run
+- **THEN** the run terminates per existing semantics
+- **AND** no partial tool-loop state is resumed on a new run
 
 #### Scenario: Refresh does not re-execute tools
 
 - **WHEN** a client reconnects to a live run after tool steps have completed
-- **THEN** the replayed stream reconstructs those steps from events without executing any tool again
+- **THEN** replay reconstructs those steps from durable events without executing a native mutation again
+
+#### Scenario: Worker failure does not replay a native mutation
+
+- **WHEN** a worker fails after a native mutation may have started but before its result is known
+- **THEN** the mutation is recorded as `outcome_unknown` or the native attempt fails terminally
+- **AND** a queue retry does not invoke that mutation again
 
 #### Scenario: A queue retry re-executes the loop from the start
 
-- **WHEN** a run's job is retried by the queue and the run is still claimable
-- **THEN** its tool loop executes from the first step again, re-invoking tools already invoked in the previous attempt
+- **WHEN** a read-only Run's job is retried by the queue and the Run is still claimable
+- **THEN** its tool loop executes from the first step again
+- **AND** it may re-invoke read-only tools already invoked in the previous attempt
 
 #### Scenario: A terminal run is never reopened by a retry
 
-- **WHEN** a job is retried for a run that has already reached a terminal state
-- **THEN** the run is not reopened, no tool executes, and its terminal state stands
+- **WHEN** a job is retried for a Run that has already reached a terminal state
+- **THEN** the Run is not reopened, no tool executes, and its terminal state stands
+
+#### Scenario: Read-only retry remains unchanged
+
+- **WHEN** a claimable Run contains only read-only tools and its job retries
+- **THEN** the existing read-only retry behavior remains available
+- **AND** no native mutation is inferred from the read-only result
 
 ### Requirement: Tool activity is rendered in the chat UI
 
