@@ -16,12 +16,15 @@ proposal.md for motivation and the delta spec for the contract.
 
 - One `path` string surface: no new tool declaration.
 - Requested level always visible; children summarized; output deterministic.
-- Walker reusable by the `kb://` resolver (#702) through the same port shape.
+- Walker reusable later by the `kb://` resolver (#702) through the same port
+  shape; wiring `kb://` is a non-goal here.
 
 **Non-Goals:**
 
-- Hidden or ignore filtering, entry metadata, recency ordering, following
-  symlinked directories, deeper trees, glob or grep. Each is a child of #701.
+- Recency and other ordering selectors (#711), per-entry metadata (#712),
+  hidden or ignore filtering (#713), following symlinked directories (#714),
+  deeper trees, glob or grep. The first four are tracked children of #701.
+- Integrating the walker with `kb://` (#702).
 - Any change to `edit`, `write`, the mutation fence, or tool admission.
 
 ## Decisions
@@ -46,13 +49,14 @@ Name order matches how the owner sees the vault and is stable across calls.
 `localeCompare` is OpenCode's comparator and OMP's tiebreak under its recency
 sort; only the comparator is borrowed. Determinism is declared relative to the
 host collation. mtime and size are excluded so unchanged directories
-render identically and prompt caches survive.
+render identically and prompt caches survive; metadata is tracked in #712 and
+ordering selectors in #711.
 
 ### D4: Symbolic links are listed with `@` and never descended
 
 Node dirents report `isSymbolicLink` for free. Following would need realpath
 plus a visited set and would escape the requested subtree, which the Knowledge
-walker forbids. The root target itself still resolves through `open()` as files
+walker forbids; it is tracked in #714. The root target itself still resolves through `open()` as files
 do today; the spec carries that as a scenario. A trailing separator is optional
 on a directory path and fails as `not_found` on a file: `lstat` and `open`
 return `ENOTDIR` for `file/`, which the reader currently maps to
@@ -116,6 +120,8 @@ data, config, or migration impact. Rollback is reverting the layer.
 
 ## Revision history
 
+- **v4 (2026-09-07):** Leo's Plannotator notes. Follow-up issues #711-#714
+  named in Non-Goals, D3, D4; `kb://` integration stated as a non-goal.
 - **v3 (2026-09-07):** Round-2 review. Elided child blocks render as
   `… N entries` so they differ from empty children; `ENOTDIR` mapping named.
 - **v2 (2026-09-07):** Round-1 review. Range selectors now a flat requested-level
