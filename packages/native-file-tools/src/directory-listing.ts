@@ -1,7 +1,6 @@
 import type { Dirent } from "node:fs";
 import { MAX_RESULT_CODE_UNITS } from "./source-lines";
 import { measureNativeModelOutput } from "./serialization";
-import { NativeFileError } from "./path";
 
 export const DIRECTORY_TRAVERSAL_BUDGET = 10_000;
 export const DIRECTORY_CHILD_CAP = 20;
@@ -23,7 +22,7 @@ type DirEntry = {
 
 type ChildDir = {
   name: string;
-  entries: DirEntry[];
+  entries: Array<DirEntry>;
   totalCount: number;
   overBudget: boolean;
 };
@@ -42,6 +41,13 @@ export type DirectoryFailure = {
   type: "directory_too_large";
   message: string;
   count: number;
+};
+
+type ChildBlockInfo = {
+  name: string;
+  headerLine: string;
+  childLines: Array<string>;
+  totalCount: number;
 };
 
 function classifyEntry(entry: Dirent): EntryKind {
@@ -74,10 +80,14 @@ function compareEntries(a: DirEntry, b: DirEntry): number {
 async function readDirEntries(
   port: DirectoryPort,
   dirPath: string,
-): Promise<{ entries: DirEntry[]; totalCount: number; overBudget: boolean }> {
+): Promise<{
+  entries: Array<DirEntry>;
+  totalCount: number;
+  overBudget: boolean;
+}> {
   const dir = await port.opendir(dirPath);
   try {
-    const entries: DirEntry[] = [];
+    const entries: Array<DirEntry> = [];
     let totalCount = 0;
     let overBudget = false;
     let dirent = await dir.read();
@@ -96,32 +106,34 @@ async function readDirEntries(
   }
 }
 
-export async function listDirectory(
+function fitsResultCap(candidate: DirectorySuccess): boolean {
+  return measureNativeModelOutput(candidate) <= MAX_RESULT_CODE_UNITS;
+}
+
+function directoryResult(
+  targetPath: string,
+  content: string,
+  truncated: boolean,
+  nextOffset?: number,
+): DirectorySuccess {
+  const result: DirectorySuccess = {
+    status: "success",
+    kind: "directory",
+    path: targetPath,
+    content,
+    truncated,
+  };
+  if (nextOffset !== undefined) result.nextOffset = nextOffset;
+  return result;
+}
+
+async function readChildDirs(
+  rootEntries: Array<DirEntry>,
   targetPath: string,
   port: DirectoryPort,
-  options?: { offset?: number; limit?: number },
-): Promise<DirectorySuccess | DirectoryFailure> {
-  const root = await readDirEntries(port, targetPath);
-
-  if (root.overBudget) {
-    return {
-      status: "error",
-      type: "directory_too_large",
-      message: `Directory contains ${root.totalCount} entries, exceeding the ${DIRECTORY_TRAVERSAL_BUDGET} entry budget.`,
-      count: root.totalCount,
-    };
-  }
-
-  root.entries.sort(compareEntries);
-
-  const isFlat = options?.offset !== undefined || options?.limit !== undefined;
-
-  if (isFlat) {
-    return renderFlatListing(targetPath, root.entries, options);
-  }
-
-  const children: ChildDir[] = [];
-  for (const entry of root.entries) {
+): Promise<Array<ChildDir>> {
+  const children: Array<ChildDir> = [];
+  for (const entry of rootEntries) {
     if (entry.kind !== "directory") continue;
     const childPath = `${targetPath}/${entry.name}`;
     try {
@@ -142,13 +154,38 @@ export async function listDirectory(
       });
     }
   }
+  return children;
+}
 
+export async function listDirectory(
+  targetPath: string,
+  port: DirectoryPort,
+  options?: { offset?: number; limit?: number },
+): Promise<DirectorySuccess | DirectoryFailure> {
+  const root = await readDirEntries(port, targetPath);
+
+  if (root.overBudget) {
+    return {
+      status: "error",
+      type: "directory_too_large",
+      message: `Directory contains ${root.totalCount} entries, exceeding the ${DIRECTORY_TRAVERSAL_BUDGET} entry budget.`,
+      count: root.totalCount,
+    };
+  }
+
+  root.entries.sort(compareEntries);
+
+  if (options?.offset !== undefined || options?.limit !== undefined) {
+    return renderFlatListing(targetPath, root.entries, options);
+  }
+
+  const children = await readChildDirs(root.entries, targetPath, port);
   return renderTreeListing(targetPath, root.entries, children);
 }
 
 function renderFlatListing(
   targetPath: string,
-  entries: DirEntry[],
+  entries: Array<DirEntry>,
   options?: { offset?: number; limit?: number },
 ): DirectorySuccess {
   const offset = options?.offset ?? 0;
@@ -156,115 +193,24 @@ function renderFlatListing(
   const end = Math.min(offset + limit, entries.length);
   const selected = entries.slice(offset, end);
 
-  const lines: string[] = [targetPath];
+  const lines: Array<string> = [targetPath];
   for (const entry of selected) {
     lines.push(formatEntry(entry, "  "));
   }
   const content = lines.join("\n") + "\n";
 
-  const result: DirectorySuccess = {
-    status: "success",
-    kind: "directory",
-    path: targetPath,
+  const result = directoryResult(
+    targetPath,
     content,
-    truncated: end < entries.length,
-  };
-  if (end < entries.length) {
-    result.nextOffset = end;
-  }
+    end < entries.length,
+    end < entries.length ? end : undefined,
+  );
   return boundDirectoryResult(result);
 }
 
-function renderTreeListing(
-  targetPath: string,
-  rootEntries: DirEntry[],
-  children: ChildDir[],
-): DirectorySuccess {
-  if (rootEntries.length === 0) {
-    return {
-      status: "success",
-      kind: "directory",
-      path: targetPath,
-      content: `${targetPath}\n(empty directory)\n`,
-      truncated: false,
-    };
-  }
-
-  const childMap = new Map<string, ChildDir>();
-  for (const child of children) {
-    childMap.set(child.name, child);
-  }
-
-  type ChildBlock = {
-    name: string;
-    headerLine: string;
-    childLines: string[];
-    totalCount: number;
-  };
-  const childBlocks: ChildBlock[] = [];
-
-  const lines: string[] = [targetPath];
-  for (const entry of rootEntries) {
-    const headerLine = formatEntry(entry, "  ");
-    lines.push(headerLine);
-    if (entry.kind === "directory") {
-      const child = childMap.get(entry.name);
-      if (child) {
-        const block = renderChildBlock(child);
-        childBlocks.push({
-          name: entry.name,
-          headerLine,
-          childLines: block.lines,
-          totalCount: child.totalCount,
-        });
-        for (const line of block.lines) {
-          lines.push(line);
-        }
-      }
-    }
-  }
-
-  let content = lines.join("\n") + "\n";
-  let truncated = false;
-
-  if (
-    measureNativeModelOutput({
-      status: "success",
-      kind: "directory",
-      path: targetPath,
-      content,
-      truncated: false,
-    }) > MAX_RESULT_CODE_UNITS
-  ) {
-    const result = elideChildBlocks(targetPath, rootEntries, childBlocks);
-    content = result.content;
-    truncated = result.truncated;
-  }
-
-  if (
-    measureNativeModelOutput({
-      status: "success",
-      kind: "directory",
-      path: targetPath,
-      content,
-      truncated,
-    }) > MAX_RESULT_CODE_UNITS
-  ) {
-    return truncateRequestedLevel(targetPath, rootEntries, childBlocks);
-  }
-
-  return {
-    status: "success",
-    kind: "directory",
-    path: targetPath,
-    content,
-    truncated,
-  };
-}
-
-function renderChildBlock(child: ChildDir): { lines: string[] } {
+function renderChildBlock(child: ChildDir) {
   const indent = "    ";
-  const lines: string[] = [];
+  const lines: Array<string> = [];
 
   if (child.overBudget) {
     lines.push(`${indent}… ${child.totalCount} entries`);
@@ -283,169 +229,190 @@ function renderChildBlock(child: ChildDir): { lines: string[] } {
   return { lines };
 }
 
-type ChildBlockInfo = {
-  name: string;
-  headerLine: string;
-  childLines: string[];
-  totalCount: number;
-};
+function assembleTreeLines(
+  targetPath: string,
+  rootEntries: Array<DirEntry>,
+  childMap: Map<string, ChildDir>,
+) {
+  const childBlocks: Array<ChildBlockInfo> = [];
+  const lines: Array<string> = [targetPath];
+
+  for (const entry of rootEntries) {
+    const headerLine = formatEntry(entry, "  ");
+    lines.push(headerLine);
+    if (entry.kind !== "directory") continue;
+    const child = childMap.get(entry.name);
+    if (!child) continue;
+    const block = renderChildBlock(child);
+    childBlocks.push({
+      name: entry.name,
+      headerLine,
+      childLines: block.lines,
+      totalCount: child.totalCount,
+    });
+    for (const line of block.lines) lines.push(line);
+  }
+
+  return { lines, childBlocks };
+}
+
+function renderTreeListing(
+  targetPath: string,
+  rootEntries: Array<DirEntry>,
+  children: Array<ChildDir>,
+): DirectorySuccess {
+  if (rootEntries.length === 0) {
+    return directoryResult(
+      targetPath,
+      `${targetPath}\n(empty directory)\n`,
+      false,
+    );
+  }
+
+  const childMap = new Map<string, ChildDir>();
+  for (const child of children) childMap.set(child.name, child);
+
+  const { lines, childBlocks } = assembleTreeLines(
+    targetPath,
+    rootEntries,
+    childMap,
+  );
+  let content = lines.join("\n") + "\n";
+  let truncated = false;
+
+  if (!fitsResultCap(directoryResult(targetPath, content, false))) {
+    const elided = elideChildBlocks(targetPath, rootEntries, childBlocks);
+    content = elided.content;
+    truncated = elided.truncated;
+  }
+
+  if (!fitsResultCap(directoryResult(targetPath, content, truncated))) {
+    return truncateRequestedLevel(targetPath, rootEntries, childBlocks);
+  }
+
+  return directoryResult(targetPath, content, truncated);
+}
 
 function elideChildBlocks(
   targetPath: string,
-  rootEntries: DirEntry[],
-  childBlocks: ChildBlockInfo[],
-): { content: string; truncated: boolean } {
+  rootEntries: Array<DirEntry>,
+  childBlocks: Array<ChildBlockInfo>,
+) {
   const elided = new Set<string>();
   const blocksByName = new Map<string, ChildBlockInfo>();
-  for (const block of childBlocks) {
-    blocksByName.set(block.name, block);
-  }
+  for (const block of childBlocks) blocksByName.set(block.name, block);
 
-  const reversedBlocks = [...childBlocks].reverse();
-  for (const block of reversedBlocks) {
+  for (const block of [...childBlocks].reverse()) {
     if (block.childLines.length === 0) continue;
-
     elided.add(block.name);
     const content = buildContent(targetPath, rootEntries, blocksByName, elided);
-
-    if (
-      measureNativeModelOutput({
-        status: "success",
-        kind: "directory",
-        path: targetPath,
-        content,
-        truncated: true,
-      }) <= MAX_RESULT_CODE_UNITS
-    ) {
+    if (fitsResultCap(directoryResult(targetPath, content, true))) {
       return { content, truncated: true };
     }
   }
 
-  const content = buildContent(targetPath, rootEntries, blocksByName, elided);
-  return { content, truncated: true };
+  return {
+    content: buildContent(targetPath, rootEntries, blocksByName, elided),
+    truncated: true,
+  };
 }
 
 function buildContent(
   targetPath: string,
-  rootEntries: DirEntry[],
+  rootEntries: Array<DirEntry>,
   blocksByName: Map<string, ChildBlockInfo>,
   elided: Set<string>,
 ): string {
-  const lines: string[] = [targetPath];
+  const lines: Array<string> = [targetPath];
   for (const entry of rootEntries) {
     lines.push(formatEntry(entry, "  "));
-    if (entry.kind === "directory") {
-      const block = blocksByName.get(entry.name);
-      if (block) {
-        if (elided.has(entry.name)) {
-          if (block.totalCount > 0) {
-            lines.push(`    … ${block.totalCount} entries`);
-          }
-        } else {
-          for (const line of block.childLines) {
-            lines.push(line);
-          }
-        }
-      }
+    if (entry.kind !== "directory") continue;
+    const block = blocksByName.get(entry.name);
+    if (!block) continue;
+    if (elided.has(entry.name)) {
+      if (block.totalCount > 0) lines.push(`    … ${block.totalCount} entries`);
+    } else {
+      for (const line of block.childLines) lines.push(line);
     }
   }
   return lines.join("\n") + "\n";
 }
 
+function markerForElided(
+  block: ChildBlockInfo | undefined,
+  elidedNames: Set<string>,
+): string | undefined {
+  if (!block || !elidedNames.has(block.name) || block.totalCount === 0)
+    return undefined;
+  return `    … ${block.totalCount} entries`;
+}
+
 function truncateRequestedLevel(
   targetPath: string,
-  rootEntries: DirEntry[],
-  childBlocks: ChildBlockInfo[],
+  rootEntries: Array<DirEntry>,
+  childBlocks: Array<ChildBlockInfo>,
 ): DirectorySuccess {
   const blocksByName = new Map<string, ChildBlockInfo>();
-  for (const block of childBlocks) {
-    blocksByName.set(block.name, block);
-  }
+  for (const block of childBlocks) blocksByName.set(block.name, block);
   const allElided = new Set(
     childBlocks.filter((b) => b.childLines.length > 0).map((b) => b.name),
   );
 
   let entryIndex = 0;
-  const lines: string[] = [targetPath];
+  const lines: Array<string> = [targetPath];
   for (const entry of rootEntries) {
     const entryLine = formatEntry(entry, "  ");
-    const markerLine =
+    const marker =
       entry.kind === "directory"
         ? markerForElided(blocksByName.get(entry.name), allElided)
         : undefined;
 
-    const candidateLines = [...lines, entryLine];
-    if (markerLine) candidateLines.push(markerLine);
-    const candidateContent = candidateLines.join("\n") + "\n";
-
+    const candidate = [...lines, entryLine];
+    if (marker) candidate.push(marker);
     const nextIdx = entryIndex + 1;
     if (
-      measureNativeModelOutput({
-        status: "success",
-        kind: "directory",
-        path: targetPath,
-        content: candidateContent,
-        truncated: true,
-        nextOffset: nextIdx,
-      }) > MAX_RESULT_CODE_UNITS
+      !fitsResultCap(
+        directoryResult(targetPath, candidate.join("\n") + "\n", true, nextIdx),
+      )
     ) {
-      return {
-        status: "success",
-        kind: "directory",
-        path: targetPath,
-        content: lines.join("\n") + "\n",
-        truncated: true,
-        nextOffset: entryIndex,
-      };
+      return directoryResult(
+        targetPath,
+        lines.join("\n") + "\n",
+        true,
+        entryIndex,
+      );
     }
 
     lines.push(entryLine);
-    if (markerLine) lines.push(markerLine);
+    if (marker) lines.push(marker);
     entryIndex += 1;
   }
 
-  return {
-    status: "success",
-    kind: "directory",
-    path: targetPath,
-    content: lines.join("\n") + "\n",
-    truncated: false,
-  };
-}
-
-function markerForElided(
-  block: ChildBlockInfo | undefined,
-  elided: Set<string>,
-): string | undefined {
-  if (!block) return undefined;
-  if (!elided.has(block.name)) return undefined;
-  if (block.totalCount === 0) return undefined;
-  return `    … ${block.totalCount} entries`;
+  return directoryResult(targetPath, lines.join("\n") + "\n", false);
 }
 
 function boundDirectoryResult(result: DirectorySuccess): DirectorySuccess {
-  if (measureNativeModelOutput(result) <= MAX_RESULT_CODE_UNITS) return result;
+  if (fitsResultCap(result)) return result;
 
   const lines = result.content.split("\n");
   while (
     lines.length > 1 &&
-    measureNativeModelOutput({
+    !fitsResultCap({
       ...result,
       content: lines.join("\n") + "\n",
       truncated: true,
-    }) > MAX_RESULT_CODE_UNITS
+    })
   ) {
     lines.pop();
   }
 
-  const header = result.content.split("\n")[0];
   const entryLines = lines.slice(1).filter((l) => l.length > 0);
-
-  result.content = lines.join("\n") + "\n";
-  result.truncated = true;
-  result.nextOffset =
+  return directoryResult(
+    result.path,
+    lines.join("\n") + "\n",
+    true,
     (result.nextOffset ?? 0) > 0
       ? result.nextOffset
-      : entryLines.length + (result.nextOffset ?? 0);
-  return result;
+      : entryLines.length + (result.nextOffset ?? 0),
+  );
 }

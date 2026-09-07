@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { readFile as readNativeFile } from '@workspace/native-file-tools';
 import {
   nativeReadTool,
   nativeEditTool,
@@ -70,6 +71,26 @@ describe('native tool admission', () => {
     expect(
       await runTool(nativeReadTool, { path: '/tmp/file' }, context, 5),
     ).toMatchObject({ type: 'executor_unavailable' });
+  });
+
+  it('reads a directory through the native read tool and returns kind: directory', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'native-dir-api-'));
+    try {
+      await mkdir(join(directory, 'subdir'));
+      await writeFile(join(directory, 'note.md'), 'content');
+      const result = await readNativeFile({ path: directory });
+      expect(result).toMatchObject({
+        status: 'success',
+        kind: 'directory',
+        path: directory,
+      });
+      if (result.status !== 'success' || result.kind !== 'directory')
+        throw new Error();
+      expect(result.content).toContain('  - subdir/');
+      expect(result.content).toContain('  - note.md');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('does not change file bytes when durable admission cannot commit', async () => {

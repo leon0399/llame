@@ -2,6 +2,11 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFile } from "./read";
+import {
+  listDirectory,
+  DIRECTORY_TRAVERSAL_BUDGET,
+  type DirectoryPort,
+} from "./directory-listing";
 
 describe("directory listing", () => {
   let root: string;
@@ -113,9 +118,7 @@ describe("directory listing", () => {
   });
 
   it("returns directory_too_large for a root over the traversal budget", async () => {
-    const { listDirectory, DIRECTORY_TRAVERSAL_BUDGET } = await import(
-      "./directory-listing"
-    );
+    // uses static import at top of file
     const mockEntries: Array<{
       name: string;
       isFile: () => boolean;
@@ -131,13 +134,16 @@ describe("directory listing", () => {
       });
     }
     let idx = 0;
-    const mockPort = {
-      lstat: async () => ({ isDirectory: () => true }),
-      opendir: async () => ({
-        read: async () =>
-          idx < mockEntries.length ? mockEntries[idx++] : null,
-        close: async () => {},
-      }),
+    const mockPort: DirectoryPort = {
+      lstat: () => Promise.resolve({ isDirectory: () => true }),
+      opendir: () =>
+        Promise.resolve({
+          read: () =>
+            Promise.resolve(
+              idx < mockEntries.length ? mockEntries[idx++] : null,
+            ),
+          close: () => Promise.resolve(),
+        }),
     };
     const result = await listDirectory("/fake/path", mockPort);
     expect(result).toMatchObject({
@@ -145,21 +151,20 @@ describe("directory listing", () => {
       type: "directory_too_large",
     });
     if (result.status !== "error") throw new Error();
+    // SAFETY: narrowed by status check above
     expect((result as { count: number }).count).toBe(
       DIRECTORY_TRAVERSAL_BUDGET + 100,
     );
   });
 
   it("elides a child over the traversal budget", async () => {
-    const { listDirectory, DIRECTORY_TRAVERSAL_BUDGET } = await import(
-      "./directory-listing"
-    );
+    // uses static import at top of file
     const bigChildCount = DIRECTORY_TRAVERSAL_BUDGET + 50;
     let rootRead = false;
     let childIdx = 0;
-    const mockPort = {
-      lstat: async () => ({ isDirectory: () => true }),
-      opendir: async (path: string) => {
+    const mockPort: DirectoryPort = {
+      lstat: () => Promise.resolve({ isDirectory: () => true }),
+      opendir: (_path: string) => {
         if (!rootRead) {
           rootRead = true;
           const entry = {
@@ -169,28 +174,28 @@ describe("directory listing", () => {
             isSymbolicLink: () => false,
           };
           let done = false;
-          return {
-            read: async () => {
-              if (done) return null;
+          return Promise.resolve({
+            read: () => {
+              if (done) return Promise.resolve(null);
               done = true;
-              return entry;
+              return Promise.resolve(entry);
             },
-            close: async () => {},
-          };
+            close: () => Promise.resolve(),
+          });
         }
-        return {
-          read: async () => {
-            if (childIdx >= bigChildCount) return null;
+        return Promise.resolve({
+          read: () => {
+            if (childIdx >= bigChildCount) return Promise.resolve(null);
             childIdx += 1;
-            return {
+            return Promise.resolve({
               name: `f${childIdx}`,
               isFile: () => true,
               isDirectory: () => false,
               isSymbolicLink: () => false,
-            };
+            });
           },
-          close: async () => {},
-        };
+          close: () => Promise.resolve(),
+        });
       },
     };
     const result = await listDirectory("/fake", mockPort);
@@ -253,11 +258,10 @@ describe("directory listing", () => {
   });
 
   it("marks special entries with ? and never opens them", async () => {
-    const { listDirectory } = await import("./directory-listing");
-    let opened = false;
-    const mockPort = {
-      lstat: async () => ({ isDirectory: () => true }),
-      opendir: async () => {
+    // uses static import at top of file
+    const mockPort: DirectoryPort = {
+      lstat: () => Promise.resolve({ isDirectory: () => true }),
+      opendir: () => {
         const entries = [
           {
             name: "pipe",
@@ -267,13 +271,11 @@ describe("directory listing", () => {
           },
         ];
         let idx = 0;
-        return {
-          read: async () => {
-            if (idx < entries.length) return entries[idx++];
-            return null;
-          },
-          close: async () => {},
-        };
+        return Promise.resolve({
+          read: () =>
+            Promise.resolve(idx < entries.length ? entries[idx++] : null),
+          close: () => Promise.resolve(),
+        });
       },
     };
     const result = await listDirectory("/test", mockPort);

@@ -1,6 +1,10 @@
 import { lstat, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 
+function isNodeError(value: unknown): value is NodeJS.ErrnoException {
+  return value instanceof Error && "code" in value;
+}
+
 export class NativeFileError extends Error {
   constructor(
     readonly type:
@@ -70,8 +74,8 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
     return { path: cleanPath, offset: 0, raw: false };
   } catch (error) {
     if (error instanceof NativeFileError) throw error;
-    if (!(error instanceof Error) || !("code" in error)) throw error;
-    const code = (error as NodeJS.ErrnoException).code;
+    if (!isNodeError(error)) throw error;
+    const code = error.code;
     if (code === "ENOTDIR") throw new NativeFileError("not_found");
     if (code !== "ENOENT") throw error;
   }

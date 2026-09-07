@@ -12,12 +12,13 @@ import {
 import type { ReadSuccess } from "./source-lines";
 import { measureNativeModelOutput } from "./serialization";
 
-function assertFileSuccess(result: unknown): asserts result is ReadSuccess {
+function assertFileSuccess(
+  result: Awaited<ReturnType<typeof readFile>>,
+): asserts result is ReadSuccess {
   if (
-    typeof result !== "object" ||
-    result === null ||
-    (result as { status: string }).status !== "success" ||
-    (result as { kind: string }).kind !== "file"
+    result.status !== "success" ||
+    !("kind" in result) ||
+    result.kind !== "file"
   )
     throw new Error("Expected file success result");
 }

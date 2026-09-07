@@ -1,5 +1,9 @@
 import { constants } from "node:fs";
 import { lstat, opendir, open } from "node:fs/promises";
+
+function isNodeError(value: unknown): value is NodeJS.ErrnoException {
+  return value instanceof Error && "code" in value;
+}
 import { NativeFileError, resolveReadTarget } from "./path";
 import { streamFileWindow } from "./stream-read";
 import {
@@ -61,10 +65,7 @@ export async function readFile(input: {
   } catch (error) {
     if (error instanceof NativeFileError)
       return { status: "error", type: error.type, message: error.message };
-    const code =
-      error instanceof Error && "code" in error
-        ? (error as NodeJS.ErrnoException).code
-        : undefined;
+    const code = isNodeError(error) ? error.code : undefined;
     const type =
       code === "ENOENT" || code === "ENOTDIR"
         ? "not_found"
