@@ -1,5 +1,9 @@
-import { lstat } from "node:fs/promises";
+import { lstat, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
+
+export function isNodeError(value: unknown): value is NodeJS.ErrnoException {
+  return value instanceof Error && "code" in value;
+}
 
 export class NativeFileError extends Error {
   constructor(
@@ -14,7 +18,8 @@ export class NativeFileError extends Error {
       | "old_text_not_found"
       | "old_text_ambiguous"
       | "outcome_unknown"
-      | "executor_unavailable",
+      | "executor_unavailable"
+      | "directory_too_large",
   ) {
     super(type);
   }
@@ -25,6 +30,7 @@ export type ReadTarget = {
   offset: number;
   limit?: number;
   raw: boolean;
+  directory?: boolean;
 };
 
 function parseRange(value: string) {
@@ -46,21 +52,40 @@ function parseRange(value: string) {
   return { offset: start - 1, limit: end - start + 1 };
 }
 
+async function isDirectoryTarget(path: string): Promise<boolean> {
+  const lstats = await lstat(path);
+  if (lstats.isDirectory()) return true;
+  if (lstats.isSymbolicLink()) {
+    const target = await stat(path);
+    return target.isDirectory();
+  }
+  return false;
+}
+
 export async function resolveReadTarget(input: string): Promise<ReadTarget> {
   if (!isAbsolute(input) || input.includes("\0"))
     throw new NativeFileError("invalid_path");
+
+  const hasTrailingSep = input.length > 1 && input.endsWith("/");
+  const cleanPath = hasTrailingSep ? input.slice(0, -1) : input;
+
   try {
-    await lstat(input);
-    return { path: input, offset: 0, raw: false };
+    if (await isDirectoryTarget(cleanPath)) {
+      return { path: cleanPath, offset: 0, raw: false, directory: true };
+    }
+    if (hasTrailingSep) throw new NativeFileError("not_found");
+    return { path: cleanPath, offset: 0, raw: false };
   } catch (error) {
-    if (
-      !(error instanceof Error) ||
-      !("code" in error) ||
-      error.code !== "ENOENT"
-    )
-      throw error;
+    if (error instanceof NativeFileError) throw error;
+    if (!isNodeError(error)) throw error;
+    const code = error.code;
+    if (code === "ENOTDIR") throw new NativeFileError("not_found");
+    if (code !== "ENOENT") throw error;
   }
-  return parseSelector(input);
+  if (hasTrailingSep) throw new NativeFileError("not_found");
+
+  const parsed = parseSelector(input);
+  return classifyParsedTarget(parsed);
 }
 
 function parseSelector(input: string): ReadTarget {
@@ -81,4 +106,15 @@ function parseSelector(input: string): ReadTarget {
     };
   }
   return { path: input, offset: 0, raw: false };
+}
+
+async function classifyParsedTarget(target: ReadTarget): Promise<ReadTarget> {
+  try {
+    if (await isDirectoryTarget(target.path)) {
+      return { ...target, directory: true };
+    }
+  } catch {
+    // Let downstream handle missing paths.
+  }
+  return target;
 }

@@ -7,8 +7,16 @@ export {
   selectSourceLines,
   MAX_READ_LINES,
   MAX_RESULT_CODE_UNITS,
+  DIRECTORY_TRAVERSAL_BUDGET,
+  DIRECTORY_CHILD_CAP,
 } from "./read";
-export type { ReadSuccess, FileFailure, LineRange } from "./read";
+export type {
+  ReadSuccess,
+  FileFailure,
+  LineRange,
+  DirectorySuccess,
+  DirectoryFailure,
+} from "./read";
 export { editFile, createFile } from "./mutate";
 export {
   measureNativeModelOutput,
