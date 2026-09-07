@@ -118,6 +118,13 @@ Add an explicit local Sandbox mode before accepting remote Workspace placement:
 4. let an authorized agent propose Git-backed environment changes that the Node
    validates, builds, and activates only as a later accepted revision.
 
+The shipped [bash-execution](openspec/specs/bash-execution/spec.md) contract is
+the adapter seam: same workspace as native file tools, bounded results, attempt
+receipts, and unknown-outcome fencing. A follow-up managed-Sandbox proposal must
+prove secret boundary, process isolation, and workspace mount before advertising
+bash to the model. A separate permission proposal owns approval/RBAC; bash must
+not invent permission modes.
+
 Native execution remains an explicit policy option. Sandbox failure never falls
 back to native execution without a new authorization decision. Exact Nix,
 container, process-confinement, or VM realization remains capability design.

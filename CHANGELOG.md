@@ -21,6 +21,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `evilmartians/lefthook#1077`, `#1265`, `#1398`; no release through 2.1.12
   addresses them.
 
+- Add the managed bash-executor contract package (#697): bounded allowlisted
+  commands, same-directory handoff with native file tools, attempt receipts,
+  process-group quiescence, and `outcome_unknown` fencing without automatic
+  replay. Direct host bash is not advertised; a future managed Sandbox and
+  permission proposals remain required before model-facing enablement.
+
 - Synchronize chat-overlap integration tests at Run completion instead of
   depending on short delays.
 
