@@ -149,9 +149,10 @@ line rendered beneath one child directory including its `… N more` line, with
 one indented `… N entries` line stating that child's total entry count; the
 requested level's own lines SHALL be preserved by that step. An empty child
 directory SHALL render as its `- name/` line alone, so a bare child line means
-empty and an `… N entries` line means elided. Only when the requested
-level's own lines still exceed the cap SHALL the tool apply the ordinary
-truncation metadata, including `nextOffset`, over the requested level's entries.
+empty and an `… N entries` line means elided. The `… N entries` markers count as requested-level lines for the next step.
+Only when the requested level's own lines still exceed the cap SHALL the tool
+apply the ordinary truncation metadata, including `nextOffset`, over the
+requested level's entries and their markers in order.
 A range selector on a directory path SHALL switch the read to a flat listing of
 the requested level: the header, then the selected entries by one-based entry
 index, with no child entries and no context expansion, regardless of whether

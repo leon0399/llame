@@ -69,8 +69,9 @@ marker because it tells the model why nothing appears beneath it.
    made block-granular, so a child never looks like it has fewer entries than
    it does, and an elided child is distinguishable from an empty one, which
    renders as a bare `- name/` line.
-4. If the requested level alone still overflows, reuse the existing whole-line
-   prefix truncation with `nextOffset` over entries.
+4. If the requested level plus its `… N entries` markers still overflows,
+   reuse the existing whole-line prefix truncation with `nextOffset` over that
+   sequence, so no state falls between steps 3 and 4.
 
 A range selector is a mode switch, not a slice of the tree: it returns the
 header plus the selected requested-level entries and nothing beneath them,
