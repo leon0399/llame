@@ -54,18 +54,21 @@ Node dirents report `isSymbolicLink` for free. Following would need realpath
 plus a visited set and would escape the requested subtree, which the Knowledge
 walker forbids. The root target itself still resolves through `open()` as files
 do today; the spec carries that as a scenario. A trailing separator is optional
-on a directory path and fails as `not_found` on a file, which is what `lstat`
-returns for `file/`. OpenCode stats the link and renders `name/`; we prefer the explicit
+on a directory path and fails as `not_found` on a file: `lstat` and `open`
+return `ENOTDIR` for `file/`, which the reader currently maps to
+`executor_unavailable`, so the implementation adds an `ENOTDIR` to `not_found`
+branch beside the existing `ENOENT` one. OpenCode stats the link and renders `name/`; we prefer the explicit
 marker because it tells the model why nothing appears beneath it.
 
 ### D5: Bounds apply in a fixed order
 
 1. Assemble: root unbounded, each child keeps 20 entries plus `… N more`.
 2. Render lines.
-3. If over the common cap, drop whole child blocks last-first and append an
-   elided-block count. This is OMP's `applyLineCap` protected-depth rule made
-   block-granular, so a child never looks like it has fewer entries than it
-   does.
+3. If over the common cap, replace whole child blocks last-first with one
+   `… N entries` line each. This is OMP's `applyLineCap` protected-depth rule
+   made block-granular, so a child never looks like it has fewer entries than
+   it does, and an elided child is distinguishable from an empty one, which
+   renders as a bare `- name/` line.
 4. If the requested level alone still overflows, reuse the existing whole-line
    prefix truncation with `nextOffset` over entries.
 
@@ -101,8 +104,9 @@ population is sockets, devices, and FIFOs. `edit` and `write` are untouched.
 - [Verbatim listing exposes dotfiles and secrets by name] → names only, never
   contents; filtering is the tracked follow-up, and the alpha already grants
   full OS-user read authority.
-- [Elision hides a child directory entirely] → the elided-line marker names the
-  count, and a direct read of the child returns its full requested level.
+- [Elision hides a child directory's entries] → the child keeps its own line
+  plus an `… N entries` marker, so the model knows which child to read
+  directly for its full requested level.
 
 ## Migration Plan
 
@@ -111,6 +115,8 @@ data, config, or migration impact. Rollback is reverting the layer.
 
 ## Revision history
 
+- **v3 (2026-09-07):** Round-2 review. Elided child blocks render as
+  `… N entries` so they differ from empty children; `ENOTDIR` mapping named.
 - **v2 (2026-09-07):** Round-1 review. Range selectors now a flat requested-level
   mode (resolved selector vs two-level contradiction); context expansion scoped
   to regular files via a second MODIFIED requirement; header never counted;

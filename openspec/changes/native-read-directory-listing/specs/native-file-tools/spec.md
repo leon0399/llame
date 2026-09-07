@@ -144,10 +144,12 @@ The requested directory's own entries SHALL NOT be capped by a per-level limit.
 Each child directory SHALL render at most 20 entries in order, followed by one
 `… N more` line stating the number of omitted entries when any were omitted.
 When the rendered two-level listing exceeds the common native result cap, the
-tool SHALL remove whole child blocks, last-first, where a child block is every
-line rendered beneath one child directory including its `… N more` line, and
-SHALL append one line stating how many child blocks were elided; the requested
-level's own lines SHALL be preserved by that step. Only when the requested
+tool SHALL replace whole child blocks, last-first, where a child block is every
+line rendered beneath one child directory including its `… N more` line, with
+one indented `… N entries` line stating that child's total entry count; the
+requested level's own lines SHALL be preserved by that step. An empty child
+directory SHALL render as its `- name/` line alone, so a bare child line means
+empty and an `… N entries` line means elided. Only when the requested
 level's own lines still exceed the cap SHALL the tool apply the ordinary
 truncation metadata, including `nextOffset`, over the requested level's entries.
 A range selector on a directory path SHALL switch the read to a flat listing of
@@ -165,9 +167,9 @@ fail with a selector error.
 #### Scenario: Oversized listing keeps the requested level
 
 - **WHEN** the rendered two-level listing exceeds the common result cap but the requested level fits
-- **THEN** whole child blocks are removed last-first until the listing fits
-- **AND** one line reports the number of elided child blocks
+- **THEN** whole child blocks are replaced last-first by `… N entries` lines until the listing fits
 - **AND** every requested-level entry remains present with no partially rendered child block
+- **AND** an empty child directory still renders as a bare `- name/` line
 
 #### Scenario: Oversized requested level pages by selector
 

@@ -21,8 +21,8 @@ answer to issue #704.
   directory up to 20 entries followed by `… N more`. Grandchildren are counted,
   never rendered.
 - Keep the shared result envelope: when the rendered listing exceeds the common
-  result cap, elide whole child blocks last-first with an explicit marker
-  before truncating the requested level. A range selector switches the read to
+  result cap, replace whole child blocks last-first with `… N entries`
+  markers before truncating the requested level. A range selector switches the read to
   a flat, paged listing of the requested level only; the header line is never
   counted as an entry.
 - Narrow `not_regular_file` to sockets, devices, FIFOs, and other special
