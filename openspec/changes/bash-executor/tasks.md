@@ -1,10 +1,10 @@
 ## Delivery stack
 
 This proposal consumes the approved and landed `native-file-tools` contract.
-Do not create `bash-executor/proposal` from bare `master` until
-`native-file-tools/finalize` has landed; record that merged base SHA in the
-proposal handoff. Use `$gh-stack` and `$openspec-apply-change` after proposal
-approval:
+Handoff base: `native-file-tools/finalize` merged as
+`2d8e16e12dac83a02ebfe14bd8ec30f5c6418a88` (`docs: finalize native file tools
+specification (#696)`). Tracking: [#697](https://github.com/leon0399/llame/issues/697).
+Use `$gh-stack` and `$openspec-apply-change` after proposal approval:
 
 ```text
 master
