@@ -58,3 +58,15 @@ clients replay recorded activity without running tools again.
 
 After an unknown outcome, read the file's current state before authoring a new
 attempt. Do not assume a timeout means the file was unchanged.
+
+## Knowledge read removal
+
+Track removal in [#691](https://github.com/leon0399/llame/issues/691).
+
+Keep `knowledge_read` until a separate removal change updates every caller,
+allowlist, prompt, and historical declaration compatibility path. Removal must
+prove LF/CRLF/lone-CR, escaped output bounds, continuation, and owner-isolation
+parity using the Knowledge acceptance suite. Native host paths do not replace
+owner-scoped locators on hosted installations; those need an authority-aware
+resource adapter before deletion. Track the removal independently from #212's
+Git submission work.

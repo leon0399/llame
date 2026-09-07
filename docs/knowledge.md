@@ -3,6 +3,14 @@
 Opt-in, owner-scoped read access to live Markdown under multiple Knowledge
 Spaces. Disk contents are authoritative, including uncommitted edits.
 
+`knowledge_read` is deprecated in favor of native `read` on trusted local hosts.
+It remains available with its existing owner/Space checks, 1 MiB source limit,
+and exact requested-range response. Both tools share line splitting, range
+bounds, numbering, and serialized-content budgeting. Native host setup and
+mutation recovery are documented in [native files](native-files.md).
+
+Deletion is tracked in [#691](https://github.com/leon0399/llame/issues/691).
+
 ## Configuration and ownership
 
 ```jsonc
@@ -31,7 +39,8 @@ opaque server-generated IDs are identity and authorization. List limits are
 Trusted code creates `<root>/<stable-id>/` before committing its authority row.
 Callers cannot choose owner, ID, path, source, or directory. A DB failure may
 leave an unauthoritative directory; never reuse or delete it automatically.
-Until #212, trusted local administration writes files; no Git or agent writes.
+Trusted native hosts may edit these files through the generic file tools.
+Git submission remains separate work under #212.
 
 ## Deployment and filesystem trust
 

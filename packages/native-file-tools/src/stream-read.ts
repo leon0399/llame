@@ -3,6 +3,8 @@ import { open, type FileHandle } from "node:fs/promises";
 import { NativeFileError, type ReadTarget } from "./path";
 import {
   appendReadLine,
+  boundedReadLineCount,
+  splitSourceLines,
   emptyReadResult,
   MAX_READ_LINES,
   MAX_RESULT_CODE_UNITS,
@@ -27,18 +29,17 @@ async function* sourceLines(
     } catch {
       throw new NativeFileError("invalid_utf8");
     }
-    const fragments = text.split("\n");
-    for (let index = 0; index < fragments.length; index += 1) {
+    for (const fragment of splitSourceLines(text)) {
       if (
         !oversized &&
-        partial.length + fragments[index].length > MAX_RESULT_CODE_UNITS
+        partial.length + fragment.length > MAX_RESULT_CODE_UNITS
       ) {
         oversized = true;
         yield undefined;
       }
-      if (!oversized) partial += fragments[index];
-      if (index === fragments.length - 1) continue;
-      if (!oversized) yield `${partial}\n`;
+      if (!oversized) partial += fragment;
+      if (!fragment.endsWith("\n")) continue;
+      if (!oversized) yield partial;
       partial = "";
       oversized = false;
     }
@@ -52,8 +53,7 @@ async function collectWindow(
   target: ReadTarget,
 ): Promise<ReadSuccess> {
   const requestedEnd = target.offset + (target.limit ?? MAX_READ_LINES);
-  const boundedEnd =
-    target.offset + Math.min(target.limit ?? MAX_READ_LINES, MAX_READ_LINES);
+  const boundedEnd = target.offset + boundedReadLineCount(target.limit);
   const start = target.raw ? target.offset : Math.max(0, target.offset - 1);
   const result = emptyReadResult(target, requestedEnd);
   let count = 0;

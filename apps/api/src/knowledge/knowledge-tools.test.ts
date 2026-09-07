@@ -122,6 +122,7 @@ describe('Knowledge tool declarations', () => {
     expect(knowledgeSearchTool.description).toMatch(/relative path/iu);
     expect(knowledgeSearchTool.description).toMatch(/verify|volatile/iu);
     expect(knowledgeReadTool.description).toMatch(/untrusted|stale/iu);
+    expect(knowledgeReadTool.description).toMatch(/^Deprecated:/u);
     expect(KNOWLEDGE_CONTENT_NOTICE).toMatch(/owner-maintained/iu);
     expect(KNOWLEDGE_CONTENT_NOTICE).toMatch(/untrusted|stale/iu);
 

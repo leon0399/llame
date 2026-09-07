@@ -37,9 +37,9 @@ Markdown, or adds URL loading.
 
 ## 3. knowledge-adapter
 
-- [ ] 3.1 Adapt the existing Knowledge filesystem reader to the shared line/range/context/result primitives without changing its trusted owner and Space resolver.
-- [ ] 3.2 Mark `knowledge_read` deprecated in the model declaration and operator documentation; verify existing callers and historical result shapes remain executable.
-- [ ] 3.3 Add a tracked deletion task/issue reference with explicit parity evidence; verify this proposal does not delete `knowledge_read` or change its authorization boundary.
+- [x] 3.1 Adapt the existing Knowledge filesystem reader to the shared line/range/context/result primitives without changing its trusted owner and Space resolver.
+- [x] 3.2 Mark `knowledge_read` deprecated in the model declaration and operator documentation; verify existing callers and historical result shapes remain executable.
+- [x] 3.3 Add a tracked deletion task/issue reference with explicit parity evidence; verify this proposal does not delete `knowledge_read` or change its authorization boundary.
 
 ## 4. acceptance
 

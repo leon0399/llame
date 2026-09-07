@@ -8,6 +8,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { readFile as readNativeFile } from '@workspace/native-file-tools';
 import path from 'node:path';
 
 import {
@@ -357,6 +358,33 @@ describe('KnowledgeFilesystemAdapter', () => {
         offset: 1,
         lineCount: 3,
         content: '2: two\n3: three\rfour\n4: \n',
+        nextOffset: 4,
+      });
+    });
+  });
+
+  it('shares source coordinates with native reads while retaining the legacy exact-range envelope', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      const absolute = path.join(directory, 'parity.md');
+      await writeFile(absolute, 'one\r\ntwo\nthree\rfour\n\nfive');
+      const legacy = await new KnowledgeFilesystemAdapter(binding).read(
+        'parity.md',
+        { offset: 1, limit: 3 },
+      );
+      const native = await readNativeFile({ path: `${absolute}:2-4` });
+      expect(legacy).toEqual({
+        path: 'parity.md',
+        offset: 1,
+        lineCount: 3,
+        content: '2: two\n3: three\rfour\n4: \n',
+        nextOffset: 4,
+      });
+      expect(native).toMatchObject({
+        status: 'success',
+        path: absolute,
+        content: '1: one\r\n2: two\n3: three\rfour\n4: \n5: five',
+        requestedRange: { startLine: 2, endLine: 4 },
+        shownRange: { startLine: 1, endLine: 5 },
         nextOffset: 4,
       });
     });
