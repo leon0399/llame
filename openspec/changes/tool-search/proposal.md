@@ -20,7 +20,8 @@ threshold. This proposal is not on the v0.7 critical path.
 
 ## What Changes
 
-- Add a per-Run **declaration budget**: a per-model token threshold (default one tenth of
+- Add a per-Run **declaration budget**: a per-model token threshold (default one tenth of the
+  model's **usable context**, its compaction trigger threshold rather than its raw
   `contextWindowTokens`, overridable per model as `models[].toolSearchThresholdTokens`) that
   governs only the eligible MCP declarations; code-owned tools are always declared and never
   counted. When the estimated size of the eligible MCP declarations fits the budget, nothing

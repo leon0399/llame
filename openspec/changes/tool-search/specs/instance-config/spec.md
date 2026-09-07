@@ -4,21 +4,31 @@
 
 Each `models[]` entry MAY include an optional positive integer `toolSearchThresholdTokens`.
 When present it SHALL be the declaration budget for that model's deferrable (MCP) declarations;
-when absent the budget SHALL resolve to one tenth of the entry's `contextWindowTokens` rounded
-down. There SHALL be no instance-level tool-search setting, matching the rule that
-context-window behavior is declared per model. The published JSON Schema SHALL declare the key,
+when absent the budget SHALL resolve to one tenth of the entry's **usable context** rounded
+down. The usable context SHALL be the entry's compaction trigger threshold, the same value
+`available-models` already resolves as `compactionThresholdTokens` when set and
+`contextWindowTokens × COMPACTION_WINDOW_RATIO` otherwise. A `contextWindowTokens` the instance
+never reaches SHALL NOT size the budget, so a configured compaction threshold below the window
+lowers the budget with it. There SHALL be no instance-level tool-search setting, matching the
+rule that context-window behavior is declared per model. The published JSON Schema SHALL declare the key,
 and a non-integer, zero, or negative value SHALL fail startup naming
 the model id and the key.
 
-#### Scenario: Threshold defaults from the context window
+#### Scenario: Threshold defaults from the usable context
 
-- **WHEN** a model entry omits `toolSearchThresholdTokens`
-- **THEN** its declaration budget is `floor(contextWindowTokens / 10)`
+- **WHEN** a model entry omits both `toolSearchThresholdTokens` and `compactionThresholdTokens`
+- **THEN** its declaration budget is one tenth of `contextWindowTokens × COMPACTION_WINDOW_RATIO`, rounded down
+
+#### Scenario: A compaction threshold lowers the default budget
+
+- **WHEN** a model entry declares a `contextWindowTokens` of 1000000 and a `compactionThresholdTokens` of 200000, and omits `toolSearchThresholdTokens`
+- **THEN** its declaration budget is 20000, one tenth of the 200000 tokens the conversation can actually use
+- **AND** it is not 100000, which one tenth of the unreachable window would have allowed
 
 #### Scenario: Explicit threshold overrides the ratio
 
 - **WHEN** a model entry sets `toolSearchThresholdTokens` to a positive integer
-- **THEN** that value is the budget regardless of `contextWindowTokens`
+- **THEN** that value is the budget regardless of the entry's usable context
 
 #### Scenario: Threshold below any inventory entry cuts every MCP tool
 

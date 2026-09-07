@@ -3,8 +3,10 @@
 ### Requirement: Bound tools beyond the declaration budget are discoverable through tool search
 
 Every new Run SHALL resolve a per-model declaration budget in tokens: the model's
-`toolSearchThresholdTokens` when configured, otherwise one tenth of its `contextWindowTokens`
-rounded down. The budget SHALL govern only the deferrable declarations: code-owned tools are
+`toolSearchThresholdTokens` when configured, otherwise one tenth of its usable context rounded
+down, where the usable context is the model's compaction trigger threshold rather than its
+`contextWindowTokens`, because the declarations compete with the conversation for the tokens
+available before compaction, not for a window the instance never reaches. The budget SHALL govern only the deferrable declarations: code-owned tools are
 always declared and SHALL NOT be counted against it. The system SHALL estimate the size of every
 eligible admitted MCP declaration for the turn with the same deterministic provider-independent
 estimator used for compaction. When that estimate does not exceed the budget, every eligible
