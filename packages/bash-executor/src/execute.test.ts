@@ -8,6 +8,7 @@ import {
   MANAGED_EXECUTOR,
   requireManagedBoundary,
   resolveConfiguredTool,
+  resetManagedExecutorForTests,
 } from "./index";
 import type { BashExecutorContext } from "./types";
 
@@ -32,10 +33,12 @@ describe("managed executor contract", () => {
   let directory: string;
 
   beforeEach(async () => {
+    resetManagedExecutorForTests();
     directory = await mkdtemp(join(tmpdir(), "bash-exec-"));
   });
 
   afterEach(async () => {
+    resetManagedExecutorForTests();
     await rm(directory, { recursive: true, force: true });
   });
 

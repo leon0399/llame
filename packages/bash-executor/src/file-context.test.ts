@@ -2,7 +2,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFile, editFile, readFile } from "@workspace/native-file-tools";
-import { assertSharedWorkingDirectory, executeManagedBash } from "./index";
+import {
+  assertSharedWorkingDirectory,
+  executeManagedBash,
+  resetManagedExecutorForTests,
+} from "./index";
 import type { BashExecutorContext } from "./types";
 
 function context(
@@ -26,10 +30,12 @@ describe("file-context handoff", () => {
   let directory: string;
 
   beforeEach(async () => {
+    resetManagedExecutorForTests();
     directory = await mkdtemp(join(tmpdir(), "bash-files-"));
   });
 
   afterEach(async () => {
+    resetManagedExecutorForTests();
     await rm(directory, { recursive: true, force: true });
   });
 
