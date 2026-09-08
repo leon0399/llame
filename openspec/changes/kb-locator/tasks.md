@@ -32,10 +32,10 @@ the #701 tracker.
 
 ## 2. mutations
 
-- [ ] 2.1 Route `kb://` `edit` and `write` through the resolver from 1.2 and the native mutation functions; verify integration tests for exact edit, ambiguous edit, create-only write, `file_exists`, and other-owner refusal with no mutation.
-- [ ] 2.2 Make `NativeFilesRepository.begin` take an optional executor and skip the `runs.workerId` bind for `kb://`, recording the locator as the attempt target; verify a retry on a different worker returns `outcome_unknown` without `executor_unavailable` and never re-executes the mutation.
-- [ ] 2.3 Create missing intermediate directories on `write` for every scheme and fail `not_regular_file` when an intermediate is a file; verify package unit tests for absolute paths and integration tests for `kb://`.
-- [ ] 2.4 Confirm `kb://` mutations bypass no fence path and that `bash` admission is unchanged; verify the existing native fence and bash tests pass unmodified.
+- [x] 2.1 Route `kb://` `edit` and `write` through the resolver from 1.2 and the native mutation functions; verify integration tests for exact edit, ambiguous edit, create-only write, `file_exists`, and other-owner refusal with no mutation.
+- [x] 2.2 Make `NativeFilesRepository.begin` take an optional executor and skip the `runs.workerId` bind for `kb://`, recording the locator as the attempt target; verify a retry on a different worker returns `outcome_unknown` without `executor_unavailable` and never re-executes the mutation.
+- [x] 2.3 Create missing intermediate directories on `write` for every scheme and fail `not_regular_file` when an intermediate is a file; verify package unit tests for absolute paths and integration tests for `kb://`.
+- [x] 2.4 Confirm `kb://` mutations bypass no fence path and that `bash` admission is unchanged; verify the existing native fence and bash tests pass unmodified.
 
 ## 3. finalize
 

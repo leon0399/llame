@@ -5,9 +5,7 @@ their `path` argument. An absolute path executes on the worker's filesystem
 with its OS user's authority, gated by `tools.nativeExecutorId`. A
 `kb://<knowledgeSpaceId>/<path>[:selector]` locator resolves through the
 trusted Run owner's current Knowledge Space access instead, gated by
-`knowledge.root`, and never binds the Run to an executor. `kb://` is a `read`
-scheme in this iteration; `edit` and `write` accept absolute paths only and
-return `invalid_path` for a locator. This alpha
+`knowledge.root`, and never binds the Run to an executor. This alpha
 capability supplies no per-user or per-path filesystem permissions or sandbox
 on either path; `kb://` narrows exposure to one owner-scoped directory tree.
 
@@ -27,11 +25,9 @@ Absolute-path access and `bash` need a trusted host identity in
 
 `kb://` locators need only a configured `knowledge.root`; `tools.allowed`
 still gates each tool id. A process with `knowledge.root` and no
-`nativeExecutorId` advertises `read`, `edit`, and `write`, of which only
-`read` can do anything there — an absolute path argument on that process fails
-closed with `executor_unavailable` instead of resolving through the Knowledge
-root. A process with both authorities serves absolute paths on all three and
-`kb://` on `read`.
+`nativeExecutorId` advertises `read`, `edit`, and `write`, all usable with a
+locator — an absolute path argument on that process fails closed with
+`executor_unavailable` instead of resolving through the Knowledge root.
 
 Optional trusted bash cwd (defaults to the API process cwd):
 
@@ -46,7 +42,8 @@ absolute-path native access and `bash` are unavailable even when allowlisted.
 
 ## `kb://` locators
 
-`read` accepts `kb://<knowledgeSpaceId>/<path>[:selector]`.
+`read`, `edit`, and `write` accept `kb://<knowledgeSpaceId>/<path>[:selector]`;
+a selector selects lines to read and is rejected on `edit` and `write`.
 `<knowledgeSpaceId>` is resolved through the trusted Run owner's current
 Knowledge Space access on every call, under RLS, with no filesystem probe. An
 absent, removed, malformed, or other-owner identifier returns
@@ -66,16 +63,27 @@ a link swapped in after validation also reads back as `not_found`.
 depth-2 listing as an absolute directory path; a bare `kb://` or a locator
 with no identifier is `invalid_path`.
 
+A `write` may name directories that do not exist yet. They are created one
+component at a time, each checked after creation, because a recursive create
+adopts an existing symbolic link without complaint and would build the rest of
+the chain through it — placing the file outside the Space while the result
+still named a locator inside it. A component that exists and is not a directory
+fails `not_regular_file`. This matters most on a host that allowlists `bash`
+alongside `write`: the shell can plant such a link itself, so the boundary
+cannot rest on the model being unable to create one.
+
 `kb://` carries no Markdown-only suffix rule and no 1 MiB size cap — a Space
 is a directory of arbitrary files. Beyond the rules above, `kb://` targets
-follow the same regular-file, directory, selector, context, and truncation
-behavior as absolute paths, and never bind or require the Run's
-`tools.nativeExecutorId`.
+follow the same regular-file, directory, selector, context, truncation, and
+mutation behavior as absolute paths, and never bind or require the Run's
+`tools.nativeExecutorId`. A `write` may name directories that do not exist
+yet; a component that exists and is not a directory fails `not_regular_file`
+and creates nothing.
 
-Every successful `kb://` read or listing carries the closed untrusted-content
-`notice`, the Space identifier, and the Space display name. Content is
-returned verbatim, not neutralized, so text can be copied from a prior read
-byte-for-byte.
+Every successful `kb://` read, listing, or mutation carries the closed
+untrusted-content `notice`, the Space identifier, and the Space display name.
+Content is returned verbatim, not neutralized, so an `edit` `oldText` can be
+copied from a prior read byte-for-byte.
 
 An unimplemented `scheme://` prefix — for example `vault://x` — fails closed
 with `invalid_path` on `read`, `edit`, and `write` alike. It is never treated
@@ -102,8 +110,11 @@ is read, created, or modified.
 - `edit({ path, oldText, newText })` replaces exactly one current match.
   Empty `newText` deletes the match. Missing or ambiguous matches fail without
   changing the file. No previous-read requirement is enforced yet.
-- `write({ path, content })` creates a new file. Every existing target,
-  including a dangling symlink, returns `file_exists`.
+- `write({ path, content })` creates a new file, creating missing intermediate
+  directories beneath the resolved authority root on every scheme. Every
+  existing target, including a dangling symlink, returns `file_exists`; an
+  intermediate component that exists as a regular file returns
+  `not_regular_file` and creates nothing.
 
 Knowledge identifier failures — `knowledge_space_not_found` and
 `knowledge_space_unavailable` — are specific to `kb://`. Every other path and
@@ -135,12 +146,15 @@ on reattachment. Mutations are ordered in the host process, including
 symlink aliases; external editors and other uncoordinated processes are
 outside that guarantee.
 
-Before an edit or write changes bytes, its attempt is committed to the
-existing owner-scoped Run event log. The result is committed before the model
-continues. A recovered open attempt returns `outcome_unknown`; a queue retry
-of a Run that started a mutation terminates instead of replaying its model
-loop. Reconnecting clients replay recorded activity without running tools
-again.
+Before an edit or write changes bytes, on either scheme, its attempt is
+committed to the existing owner-scoped Run event log — for `kb://`, recorded
+against the locator, never the resolved host path. The result is committed
+before the model continues. A recovered open attempt returns
+`outcome_unknown`; a queue retry of a Run that started a mutation terminates
+instead of replaying its model loop. Reconnecting clients replay recorded
+activity without running tools again. A `kb://` mutation uses this same fence
+without binding or requiring an executor identity, so a retry on a different
+worker still reports `outcome_unknown` rather than `executor_unavailable`.
 
 After an unknown outcome, read the file's current state before authoring a new
 attempt. Do not assume a timeout means the file was unchanged.

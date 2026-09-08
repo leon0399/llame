@@ -28,8 +28,14 @@ rather than executing a substitute.
 `knowledge.root` is absolute and operator-owned. Config validates shape; each
 process validates its mount when used. Missing allowlist IDs disable the tools.
 
+`kb://` locators also serve `edit` and `write`: an exact-match edit and a
+create-only write, each fenced by the durable pre-effect attempt log and
+neither binding the Run to a worker. A write may name directories that do not
+exist yet.
+
 Two Knowledge tool ids exist: `knowledge_search` scans Markdown across a Space,
-and native `read` opens a passage or lists a Space's directory by locator. `read` still needs its own
+and native `read`, `edit`, and `write` open, change, or create a Space's files
+by locator. `read` still needs its own
 `tools.allowed` entry; what a configured `knowledge.root` removes is the
 `tools.nativeExecutorId` requirement, so an allowlisted `read` is advertised
 without one. On such a process an absolute path argument to `read` fails closed

@@ -105,6 +105,7 @@ function port(options: PortOptions = {}): KnowledgeFilesystemPort {
       return Promise.resolve(file);
     }),
     realpath: vi.fn((filePath: string) => Promise.resolve(realpath(filePath))),
+    mkdir: vi.fn(() => Promise.resolve()),
   };
 }
 

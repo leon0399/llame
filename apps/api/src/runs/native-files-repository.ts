@@ -4,14 +4,27 @@ import { isRecord, isString, type ToolResult } from '@workspace/runtime-safety';
 import { runEvents, runs } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 
+/** Absolute paths bind the Run to one host; a resolved locator binds nothing. */
+export type NativeFenceMode =
+  | { readonly bound: true; readonly executorId: string }
+  | { readonly bound: false };
+
 /** Uses the existing owner-scoped Run row and append-only event log. */
 export class NativeFilesRepository {
   constructor(private readonly db: Db) {}
 
+  /**
+   * Binding pins the Run to one host filesystem, which an absolute path needs
+   * and a `kb://` locator does not: every runs worker resolves every owner's
+   * Space, so binding one would turn a queue retry elsewhere into
+   * `executor_unavailable` for a target that worker can reach. The caller
+   * states which it means — an omitted executor would otherwise silently
+   * unbind a path that required it.
+   */
   async begin(input: {
     runId: string;
     userId: string;
-    executorId: string;
+    fence: NativeFenceMode;
     deliverySequence: number | undefined;
     toolCallId: string;
     operation: 'read' | 'edit' | 'write';
@@ -24,7 +37,10 @@ export class NativeFilesRepository {
       (await this.latestStartedSequence(input.runId)) !== input.deliverySequence
     )
       return executorUnavailable();
-    if (!(await this.bind(input.runId, input.userId, input.executorId)))
+    if (
+      input.fence.bound &&
+      !(await this.bind(input.runId, input.userId, input.fence.executorId))
+    )
       return executorUnavailable();
     if (input.operation === 'read') return undefined;
     const outcome = await this.priorOutcome(input.runId, input.toolCallId);

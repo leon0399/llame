@@ -36,7 +36,10 @@ import {
   validateSearchInput,
 } from './knowledge-filesystem-validation';
 import { resolveKnowledgeBindingDirectory } from './knowledge-filesystem-binding';
-import { resolveKnowledgeHostPath } from './knowledge-filesystem-host-path';
+import {
+  resolveKnowledgeHostPath,
+  type KnowledgeHostPathOptions,
+} from './knowledge-filesystem-host-path';
 import { NODE_FILESYSTEM } from './knowledge-filesystem-node-port';
 
 export * from './knowledge-filesystem-limits';
@@ -115,6 +118,9 @@ export type KnowledgeFilesystemPort = {
   opendir(directoryPath: string): Promise<KnowledgeFilesystemDirectory>;
   open(filePath: string): Promise<KnowledgeFilesystemFile>;
   realpath(filePath: string): Promise<string>;
+  /** Creates one directory, never a chain: a recursive create resolves through
+   *  a symbolic link, which is exactly what the walk above refuses. */
+  mkdir(directoryPath: string): Promise<void>;
 };
 
 export type KnowledgeFilesystemSearchMatch = {
@@ -126,7 +132,7 @@ export type KnowledgeFilesystemSearchMatch = {
 
 export type KnowledgeFilesystemAdapterPort = Pick<
   KnowledgeFilesystemAdapter,
-  'search' | 'resolveHostPath'
+  'search' | 'resolveHostPath' | 'isInsideSpace'
 >;
 
 export type KnowledgeFilesystemSearchOptions = {
@@ -316,16 +322,46 @@ export class KnowledgeFilesystemAdapter {
    * a directory, so this is not a read: the caller decides what to do with
    * what it finds, and closes the check-to-open window with `O_NOFOLLOW`.
    */
+  /**
+   * Resolve the deepest existing ancestor of `hostPath` through every symbolic
+   * link and report whether it is still inside this Space. The walk refuses a
+   * link at each component, but only at the moment it looks; this is the check
+   * that runs immediately before an operation, so a component swapped in
+   * afterwards is caught before the bytes move rather than after.
+   */
+  async isInsideSpace(
+    hostPath: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const directory = await this.resolveBindingDirectory(signal);
+    let candidate = hostPath;
+    while (candidate.length > directory.length) {
+      try {
+        const real = await this.realpath(candidate, signal);
+        return real === directory || real.startsWith(directory + path.sep);
+      } catch {
+        const parent = path.dirname(candidate);
+        if (parent === candidate) return false;
+        candidate = parent;
+      }
+    }
+    return candidate === directory;
+  }
+
   async resolveHostPath(
     relativePath: string | undefined,
-    signal?: AbortSignal,
+    options: KnowledgeHostPathOptions = {},
   ): Promise<string> {
-    const directory = await this.resolveBindingDirectory(signal);
+    const directory = await this.resolveBindingDirectory(options.signal);
     return resolveKnowledgeHostPath(
       directory,
       relativePath,
-      (filePath) => this.lstat(filePath, 'knowledge_not_found', signal),
-      signal,
+      {
+        lstat: (filePath) =>
+          this.lstat(filePath, 'knowledge_not_found', options.signal),
+        mkdir: (directoryPath) => this.mkdir(directoryPath),
+      },
+      options,
     );
   }
 
@@ -409,6 +445,22 @@ export class KnowledgeFilesystemAdapter {
     }
     await closeFileAndTranslateFailure(file, failure, signal);
     return bytes ?? Buffer.alloc(0);
+  }
+
+  /**
+   * A single-level create. `EEXIST` means something else got there first —
+   * another worker creating the same directory, or a symbolic link planted in
+   * the race this walk exists to lose safely. Either way the caller's next
+   * `lstat` is what decides, so the collision is not an error here.
+   */
+  private async mkdir(directoryPath: string): Promise<void> {
+    try {
+      await this.fileSystem.mkdir(directoryPath);
+    } catch (error) {
+      if (error instanceof KnowledgeFilesystemError) throw error;
+      if (isErrno(error, 'EEXIST')) return;
+      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+    }
   }
 
   private async realpath(

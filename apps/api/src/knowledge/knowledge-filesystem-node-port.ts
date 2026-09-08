@@ -32,4 +32,7 @@ export const NODE_FILESYSTEM: KnowledgeFilesystemPort = {
     };
   },
   realpath: (filePath) => fs.realpath(filePath),
+  mkdir: async (directoryPath) => {
+    await fs.mkdir(directoryPath);
+  },
 };

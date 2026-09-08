@@ -7,8 +7,11 @@ import {
   unlink,
   writeFile,
 } from 'node:fs/promises';
+import { lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+import { NODE_FILESYSTEM } from './knowledge-filesystem-node-port';
 
 import {
   KnowledgeFilesystemAdapter,
@@ -126,6 +129,7 @@ function fakeFilesystem(
       return Promise.resolve(file);
     }),
     realpath: vi.fn((filePath: string) => Promise.resolve(filePath)),
+    mkdir: vi.fn(() => Promise.resolve()),
   };
 }
 
@@ -691,7 +695,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       ).rejects.toMatchObject({ code: 'knowledge_not_found' });
       await expect(
         adapter.resolveHostPath('notes/own.md/deeper.md'),
-      ).rejects.toMatchObject({ code: 'knowledge_not_found' });
+      ).rejects.toMatchObject({ code: 'knowledge_not_directory' });
       await expect(
         adapter.resolveHostPath('../escape.md'),
       ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
@@ -714,6 +718,95 @@ describe('KnowledgeFilesystemAdapter', () => {
       await expect(
         new KnowledgeFilesystemAdapter(binding).search('needle', 5),
       ).resolves.toEqual([expect.objectContaining({ path: 'notes/plain.md' })]);
+    });
+  });
+
+  it('creates a write path one component at a time and never through a link', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      const outside = await mkdtemp(
+        path.join(tmpdir(), 'llame-knowledge-escape-'),
+      );
+      const adapter = new KnowledgeFilesystemAdapter(binding);
+
+      const created = await adapter.resolveHostPath('research/2026/note.md', {
+        allowMissing: true,
+        createDirectories: true,
+      });
+      expect(created).toBe(path.join(directory, 'research', '2026', 'note.md'));
+      expect(
+        lstatSync(path.join(directory, 'research', '2026')).isDirectory(),
+      ).toBe(true);
+
+      // A link planted where a directory is about to be created must not be
+      // adopted: a recursive create would treat it as satisfied and build the
+      // rest of the chain inside `outside`, placing the write beyond the Space
+      // while the result still named a locator within it.
+      await symlink(outside, path.join(directory, 'escape'), 'dir');
+      await expect(
+        adapter.resolveHostPath('escape/deeper/note.md', {
+          allowMissing: true,
+          createDirectories: true,
+        }),
+      ).rejects.toMatchObject({ code: 'knowledge_not_found' });
+      expect(() => lstatSync(path.join(outside, 'deeper'))).toThrow(/ENOENT/);
+
+      // The link can also arrive between the walk and the create, which the
+      // single-level `mkdir` turns into `EEXIST` rather than a traversal. The
+      // component is then `lstat`ed and refused exactly as above, so losing
+      // the race costs an error, not the Space boundary.
+      const raced = new KnowledgeFilesystemAdapter(binding, {
+        ...NODE_FILESYSTEM,
+        mkdir: async (directoryPath) => {
+          if (directoryPath.endsWith('raced')) {
+            await symlink(outside, directoryPath, 'dir');
+            return;
+          }
+          await NODE_FILESYSTEM.mkdir(directoryPath);
+        },
+      });
+      await expect(
+        raced.resolveHostPath('raced/note.md', {
+          allowMissing: true,
+          createDirectories: true,
+        }),
+      ).rejects.toMatchObject({ code: 'knowledge_not_found' });
+      expect(() => lstatSync(path.join(outside, 'note.md'))).toThrow(/ENOENT/);
+
+      // A benign collision — another worker creating the same directory — is
+      // not an error: the `lstat` finds a real directory and the walk goes on.
+      await mkdir(path.join(directory, 'shared'), { recursive: true });
+      await expect(
+        adapter.resolveHostPath('shared/note.md', {
+          allowMissing: true,
+          createDirectories: true,
+        }),
+      ).resolves.toBe(path.join(directory, 'shared', 'note.md'));
+
+      await rm(outside, { recursive: true, force: true });
+    });
+  });
+
+  it('reports a target swapped outside the Space after validation', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      const outside = await mkdtemp(
+        path.join(tmpdir(), 'llame-knowledge-swap-'),
+      );
+      await writeFile(path.join(outside, 'note.md'), 'secret\n');
+      await mkdir(path.join(directory, 'notes'), { recursive: true });
+      await writeFile(path.join(directory, 'notes', 'note.md'), 'mine\n');
+      const adapter = new KnowledgeFilesystemAdapter(binding);
+      const target = path.join(directory, 'notes', 'note.md');
+
+      expect(await adapter.isInsideSpace(target)).toBe(true);
+
+      // The walk refuses links when it looks; this is the check that runs
+      // immediately before the operation, so a parent replaced afterwards is
+      // caught before any bytes move.
+      await rm(path.join(directory, 'notes'), { recursive: true, force: true });
+      await symlink(outside, path.join(directory, 'notes'), 'dir');
+      expect(await adapter.isInsideSpace(target)).toBe(false);
+
+      await rm(outside, { recursive: true, force: true });
     });
   });
 
