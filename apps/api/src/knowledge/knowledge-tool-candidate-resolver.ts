@@ -1,4 +1,5 @@
-import { isHostCapabilityTool } from '../tools/bash';
+import { isBashTool } from '../tools/bash';
+import { isNativeFileTool } from '../tools/native-files';
 import { Inject, Injectable } from '@nestjs/common';
 
 import { type Db } from '../db/tenant-db.service';
@@ -49,9 +50,7 @@ export class KnowledgeToolCandidateResolver {
     input: KnowledgeToolCandidateResolverInput,
   ): Promise<Array<TurnToolCandidate>> {
     const tools = [...(input.codeOwnedTools ?? TOOL_REGISTRY.values())].filter(
-      (tool) =>
-        !isHostCapabilityTool(tool) ||
-        this.instanceConfig.config.tools.nativeExecutorId !== undefined,
+      (tool) => this.admitsHostCapability(tool),
     );
     const shouldResolveOwner = tools.some(
       (tool) =>
@@ -82,6 +81,22 @@ export class KnowledgeToolCandidateResolver {
           tool,
         };
       }),
+    );
+  }
+
+  /**
+   * `bash` needs an accepted native host. The native file tools also serve
+   * `kb://` locators, which need no executor identity, so a Knowledge root
+   * alone admits them; an absolute path on such a process still fails closed
+   * with `executor_unavailable` at execution.
+   */
+  private admitsHostCapability(tool: Tool): boolean {
+    const { nativeExecutorId } = this.instanceConfig.config.tools;
+    if (isBashTool(tool)) return nativeExecutorId !== undefined;
+    if (!isNativeFileTool(tool)) return true;
+    return (
+      nativeExecutorId !== undefined ||
+      this.instanceConfig.config.knowledge.root !== undefined
     );
   }
 

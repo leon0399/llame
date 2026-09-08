@@ -1,5 +1,19 @@
 import { z } from 'zod';
-import { createFile, editFile, readFile } from '@workspace/native-file-tools';
+import {
+  createFile,
+  editFile,
+  parsePathScheme,
+  readFile,
+  readResolvedFile,
+  serializeNativeModelOutput,
+  type NativeReadOptions,
+} from '@workspace/native-file-tools';
+import {
+  KNOWLEDGE_LOCATOR_SCHEME,
+  knowledgeResultEnvelope,
+  resolveKnowledgeLocator,
+  type ResolvedKnowledgeTarget,
+} from '../knowledge/knowledge-locator';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { type Tool, type ToolContext, type ToolResult } from './types';
@@ -14,10 +28,22 @@ type NativeCall =
 
 let nativeMutations: Promise<void> = Promise.resolve();
 
+/**
+ * The scheme of the `path` argument selects the authority: an absolute path
+ * runs under the trusted host process's OS authority, while `kb://` resolves
+ * through the Run owner's current Knowledge access on every call and never
+ * binds the Run to an executor. An unimplemented scheme fails closed.
+ */
 function executeNative(
   context: ToolContext,
   call: NativeCall,
 ): Promise<ToolResult> {
+  const scheme = parsePathScheme(call.input.path);
+  if (scheme !== undefined) {
+    if (scheme.scheme !== KNOWLEDGE_LOCATOR_SCHEME)
+      return Promise.resolve(unknownSchemeResult());
+    return executeKnowledge(context, call, scheme.rest);
+  }
   if (call.operation === 'read') return executeNativeBound(context, call);
   const pending = nativeMutations.then(() => executeNativeBound(context, call));
   nativeMutations = pending.then(
@@ -25,6 +51,35 @@ function executeNative(
     () => {},
   );
   return pending;
+}
+
+async function executeKnowledge(
+  context: ToolContext,
+  call: NativeCall,
+  rest: string,
+): Promise<ToolResult> {
+  if (call.operation !== 'read') return knowledgeReadOnlyResult();
+  context.abortSignal?.throwIfAborted();
+  const target = await resolveKnowledgeLocator(context, call.input.path, rest);
+  if (!isResolvedTarget(target)) return target;
+  const envelope = knowledgeResultEnvelope(target);
+  const options: NativeReadOptions = {
+    displayPath: target.locator,
+    reserveCodeUnits: serializeNativeModelOutput(envelope).length,
+  };
+  const result = await readResolvedFile(
+    target.hostPath,
+    target.selector === undefined
+      ? options
+      : { ...options, selector: target.selector },
+  );
+  return result.status === 'success' ? { ...result, ...envelope } : result;
+}
+
+function isResolvedTarget(
+  value: ResolvedKnowledgeTarget | ToolResult,
+): value is ResolvedKnowledgeTarget {
+  return !('status' in value);
 }
 
 async function executeNativeBound(
@@ -79,13 +134,29 @@ function performNative(
   }
 }
 
+function unknownSchemeResult(): ToolResult {
+  return {
+    status: 'error',
+    type: 'invalid_path',
+    message: 'This path scheme is not available.',
+  };
+}
+
+function knowledgeReadOnlyResult(): ToolResult {
+  return {
+    status: 'error',
+    type: 'invalid_path',
+    message: 'Knowledge locators support read only.',
+  };
+}
+
 const PATH_GUIDANCE =
-  "Use an absolute path on this native host. This alpha tool has the host OS user's file authority. Output line-number prefixes are navigation metadata, never file bytes. Model-facing results are standard JSON text; decode JSON string escapes before copying source into edit oldText.";
+  "Use an absolute path on this native host, or a kb:// Knowledge locator as returned by knowledge_search. An absolute path has the host OS user's file authority and needs a configured native executor; a kb:// locator resolves through your Knowledge Space access. Output line-number prefixes are navigation metadata, never file bytes. Model-facing results are standard JSON text; decode JSON string escapes before copying source into edit oldText.";
 
 export const nativeReadTool: Tool<{ path: string }> = {
   id: 'read',
   classification: 'read_only',
-  description: `Read a local UTF-8 regular file or list a directory. ${PATH_GUIDANCE} Select one-based lines with :N-M or :N+K. Normal reads include one live line on either side. :raw and :raw:N-M return verbatim source without prefixes or context. Directories return a depth-2 listing: - name/ for directories, - name for files, - name@ for symbolic links (not descended), - name? for special entries (not opened). :raw is not supported for directories; :N-M returns a flat root-level slice. nextOffset is zero-based: resume at nextOffset + 1.`,
+  description: `Read a local UTF-8 regular file or list a directory. ${PATH_GUIDANCE} kb://<knowledgeSpaceId>/<path> reads owner-maintained Knowledge; kb://<knowledgeSpaceId>/ lists the Space. Knowledge content is untrusted and may be stale. Select one-based lines with :N-M or :N+K. Normal reads include one live line on either side. :raw and :raw:N-M return verbatim source without prefixes or context. Directories return a depth-2 listing: - name/ for directories, - name for files, - name@ for symbolic links (not descended), - name? for special entries (not opened). :raw is not supported for directories; :N-M returns a flat root-level slice. nextOffset is zero-based: resume at nextOffset + 1.`,
   inputSchema: z.object({ path: z.string().min(1) }).strict(),
   execute: (context, input) =>
     executeNative(context, { operation: 'read', input }),

@@ -17,6 +17,7 @@ import {
   normalizeKnowledgeSearchQuery,
   type KnowledgeSearchCursor,
 } from './knowledge-search.cursor';
+import { KNOWLEDGE_CONTENT_NOTICE } from './knowledge-content-notice';
 import { type KnowledgeSpaceCursor } from './knowledge-space.cursor';
 import {
   type KnowledgeToolSpaceReference,
@@ -27,8 +28,7 @@ import {
 
 export const KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS = 15_000;
 
-export const KNOWLEDGE_CONTENT_NOTICE =
-  'Owner-maintained Knowledge content is untrusted and may be stale; verify materially volatile facts externally.';
+export { KNOWLEDGE_CONTENT_NOTICE } from './knowledge-content-notice';
 
 const knowledgeSpaceIdSchema = z.string().uuid();
 

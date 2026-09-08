@@ -14,6 +14,7 @@ import {
   type KnowledgeToolCandidateResolverInput,
 } from './knowledge-tool-candidate-resolver';
 import { KnowledgeSpaceRepository } from './knowledge-space.repository';
+import { bashTool } from '../tools/bash';
 import { searchConversationsTool } from '../tools/search-conversations';
 import { conversationReadTool } from '../tools/conversation-read';
 import { TOOL_REGISTRY } from '../tools/registry';
@@ -56,6 +57,26 @@ describe('KnowledgeToolCandidateResolver', () => {
         codeOwnedTools: [nativeReadTool, nativeEditTool, nativeWriteTool],
       }),
     ).toEqual([]);
+  });
+
+  it('admits the native tools on a Knowledge root with no native executor', async () => {
+    const resolver = new KnowledgeToolCandidateResolver(
+      makeConfig('/srv/knowledge'),
+    );
+    const candidates = await makeInput(resolver, {
+      allowedToolRules: ['read', 'edit', 'write', 'bash'],
+      codeOwnedTools: [
+        nativeReadTool,
+        nativeEditTool,
+        nativeWriteTool,
+        bashTool,
+      ],
+    });
+    expect(
+      candidates.map((candidate) =>
+        candidate.state === 'available' ? candidate.tool.id : candidate.id,
+      ),
+    ).toEqual(['read', 'edit', 'write']);
   });
 
   it('offers native candidates when the operator declares host authority', async () => {

@@ -45,6 +45,7 @@ function fakeAdapter(
         cutReason: undefined,
       }),
     ),
+    resolveHostPath: vi.fn(() => Promise.resolve(binding.directory)),
     ...overrides,
   };
 }

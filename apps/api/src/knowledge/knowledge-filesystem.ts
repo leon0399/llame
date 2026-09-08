@@ -37,11 +37,12 @@ import {
 import {
   isMarkdownPath,
   joinRelativePath,
-  validateBinding,
   validatePath,
   validateReadRange,
   validateSearchInput,
 } from './knowledge-filesystem-validation';
+import { resolveKnowledgeBindingDirectory } from './knowledge-filesystem-binding';
+import { resolveKnowledgeHostPath } from './knowledge-filesystem-host-path';
 import { NODE_FILESYSTEM } from './knowledge-filesystem-node-port';
 
 export * from './knowledge-filesystem-limits';
@@ -140,7 +141,7 @@ export type KnowledgeFilesystemReadResult = {
 
 export type KnowledgeFilesystemAdapterPort = Pick<
   KnowledgeFilesystemAdapter,
-  'search' | 'read'
+  'search' | 'read' | 'resolveHostPath'
 >;
 
 export type KnowledgeFilesystemSearchOptions = {
@@ -370,6 +371,27 @@ export class KnowledgeFilesystemAdapter {
   }
 
   /**
+   * Resolve a Knowledge-relative path to its host path for a caller that
+   * opens the target itself. Every component is `lstat`ed and a symbolic link
+   * anywhere on the way is refused without being followed; `undefined`
+   * addresses the Space's own directory. The final component may be a file or
+   * a directory, so this is not a read: the caller decides what to do with
+   * what it finds, and closes the check-to-open window with `O_NOFOLLOW`.
+   */
+  async resolveHostPath(
+    relativePath: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const directory = await this.resolveBindingDirectory(signal);
+    return resolveKnowledgeHostPath(
+      directory,
+      relativePath,
+      (filePath) => this.lstat(filePath, 'knowledge_not_found', signal),
+      signal,
+    );
+  }
+
+  /**
    * Resolve and validate one path component while descending toward the
    * target: it must exist in its parent directory, must not be (or resolve
    * through) a symlink, and must be a directory unless it is the final
@@ -405,43 +427,14 @@ export class KnowledgeFilesystemAdapter {
     return { current: next, count: directoryResult.count };
   }
 
-  private async resolveBindingDirectory(
+  private resolveBindingDirectory(
     signal: AbortSignal | undefined,
   ): Promise<string> {
-    validateBinding(this.binding);
-    const root = path.resolve(this.binding.root);
-    const directory = path.resolve(this.binding.directory);
-    const expectedDirectory = path.join(root, this.binding.id);
-    if (directory !== expectedDirectory) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
-    }
-
-    const rootStats = await this.lstat(
-      root,
-      'knowledge_space_unavailable',
-      signal,
-    );
-    if (rootStats.isSymbolicLink() || !rootStats.isDirectory()) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
-    }
-    const canonicalRoot = await this.realpath(root, signal);
-    if (canonicalRoot !== root) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
-    }
-
-    const childStats = await this.lstat(
-      directory,
-      'knowledge_space_unavailable',
-      signal,
-    );
-    if (childStats.isSymbolicLink() || !childStats.isDirectory()) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
-    }
-    const canonicalDirectory = await this.realpath(directory, signal);
-    if (canonicalDirectory !== directory) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
-    }
-    return directory;
+    return resolveKnowledgeBindingDirectory(this.binding, {
+      lstat: (filePath) =>
+        this.lstat(filePath, 'knowledge_space_unavailable', signal),
+      realpath: (filePath) => this.realpath(filePath, signal),
+    });
   }
 
   private async readDirectory(
