@@ -193,8 +193,7 @@ describe('KnowledgeToolCandidateResolver', () => {
       candidates.filter(
         (candidate) =>
           candidate.state === 'unavailable' &&
-          (candidate.id === 'knowledge_search' ||
-            candidate.id === 'knowledge_read'),
+          candidate.id === 'knowledge_search',
       ),
     ).toEqual([]);
   });

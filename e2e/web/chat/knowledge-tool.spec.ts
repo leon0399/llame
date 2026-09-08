@@ -4,8 +4,9 @@
  * The fixture uses one process-scoped operator root and provisions one stable
  * child per Playwright worker. Files are written directly into those children:
  * no Git checkout or index is involved, so the browser exercises live bytes.
- * The model fixture requests only the two code-owned Knowledge tools for the
- * prompts below; the ordinary generic tool renderer is the citation surface.
+ * The model fixture requests only `knowledge_search` and the code-owned
+ * native `read` tool (addressed through a `kb://` locator) for the prompts
+ * below; the ordinary generic tool renderer is the citation surface.
  */
 
 import {
@@ -37,6 +38,10 @@ const knowledgeRoot = process.env.E2E_KNOWLEDGE_ROOT;
 const modelId = "system:openai:gpt-5.4-mini";
 const longNotePath = "notes/long-note.md";
 const pagedQuery = "KNOWLEDGE_E2E_PAGED";
+// The `read` tool's rendered title is the bare id ("read"); a plain substring
+// filter would also match unrelated button text ("already read", "thread"),
+// so every read-card lookup below anchors on the word boundary.
+const readToolFilter = /\bread\b/;
 
 type KnowledgeSpaceResponse = {
   id: string;
@@ -103,7 +108,7 @@ async function prepareChat(page: Page): Promise<void> {
 
 async function expectCompletedTool(
   log: Locator,
-  toolName: string,
+  toolName: string | RegExp,
   expectedPath: string,
   occurrence = 0,
 ): Promise<void> {
@@ -123,7 +128,7 @@ async function expectErroredTool(
 ): Promise<void> {
   const card = log
     .getByRole("button")
-    .filter({ hasText: "knowledge_read" })
+    .filter({ hasText: readToolFilter })
     .nth(occurrence);
   await expect(card).toContainText("Error", { timeout: 30_000 });
   await card.click();
@@ -263,10 +268,10 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       page,
       `Please read the knowledge fixture. Knowledge Space ID: ${second.id}`,
     );
-    await expectCompletedTool(log, "knowledge_read", "notes/worker-note.md");
+    await expectCompletedTool(log, readToolFilter, "notes/worker-note.md");
     const readCard = log
       .getByRole("button")
-      .filter({ hasText: "knowledge_read" })
+      .filter({ hasText: readToolFilter })
       .first();
     await expect(readCard.locator("..")).toContainText(second.id);
 
@@ -292,7 +297,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       page,
       `Please read the knowledge fixture. Knowledge Space ID: ${added.id}`,
     );
-    await expectCompletedTool(log, "knowledge_read", "notes/worker-note.md", 1);
+    await expectCompletedTool(log, readToolFilter, "notes/worker-note.md", 1);
     revokeKnowledgeSpaceFixtureAccess(account.id, added.id);
     await sendPrompt(
       page,
@@ -427,22 +432,23 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     );
     const firstRead = log
       .getByRole("button")
-      .filter({ hasText: "knowledge_read" })
+      .filter({ hasText: readToolFilter })
       .first();
     await expect(firstRead).toContainText("Completed", { timeout: 30_000 });
     await firstRead.click();
     const firstReadDetails = firstRead.locator("..");
     await expect(firstReadDetails).toContainText(longNotePath);
-    await expect(firstReadDetails).toContainText('"offset": 0');
+    await expect(firstReadDetails).toContainText('"requestedRange":');
+    await expect(firstReadDetails).toContainText('"shownRange":');
     await expect(firstReadDetails).toContainText('"nextOffset":');
-    await expect(firstReadDetails).toContainText('"cutReason":');
-    await expect(firstReadDetails).not.toContainText("contentHash");
-    await expect(firstReadDetails).not.toContainText("expectedContentHash");
+    // 2005 lines exceeds the native reader's 2000-line default window, so a
+    // first unranged read always truncates.
+    await expect(firstReadDetails).toContainText('"truncated": true');
     await expect(firstReadDetails).not.toContainText(requireKnowledgeRoot());
 
     const continuedRead = log
       .getByRole("button")
-      .filter({ hasText: "knowledge_read" })
+      .filter({ hasText: readToolFilter })
       .nth(1);
     await expect(continuedRead).toContainText("Completed", {
       timeout: 30_000,
@@ -450,13 +456,15 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await continuedRead.click();
     const continuedReadDetails = continuedRead.locator("..");
     await expect(continuedReadDetails).toContainText(longNotePath);
-    await expect(continuedReadDetails).toContainText('"offset":');
-    await expect(continuedReadDetails).toContainText('"limit": 2000');
+    // The continuation locator carries an explicit `:start-end` selector
+    // derived from the first read's own `nextOffset`, not a separate
+    // offset/limit argument.
+    await expect(continuedReadDetails).toContainText(
+      /notes\/long-note\.md:\d+-\d+/u,
+    );
     await expect(continuedReadDetails).toContainText(
       "KNOWLEDGE_E2E_PAGED final",
     );
-    await expect(continuedReadDetails).not.toContainText("contentHash");
-    await expect(continuedReadDetails).not.toContainText("expectedContentHash");
 
     await sendPrompt(
       page,
@@ -464,16 +472,13 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     );
     const explicitRead = log
       .getByRole("button")
-      .filter({ hasText: "knowledge_read" })
+      .filter({ hasText: readToolFilter })
       .nth(2);
     await expect(explicitRead).toContainText("Completed", { timeout: 30_000 });
     await explicitRead.click();
     const explicitReadDetails = explicitRead.locator("..");
-    await expect(explicitReadDetails).toContainText(longNotePath);
-    await expect(explicitReadDetails).toContainText('"offset": 2');
-    await expect(explicitReadDetails).toContainText('"limit": 3');
+    await expect(explicitReadDetails).toContainText(`${longNotePath}:3-5`);
     await expect(explicitReadDetails).toContainText("3: KNOWLEDGE_E2E_PAGED");
-    await expect(explicitReadDetails).not.toContainText("contentHash");
     await expect(explicitReadDetails).not.toContainText(requireKnowledgeRoot());
 
     await sendPrompt(
@@ -490,12 +495,14 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expect(firstSearchDetails).toContainText(longNotePath);
     await expect(firstSearchDetails).toContainText(rangedSpace.id);
     await expect(firstSearchDetails).toContainText('"limit": 1');
-    await expect(firstSearchDetails).toContainText('"offset": 1');
+    // The result's `locator` is a ready `read` argument: a one-based
+    // inclusive `path:start-end` range, not the old zero-based offset/limit.
+    await expect(firstSearchDetails).toContainText(
+      `kb://${rangedSpace.id}/${longNotePath}:2-`,
+    );
     await expect(firstSearchDetails).toContainText(
       "KNOWLEDGE_E2E_PAGED first passage",
     );
-    await expect(firstSearchDetails).not.toContainText("contentHash");
-    await expect(firstSearchDetails).not.toContainText("expectedContentHash");
     await expect(firstSearchDetails).not.toContainText(requireKnowledgeRoot());
 
     const secondSearch = log
@@ -508,12 +515,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expect(secondSearchDetails).toContainText(longNotePath);
     await expect(secondSearchDetails).toContainText('"cursor":');
     await expect(secondSearchDetails).toContainText('"limit": 1');
-    await expect(secondSearchDetails).toContainText('"offset": 1101');
+    await expect(secondSearchDetails).toContainText(
+      `kb://${rangedSpace.id}/${longNotePath}:1102-`,
+    );
     await expect(secondSearchDetails).toContainText(
       "KNOWLEDGE_E2E_PAGED second passage",
     );
-    await expect(secondSearchDetails).not.toContainText("contentHash");
-    await expect(secondSearchDetails).not.toContainText("expectedContentHash");
     await expect(secondSearchDetails).not.toContainText(requireKnowledgeRoot());
 
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -611,7 +618,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     expect(workerKnowledgeSpace.id).not.toBe(freshSpace.id);
   });
 
-  test("returns safe failures for traversal, links, limits, and unavailable mounts", async ({
+  test("returns safe failures for traversal, links, missing notes, and unavailable mounts, and truncates an oversized one", async ({
     page,
     workerKnowledgeSpace,
   }) => {
@@ -638,29 +645,39 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
         page,
         `Please read the knowledge traversal fixture. Knowledge Space ID: ${workerKnowledgeSpace.id}`,
       );
-      await expectErroredTool(log, "The Knowledge path is invalid.", 0);
+      await expectErroredTool(log, "The Knowledge locator is invalid.", 0);
 
       await sendPrompt(
         page,
         `Please read the knowledge symlink fixture. Knowledge Space ID: ${workerKnowledgeSpace.id}`,
       );
-      await expectErroredTool(log, "The Knowledge path is invalid.", 1);
+      // A symlink anywhere on the path is refused by the same lstat walk
+      // that reports a genuinely missing component -- both read File not
+      // found, not a distinct symlink-specific message.
+      await expectErroredTool(log, "File not found.", 1);
 
+      // The native reader has no dedicated Knowledge file-size error: an
+      // oversized single line simply cannot fit any tool result, so it
+      // truncates to an empty window instead of failing the call.
       await sendPrompt(
         page,
         `Please read the knowledge oversized fixture. Knowledge Space ID: ${workerKnowledgeSpace.id}`,
       );
-      await expectErroredTool(
-        log,
-        "The Knowledge operation exceeded its limit.",
-        2,
+      await expectCompletedTool(log, readToolFilter, "notes/oversized.md", 2);
+      const oversizedCard = log
+        .getByRole("button")
+        .filter({ hasText: readToolFilter })
+        .nth(2);
+      await expect(oversizedCard.locator("..")).toContainText(
+        '"truncated": true',
       );
+      await expect(oversizedCard.locator("..")).toContainText('"content": ""');
 
       await sendPrompt(
         page,
         `Please read the knowledge missing fixture. Knowledge Space ID: ${workerKnowledgeSpace.id}`,
       );
-      await expectErroredTool(log, "The Knowledge note was not found.", 3);
+      await expectErroredTool(log, "File not found.", 3);
 
       // Acceptance still sees the configured API root, while the co-located
       // worker resolver fails closed when its owner child is unavailable.
@@ -679,5 +696,132 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       mkdirSync(workerKnowledgeSpace.directory, { recursive: true });
       rmSync(linkTargetRoot, { recursive: true, force: true });
     }
+  });
+
+  test("passes a search result's locator to read unchanged, and refuses another owner's Space", async ({
+    freshAccount,
+    page,
+    request,
+    workerKnowledgeSpace,
+  }) => {
+    writeNote(
+      workerKnowledgeSpace,
+      "notes/locator-passthrough.md",
+      "padding line one\npadding line two\nKNOWLEDGE_LOCATOR_E2E_MARKER passage text\npadding line four\n",
+    );
+    const freshSpace = await provisionKnowledgeSpace(request, freshAccount);
+
+    await prepareChat(page);
+    const log = page.getByRole("log");
+
+    await sendPrompt(page, "Please run the knowledge locator passthrough e2e.");
+    const searchCard = log
+      .getByRole("button")
+      .filter({ hasText: "knowledge_search" })
+      .first();
+    await expect(searchCard).toContainText("Completed", { timeout: 30_000 });
+    await searchCard.click();
+    const searchText = await searchCard.locator("..").innerText();
+    const locatorMatch = /kb:\/\/[^\s"]+/u.exec(searchText);
+    if (locatorMatch === null) {
+      throw new Error("search card did not render a kb:// locator");
+    }
+    const [locator] = locatorMatch;
+
+    // The read call's `path` argument is the search result's own `locator`
+    // string, passed through unchanged rather than rebuilt from parts.
+    const readCard = log
+      .getByRole("button")
+      .filter({ hasText: readToolFilter })
+      .first();
+    await expect(readCard).toContainText("Completed", { timeout: 30_000 });
+    await readCard.click();
+    await expect(readCard.locator("..")).toContainText(locator);
+    await expect(readCard.locator("..")).toContainText(
+      "KNOWLEDGE_LOCATOR_E2E_MARKER passage text",
+    );
+
+    await sendPrompt(
+      page,
+      `Please read the knowledge fixture. Knowledge Space ID: ${freshSpace.id}`,
+    );
+    await expectErroredTool(log, "Knowledge Space was not found.", 1);
+  });
+
+  test("reads mixed line endings, a trailing delimiter, and a directory listing", async ({
+    account,
+    page,
+    request,
+  }) => {
+    const lineEndingSpace = await provisionKnowledgeSpace(
+      request,
+      account,
+      "Line endings",
+    );
+    // LF terminates a logical line; CRLF keeps its `\r` as content; a lone
+    // `\r` never starts a new line; the final line carries no trailing
+    // delimiter at all.
+    const mixedBody =
+      "alpha LF\nbravo CRLF\r\ncharlie CR\rstill charlie\ndelta end";
+    writeNote(lineEndingSpace, "notes/line-endings.md", mixedBody);
+    writeNote(lineEndingSpace, "notes/line-endings-term.md", `${mixedBody}\n`);
+
+    await prepareChat(page);
+    const log = page.getByRole("log");
+
+    await sendPrompt(
+      page,
+      `Please read the knowledge fixture with a mixed newline sample. Knowledge Space ID: ${lineEndingSpace.id}`,
+    );
+    const unterminated = log
+      .getByRole("button")
+      .filter({ hasText: readToolFilter })
+      .first();
+    await expect(unterminated).toContainText("Completed", { timeout: 30_000 });
+    await unterminated.click();
+    const unterminatedDetails = unterminated.locator("..");
+    await expect(unterminatedDetails).toContainText("1: alpha LF");
+    // Rendered as JSON, an embedded `\r`/`\n` shows as its two-character
+    // escape; the CRLF line's `\r` survives, and "3: ...4: " with nothing
+    // between proves the lone `\r` did not split an extra numbered line.
+    await expect(unterminatedDetails).toContainText(
+      String.raw`bravo CRLF\r\n3: charlie CR\rstill charlie\n4: delta end`,
+    );
+    await expect(unterminatedDetails).toContainText('"endLine": 4');
+    await expect(unterminatedDetails).toContainText('delta end",');
+    await expect(unterminatedDetails).not.toContainText(requireKnowledgeRoot());
+
+    await sendPrompt(
+      page,
+      `Please read the knowledge fixture with a newline-terminated sample. Knowledge Space ID: ${lineEndingSpace.id}`,
+    );
+    const terminated = log
+      .getByRole("button")
+      .filter({ hasText: readToolFilter })
+      .nth(1);
+    await expect(terminated).toContainText("Completed", { timeout: 30_000 });
+    await terminated.click();
+    const terminatedDetails = terminated.locator("..");
+    await expect(terminatedDetails).toContainText('"endLine": 4');
+    // Same 4 logical lines, but the file's own trailing newline survives
+    // into the last rendered line -- the terminal-delimiter contrast with
+    // the unterminated read above.
+    await expect(terminatedDetails).toContainText(String.raw`delta end\n",`);
+
+    await sendPrompt(
+      page,
+      `Please read the knowledge fixture directory listing. Knowledge Space ID: ${lineEndingSpace.id}`,
+    );
+    const listing = log
+      .getByRole("button")
+      .filter({ hasText: readToolFilter })
+      .nth(2);
+    await expect(listing).toContainText("Completed", { timeout: 30_000 });
+    await listing.click();
+    const listingDetails = listing.locator("..");
+    await expect(listingDetails).toContainText('"kind": "directory"');
+    await expect(listingDetails).toContainText("- line-endings.md");
+    await expect(listingDetails).toContainText("- line-endings-term.md");
+    await expect(listingDetails).not.toContainText(requireKnowledgeRoot());
   });
 });
