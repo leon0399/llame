@@ -699,6 +699,24 @@ describe('KnowledgeFilesystemAdapter', () => {
     });
   });
 
+  it('does not surface a passage whose path has no unambiguous locator', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      await mkdir(path.join(directory, 'notes'), { recursive: true });
+      await writeFile(
+        path.join(directory, 'notes', '2026-09-08 14:30 standup.md'),
+        'needle in a colon-named note',
+      );
+      await writeFile(path.join(directory, 'notes', 'plain.md'), 'needle here');
+
+      // `read` splits a locator's trailing selector on the first `:`, so the
+      // colon-named note has no locator search could hand back; advertising it
+      // would promise a passage the model cannot open.
+      await expect(
+        new KnowledgeFilesystemAdapter(binding).search('needle', 5),
+      ).resolves.toEqual([expect.objectContaining({ path: 'notes/plain.md' })]);
+    });
+  });
+
   it('honors abort signals while traversing', async () => {
     await withFixture(async ({ binding, directory }) => {
       await writeFile(path.join(directory, 'note.md'), 'needle');

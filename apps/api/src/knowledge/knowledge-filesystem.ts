@@ -29,6 +29,7 @@ import {
   readWholeFileBytes,
 } from './knowledge-filesystem-read';
 import {
+  isLocatorAddressablePath,
   isMarkdownPath,
   joinRelativePath,
   validatePath,
@@ -263,7 +264,11 @@ export class KnowledgeFilesystemAdapter {
     if (stats.isDirectory()) {
       return { kind: 'descend', item: { absolutePath, relativePath } };
     }
-    if (stats.isFile() && isMarkdownPath(relativePath)) {
+    if (
+      stats.isFile() &&
+      isMarkdownPath(relativePath) &&
+      isLocatorAddressablePath(relativePath)
+    ) {
       await this.searchMarkdownFile(absolutePath, relativePath, stats, ctx);
     }
     return { kind: 'none' };

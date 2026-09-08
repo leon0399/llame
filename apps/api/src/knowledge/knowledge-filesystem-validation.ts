@@ -72,6 +72,16 @@ export function validatePath(relativePath: string): Array<string> {
   return components;
 }
 
+/**
+ * A `kb://` locator splits its trailing selector on the first `:`, so a path
+ * containing one has no unambiguous locator and `read` refuses it. Search must
+ * not advertise a passage the model cannot open, so such a file is skipped the
+ * same way a non-Markdown file is.
+ */
+export function isLocatorAddressablePath(relativePath: string): boolean {
+  return !relativePath.includes(':');
+}
+
 export function isMarkdownPath(relativePath: string): boolean {
   return relativePath.toLowerCase().endsWith(MARKDOWN_SUFFIX);
 }
