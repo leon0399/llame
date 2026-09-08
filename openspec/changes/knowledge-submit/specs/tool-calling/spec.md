@@ -3,14 +3,26 @@
 ### Requirement: Tool registry with mandatory safety classification
 
 Every registered tool SHALL declare a safety classification from the SPEC §13.5
-set. The loop SHALL execute allowlisted `read_only` tools and exact code-owned
-alpha-native tools registered by an approved capability. The native set after
-this change includes `read`, `edit`, `write`, and `knowledge_submit`, with
-`knowledge_submit` classified `write_low_risk`. Classification alone SHALL NOT
-admit another write or execution tool. Alpha-native tools carry explicit host
-authority; they are not remote MCP writes or a general permission system.
+set (`read_only`, `write_low_risk`, `write_high_risk`, `execute_code`,
+`external_send`, `financial_or_sensitive`, `admin`). The loop SHALL execute
+allowlisted `read_only` tools and exact code-owned tools registered by an
+approved alpha-native capability. The native set after this change is `read`
+classified `read_only`, plus `edit`, `write`, and `knowledge_submit` classified
+`write_low_risk`; later native capabilities such as bash must declare their own
+exact tools and retry policy. Classification alone SHALL NOT admit any other
+write or execution tool. Alpha-native tools carry explicit host authority for
+absolute paths and owner-scoped Knowledge authority for `kb://` locators; they
+are not a general permission engine or a remote MCP write grant. The candidate
+resolver SHALL admit the three native file tools when the process has accepted
+native host authority or has a configured Knowledge root, and SHALL leave them
+unavailable when it has neither. A configured Knowledge root admits only `read`,
+`edit`, and `write`; `bash` and every other host-capability tool remain admitted
+solely by accepted native host authority.
 
-The `mcp__` prefix SHALL remain reserved for MCP-generated ids.
+The `mcp__` tool-id prefix SHALL be reserved for ids produced by the MCP
+capability. A code-owned or other non-MCP registry entry beginning with that
+prefix SHALL fail registration, so ID-only namespace permission matching cannot
+grant authority across source kinds.
 
 #### Scenario: Read-only tool executes
 
@@ -28,6 +40,18 @@ The `mcp__` prefix SHALL remain reserved for MCP-generated ids.
 - **WHEN** exact code-owned `knowledge_submit` is allowlisted and trusted native Knowledge capability is present
 - **THEN** it executes with the native capability's host authority
 - **AND** it is not substituted with a remote MCP operation
+
+#### Scenario: Native tools are admitted by Knowledge root alone
+
+- **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `read`, `edit`, and `write`
+- **THEN** the three tools are advertised and executable for `kb://` locators
+- **AND** an absolute path fails closed with `executor_unavailable`
+
+#### Scenario: Knowledge root does not admit bash
+
+- **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `bash`
+- **THEN** `bash` is neither advertised nor executable
+- **AND** the Run manifest records it unavailable exactly as before this change
 
 #### Scenario: Non-read-only tool is refused even when allowlisted
 

@@ -1,7 +1,13 @@
-export { NativeFileError, resolveReadTarget } from "./path";
+export {
+  isSelectorSuffix,
+  NativeFileError,
+  parsePathScheme,
+  resolveReadTarget,
+} from "./path";
 export type { ReadTarget } from "./path";
 export {
   readFile,
+  readResolvedFile,
   loadText,
   splitSourceLines,
   selectSourceLines,
@@ -11,6 +17,7 @@ export {
   DIRECTORY_CHILD_CAP,
 } from "./read";
 export type {
+  NativeReadOptions,
   ReadSuccess,
   FileFailure,
   LineRange,
@@ -18,6 +25,7 @@ export type {
   DirectoryFailure,
 } from "./read";
 export { editFile, createFile } from "./mutate";
+export type { NativeMutateOptions } from "./mutate";
 export {
   measureNativeModelOutput,
   serializeNativeModelOutput,

@@ -1,3 +1,4 @@
+import { lstatSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -15,6 +16,9 @@ import {
   nativeEditTool,
   nativeWriteTool,
 } from './native-files';
+import { KnowledgeSpaceLocalResolver } from '../knowledge/knowledge-space.local-resolver';
+import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
+import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
 import { runTool } from './runner';
 import { type ToolContext } from './types';
 
@@ -118,7 +122,7 @@ describe('native file authority and durable effects', () => {
       new NativeFilesRepository(tx).begin({
         runId,
         userId: owner,
-        executorId: 'host-a',
+        fence: { bound: true, executorId: 'host-a' },
         deliverySequence: input.deliverySequence,
         toolCallId: input.toolCallId,
         operation: input.operation,
@@ -174,7 +178,7 @@ describe('native file authority and durable effects', () => {
       new NativeFilesRepository(tx).begin({
         runId,
         userId: owner,
-        executorId: 'host-a',
+        fence: { bound: true, executorId: 'host-a' },
         deliverySequence: context.nativeDeliverySequence,
         toolCallId: context.toolCallId!,
         operation: 'edit',
@@ -448,5 +452,309 @@ describe('native file authority and durable effects', () => {
       ),
     ).toMatchObject({ type: 'file_exists' });
     expect(await readFile(createdPath, 'utf8')).toBe('new');
+  });
+});
+
+describe('kb:// mutations under real owner binding', () => {
+  let sql: Sql;
+  let tenantDb: TenantDbService;
+  const owner = randomUUID();
+  const otherOwner = randomUUID();
+  let root: string;
+  let spaceId: string;
+  let otherSpaceId: string;
+  let runId: string;
+  let context: ToolContext;
+  let resolver: KnowledgeToolRuntimeResolver;
+
+  function locator(space: string, relativePath: string): string {
+    return `kb://${space}/${relativePath}`;
+  }
+
+  function notePath(space: string, relativePath: string): string {
+    return join(root, space, ...relativePath.split('/'));
+  }
+
+  beforeAll(async () => {
+    const url = process.env.TEST_DATABASE_URL;
+    if (!url) throw new Error('Integration database was not provisioned.');
+    sql = postgres(url, { max: 2 });
+    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    await sql`INSERT INTO users (id, name, email) VALUES (${owner}, 'KB', ${`${owner}@test.com`}), (${otherOwner}, 'KB other', ${`${otherOwner}@test.com`})`;
+  });
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'kb-mutate-'));
+    const spaces = new KnowledgeSpaceService(
+      tenantDb,
+      new KnowledgeSpaceLocalResolver(root),
+    );
+    resolver = new KnowledgeToolRuntimeResolver(spaces);
+    spaceId = (await spaces.provisionForOwner(owner)).id;
+    otherSpaceId = (await spaces.provisionForOwner(otherOwner)).id;
+    await writeFile(notePath(spaceId, 'note.md'), 'alpha\nbeta\ngamma\n');
+    await writeFile(notePath(otherSpaceId, 'note.md'), 'not yours\n');
+
+    const chatId = randomUUID();
+    const run = await tenantDb.runAs(owner, async (tx) => {
+      await new ChatsRepository(tx).createIfAbsent({
+        id: chatId,
+        ownerUserId: owner,
+        title: 'Knowledge mutations',
+      });
+      const message = await new MessagesRepository(tx).create({
+        chatId,
+        senderUserId: owner,
+        role: 'user',
+        parts: [{ type: 'text', text: 'Edit the note.' }],
+      });
+      const snapshot = await seedModelContextSnapshot(tx, owner, chatId, [
+        'read',
+        'edit',
+        'write',
+      ]);
+      const runs = new RunsRepository(tx);
+      const created = await runs.create({
+        chatId,
+        userId: owner,
+        messageId: message.id,
+        modelId: 'kb-test',
+        modelContextSnapshotId: snapshot.id,
+      });
+      await runs.markStarted(created.id, owner);
+      const started = await new RunEventsRepository(tx).append(
+        created.id,
+        'run.started',
+      );
+      return { id: created.id, startedSequence: started.sequence };
+    });
+    runId = run.id;
+    // No `nativeExecutorId`: a kb:// mutation must work on a worker that has
+    // never accepted host authority.
+    context = {
+      userId: owner,
+      chatId,
+      tenantDb,
+      runId,
+      nativeDeliverySequence: run.startedSequence,
+      toolCallId: randomUUID(),
+      knowledgeResolver: resolver,
+    };
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+  afterAll(async () => {
+    if (sql) {
+      await sql`DELETE FROM users WHERE id IN (${owner}, ${otherOwner})`;
+      await sql.end();
+    }
+  });
+
+  it('edits an exact match and leaves the Run unbound to any worker', async () => {
+    const result = await runTool(
+      nativeEditTool,
+      { path: locator(spaceId, 'note.md'), oldText: 'beta', newText: 'delta' },
+      context,
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      operation: 'edit',
+      replacements: 1,
+      path: locator(spaceId, 'note.md'),
+      knowledgeSpaceId: spaceId,
+    });
+    expect(JSON.stringify(result)).not.toContain(root);
+    expect(await readFile(notePath(spaceId, 'note.md'), 'utf8')).toBe(
+      'alpha\ndelta\ngamma\n',
+    );
+    const run = await tenantDb.runAs(owner, (tx) =>
+      new RunsRepository(tx).findById(runId, owner),
+    );
+    expect(run?.workerId).toBeNull();
+  });
+
+  it('settles a refused edit so a retry replays it instead of re-running', async () => {
+    await writeFile(notePath(spaceId, 'twice.md'), 'same\nsame\n');
+    const args = {
+      path: locator(spaceId, 'twice.md'),
+      oldText: 'same',
+      newText: 'x',
+    };
+    const failure = await runTool(nativeEditTool, args, context, 5);
+    expect(failure).toMatchObject({
+      status: 'error',
+      type: 'old_text_ambiguous',
+    });
+    expect(await readFile(notePath(spaceId, 'twice.md'), 'utf8')).toBe(
+      'same\nsame\n',
+    );
+
+    // A refusal is an outcome like any other: it is durably settled, so the
+    // same tool call replays the recorded failure rather than reaching the
+    // filesystem again — even though the note has since become unambiguous.
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    expect(events.map((event) => event.eventType)).toEqual([
+      'run.started',
+      'native.attempt',
+      'native.result',
+    ]);
+    await writeFile(notePath(spaceId, 'twice.md'), 'same\nunique\n');
+    expect(await runTool(nativeEditTool, args, context, 5)).toEqual(failure);
+    expect(await readFile(notePath(spaceId, 'twice.md'), 'utf8')).toBe(
+      'same\nunique\n',
+    );
+  });
+
+  it('creates a note and its missing intermediate directories, once', async () => {
+    const target = locator(spaceId, 'research/2026/note.md');
+    expect(
+      await runTool(
+        nativeWriteTool,
+        { path: target, content: 'new\n' },
+        context,
+        5,
+      ),
+    ).toMatchObject({ status: 'success', created: true, path: target });
+    expect(
+      await readFile(notePath(spaceId, 'research/2026/note.md'), 'utf8'),
+    ).toBe('new\n');
+
+    expect(
+      await runTool(
+        nativeWriteTool,
+        { path: target, content: 'again\n' },
+        { ...context, toolCallId: randomUUID() },
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'file_exists' });
+    expect(
+      await readFile(notePath(spaceId, 'research/2026/note.md'), 'utf8'),
+    ).toBe('new\n');
+  });
+
+  it('creates no directories for a write the fence refuses', async () => {
+    // The attempt is the pre-effect record, so a call rejected for its
+    // selector, or by a stale delivery, must not have touched the disk first.
+    expect(
+      await runTool(
+        nativeWriteTool,
+        {
+          path: `${locator(spaceId, 'rejected/deep/note.md')}:1-2`,
+          content: 'x\n',
+        },
+        context,
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'invalid_selector' });
+    expect(() => lstatSync(notePath(spaceId, 'rejected'))).toThrow(/ENOENT/);
+
+    expect(
+      await runTool(
+        nativeWriteTool,
+        { path: locator(spaceId, 'stale/deep/note.md'), content: 'x\n' },
+        { ...context, nativeDeliverySequence: 999_999 },
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'executor_unavailable' });
+    expect(() => lstatSync(notePath(spaceId, 'stale'))).toThrow(/ENOENT/);
+  });
+
+  it('reports an intermediate regular file as not_regular_file', async () => {
+    await writeFile(notePath(spaceId, 'blocker'), 'not a directory\n');
+    expect(
+      await runTool(
+        nativeWriteTool,
+        { path: locator(spaceId, 'blocker/note.md'), content: 'x\n' },
+        context,
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'not_regular_file' });
+    expect(await readFile(notePath(spaceId, 'blocker'), 'utf8')).toBe(
+      'not a directory\n',
+    );
+  });
+
+  it('refuses another owner Space and mutates nothing', async () => {
+    expect(
+      await runTool(
+        nativeEditTool,
+        {
+          path: locator(otherSpaceId, 'note.md'),
+          oldText: 'not yours',
+          newText: 'mine now',
+        },
+        context,
+        5,
+      ),
+    ).toEqual({
+      status: 'error',
+      type: 'knowledge_space_not_found',
+      message: 'Knowledge Space was not found.',
+    });
+    expect(await readFile(notePath(otherSpaceId, 'note.md'), 'utf8')).toBe(
+      'not yours\n',
+    );
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    expect(events.some((event) => event.eventType === 'native.attempt')).toBe(
+      false,
+    );
+  });
+
+  it('replays an unsettled attempt on another worker without executor_unavailable', async () => {
+    await tenantDb.runAs(owner, (tx) =>
+      new NativeFilesRepository(tx).begin({
+        runId,
+        userId: owner,
+        fence: { bound: false },
+        deliverySequence: context.nativeDeliverySequence,
+        toolCallId: context.toolCallId!,
+        operation: 'edit',
+        path: locator(spaceId, 'note.md'),
+      }),
+    );
+    // A different runs worker picks the Run up. It never had, and never needs,
+    // an executor identity for a kb:// target.
+    expect(
+      await runTool(
+        nativeEditTool,
+        {
+          path: locator(spaceId, 'note.md'),
+          oldText: 'beta',
+          newText: 'delta',
+        },
+        { ...context, nativeExecutorId: undefined },
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'outcome_unknown' });
+    expect(await readFile(notePath(spaceId, 'note.md'), 'utf8')).toBe(
+      'alpha\nbeta\ngamma\n',
+    );
+  });
+
+  it('records the locator as the attempt target, never the host path', async () => {
+    await runTool(
+      nativeEditTool,
+      { path: locator(spaceId, 'note.md'), oldText: 'beta', newText: 'delta' },
+      context,
+      5,
+    );
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    const attempt = events.find(
+      (event) => event.eventType === 'native.attempt',
+    );
+    expect(attempt?.payload).toMatchObject({
+      operation: 'edit',
+      path: locator(spaceId, 'note.md'),
+    });
+    expect(JSON.stringify(events)).not.toContain(root);
   });
 });

@@ -1,4 +1,4 @@
-import { MAX_RESULT_CODE_UNITS } from "./source-lines";
+import { resultBudget } from "./source-lines";
 import { measureNativeModelOutput } from "./serialization";
 
 export const DIRECTORY_TRAVERSAL_BUDGET = 10_000;
@@ -40,6 +40,15 @@ export type DirectorySuccess = {
   content: string;
   truncated: boolean;
   nextOffset?: number;
+};
+
+export type DirectoryListingOptions = {
+  offset?: number;
+  limit?: number;
+  /** Shown as the listing header in place of the host path. */
+  displayPath?: string;
+  /** Room withheld from the shared cap for a caller's envelope. */
+  reserveCodeUnits?: number;
 };
 
 export type DirectoryFailure = {
@@ -115,8 +124,8 @@ async function readDirEntries(
   }
 }
 
-function fitsResultCap(candidate: DirectorySuccess): boolean {
-  return measureNativeModelOutput(candidate) <= MAX_RESULT_CODE_UNITS;
+function fitsResultCap(candidate: DirectorySuccess, cap: number): boolean {
+  return measureNativeModelOutput(candidate) <= cap;
 }
 
 function directoryResult(
@@ -170,9 +179,11 @@ async function readChildDirs(
 export async function listDirectory(
   targetPath: string,
   port: DirectoryPort,
-  options?: { offset?: number; limit?: number },
+  options?: DirectoryListingOptions,
 ): Promise<DirectorySuccess | DirectoryFailure> {
   const root = await readDirEntries(port, targetPath);
+  const header = options?.displayPath ?? targetPath;
+  const cap = resultBudget(options ?? {});
 
   if (root.overBudget) {
     return {
@@ -186,17 +197,18 @@ export async function listDirectory(
   root.entries.sort(compareEntries);
 
   if (options?.offset !== undefined || options?.limit !== undefined) {
-    return renderFlatListing(targetPath, root.entries, options);
+    return renderFlatListing(header, root.entries, options, cap);
   }
 
   const children = await readChildDirs(root.entries, targetPath, port);
-  return renderTreeListing(targetPath, root.entries, children);
+  return renderTreeListing(header, root.entries, children, cap);
 }
 
 function renderFlatListing(
   targetPath: string,
   entries: Array<DirEntry>,
-  options?: { offset?: number; limit?: number },
+  options: { offset?: number; limit?: number } | undefined,
+  cap: number,
 ): DirectorySuccess {
   const offset = options?.offset ?? 0;
   const limit = options?.limit ?? entries.length;
@@ -215,7 +227,7 @@ function renderFlatListing(
     end < entries.length,
     end < entries.length ? end : undefined,
   );
-  return boundFlatResult(result, offset);
+  return boundFlatResult(result, offset, cap);
 }
 
 function renderChildBlock(child: ChildDir) {
@@ -268,6 +280,7 @@ function renderTreeListing(
   targetPath: string,
   rootEntries: Array<DirEntry>,
   children: Array<ChildDir>,
+  cap: number,
 ): DirectorySuccess {
   if (rootEntries.length === 0) {
     return directoryResult(
@@ -288,14 +301,14 @@ function renderTreeListing(
   let content = lines.join("\n") + "\n";
   let truncated = false;
 
-  if (!fitsResultCap(directoryResult(targetPath, content, false))) {
-    const elided = elideChildBlocks(targetPath, rootEntries, childBlocks);
+  if (!fitsResultCap(directoryResult(targetPath, content, false), cap)) {
+    const elided = elideChildBlocks(targetPath, rootEntries, childBlocks, cap);
     content = elided.content;
     truncated = elided.truncated;
   }
 
-  if (!fitsResultCap(directoryResult(targetPath, content, truncated))) {
-    return truncateRequestedLevel(targetPath, rootEntries, childBlocks);
+  if (!fitsResultCap(directoryResult(targetPath, content, truncated), cap)) {
+    return truncateRequestedLevel(targetPath, rootEntries, childBlocks, cap);
   }
 
   return directoryResult(targetPath, content, truncated);
@@ -305,6 +318,7 @@ function elideChildBlocks(
   targetPath: string,
   rootEntries: Array<DirEntry>,
   childBlocks: Array<ChildBlockInfo>,
+  cap: number,
 ) {
   const elided = new Set<string>();
   const blocksByName = new Map<string, ChildBlockInfo>();
@@ -314,7 +328,7 @@ function elideChildBlocks(
     if (block.childLines.length === 0) continue;
     elided.add(block.name);
     const content = buildContent(targetPath, rootEntries, blocksByName, elided);
-    if (fitsResultCap(directoryResult(targetPath, content, true))) {
+    if (fitsResultCap(directoryResult(targetPath, content, true), cap)) {
       return { content, truncated: true };
     }
   }
@@ -360,6 +374,7 @@ function truncateRequestedLevel(
   targetPath: string,
   rootEntries: Array<DirEntry>,
   childBlocks: Array<ChildBlockInfo>,
+  cap: number,
 ): DirectorySuccess {
   const { byName, elided } = indexChildBlocks(childBlocks);
 
@@ -380,6 +395,7 @@ function truncateRequestedLevel(
     if (
       !fitsResultCap(
         directoryResult(targetPath, candidate.join("\n") + "\n", true, nextIdx),
+        cap,
       )
     ) {
       return directoryResult(
@@ -401,17 +417,21 @@ function truncateRequestedLevel(
 function boundFlatResult(
   result: DirectorySuccess,
   requestOffset: number,
+  cap: number,
 ): DirectorySuccess {
-  if (fitsResultCap(result)) return result;
+  if (fitsResultCap(result, cap)) return result;
 
   const lines = result.content.split("\n");
   while (
     lines.length > 1 &&
-    !fitsResultCap({
-      ...result,
-      content: lines.join("\n") + "\n",
-      truncated: true,
-    })
+    !fitsResultCap(
+      {
+        ...result,
+        content: lines.join("\n") + "\n",
+        truncated: true,
+      },
+      cap,
+    )
   ) {
     lines.pop();
   }

@@ -19,7 +19,12 @@
  * and a fixture-only result sentinel selects the fixed sourced answer. A
  * separate unique episodic prompt performs the acceptance chain: search,
  * parse canonical source coordinates from that result, read the exact range,
- * then answer. Ordinary prompts never enter that branch.
+ * then answer. Ordinary prompts never enter that branch. Knowledge reads go
+ * through the code-owned native `read` tool with a `kb://` locator argument
+ * (there is no dedicated Knowledge-only read tool); a separate unique prompt
+ * performs the locator-passthrough acceptance chain: `knowledge_search`,
+ * then `read` with the search result's `locator` field passed through
+ * unchanged, then answer.
  * Requests to /ready serve the Playwright webServer readiness probe.
  */
 
@@ -110,7 +115,9 @@ const CONVERSATION_ANSWER_TOKENS = [
 const MCP_TOOL_ID = "mcp__fixture_search__search";
 const STDIO_TOOL_ID = "mcp__fixture_local__lookup";
 const KNOWLEDGE_SEARCH_TOOL_ID = "knowledge_search";
-const KNOWLEDGE_READ_TOOL_ID = "knowledge_read";
+// The code-owned native file tool; Knowledge reads select it via a `kb://`
+// locator in its `path` argument -- there is no separate Knowledge-only tool.
+const NATIVE_READ_TOOL_ID = "read";
 const STDIO_PROMPT_MARKER = "local stdio fixture evidence";
 const STDIO_RESULT_SENTINEL = "FIXTURE_STDIO_SENTINEL";
 const STDIO_ANSWER_TOKENS = [
@@ -153,6 +160,37 @@ const KNOWLEDGE_ERROR_ANSWER_TOKENS = [
   " safely",
   ".",
 ];
+
+// Locator-passthrough acceptance chain: search, then read the search result's
+// own `locator` field unchanged, then answer. Kept independent from the
+// generic knowledge branches below (no "knowledge fixture"/"search" marker
+// text) so it cannot gain or lose a tool call to either.
+const KNOWLEDGE_LOCATOR_PROMPT_MARKER = "knowledge locator passthrough e2e";
+const KNOWLEDGE_LOCATOR_QUERY = "KNOWLEDGE_LOCATOR_E2E_MARKER";
+const KNOWLEDGE_LOCATOR_ANSWER_TOKENS = [
+  "I",
+  " read",
+  " the",
+  " located",
+  " passage",
+  " exactly.",
+];
+
+/** A `kb://` path component never contains `:`, so a trailing `:selector`
+ *  suffix is always the last one — matches native-files.ts's own grammar. */
+const KNOWLEDGE_SELECTOR_SUFFIX = /:(?:raw(?::\d+-\d+)?|\d+[-+]\d+)$/u;
+
+function stripKnowledgeSelector(locator: string): string {
+  return locator.replace(KNOWLEDGE_SELECTOR_SUFFIX, "");
+}
+
+function knowledgeLocator(
+  spaceId: string | undefined,
+  relativePath: string,
+  selector?: string,
+): string {
+  return `kb://${spaceId}/${relativePath}${selector ? `:${selector}` : ""}`;
+}
 
 // Structural evidence for arbitrary JSON-shaped values threaded through this
 // fixture (request bodies, tool-call arguments, and their JSON-encoded string
@@ -389,12 +427,17 @@ function classifyKnowledgeRequest(content: string) {
     "unavailable",
   ];
   // Ordered: the first matching scenario names the fixture file to read.
+  // The three line-ending/listing markers are mutually disjoint substrings
+  // (none contains another), so order among them doesn't matter.
   const READ_PATHS: ReadonlyArray<readonly [string, string]> = [
     ["traversal", "../outside.md"],
     ["symlink", "notes/link.md"],
     ["oversized", "notes/oversized.md"],
     ["missing", "notes/missing.md"],
     ["long knowledge", KNOWLEDGE_LONG_PATH],
+    ["mixed newline sample", "notes/line-endings.md"],
+    ["newline-terminated sample", "notes/line-endings-term.md"],
+    ["directory listing", "notes"],
   ];
 
   const asksKnowledge =
@@ -458,6 +501,7 @@ function classify(raw: string) {
       "path",
     );
     const knowledge = classifyKnowledgeRequest(content);
+    const knowledgeLocatorSearchResult = findSearchResult(currentTurnMessages);
     return {
       hasTools,
       hasToolResult,
@@ -474,7 +518,7 @@ function classify(raw: string) {
         body.tools,
         KNOWLEDGE_SEARCH_TOOL_ID,
       ),
-      hasKnowledgeReadTool: toolIsOffered(body.tools, KNOWLEDGE_READ_TOOL_ID),
+      hasNativeReadTool: toolIsOffered(body.tools, NATIVE_READ_TOOL_ID),
       asksConversationRecall: content.includes(CONVERSATION_PROMPT_MARKER),
       hasConversationTools:
         toolIsOffered(body.tools, "search_conversations") &&
@@ -493,6 +537,12 @@ function classify(raw: string) {
       knowledgeNextOffset: findNumberProperty(latestToolContent, "nextOffset"),
       knowledgeCursor: findStringProperty(latestToolContent, "nextCursor"),
       knowledgeResultPath,
+      knowledgeLocatorFromSearch:
+        knowledgeLocatorSearchResult !== undefined
+          ? findStringProperty(knowledgeLocatorSearchResult.results, "locator")
+          : undefined,
+      hasKnowledgeLocatorReadResult:
+        findConversationReadResult(currentTurnMessages),
       lastUserContent: content,
     };
   } catch {
@@ -509,7 +559,7 @@ function classify(raw: string) {
       hasStdioFixtureResult: false,
       asksKnowledge: false,
       hasKnowledgeSearchTool: false,
-      hasKnowledgeReadTool: false,
+      hasNativeReadTool: false,
       asksConversationRecall: false,
       hasConversationTools: false,
       hasConversationSearchResult: false,
@@ -521,6 +571,8 @@ function classify(raw: string) {
       knowledgeNextOffset: undefined,
       knowledgeCursor: undefined,
       knowledgeResultPath: undefined,
+      knowledgeLocatorFromSearch: undefined,
+      hasKnowledgeLocatorReadResult: false,
       lastUserContent: "",
     };
   }
@@ -627,17 +679,64 @@ function tryConversationReadContinuationOrAnswer(ctx: ChunkContext): boolean {
   return true;
 }
 
-// No explicit return-type annotation: each field is set to `undefined` when
-// absent rather than the key being conditionally omitted, so toolCallChunk's
-// JSON.stringify drops it exactly as an omitted key would, without a spread
-// that hides the omission behind an empty object.
+// Knowledge locator-passthrough acceptance chain: search, then read the
+// search result's own `locator` field unchanged, then answer. The second
+// call's `path` argument is read straight off the first result rather than
+// rebuilt from a Space ID + relative path + range, proving the pass-through
+// the spec exists to test.
+function tryKnowledgeLocatorSearchTurn(ctx: ChunkContext): boolean {
+  if (
+    !ctx.lastUserContent.includes(KNOWLEDGE_LOCATOR_PROMPT_MARKER) ||
+    !ctx.hasKnowledgeSearchTool ||
+    ctx.hasCurrentTurnToolResult
+  ) {
+    return false;
+  }
+  writeToolCall(ctx.res, {
+    id: "call_knowledge_locator_search_e2e",
+    name: KNOWLEDGE_SEARCH_TOOL_ID,
+    arguments: { query: KNOWLEDGE_LOCATOR_QUERY, limit: 1 },
+  });
+  return true;
+}
+
+function tryKnowledgeLocatorReadTurn(ctx: ChunkContext): boolean {
+  if (
+    !ctx.lastUserContent.includes(KNOWLEDGE_LOCATOR_PROMPT_MARKER) ||
+    ctx.knowledgeLocatorFromSearch === undefined ||
+    ctx.hasKnowledgeLocatorReadResult
+  ) {
+    return false;
+  }
+  writeToolCall(ctx.res, {
+    id: "call_knowledge_locator_read_e2e",
+    name: NATIVE_READ_TOOL_ID,
+    arguments: { path: ctx.knowledgeLocatorFromSearch },
+  });
+  return true;
+}
+
+function tryKnowledgeLocatorAnswerTurn(ctx: ChunkContext): boolean {
+  if (
+    !ctx.lastUserContent.includes(KNOWLEDGE_LOCATOR_PROMPT_MARKER) ||
+    !ctx.hasKnowledgeLocatorReadResult
+  ) {
+    return false;
+  }
+  writeAnswer(ctx.res, KNOWLEDGE_LOCATOR_ANSWER_TOKENS);
+  return true;
+}
+
+// `read`'s only argument is `path`; a Knowledge read selects `kb://` and
+// carries any selector inside that one string.
 function knowledgeReadArguments(ctx: ChunkContext) {
   const explicitRange = ctx.lastUserContent.includes("explicit range");
   return {
-    knowledgeSpaceId: ctx.knowledgeSpaceId,
-    path: ctx.knowledgeReadPath,
-    offset: explicitRange ? 2 : undefined,
-    limit: explicitRange ? 3 : undefined,
+    path: knowledgeLocator(
+      ctx.knowledgeSpaceId,
+      ctx.knowledgeReadPath,
+      explicitRange ? "3-5" : undefined,
+    ),
   };
 }
 
@@ -671,11 +770,11 @@ function tryKnowledgeFirstTurn(ctx: ChunkContext): boolean {
   }
   writeToolCall(ctx.res, {
     id: ctx.readKnowledge
-      ? `call_knowledge_read_${ctx.knowledgeReadPath.replaceAll(/[^a-z]/g, "_")}_e2e`
+      ? `call_knowledge_note_read_${ctx.knowledgeReadPath.replaceAll(/[^a-z]/g, "_")}_e2e`
       : ctx.lastUserContent.includes(KNOWLEDGE_CHANGED_MARKER)
         ? "call_knowledge_search_changed_e2e"
         : "call_knowledge_search_e2e",
-    name: ctx.readKnowledge ? KNOWLEDGE_READ_TOOL_ID : KNOWLEDGE_SEARCH_TOOL_ID,
+    name: ctx.readKnowledge ? NATIVE_READ_TOOL_ID : KNOWLEDGE_SEARCH_TOOL_ID,
     arguments: ctx.readKnowledge
       ? knowledgeReadArguments(ctx)
       : knowledgeSearchArguments(ctx),
@@ -697,17 +796,22 @@ function tryKnowledgeContinuationTurn(ctx: ChunkContext): boolean {
         ctx.knowledgeCursor !== undefined));
   if (!matches) return false;
 
+  // A continuation carries no separate offset/limit arguments; it re-derives
+  // a `kb://` selector from the PREVIOUS read result's own `path` (the
+  // locator, verbatim) and `nextOffset` (zero-based; resume at + 1).
+  const previousLocator = ctx.knowledgeResultPath;
+  const continuationStart = (ctx.knowledgeNextOffset ?? 0) + 1;
   writeToolCall(ctx.res, {
     id: ctx.readKnowledge
-      ? "call_knowledge_read_continued_e2e"
+      ? "call_knowledge_note_read_continued_e2e"
       : "call_knowledge_search_continued_e2e",
-    name: ctx.readKnowledge ? KNOWLEDGE_READ_TOOL_ID : KNOWLEDGE_SEARCH_TOOL_ID,
+    name: ctx.readKnowledge ? NATIVE_READ_TOOL_ID : KNOWLEDGE_SEARCH_TOOL_ID,
     arguments: ctx.readKnowledge
       ? {
-          knowledgeSpaceId: ctx.knowledgeSpaceId,
-          path: ctx.knowledgeReadPath,
-          offset: ctx.knowledgeNextOffset,
-          limit: 2000,
+          path:
+            previousLocator === undefined
+              ? undefined
+              : `${stripKnowledgeSelector(previousLocator)}:${continuationStart}-${continuationStart + 1999}`,
         }
       : {
           query: KNOWLEDGE_PAGED_QUERY,
@@ -848,7 +952,7 @@ async function respondToChatCompletion(
     classification.knowledgeOperation === "read" ||
     classification.knowledgeOperation === "error";
   const hasRequestedKnowledgeTool = readKnowledge
-    ? classification.hasKnowledgeReadTool
+    ? classification.hasNativeReadTool
     : classification.hasKnowledgeSearchTool;
   const ctx = {
     ...classification,
@@ -863,6 +967,10 @@ async function respondToChatCompletion(
   if (tryConversationSearchTurn(ctx)) return;
   if (tryConversationReadTurn(ctx)) return;
   if (tryConversationReadContinuationOrAnswer(ctx)) return;
+
+  if (tryKnowledgeLocatorSearchTurn(ctx)) return;
+  if (tryKnowledgeLocatorReadTurn(ctx)) return;
+  if (tryKnowledgeLocatorAnswerTurn(ctx)) return;
 
   if (tryKnowledgeFirstTurn(ctx)) return;
   if (tryKnowledgeContinuationTurn(ctx)) return;

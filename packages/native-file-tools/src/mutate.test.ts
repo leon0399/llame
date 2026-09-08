@@ -183,3 +183,62 @@ describe("native exact mutations", () => {
     expect(await readFile(path, "utf8")).toBe("x".repeat(1_048_576) + "Bar!");
   });
 });
+
+describe("native mutations resolved by a scheme owner", () => {
+  let directory: string;
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "native-scheme-mutate-"));
+  });
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("creates missing intermediate directories", async () => {
+    const path = join(directory, "research", "2026", "note.md");
+    const result = await createFile({ path, content: "first\n" });
+    expect(result).toMatchObject({ status: "success", created: true, path });
+    expect(await readFile(path, "utf8")).toBe("first\n");
+  });
+
+  it("refuses an intermediate component that is a regular file", async () => {
+    const blocker = join(directory, "research");
+    await writeFile(blocker, "not a directory\n");
+    expect(
+      await createFile({
+        path: join(blocker, "2026", "note.md"),
+        content: "x\n",
+      }),
+    ).toMatchObject({ status: "error", type: "not_regular_file" });
+    expect(await readFile(blocker, "utf8")).toBe("not a directory\n");
+  });
+
+  it("shows the display path and never resolves through a symbolic link", async () => {
+    const target = join(directory, "note.md");
+    await writeFile(target, "alpha\nbeta\n");
+    const edited = await editFile(
+      { path: target, oldText: "beta", newText: "gamma" },
+      undefined,
+      { displayPath: "kb://space/note.md" },
+    );
+    expect(edited).toMatchObject({
+      status: "success",
+      operation: "edit",
+      path: "kb://space/note.md",
+      replacements: 1,
+    });
+    expect(await readFile(target, "utf8")).toBe("alpha\ngamma\n");
+
+    const outside = join(directory, "outside.md");
+    await writeFile(outside, "secret\n");
+    const link = join(directory, "link.md");
+    await symlink(outside, link);
+    expect(
+      await editFile(
+        { path: link, oldText: "secret", newText: "leaked" },
+        undefined,
+        { displayPath: "kb://space/link.md" },
+      ),
+    ).toMatchObject({ status: "error", type: "not_found" });
+    expect(await readFile(outside, "utf8")).toBe("secret\n");
+  });
+});

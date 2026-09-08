@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { link, lstat, open, realpath, rename, unlink } from "node:fs/promises";
+import {
+  link,
+  lstat,
+  mkdir,
+  open,
+  realpath,
+  rename,
+  unlink,
+} from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
-import { NativeFileError } from "./path";
+import { isNodeError, NativeFileError, parsePathScheme } from "./path";
 import {
   loadText,
   MAX_RESULT_CODE_UNITS,
@@ -13,6 +21,21 @@ import type { FileFailure, LineRange } from "./read";
 
 type EditInput = { path: string; oldText: string; newText: string };
 type WriteInput = { path: string; content: string };
+
+/**
+ * What a scheme resolver supplies once it has authorized and resolved the
+ * target. `displayPath` is what the model sees in place of the host path, and
+ * its presence marks the target as already resolved: it is never resolved
+ * again through a symbolic link, because the owner authorized one specific
+ * entry and following a link would mutate another. `reserveCodeUnits`
+ * withholds room for the envelope the resolver wraps the result in, so the
+ * preview is bounded against what the model receives rather than truncated
+ * generically afterwards.
+ */
+export type NativeMutateOptions = {
+  readonly displayPath?: string | undefined;
+  readonly reserveCodeUnits?: number | undefined;
+};
 type MutationSuccess = {
   status: "success";
   operation: "edit" | "write";
@@ -39,14 +62,18 @@ function mutate(
   return pending.catch((error: unknown): FileFailure => {
     if (error instanceof NativeFileError)
       return { status: "error", type: error.type, message: error.message };
-    const code =
-      error instanceof Error && "code" in error ? error.code : undefined;
+    const code = isNodeError(error) ? error.code : undefined;
+    // `ELOOP` is `O_NOFOLLOW` refusing a symbolic link at a resolved target,
+    // which reads report as `not_found`; `ENOTDIR` is a path component that
+    // exists but is not a directory.
     const type =
-      code === "ENOENT"
+      code === "ENOENT" || code === "ELOOP"
         ? "not_found"
         : code === "EEXIST"
           ? "file_exists"
-          : "executor_unavailable";
+          : code === "ENOTDIR"
+            ? "not_regular_file"
+            : "executor_unavailable";
     return {
       status: "error",
       type,
@@ -61,7 +88,7 @@ function validateContent(
   signal?: AbortSignal,
 ): void {
   signal?.throwIfAborted();
-  if (!isAbsolute(path) || path.includes("\0"))
+  if (parsePathScheme(path) || !isAbsolute(path) || path.includes("\0"))
     throw new NativeFileError("invalid_path");
   if (Buffer.from(content).toString("utf8") !== content)
     throw new NativeFileError("invalid_utf8");
@@ -92,17 +119,21 @@ function describeMutation(
   input: WriteInput,
   region: { offset: number; limit: number; diff: string },
   operation: "edit" | "write",
+  options: NativeMutateOptions = {},
 ): MutationSuccess {
+  const displayPath = options.displayPath ?? input.path;
+  const reserve = options.reserveCodeUnits ?? 0;
   const read = selectSourceLines(input.content, {
-    path: input.path,
+    path: displayPath,
     raw: false,
     offset: region.offset,
     limit: region.limit,
+    reserveCodeUnits: reserve,
   });
   const result: MutationSuccess = {
     status: "success",
     operation,
-    path: input.path,
+    path: displayPath,
     ...(operation === "edit"
       ? { replacements: 1 as const }
       : { created: true as const }),
@@ -111,14 +142,18 @@ function describeMutation(
     shownRange: read.shownRange,
     truncated: read.truncated,
   };
-  return boundMutationResult(result);
+  return boundMutationResult(result, reserve);
 }
 
-function boundMutationResult(result: MutationSuccess): MutationSuccess {
+function boundMutationResult(
+  result: MutationSuccess,
+  reserveCodeUnits: number,
+): MutationSuccess {
+  const cap = MAX_RESULT_CODE_UNITS - reserveCodeUnits;
   const diffLines = splitSourceLines(result.diff);
   result.diff = "";
   const contentLines = splitSourceLines(result.content);
-  while (measureNativeModelOutput(result) > MAX_RESULT_CODE_UNITS) {
+  while (measureNativeModelOutput(result) > cap) {
     result.truncated = true;
     if (contentLines.length === 0) throw new NativeFileError("invalid_path");
     contentLines.pop();
@@ -135,8 +170,7 @@ function boundMutationResult(result: MutationSuccess): MutationSuccess {
       ...result,
       diff: diffLines.slice(0, middle).join(""),
     };
-    if (measureNativeModelOutput(candidate) <= MAX_RESULT_CODE_UNITS)
-      low = middle;
+    if (measureNativeModelOutput(candidate) <= cap) low = middle;
     else high = middle - 1;
   }
   result.diff = diffLines.slice(0, low).join("");
@@ -178,17 +212,23 @@ function replacement(source: string, input: EditInput) {
 export function editFile(
   input: EditInput,
   signal?: AbortSignal,
+  options: NativeMutateOptions = {},
 ): Promise<MutationSuccess | FileFailure> {
   return mutate(async () => {
+    const displayPath = options.displayPath;
     validateContent(input.path, input.newText, signal);
-    const path = await realpath(input.path);
-    const source = await loadText(path);
+    // An absolute path is the host's own; a resolved target was authorized as
+    // one exact entry, so resolving it through a link would edit another.
+    const path =
+      displayPath === undefined ? await realpath(input.path) : input.path;
+    const source = await loadText(path, displayPath === undefined);
     const change = replacement(source, input);
     validateContent(path, change.content, signal);
     const result = describeMutation(
       { path: input.path, content: change.content },
       change,
       "edit",
+      { displayPath, reserveCodeUnits: options.reserveCodeUnits },
     );
     if (input.oldText !== input.newText) {
       const stats = await lstat(path);
@@ -204,8 +244,10 @@ export function editFile(
 export function createFile(
   input: WriteInput,
   signal?: AbortSignal,
+  options: NativeMutateOptions = {},
 ): Promise<MutationSuccess | FileFailure> {
   return mutate(async () => {
+    const displayPath = options.displayPath;
     validateContent(input.path, "", signal);
     await requireAbsent(input.path);
     validateContent(input.path, input.content, signal);
@@ -213,18 +255,39 @@ export function createFile(
       input,
       { offset: 0, limit: 2000, diff: "" },
       "write",
+      { displayPath, reserveCodeUnits: options.reserveCodeUnits },
     );
+    // A resolved target's directories were created by its scheme owner, one
+    // component at a time under its own symlink refusal; a recursive create
+    // here would resolve through a link the owner just refused.
+    if (displayPath === undefined) await createParentDirectories(input.path);
     await publishFile(input, { create: true, signal });
     return result;
   });
+}
+
+/**
+ * A write names the file it wants, not the directories above it, so the
+ * missing ones are created. An existing component that is not a directory is
+ * the caller's mistake and nothing is created.
+ */
+async function createParentDirectories(path: string): Promise<void> {
+  try {
+    await mkdir(dirname(path), { recursive: true });
+  } catch (error) {
+    // An existing component that is not a directory is `ENOTDIR`; an existing
+    // directory is not an error for a recursive create at all.
+    if (isNodeError(error) && error.code === "ENOTDIR")
+      throw new NativeFileError("not_regular_file");
+    throw error;
+  }
 }
 
 async function requireAbsent(path: string): Promise<void> {
   try {
     await lstat(path);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      return;
+    if (isNodeError(error) && error.code === "ENOENT") return;
     throw error;
   }
   throw new NativeFileError("file_exists");

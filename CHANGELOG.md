@@ -10,6 +10,44 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   typecheck. Record measured timings and remaining options in
   `docs/research/development-pipeline.md`.
 
+- **Breaking** Read, edit, and write owner Knowledge through a `kb://` locator
+  on the native file tools, and delete `knowledge_read` (#702, #691). The
+  scheme of the `path` argument now selects the authority: an absolute path
+  keeps the alpha host authority and its executor binding, while
+  `kb://<space-id>/<path>[:selector]` resolves through the Run owner's current
+  Space access on every call, under RLS with an explicit owner predicate, and
+  binds no executor — so a worker with a Knowledge root and no
+  `tools.nativeExecutorId` can serve Knowledge, and the three tools are
+  advertised on either authority. `knowledge_search` passages carry a ready
+  one-based `locator` in place of zero-based `offset`/`limit`; passing it to
+  `read` unchanged opens the passage.
+
+  Operators must remove `knowledge_read` from `tools.allowed` **before**
+  upgrading: boot validation now rejects the unknown id. Historical
+  `knowledge_read` observations still render as recorded, and a Run accepted
+  before the removal whose snapshot names it fails closed before the provider
+  request.
+
+  Absent, removed, malformed, and other-owner Space identifiers return one
+  indistinguishable `knowledge_space_not_found`. Every path component is
+  `lstat`ed and a symbolic link refused without being followed; reads open with
+  `O_NOFOLLOW`, and a `write` creates missing directories one component at a
+  time, re-checking each, because a recursive create adopts an existing link
+  and would place the file outside the Space. `kb://` mutations reuse the
+  durable pre-effect fence, recording the locator rather than the host path, so
+  a queue retry on another worker replays instead of failing. Results carry the
+  Space identity and the untrusted-content notice, with content returned
+  verbatim so an `edit` `oldText` can be copied from a read.
+
+- `read` now returns a bounded two-level listing for a directory path (#704)
+  instead of failing as a non-regular file. Directories come before files at
+  each level, symbolic links are marked `@` and never descended, special
+  entries are marked `?` and never opened, and a range selector switches the
+  read to a flat page of the requested level. Bounds are deterministic: a
+  10,000-entry traversal budget per directory, 20 rendered entries per child,
+  whole-child elision last-first when the result cap is exceeded, then ordinary
+  truncation with `nextOffset` over the requested level.
+
 # 2026-09-07
 
 - Fix Git hooks from linked worktrees, where `pre-push` never ran a lint task.

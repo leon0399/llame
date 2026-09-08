@@ -7,9 +7,11 @@ import {
   unlink,
   writeFile,
 } from 'node:fs/promises';
+import { lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { readFile as readNativeFile } from '@workspace/native-file-tools';
 import path from 'node:path';
+
+import { NODE_FILESYSTEM } from './knowledge-filesystem-node-port';
 
 import {
   KnowledgeFilesystemAdapter,
@@ -21,9 +23,6 @@ import {
   type KnowledgeFilesystemStats,
   KNOWLEDGE_MAX_ENTRIES,
   KNOWLEDGE_MAX_FILES,
-  KNOWLEDGE_MAX_READ_BYTES,
-  KNOWLEDGE_MAX_PATH_BYTES,
-  KNOWLEDGE_MAX_PATH_COMPONENTS,
   KNOWLEDGE_MAX_SEARCH_BYTES,
   KNOWLEDGE_MAX_SEARCH_FILE_BYTES,
 } from './knowledge-filesystem';
@@ -70,13 +69,6 @@ const fileEntry = (name: string): KnowledgeFilesystemDirent => ({
   name,
   isDirectory: () => false,
   isFile: () => true,
-  isSymbolicLink: () => false,
-});
-
-const directoryEntry = (name: string): KnowledgeFilesystemDirent => ({
-  name,
-  isDirectory: () => true,
-  isFile: () => false,
   isSymbolicLink: () => false,
 });
 
@@ -137,32 +129,8 @@ function fakeFilesystem(
       return Promise.resolve(file);
     }),
     realpath: vi.fn((filePath: string) => Promise.resolve(filePath)),
+    mkdir: vi.fn(() => Promise.resolve()),
   };
-}
-
-type ReadResultVariableFields = {
-  readonly lineCount: number;
-  readonly content: string;
-  readonly nextOffset?: number;
-  readonly cutReason?: 'line_limit' | 'output_limit';
-};
-
-function serializedAddedProperties(
-  properties: ReadResultVariableFields,
-): number {
-  let length = serializedAddedProperty('lineCount', properties.lineCount);
-  length += serializedAddedProperty('content', properties.content);
-  if (properties.nextOffset !== undefined) {
-    length += serializedAddedProperty('nextOffset', properties.nextOffset);
-  }
-  if (properties.cutReason !== undefined) {
-    length += serializedAddedProperty('cutReason', properties.cutReason);
-  }
-  return length;
-}
-
-function serializedAddedProperty(key: string, value: string | number): number {
-  return 1 + JSON.stringify(key).length + 1 + JSON.stringify(value).length;
 }
 
 describe('KnowledgeFilesystemAdapter', () => {
@@ -323,290 +291,6 @@ describe('KnowledgeFilesystemAdapter', () => {
     });
   });
 
-  it('reads exact current bytes as numbered content without a hash', async () => {
-    await withFixture(async ({ binding, directory }) => {
-      const bytes = Buffer.from('café\n', 'utf8');
-      await writeFile(path.join(directory, 'note.md'), bytes);
-
-      const result = await new KnowledgeFilesystemAdapter(binding).read(
-        'note.md',
-      );
-
-      expect(result).toEqual({
-        path: 'note.md',
-        offset: 0,
-        lineCount: 1,
-        content: '1: café\n',
-      });
-    });
-  });
-
-  it('reads bounded logical-line slices while preserving LF and CRLF delimiters', async () => {
-    await withFixture(async ({ binding, directory }) => {
-      await writeFile(
-        path.join(directory, 'note.md'),
-        'one\r\ntwo\nthree\rfour\n\nfive',
-      );
-
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read('note.md', {
-          offset: 1,
-          limit: 3,
-        }),
-      ).resolves.toEqual({
-        path: 'note.md',
-        offset: 1,
-        lineCount: 3,
-        content: '2: two\n3: three\rfour\n4: \n',
-        nextOffset: 4,
-      });
-    });
-  });
-
-  it('shares source coordinates with native reads while retaining the legacy exact-range envelope', async () => {
-    await withFixture(async ({ binding, directory }) => {
-      const absolute = path.join(directory, 'parity.md');
-      await writeFile(absolute, 'one\r\ntwo\nthree\rfour\n\nfive');
-      const legacy = await new KnowledgeFilesystemAdapter(binding).read(
-        'parity.md',
-        { offset: 1, limit: 3 },
-      );
-      const native = await readNativeFile({ path: `${absolute}:2-4` });
-      expect(legacy).toEqual({
-        path: 'parity.md',
-        offset: 1,
-        lineCount: 3,
-        content: '2: two\n3: three\rfour\n4: \n',
-        nextOffset: 4,
-      });
-      expect(native).toMatchObject({
-        status: 'success',
-        path: absolute,
-        content: '1: one\r\n2: two\n3: three\rfour\n4: \n5: five',
-        requestedRange: { startLine: 2, endLine: 4 },
-        shownRange: { startLine: 1, endLine: 5 },
-        nextOffset: 4,
-      });
-    });
-  });
-
-  it('counts blank lines and does not create a phantom line after a terminal delimiter', async () => {
-    await withFixture(async ({ binding, directory }) => {
-      await writeFile(path.join(directory, 'blank.md'), 'one\n\n');
-      await writeFile(path.join(directory, 'empty.md'), '');
-
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read('blank.md'),
-      ).resolves.toEqual({
-        path: 'blank.md',
-        offset: 0,
-        lineCount: 2,
-        content: '1: one\n2: \n',
-      });
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read('empty.md'),
-      ).resolves.toEqual({
-        path: 'empty.md',
-        offset: 0,
-        lineCount: 0,
-        content: '',
-      });
-    });
-  });
-
-  it('continues an omitted range at the whole-line limit', async () => {
-    await withFixture(async ({ binding, directory }) => {
-      await writeFile(
-        path.join(directory, 'long.md'),
-        Array.from({ length: 2001 }, () => 'x').join('\n'),
-      );
-
-      const result = await new KnowledgeFilesystemAdapter(binding).read(
-        'long.md',
-        { maxResultCodeUnits: 100_000 },
-      );
-
-      expect(result.offset).toBe(0);
-      expect(result.lineCount).toBe(2000);
-      expect(result.nextOffset).toBe(2000);
-      expect(result.cutReason).toBe('line_limit');
-      expect(result.content.endsWith('2000: x\n')).toBe(true);
-    });
-  });
-
-  it('cuts at a whole-line output boundary and returns the omitted line offset', async () => {
-    await withFixture(async ({ binding, directory }) => {
-      await writeFile(
-        path.join(directory, 'cut.md'),
-        `first\n${'s'.repeat(200)}\nthird line`,
-      );
-      const fixedResultCodeUnits = 100;
-      const expected = {
-        path: 'cut.md',
-        offset: 0,
-        lineCount: 1,
-        content: '1: first\n',
-        nextOffset: 1,
-        cutReason: 'output_limit',
-      } as const;
-
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read('cut.md', {
-          fixedResultCodeUnits,
-          maxResultCodeUnits:
-            fixedResultCodeUnits +
-            serializedAddedProperties({
-              lineCount: expected.lineCount,
-              content: expected.content,
-              nextOffset: expected.nextOffset,
-              cutReason: expected.cutReason,
-            }),
-        }),
-      ).resolves.toEqual(expected);
-    });
-  });
-
-  it('uses actual continuation metadata to return the largest fitting prefix', async () => {
-    await withFixture(async ({ binding, directory }) => {
-      await writeFile(
-        path.join(directory, 'exact-cut.md'),
-        `first\n${'s'.repeat(200)}`,
-      );
-      const fixedResultCodeUnits = 100;
-      const expected = {
-        lineCount: 1,
-        content: '1: first\n',
-        nextOffset: 1,
-        cutReason: 'output_limit',
-      } as const;
-      const maxResultCodeUnits =
-        fixedResultCodeUnits + serializedAddedProperties(expected);
-
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read('exact-cut.md', {
-          fixedResultCodeUnits,
-          maxResultCodeUnits,
-        }),
-      ).resolves.toMatchObject(expected);
-    });
-  });
-
-  it('rejects an offset beyond EOF and a selected line that cannot fit', async () => {
-    await withFixture(async ({ binding, directory }) => {
-      await writeFile(path.join(directory, 'short.md'), 'one\ntwo');
-      await writeFile(path.join(directory, 'wide.md'), '123456789012345');
-
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read('short.md', {
-          offset: 2,
-        }),
-      ).rejects.toMatchObject({ code: 'knowledge_range_invalid' });
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read('wide.md', {
-          maxResultCodeUnits: 10,
-        }),
-      ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
-    });
-  });
-
-  it('validates the complete UTF-8 file and reads files between 64 KiB and 1 MiB in chunks', async () => {
-    const binding = {
-      id: SPACE_ID,
-      root: '/trusted/root',
-      directory: `/trusted/root/${SPACE_ID}`,
-    };
-    const bytes = Buffer.from(`first\n${'x'.repeat(70_000)}`, 'utf8');
-    const readLengths: Array<number> = [];
-    const close = vi.fn(() => Promise.resolve());
-    const fileSystem = fakeFilesystem([fileEntry('long.md')], {
-      stats: fileStats(bytes.length),
-      bytes,
-      readLengths,
-      fileClose: close,
-    });
-
-    const result = await new KnowledgeFilesystemAdapter(
-      binding,
-      fileSystem,
-    ).read('long.md', { limit: 1, maxResultCodeUnits: 100 });
-
-    expect(result).toMatchObject({
-      offset: 0,
-      lineCount: 1,
-      content: '1: first\n',
-      nextOffset: 1,
-    });
-    expect(Math.max(...readLengths)).toBeLessThanOrEqual(64 * 1024);
-    expect(readLengths.reduce((sum, length) => sum + length, 0)).toBe(
-      bytes.length + 1,
-    );
-    expect(close).toHaveBeenCalledTimes(1);
-  });
-
-  it('rejects invalid UTF-8 after an otherwise selected range', async () => {
-    const binding = {
-      id: SPACE_ID,
-      root: '/trusted/root',
-      directory: `/trusted/root/${SPACE_ID}`,
-    };
-    const bytes = Buffer.from([0x6f, 0x6b, 0x0a, 0xc3, 0x28]);
-    const fileSystem = fakeFilesystem([fileEntry('invalid-suffix.md')], {
-      stats: fileStats(bytes.length),
-      bytes,
-    });
-
-    await expect(
-      new KnowledgeFilesystemAdapter(binding, fileSystem).read(
-        'invalid-suffix.md',
-        { limit: 1 },
-      ),
-    ).rejects.toMatchObject({ code: 'knowledge_content_invalid' });
-  });
-
-  it('validates invalid UTF-8 after an oversized first selected line', async () => {
-    const binding = {
-      id: SPACE_ID,
-      root: '/trusted/root',
-      directory: `/trusted/root/${SPACE_ID}`,
-    };
-    const prefix = Buffer.from(
-      `${'x'.repeat(20_000)}\n${'y'.repeat(50_000)}`,
-      'utf8',
-    );
-    const bytes = Buffer.concat([prefix, Buffer.from([0xc3, 0x28])]);
-    const fileSystem = fakeFilesystem([fileEntry('oversized-invalid.md')], {
-      stats: fileStats(bytes.length),
-      bytes,
-    });
-
-    await expect(
-      new KnowledgeFilesystemAdapter(binding, fileSystem).read(
-        'oversized-invalid.md',
-        { maxResultCodeUnits: 100 },
-      ),
-    ).rejects.toMatchObject({ code: 'knowledge_content_invalid' });
-  });
-
-  it('rejects invalid ranges before filesystem access', async () => {
-    const binding = {
-      id: SPACE_ID,
-      root: '/trusted/root',
-      directory: `/trusted/root/${SPACE_ID}`,
-    };
-    const fileSystem = fakeFilesystem([fileEntry('note.md')]);
-    const mockedFilesystem = vi.mocked(fileSystem);
-
-    await expect(
-      new KnowledgeFilesystemAdapter(binding, fileSystem).read('note.md', {
-        offset: -1,
-      }),
-    ).rejects.toMatchObject({ code: 'knowledge_range_invalid' });
-    expect(mockedFilesystem.realpath.mock.calls).toHaveLength(0);
-    expect(mockedFilesystem.lstat.mock.calls).toHaveLength(0);
-    expect(mockedFilesystem.opendir.mock.calls).toHaveLength(0);
-    expect(mockedFilesystem.open.mock.calls).toHaveLength(0);
-  });
-
   it('searches decoded UTF-8 text without a model-facing hash', async () => {
     await withFixture(async ({ binding, directory }) => {
       await writeFile(
@@ -621,50 +305,6 @@ describe('KnowledgeFilesystemAdapter', () => {
 
       expect(match).toMatchObject({ path: 'note.md', offset: 0, limit: 1 });
       expect(match).not.toHaveProperty('contentHash');
-    });
-  });
-
-  it.each([
-    '../escape.md',
-    './note.md',
-    'nested//note.md',
-    '/tmp/note.md',
-    String.raw`nested\note.md`,
-    'nested/\u0085note.md',
-    'nested/\u202E.md',
-    'nested/\u2066.md',
-    'nested/\u2028.md',
-    'nested/\u2029.md',
-    'note.txt',
-    '',
-  ])('rejects unsafe relative path %s', async (relativePath) => {
-    await withFixture(async ({ binding }) => {
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read(relativePath),
-      ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
-    });
-  });
-
-  it('rejects control characters, excessive path depth, and excessive path bytes', async () => {
-    await withFixture(async ({ binding }) => {
-      const tooDeep = Array.from(
-        { length: KNOWLEDGE_MAX_PATH_COMPONENTS + 1 },
-        (_entry, index) => `part${index}`,
-      ).join('/');
-      const tooLong = `${'a'.repeat(KNOWLEDGE_MAX_PATH_BYTES)}.md`;
-
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read(`bad\u0000.md`),
-      ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read(`${tooDeep}.md`),
-      ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read(tooLong),
-      ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read(`${'a'.repeat(1020)}.md`),
-      ).rejects.toMatchObject({ code: 'knowledge_not_found' });
     });
   });
 
@@ -738,59 +378,6 @@ describe('KnowledgeFilesystemAdapter', () => {
     ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
     expect(reads).toHaveBeenCalledTimes(KNOWLEDGE_MAX_ENTRIES + 1);
     expect(close).toHaveBeenCalledTimes(1);
-  });
-
-  it('shares one entry budget across nested directories during read', async () => {
-    const binding = {
-      id: SPACE_ID,
-      root: '/trusted/root',
-      directory: `/trusted/root/${SPACE_ID}`,
-    };
-    const rootEntries = [
-      directoryEntry('nested'),
-      ...Array.from({ length: KNOWLEDGE_MAX_ENTRIES - 1 }, (_entry, index) =>
-        fileEntry(`f${index}.txt`),
-      ),
-    ];
-    const close = vi.fn(() => Promise.resolve());
-    let openedDirectories = 0;
-    let yieldedEntries = 0;
-    const fileSystem = fakeFilesystem([]);
-    const open = vi.fn(() =>
-      Promise.reject(new Error('file open was not expected')),
-    );
-    fileSystem.open = open;
-    fileSystem.lstat = vi.fn((filePath: string) =>
-      Promise.resolve(
-        filePath === '/trusted/root' ||
-          filePath.endsWith(`/${SPACE_ID}`) ||
-          filePath.endsWith('/nested')
-          ? directoryStats
-          : fileStats(0),
-      ),
-    );
-    fileSystem.opendir = vi.fn(() => {
-      const entries =
-        openedDirectories++ === 0 ? rootEntries : [fileEntry('note.md')];
-      let index = 0;
-      return Promise.resolve({
-        read: vi.fn(() => {
-          const entry = entries[index++] ?? null;
-          if (entry !== null) yieldedEntries += 1;
-          return Promise.resolve(entry);
-        }),
-        close,
-      });
-    });
-
-    await expect(
-      new KnowledgeFilesystemAdapter(binding, fileSystem).read(
-        'nested/note.md',
-      ),
-    ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
-    expect(yieldedEntries).toBe(KNOWLEDGE_MAX_ENTRIES + 1);
-    expect(close).toHaveBeenCalledTimes(2);
-    expect(open).not.toHaveBeenCalled();
   });
 
   it('closes a directory cursor when cancellation arrives during iteration', async () => {
@@ -900,131 +487,6 @@ describe('KnowledgeFilesystemAdapter', () => {
     await expect(
       new KnowledgeFilesystemAdapter(binding, fileSystem).search('needle', 5),
     ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
-  });
-
-  it('rejects an oversized read before and after the byte read race', async () => {
-    const binding = {
-      id: SPACE_ID,
-      root: '/trusted/root',
-      directory: `/trusted/root/${SPACE_ID}`,
-    };
-    const entry = fileEntry('note.md');
-    const tooLarge = Buffer.alloc(KNOWLEDGE_MAX_READ_BYTES + 1);
-    const preReadFileSystem = fakeFilesystem([entry], {
-      stats: fileStats(KNOWLEDGE_MAX_READ_BYTES + 1),
-    });
-
-    await expect(
-      new KnowledgeFilesystemAdapter(binding, preReadFileSystem).read(
-        'note.md',
-      ),
-    ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
-
-    const readLengths: Array<number> = [];
-    const close = vi.fn(() => Promise.resolve());
-    const statRace = fakeFilesystem([entry], {
-      stats: fileStats(0),
-      bytes: tooLarge,
-      readLengths,
-      fileClose: close,
-    });
-    statRace.lstat = vi
-      .fn()
-      .mockResolvedValueOnce(directoryStats)
-      .mockResolvedValueOnce(directoryStats)
-      .mockResolvedValueOnce(directoryStats)
-      .mockResolvedValueOnce(fileStats(0))
-      .mockResolvedValueOnce(fileStats(0));
-    await expect(
-      new KnowledgeFilesystemAdapter(binding, statRace).read('note.md'),
-    ).rejects.toMatchObject({ code: 'knowledge_limit_exceeded' });
-    expect(readLengths.reduce((sum, length) => sum + length, 0)).toBe(
-      KNOWLEDGE_MAX_READ_BYTES + 1,
-    );
-    expect(close).toHaveBeenCalledTimes(1);
-  });
-
-  it('reads exactly the read cap with only one sentinel byte requested', async () => {
-    const binding = {
-      id: SPACE_ID,
-      root: '/trusted/root',
-      directory: `/trusted/root/${SPACE_ID}`,
-    };
-    const bytes = Buffer.alloc(KNOWLEDGE_MAX_READ_BYTES, 0x61);
-    const readLengths: Array<number> = [];
-    const close = vi.fn(() => Promise.resolve());
-    const fileSystem = fakeFilesystem([fileEntry('note.md')], {
-      stats: fileStats(bytes.length),
-      bytes,
-      readLengths,
-      fileClose: close,
-    });
-
-    const result = await new KnowledgeFilesystemAdapter(
-      binding,
-      fileSystem,
-    ).read('note.md', {
-      maxResultCodeUnits: KNOWLEDGE_MAX_READ_BYTES + 100,
-    });
-
-    expect(Buffer.byteLength(result.content, 'utf8')).toBe(
-      KNOWLEDGE_MAX_READ_BYTES + 3,
-    );
-    expect(result.offset).toBe(0);
-    expect(readLengths.reduce((sum, length) => sum + length, 0)).toBe(
-      KNOWLEDGE_MAX_READ_BYTES + 1,
-    );
-    expect(close).toHaveBeenCalledTimes(1);
-  });
-
-  it('closes the file handle when cancellation arrives during a chunk read', async () => {
-    const binding = {
-      id: SPACE_ID,
-      root: '/trusted/root',
-      directory: `/trusted/root/${SPACE_ID}`,
-    };
-    const controller = new AbortController();
-    const close = vi.fn(() => Promise.resolve());
-    const read = vi.fn(() => {
-      controller.abort();
-      return Promise.resolve({ bytesRead: 1 });
-    });
-    const fileSystem = fakeFilesystem([fileEntry('note.md')], {
-      stats: fileStats(1),
-    });
-    fileSystem.open = vi.fn(() =>
-      Promise.resolve({
-        stat: () => Promise.resolve(fileStats(1)),
-        read,
-        close,
-      }),
-    );
-
-    await expect(
-      new KnowledgeFilesystemAdapter(binding, fileSystem).read('note.md', {
-        signal: controller.signal,
-      }),
-    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
-    expect(read).toHaveBeenCalledTimes(1);
-    expect(close).toHaveBeenCalledTimes(1);
-  });
-
-  it('maps an O_NOFOLLOW symlink race to a safe invalid-path failure', async () => {
-    const binding = {
-      id: SPACE_ID,
-      root: '/trusted/root',
-      directory: `/trusted/root/${SPACE_ID}`,
-    };
-    const fileSystem = fakeFilesystem([fileEntry('note.md')], {
-      stats: fileStats(1),
-    });
-    fileSystem.open = vi.fn(() =>
-      Promise.reject(Object.assign(new Error('symlink'), { code: 'ELOOP' })),
-    );
-
-    await expect(
-      new KnowledgeFilesystemAdapter(binding, fileSystem).read('note.md'),
-    ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
   });
 
   it.each(['root symlink', 'child symlink', 'root file', 'child file'])(
@@ -1196,34 +658,155 @@ describe('KnowledgeFilesystemAdapter', () => {
       );
 
       await expect(
-        new KnowledgeFilesystemAdapter(binding).read('secret.md'),
-      ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
-      await expect(
-        new KnowledgeFilesystemAdapter(binding).read('linked/secret.md'),
-      ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
-      await expect(
         new KnowledgeFilesystemAdapter(binding).search('secret', 5),
       ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
       await rm(outside, { recursive: true, force: true });
     });
   });
 
-  it('rejects invalid UTF-8 and missing files without exposing host paths', async () => {
+  it('resolves a host path without following any symbolic link', async () => {
     await withFixture(async ({ binding, directory }) => {
-      await writeFile(
-        path.join(directory, 'invalid.md'),
-        Buffer.from([0xc3, 0x28]),
+      const outside = await mkdtemp(
+        path.join(tmpdir(), 'llame-knowledge-outside-'),
       );
+      await mkdir(path.join(outside, 'notes'), { recursive: true });
+      await writeFile(path.join(outside, 'notes', 'secret.md'), 'do not read');
+      await mkdir(path.join(directory, 'notes'), { recursive: true });
+      await writeFile(path.join(directory, 'notes', 'own.md'), 'mine');
+      await symlink(outside, path.join(directory, 'linked'), 'dir');
+      await symlink(
+        path.join(outside, 'notes', 'secret.md'),
+        path.join(directory, 'notes', 'aliased.md'),
+      );
+      const adapter = new KnowledgeFilesystemAdapter(binding);
 
+      await expect(adapter.resolveHostPath(undefined)).resolves.toBe(directory);
+      await expect(adapter.resolveHostPath('notes/own.md')).resolves.toBe(
+        path.join(directory, 'notes', 'own.md'),
+      );
+      // A symbolic link anywhere on the way out of the Space is refused
+      // without being followed, so neither the intermediate directory link
+      // nor the aliased leaf can reach the outside tree.
       await expect(
-        new KnowledgeFilesystemAdapter(binding).read('invalid.md'),
-      ).rejects.toMatchObject({ code: 'knowledge_content_invalid' });
+        adapter.resolveHostPath('linked/notes/secret.md'),
+      ).rejects.toMatchObject({ code: 'knowledge_not_found' });
       await expect(
-        new KnowledgeFilesystemAdapter(binding).read('missing.md'),
-      ).rejects.toMatchObject({
-        code: 'knowledge_not_found',
-        message: 'The Knowledge note was not found.',
+        adapter.resolveHostPath('notes/aliased.md'),
+      ).rejects.toMatchObject({ code: 'knowledge_not_found' });
+      await expect(
+        adapter.resolveHostPath('notes/own.md/deeper.md'),
+      ).rejects.toMatchObject({ code: 'knowledge_not_directory' });
+      await expect(
+        adapter.resolveHostPath('../escape.md'),
+      ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
+      await rm(outside, { recursive: true, force: true });
+    });
+  });
+
+  it('does not surface a passage whose path has no unambiguous locator', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      await mkdir(path.join(directory, 'notes'), { recursive: true });
+      await writeFile(
+        path.join(directory, 'notes', '2026-09-08 14:30 standup.md'),
+        'needle in a colon-named note',
+      );
+      await writeFile(path.join(directory, 'notes', 'plain.md'), 'needle here');
+
+      // `read` splits a locator's trailing selector on the first `:`, so the
+      // colon-named note has no locator search could hand back; advertising it
+      // would promise a passage the model cannot open.
+      await expect(
+        new KnowledgeFilesystemAdapter(binding).search('needle', 5),
+      ).resolves.toEqual([expect.objectContaining({ path: 'notes/plain.md' })]);
+    });
+  });
+
+  it('creates a write path one component at a time and never through a link', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      const outside = await mkdtemp(
+        path.join(tmpdir(), 'llame-knowledge-escape-'),
+      );
+      const adapter = new KnowledgeFilesystemAdapter(binding);
+
+      const created = await adapter.resolveHostPath('research/2026/note.md', {
+        allowMissing: true,
+        createDirectories: true,
       });
+      expect(created).toBe(path.join(directory, 'research', '2026', 'note.md'));
+      expect(
+        lstatSync(path.join(directory, 'research', '2026')).isDirectory(),
+      ).toBe(true);
+
+      // A link planted where a directory is about to be created must not be
+      // adopted: a recursive create would treat it as satisfied and build the
+      // rest of the chain inside `outside`, placing the write beyond the Space
+      // while the result still named a locator within it.
+      await symlink(outside, path.join(directory, 'escape'), 'dir');
+      await expect(
+        adapter.resolveHostPath('escape/deeper/note.md', {
+          allowMissing: true,
+          createDirectories: true,
+        }),
+      ).rejects.toMatchObject({ code: 'knowledge_not_found' });
+      expect(() => lstatSync(path.join(outside, 'deeper'))).toThrow(/ENOENT/);
+
+      // The link can also arrive between the walk and the create, which the
+      // single-level `mkdir` turns into `EEXIST` rather than a traversal. The
+      // component is then `lstat`ed and refused exactly as above, so losing
+      // the race costs an error, not the Space boundary.
+      const raced = new KnowledgeFilesystemAdapter(binding, {
+        ...NODE_FILESYSTEM,
+        mkdir: async (directoryPath) => {
+          if (directoryPath.endsWith('raced')) {
+            await symlink(outside, directoryPath, 'dir');
+            return;
+          }
+          await NODE_FILESYSTEM.mkdir(directoryPath);
+        },
+      });
+      await expect(
+        raced.resolveHostPath('raced/note.md', {
+          allowMissing: true,
+          createDirectories: true,
+        }),
+      ).rejects.toMatchObject({ code: 'knowledge_not_found' });
+      expect(() => lstatSync(path.join(outside, 'note.md'))).toThrow(/ENOENT/);
+
+      // A benign collision — another worker creating the same directory — is
+      // not an error: the `lstat` finds a real directory and the walk goes on.
+      await mkdir(path.join(directory, 'shared'), { recursive: true });
+      await expect(
+        adapter.resolveHostPath('shared/note.md', {
+          allowMissing: true,
+          createDirectories: true,
+        }),
+      ).resolves.toBe(path.join(directory, 'shared', 'note.md'));
+
+      await rm(outside, { recursive: true, force: true });
+    });
+  });
+
+  it('reports a target swapped outside the Space after validation', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      const outside = await mkdtemp(
+        path.join(tmpdir(), 'llame-knowledge-swap-'),
+      );
+      await writeFile(path.join(outside, 'note.md'), 'secret\n');
+      await mkdir(path.join(directory, 'notes'), { recursive: true });
+      await writeFile(path.join(directory, 'notes', 'note.md'), 'mine\n');
+      const adapter = new KnowledgeFilesystemAdapter(binding);
+      const target = path.join(directory, 'notes', 'note.md');
+
+      expect(await adapter.isInsideSpace(target)).toBe(true);
+
+      // The walk refuses links when it looks; this is the check that runs
+      // immediately before the operation, so a parent replaced afterwards is
+      // caught before any bytes move.
+      await rm(path.join(directory, 'notes'), { recursive: true, force: true });
+      await symlink(outside, path.join(directory, 'notes'), 'dir');
+      expect(await adapter.isInsideSpace(target)).toBe(false);
+
+      await rm(outside, { recursive: true, force: true });
     });
   });
 

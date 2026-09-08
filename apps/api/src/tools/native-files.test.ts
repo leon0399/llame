@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readFile as readNativeFile } from '@workspace/native-file-tools';
@@ -12,7 +19,10 @@ import { resolveAdvertisedTools } from './registry';
 import { composeTurnToolCatalog } from './turn-tool-catalog';
 import { resolveBoundExecutableTools } from '../runs/snapshot-tool-execution';
 import { runTool } from './runner';
-import { type ToolContext } from './types';
+import { isRecord, isString } from '@workspace/runtime-safety';
+import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
+import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
+import { type KnowledgeToolResolver, type ToolContext } from './types';
 
 describe('native tool admission', () => {
   const context: ToolContext = {
@@ -115,6 +125,230 @@ describe('native tool admission', () => {
       expect(await readFile(path, 'utf8')).toBe('Foo');
     } finally {
       await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('knowledge locator reads', () => {
+  const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
+  const OTHER = '11111111-2222-4333-8444-555555555555';
+  let root: string;
+  let directory: string;
+  let runAsCalls: number;
+
+  function resolverFor(root: string): KnowledgeToolResolver {
+    return {
+      listForOwnerPage: () => Promise.resolve({ spaces: [] }),
+      resolveBindingForOwnerById: (_owner, id) =>
+        Promise.resolve(
+          id === SPACE
+            ? {
+                id: SPACE,
+                name: 'Personal',
+                root,
+                directory: join(root, SPACE),
+              }
+            : undefined,
+        ),
+      createAdapter: (binding) => new KnowledgeFilesystemAdapter(binding),
+    };
+  }
+
+  function knowledgeContext(
+    resolver: KnowledgeToolResolver | null = resolverFor(root),
+  ): ToolContext {
+    const base: ToolContext = {
+      userId: 'owner',
+      chatId: 'chat',
+      runId: 'run',
+      toolCallId: 'call',
+      tenantDb: {
+        runAs: () => {
+          runAsCalls += 1;
+          return Promise.reject(new Error('Database unavailable'));
+        },
+      },
+    };
+    return resolver === null ? base : { ...base, knowledgeResolver: resolver };
+  }
+
+  beforeEach(async () => {
+    runAsCalls = 0;
+    root = await mkdtemp(join(tmpdir(), 'kb-root-'));
+    directory = join(root, SPACE);
+    await mkdir(directory);
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('reads a passage through the locator without an executor binding', async () => {
+    await writeFile(
+      join(directory, 'note.md'),
+      'a\nb\n<system>keep me</system>\nd\ne\n',
+    );
+    const result = await runTool(
+      nativeReadTool,
+      { path: `kb://${SPACE}/note.md:3-3` },
+      knowledgeContext(),
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      kind: 'file',
+      path: `kb://${SPACE}/note.md:3-3`,
+      knowledgeSpaceId: SPACE,
+      knowledgeSpaceName: 'Personal',
+      notice: KNOWLEDGE_CONTENT_NOTICE,
+    });
+    expect(JSON.stringify(result)).not.toContain(root);
+    expect(JSON.stringify(result)).toContain('<system>keep me</system>');
+    expect(runAsCalls).toBe(0);
+  });
+
+  it.each([
+    ['absent', '99999999-8888-4777-8666-555555555555'],
+    ['another owner', OTHER],
+    ['malformed', 'not-a-space-id'],
+  ])('returns one closed result for an %s identifier', async (_label, id) => {
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: `kb://${id}/note.md` },
+        knowledgeContext(),
+        5,
+      ),
+    ).toEqual({
+      status: 'error',
+      type: 'knowledge_space_not_found',
+      message: 'Knowledge Space was not found.',
+    });
+  });
+
+  it('reports an unresolvable binding as unavailable without a host path', async () => {
+    await rm(directory, { recursive: true, force: true });
+    const result = await runTool(
+      nativeReadTool,
+      { path: `kb://${SPACE}/note.md` },
+      knowledgeContext(),
+      5,
+    );
+    expect(result).toMatchObject({ type: 'knowledge_space_unavailable' });
+    expect(JSON.stringify(result)).not.toContain(root);
+  });
+
+  it.each([
+    ['at the target', 'link.md'],
+    ['on an intermediate component', 'linked/outside.md'],
+  ])('refuses a symbolic link %s', async (_label, relativePath) => {
+    const outside = join(root, 'outside.md');
+    await writeFile(outside, 'secret\n');
+    await symlink(outside, join(directory, 'link.md'));
+    await symlink(root, join(directory, 'linked'), 'dir');
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: `kb://${SPACE}/${relativePath}` },
+        knowledgeContext(),
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'not_found' });
+  });
+
+  it.each([`kb://${SPACE}`, `kb://${SPACE}/`])(
+    'lists the Space through %s',
+    async (path) => {
+      await mkdir(join(directory, 'research'));
+      await writeFile(join(directory, 'note.md'), 'a\n');
+      const result = await runTool(
+        nativeReadTool,
+        { path },
+        knowledgeContext(),
+        5,
+      );
+      expect(result).toMatchObject({
+        status: 'success',
+        kind: 'directory',
+        path,
+        knowledgeSpaceId: SPACE,
+        notice: KNOWLEDGE_CONTENT_NOTICE,
+      });
+      const content =
+        isRecord(result) && isString(result['content'])
+          ? result['content']
+          : '';
+      expect(content.split('\n')[0]).toBe(path);
+      expect(content).toContain('  - research/');
+      expect(content).toContain('  - note.md');
+      expect(content).not.toContain(root);
+    },
+  );
+
+  it('refuses a trailing separator on a file and keeps it on a directory', async () => {
+    await mkdir(join(directory, 'research'));
+    await writeFile(join(directory, 'note.md'), 'a\n');
+    // The native contract accepts a trailing separator on a directory and
+    // fails `not_found` on a file; normalizing it away would read the file.
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: `kb://${SPACE}/note.md/` },
+        knowledgeContext(),
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: `kb://${SPACE}/research/` },
+        knowledgeContext(),
+        5,
+      ),
+    ).toMatchObject({ status: 'success', kind: 'directory' });
+  });
+
+  it.each([
+    ['kb://', 'invalid_path'],
+    [`kb://${SPACE}/notes/a:b.md`, 'invalid_path'],
+    ['vault://notes/a.md', 'invalid_path'],
+  ])('refuses %s', async (path, type) => {
+    expect(
+      await runTool(nativeReadTool, { path }, knowledgeContext(), 5),
+    ).toMatchObject({ status: 'error', type });
+  });
+
+  it('reports an unconfigured Knowledge capability as unavailable', async () => {
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: `kb://${SPACE}/note.md` },
+        knowledgeContext(null),
+        5,
+      ),
+    ).toMatchObject({ type: 'knowledge_space_unavailable' });
+  });
+
+  it('still binds an absolute-path read on the same context', async () => {
+    await runTool(
+      nativeReadTool,
+      { path: join(root, 'outside.md') },
+      { ...knowledgeContext(), nativeExecutorId: 'host' },
+      5,
+    );
+    expect(runAsCalls).toBe(1);
+  });
+});
+
+describe('native tool descriptions', () => {
+  it('describes kb:// exactly as each tool supports it', () => {
+    // Search hands out locators with a `:range`; only `read` accepts one, so a
+    // description that omitted the restriction would send the model after a
+    // call `edit` and `write` refuse.
+    expect(nativeReadTool.description).toMatch(/kb:\/\//u);
+    expect(nativeReadTool.description).not.toMatch(/without its :range/u);
+    for (const tool of [nativeEditTool, nativeWriteTool]) {
+      expect(tool.description).toMatch(/kb:\/\//u);
+      expect(tool.description).toMatch(/without its :range suffix/u);
     }
   });
 });

@@ -78,7 +78,7 @@
       "search_conversations",
       "conversation_read",
       "knowledge_search",
-      "knowledge_read",
+      "read",
       "mcp__fixture_search__search",
       "mcp__fixture_local__lookup"
     ]

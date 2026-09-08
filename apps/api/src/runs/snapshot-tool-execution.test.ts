@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { type ModelToolDeclaration } from '../db/schema';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { type Tool, type JsonSchemaDocument } from '../tools/types';
+import { TOOL_REGISTRY } from '../tools/registry';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { isRecord } from '@workspace/runtime-safety';
 import { resolveBoundExecutableTools } from './snapshot-tool-execution';
@@ -266,6 +267,15 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
       resolveBoundExecutableTools([declaration], new Map(), {
         resolveDynamicTool: () => ({ state: 'not_dynamic' }),
       }),
+    ).rejects.toThrow('has no registered executor');
+  });
+
+  it('keeps a removed code-owned reader Run-fatal rather than redirecting it', async () => {
+    const tool = makeTool({ id: 'knowledge_read' });
+    const declaration = await makeDeclaration(tool);
+
+    await expect(
+      resolveBoundExecutableTools([declaration], TOOL_REGISTRY),
     ).rejects.toThrow('has no registered executor');
   });
 

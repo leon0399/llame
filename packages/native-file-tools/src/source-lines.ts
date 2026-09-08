@@ -4,6 +4,11 @@ import { measureNativeModelOutput } from "./serialization";
 export const MAX_READ_LINES = 2000;
 export const MAX_RESULT_CODE_UNITS = RESULT_TRUNCATE_CHARS;
 
+/** The shared cap minus any room a caller withheld for its own envelope. */
+export function resultBudget(target: { reserveCodeUnits?: number }): number {
+  return MAX_RESULT_CODE_UNITS - (target.reserveCodeUnits ?? 0);
+}
+
 export type LineRange = { startLine: number; endLine: number };
 export type ReadSuccess = {
   status: "success";
@@ -95,7 +100,7 @@ export function appendReadLine(
   const overflows =
     line === undefined ||
     measureNativeModelOutput({ ...candidate, nextOffset: index + 1 }) >
-      MAX_RESULT_CODE_UNITS;
+      resultBudget(target);
   // The only index below the requested offset is the single preceding
   // context line. One that cannot be rendered is unavailable context, not a
   // truncated result, so dropping it keeps the requested range reachable
@@ -133,7 +138,7 @@ export function emptyReadResult(
   };
   if (
     measureNativeModelOutput({ ...result, nextOffset: target.offset }) >
-    MAX_RESULT_CODE_UNITS
+    resultBudget(target)
   )
     throw new NativeFileError("invalid_path");
   return result;
