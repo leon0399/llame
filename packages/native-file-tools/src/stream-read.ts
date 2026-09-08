@@ -76,12 +76,9 @@ async function collectWindow(
 
 export async function streamFileWindow(
   target: ReadTarget,
-  source: { hostPath?: string; followSymlinks?: boolean } = {},
+  source: { hostPath: string; followSymlinks: boolean },
 ): Promise<ReadSuccess> {
-  const file = await open(
-    source.hostPath ?? target.path,
-    openFlags(source.followSymlinks ?? true),
-  );
+  const file = await open(source.hostPath, openFlags(source.followSymlinks));
   try {
     if (!(await file.stat()).isFile())
       throw new NativeFileError("not_regular_file");

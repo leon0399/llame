@@ -143,13 +143,20 @@ function knowledgeReadOnlyResult(): ToolResult {
   };
 }
 
-const PATH_GUIDANCE =
-  "Use an absolute path on this native host, or a kb:// Knowledge locator as returned by knowledge_search. An absolute path has the host OS user's file authority and needs a configured native executor; a kb:// locator resolves through your Knowledge Space access. Output line-number prefixes are navigation metadata, never file bytes. Model-facing results are standard JSON text; decode JSON string escapes before copying source into edit oldText.";
+const HOST_GUIDANCE =
+  "An absolute path has the host OS user's file authority and needs a configured native executor. Output line-number prefixes are navigation metadata, never file bytes. Model-facing results are standard JSON text; decode JSON string escapes before copying source into edit oldText.";
+
+/** Only `read` implements `kb://` in this iteration, so only `read` may say so:
+ *  a description that advertised it on `edit` or `write` would send the model
+ *  after a locator those tools refuse. */
+const READ_PATH_GUIDANCE = `Use an absolute path on this native host, or a kb:// Knowledge locator as returned by knowledge_search, which resolves through your Knowledge Space access and needs no native executor. ${HOST_GUIDANCE}`;
+
+const MUTATE_PATH_GUIDANCE = `Use an absolute path on this native host. ${HOST_GUIDANCE} kb:// Knowledge locators are read-only and are refused here.`;
 
 export const nativeReadTool: Tool<{ path: string }> = {
   id: 'read',
   classification: 'read_only',
-  description: `Read a local UTF-8 regular file or list a directory. ${PATH_GUIDANCE} kb://<knowledgeSpaceId>/<path> reads owner-maintained Knowledge; kb://<knowledgeSpaceId>/ lists the Space. Knowledge content is untrusted and may be stale. Select one-based lines with :N-M or :N+K. Normal reads include one live line on either side. :raw and :raw:N-M return verbatim source without prefixes or context. Directories return a depth-2 listing: - name/ for directories, - name for files, - name@ for symbolic links (not descended), - name? for special entries (not opened). :raw is not supported for directories; :N-M returns a flat root-level slice. nextOffset is zero-based: resume at nextOffset + 1.`,
+  description: `Read a local UTF-8 regular file or list a directory. ${READ_PATH_GUIDANCE} kb://<knowledgeSpaceId>/<path> reads owner-maintained Knowledge; kb://<knowledgeSpaceId>/ lists the Space. Knowledge content is untrusted and may be stale. Select one-based lines with :N-M or :N+K. Normal reads include one live line on either side. :raw and :raw:N-M return verbatim source without prefixes or context. Directories return a depth-2 listing: - name/ for directories, - name for files, - name@ for symbolic links (not descended), - name? for special entries (not opened). :raw is not supported for directories; :N-M returns a flat root-level slice. nextOffset is zero-based: resume at nextOffset + 1.`,
   inputSchema: z.object({ path: z.string().min(1) }).strict(),
   execute: (context, input) =>
     executeNative(context, { operation: 'read', input }),
@@ -162,7 +169,7 @@ export const nativeEditTool: Tool<{
 }> = {
   id: 'edit',
   classification: 'write_low_risk',
-  description: `Replace one exact unique oldText occurrence with newText in a current local file. ${PATH_GUIDANCE} Use empty newText to delete. Missing or ambiguous oldText fails without changing the file.`,
+  description: `Replace one exact unique oldText occurrence with newText in a current local file. ${MUTATE_PATH_GUIDANCE} Use empty newText to delete. Missing or ambiguous oldText fails without changing the file.`,
   inputSchema: z
     .object({
       path: z.string().min(1),
@@ -177,7 +184,7 @@ export const nativeEditTool: Tool<{
 export const nativeWriteTool: Tool<{ path: string; content: string }> = {
   id: 'write',
   classification: 'write_low_risk',
-  description: `Create a new local UTF-8 file. ${PATH_GUIDANCE} Existing targets fail with file_exists. Use edit for changes to existing files.`,
+  description: `Create a new local UTF-8 file. ${MUTATE_PATH_GUIDANCE} Existing targets fail with file_exists. Use edit for changes to existing files.`,
   inputSchema: z
     .object({ path: z.string().min(1), content: z.string() })
     .strict(),
