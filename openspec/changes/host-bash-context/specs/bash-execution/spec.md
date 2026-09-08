@@ -28,8 +28,8 @@ without changing the command/result contract.
 
 #### Scenario: Model cannot widen execution
 
-- **WHEN** command arguments name an executor, a policy, or a base environment
-  variable such as `PATH`
+- **WHEN** command arguments name an executor, a policy, or any base environment
+  variable, `PATH` included
 - **THEN** the managed executor rejects the call before any process starts
 - **AND** the result names the rejected argument
 

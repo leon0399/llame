@@ -29,9 +29,10 @@ requirement block.
   filesystem as the same OS user. `workspace_mismatch` and the tautological
   same-directory assertion are removed.
 - `bash` takes an optional per-call `env`, additive only. The child starts from
-  a fixed base (`PATH`, `LANG`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`);
-  a key colliding with a base name is rejected, so `PATH` cannot be redirected.
-  The parent environment is never inherited wholesale.
+  a fixed base (`PATH`, `LANG`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`).
+  Any `env` key that names a base variable is rejected, whichever one it is;
+  `PATH` is the case that matters most, since it decides which binary a name
+  resolves to. The parent environment is never inherited wholesale.
 - Command output is returned as the command produced it, within the bound.
   The passes that rewrite absolute paths to a `[path]` placeholder and delete lines that
   look like stack frames are removed. Redaction of values the host knows to be
