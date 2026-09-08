@@ -11,9 +11,25 @@ version: 1
 
 reviews:
   enabled: true
-  # Human approval gates remain human-owned.
-  auto_approve_behavior: disabled
-  auto_approve: disabled
+  # Submit a real GitHub approval on a clean, low-risk review. `master` is
+  # unprotected, so this is a signal rather than a merge gate.
+  auto_approve_behavior: live
+  auto_approve: low_risk_only
+  auto_approve_rules:
+    # Never auto-approve a change that can weaken isolation or CI, however clean
+    # the review looked. Never-rules take precedence over everything below.
+    exclude:
+      - "apps/api/src/db/**"
+      - "apps/api/src/auth/**"
+      - "apps/api/src/identity/**"
+      - ".github/workflows/**"
+      - "cubic.yaml"
+      - ".cubic/**"
+      - ".coderabbit.yaml"
+    exclude_titles:
+      - "WIP:*"
+      - "wip:*"
+    exclude_external_contributors: true
   # 3x the reviewed-line cost; trigger by hand on a risky stack.
   ultrareview: manual
   auto_ultrareview: disabled
