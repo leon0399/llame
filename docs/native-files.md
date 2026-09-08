@@ -82,8 +82,9 @@ and creates nothing.
 
 Every successful `kb://` read, listing, or mutation carries the closed
 untrusted-content `notice`, the Space identifier, and the Space display name.
-Content is returned verbatim, not neutralized, so an `edit` `oldText` can be
-copied from a prior read byte-for-byte.
+Content is not neutralized, so an `edit` `oldText` can be copied from a prior
+read — after removing the generated line-number prefixes, or by reading
+with `:raw`, which omits them. Only a raw read is byte-for-byte source.
 
 An unimplemented `scheme://` prefix — for example `vault://x` — fails closed
 with `invalid_path` on `read`, `edit`, and `write` alike. It is never treated

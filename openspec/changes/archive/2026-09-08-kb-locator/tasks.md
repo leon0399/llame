@@ -39,6 +39,6 @@ the #701 tracker.
 
 ## 3. finalize
 
-- [ ] 3.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict`, `--all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify all pass and record the results in the PR body.
-- [ ] 3.2 Add the dated `CHANGELOG.md` entry including the `tools.allowed` breaking note and update the #701 tracker checkboxes; verify `pnpm lint:markdown` passes.
-- [ ] 3.3 Confirm every task above is checked, then run `$openspec-archive-change`; verify `openspec status --change kb-locator --json` reports complete before archiving.
+- [x] 3.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict`, `--all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify all pass and record the results in the PR body.
+- [x] 3.2 Add the dated `CHANGELOG.md` entry including the `tools.allowed` breaking note and update the #701 tracker checkboxes; verify `pnpm lint:markdown` passes.
+- [x] 3.3 Confirm every task above is checked, then run `$openspec-archive-change`; verify `openspec status --change kb-locator --json` reports complete before archiving.
