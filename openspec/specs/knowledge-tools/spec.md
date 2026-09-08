@@ -8,11 +8,11 @@ Defines bounded read-only tools that let the model search and read the current o
 
 ### Requirement: Knowledge tools derive filesystem authority only from trusted Run context
 
-The system SHALL register `knowledge_search` and `knowledge_read` as code-owned `read_only` tools. Their executors SHALL receive the trusted Run owner identity and resolve current owner resources under tenant enforcement at each tool invocation. Model arguments MAY contain a Knowledge Space identifier only where the tool contract permits selection; they SHALL contain no owner ID, configured root, child directory, source key, host path, or alternate resource locator.
+The system SHALL register `knowledge_search` as a code-owned `read_only` tool; Knowledge file reads, edits, and writes are the `kb://` locator of the native file tools. Its executor SHALL receive the trusted Run owner identity and resolve current owner resources under tenant enforcement at each tool invocation. Model arguments MAY contain a Knowledge Space identifier only where the tool contract permits selection; they SHALL contain no owner ID, configured root, child directory, source key, host path, or alternate resource locator.
 
 Changing a tool path, query, guessed identifier, or persisted argument SHALL NOT widen current owner access. A guessed, absent, removed, or other-owner explicit identifier SHALL return the same closed `knowledge_space_not_found` result even when the owner has no current spaces. An unscoped search by an owner with no current spaces SHALL receive `knowledge_space_not_configured`. Neither result SHALL reveal whether another owner, row, or directory exists.
 
-At Run acceptance, Knowledge tool eligibility SHALL depend on the immutable code-owned declaration, `read_only` classification, exact operator allowlist entry, and process configuration—not on owner inventory. With a configured `knowledge.root`, an otherwise-eligible Knowledge tool SHALL remain advertised when the owner currently has zero spaces; a later call SHALL signal `knowledge_space_not_configured` to the model. When `knowledge.root` is absent from the authoring API process, the existing closed `knowledge_space_unavailable` manifest state SHALL apply without probing the filesystem on the request path.
+At Run acceptance, `knowledge_search` eligibility SHALL depend on the immutable code-owned declaration, `read_only` classification, exact operator allowlist entry, and process configuration—not on owner inventory. With a configured `knowledge.root`, an otherwise-eligible `knowledge_search` SHALL remain advertised when the owner currently has zero spaces; a later call SHALL signal `knowledge_space_not_configured` to the model. When `knowledge.root` is absent from the authoring API process, the existing closed `knowledge_space_unavailable` manifest state SHALL apply without probing the filesystem on the request path. The same configured root SHALL make the native `read`, `edit`, and `write` tools eligible for `kb://` locators as defined by `native-file-tools`.
 
 At worker execution, the static tool executor SHALL receive the Knowledge filesystem resolver and process-local configuration only through trusted dependency injection or trusted tool context. It SHALL resolve current authority through the Run owner inside a tenant transaction and SHALL never accept owner identity, roots, or local binding data from model arguments or persisted declarations.
 
@@ -50,9 +50,9 @@ At worker execution, the static tool executor SHALL receive the Knowledge filesy
 
 `knowledge_search` SHALL accept a non-empty literal query of at most 200 Unicode code points, an integer result limit from 1 through 10 defaulting to 5, an optional `knowledgeSpaceId`, and an optional opaque continuation cursor. When the identifier is present, search SHALL target only that currently owner-accessible space. When absent, search SHALL iterate the owner's complete current inventory in `(createdAt, id)` keyset pages without materializing the uncapped inventory in memory. Inventory paging SHALL obey the same operation timeout and cancellation signal; it SHALL impose no separate total-space count cap. Before opening each targeted child, search SHALL recheck current access under the trusted Run owner. If a row from an unscoped inventory page is no longer accessible at that check, search SHALL omit it as no longer current without adding a warning or incrementing `warningCount`; if no currently accessible target remains, the call SHALL return `knowledge_space_not_configured`. Within a space, files SHALL be ordered by Knowledge-relative path.
 
-Search SHALL perform a case-insensitive literal scan over safe UTF-8 Markdown files as they are read from the live targeted spaces. LF SHALL terminate one logical line, CRLF SHALL be one line delimiter, a lone CR SHALL remain source text, and a terminal delimiter SHALL NOT create a phantom line. Every literal occurrence SHALL contribute a candidate passage consisting of its logical line plus at most one preceding and one following logical line. Occurrences on the same line SHALL share one candidate, and candidate passages within one file SHALL be sorted and transitively unioned when they overlap or touch before result limiting. A merged interval longer than 2,000 logical lines SHALL then be partitioned into adjacent deterministic passages of at most 2,000 lines; every emitted passage SHALL contain a literal match and the passages together SHALL cover the complete merged interval. Search SHALL return passages in deterministic space `(createdAt, id)`, relative-path, and zero-based passage-offset order. It SHALL use no grep subprocess, regular expression, Markdown parser, index, or PostgreSQL content projection.
+Search SHALL perform a case-insensitive literal scan over safe UTF-8 Markdown files as they are read from the live targeted spaces. LF SHALL terminate one logical line, CRLF SHALL be one line delimiter, a lone CR SHALL remain source text, and a terminal delimiter SHALL NOT create a phantom line. Every literal occurrence SHALL contribute a candidate passage consisting of its logical line plus at most one preceding and one following logical line. Occurrences on the same line SHALL share one candidate, and candidate passages within one file SHALL be sorted and transitively unioned when they overlap or touch before result limiting. A merged interval longer than 2,000 logical lines SHALL then be partitioned into adjacent deterministic passages of at most 2,000 lines; every emitted passage SHALL contain a literal match and the passages together SHALL cover the complete merged interval. Search SHALL return passages in deterministic space `(createdAt, id)`, relative-path, and passage start-line order. It SHALL use no grep subprocess, regular expression, Markdown parser, index, or PostgreSQL content projection.
 
-Every returned passage SHALL carry the response-time Knowledge Space identifier and display name, exact Knowledge-relative path, zero-based `offset`, source-line `limit` from 1 through 2,000, and an `excerpt` of at most 500 Unicode code points. `offset` and `limit` SHALL identify the complete emitted source-line window and be directly valid `knowledge_read` arguments for that file. If the window exceeds the excerpt cap, search SHALL crop visibly around a literal match without changing the source-line coordinates. Search SHALL NOT duplicate a separate matching-line string, expose a match mode while only literal search exists, or expose a content hash or revision token.
+Every returned passage SHALL carry the response-time Knowledge Space identifier and display name, exact Knowledge-relative path, a `locator` of the form `kb://<space-id>/<path>:<start>-<end>` whose one-based inclusive line range is the complete emitted source-line window and which is directly a valid `read` argument, and an `excerpt` of at most 500 Unicode code points. A passage SHALL span at most 2,000 logical lines. Search SHALL NOT emit zero-based coordinates. If the window exceeds the excerpt cap, search SHALL crop visibly around a literal match without changing the locator's range. Search SHALL NOT duplicate a separate matching-line string, expose a match mode while only literal search exists, or expose a content hash or revision token.
 
 The optional cursor SHALL be canonical opaque Knowledge-local keyset state bound to the query, optional explicit selector, and last returned passage ordering tuple. A cursor used with different request bindings or malformed state SHALL fail closed as invalid input. An unchanged accessible corpus SHALL produce deterministic non-overlapping pages. The cursor SHALL NOT claim a filesystem snapshot: current access is resolved again on continuation; removed resources disappear, and concurrent file or inventory changes MAY cause newly ordered passages to appear or passages ordered before the cursor to be skipped. Search SHALL return `nextCursor` only when another passage currently exists after the last returned result, including from an incomplete successful page.
 
@@ -70,7 +70,7 @@ There is no operation-wide content revision or snapshot. A file changed after it
 
 - **WHEN** one targeted Knowledge Space contains two non-overlapping literal matches in one bounded UTF-8 Markdown file
 - **THEN** search returns two passage candidates unless merging makes their context windows one passage
-- **AND** each result carries reusable zero-based line coordinates and a bounded excerpt without a content hash
+- **AND** each result carries a reusable `kb://` locator and a bounded excerpt without a content hash
 
 #### Scenario: Overlapping match windows merge
 
@@ -83,13 +83,13 @@ There is no operation-wide content revision or snapshot. A file changed after it
 
 - **WHEN** touching or overlapping match windows transitively union into more than 2,000 logical lines
 - **THEN** search partitions the complete merged interval into adjacent passages whose limits are each at most 2,000 and which each contain a literal match
-- **AND** every matching line remains covered in deterministic offset order by coordinates accepted by `knowledge_read`
+- **AND** every matching line remains covered in deterministic order by locators accepted by `read`
 
 #### Scenario: Search passage expands through read
 
-- **WHEN** an assistant passes a search result's space ID, path, offset, and limit to `knowledge_read`
-- **THEN** read addresses the complete current logical-line window represented by those coordinates
-- **AND** neither call requires a model-facing file hash
+- **WHEN** an assistant passes a search result's `locator` unchanged to `read`
+- **THEN** read addresses the complete current logical-line window the passage covered, plus native context lines
+- **AND** neither call requires a model-facing file hash or a second coordinate system
 
 #### Scenario: Cursor continues an unchanged corpus
 
@@ -169,98 +169,22 @@ There is no operation-wide content revision or snapshot. A file changed after it
 - **THEN** the first non-revoked target in deterministic inventory order determines the top-level closed error
 - **AND** the error omits results and continuation state and does not present accumulated passages as complete
 
-### Requirement: Knowledge read returns one explicitly selected safe live Markdown range
-
-`knowledge_read` SHALL require exactly one `knowledgeSpaceId` and one Knowledge-relative Markdown path whose final component ends with `.md`, compared ASCII case-insensitively. It SHALL accept an optional zero-based safe-integer `offset` defaulting to zero and an optional safe-integer `limit` from 1 through 2,000. `offset` SHALL mean the number of logical source lines skipped; `limit`, when present, SHALL mean the maximum logical-line count requested. It SHALL resolve the identifier through the trusted Run owner's current access immediately before opening the child. Omitted, guessed, absent, removed, and other-owner identifiers SHALL fail closed without probing candidate directories; omission SHALL NOT infer a sole current space.
-
-The tool SHALL safely open one regular file of at most 1 MiB and validate the complete admitted file as UTF-8 while scanning it in bounded chunks. LF SHALL terminate one logical line, CRLF SHALL be one line delimiter, and a lone CR SHALL remain source text. An empty file SHALL have zero logical lines, a terminal delimiter SHALL NOT create a phantom line, and blank lines SHALL count. The tool SHALL NOT buffer the complete file merely to return a bounded range.
-
-When `offset` and `limit` are both omitted, the requested range SHALL extend through the current end of file. When only `offset` is present, the requested range SHALL extend from that logical line through the current end of file. When only `limit` is present, the range SHALL begin at offset zero. One success SHALL return no more than 2,000 logical lines even when the requested range extends farther.
-
-Every success SHALL return the response-time Knowledge Space identifier and display name, exact Knowledge-relative path, effective zero-based `offset`, returned `lineCount`, model-visible `content`, and the existing untrusted-content notice. `content` SHALL render each returned logical line as `<one-based source line number>: <source text>` while preserving that source line's LF or CRLF delimiter and preserving an unterminated final line. When current logical lines remain after the returned slice, success SHALL include `nextOffset = offset + lineCount`; otherwise it SHALL omit `nextOffset`.
-
-The tool SHALL keep the complete structured success at or below 15,000 JavaScript UTF-16 code units. It SHALL return at most the first 2,000 requested lines, but the output bound MAY stop it earlier. If the line bound is the first server bound reached, the result SHALL include `nextOffset` and `cutReason: "line_limit"`. If the output bound is reached first, the tool SHALL omit the first whole line that cannot fit, return the preceding non-empty whole-line prefix plus `nextOffset` pointing to the omitted line, and include `cutReason: "output_limit"`. `cutReason` SHALL be absent when an explicit caller `limit` completes normally, even if `nextOffset` shows that the file itself continues. The Knowledge result SHALL NOT declare the generic `truncated` or `truncationNotice` fields. If one selected logical line alone cannot fit, the tool SHALL return `knowledge_limit_exceeded` rather than clip a line without a line-offset continuation coordinate.
-
-An offset beyond the current logical-line range SHALL return `knowledge_range_invalid`; an empty file read at offset zero SHALL return empty content successfully. Negative offsets, limits outside 1 through 2,000, non-integers, and unsafe integers SHALL fail closed input validation before filesystem access. The path SHALL be matched case-sensitively against live directory entries. The tool SHALL reject absolute paths, empty components, `.` or `..` components, backslashes, NUL or control characters, paths above 1,024 UTF-8 bytes or 32 components, and non-Markdown suffixes. It SHALL reject every symbolic-link component or entry and SHALL NOT follow a link even when its target remains inside the Knowledge Space.
-
-Read results SHALL expose no content hash, expected hash, revision, host path, or alternate locator. Invalid or non-admitted paths and inaccessible selectors SHALL return a closed `knowledge_path_invalid`, `knowledge_not_found`, `knowledge_range_invalid`, `knowledge_space_not_found`, `knowledge_space_unavailable`, `knowledge_content_invalid`, or `knowledge_limit_exceeded` result without revealing the configured root or whether a rejected host path or other-owner resource exists.
-
-#### Scenario: Omitted range reads a fitting current note
-
-- **WHEN** the selected current Knowledge Space contains an admitted Markdown file whose complete result fits the output bound and read omits offset and limit
-- **THEN** the tool returns its complete current line-numbered content with offset zero and the actual line count
-- **AND** it omits `nextOffset`, `cutReason`, and content hashes
-
-#### Scenario: Omitted range continues a long note
-
-- **WHEN** the complete admitted Markdown file reaches the line or output bound before EOF
-- **THEN** read returns the largest allowed whole-line prefix with `nextOffset` and the applicable `cutReason`
-- **AND** a later read using that offset can continue without presenting the prefix as the complete note
-
-#### Scenario: Explicit range reads selected logical lines
-
-- **WHEN** read supplies a valid offset and limit within the selected current note
-- **THEN** it returns at most that many logical lines beginning at the offset
-- **AND** it includes `nextOffset` exactly when current lines remain while omitting `cutReason` when the requested range completed normally
-
-#### Scenario: Range output bound preserves continuation
-
-- **WHEN** an explicitly requested line range exceeds the structured output bound but its first selected line fits
-- **THEN** read omits the first non-fitting line and returns the largest fitting whole-line prefix, `nextOffset` pointing to that line, and `cutReason: "output_limit"`
-- **AND** it does not return `knowledge_limit_exceeded` merely because the request asked for more lines
-
-#### Scenario: Offset beyond current file fails visibly
-
-- **WHEN** the requested offset is beyond the selected file's current logical-line range
-- **THEN** read returns `knowledge_range_invalid`
-- **AND** it does not represent the mistake as an empty note
-
-#### Scenario: One oversized line cannot be ranged
-
-- **WHEN** the first selected logical line cannot fit within a successful structured result
-- **THEN** read returns `knowledge_limit_exceeded`
-- **AND** it does not clip the line without a valid continuation coordinate
-
-#### Scenario: Traversal and absolute paths fail
-
-- **WHEN** a requested path is absolute or contains a dot, dot-dot, empty, backslash, or control-character component
-- **THEN** the tool returns `knowledge_path_invalid`
-- **AND** no host path outside the trusted stable-ID child is read
-
-#### Scenario: Symbolic link is not followed
-
-- **WHEN** any path component or Markdown-named entry is a symbolic link
-- **THEN** read refuses it
-- **AND** target content is not returned
-
-#### Scenario: Read always requires an explicit space
-
-- **WHEN** a read omits `knowledgeSpaceId` even though the owner has exactly one current space
-- **THEN** closed input validation rejects the call
-- **AND** no Knowledge child is probed
-
-#### Scenario: Same-named spaces remain unambiguous
-
-- **WHEN** two current spaces share a display name and read supplies one stable identifier
-- **THEN** only the selected stable-ID child is resolved
-- **AND** the result includes that identifier and its response-time name
-
 ### Requirement: Retrieval persists safe response-time attribution
 
-Every newly successful search passage and read result SHALL include the logical Knowledge Space identifier, response-time display name, exact Knowledge-relative path, and zero-based line coordinates. Search SHALL additionally include its bounded excerpt; read SHALL include returned Markdown and optional continuation. These fields describe what that live call observed and SHALL NOT claim that a path, display name, authorization binding, coordinates, or content remains unchanged or permanently replayable. New results SHALL expose no content hash, expected hash, revision, configured root, or resolved host path.
+Every newly successful search passage SHALL include the logical Knowledge Space identifier, response-time display name, exact Knowledge-relative path, `kb://` locator with its one-based line range, and bounded excerpt. `kb://` read, listing, edit, and write results follow the native file tools' result contract and carry the same Space identifier and display name. These fields describe what that live call observed and SHALL NOT claim that a path, display name, authorization binding, coordinates, or content remains unchanged or permanently replayable. New results SHALL expose no content hash, expected hash, revision, configured root, or resolved host path.
 
 The fields SHALL remain complete in the persisted tool-result part, live event stream, and browser reconstruction because Knowledge success results preflight below the live-result cap. Later model replay MAY clear payload detail or omit the complete call/result pair under the tool-calling capability's existing pair and turn/ledger budgets. A successful search that explicitly records `complete: false` SHALL retain an `incomplete` outcome in every later payload-cleared model projection, including ordinary bounded next-turn replay and compacted-ledger replay, instead of being projected as complete success after detail is cleared.
 
-Historical persisted Knowledge observations SHALL remain immutable. Results authored before this change MAY retain their original `contentHash`, matching-line, and snippet fields; replay and browser reconstruction SHALL preserve those fields as recorded and SHALL NOT synthesize new range fields or remove historical attribution. Calls authored before this change remain executable because the new read range and search cursor arguments are optional.
+Historical persisted Knowledge observations SHALL remain immutable. Results authored before this change MAY retain their original `contentHash`, matching-line, and snippet fields; replay and browser reconstruction SHALL preserve those fields as recorded and SHALL NOT synthesize new range fields or remove historical attribution. Historical `knowledge_read` observations SHALL render as recorded; the tool itself no longer exists and a Run whose snapshot names it fails closed before the provider request.
 
 The persisted observation SHALL include the bounded excerpt or returned Markdown in the existing PostgreSQL-backed Run-event and assistant-message-part stores and SHALL follow their existing Run and Chat retention and deletion lifecycle. This execution history SHALL NOT become a canonical Knowledge content projection, index, source store, or alternate read authority. The system SHALL add no separate Knowledge-content persistence; every later retrieval SHALL read the live files again.
 
-Attribution SHALL exclude configured roots, resolved child paths, hosted owner IDs, credentials, worker identity, and raw filesystem diagnostics. The structured tool-result UI SHALL visibly present the response-time display name, stable identifier, Knowledge-relative path, and available range coordinates so duplicate names remain distinguishable. The packaged tool description SHALL instruct the model to cite the space and path of a note it uses; the system SHALL NOT post-process arbitrary provider text to fabricate a citation.
+Attribution SHALL exclude configured roots, resolved child paths, hosted owner IDs, credentials, worker identity, and raw filesystem diagnostics. The structured tool-result UI SHALL visibly present the response-time display name, stable identifier, Knowledge-relative path, and locator so duplicate names remain distinguishable; `kb://` results render through the generic tool UI, which shows the same fields from the native envelope. The packaged tool description SHALL instruct the model to cite the space and path of a note it uses; the system SHALL NOT post-process arbitrary provider text to fabricate a citation.
 
 #### Scenario: Browser reload retains attribution
 
-- **WHEN** a Chat uses a newly successful Knowledge passage or ranged read and the browser reloads
-- **THEN** the reconstructed result retains the same space identifier, response-time name, path, coordinates, and recorded excerpt or content
+- **WHEN** a Chat uses a newly successful Knowledge passage and the browser reloads
+- **THEN** the reconstructed result retains the same space identifier, response-time name, path, locator, and recorded excerpt
 - **AND** it does not require a content hash
 
 #### Scenario: Historical hash-bearing result remains historical
@@ -272,8 +196,8 @@ Attribution SHALL exclude configured roots, resolved child paths, hosted owner I
 #### Scenario: Later file change does not alter history
 
 - **WHEN** a space name or file changes after a successful tool result was persisted
-- **THEN** the persisted result retains its original response-time name, path, coordinates, excerpt, or content
-- **AND** a later tool call may return different metadata, coordinates, or bytes
+- **THEN** the persisted result retains its original response-time name, path, locator, and excerpt
+- **AND** a later tool call may return different metadata, ranges, or bytes
 
 #### Scenario: Browser Chat exposes the note citation
 
@@ -289,12 +213,18 @@ Attribution SHALL exclude configured roots, resolved child paths, hosted owner I
 
 ### Requirement: Knowledge content is untrusted and potentially stale
 
-Knowledge tool declarations and model-visible results SHALL identify filesystem content as owner-maintained, untrusted context that may be stale. The tools SHALL NOT grant instructions inside notes authority over the system prompt, tool permissions, owner linkage, configured root, or execution environment. The model-facing contract SHALL direct materially volatile claims to appropriate external verification when those tools are available.
+The `knowledge_search` declaration, the native `read` declaration's `kb://` guidance, and every model-visible Knowledge result, including `kb://` reads and listings, SHALL identify filesystem content as owner-maintained, untrusted context that may be stale through the closed notice. `kb://` content SHALL NOT be rewritten or neutralized by the runtime; the framing is carried by the notice and the declarations so that returned bytes remain usable as exact `edit` targets. The tools SHALL NOT grant instructions inside notes authority over the system prompt, tool permissions, owner linkage, configured root, or execution environment. The model-facing contract SHALL direct materially volatile claims to appropriate external verification when those tools are available.
 
 #### Scenario: Note attempts to widen authority
 
 - **WHEN** a note instructs the model to select another directory, enable a tool, reveal a host path, or override system policy
 - **THEN** no tool availability, linkage, or execution scope changes
+
+#### Scenario: Knowledge read carries the notice verbatim
+
+- **WHEN** the model reads a note through `kb://`
+- **THEN** the result includes the closed untrusted-content notice
+- **AND** the note's text is returned byte-for-byte within the selected range
 
 #### Scenario: Note contains a volatile claim
 

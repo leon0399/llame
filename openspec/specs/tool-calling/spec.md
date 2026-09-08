@@ -69,8 +69,14 @@ approved alpha-native capability. The initial native set is `read` classified
 `read_only`, plus `edit` and `write` classified `write_low_risk`; later native
 capabilities such as Knowledge submit or bash must declare their own exact tools
 and retry policy. Classification alone SHALL NOT admit any other write or
-execution tool. Alpha-native tools carry explicit host authority; they are not a
-general permission engine or a remote MCP write grant.
+execution tool. Alpha-native tools carry explicit host authority for absolute paths and
+owner-scoped Knowledge authority for `kb://` locators; they are not a general
+permission engine or a remote MCP write grant. The candidate resolver SHALL admit
+the three native tools when the process has accepted native host authority or
+has a configured Knowledge root, and SHALL leave them unavailable when it has
+neither. A configured Knowledge root admits only `read`, `edit`, and `write`;
+`bash` and every other host-capability tool remain admitted solely by accepted
+native host authority.
 
 The `mcp__` tool-id prefix SHALL be reserved for ids produced by the MCP
 capability. A code-owned or other non-MCP registry entry beginning with that
@@ -87,6 +93,18 @@ grant authority across source kinds.
 - **WHEN** an exact code-owned native tool is allowlisted and its trusted alpha native capability is present
 - **THEN** it executes with the native host authority declared by that capability
 - **AND** it is not substituted with a hosted path or remote MCP operation
+
+#### Scenario: Native tools are admitted by Knowledge root alone
+
+- **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `read`, `edit`, and `write`
+- **THEN** the three tools are advertised and executable for `kb://` locators
+- **AND** an absolute path fails closed with `executor_unavailable`
+
+#### Scenario: Knowledge root does not admit bash
+
+- **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `bash`
+- **THEN** `bash` is neither advertised nor executable
+- **AND** the Run manifest records it unavailable exactly as before this change
 
 #### Scenario: Non-read-only tool is refused even when allowlisted
 
@@ -898,7 +916,7 @@ The web chat SHALL render tool activity inline in the message stream — the cal
 
 ### Requirement: Code-owned Knowledge tools use the existing immutable read-only loop
 
-The code-owned tool inventory SHALL include `knowledge_search` and `knowledge_read` in addition to `search_conversations`. Each SHALL declare `read_only`, require its own exact entry in `tools.allowed`, and participate in the same declaration admission, immutable Run tool snapshot, execution rebinding, timeout, abort, settlement, persistence, replay, compaction, result neutralization, truncation, and browser-rendering contracts as every other code-owned tool. The Run tool snapshot SHALL bind operation eligibility and declarations, not a Knowledge resource inventory.
+The code-owned tool inventory SHALL include `knowledge_search` in addition to `search_conversations`; Knowledge file access is the `kb://` locator of the native file tools. `knowledge_search` SHALL declare `read_only`, require its own exact entry in `tools.allowed`, and participate in the same declaration admission, immutable Run tool snapshot, execution rebinding, timeout, abort, settlement, persistence, replay, compaction, result neutralization, truncation, and browser-rendering contracts as every other code-owned tool. The Run tool snapshot SHALL bind operation eligibility and declarations, not a Knowledge resource inventory.
 
 The operator allowlist controls only whether these fixed operations are eligible. It SHALL NOT choose an owner, configured root, child directory, path root, or execution location. A permitted Knowledge tool MAY accept a stable Knowledge Space selector as defined by its code-owned schema, but current authority for that selector MUST come from the trusted Run owner at execution time. Model input SHALL NOT supply or expand ownership or local filesystem authority.
 
@@ -910,7 +928,7 @@ Knowledge results SHALL retain the global execution envelope `status: "success" 
 
 New Knowledge results SHALL persist and render the current passage/range attribution defined by `knowledge-tools` without requiring a content hash. Historical persisted Knowledge results MAY retain their earlier hash-bearing shape. Execution, persistence, replay, compaction, and browser rendering SHALL preserve either bounded observation as authored and SHALL NOT normalize historical results into the new shape or synthesize removed fields. Existing persisted calls without new optional range or cursor arguments SHALL remain valid observations.
 
-Changing either code-owned Knowledge declaration SHALL be a coordinated API/worker revision boundary because an accepted Run binds the exact declaration and a code-owned executor refuses drift. Before replacing binaries for the ranged-read declaration and again before replacing binaries for the passage-search declaration, the deployment SHALL quiesce new Run acceptance and drain every accepted Run bound to the prior declaration. It SHALL deploy matching API and worker binaries before resuming acceptance. Rollback SHALL quiesce and drain Runs bound to the newer declaration before restoring older API or worker binaries. No mixed-revision executor fallback or declaration normalization is introduced by this change.
+Changing the code-owned `knowledge_search` declaration SHALL be a coordinated API/worker revision boundary because an accepted Run binds the exact declaration and a code-owned executor refuses drift. Before replacing binaries for the passage-search declaration, the deployment SHALL quiesce new Run acceptance and drain every accepted Run bound to the prior declaration. It SHALL deploy matching API and worker binaries before resuming acceptance. Rollback SHALL quiesce and drain Runs bound to the newer declaration before restoring older API or worker binaries. No mixed-revision executor fallback or declaration normalization is introduced by this change.
 
 The canonical closed Knowledge reason vocabulary and model-safe label mapping SHALL retain `knowledge_space_not_configured` and `knowledge_space_unavailable`. Because zero inventory no longer changes tool availability, `knowledge_space_not_configured` SHALL be emitted only as a tool-call result, not as an immutable manifest state. `knowledge_space_unavailable` and its existing recovery mapping SHALL continue to govern missing process configuration without admitting arbitrary reason text.
 
@@ -951,21 +969,27 @@ The canonical closed Knowledge reason vocabulary and model-safe label mapping SH
 
 #### Scenario: Knowledge declaration cutover drains prior Runs
 
-- **WHEN** a deployment changes the code-owned declaration for either Knowledge tool
+- **WHEN** a deployment changes the code-owned `knowledge_search` declaration
 - **THEN** it stops accepting new Runs and drains Runs bound to the prior declaration before replacing API or worker binaries
 - **AND** acceptance resumes only after every executing process exposes the matching declaration and executor
 
 #### Scenario: Tool permission cannot alter filesystem authority
 
-- **WHEN** an operator allowlists either Knowledge tool
+- **WHEN** an operator allowlists `knowledge_search`
 - **THEN** the permission makes only that fixed operation eligible
 - **AND** any supplied space selector still resolves solely through current trusted owner authority
 
 #### Scenario: Zero inventory remains model-visible
 
-- **WHEN** a Run owner has no current Knowledge Spaces but the Knowledge tools are otherwise eligible
-- **THEN** the tools are advertised as callable
+- **WHEN** a Run owner has no current Knowledge Spaces but `knowledge_search` is otherwise eligible
+- **THEN** the tool is advertised as callable
 - **AND** invocation returns the closed `knowledge_space_not_configured` result
+
+#### Scenario: Removed reader fails closed for a bound Run
+
+- **WHEN** a Run accepted before removal has `knowledge_read` in its immutable tool snapshot
+- **THEN** the Run fails closed before the provider request, under the existing code-owned executor-loss rule
+- **AND** no shim, alias, or redirect to `read` is applied
 
 #### Scenario: Incomplete Knowledge search stays incomplete after payload clearing
 
@@ -975,7 +999,7 @@ The canonical closed Knowledge reason vocabulary and model-safe label mapping SH
 
 ### Requirement: Conversation read uses the existing immutable read-only tool loop
 
-The code-owned tool inventory SHALL include `conversation_read` in addition to `search_conversations`, `knowledge_search`, and `knowledge_read`. It SHALL declare `read_only`, require its own exact `tools.allowed` entry, and participate in the existing declaration admission, immutable Run snapshot, execution rebinding, timeout, cooperative cancellation, settlement, persistence, replay, compaction, neutralization, and generic browser-rendering lifecycle. Owner authority SHALL come only from trusted Run context, never from model arguments or a message locator.
+The code-owned tool inventory SHALL include `conversation_read` in addition to `search_conversations` and `knowledge_search`. It SHALL declare `read_only`, require its own exact `tools.allowed` entry, and participate in the existing declaration admission, immutable Run snapshot, execution rebinding, timeout, cooperative cancellation, settlement, persistence, replay, compaction, neutralization, and generic browser-rendering lifecycle. Owner authority SHALL come only from trusted Run context, never from model arguments or a message locator.
 
 The conversation reader SHALL enforce the `conversation-reads` bounds of 2,000 logical lines and 15,000 JavaScript UTF-16 code units before generic result truncation. A read whose first selected source line cannot fit SHALL return `conversation_limit_exceeded`. Bounded pages SHALL preserve exact `nextOffset` and cut-reason metadata, and generic truncation SHALL NOT clip numbered source content.
 

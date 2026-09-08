@@ -29,6 +29,18 @@ The `mcp__` prefix SHALL remain reserved for MCP-generated ids.
 - **THEN** it executes with the native capability's host authority
 - **AND** it is not substituted with a remote MCP operation
 
+#### Scenario: Native tools are admitted by Knowledge root alone
+
+- **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `read`, `edit`, and `write`
+- **THEN** the three tools are advertised and executable for `kb://` locators
+- **AND** an absolute path fails closed with `executor_unavailable`
+
+#### Scenario: Knowledge root does not admit bash
+
+- **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `bash`
+- **THEN** `bash` is neither advertised nor executable
+- **AND** the Run manifest records it unavailable exactly as before this change
+
 #### Scenario: Non-read-only tool is refused even when allowlisted
 
 - **WHEN** a tool outside the exact alpha-native set is classified other than `read_only`, registered and allowlisted, and requested
