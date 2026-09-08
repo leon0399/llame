@@ -370,7 +370,8 @@ the response-time Knowledge Space identifier and display name. It SHALL expose
 no configured root, resolved child path, hosted owner ID, credential, worker
 identity, or raw filesystem diagnostic. Every successful `kb://` read or listing
 SHALL include the Knowledge untrusted-content `notice`; content SHALL be returned
-verbatim so that `edit` `oldText` can be copied from it.
+verbatim so that `edit` `oldText` can be copied from it once the generated
+line-number prefixes are removed, or read with `:raw` to omit them.
 
 The `kb://` grammar is the authority-aware locator that later schemes follow; a
 scheme SHALL declare which of `read`, `edit`, and `write` it supports, and an
