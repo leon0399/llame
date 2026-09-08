@@ -136,6 +136,10 @@ async function expectErroredTool(
 }
 
 test.describe("personal Knowledge tools (browser, full stack)", () => {
+  // Each scenario drives several full prompt/tool/answer turns through the
+  // real loop; the 30 s Playwright default cuts them off mid-turn.
+  test.setTimeout(90_000);
+
   test("creates, lists, retrieves, and renames duplicate-named spaces without cross-account leakage", async ({
     account,
     freshAccount,
@@ -721,7 +725,11 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       .first();
     await expect(searchCard).toContainText("Completed", { timeout: 30_000 });
     await searchCard.click();
-    const searchText = await searchCard.locator("..").innerText();
+    // `innerText` is a one-shot read with no retry, so the expanded panel has
+    // to be on screen before it runs.
+    const searchDetails = searchCard.locator("..");
+    await expect(searchDetails).toContainText("kb://");
+    const searchText = await searchDetails.innerText();
     const locatorMatch = /kb:\/\/[^\s"]+/u.exec(searchText);
     if (locatorMatch === null) {
       throw new Error("search card did not render a kb:// locator");
