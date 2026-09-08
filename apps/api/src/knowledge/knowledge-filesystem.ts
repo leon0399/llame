@@ -118,6 +118,9 @@ export type KnowledgeFilesystemPort = {
   opendir(directoryPath: string): Promise<KnowledgeFilesystemDirectory>;
   open(filePath: string): Promise<KnowledgeFilesystemFile>;
   realpath(filePath: string): Promise<string>;
+  /** Creates one directory, never a chain: a recursive create resolves through
+   *  a symbolic link, which is exactly what the walk above refuses. */
+  mkdir(directoryPath: string): Promise<void>;
 };
 
 export type KnowledgeFilesystemSearchMatch = {
@@ -327,7 +330,11 @@ export class KnowledgeFilesystemAdapter {
     return resolveKnowledgeHostPath(
       directory,
       relativePath,
-      (filePath) => this.lstat(filePath, 'knowledge_not_found', options.signal),
+      {
+        lstat: (filePath) =>
+          this.lstat(filePath, 'knowledge_not_found', options.signal),
+        mkdir: (directoryPath) => this.mkdir(directoryPath),
+      },
       options,
     );
   }
@@ -412,6 +419,15 @@ export class KnowledgeFilesystemAdapter {
     }
     await closeFileAndTranslateFailure(file, failure, signal);
     return bytes ?? Buffer.alloc(0);
+  }
+
+  private async mkdir(directoryPath: string): Promise<void> {
+    try {
+      await this.fileSystem.mkdir(directoryPath);
+    } catch (error) {
+      if (error instanceof KnowledgeFilesystemError) throw error;
+      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
+    }
   }
 
   private async realpath(

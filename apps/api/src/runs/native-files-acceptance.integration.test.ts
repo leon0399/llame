@@ -191,7 +191,7 @@ describe('native files through the model loop and durable worker', () => {
       new NativeFilesRepository(tx).begin({
         runId: seeded.runId,
         userId,
-        executorId: 'native-acceptance-host',
+        fence: { bound: true, executorId: 'native-acceptance-host' },
         deliverySequence,
         toolCallId: 'native-edit',
         operation: 'edit',

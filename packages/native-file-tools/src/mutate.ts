@@ -242,7 +242,10 @@ export function createFile(
       "write",
       displayPath,
     );
-    await createParentDirectories(input.path);
+    // A resolved target's directories were created by its scheme owner, one
+    // component at a time under its own symlink refusal; a recursive create
+    // here would resolve through a link the owner just refused.
+    if (displayPath === undefined) await createParentDirectories(input.path);
     await publishFile(input, { create: true, signal });
     return result;
   });
@@ -257,8 +260,9 @@ async function createParentDirectories(path: string): Promise<void> {
   try {
     await mkdir(dirname(path), { recursive: true });
   } catch (error) {
-    const code = isNodeError(error) ? error.code : undefined;
-    if (code === "ENOTDIR" || code === "EEXIST")
+    // An existing component that is not a directory is `ENOTDIR`; an existing
+    // directory is not an error for a recursive create at all.
+    if (isNodeError(error) && error.code === "ENOTDIR")
       throw new NativeFileError("not_regular_file");
     throw error;
   }

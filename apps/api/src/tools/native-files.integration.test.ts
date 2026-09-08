@@ -121,7 +121,7 @@ describe('native file authority and durable effects', () => {
       new NativeFilesRepository(tx).begin({
         runId,
         userId: owner,
-        executorId: 'host-a',
+        fence: { bound: true, executorId: 'host-a' },
         deliverySequence: input.deliverySequence,
         toolCallId: input.toolCallId,
         operation: input.operation,
@@ -177,7 +177,7 @@ describe('native file authority and durable effects', () => {
       new NativeFilesRepository(tx).begin({
         runId,
         userId: owner,
-        executorId: 'host-a',
+        fence: { bound: true, executorId: 'host-a' },
         deliverySequence: context.nativeDeliverySequence,
         toolCallId: context.toolCallId!,
         operation: 'edit',
@@ -669,6 +669,7 @@ describe('kb:// mutations under real owner binding', () => {
       new NativeFilesRepository(tx).begin({
         runId,
         userId: owner,
+        fence: { bound: false },
         deliverySequence: context.nativeDeliverySequence,
         toolCallId: context.toolCallId!,
         operation: 'edit',

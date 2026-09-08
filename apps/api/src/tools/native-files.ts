@@ -70,9 +70,12 @@ async function executeKnowledge(
   context.abortSignal?.throwIfAborted();
   // A `write` names a file that does not exist yet, and may name directories
   // above it that do not either.
-  const target = await resolveKnowledgeLocator(context, call.input.path, rest, {
-    allowMissing: call.operation === 'write',
-  });
+  const target = await resolveKnowledgeLocator(
+    context,
+    call.input.path,
+    rest,
+    call.operation === 'write',
+  );
   if ('status' in target) return target;
   if (call.operation === 'read') return readKnowledge(target);
   // A `const` keeps the narrowing across the closure the queue runs later.
@@ -116,6 +119,7 @@ async function mutateKnowledge(
     new NativeFilesRepository(db).begin({
       runId,
       userId,
+      fence: { bound: false },
       deliverySequence: context.nativeDeliverySequence,
       toolCallId,
       operation: call.operation,
@@ -156,7 +160,7 @@ async function executeNativeBound(
     new NativeFilesRepository(db).begin({
       runId,
       userId,
-      executorId: nativeExecutorId,
+      fence: { bound: true, executorId: nativeExecutorId },
       deliverySequence: nativeDeliverySequence,
       toolCallId,
       operation: call.operation,
@@ -223,10 +227,13 @@ function knowledgeFenceUnavailableResult(): ToolResult {
   };
 }
 
+/** The locator parsed and resolved; the selector is what does not apply. That
+ *  is `invalid_selector`, the same type a `:raw` directory read returns —
+ *  `invalid_path` means the locator string itself was malformed. */
 function selectorOnMutationResult(): ToolResult {
   return {
     status: 'error',
-    type: 'invalid_path',
+    type: 'invalid_selector',
     message: 'A line selector cannot be used with edit or write.',
   };
 }

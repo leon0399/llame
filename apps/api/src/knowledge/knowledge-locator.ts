@@ -84,7 +84,7 @@ export async function resolveKnowledgeLocator(
   context: ToolContext,
   locator: string,
   rest: string,
-  options: { readonly allowMissing?: boolean | undefined } = {},
+  allowMissing = false,
 ): Promise<ResolvedKnowledgeTarget | ToolResult> {
   const parsed = parseKnowledgeLocator(rest);
   if (parsed === undefined) return invalidPathResult();
@@ -96,7 +96,7 @@ export async function resolveKnowledgeLocator(
 
   try {
     const hostPath = await access.adapter.resolveHostPath(parsed.relativePath, {
-      allowMissing: options.allowMissing,
+      allowMissing,
       signal: context.abortSignal,
     });
     const target: ResolvedKnowledgeTarget = {

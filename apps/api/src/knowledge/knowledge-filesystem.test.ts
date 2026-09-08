@@ -7,6 +7,7 @@ import {
   unlink,
   writeFile,
 } from 'node:fs/promises';
+import { lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -126,6 +127,7 @@ function fakeFilesystem(
       return Promise.resolve(file);
     }),
     realpath: vi.fn((filePath: string) => Promise.resolve(filePath)),
+    mkdir: vi.fn(() => Promise.resolve()),
   };
 }
 
@@ -714,6 +716,37 @@ describe('KnowledgeFilesystemAdapter', () => {
       await expect(
         new KnowledgeFilesystemAdapter(binding).search('needle', 5),
       ).resolves.toEqual([expect.objectContaining({ path: 'notes/plain.md' })]);
+    });
+  });
+
+  it('creates a write path one component at a time and never through a link', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      const outside = await mkdtemp(
+        path.join(tmpdir(), 'llame-knowledge-escape-'),
+      );
+      const adapter = new KnowledgeFilesystemAdapter(binding);
+
+      const created = await adapter.resolveHostPath('research/2026/note.md', {
+        allowMissing: true,
+      });
+      expect(created).toBe(path.join(directory, 'research', '2026', 'note.md'));
+      expect(
+        lstatSync(path.join(directory, 'research', '2026')).isDirectory(),
+      ).toBe(true);
+
+      // A link planted where a directory is about to be created must not be
+      // adopted: a recursive create would treat it as satisfied and build the
+      // rest of the chain inside `outside`, placing the write beyond the Space
+      // while the result still named a locator within it.
+      await symlink(outside, path.join(directory, 'escape'), 'dir');
+      await expect(
+        adapter.resolveHostPath('escape/deeper/note.md', {
+          allowMissing: true,
+        }),
+      ).rejects.toMatchObject({ code: 'knowledge_not_found' });
+      expect(() => lstatSync(path.join(outside, 'deeper'))).toThrow(/ENOENT/);
+
+      await rm(outside, { recursive: true, force: true });
     });
   });
 
