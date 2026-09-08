@@ -34,16 +34,6 @@ function fakeAdapter(
 ): KnowledgeFilesystemAdapterPort {
   return {
     search: vi.fn(() => Promise.resolve([])),
-    read: vi.fn((relativePath: string) =>
-      Promise.resolve({
-        path: relativePath,
-        offset: 0,
-        lineCount: 1,
-        content: '1: note',
-        nextOffset: undefined,
-        cutReason: undefined,
-      }),
-    ),
     resolveHostPath: vi.fn(() => Promise.resolve(binding.directory)),
     ...overrides,
   };

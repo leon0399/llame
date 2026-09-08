@@ -24,7 +24,7 @@ export async function resolveKnowledgeHostPath(
   signal?: AbortSignal,
 ): Promise<string> {
   if (relativePath === undefined) return directory;
-  const components = validatePath(relativePath, false);
+  const components = validatePath(relativePath);
   let current = directory;
   for (const [index, component] of components.entries()) {
     throwIfAborted(signal);

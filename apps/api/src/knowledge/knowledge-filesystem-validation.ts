@@ -10,7 +10,6 @@ import path from 'node:path';
 import {
   KNOWLEDGE_MAX_PATH_BYTES,
   KNOWLEDGE_MAX_PATH_COMPONENTS,
-  KNOWLEDGE_MAX_READ_LINES,
 } from './knowledge-filesystem-limits';
 import { KnowledgeFilesystemError } from './knowledge-filesystem-errors';
 import type { KnowledgeFilesystemBinding } from './knowledge-filesystem';
@@ -43,25 +42,7 @@ export function validateSearchInput(query: string, limit: number): void {
   }
 }
 
-export function validateReadRange(
-  offset: number | undefined,
-  limit: number | undefined,
-): void {
-  if (
-    (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) ||
-    (limit !== undefined &&
-      (!Number.isSafeInteger(limit) ||
-        limit < 1 ||
-        limit > KNOWLEDGE_MAX_READ_LINES))
-  ) {
-    throw new KnowledgeFilesystemError('knowledge_range_invalid');
-  }
-}
-
-export function validatePath(
-  relativePath: string,
-  requireMarkdown: boolean,
-): Array<string> {
+export function validatePath(relativePath: string): Array<string> {
   if (
     relativePath.length === 0 ||
     containsControlCharacter(relativePath) ||
@@ -87,9 +68,6 @@ export function validatePath(
     components.length > KNOWLEDGE_MAX_PATH_COMPONENTS
   ) {
     throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
-  }
-  if (requireMarkdown && !isMarkdownPath(relativePath)) {
-    throw new KnowledgeFilesystemError('knowledge_path_invalid');
   }
   return components;
 }

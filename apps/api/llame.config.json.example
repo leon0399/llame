@@ -252,7 +252,9 @@
   // Exact ids are safer; use mcp__<server>__* only for an entirely read-only server.
   "tools": {
     // Built-in or discovered MCP tool ids to allow. To enable Knowledge after
-    // mounting the root above, add "knowledge_search" and "knowledge_read".
+    // mounting the root above, add "knowledge_search" and "read"; search
+    // returns a kb:// locator that "read" opens. "knowledge_read" was removed
+    // and now fails boot as an unknown id.
     // Allowlisting search_conversations makes complete canonical projection
     // coverage a startup gate. Add conversation_read independently for exact
     // line reads; see docs/conversation-recall.md.

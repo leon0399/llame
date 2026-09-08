@@ -239,18 +239,16 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     });
     expect(readA).toMatchObject({
       status: 'success',
+      kind: 'file',
       knowledgeSpaceId: spaceAId,
-      path: 'notes/owner-a.md',
-      offset: 0,
-      lineCount: 1,
+      path: locator(spaceAId, 'notes/owner-a.md'),
       content: `1: ${ownerAContent}`,
     });
     expect(readB).toMatchObject({
       status: 'success',
+      kind: 'file',
       knowledgeSpaceId: spaceBId,
-      path: 'notes/owner-b.md',
-      offset: 0,
-      lineCount: 1,
+      path: locator(spaceBId, 'notes/owner-b.md'),
       content: `1: ${ownerBContent}`,
     });
 

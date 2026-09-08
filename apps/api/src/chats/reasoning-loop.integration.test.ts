@@ -52,7 +52,6 @@ const knowledgeResolver: KnowledgeToolResolver = {
     search: () => Promise.resolve([]),
     resolveHostPath: () =>
       Promise.reject(new Error('Knowledge adapter is not exercised')),
-    read: () => Promise.reject(new Error('Knowledge adapter is not exercised')),
   }),
 };
 

@@ -237,14 +237,18 @@ describe('knowledge locator reads', () => {
     expect(JSON.stringify(result)).not.toContain(root);
   });
 
-  it('refuses a symbolic link at the target', async () => {
+  it.each([
+    ['at the target', 'link.md'],
+    ['on an intermediate component', 'linked/outside.md'],
+  ])('refuses a symbolic link %s', async (_label, relativePath) => {
     const outside = join(root, 'outside.md');
     await writeFile(outside, 'secret\n');
     await symlink(outside, join(directory, 'link.md'));
+    await symlink(root, join(directory, 'linked'), 'dir');
     expect(
       await runTool(
         nativeReadTool,
-        { path: `kb://${SPACE}/link.md` },
+        { path: `kb://${SPACE}/${relativePath}` },
         knowledgeContext(),
         5,
       ),

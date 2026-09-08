@@ -1,6 +1,5 @@
 import {
   KnowledgeFilesystemAdapter,
-  KNOWLEDGE_MAX_READ_BYTES,
   KNOWLEDGE_MAX_SEARCH_FILE_BYTES,
   type KnowledgeFilesystemDirectory,
   type KnowledgeFilesystemDirent,
@@ -12,7 +11,6 @@ import {
 const SPACE_ID = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
 const ROOT = '/trusted/root';
 const DIRECTORY = `${ROOT}/${SPACE_ID}`;
-const NOTE = `${DIRECTORY}/note.md`;
 
 const directoryStats: KnowledgeFilesystemStats = {
   size: 0,
@@ -47,17 +45,9 @@ const symlinkEntry = (name: string): KnowledgeFilesystemDirent => ({
   isSymbolicLink: () => true,
 });
 
-const directoryEntry = (name: string): KnowledgeFilesystemDirent => ({
-  name,
-  isDirectory: () => true,
-  isFile: () => false,
-  isSymbolicLink: () => false,
-});
-
 type PortOptions = {
   readonly entries?: ReadonlyArray<KnowledgeFilesystemDirent>;
   readonly noteStats?: KnowledgeFilesystemStats;
-  readonly openedFileStats?: KnowledgeFilesystemStats;
   readonly bytes?: Buffer;
   readonly rootStats?: KnowledgeFilesystemStats;
   readonly childStats?: KnowledgeFilesystemStats;
@@ -71,7 +61,6 @@ function port(options: PortOptions = {}): KnowledgeFilesystemPort {
   const entries = [...(options.entries ?? [fileEntry('note.md')])];
   const bytes = options.bytes ?? Buffer.from('needle\n');
   const noteStats = options.noteStats ?? fileStats(bytes.length);
-  const openedFileStats = options.openedFileStats ?? noteStats;
   const realpath = options.realpath ?? ((filePath: string) => filePath);
   return {
     lstat: vi.fn((filePath: string) => {
@@ -100,7 +89,7 @@ function port(options: PortOptions = {}): KnowledgeFilesystemPort {
         return Promise.reject(options.openFailure);
       }
       const file: KnowledgeFilesystemFile = {
-        stat: vi.fn(() => Promise.resolve(openedFileStats)),
+        stat: vi.fn(() => Promise.resolve(noteStats)),
         read: vi.fn<KnowledgeFilesystemFile['read']>(
           (buffer, offset, length, position) => {
             const bytesRead = Math.min(
@@ -145,26 +134,6 @@ describe('Knowledge filesystem adapter edge branches', () => {
   });
 
   it.each([
-    ['directory', { ...directoryStats }],
-    ['symlink', { ...symlinkStats }],
-    ['oversized', fileStats(KNOWLEDGE_MAX_READ_BYTES + 1)],
-  ] as const)(
-    'rejects an opened %s file during read',
-    async (_label, stats) => {
-      const fileSystem = port({ openedFileStats: stats });
-
-      await expect(
-        new KnowledgeFilesystemAdapter(binding(), fileSystem).read('note.md'),
-      ).rejects.toMatchObject({
-        code:
-          stats.isSymbolicLink() || stats.isDirectory()
-            ? 'knowledge_path_invalid'
-            : 'knowledge_limit_exceeded',
-      });
-    },
-  );
-
-  it.each([
     ['stat', symlinkStats, fileEntry('note.md')],
     ['dirent', fileStats(7), symlinkEntry('note.md')],
   ] as const)(
@@ -180,30 +149,6 @@ describe('Knowledge filesystem adapter edge branches', () => {
       ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
     },
   );
-
-  it('rejects a file used as an intermediate read component and a directory as the final component', async () => {
-    const fileSystem = port({
-      entries: [fileEntry('note.md')],
-      noteStats: fileStats(7),
-    });
-    const adapter = new KnowledgeFilesystemAdapter(binding(), fileSystem);
-
-    await expect(adapter.read('note.md/child.md')).rejects.toMatchObject({
-      code: 'knowledge_not_found',
-    });
-
-    const directoryFileSystem = port({
-      entries: [directoryEntry('folder.md')],
-      noteStats: directoryStats,
-    });
-    await expect(
-      new KnowledgeFilesystemAdapter(binding(), directoryFileSystem).read(
-        'folder.md',
-      ),
-    ).rejects.toMatchObject({
-      code: 'knowledge_not_found',
-    });
-  });
 
   it.each([
     ['root', { rootStats: fileStats(0) }],
@@ -231,17 +176,7 @@ describe('Knowledge filesystem adapter edge branches', () => {
     },
   );
 
-  it('maps missing target entries and filesystem failures to their scoped errors', async () => {
-    const missing = port({
-      lstatFailure: (filePath) =>
-        filePath === NOTE
-          ? Object.assign(new Error('missing'), { code: 'ENOENT' })
-          : undefined,
-    });
-    await expect(
-      new KnowledgeFilesystemAdapter(binding(), missing).read('note.md'),
-    ).rejects.toMatchObject({ code: 'knowledge_not_found' });
-
+  it('maps a filesystem failure to its scoped error', async () => {
     const unavailable = port({
       lstatFailure: (filePath) =>
         filePath === ROOT ? new Error('permission denied') : undefined,

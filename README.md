@@ -19,9 +19,9 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   `conversation_read`, and operator-configured Streamable HTTP MCP tools.
 - Optional native host file tools: selector-based `read`, exact `edit`, and
   create-only `write`, with durable mutation fencing. See [native file setup](docs/native-files.md).
-- Owner-scoped Markdown Knowledge Spaces: `knowledge_search` and
-  `knowledge_read` over live files (including uncommitted changes),
-  operator-configured and allowlisted.
+- Owner-scoped Markdown Knowledge Spaces: `knowledge_search` over live files
+  (including uncommitted changes), plus `kb://` reads through the native
+  `read` tool, operator-configured and allowlisted.
 - Optional owner-scoped chat recency digests: an owner opts in to send a bounded
   list of their other chats' titles and opening excerpts to the configured
   provider.
@@ -61,12 +61,17 @@ commands.
 
 Personal Knowledge is opt-in. Set an absolute `knowledge.root` in the operator
 configuration, mount the same logical stable-ID child directories into every
-process that can provision or consume Runs, and add both Knowledge tool IDs to
-`tools.allowed`. Every Run-authoring API must declare the setting for consistent
-accept-time availability, even if it does not mount the root. Configuration
-loading does not probe the root; provisioning and worker
+process that can provision or consume Runs, and add `knowledge_search` and
+`read` to `tools.allowed`. Every Run-authoring API must declare the setting for
+consistent accept-time availability, even if it does not mount the root.
+Configuration loading does not probe the root; provisioning and worker
 execution fail closed when their mount is missing. The root and local binding
 never enter model context or owner-facing results. See [docs/knowledge.md](docs/knowledge.md).
+
+**Breaking**: `knowledge_read` is deleted. An allowlisted `knowledge_read`
+entry now fails boot; remove it from `tools.allowed` before upgrading. Read
+Knowledge files through the native `read` tool's `kb://<knowledgeSpaceId>/<path>`
+locator instead.
 
 Self-hosted Postgres needs `vector` (pgvector) and `pg_trgm` for
 embeddings-backed search. `pnpm db:up` provides both. **Breaking** for
