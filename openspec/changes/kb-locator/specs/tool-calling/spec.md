@@ -141,8 +141,8 @@ The canonical closed Knowledge reason vocabulary and model-safe label mapping SH
 
 #### Scenario: Removed reader fails closed for a bound Run
 
-- **WHEN** a Run accepted before removal has `knowledge_read` in its immutable tool snapshot and the model requests it
-- **THEN** the call receives a recorded non-fatal unavailable refusal
+- **WHEN** a Run accepted before removal has `knowledge_read` in its immutable tool snapshot
+- **THEN** the Run fails closed before the provider request, under the existing code-owned executor-loss rule
 - **AND** no shim, alias, or redirect to `read` is applied
 
 #### Scenario: Incomplete Knowledge search stays incomplete after payload clearing
