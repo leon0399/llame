@@ -6,7 +6,7 @@ pre-commit:
   parallel: true
   jobs:
     - name: code lint
-      glob: "{**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs},**/.oxlintrc.json,.oxlintrc.json,**/package.json,package.json,packages/oxlint-plugin-anti-slop/**/*.json,turbo.json}"
+      glob: "{**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs},**/.oxlintrc.json,.oxlintrc.json,**/package.json,package.json,**/tsconfig*.json,tsconfig*.json,packages/config-typescript/*.json,packages/oxlint-plugin-anti-slop/**/*.json,turbo.json}"
       run: pnpm lint:code
 
     - name: OpenAPI lint
