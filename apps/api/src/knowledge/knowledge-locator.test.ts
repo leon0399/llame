@@ -112,14 +112,20 @@ describe('knowledge locator resolution', () => {
     signal?: AbortSignal | undefined;
   };
 
+  type AdapterOptions = {
+    abortSignal?: AbortSignal;
+    isInsideSpace?: (hostPath: string) => Promise<boolean>;
+    bindingCalls?: Array<[string, string]>;
+  };
+
   function contextWithAdapter(
     resolveHostPath: (relativePath: string | undefined) => Promise<string>,
     calls: Array<ResolveCall>,
-    abortSignal?: AbortSignal,
-    isInsideSpace: (hostPath: string) => Promise<boolean> = () =>
-      Promise.resolve(true),
-    bindingCalls: Array<[string, string]> = [],
+    options: AdapterOptions = {},
   ): ToolContext {
+    const isInsideSpace =
+      options.isInsideSpace ?? (() => Promise.resolve(true));
+    const bindingCalls = options.bindingCalls ?? [];
     const resolver: KnowledgeToolResolver = {
       listForOwnerPage: () => Promise.resolve({ spaces: [] }),
       resolveBindingForOwnerById: (ownerUserId, knowledgeSpaceId) => {
@@ -152,7 +158,7 @@ describe('knowledge locator resolution', () => {
       chatId: 'chat',
       tenantDb: { runAs: () => Promise.reject(new Error('unused')) },
       knowledgeResolver: resolver,
-      abortSignal,
+      abortSignal: options.abortSignal,
     };
   }
 
@@ -174,11 +180,9 @@ describe('knowledge locator resolution', () => {
     // A real signal, not `undefined`: asserting against `undefined` would pass
     // just as happily if the resolver stopped forwarding it at all.
     const controller = new AbortController();
-    const context = contextWithAdapter(
-      () => Promise.resolve(hostPath),
-      calls,
-      controller.signal,
-    );
+    const context = contextWithAdapter(() => Promise.resolve(hostPath), calls, {
+      abortSignal: controller.signal,
+    });
     const target = await resolveKnowledgeLocator(
       context,
       `kb://${SPACE}/note.md`,
@@ -279,12 +283,9 @@ describe('knowledge locator resolution', () => {
   ])('answers the late containment check for %s', async (inside, expected) => {
     const calls: Array<ResolveCall> = [];
     const target = await resolveKnowledgeLocator(
-      contextWithAdapter(
-        () => Promise.resolve(hostPath),
-        calls,
-        undefined,
-        () => Promise.resolve(inside),
-      ),
+      contextWithAdapter(() => Promise.resolve(hostPath), calls, {
+        isInsideSpace: () => Promise.resolve(inside),
+      }),
       `kb://${SPACE}/note.md`,
       `${SPACE}/note.md`,
     );
@@ -300,13 +301,9 @@ describe('knowledge locator resolution', () => {
     const calls: Array<ResolveCall> = [];
     const bindingCalls: Array<[string, string]> = [];
     await resolveKnowledgeLocator(
-      contextWithAdapter(
-        () => Promise.resolve(hostPath),
-        calls,
-        undefined,
-        undefined,
+      contextWithAdapter(() => Promise.resolve(hostPath), calls, {
         bindingCalls,
-      ),
+      }),
       `kb://${SPACE}/note.md`,
       `${SPACE}/note.md`,
     );
