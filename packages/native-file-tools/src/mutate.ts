@@ -9,7 +9,7 @@ import {
   unlink,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
-import { NativeFileError, parsePathScheme } from "./path";
+import { isNodeError, NativeFileError, parsePathScheme } from "./path";
 import {
   loadText,
   MAX_RESULT_CODE_UNITS,
@@ -23,13 +23,12 @@ type EditInput = { path: string; oldText: string; newText: string };
 type WriteInput = { path: string; content: string };
 
 /**
- * What a scheme resolver supplies once it has authorized the caller and
- * resolved the host path. `displayPath` is what the model sees, so the result
- * carries and is bounded against it rather than the host path. A resolved
- * target is never resolved through a symbolic link: the owner authorized one
- * specific entry, and following a link would mutate a different one.
+ * `displayPath` is what a scheme resolver wants the model to see in place of
+ * the host path, and marks the target as already authorized and resolved: it
+ * is never resolved again through a symbolic link, because the owner
+ * authorized one specific entry and following a link would mutate another.
  */
-export type NativeMutateOptions = { readonly displayPath: string };
+type DisplayPath = string | undefined;
 type MutationSuccess = {
   status: "success";
   operation: "edit" | "write";
@@ -56,8 +55,7 @@ function mutate(
   return pending.catch((error: unknown): FileFailure => {
     if (error instanceof NativeFileError)
       return { status: "error", type: error.type, message: error.message };
-    const code =
-      error instanceof Error && "code" in error ? error.code : undefined;
+    const code = isNodeError(error) ? error.code : undefined;
     // `ELOOP` is `O_NOFOLLOW` refusing a symbolic link at a resolved target,
     // which reads report as `not_found`; `ENOTDIR` is a path component that
     // exists but is not a directory.
@@ -201,22 +199,22 @@ function replacement(source: string, input: EditInput) {
 export function editFile(
   input: EditInput,
   signal?: AbortSignal,
-  options?: NativeMutateOptions,
+  displayPath?: DisplayPath,
 ): Promise<MutationSuccess | FileFailure> {
   return mutate(async () => {
     validateContent(input.path, input.newText, signal);
     // An absolute path is the host's own; a resolved target was authorized as
     // one exact entry, so resolving it through a link would edit another.
     const path =
-      options === undefined ? await realpath(input.path) : input.path;
-    const source = await loadText(path, options === undefined);
+      displayPath === undefined ? await realpath(input.path) : input.path;
+    const source = await loadText(path, displayPath === undefined);
     const change = replacement(source, input);
     validateContent(path, change.content, signal);
     const result = describeMutation(
       { path: input.path, content: change.content },
       change,
       "edit",
-      options?.displayPath,
+      displayPath,
     );
     if (input.oldText !== input.newText) {
       const stats = await lstat(path);
@@ -232,7 +230,7 @@ export function editFile(
 export function createFile(
   input: WriteInput,
   signal?: AbortSignal,
-  options?: NativeMutateOptions,
+  displayPath?: DisplayPath,
 ): Promise<MutationSuccess | FileFailure> {
   return mutate(async () => {
     validateContent(input.path, "", signal);
@@ -242,7 +240,7 @@ export function createFile(
       input,
       { offset: 0, limit: 2000, diff: "" },
       "write",
-      options?.displayPath,
+      displayPath,
     );
     await createParentDirectories(input.path);
     await publishFile(input, { create: true, signal });
@@ -259,8 +257,7 @@ async function createParentDirectories(path: string): Promise<void> {
   try {
     await mkdir(dirname(path), { recursive: true });
   } catch (error) {
-    const code =
-      error instanceof Error && "code" in error ? error.code : undefined;
+    const code = isNodeError(error) ? error.code : undefined;
     if (code === "ENOTDIR" || code === "EEXIST")
       throw new NativeFileError("not_regular_file");
     throw error;
@@ -271,8 +268,7 @@ async function requireAbsent(path: string): Promise<void> {
   try {
     await lstat(path);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      return;
+    if (isNodeError(error) && error.code === "ENOENT") return;
     throw error;
   }
   throw new NativeFileError("file_exists");

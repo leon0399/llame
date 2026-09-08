@@ -575,18 +575,37 @@ describe('kb:// mutations under real owner binding', () => {
     expect(run?.workerId).toBeNull();
   });
 
-  it('refuses an ambiguous edit without changing the note', async () => {
+  it('settles a refused edit so a retry replays it instead of re-running', async () => {
     await writeFile(notePath(spaceId, 'twice.md'), 'same\nsame\n');
-    expect(
-      await runTool(
-        nativeEditTool,
-        { path: locator(spaceId, 'twice.md'), oldText: 'same', newText: 'x' },
-        context,
-        5,
-      ),
-    ).toMatchObject({ status: 'error', type: 'old_text_ambiguous' });
+    const args = {
+      path: locator(spaceId, 'twice.md'),
+      oldText: 'same',
+      newText: 'x',
+    };
+    const failure = await runTool(nativeEditTool, args, context, 5);
+    expect(failure).toMatchObject({
+      status: 'error',
+      type: 'old_text_ambiguous',
+    });
     expect(await readFile(notePath(spaceId, 'twice.md'), 'utf8')).toBe(
       'same\nsame\n',
+    );
+
+    // A refusal is an outcome like any other: it is durably settled, so the
+    // same tool call replays the recorded failure rather than reaching the
+    // filesystem again — even though the note has since become unambiguous.
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    expect(events.map((event) => event.eventType)).toEqual([
+      'run.started',
+      'native.attempt',
+      'native.result',
+    ]);
+    await writeFile(notePath(spaceId, 'twice.md'), 'same\nunique\n');
+    expect(await runTool(nativeEditTool, args, context, 5)).toEqual(failure);
+    expect(await readFile(notePath(spaceId, 'twice.md'), 'utf8')).toBe(
+      'same\nunique\n',
     );
   });
 

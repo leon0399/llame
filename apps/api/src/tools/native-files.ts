@@ -6,7 +6,6 @@ import {
   readFile,
   readResolvedFile,
   serializeNativeModelOutput,
-  type NativeMutateOptions,
   type NativeReadOptions,
 } from '@workspace/native-file-tools';
 import {
@@ -26,6 +25,8 @@ type NativeCall =
       input: { path: string; oldText: string; newText: string };
     }
   | { operation: 'write'; input: { path: string; content: string } };
+
+type NativeMutationCall = Exclude<NativeCall, { operation: 'read' }>;
 
 let nativeMutations: Promise<void> = Promise.resolve();
 
@@ -74,7 +75,9 @@ async function executeKnowledge(
   });
   if ('status' in target) return target;
   if (call.operation === 'read') return readKnowledge(target);
-  return serializeMutation(() => mutateKnowledge(context, call, target));
+  // A `const` keeps the narrowing across the closure the queue runs later.
+  const mutation = call;
+  return serializeMutation(() => mutateKnowledge(context, mutation, target));
 }
 
 async function readKnowledge(
@@ -103,7 +106,7 @@ async function readKnowledge(
  */
 async function mutateKnowledge(
   context: ToolContext,
-  call: NativeCall,
+  call: NativeMutationCall,
   target: ResolvedKnowledgeTarget,
 ): Promise<ToolResult> {
   const { runId, toolCallId, userId } = context;
@@ -121,13 +124,10 @@ async function mutateKnowledge(
   );
   if (prior) return prior;
   context.abortSignal?.throwIfAborted();
-  const options: NativeMutateOptions = { displayPath: target.locator };
-  const result = await performKnowledgeMutation(
-    call,
-    target.hostPath,
-    options,
-    context.abortSignal,
-  );
+  const result = await performMutation(call, target.hostPath, {
+    signal: context.abortSignal,
+    displayPath: target.locator,
+  });
   await context.tenantDb.runAs(userId, async (db) => {
     await new RunEventsRepository(db).append(runId, 'native.result', {
       toolCallId,
@@ -137,19 +137,6 @@ async function mutateKnowledge(
   return result.status === 'success'
     ? { ...result, ...knowledgeResultEnvelope(target) }
     : result;
-}
-
-function performKnowledgeMutation(
-  call: NativeCall,
-  hostPath: string,
-  options: NativeMutateOptions,
-  signal?: AbortSignal,
-): Promise<ToolResult> {
-  if (call.operation === 'edit')
-    return editFile({ ...call.input, path: hostPath }, signal, options);
-  if (call.operation === 'write')
-    return createFile({ ...call.input, path: hostPath }, signal, options);
-  throw new Error('A read never reaches the mutation path');
 }
 
 async function executeNativeBound(
@@ -194,14 +181,30 @@ function performNative(
   call: NativeCall,
   signal?: AbortSignal,
 ): Promise<ToolResult> {
-  switch (call.operation) {
-    case 'read':
-      return readFile(call.input, signal);
-    case 'edit':
-      return editFile(call.input, signal);
-    case 'write':
-      return createFile(call.input, signal);
+  return call.operation === 'read'
+    ? readFile(call.input, signal)
+    : performMutation(call, call.input.path, { signal });
+}
+
+/** The host path is the argument for an absolute path and the resolved target
+ *  for a scheme, so the mutation itself is the same call either way. */
+function performMutation(
+  call: NativeMutationCall,
+  hostPath: string,
+  runtime: { signal?: AbortSignal; displayPath?: string },
+): Promise<ToolResult> {
+  if (call.operation === 'edit') {
+    return editFile(
+      { ...call.input, path: hostPath },
+      runtime.signal,
+      runtime.displayPath,
+    );
   }
+  return createFile(
+    { ...call.input, path: hostPath },
+    runtime.signal,
+    runtime.displayPath,
+  );
 }
 
 function unknownSchemeResult(): ToolResult {
