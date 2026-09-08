@@ -1,8 +1,11 @@
 import { sep } from 'node:path';
 
+import { type ToolResult } from '@workspace/runtime-safety';
+
 import { KnowledgeFilesystemError } from './knowledge-filesystem';
 import {
   parseKnowledgeLocator,
+  type ResolvedKnowledgeTarget,
   resolveKnowledgeLocator,
 } from './knowledge-locator';
 import { type KnowledgeToolResolver, type ToolContext } from '../tools/types';
@@ -102,15 +105,19 @@ describe('knowledge locator resolution', () => {
     ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
   });
 
-  type ResolveCall = { relativePath: string | undefined; signal?: AbortSignal };
+  type ResolveCall = {
+    relativePath: string | undefined;
+    allowMissing?: boolean | undefined;
+    createDirectories?: boolean | undefined;
+    signal?: AbortSignal | undefined;
+  };
 
   function contextWithAdapter(
-    resolveHostPath: (
-      relativePath: string | undefined,
-      signal?: AbortSignal,
-    ) => Promise<string>,
+    resolveHostPath: (relativePath: string | undefined) => Promise<string>,
     calls: Array<ResolveCall>,
     abortSignal?: AbortSignal,
+    isInsideSpace: (hostPath: string) => Promise<boolean> = () =>
+      Promise.resolve(true),
     bindingCalls: Array<[string, string]> = [],
   ): ToolContext {
     const resolver: KnowledgeToolResolver = {
@@ -128,9 +135,15 @@ describe('knowledge locator resolution', () => {
         search: () => {
           throw new Error('not reached');
         },
-        resolveHostPath: (relativePath, signal) => {
-          calls.push({ relativePath, signal });
-          return resolveHostPath(relativePath, signal);
+        isInsideSpace: (candidate) => isInsideSpace(candidate),
+        resolveHostPath: (relativePath, options) => {
+          calls.push({
+            relativePath,
+            allowMissing: options?.allowMissing,
+            createDirectories: options?.createDirectories,
+            signal: options?.signal,
+          });
+          return resolveHostPath(relativePath);
         },
       }),
     };
@@ -141,6 +154,17 @@ describe('knowledge locator resolution', () => {
       knowledgeResolver: resolver,
       abortSignal,
     };
+  }
+
+  /** Narrows the union without a cast, and fails loudly with the refusal type
+   *  when resolution answered a result instead of a target. */
+  function expectTarget(
+    value: ResolvedKnowledgeTarget | ToolResult,
+  ): ResolvedKnowledgeTarget {
+    if ('status' in value) {
+      throw new Error(`expected a resolved target, got ${value.status}`);
+    }
+    return value;
   }
 
   const hostPath = `/srv/knowledge/${SPACE}/note.md`;
@@ -155,23 +179,118 @@ describe('knowledge locator resolution', () => {
       calls,
       controller.signal,
     );
-    // `toStrictEqual`: an absent selector must be an absent key, not an
-    // `undefined` one, because the reader branches on its presence.
-    await expect(
-      resolveKnowledgeLocator(
-        context,
-        `kb://${SPACE}/note.md`,
-        `${SPACE}/note.md`,
-      ),
-    ).resolves.toStrictEqual({
+    const target = await resolveKnowledgeLocator(
+      context,
+      `kb://${SPACE}/note.md`,
+      `${SPACE}/note.md`,
+    );
+    expect(target).toMatchObject({
       hostPath,
       locator: `kb://${SPACE}/note.md`,
       knowledgeSpaceId: SPACE,
       knowledgeSpaceName: 'Personal',
     });
-    expect(calls).toStrictEqual([
-      { relativePath: 'note.md', signal: controller.signal },
+    // An absent selector must be an absent key, not an `undefined` one: the
+    // reader branches on its presence, and `toMatchObject` would not notice.
+    expect(Object.keys(target).toSorted()).toStrictEqual([
+      'assertInsideSpace',
+      'createDirectories',
+      'hostPath',
+      'knowledgeSpaceId',
+      'knowledgeSpaceName',
+      'locator',
     ]);
+    // Resolution decides admissibility; it never creates anything.
+    expect(calls).toStrictEqual([
+      {
+        relativePath: 'note.md',
+        allowMissing: false,
+        createDirectories: undefined,
+        signal: controller.signal,
+      },
+    ]);
+  });
+
+  it('tolerates a missing target only when the caller asks', async () => {
+    const calls: Array<ResolveCall> = [];
+    await resolveKnowledgeLocator(
+      contextWithAdapter(() => Promise.resolve(hostPath), calls),
+      `kb://${SPACE}/note.md`,
+      `${SPACE}/note.md`,
+      true,
+    );
+    expect(calls).toMatchObject([{ allowMissing: true }]);
+  });
+
+  // The deferred effect runs after the durable attempt is recorded, so it is a
+  // second walk that creates the directories resolution only tolerated.
+  it('creates directories as a deferred effect', async () => {
+    const calls: Array<ResolveCall> = [];
+    const target = await resolveKnowledgeLocator(
+      contextWithAdapter(() => Promise.resolve(hostPath), calls),
+      `kb://${SPACE}/notes/note.md`,
+      `${SPACE}/notes/note.md`,
+      true,
+    );
+    await expect(
+      expectTarget(target).createDirectories(),
+    ).resolves.toBeUndefined();
+    expect(calls).toMatchObject([
+      { allowMissing: true, createDirectories: undefined },
+      { allowMissing: true, createDirectories: true },
+    ]);
+  });
+
+  it('reports a deferred creation failure in the native vocabulary', async () => {
+    const calls: Array<ResolveCall> = [];
+    let attempts = 0;
+    const target = await resolveKnowledgeLocator(
+      contextWithAdapter(() => {
+        attempts += 1;
+        return attempts === 1
+          ? Promise.resolve(hostPath)
+          : Promise.reject(
+              new KnowledgeFilesystemError('knowledge_not_directory'),
+            );
+      }, calls),
+      `kb://${SPACE}/notes/note.md`,
+      `${SPACE}/notes/note.md`,
+      true,
+    );
+    await expect(
+      expectTarget(target).createDirectories(),
+    ).resolves.toStrictEqual({
+      status: 'error',
+      type: 'not_regular_file',
+      message: 'A path component is not a directory.',
+    });
+  });
+
+  it.each([
+    [true, undefined],
+    [
+      false,
+      {
+        status: 'error',
+        type: 'knowledge_space_not_found',
+        message: 'Knowledge Space was not found.',
+      },
+    ],
+  ])('answers the late containment check for %s', async (inside, expected) => {
+    const calls: Array<ResolveCall> = [];
+    const target = await resolveKnowledgeLocator(
+      contextWithAdapter(
+        () => Promise.resolve(hostPath),
+        calls,
+        undefined,
+        () => Promise.resolve(inside),
+      ),
+      `kb://${SPACE}/note.md`,
+      `${SPACE}/note.md`,
+    );
+    await expect(
+      expectTarget(target).assertInsideSpace(),
+    ).resolves.toStrictEqual(expected);
   });
 
   // Identity comes from the authenticated Run owner on the context, never from
@@ -184,6 +303,7 @@ describe('knowledge locator resolution', () => {
       contextWithAdapter(
         () => Promise.resolve(hostPath),
         calls,
+        undefined,
         undefined,
         bindingCalls,
       ),
