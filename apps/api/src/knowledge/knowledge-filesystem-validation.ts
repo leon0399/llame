@@ -18,6 +18,12 @@ const SPACE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const MARKDOWN_SUFFIX = '.md';
 
+/** The stable Knowledge Space identifier shape, checked before any lookup so a
+ *  malformed id never reaches the database or the filesystem. */
+export function isKnowledgeSpaceId(value: string): boolean {
+  return SPACE_ID_PATTERN.test(value);
+}
+
 export function validateBinding(binding: KnowledgeFilesystemBinding): void {
   if (
     !SPACE_ID_PATTERN.test(binding.id) ||

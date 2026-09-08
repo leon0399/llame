@@ -5,7 +5,7 @@ export const MAX_READ_LINES = 2000;
 export const MAX_RESULT_CODE_UNITS = RESULT_TRUNCATE_CHARS;
 
 /** The shared cap minus any room a caller withheld for its own envelope. */
-export function resultBudget(target: ReadTarget): number {
+export function resultBudget(target: { reserveCodeUnits?: number }): number {
   return MAX_RESULT_CODE_UNITS - (target.reserveCodeUnits ?? 0);
 }
 

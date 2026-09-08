@@ -71,37 +71,33 @@ export async function loadText(
   }
 }
 
-export function readFile(input: { path: string }): Promise<ReadOutcome> {
-  return runRead(
-    () => resolveReadTarget(input.path),
-    (target) => ({ hostPath: target.path, followSymlinks: true }),
-  );
+export async function readFile(input: { path: string }): Promise<ReadOutcome> {
+  try {
+    const target = await resolveReadTarget(input.path);
+    return target.directory
+      ? await runListing(target.path, target)
+      : await streamFileWindow(target, {
+          hostPath: target.path,
+          followSymlinks: true,
+        });
+  } catch (error) {
+    return readFailure(error);
+  }
 }
 
 /** Read a target a scheme resolver has already authorized and resolved. */
-export function readResolvedFile(
+export async function readResolvedFile(
   hostPath: string,
   options: NativeReadOptions,
 ): Promise<ReadOutcome> {
-  return runRead(
-    () => resolveResolvedTarget(hostPath, options),
-    () => ({ hostPath, followSymlinks: options.followSymlinks === true }),
-  );
-}
-
-async function runRead(
-  resolve: () => Promise<ReadTarget>,
-  source: (target: ReadTarget) => {
-    hostPath: string;
-    followSymlinks: boolean;
-  },
-): Promise<ReadOutcome> {
   try {
-    const target = await resolve();
-    const { hostPath, followSymlinks } = source(target);
+    const target = await resolveResolvedTarget(hostPath, options);
     return target.directory
       ? await runListing(hostPath, target)
-      : await streamFileWindow(target, { hostPath, followSymlinks });
+      : await streamFileWindow(target, {
+          hostPath,
+          followSymlinks: options.followSymlinks === true,
+        });
   } catch (error) {
     return readFailure(error);
   }

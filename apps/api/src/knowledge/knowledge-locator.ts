@@ -1,24 +1,22 @@
 import { type ToolResult } from '@workspace/runtime-safety';
 
+import { isSelectorSuffix } from '@workspace/native-file-tools';
+
 import {
   KnowledgeFilesystemError,
   type KnowledgeFilesystemAdapterPort,
 } from './knowledge-filesystem';
 import { KNOWLEDGE_CONTENT_NOTICE } from './knowledge-content-notice';
+import { isKnowledgeSpaceId } from './knowledge-filesystem-validation';
+import {
+  knowledgeNotFoundResult,
+  knowledgeUnavailableResult,
+  mapKnowledgeResolverFailure,
+} from './knowledge-results';
 import { type ToolContext } from '../tools/types';
 
 /** The scheme this capability resolves; every other scheme fails closed. */
 export const KNOWLEDGE_LOCATOR_SCHEME = 'kb';
-
-/**
- * A `kb://` path component never contains `:`, so the first colon after the
- * Space identifier always starts the selector — and a suffix that is not a
- * selector means the colon was inside the path, which is invalid.
- */
-const SELECTOR_PATTERN = /^(?:raw|raw:\d+-\d+|\d+[-+]\d+)$/u;
-
-const SPACE_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 export type ParsedKnowledgeLocator = {
   readonly knowledgeSpaceId: string;
@@ -37,10 +35,13 @@ export function parseKnowledgeLocator(
   const remainder = separator < 0 ? '' : rest.slice(separator + 1);
   if (remainder.length === 0) return { knowledgeSpaceId };
 
+  // A `kb://` path component never contains `:`, so the first colon after the
+  // Space identifier always starts the selector. A suffix that is not one means
+  // the colon was inside the path: an invalid path, not an invalid selector.
+  // The shape test is the native reader own grammar, so the two cannot drift.
   const colon = remainder.indexOf(':');
   const selector = colon < 0 ? undefined : remainder.slice(colon + 1);
-  if (selector !== undefined && !SELECTOR_PATTERN.test(selector))
-    return undefined;
+  if (selector !== undefined && !isSelectorSuffix(selector)) return undefined;
   const rawPath = colon < 0 ? remainder : remainder.slice(0, colon);
   // A trailing separator addresses a directory; the native reader already
   // fails a file target that carries one, and here it can only address the
@@ -77,7 +78,8 @@ export async function resolveKnowledgeLocator(
 ): Promise<ResolvedKnowledgeTarget | ToolResult> {
   const parsed = parseKnowledgeLocator(rest);
   if (parsed === undefined) return invalidPathResult();
-  if (!SPACE_ID_PATTERN.test(parsed.knowledgeSpaceId)) return notFoundResult();
+  if (!isKnowledgeSpaceId(parsed.knowledgeSpaceId))
+    return knowledgeNotFoundResult();
 
   const access = await resolveSpaceAccess(context, parsed.knowledgeSpaceId);
   if ('status' in access) return access;
@@ -113,19 +115,19 @@ async function resolveSpaceAccess(
   knowledgeSpaceId: string,
 ): Promise<KnowledgeSpaceAccess | ToolResult> {
   const resolver = context.knowledgeResolver;
-  if (resolver === undefined) return unavailableResult();
+  if (resolver === undefined) return knowledgeUnavailableResult();
   try {
     const binding = await resolver.resolveBindingForOwnerById(
       context.userId,
       knowledgeSpaceId,
     );
-    if (binding === undefined) return notFoundResult();
+    if (binding === undefined) return knowledgeNotFoundResult();
     return {
       adapter: resolver.createAdapter(binding),
       knowledgeSpaceName: binding.name ?? binding.id,
     };
-  } catch {
-    return unavailableResult();
+  } catch (error) {
+    return mapKnowledgeResolverFailure(error);
   }
 }
 
@@ -134,14 +136,15 @@ async function resolveSpaceAccess(
  * keeps the Knowledge one, so one tool never mixes two error languages.
  */
 function mapResolutionFailure(error: unknown): ToolResult {
-  if (!(error instanceof KnowledgeFilesystemError)) return unavailableResult();
+  if (!(error instanceof KnowledgeFilesystemError))
+    return knowledgeUnavailableResult();
   switch (error.code) {
     case 'knowledge_cancelled':
       throw error;
     case 'knowledge_not_found':
       return { status: 'error', type: 'not_found', message: 'File not found.' };
     case 'knowledge_space_unavailable':
-      return unavailableResult();
+      return knowledgeUnavailableResult();
     default:
       return invalidPathResult();
   }
@@ -161,21 +164,5 @@ function invalidPathResult(): ToolResult {
     status: 'error',
     type: 'invalid_path',
     message: 'The Knowledge locator is invalid.',
-  };
-}
-
-function notFoundResult(): ToolResult {
-  return {
-    status: 'error',
-    type: 'knowledge_space_not_found',
-    message: 'Knowledge Space was not found.',
-  };
-}
-
-function unavailableResult(): ToolResult {
-  return {
-    status: 'error',
-    type: 'knowledge_space_unavailable',
-    message: 'The Knowledge Space is unavailable.',
   };
 }

@@ -12,7 +12,6 @@ import {
   KNOWLEDGE_LOCATOR_SCHEME,
   knowledgeResultEnvelope,
   resolveKnowledgeLocator,
-  type ResolvedKnowledgeTarget,
 } from '../knowledge/knowledge-locator';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -61,7 +60,7 @@ async function executeKnowledge(
   if (call.operation !== 'read') return knowledgeReadOnlyResult();
   context.abortSignal?.throwIfAborted();
   const target = await resolveKnowledgeLocator(context, call.input.path, rest);
-  if (!isResolvedTarget(target)) return target;
+  if ('status' in target) return target;
   const envelope = knowledgeResultEnvelope(target);
   const options: NativeReadOptions = {
     displayPath: target.locator,
@@ -74,12 +73,6 @@ async function executeKnowledge(
       : { ...options, selector: target.selector },
   );
   return result.status === 'success' ? { ...result, ...envelope } : result;
-}
-
-function isResolvedTarget(
-  value: ResolvedKnowledgeTarget | ToolResult,
-): value is ResolvedKnowledgeTarget {
-  return !('status' in value);
 }
 
 async function executeNativeBound(

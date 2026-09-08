@@ -18,6 +18,14 @@ import {
   type KnowledgeSearchCursor,
 } from './knowledge-search.cursor';
 import { KNOWLEDGE_CONTENT_NOTICE } from './knowledge-content-notice';
+import {
+  knowledgeLimitResult as limitResult,
+  knowledgeNotConfiguredResult as notConfiguredResult,
+  knowledgeNotFoundResult as notFoundResult,
+  knowledgeUnavailableResult as unavailableResult,
+  mapKnowledgeFailure,
+  mapKnowledgeResolverFailure as mapResolverFailure,
+} from './knowledge-results';
 import { KNOWLEDGE_LOCATOR_SCHEME } from './knowledge-locator';
 import { type KnowledgeSpaceCursor } from './knowledge-space.cursor';
 import {
@@ -645,29 +653,6 @@ function serializedLength(value: KnowledgeSerializedValue): number {
     : serialized.length;
 }
 
-function mapResolverFailure(error: unknown): ToolResult {
-  if (error instanceof KnowledgeFilesystemError) {
-    if (error.code === 'knowledge_cancelled') throw error;
-    if (error.code === 'knowledge_space_unavailable') {
-      return unavailableResult();
-    }
-    return mapKnowledgeFailure(error);
-  }
-  return unavailableResult();
-}
-
-function mapKnowledgeFailure(error: unknown): ToolResult {
-  if (error instanceof KnowledgeFilesystemError) {
-    if (error.code === 'knowledge_cancelled') throw error;
-    return {
-      status: 'error',
-      type: error.code,
-      message: error.message,
-    };
-  }
-  return unavailableResult();
-}
-
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
     throw new KnowledgeFilesystemError('knowledge_cancelled');
@@ -676,36 +661,4 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 
 function isToolResult(value: unknown): value is ToolResult {
   return value !== null && typeof value === 'object' && 'status' in value;
-}
-
-function notConfiguredResult(): ToolResult {
-  return {
-    status: 'error',
-    type: 'knowledge_space_not_configured',
-    message: 'Knowledge Space is not configured.',
-  };
-}
-
-function notFoundResult(): ToolResult {
-  return {
-    status: 'error',
-    type: 'knowledge_space_not_found',
-    message: 'Knowledge Space was not found.',
-  };
-}
-
-function unavailableResult(): ToolResult {
-  return {
-    status: 'error',
-    type: 'knowledge_space_unavailable',
-    message: 'The Knowledge Space is unavailable.',
-  };
-}
-
-function limitResult(): ToolResult {
-  return {
-    status: 'error',
-    type: 'knowledge_limit_exceeded',
-    message: 'The Knowledge operation exceeded its result limit.',
-  };
 }

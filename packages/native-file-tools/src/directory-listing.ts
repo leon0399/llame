@@ -1,4 +1,4 @@
-import { MAX_RESULT_CODE_UNITS } from "./source-lines";
+import { resultBudget } from "./source-lines";
 import { measureNativeModelOutput } from "./serialization";
 
 export const DIRECTORY_TRAVERSAL_BUDGET = 10_000;
@@ -183,7 +183,7 @@ export async function listDirectory(
 ): Promise<DirectorySuccess | DirectoryFailure> {
   const root = await readDirEntries(port, targetPath);
   const header = options?.displayPath ?? targetPath;
-  const cap = MAX_RESULT_CODE_UNITS - (options?.reserveCodeUnits ?? 0);
+  const cap = resultBudget(options ?? {});
 
   if (root.overBudget) {
     return {

@@ -117,6 +117,18 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
   return classifyParsedTarget(parsed);
 }
 
+/**
+ * The whole selector grammar, in one place. A caller that must distinguish a
+ * malformed selector from a colon that was never a selector at all tests the
+ * shape first; everything else applies it and lets `parseRange` reject the
+ * ranges this shape admits but the bounds do not.
+ */
+const SELECTOR_SUFFIX = /^(?:raw(?::\d+-\d+)?|\d+[-+]\d+)$/u;
+
+export function isSelectorSuffix(value: string): boolean {
+  return SELECTOR_SUFFIX.test(value);
+}
+
 /** Apply an already-split selector suffix to a path used verbatim. */
 export function applySelectorSuffix(
   path: string,
@@ -124,33 +136,25 @@ export function applySelectorSuffix(
 ): ReadTarget {
   if (selector === undefined) return { path, offset: 0, raw: false };
   if (selector === "raw") return { path, offset: 0, raw: true };
+  if (!isSelectorSuffix(selector))
+    throw new NativeFileError("invalid_selector");
   const raw = /^raw:(.*)$/u.exec(selector);
-  if (raw) {
-    if (!/^\d+-\d+$/.test(raw[1]))
-      throw new NativeFileError("invalid_selector");
-    return { path, ...parseRange(raw[1]), raw: true };
-  }
-  return { path, ...parseRange(selector), raw: false };
+  return raw
+    ? { path, ...parseRange(raw[1]), raw: true }
+    : { path, ...parseRange(selector), raw: false };
 }
 
+/** Split a combined `path:selector` string, then apply the shared grammar. */
 function parseSelector(input: string): ReadTarget {
   const raw = /:raw(?::([^:/]*))?$/.exec(input);
   if (raw) {
-    const path = input.slice(0, raw.index);
-    if (raw[1] === undefined) return { path, offset: 0, raw: true };
-    if (!/^\d+-\d+$/.test(raw[1]))
-      throw new NativeFileError("invalid_selector");
-    return { path, ...parseRange(raw[1]), raw: true };
+    const suffix = raw[1] === undefined ? "raw" : `raw:${raw[1]}`;
+    return applySelectorSuffix(input.slice(0, raw.index), suffix);
   }
   const colon = input.lastIndexOf(":");
-  if (colon > input.lastIndexOf("/")) {
-    return {
-      path: input.slice(0, colon),
-      ...parseRange(input.slice(colon + 1)),
-      raw: false,
-    };
-  }
-  return { path: input, offset: 0, raw: false };
+  return colon > input.lastIndexOf("/")
+    ? applySelectorSuffix(input.slice(0, colon), input.slice(colon + 1))
+    : applySelectorSuffix(input, undefined);
 }
 
 async function classifyParsedTarget(target: ReadTarget): Promise<ReadTarget> {

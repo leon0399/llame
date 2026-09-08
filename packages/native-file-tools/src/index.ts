@@ -1,4 +1,9 @@
-export { NativeFileError, parsePathScheme, resolveReadTarget } from "./path";
+export {
+  isSelectorSuffix,
+  NativeFileError,
+  parsePathScheme,
+  resolveReadTarget,
+} from "./path";
 export type { ReadTarget } from "./path";
 export {
   readFile,
