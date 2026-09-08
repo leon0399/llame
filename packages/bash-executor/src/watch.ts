@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import type { BashResult } from "./types";
-import { completeAttemptKnown, completeAttemptUnknown } from "./attempt-ledger";
+import { completeAttemptUnknown } from "./attempt-ledger";
 import {
   stopProcessGroup,
   waitForProcessGroupQuiescence,
@@ -60,7 +60,12 @@ export function watchManagedChild(
   const finish = once(resolve, () => clearWatch(request, controls));
   const pgid = child.pid;
   if (pgid === undefined) {
-    finish(completeAttemptUnknown(request.attemptId));
+    child.once("error", () => {});
+    finish({
+      status: "error",
+      type: "unavailable",
+      message: "Configured tool could not be started.",
+    });
     return;
   }
   const session: WatchSession = {
@@ -103,7 +108,6 @@ async function settleAbort(session: WatchSession): Promise<void> {
   session.controls.settling = true;
   const stopped = await stopProcessGroup(session.pgid);
   if (stopped) {
-    completeAttemptKnown(session.request.attemptId);
     session.finish({
       status: "error",
       type: "cancelled",
@@ -111,7 +115,9 @@ async function settleAbort(session: WatchSession): Promise<void> {
     });
     return;
   }
-  session.finish(completeAttemptUnknown(session.request.attemptId));
+  session.finish(
+    completeAttemptUnknown(session.request.attemptId, session.pgid),
+  );
 }
 
 function armDeadline(session: WatchSession): void {
@@ -123,21 +129,40 @@ function armDeadline(session: WatchSession): void {
 async function settleDeadline(session: WatchSession): Promise<void> {
   if (session.controls.settling) return;
   session.controls.settling = true;
-  await stopProcessGroup(session.pgid);
-  session.finish(completeAttemptUnknown(session.request.attemptId));
+  const stopped = await stopProcessGroup(session.pgid);
+  if (!stopped) {
+    session.finish(
+      completeAttemptUnknown(session.request.attemptId, session.pgid),
+    );
+    return;
+  }
+  const output = knownCloseResult(1, session);
+  session.finish({
+    status: "error",
+    type: "timed_out",
+    durationMs: session.request.context.durationMs,
+    stdout: output.stdout,
+    stderr: output.stderr,
+    truncated: output.truncated,
+  });
 }
 
 function armExit(session: WatchSession): void {
   session.child.on("error", () => {
-    session.finish({
-      status: "error",
-      type: "unavailable",
-      message: "Configured tool could not be started.",
-    });
+    void settleChildError(session);
   });
   session.child.on("close", (code, signal) => {
     void settleExit(session, code, signal);
   });
+}
+
+async function settleChildError(session: WatchSession): Promise<void> {
+  if (session.controls.settling) return;
+  session.controls.settling = true;
+  await stopProcessGroup(session.pgid);
+  session.finish(
+    completeAttemptUnknown(session.request.attemptId, session.pgid),
+  );
 }
 
 async function settleExit(
@@ -151,7 +176,6 @@ async function settleExit(
   if (signal !== null && session.request.options.signal?.aborted) {
     const stopped = await waitForProcessGroupQuiescence(session.pgid);
     if (stopped) {
-      completeAttemptKnown(session.request.attemptId);
       session.finish({
         status: "error",
         type: "cancelled",
@@ -159,19 +183,22 @@ async function settleExit(
       });
       return;
     }
-    session.finish(completeAttemptUnknown(session.request.attemptId));
+    session.finish(
+      completeAttemptUnknown(session.request.attemptId, session.pgid),
+    );
     return;
   }
 
   const survivors = !(await waitForProcessGroupQuiescence(session.pgid, 50));
   if (survivors) {
     await stopProcessGroup(session.pgid);
-    session.finish(completeAttemptUnknown(session.request.attemptId));
+    session.finish(
+      completeAttemptUnknown(session.request.attemptId, session.pgid),
+    );
     return;
   }
 
-  completeAttemptKnown(session.request.attemptId);
-  session.finish(knownCloseResult(code, signal, session));
+  session.finish(knownCloseResult(code, session));
 }
 
 function once(
@@ -224,16 +251,8 @@ function appendBound(
 
 function knownCloseResult(
   code: number | null,
-  signal: NodeJS.Signals | null,
   session: WatchSession,
-): BashResult {
-  if (signal !== null && session.request.options.signal?.aborted) {
-    return {
-      status: "error",
-      type: "cancelled",
-      message: "Command was cancelled.",
-    };
-  }
+): BashKnownResult {
   const exitCode = code ?? 1;
   const raw: BashKnownResult = {
     status: exitCode === 0 ? "success" : "error",

@@ -1,16 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  clearFence,
-  createAttemptReceipt,
-  executeManagedBash,
-  recoverIncompleteAttempts,
-  refusesUnknownReplay,
-  resetManagedExecutorForTests,
-} from "./index";
-import { getAttempt, recordAttemptStart } from "./attempt-ledger";
+import { executeManagedBash, resetManagedExecutorForTests } from "./index";
+import { completeAttemptUnknown } from "./attempt-ledger";
 import type { BashExecutorContext } from "./types";
+import * as processTree from "./process-tree";
 
 function context(
   directory: string,
@@ -38,6 +32,7 @@ describe("recovery and attempt ledger", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     resetManagedExecutorForTests();
     await rm(directory, { recursive: true, force: true });
   });
@@ -54,61 +49,56 @@ describe("recovery and attempt ledger", () => {
     });
   });
 
-  it("marks timeout as outcome_unknown and fences the directory", async () => {
-    const result = await executeManagedBash(
-      { command: "bash", args: ["-c", "while true; do sleep 0.05; done"] },
-      context(directory, { durationMs: 80 }),
-      { toolCallId: "tc-timeout" },
-    );
-    expect(result).toMatchObject({ type: "outcome_unknown" });
-
-    const blocked = await executeManagedBash(
-      { command: "bash", args: ["-c", "printf next"] },
-      context(directory),
-      { toolCallId: "tc-next" },
-    );
-    expect(blocked).toMatchObject({ type: "unavailable" });
-
-    const replay = await executeManagedBash(
-      { command: "bash", args: ["-c", "while true; do sleep 0.05; done"] },
-      context(directory),
-      { toolCallId: "tc-replay" },
-    );
-    expect(replay).toMatchObject({ type: "unavailable" });
-
-    clearFence(directory);
-    const after = await executeManagedBash(
-      { command: "bash", args: ["-c", "printf recovered"] },
-      context(directory),
-      { toolCallId: "tc-recovered" },
-    );
-    expect(after).toMatchObject({ status: "success", stdout: "recovered" });
+  it("admits a new Run after an unknown outcome with no surviving process", async () => {
+    const input = { command: "bash", args: ["-c", "printf next"] };
+    // A survivor was observed at exit but disappeared before final settlement.
+    vi.spyOn(
+      processTree,
+      "waitForProcessGroupQuiescence",
+    ).mockResolvedValueOnce(false);
+    expect(
+      await executeManagedBash(input, context(directory), {
+        toolCallId: "previous-run-call",
+      }),
+    ).toMatchObject({
+      type: "outcome_unknown",
+    });
+    const result = await executeManagedBash(input, context(directory), {
+      toolCallId: "new-run-call",
+    });
+    expect(result).toMatchObject({ status: "success", stdout: "next" });
   });
 
-  it("refuses a new tool-call ID from replaying an unknown digest", async () => {
-    const first = await executeManagedBash(
-      { command: "bash", args: ["-c", "while true; do sleep 0.05; done"] },
-      context(directory, { durationMs: 80 }),
-      { toolCallId: "tc-original" },
-    );
-    expect(first).toMatchObject({ type: "outcome_unknown" });
+  it("refuses admission only while the quarantined process survives", async () => {
+    const alive = vi
+      .spyOn(processTree, "processGroupAlive")
+      .mockReturnValue(true);
+    const signal = vi
+      .spyOn(processTree, "signalProcessGroup")
+      .mockImplementation(() => {});
+    completeAttemptUnknown("surviving-attempt", 12_345);
+    const input = { command: "bash", args: ["-c", "printf recovered"] };
+    const refused = await executeManagedBash(input, context(directory));
+    expect(refused).toMatchObject({
+      type: "unavailable",
+      message: "Process group from attempt surviving-attempt is still alive.",
+    });
+    expect(signal).toHaveBeenCalledWith(12_345, "SIGKILL");
+    alive.mockReturnValue(false);
+    expect(await executeManagedBash(input, context(directory))).toMatchObject({
+      status: "success",
+      stdout: "recovered",
+    });
+  });
 
-    clearFence(directory);
-    const digest = createAttemptReceipt({
-      command: "bash",
-      args: ["-c", "while true; do sleep 0.05; done"],
-    }).commandDigest;
-    expect(refusesUnknownReplay(digest)).toBe(true);
-
-    const replay = await executeManagedBash(
-      { command: "bash", args: ["-c", "while true; do sleep 0.05; done"] },
-      context(directory),
-      { toolCallId: "tc-new-id" },
-    );
-    expect(replay).toMatchObject({ type: "unavailable" });
-    expect("message" in replay ? String(replay.message) : "").toMatch(
-      /not replayed/i,
-    );
+  it("treats a non-ESRCH group probe failure as alive", () => {
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+      const denied = new Error("permission denied");
+      Object.assign(denied, { code: "EPERM" });
+      throw denied;
+    });
+    expect(processTree.processGroupAlive(12_345)).toBe(true);
+    expect(kill).toHaveBeenCalledWith(-12_345, 0);
   });
 
   it("cancels when the process group is proven stopped", async () => {
@@ -133,31 +123,5 @@ describe("recovery and attempt ledger", () => {
       { toolCallId: "tc-orphan" },
     );
     expect(result).toMatchObject({ type: "outcome_unknown" });
-    clearFence(directory);
-  });
-
-  it("recovers incomplete attempts after a simulated host crash", async () => {
-    const receipt = createAttemptReceipt({
-      command: "bash",
-      args: ["-c", "printf crash"],
-    });
-    recordAttemptStart(receipt, directory, "tc-crash");
-    expect(getAttempt(receipt.attemptId)?.state).toBe("started");
-
-    const recovered = recoverIncompleteAttempts();
-    expect(recovered).toEqual([
-      expect.objectContaining({
-        type: "outcome_unknown",
-        attemptId: receipt.attemptId,
-      }),
-    ]);
-    expect(getAttempt(receipt.attemptId)?.state).toBe("unknown");
-
-    const blocked = await executeManagedBash(
-      { command: "bash", args: ["-c", "printf crash"] },
-      context(directory),
-      { toolCallId: "tc-crash-replay" },
-    );
-    expect(blocked).toMatchObject({ type: "unavailable" });
   });
 });

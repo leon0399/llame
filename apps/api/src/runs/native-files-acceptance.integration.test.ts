@@ -21,7 +21,7 @@ describe('native files through the model loop and durable worker', () => {
   let directory: string;
   let path: string;
   let created: string;
-  const tools = ['read', 'edit', 'write'];
+  const tools = ['read', 'edit', 'write', 'bash'];
 
   beforeAll(async () => {
     if (!process.env.TEST_DATABASE_URL)
@@ -164,45 +164,54 @@ describe('native files through the model loop and durable worker', () => {
     expect(names).toEqual(['read', 'edit']);
   });
 
-  it('does not invoke the model when the queue recovers a Run with an open mutation', async () => {
-    const modelId = `native-retry-${randomUUID()}`;
-    registerScript(modelId);
-    const seeded = await seedRun({
-      tenantDb: harness.tenantDb,
-      userId,
-      modelId,
-      allowedTools: tools,
-    });
-    const deliverySequence = await harness.tenantDb.runAs(
-      userId,
-      async (tx) => {
-        const started = await new RunsRepository(tx).markStarted(
-          seeded.runId,
-          userId,
-          { workerId: 'native-acceptance-host' },
-        );
-        if (!started) throw new Error('Native recovery Run did not start.');
-        return (
-          await new RunEventsRepository(tx).append(seeded.runId, 'run.started')
-        ).sequence;
-      },
-    );
-    await harness.tenantDb.runAs(userId, (tx) =>
-      new NativeFilesRepository(tx).begin({
-        runId: seeded.runId,
+  it.each(['edit', 'bash'] as const)(
+    'does not invoke the model when another host recovers an open %s attempt',
+    async (operation) => {
+      const modelId = `native-retry-${randomUUID()}`;
+      registerScript(modelId);
+      const seeded = await seedRun({
+        tenantDb: harness.tenantDb,
         userId,
-        fence: { bound: true, executorId: 'native-acceptance-host' },
-        deliverySequence,
-        toolCallId: 'native-edit',
-        operation: 'edit',
-        path,
-      }),
-    );
-    await dispatchRun({ queue: harness.queue, ...seeded, userId, modelId });
-    expect((await terminal(seeded.runId)).status).toBe('failed');
-    expect(
-      harness.models.streamCalls.filter((call) => call.modelId === modelId),
-    ).toHaveLength(0);
-    expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
-  });
+        modelId,
+        allowedTools: tools,
+      });
+      const deliverySequence = await harness.tenantDb.runAs(
+        userId,
+        async (tx) => {
+          const started = await new RunsRepository(tx).markStarted(
+            seeded.runId,
+            userId,
+            { workerId: 'lost-host' },
+          );
+          if (!started) throw new Error('Native recovery Run did not start.');
+          return (
+            await new RunEventsRepository(tx).append(
+              seeded.runId,
+              'run.started',
+            )
+          ).sequence;
+        },
+      );
+      await harness.tenantDb.runAs(userId, (tx) =>
+        new NativeFilesRepository(tx).begin({
+          runId: seeded.runId,
+          userId,
+          fence: { bound: true, executorId: 'lost-host' },
+          deliverySequence,
+          toolCallId: 'native-edit',
+          operation,
+          path,
+        }),
+      );
+      await dispatchRun({ queue: harness.queue, ...seeded, userId, modelId });
+      expect(await terminal(seeded.runId)).toMatchObject({
+        status: 'failed',
+        error: { code: 'outcome_unknown' },
+      });
+      expect(
+        harness.models.streamCalls.filter((call) => call.modelId === modelId),
+      ).toHaveLength(0);
+      expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
+    },
+  );
 });

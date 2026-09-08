@@ -1,12 +1,14 @@
 import { z } from 'zod';
 import {
-  executeManagedBash,
+  admitManagedBash,
   type BashExecutorContext,
   type BashResult,
 } from '@workspace/bash-executor';
 import { type Tool, type ToolResult } from './types';
 import { isNativeFileTool } from './native-files';
 import { bashWorkingDirectory } from './env';
+import { NativeFilesRepository } from '../runs/native-files-repository';
+import { RunEventsRepository } from '../runs/runs-repository';
 
 function managedContext(): BashExecutorContext {
   const workingDirectory = bashWorkingDirectory();
@@ -23,7 +25,7 @@ function managedContext(): BashExecutorContext {
   };
 }
 
-function toToolResult(result: BashResult): ToolResult {
+export function toToolResult(result: BashResult): ToolResult {
   if (result.status === 'success') {
     return {
       status: 'success',
@@ -36,6 +38,13 @@ function toToolResult(result: BashResult): ToolResult {
     };
   }
   if ('type' in result) {
+    if (result.type === 'timed_out') {
+      return {
+        status: 'error',
+        type: 'timed_out',
+        message: `Command exceeded its deadline of ${result.durationMs} ms.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}${result.truncated ? '\nOutput was truncated.' : ''}`,
+      };
+    }
     return {
       status: 'error',
       type: result.type,
@@ -58,7 +67,8 @@ export const bashTool: Tool<{
     'Run a shell command in the trusted working directory (invoked as `bash -c`). Alpha host authority — not tenant isolation. Prefer native edit for small exact replacements. Example: command="pwd && ls".',
   inputSchema: z.object({ command: z.string().min(1) }).strict(),
   execute: async (context, input): Promise<ToolResult> => {
-    if (!context.nativeExecutorId) {
+    const { runId, userId, nativeExecutorId, toolCallId } = context;
+    if (!runId || !nativeExecutorId || !toolCallId) {
       return {
         status: 'error',
         type: 'executor_unavailable',
@@ -67,16 +77,36 @@ export const bashTool: Tool<{
     }
     // Always wrap in bash -c: the managed allowlist only admits basenames like
     // `bash`, not `ls`/`cat`. Models pass ordinary shell text here.
-    return toToolResult(
-      await executeManagedBash(
-        { command: 'bash', args: ['-c', input.command] },
-        managedContext(),
-        {
-          signal: context.abortSignal,
-          toolCallId: context.toolCallId,
-        },
-      ),
+    const admitted = admitManagedBash(
+      { command: 'bash', args: ['-c', input.command] },
+      managedContext(),
+      { signal: context.abortSignal, toolCallId },
     );
+    if ('type' in admitted) return toToolResult(admitted);
+    try {
+      const prior = await context.tenantDb.runAs(userId, (db) =>
+        new NativeFilesRepository(db).begin({
+          runId,
+          userId,
+          fence: { bound: true, executorId: nativeExecutorId },
+          deliverySequence: context.nativeDeliverySequence,
+          toolCallId,
+          operation: 'bash',
+          path: admitted.cwd,
+        }),
+      );
+      if (prior) return prior;
+      const result = toToolResult(await admitted.run());
+      await context.tenantDb.runAs(userId, async (db) => {
+        await new RunEventsRepository(db).append(runId, 'native.result', {
+          toolCallId,
+          result,
+        });
+      });
+      return result;
+    } finally {
+      admitted.release();
+    }
   },
 };
 

@@ -1,57 +1,17 @@
-import type { BashAttemptReceipt, BashUnknownResult } from "./types";
+import type { BashUnknownResult, BashUnavailableResult } from "./types";
+import { processGroupAlive, signalProcessGroup } from "./process-tree";
 
-export type AttemptState = "started" | "known" | "unknown";
-
-export type AttemptRecord = {
-  readonly attemptId: string;
-  readonly commandDigest: string;
-  readonly workingDirectory: string;
-  readonly toolCallId: string | null;
-  readonly recordedAt: string;
-  state: AttemptState;
-};
-
-const attempts = new Map<string, AttemptRecord>();
-const fencedDirectories = new Set<string>();
-/** Digests that ended unknown; never auto-replay under a new tool-call ID. */
-const unreplayableDigests = new Set<string>();
+const quarantinedGroups = new Map<number, string>();
 
 export function resetAttemptLedgerForTests(): void {
-  attempts.clear();
-  fencedDirectories.clear();
-  unreplayableDigests.clear();
+  quarantinedGroups.clear();
 }
-
-export function recordAttemptStart(
-  receipt: BashAttemptReceipt,
-  workingDirectory: string,
-  toolCallId: string | null = null,
-): AttemptRecord {
-  const record: AttemptRecord = {
-    attemptId: receipt.attemptId,
-    commandDigest: receipt.commandDigest,
-    workingDirectory,
-    toolCallId,
-    recordedAt: receipt.recordedAt,
-    state: "started",
-  };
-  attempts.set(record.attemptId, record);
-  return record;
-}
-
-export function completeAttemptKnown(attemptId: string): void {
-  const record = attempts.get(attemptId);
-  if (!record || record.state !== "started") return;
-  record.state = "known";
-}
-
-export function completeAttemptUnknown(attemptId: string): BashUnknownResult {
-  const record = attempts.get(attemptId);
-  if (record && record.state === "started") {
-    record.state = "unknown";
-    fencedDirectories.add(record.workingDirectory);
-    unreplayableDigests.add(record.commandDigest);
-  }
+export function completeAttemptUnknown(
+  attemptId: string,
+  pgid?: number,
+): BashUnknownResult {
+  if (pgid !== undefined && processGroupAlive(pgid))
+    quarantinedGroups.set(pgid, attemptId);
   return {
     status: "error",
     type: "outcome_unknown",
@@ -60,41 +20,21 @@ export function completeAttemptUnknown(attemptId: string): BashUnknownResult {
   };
 }
 
-/** Host-crash recovery: every incomplete attempt becomes unknown and fences. */
-export function recoverIncompleteAttempts(): ReadonlyArray<BashUnknownResult> {
-  const results: Array<BashUnknownResult> = [];
-  for (const record of attempts.values()) {
-    if (record.state !== "started") continue;
-    results.push(completeAttemptUnknown(record.attemptId));
-  }
-  return results;
-}
-
-export function isDirectoryFenced(workingDirectory: string): boolean {
-  return fencedDirectories.has(workingDirectory);
-}
-
-export function clearFence(workingDirectory: string): void {
-  fencedDirectories.delete(workingDirectory);
-}
-
-/** Operator recovery after proving the workspace is safe. */
-export function releaseUnknownCommands(workingDirectory: string): void {
-  for (const record of attempts.values()) {
-    if (
-      record.workingDirectory === workingDirectory &&
-      record.state === "unknown"
-    ) {
-      unreplayableDigests.delete(record.commandDigest);
+export function rejectQuarantinedGroups(): BashUnavailableResult | null {
+  let survivingAttempt: string | undefined;
+  for (const [pgid, attemptId] of quarantinedGroups) {
+    if (!processGroupAlive(pgid)) {
+      quarantinedGroups.delete(pgid);
+      continue;
     }
+    signalProcessGroup(pgid, "SIGKILL");
+    survivingAttempt = attemptId;
   }
-}
-
-export function getAttempt(attemptId: string): AttemptRecord | undefined {
-  return attempts.get(attemptId);
-}
-
-/** Unknown command digests are not auto-replayed until the fence is cleared. */
-export function refusesUnknownReplay(commandDigest: string): boolean {
-  return unreplayableDigests.has(commandDigest);
+  return survivingAttempt === undefined
+    ? null
+    : {
+        status: "error",
+        type: "unavailable",
+        message: `Process group from attempt ${survivingAttempt} is still alive.`,
+      };
 }

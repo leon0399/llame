@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   cutStringAtCodePointBoundary,
   isRecord,
@@ -8,7 +7,6 @@ import type {
   BashCommandInput,
   BashExecutorContext,
   BashKnownResult,
-  BashSafeCommandMetadata,
   BashUnavailableResult,
 } from "./types";
 
@@ -76,27 +74,6 @@ export function requireManagedBoundary(
     };
   }
   return null;
-}
-
-export function safeCommandMetadata(
-  attemptId: string,
-  input: BashCommandInput,
-): BashSafeCommandMetadata {
-  const args = input.args ?? [];
-  return {
-    attemptId,
-    commandDigest: digestCommand(input.command, args),
-    argCount: args.length,
-  };
-}
-
-function digestCommand(command: string, args: ReadonlyArray<string>): string {
-  return createHash("sha256")
-    .update(command)
-    .update("\0")
-    .update(args.join("\0"))
-    .digest("hex")
-    .slice(0, 16);
 }
 
 export function sanitizeKnownResult(

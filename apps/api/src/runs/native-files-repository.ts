@@ -27,7 +27,7 @@ export class NativeFilesRepository {
     fence: NativeFenceMode;
     deliverySequence: number | undefined;
     toolCallId: string;
-    operation: 'read' | 'edit' | 'write';
+    operation: 'read' | 'edit' | 'write' | 'bash';
     path: string;
   }): Promise<ToolResult | undefined> {
     if (!(await this.lockRun(input.runId, input.userId)))
@@ -158,7 +158,7 @@ export class NativeFilesRepository {
       status: 'error',
       type: 'outcome_unknown',
       message:
-        'A previous native mutation may have executed; it will not be repeated.',
+        'A previous host command or mutation may have executed; it will not be repeated.',
     };
   }
 }

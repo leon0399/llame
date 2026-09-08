@@ -151,7 +151,7 @@ result SHALL NOT re-execute it.
 - **WHEN** cancellation cannot prove the process group empty
 - **THEN** the result is `outcome_unknown`
 - **AND** the fenced context is the Run: it terminates, and no other Run is
-  affected
+  affected once its process group is observed empty
 
 #### Scenario: Surviving process quarantines the host until it is gone
 

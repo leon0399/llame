@@ -1,3 +1,4 @@
+import { bashTool } from '../tools/bash';
 import { nativeEditTool, nativeReadTool } from '../tools/native-files';
 import { resolveJsonSchema } from '../tools/schema-utils';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -1028,6 +1029,54 @@ async function executeBoundTool(
 describe('RunExecutionService executeRun — tool loop', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('waits for durable progress before executing a bash call', async () => {
+    mockNormalExecutionRepositories();
+    const declaration = {
+      id: bashTool.id,
+      description: bashTool.description,
+      inputSchema: await resolveJsonSchema(bashTool.inputSchema),
+    };
+    vi.spyOn(
+      ModelContextSnapshotsRepository.prototype,
+      'findByOwnedRun',
+    ).mockResolvedValue({ ...snapshot, toolDeclarations: [declaration] });
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation((_runId, eventType) => {
+        if (eventType === 'model.delta')
+          return Promise.reject(new Error('event log unavailable'));
+        return Promise.resolve(event);
+      });
+    const execute = vi
+      .spyOn(bashTool, 'execute')
+      .mockResolvedValue({ status: 'success', stdout: 'ran' });
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onTextDelta?.('before bash');
+    const bound = options.tools?.bash;
+    if (!bound?.execute) throw new Error('Bash was not advertised.');
+
+    await expect(
+      bound.execute(
+        { command: 'printf should-not-run' },
+        { toolCallId: 'bash-progress-gate', messages: [] },
+      ),
+    ).rejects.toThrow('Native tool activity could not be recorded');
+    expect(execute).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalledWith(
+      runId,
+      'native.attempt',
+      expect.anything(),
+    );
   });
 
   it('aborts the model signal when a native outcome is unknown', async () => {

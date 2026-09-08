@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-08
 
+- Fix bash timeout recovery and persist command attempts (#733, #734): a
+  deadline now yields `timed_out` with bounded partial output when the process
+  group is proven empty; an unproven stop remains `outcome_unknown` and
+  terminates only the issuing Run. Bash attempts and results persist as
+  `native.attempt` and `native.result`, so worker recovery cannot replay an
+  unsettled command. A process group that is still observed alive temporarily
+  quarantines bash on that host and is re-signalled until it disappears, after
+  which admission resumes automatically. The group proof does not include a
+  descendant that escapes with `setsid`.
+
 - Reduce development pipeline latency (#730): scope PR/local mutation to changed
   files with full-workspace fallbacks, preserve compatible incremental baselines,
   select related API tests, and reject failed or incomplete shard results.

@@ -331,7 +331,7 @@ export class RunExecutionService {
     }
     if ('nativeRecovery' in claim) {
       const message =
-        'A previous native mutation may have executed. This Run will not replay it.';
+        'A previous host command or mutation may have executed. This Run will not replay it.';
       await this.settleTerminalRun({
         userId: input.userId,
         runId: input.runId,
@@ -650,7 +650,7 @@ export class RunExecutionService {
               toolCallId,
               toolName: declaration.id,
             });
-            if (isNativeFileTool(executor)) {
+            if (isHostCapabilityTool(executor)) {
               await deltaWrites;
               if (progressWriteFailed)
                 throw new Error('Native tool activity could not be recorded.');

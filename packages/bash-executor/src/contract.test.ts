@@ -4,7 +4,6 @@ import {
   assertSharedWorkingDirectory,
   parseCommandInput,
   requireManagedBoundary,
-  safeCommandMetadata,
   sanitizeKnownResult,
   sharedWorkingDirectory,
 } from "./index";
@@ -83,17 +82,6 @@ describe("bash-executor contract", () => {
       ),
     ).toMatchObject({ type: "workspace_mismatch" });
     expect(sharedWorkingDirectory(context())).toBe("/tmp/llame-workspace");
-  });
-
-  it("records safe metadata without host paths", () => {
-    const meta = safeCommandMetadata("att-1", {
-      command: "rg",
-      args: ["needle", "/tmp/llame-workspace/file"],
-    });
-    expect(meta.attemptId).toBe("att-1");
-    expect(meta.argCount).toBe(2);
-    expect(meta.commandDigest).not.toContain("/tmp");
-    expect(meta.commandDigest).toMatch(/^[0-9a-f]+$/);
   });
 
   it("stays unavailable when a managed boundary field is missing", () => {
