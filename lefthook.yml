@@ -5,32 +5,8 @@ rc: '"$(git rev-parse --show-toplevel)/.lefthookrc"'
 pre-commit:
   parallel: true
   jobs:
-    - name: api lint
-      glob: "{apps/api/**/*.ts,apps/api/.oxlintrc.json}"
-      run: pnpm --filter api lint
-
-    - name: web lint
-      glob: "{apps/web/**/*.{ts,tsx,js,mjs},apps/web/.oxlintrc.json}"
-      run: pnpm --filter web lint
-
-    - name: ui lint
-      glob: "{packages/ui/**/*.{ts,tsx,js,mjs,cjs},packages/ui/.oxlintrc.json}"
-      run: pnpm --filter @workspace/ui lint
-
-    - name: storybook lint
-      glob: "{apps/storybook/**/*.{ts,tsx,js,mjs,cjs},apps/storybook/.oxlintrc.json}"
-      run: pnpm --filter storybook lint
-
-    - name: config interpolation lint
-      glob: "{packages/config-interpolation/**/*.{ts,js,mjs},packages/config-interpolation/.oxlintrc.json}"
-      run: pnpm --filter @workspace/config-interpolation lint
-
-    - name: runtime safety lint
-      glob: "{packages/runtime-safety/**/*.{ts,js,mjs},packages/runtime-safety/.oxlintrc.json}"
-      run: pnpm --filter @workspace/runtime-safety lint
-
     - name: code lint
-      glob: "{e2e/**/*.{ts,tsx,js,mjs},playwright.config.ts,.oxlintrc.json,turbo.json,package.json}"
+      glob: "{**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs},**/.oxlintrc.json,.oxlintrc.json,**/package.json,package.json,packages/oxlint-plugin-anti-slop/**/*.json,turbo.json}"
       run: pnpm lint:code
 
     - name: OpenAPI lint
@@ -51,7 +27,11 @@ pre-commit:
 
     - name: lint plugin
       glob: "packages/oxlint-plugin-anti-slop/**/*.{ts,mjs,json}"
-      run: pnpm --filter @workspace/oxlint-plugin-anti-slop lint && pnpm --filter @workspace/oxlint-plugin-anti-slop typecheck && pnpm --filter @workspace/oxlint-plugin-anti-slop test
+      run: pnpm --filter @workspace/oxlint-plugin-anti-slop typecheck && pnpm --filter @workspace/oxlint-plugin-anti-slop test
+
+    - name: mutation tooling
+      glob: "scripts/mutation-*.mjs"
+      run: pnpm test:mutation:tooling
 
     - name: markdown lint
       glob: "{**/*.md,.markdownlint-cli2.jsonc}"
@@ -60,10 +40,10 @@ pre-commit:
     - name: format
       glob: "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,md,mdx,json,jsonc,css,scss,yaml,yml,html}"
       files: git diff --name-only --cached --diff-filter=ACMR
-      run: pnpm exec prettier --check --no-error-on-unmatched-pattern {files}
+      run: pnpm exec prettier --check --cache --cache-strategy content --no-error-on-unmatched-pattern {files}
 
 pre-push:
-  parallel: false
+  parallel: true
   jobs:
     - name: format
       run: pnpm format:check

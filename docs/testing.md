@@ -56,21 +56,36 @@ browser, integration, and E2E behavior stay in their existing gates.
 ```bash
 pnpm test:mutation:dry
 pnpm test:mutation
+pnpm test:mutation:changed --base origin/master
 ```
 
-CI partitions API source files into stable shards and aggregates their reports.
-The merged API report and each shared-package run enforce 80% MSI. Each package
-remains runnable directly; reports live under ignored workspace `reports/`
-directories.
+PRs mutate complete changed source files against the PR base's merge-base.
+Tests, recognized fixtures/test doubles, deletions, excluded source and
+configuration expand the affected workspace. Shared dependencies expand API
+scope; unknown root inputs expand all mutation workspaces. Known unrelated
+documentation/frontend changes skip mutation. Local changed mode also includes
+tracked working-tree and untracked edits; a missing base ref fails.
+
+CI partitions the selected API files into stable shards. The merged selected
+report and each selected shared-package run enforce 80% MSI. A scoped score
+measures that scope, not the full workspace. Full-scope runs retain compatible
+incremental baselines; fixtures, excluded inputs and transitive workspace
+dependencies invalidate them. Scoped runs do not reuse full baselines. Master
+keeps full scope and weekly refreshes force all mutants. Failed selected shards
+and missing reports, malformed reports or unfinished mutant statuses fail the aggregate.
+
+Each package remains runnable directly; reports live under ignored workspace
+`reports/` directories. Add `--dryRunOnly` to the changed command to exercise
+selection and initial tests. `--workspace packages/runtime-safety` narrows local
+execution explicitly. See the [measurements and alternatives](research/development-pipeline.md).
 
 ## CI mapping
 
 ```text
-typecheck -+
-unit ------+-> build ---------+
-           +-> integration ---+-> product e2e
-           +-> mutation
-           +-> storybook
+typecheck ----> integration ----------------+
+typecheck + unit ----> build ----------------+-> product e2e
+typecheck + unit + mutation scope -> mutation
+typecheck + unit ----> storybook
 ```
 
 - Lint workflow: Oxlint, formatting, anti-slop rules, Markdown, OpenAPI, Knip,

@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-08
+
+- Reduce development pipeline latency (#730): scope PR/local mutation to changed
+  files with full-workspace fallbacks, preserve compatible incremental baselines,
+  select related API tests, and reject failed or incomplete shard results.
+  Cache formatting by content, reuse correctly invalidated workspace lint, and
+  run independent push checks together. API integration coverage starts after
+  typecheck. Record measured timings and remaining options in
+  `docs/research/development-pipeline.md`.
+
 # 2026-09-07
 
 - Fix Git hooks from linked worktrees, where `pre-push` never ran a lint task.

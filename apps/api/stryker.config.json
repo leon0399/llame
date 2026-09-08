@@ -14,7 +14,7 @@
   ],
   "vitest": {
     "configFile": "vitest.mutation.config.mts",
-    "related": false
+    "related": true
   },
   "allowEmpty": false,
   "coverageAnalysis": "perTest",

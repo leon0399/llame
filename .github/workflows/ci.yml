@@ -1,9 +1,9 @@
 # The test pyramid, as a job graph (docs/testing.md is the contract).
 #
-#   typecheck ─┐
-#   unit ──────┼─→ build ───────────┐
-#              ├─→ integration ─────┴─→ browser-e2e
-#              └─→ component        (Storybook, real browser)
+#   typecheck ------> API unit + integration ----+
+#   typecheck + unit -> build --------------------+-> browser-e2e
+#   typecheck + unit -> component (Storybook)
+#   typecheck + unit + mutation-plan -> mutation
 #
 # One job per concern, so a red X names what broke instead of hiding inside a
 # grab-bag. Cheap gates run first and unconditionally; each expensive layer
@@ -36,6 +36,33 @@ env:
   TURBO_TELEMETRY_DISABLED: "1"
 
 jobs:
+  mutation-plan:
+    name: Mutation scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      api_mode: ${{ steps.scope.outputs.api_mode }}
+      api_count: ${{ steps.scope.outputs.api_count }}
+      api_matrix: ${{ steps.scope.outputs.api_matrix }}
+      packages: ${{ steps.scope.outputs.packages }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup
+
+      - id: scope
+        env:
+          MUTATION_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ -n "$MUTATION_BASE" ]]; then
+            node scripts/mutation-sharding.mjs plan --base "$MUTATION_BASE"
+          else
+            node scripts/mutation-sharding.mjs plan
+          fi
+
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
@@ -69,6 +96,7 @@ jobs:
       # Strictly dependency-free by construction: DB-backed suites are their
       # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
       - run: pnpm test:metrics
+      - run: pnpm test:mutation:tooling
 
       - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation' --filter='!@workspace/runtime-safety'
 
@@ -102,7 +130,9 @@ jobs:
     name: Integration tests (real Postgres)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [typecheck, unit]
+    # This job runs API unit + integration coverage itself. Waiting for the
+    # unrelated web/package unit job adds latency without catching an API failure.
+    needs: [typecheck]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -123,11 +153,12 @@ jobs:
     name: Mutation testing (API shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    needs: [typecheck, unit]
+    needs: [typecheck, unit, mutation-plan]
+    if: needs.mutation-plan.outputs.api_count != '0'
     strategy:
       fail-fast: false
       matrix:
-        shard: ["1/8", "2/8", "3/8", "4/8", "5/8", "6/8", "7/8", "8/8"]
+        include: ${{ fromJSON(needs.mutation-plan.outputs.api_matrix) }}
     concurrency:
       group: ${{ github.event_name == 'pull_request' && format('mutation-pr-{0}-api-{1}', github.event.pull_request.number, matrix.shard) || format('mutation-trusted-api-{0}', matrix.shard) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -135,23 +166,34 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: ./.github/actions/setup
 
       - uses: ./.github/actions/stryker-baseline
         id: baseline
+        if: needs.mutation-plan.outputs.api_mode == 'full'
         with:
           workspace: apps/api
           cache-file: reports/stryker-incremental-*.json
-          cache-suffix: api-shard-${{ strategy.job-index }}
+          cache-suffix: api-shard-${{ matrix.index }}
 
-      - run: >-
-          pnpm --filter api test:mutation:shard -- --shard
-          "${{ matrix.shard }}" --incremental
-          --reporters clear-text,html,json,progress-append-only
+      - env:
+          MUTATION_SHARD: ${{ matrix.shard }}
+          MUTATION_BASE: ${{ github.event.pull_request.base.sha }}
+          MUTATION_MODE: ${{ needs.mutation-plan.outputs.api_mode }}
+        run: |
+          arguments=(--shard "$MUTATION_SHARD" --reporters "clear-text,html,json,progress-append-only")
+          if [[ "$MUTATION_MODE" == full ]]; then
+            arguments+=(--incremental)
+          fi
+          if [[ -n "$MUTATION_BASE" ]]; then
+            arguments+=(--base "$MUTATION_BASE")
+          fi
+          pnpm --filter api test:mutation:shard -- "${arguments[@]}"
 
       - name: Save refreshed mutation baseline
-        if: success()
+        if: success() && needs.mutation-plan.outputs.api_mode == 'full'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/api/reports/stryker-incremental-*.json
@@ -161,7 +203,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: mutation-report-api-${{ strategy.job-index }}
+          name: mutation-report-api-${{ matrix.index }}
           path: apps/api/reports/mutation/
           retention-days: 14
           if-no-files-found: error
@@ -170,69 +212,101 @@ jobs:
     name: Mutation testing (API)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [mutation-api-shard]
+    needs: [mutation-api-shard, mutation-plan]
     if: always() && !cancelled()
     steps:
+      - name: Require successful mutation execution
+        env:
+          PLAN_RESULT: ${{ needs.mutation-plan.result }}
+          SHARD_RESULT: ${{ needs.mutation-api-shard.result }}
+          EXPECTED_SHARDS: ${{ needs.mutation-plan.outputs.api_count }}
+        run: |
+          [[ "$PLAN_RESULT" == success ]] || exit 1
+          if [[ "$EXPECTED_SHARDS" == 0 ]]; then
+            echo "No API mutation inputs changed."
+          else
+            [[ "$SHARD_RESULT" == success ]] || exit 1
+          fi
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: needs.mutation-plan.outputs.api_count != '0'
         with:
           persist-credentials: false
 
       - uses: ./.github/actions/setup
+        if: needs.mutation-plan.outputs.api_count != '0'
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: needs.mutation-plan.outputs.api_count != '0'
         with:
           pattern: mutation-report-api-*
           path: apps/api/reports/mutation-shards
 
-      - run: pnpm test:mutation:tooling
-        working-directory: apps/api
-      - run: pnpm test:mutation:check
+      - run: pnpm test:mutation:aggregate -- --threshold 80 --expected-shards "$EXPECTED_SHARDS" reports/mutation-shards/*/mutation.json
+        if: needs.mutation-plan.outputs.api_count != '0'
+        env:
+          EXPECTED_SHARDS: ${{ needs.mutation-plan.outputs.api_count }}
         working-directory: apps/api
 
   mutation-packages:
     name: Mutation testing (${{ matrix.package }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: [typecheck, unit]
+    needs: [typecheck, unit, mutation-plan]
     strategy:
       fail-fast: false
       matrix:
-        package: [config-interpolation, runtime-safety]
+        include: ${{ fromJSON(needs.mutation-plan.outputs.packages) }}
     concurrency:
       group: ${{ github.event_name == 'pull_request' && format('mutation-pr-{0}-{1}', github.event.pull_request.number, matrix.package) || format('mutation-trusted-{0}', matrix.package) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: matrix.mode != 'skip'
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: ./.github/actions/setup
+        if: matrix.mode != 'skip'
 
       - uses: ./.github/actions/stryker-baseline
         id: baseline
+        if: matrix.mode == 'full'
         with:
           workspace: packages/${{ matrix.package }}
           cache-suffix: ${{ matrix.package }}
 
-      - run: >-
-          pnpm --filter @workspace/${{ matrix.package }} test:mutation --incremental
-          --reporters clear-text,html,json,progress-append-only
+      - if: matrix.mode != 'skip'
+        env:
+          MUTATION_PACKAGE: ${{ matrix.package }}
+          MUTATION_BASE: ${{ github.event.pull_request.base.sha }}
+          MUTATION_MODE: ${{ matrix.mode }}
+        run: |
+          if [[ "$MUTATION_MODE" == changed ]]; then
+            node scripts/mutation-sharding.mjs changed --workspace "packages/$MUTATION_PACKAGE" --base "$MUTATION_BASE"
+          else
+            pnpm --filter "@workspace/$MUTATION_PACKAGE" test:mutation --incremental --reporters clear-text,html,json,progress-append-only
+          fi
 
       - name: Save refreshed mutation baseline
-        if: success()
+        if: success() && matrix.mode == 'full'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/${{ matrix.package }}/reports/stryker-incremental.json
           key: ${{ steps.baseline.outputs.prefix }}${{ steps.baseline.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload mutation report
-        if: always()
+        if: always() && matrix.mode != 'skip'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mutation-report-${{ matrix.package }}
           path: packages/${{ matrix.package }}/reports/mutation/
           retention-days: 14
           if-no-files-found: warn
+
+      - if: matrix.mode == 'skip'
+        run: echo "No mutation inputs changed for this package."
 
   component:
     name: Component tests (Storybook)

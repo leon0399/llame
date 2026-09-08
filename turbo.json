@@ -17,6 +17,7 @@
       "dependsOn": ["transit"],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/.oxlintrc.json",
         "$TURBO_ROOT$/packages/oxlint-plugin-anti-slop/**"
       ]
     },

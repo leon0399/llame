@@ -8,11 +8,88 @@ import { fileURLToPath } from "node:url";
 
 import {
   mergeMutationReports,
+  mutationPlan,
   parseRunArguments,
   parseShard,
   resolveStrykerCli,
   selectShardFiles,
 } from "./mutation-sharding.mjs";
+
+test("a sparse mutation plan retains semantic shard identities", () => {
+  const files = ["src/a.ts", "src/b.ts"];
+  const plan = mutationPlan({
+    "apps/api": { mode: "changed", files },
+    "packages/config-interpolation": { mode: "skip", files: [] },
+    "packages/runtime-safety": { mode: "skip", files: [] },
+  });
+  assert.equal(plan.apiMode, "changed");
+  assert.deepEqual(
+    plan.apiShards
+      .flatMap(({ shard }) => selectShardFiles(files, parseShard(shard)))
+      .sort(),
+    files,
+  );
+  for (const { index, shard } of plan.apiShards)
+    assert.equal(index, Number(shard.split("/")[0]) - 1);
+  assert.deepEqual(plan.packages, [
+    { package: "config-interpolation", mode: "skip" },
+    { package: "runtime-safety", mode: "skip" },
+  ]);
+});
+
+test("an irrelevant change has no API shards but preserves package check names", () => {
+  const plan = mutationPlan(
+    Object.fromEntries(
+      [
+        "apps/api",
+        "packages/config-interpolation",
+        "packages/runtime-safety",
+      ].map((workspace) => [workspace, { mode: "skip", files: [] }]),
+    ),
+  );
+  assert.deepEqual(plan.apiShards, []);
+  assert.equal(plan.packages.length, 2);
+});
+
+test("the shard runner consumes its base ref without forwarding it to Stryker", () => {
+  assert.deepEqual(
+    parseRunArguments([
+      "--shard",
+      "3/8",
+      "--base",
+      "origin/master",
+      "--incremental",
+    ]),
+    {
+      shard: { index: 2, number: 3, total: 8 },
+      base: "origin/master",
+      strykerArguments: ["--incremental"],
+    },
+  );
+  assert.throws(
+    () => parseRunArguments(["--shard", "3/8", "--base"]),
+    /requires a ref/u,
+  );
+});
+
+test("unfinished mutants cannot turn an incomplete run into a passing score", () => {
+  for (const status of ["Pending", "NotRun", "Unknown", "toString"]) {
+    assert.throws(
+      () =>
+        mergeMutationReports([
+          {
+            schemaVersion: "1.0",
+            files: { "src/a.ts": { mutants: [{ status }] } },
+          },
+        ]),
+      /Unfinished or unknown mutant status/u,
+    );
+  }
+  assert.throws(
+    () => mergeMutationReports([{ schemaVersion: "1.0" }]),
+    /Invalid mutation report/u,
+  );
+});
 
 test("parseShard accepts one-based shard notation", () => {
   assert.deepEqual(parseShard("3/8"), { index: 2, number: 3, total: 8 });
