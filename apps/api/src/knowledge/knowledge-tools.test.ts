@@ -50,6 +50,19 @@ function fakeAdapter(
   };
 }
 
+/** A search passage's one-based locator: exactly what `read` accepts back. */
+function passage(spaceId: string, path: string, offset: number, limit = 1) {
+  return `kb://${spaceId}/${path}:${offset + 1}-${offset + limit}`;
+}
+
+function attribution(spaceId: string, path: string, offset: number) {
+  return {
+    knowledgeSpaceId: spaceId,
+    path,
+    locator: passage(spaceId, path, offset),
+  };
+}
+
 function context(
   adapter: KnowledgeFilesystemAdapterPort | undefined = fakeAdapter(),
   resolvedBinding: KnowledgeFilesystemBinding | null = binding,
@@ -310,16 +323,16 @@ describe('knowledge_search cursor continuation', () => {
     }
 
     expect(pages[0]).toMatchObject({
-      results: [{ knowledgeSpaceId: binding.id, path: 'a.md', offset: 0 }],
+      results: [{ ...attribution(binding.id, 'a.md', 0) }],
     });
     expect(pages[1]).toMatchObject({
-      results: [{ knowledgeSpaceId: binding.id, path: 'a.md', offset: 2 }],
+      results: [{ ...attribution(binding.id, 'a.md', 2) }],
     });
     expect(pages[2]).toMatchObject({
-      results: [{ knowledgeSpaceId: bindingB.id, path: 'b.md', offset: 0 }],
+      results: [{ ...attribution(bindingB.id, 'b.md', 0) }],
     });
     expect(pages[3]).toMatchObject({
-      results: [{ knowledgeSpaceId: bindingB.id, path: 'b.md', offset: 2 }],
+      results: [{ ...attribution(bindingB.id, 'b.md', 2) }],
     });
     expect(pages[3]).toMatchObject({ status: 'success' });
     expect(pages[3]).not.toHaveProperty('nextCursor');
@@ -391,7 +404,7 @@ describe('knowledge_search cursor continuation', () => {
     expect(first).toMatchObject({
       status: 'success',
       complete: false,
-      results: [{ knowledgeSpaceId: binding.id, offset: 0 }],
+      results: [{ ...attribution(binding.id, 'a.md', 0) }],
     });
     if (first.status !== 'success' || !isString(first.nextCursor)) {
       throw new Error('Expected a continuation cursor');
@@ -404,7 +417,7 @@ describe('knowledge_search cursor continuation', () => {
     });
     expect(second).toMatchObject({
       status: 'success',
-      results: [{ knowledgeSpaceId: binding.id, offset: 2 }],
+      results: [{ ...attribution(binding.id, 'a.md', 2) }],
     });
     expect(searchBefore).toHaveBeenCalledOnce();
     expect(searchAnchor).toHaveBeenCalledTimes(2);
@@ -500,7 +513,7 @@ describe('knowledge_search cursor continuation', () => {
           knowledgeSpaceId: bindingLater.id,
         },
       ],
-      results: [{ knowledgeSpaceId: binding.id, offset: 2 }],
+      results: [{ ...attribution(binding.id, 'a.md', 2) }],
     });
     expect(second).toHaveProperty('nextCursor');
     expect(searchLater).toHaveBeenCalledTimes(2);
@@ -560,7 +573,7 @@ describe('knowledge_search cursor continuation', () => {
       status: 'success',
       complete: false,
       warningCount: 1,
-      results: [{ knowledgeSpaceId: binding.id, offset: 2 }],
+      results: [{ ...attribution(binding.id, 'a.md', 2) }],
     });
     expect(second).not.toHaveProperty('nextCursor');
   });
@@ -656,7 +669,7 @@ describe('knowledge_search cursor continuation', () => {
 
     expect(first).toMatchObject({
       status: 'success',
-      results: [{ offset: 0 }],
+      results: [{ locator: passage(binding.id, 'a.md', 0) }],
     });
     if (first.status !== 'success' || !isString(first.nextCursor)) {
       throw new Error('Expected a search continuation cursor');
@@ -669,7 +682,7 @@ describe('knowledge_search cursor continuation', () => {
 
     expect(second).toMatchObject({
       status: 'success',
-      results: [{ path: 'a.md', offset: 4 }],
+      results: [{ path: 'a.md', locator: passage(binding.id, 'a.md', 4) }],
     });
     expect(search.mock.calls[1]?.[2]?.after).toEqual({
       path: 'a.md',
@@ -831,7 +844,7 @@ describe('knowledge_search cursor continuation', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      results: [{ path: 'a.md', offset: 1 }],
+      results: [{ path: 'a.md', locator: passage(binding.id, 'a.md', 1) }],
     });
     expect(result).toHaveProperty('nextCursor');
     expect(search).toHaveBeenCalledWith(
@@ -911,9 +924,9 @@ describe('knowledge_search cursor continuation', () => {
     expect(result).toMatchObject({
       status: 'success',
       results: [
-        { knowledgeSpaceId: binding.id, path: 'a.md', offset: 1 },
-        { knowledgeSpaceId: binding.id, path: 'b.md', offset: 0 },
-        { knowledgeSpaceId: after.id, path: 'c.md', offset: 0 },
+        { ...attribution(binding.id, 'a.md', 1) },
+        { ...attribution(binding.id, 'b.md', 0) },
+        { ...attribution(after.id, 'c.md', 0) },
       ],
     });
     expect(beforeSearch).not.toHaveBeenCalled();
@@ -957,8 +970,7 @@ describe('knowledge_search', () => {
           knowledgeSpaceId: binding.id,
           knowledgeSpaceName: binding.name,
           path: 'notes/a.md',
-          offset: 0,
-          limit: 1,
+          locator: passage(binding.id, 'notes/a.md', 0),
           excerpt: 'Needle line',
         },
       ],
@@ -1901,9 +1913,9 @@ describe('knowledge_search cross-space ordering', () => {
     expect(result).toMatchObject({
       status: 'success',
       results: [
-        { knowledgeSpaceId: EARLY_A_ID, path: 'z.md', offset: 4 },
-        { knowledgeSpaceId: EARLY_B_ID, path: 'a.md', offset: 0 },
-        { knowledgeSpaceId: LATE_ID, path: 'm.md', offset: 0 },
+        { ...attribution(EARLY_A_ID, 'z.md', 4) },
+        { ...attribution(EARLY_B_ID, 'a.md', 0) },
+        { ...attribution(LATE_ID, 'm.md', 0) },
       ],
     });
   });
@@ -1932,9 +1944,9 @@ describe('knowledge_search cross-space ordering', () => {
       knowledgeSearchTool.execute(context, { query: 'term', limit: 5 }),
     ).resolves.toMatchObject({
       results: [
-        { path: 'a.md', offset: 1 },
-        { path: 'a.md', offset: 9 },
-        { path: 'z.md', offset: 0 },
+        { locator: passage(LATE_ID, 'a.md', 1) },
+        { locator: passage(LATE_ID, 'a.md', 9) },
+        { locator: passage(LATE_ID, 'z.md', 0) },
       ],
     });
   });
@@ -2012,16 +2024,16 @@ describe('knowledge_search unscoped cursor exclusion', () => {
     expect(result).toMatchObject({
       status: 'success',
       results: [
-        { knowledgeSpaceId: ANCHOR_ID, path: 'm.md', offset: 6 },
-        { knowledgeSpaceId: ANCHOR_ID, path: 'z.md', offset: 0 },
-        { knowledgeSpaceId: LATER_ID_SAME_AGE, path: 'a.md', offset: 0 },
-        { knowledgeSpaceId: LATER_ID_SAME_AGE, path: 'm.md', offset: 5 },
-        { knowledgeSpaceId: LATER_ID_SAME_AGE, path: 'm.md', offset: 6 },
-        { knowledgeSpaceId: LATER_ID_SAME_AGE, path: 'z.md', offset: 0 },
-        { knowledgeSpaceId: NEWER_ID_LOWER, path: 'a.md', offset: 0 },
-        { knowledgeSpaceId: NEWER_ID_LOWER, path: 'm.md', offset: 5 },
-        { knowledgeSpaceId: NEWER_ID_LOWER, path: 'm.md', offset: 6 },
-        { knowledgeSpaceId: NEWER_ID_LOWER, path: 'z.md', offset: 0 },
+        { ...attribution(ANCHOR_ID, 'm.md', 6) },
+        { ...attribution(ANCHOR_ID, 'z.md', 0) },
+        { ...attribution(LATER_ID_SAME_AGE, 'a.md', 0) },
+        { ...attribution(LATER_ID_SAME_AGE, 'm.md', 5) },
+        { ...attribution(LATER_ID_SAME_AGE, 'm.md', 6) },
+        { ...attribution(LATER_ID_SAME_AGE, 'z.md', 0) },
+        { ...attribution(NEWER_ID_LOWER, 'a.md', 0) },
+        { ...attribution(NEWER_ID_LOWER, 'm.md', 5) },
+        { ...attribution(NEWER_ID_LOWER, 'm.md', 6) },
+        { ...attribution(NEWER_ID_LOWER, 'z.md', 0) },
       ],
     });
   });
@@ -2056,7 +2068,7 @@ describe('knowledge_search unscoped cursor exclusion', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      results: [{ path: 'm.md', offset: 6 }],
+      results: [{ locator: passage(binding.id, 'm.md', 6) }],
     });
   });
 });
