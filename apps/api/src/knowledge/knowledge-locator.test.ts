@@ -111,16 +111,19 @@ describe('knowledge locator resolution', () => {
     ) => Promise<string>,
     calls: Array<ResolveCall>,
     abortSignal?: AbortSignal,
+    bindingCalls: Array<[string, string]> = [],
   ): ToolContext {
     const resolver: KnowledgeToolResolver = {
       listForOwnerPage: () => Promise.resolve({ spaces: [] }),
-      resolveBindingForOwnerById: () =>
-        Promise.resolve({
+      resolveBindingForOwnerById: (ownerUserId, knowledgeSpaceId) => {
+        bindingCalls.push([ownerUserId, knowledgeSpaceId]);
+        return Promise.resolve({
           id: SPACE,
           name: 'Personal',
           root: '/srv/knowledge',
           directory: `/srv/knowledge/${SPACE}`,
-        }),
+        });
+      },
       createAdapter: () => ({
         search: () => {
           throw new Error('not reached');
@@ -169,6 +172,25 @@ describe('knowledge locator resolution', () => {
     expect(calls).toStrictEqual([
       { relativePath: 'note.md', signal: controller.signal },
     ]);
+  });
+
+  // Identity comes from the authenticated Run owner on the context, never from
+  // the locator: the resolver must be asked for this owner's Space, so a
+  // caller-supplied identifier can only ever name a Space the owner holds.
+  it('looks the Space up as the trusted owner', async () => {
+    const calls: Array<ResolveCall> = [];
+    const bindingCalls: Array<[string, string]> = [];
+    await resolveKnowledgeLocator(
+      contextWithAdapter(
+        () => Promise.resolve(hostPath),
+        calls,
+        undefined,
+        bindingCalls,
+      ),
+      `kb://${SPACE}/note.md`,
+      `${SPACE}/note.md`,
+    );
+    expect(bindingCalls).toStrictEqual([['owner', SPACE]]);
   });
 
   it('carries a selector onto the resolved target', async () => {

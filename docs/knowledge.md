@@ -1,7 +1,9 @@
 # Personal Knowledge
 
-Opt-in, owner-scoped read access to live Markdown under multiple Knowledge
-Spaces. Disk contents are authoritative, including uncommitted edits.
+Opt-in, owner-scoped read access to live files under multiple Knowledge Spaces.
+`knowledge_search` indexes Markdown only; a `kb://` `read` opens any regular
+file in the Space. Disk contents are authoritative, including uncommitted
+edits.
 
 `knowledge_read` is deleted. Knowledge files are read through the native `read`
 tool's `kb://<knowledgeSpaceId>/<path>[:selector]` locator instead. See
