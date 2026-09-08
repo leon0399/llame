@@ -13,7 +13,7 @@ map a function unambiguously; ten API functions currently report that visible
 | Lines per file             |                      `<800` | Oxlint uses stricter 500        |
 | Line coverage              |                     `>=85%` | Vitest V8 thresholds            |
 | CRAP                       | goal `<=25`; ceiling `<=42` | `@barney-media/crap-typescript` |
-| Killed mutants             |                     `>=80%` | Stryker aggregate/package check |
+| Mutation score (MSI)       |                     `>=80%` | Stryker aggregate/package check |
 | Dead code                  |                         `0` | Knip                            |
 | Duplication                |                    `<0.25%` | jscpd                           |
 | `any` / unparsed `unknown` |                         `0` | Oxlint and anti-slop            |

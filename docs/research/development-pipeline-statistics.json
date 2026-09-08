@@ -1,0 +1,286 @@
+{
+  "measuredOn": "2026-09-08",
+  "baselineRevision": "811d0925f87d7d6977edf4763daa81079d849738",
+  "environment": {
+    "platform": "Linux",
+    "logicalCpus": 16,
+    "node": "22.23.2",
+    "pnpm": "11.22.0",
+    "prettier": "3.5.1",
+    "stryker": "9.6.1"
+  },
+  "workflowSamples": {
+    "master": [
+      {
+        "id": 34213677394,
+        "conclusion": "success",
+        "seconds": 664
+      },
+      {
+        "id": 34160230903,
+        "conclusion": "success",
+        "seconds": 4798
+      },
+      {
+        "id": 34158367140,
+        "conclusion": "success",
+        "seconds": 652
+      },
+      {
+        "id": 34153186559,
+        "conclusion": "success",
+        "seconds": 669
+      },
+      {
+        "id": 34152535764,
+        "conclusion": "cancelled",
+        "seconds": 597
+      },
+      {
+        "id": 34151048417,
+        "conclusion": "success",
+        "seconds": 639
+      },
+      {
+        "id": 34141467063,
+        "conclusion": "success",
+        "seconds": 587
+      },
+      {
+        "id": 34138348382,
+        "conclusion": "success",
+        "seconds": 694
+      },
+      {
+        "id": 34110919211,
+        "conclusion": "success",
+        "seconds": 4638
+      },
+      {
+        "id": 34062655586,
+        "conclusion": "success",
+        "seconds": 4883
+      },
+      {
+        "id": 34058120731,
+        "conclusion": "cancelled",
+        "seconds": 5434
+      },
+      {
+        "id": 34057800124,
+        "conclusion": "cancelled",
+        "seconds": 373
+      },
+      {
+        "id": 34057116838,
+        "conclusion": "cancelled",
+        "seconds": 809
+      },
+      {
+        "id": 34056867317,
+        "conclusion": "cancelled",
+        "seconds": 290
+      },
+      {
+        "id": 34051465714,
+        "conclusion": "cancelled",
+        "seconds": 6191
+      }
+    ],
+    "pullRequests": [
+      {
+        "id": 34217336527,
+        "conclusion": "success",
+        "seconds": 607
+      },
+      {
+        "id": 34217336759,
+        "conclusion": "success",
+        "seconds": 621
+      },
+      {
+        "id": 34217335368,
+        "conclusion": "cancelled",
+        "seconds": 3
+      },
+      {
+        "id": 34217335439,
+        "conclusion": "cancelled",
+        "seconds": 2
+      },
+      {
+        "id": 34217335470,
+        "conclusion": "success",
+        "seconds": 650
+      },
+      {
+        "id": 34213900006,
+        "conclusion": "failure",
+        "seconds": 965
+      },
+      {
+        "id": 34213898621,
+        "conclusion": "failure",
+        "seconds": 902
+      },
+      {
+        "id": 34213899271,
+        "conclusion": "failure",
+        "seconds": 920
+      },
+      {
+        "id": 34213898728,
+        "conclusion": "cancelled",
+        "seconds": 2
+      },
+      {
+        "id": 34213898212,
+        "conclusion": "cancelled",
+        "seconds": 3
+      },
+      {
+        "id": 34213501399,
+        "conclusion": "success",
+        "seconds": 587
+      },
+      {
+        "id": 34209979124,
+        "conclusion": "failure",
+        "seconds": 2276
+      }
+    ],
+    "lint": [
+      {
+        "id": 34213677248,
+        "conclusion": "success",
+        "seconds": 63
+      },
+      {
+        "id": 34160230895,
+        "conclusion": "success",
+        "seconds": 83
+      },
+      {
+        "id": 34158367049,
+        "conclusion": "success",
+        "seconds": 60
+      },
+      {
+        "id": 34153186542,
+        "conclusion": "success",
+        "seconds": 68
+      },
+      {
+        "id": 34152535871,
+        "conclusion": "success",
+        "seconds": 61
+      },
+      {
+        "id": 34151048439,
+        "conclusion": "success",
+        "seconds": 67
+      },
+      {
+        "id": 34141467089,
+        "conclusion": "success",
+        "seconds": 61
+      },
+      {
+        "id": 34138348433,
+        "conclusion": "success",
+        "seconds": 71
+      },
+      {
+        "id": 34110919219,
+        "conclusion": "success",
+        "seconds": 70
+      },
+      {
+        "id": 34062655601,
+        "conclusion": "success",
+        "seconds": 62
+      }
+    ]
+  },
+  "referenceRuns": [
+    {
+      "id": 34160230903,
+      "runnerSeconds": 26445,
+      "apiShardSeconds": [2587, 2485, 4611, 1916, 2676, 3295, 3286, 4069],
+      "shard3": {
+        "cache": "miss",
+        "strykerSeconds": 4570,
+        "dryRunSeconds": 119,
+        "tests": 2854
+      }
+    },
+    {
+      "id": 34213677394,
+      "runnerSeconds": 2519,
+      "apiShardSeconds": [197, 188, 194, 186, 210, 183, 197, 192],
+      "shard3": {
+        "cache": "hit",
+        "strykerSeconds": 146,
+        "dryRunSeconds": 118,
+        "tests": 2854,
+        "reused": 2595,
+        "totalMutants": 2862
+      }
+    }
+  ],
+  "local": {
+    "baseline": [
+      {
+        "command": "pnpm format:check",
+        "seconds": [32.83008036398, 29.360338927980003, 29.292744838980003],
+        "exitCodes": [0, 0, 0]
+      },
+      {
+        "command": "pnpm lint",
+        "seconds": [21.855867215980002, 21.67960886298, 20.40773610598],
+        "exitCodes": [1, 1, 1]
+      },
+      {
+        "command": "pnpm typecheck",
+        "seconds": [0.89109304098, 0.95139967398, 0.91065841898],
+        "exitCodes": [0, 0, 0]
+      },
+      {
+        "command": "pnpm test",
+        "seconds": [109.80744936598, 108.22599888998, 109.92865263598],
+        "exitCodes": [0, 0, 0]
+      }
+    ],
+    "formattingCache": {
+      "initialSeconds": 28.71186941908,
+      "warmSeconds": [4.41234811508, 4.41804685808]
+    },
+    "hooks": [
+      {
+        "command": "LEFTHOOK_CONFIG=/tmp/llame-pre-push-sequential.yml pnpm exec lefthook run pre-push",
+        "seconds": [35.24905603808, 24.917630200079998, 24.14881364608],
+        "exitCodes": [0, 0, 0]
+      },
+      {
+        "command": "pnpm exec lefthook run pre-push",
+        "seconds": [19.78446373108, 19.275104760079998, 19.30380854608],
+        "exitCodes": [0, 0, 0]
+      }
+    ],
+    "mutation": {
+      "file": "apps/api/src/chats/tool-observation-neutralizer.ts",
+      "relatedOffSeconds": 230.78659506668,
+      "relatedOnSeconds": 162.93822471368,
+      "runsPerMode": 1,
+      "identicalMutantsAndStatuses": true,
+      "killed": 3,
+      "compileError": 19,
+      "score": 100
+    },
+    "failedHookBaseline": {
+      "command": "pnpm exec lefthook run pre-push",
+      "seconds": [51.23039023394, 59.704825388939994],
+      "exitCodes": [1, 1]
+    }
+  }
+}

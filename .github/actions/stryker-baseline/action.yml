@@ -30,27 +30,10 @@ runs:
       env:
         CACHE_SUFFIX: ${{ inputs.cache-suffix }}
         TRUST: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'trusted' }}
-        INPUT_HASH: >-
-          ${{ hashFiles(
-            'pnpm-lock.yaml',
-            'pnpm-workspace.yaml',
-            'package.json',
-            '.node-version',
-            '.github/actions/setup/action.yml',
-            '.github/actions/stryker-baseline/action.yml',
-            'scripts/mutation-sharding.mjs',
-            'apps/api/package.json',
-            'apps/api/stryker.config.*',
-            'apps/api/vitest*.config.*',
-            'apps/api/tsconfig*.json',
-            'apps/api/{openapi.json,nest-cli.json,llame.config.json.example,src/instance-config/llame.config.schema.json,src/prompts/chat-default.md,src/search/chat/eval/BASELINE.md,src/search/chat/eval/dataset.ts,src/mcp/**/*.mjs,src/testing/**,src/db/migrations/**/*.sql,src/db/migrations/meta/**/*.json}',
-            'packages/config-interpolation/{package.json,src/**,tsconfig*.json}',
-            'packages/runtime-safety/{package.json,src/**,tsconfig*.json,vitest.config.*,stryker.config.*}',
-            'packages/native-file-tools/{package.json,src/**,tsconfig*.json,vitest.config.*}',
-            'packages/config-typescript/{package.json,base.json}'
-          ) }}
+        MUTATION_WORKSPACE: ${{ inputs.workspace }}
       run: |
-        echo "prefix=stryker-v3-${RUNNER_OS}-${INPUT_HASH}-${CACHE_SUFFIX}-" >> "$GITHUB_OUTPUT"
+        input_hash=$(node scripts/mutation-sharding.mjs fingerprint --workspace "$MUTATION_WORKSPACE")
+        echo "prefix=stryker-v4-${RUNNER_OS}-${input_hash}-${CACHE_SUFFIX}-" >> "$GITHUB_OUTPUT"
         echo "trust=${TRUST}" >> "$GITHUB_OUTPUT"
 
     - name: Restore compatible mutation baseline

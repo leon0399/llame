@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-08
 
+- Reduce development pipeline latency (#730): scope PR/local mutation to changed
+  files with full-workspace fallbacks, preserve compatible incremental baselines,
+  select related API tests, and reject failed or incomplete shard results.
+  Cache formatting by content, reuse correctly invalidated workspace lint, and
+  run independent push checks together. API integration coverage starts after
+  typecheck. Record measured timings and remaining options in
+  `docs/research/development-pipeline.md`.
+
 - **Breaking** Read, edit, and write owner Knowledge through a `kb://` locator
   on the native file tools, and delete `knowledge_read` (#702, #691). The
   scheme of the `path` argument now selects the authority: an absolute path
