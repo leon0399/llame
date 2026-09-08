@@ -22,13 +22,15 @@ requirement block.
   does not re-execute it. The process-local directory fence and command-digest
   block list are deleted; an unknown outcome terminates the Run that issued it
   and affects no other Run.
-- **BREAKING** `bash` takes an optional per-call `cwd`. Each call is a fresh
+- **BREAKING** (input schema, declaration cutover) `bash` takes an optional
+  per-call `cwd`. Each call is a fresh
   process; nothing persists between calls, and the tool description says so.
   The shipped shared-directory requirement between bash and native file tools
-  is reduced to what is true on a host: both operate on the same live host
-  filesystem as the same OS user. `workspace_mismatch` and the tautological
-  same-directory assertion are removed.
-- `bash` takes an optional per-call `env`, additive only. The child starts from
+  is replaced by what is true on a host: both operate on the same live host
+  filesystem as the same OS user. `workspace_mismatch`, the tautological
+  same-directory assertion, and the mismatched-executor scenario are removed.
+- **BREAKING** (same schema, same cutover) `bash` takes an optional per-call
+  `env`, additive only. The child starts from
   a fixed base (`PATH`, `LANG`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `TERM`).
   Any `env` key that names a base variable is rejected, whichever one it is;
   `PATH` is the case that matters most, since it decides which binary a name
@@ -56,8 +58,9 @@ None.
 ## Impact
 
 `packages/bash-executor`: `watch.ts` deadline settlement, `attempt-ledger.ts`
-(shrinks to per-session state), `sanitize.ts` (two passes and `WIDENING_KEYS`
-deleted, `env` and `cwd` admitted), `execute.ts` spawn environment,
+(shrinks to per-session state), `sanitize.ts` (two passes, `WIDENING_KEYS`, and
+`parseCommandInput` deleted; the zod schema in `bash.ts` is the argument
+boundary), `execute.ts` spawn environment,
 `workspace.ts` and `types.ts` (`workspace_mismatch`,
 `fileToolsWorkingDirectory`, and `BashExecutorContext` fields removed,
 `timed_out` added). `apps/api/src/tools/bash.ts`: input schema, attempt

@@ -49,7 +49,7 @@ binds the executor, refuses a replayed tool-call id through `priorOutcome`,
 and appends `native.attempt`; the mutation then appends `native.result`. A Run
 claimed on another worker with a `native.attempt` and a bound worker is failed
 with `outcome_unknown` before anything re-executes
-(`run-execution.service.ts:311-345`).
+(`run-execution.service.ts:309-343`).
 
 ## Goals / Non-Goals
 
@@ -77,13 +77,26 @@ Non-goals:
 
 ### D1: Timeout classification follows the same proof as exit and cancel
 
-`settleDeadline` stops the process group, then waits for quiescence exactly as
-`settleExit` does. Proven stopped is a known `timed_out` result carrying the
+`settleDeadline` stops the process group, then waits for the group to empty
+exactly as `settleExit` does. Empty is a known `timed_out` result carrying the
 bounded stdout and stderr captured before the kill and the deadline that
-fired; unproven is `outcome_unknown`. The spec listed timeout as unknown
-unconditionally because the alpha never proved a kill; the cancel path already
-proves one and reports `cancelled` as known, so this aligns the third path
-with the other two. Every surveyed peer preserves partial output on timeout.
+fired; not provably empty is `outcome_unknown`. The spec listed timeout as
+unknown unconditionally because the alpha never proved a kill; the cancel path
+already proves one and reports `cancelled` as known, so this aligns the third
+path with the other two. Every surveyed peer preserves partial output on
+timeout.
+
+The proof is `kill(-pgid, 0)` (`process-tree.ts:4-11`): a process group probe.
+A descendant that calls `setsid` leaves the group and is invisible to it; the
+shipped spec said "process tree and descendants", which the code never
+delivered. The delta says "process group" and states the gap. A tree-wide
+mechanism (cgroup or a `/proc` session scan) is a later change if a real case
+needs it; none of the surveyed peers has one either.
+
+A process that never started is a known refusal, never unknown. Today
+`watch.ts:61-64` maps an undefined pid to `outcome_unknown`, and a `cwd` that
+is a regular file makes `spawn` throw synchronously out of the executor. Both
+become `unavailable`: nothing executed, so nothing is uncertain.
 
 Alternative: keep timeout unknown and only add a release path. Rejected: it
 leaves a clean kill indistinguishable from surviving descendants and aborts
@@ -97,6 +110,17 @@ process starts, and appends `native.result` with the tool-call id and the
 result after. This is the mechanism the spec described and the alpha did not
 build; it already exists a directory away, so the ladder stops at reuse.
 
+The executor is split at its existing seam: admission (`admitExecution`, the
+bound, process-limit, tool-set, fence, and pre-abort checks) returns either a
+refusal or a run request, and `bash.ts` records the attempt between the two,
+so a refused call never writes `native.attempt` and never sets `hasMutation`.
+Bash also joins the pre-execute progress gate that native tools use
+(`run-execution.service.ts:653-657`, keyed on `isHostCapabilityTool`), since
+its attempt is now durable for the same reason. The recovery message at
+`run-execution.service.ts:333-334` and `native-files-repository.ts:160-162`
+widens from "native mutation" to "host command or mutation", because
+`hasMutation` cannot tell the two apart.
+
 Consequences, all deletions:
 
 - `fencedDirectories`, `isDirectoryFenced`, `clearFence`,
@@ -106,9 +130,12 @@ Consequences, all deletions:
   unknown.
 - `hasMutation(runId)` becomes true for a Run that ran bash, so a queue
   resume on another worker after a lost worker fails the Run with
-  `outcome_unknown` instead of re-executing the command; `priorOutcome`
-  returns the recorded result for a replayed tool-call id. Both are the
-  behaviors the spec scenarios required and nothing implemented.
+  `outcome_unknown` instead of re-executing the command. `priorOutcome` also
+  answers a replayed tool-call id, but a re-claim appends a new `run.started`
+  first and the delivery-sequence check refuses the stale context before
+  `priorOutcome` is consulted, so for bash it is defense in depth rather than
+  a live path. The worker-loss refusal is the behavior the spec scenario
+  required and nothing implemented.
 - A `native.attempt` for bash records the working directory as its `path`.
   Absolute-path native attempts already record absolute host paths in the
   same event, so this adds no new class of stored data.
@@ -135,26 +162,43 @@ the alpha. Cross-Run protection through a directory key was a heuristic with
 permanent cost: an unknown command can mutate anywhere, the fence was
 process-local and invisible to a second worker, and native `edit` and `write`
 never consulted it. The submit scenario keeps its wording; #212 implements it
-durably against the same `native.attempt` events when it lands.
+durably against the same `native.attempt` events when it lands. The shipped
+"does not rerun the command under another tool-call ID" is kept in the
+requirement text rather than as a scenario: with the digest set gone, the
+guarantee rests on the Run terminating and on the durable attempt, not on a
+command fingerprint.
+
+This reverses the recommendation recorded in #733's body ("the directory key
+stays for the per-call `cwd`"), which was written before D2's reuse was
+measured. Recorded here so the reversal is reviewed, not slipped.
 
 ### D4: Per-call `cwd`, resolved against the host default, nothing persists
 
 `cwd` is optional. It is resolved with `path.resolve(default, cwd)` so an
 absolute path is taken as given and a relative one is taken from the host
-default (`BASH_WORKING_DIRECTORY` or the process cwd). It must exist and be a
-directory, checked before the attempt is recorded; otherwise the result is
-`unavailable` in openclaw's shape: the command did not run, the argument was
+default (`BASH_WORKING_DIRECTORY` or the process cwd). It must be an
+enterable directory, probed with `opendir` before the attempt is recorded, so
+a directory with mode `000` or one that is a regular file is refused up front;
+a `spawn` that still fails with no pid (the directory vanished in between,
+`EACCES`) is the same `unavailable` refusal, never `outcome_unknown`. The
+refusal takes openclaw's shape: the command did not run, the argument was
 taken literally with no `~` or variable expansion, and the model can list the
 parent or create the directory. `cwd` leaves `WIDENING_KEYS`; the whole set is
 deleted with `parseCommandInput`, since the zod schema is the boundary that
-actually enforces the argument set. The description states that each call is a
-fresh process. Of the six peers, hermes and deepseek-harness say so and
-openclaw does not, and that omission is the gap a model falls into.
+actually enforces the argument set. A call carrying any other key is refused
+by the runner as `invalid_input` before the tool runs, with the runner's
+generic message; only the `env` collision below runs inside the tool and can
+name its key. The description states that each call is a fresh process. Of the
+six peers, hermes and deepseek-harness say so and openclaw does not, and that
+omission is the gap a model falls into.
 
-R2 is reduced to the same-filesystem statement; `fileToolsWorkingDirectory`,
-`assertSharedWorkingDirectory`, and `workspace_mismatch` are removed with the
-tautology they encoded. The "Mismatched executor fails closed" scenario goes
-with them: there is one host and no second executor to mismatch.
+R2 is removed and replaced by a same-filesystem requirement, because a
+MODIFIED block must keep its name and its scenarios and the name is now
+false. `fileToolsWorkingDirectory`, `assertSharedWorkingDirectory`, and
+`workspace_mismatch` go with the tautology they encoded, and the "Mismatched
+executor fails closed" scenario is dropped rather than kept: there is one host
+and no second executor to mismatch, and a scenario with no reachable path and
+no covering task is the shape this proposal removes elsewhere.
 
 ### D5: Child environment is a declared base plus additive per-call `env`
 
@@ -162,9 +206,12 @@ Base: `PATH` (the managed value, as today), `LANG=C.UTF-8`, `HOME`, `TMPDIR`,
 `USER`, `LOGNAME` copied from the llame process when set, and `TERM=dumb`.
 Today's `PATH`-and-`LANG` child cannot read `~/.gitconfig`, has no user site
 directory, and cannot resolve a pnpm store. Per-call `env` is a string record;
-a key equal to a base name is rejected before the attempt is recorded, so
-`PATH` cannot redirect which binary a name resolves to. Keys and values count
-toward the existing input bound. The parent environment is never inherited
+a key equal to a base name is rejected before the attempt is recorded, and the
+refusal names the key. This is an argument-shape rule, not containment: the
+model can write `PATH=/x foo` inside the command text on any call. What the
+rule buys is that the child's environment as declared is the child's
+environment as observed, so a test can assert it and an operator can read it.
+Keys and values count toward the existing input bound. The parent environment is never inherited
 wholesale, which is the posture the MCP stdio contract already takes and the
 opposite of oh-my-pi's `{ ...Bun.env }`.
 
@@ -186,6 +233,14 @@ with no marker, so a Python traceback vanished and a data line beginning
 inert today because `bash.ts` passes none, and nothing in scope supplies any;
 it stays as the seam R3 names.
 
+One rewriting layer is deliberately kept and now named in R3: every non-native
+tool result passes through `neutralizeToolResult`
+(`apps/api/src/chats/tool-observation-neutralizer.ts`), which entity-escapes
+reserved tool delimiters such as `</tool-result>` in the copy the model reads
+and passes every other byte through. Bash is not a native file tool and stays
+on that path. R3's verbatim guarantee is scoped to the executor result so no
+implementer reads it as licence to exempt bash from neutralization.
+
 Knowledge host paths, stated: `knowledge-tools` §11, §180, and §212 keep the
 configured root and resolved host paths out of `kb://` results and
 `knowledge_search`. With the path pass gone, `find / -name '*.md'` prints the
@@ -197,11 +252,12 @@ so instead of implying a boundary the alpha never had.
 
 ### D7: Result shapes
 
-`timed_out` is an error result whose `message` carries the deadline and the
-bounded streams in the same layout `command_failed` uses today, because the
-tool-result contract is `{ status, type, message }` for errors. Known results
-are unchanged. A rejected `cwd` or `env` is `unavailable` with a message
-naming the argument, so the model learns the rule from the refusal.
+`timed_out` is an error result whose `message` carries the deadline, the
+bounded streams, and whether either stream was cut, in the same layout
+`command_failed` uses today, because the tool-result contract is
+`{ status, type, message }` for errors. Known results are unchanged. A
+rejected `cwd` or `env` collision is `unavailable` with a message naming the
+argument, so the model learns the rule from the refusal.
 
 ### D8: Tool description
 
@@ -213,8 +269,9 @@ output. `chat-default.md` gains one sentence on non-persistence.
 
 ## Threats
 
-- Model redirects binary resolution through `env` → base keys are rejected
-  before the attempt; `PATH` stays the managed value.
+- Model sets a base key through `env` → rejected before the attempt with the
+  key named. This does not contain the model, which can set `PATH` inside
+  the command text; it keeps the declared environment honest (D5).
 - llame credentials reach a child → the child receives the declared base and
   the call's `env` only; a test asserts a printed environment holds no llame
   variable.
@@ -233,17 +290,18 @@ output. `chat-default.md` gains one sentence on non-persistence.
 
 ## Migration Plan
 
-1. Land the proposal; then `timeout-fence` (D1, D2, D3), `cwd-env` (D4, D5),
-   `output-fidelity` (D6, D7, D8), `finalize`.
+1. Land the proposal; then `timeout-fence` (D1, D2, D3, D7), `cwd-env` (D4,
+   D5, D8), `output-fidelity` (D6), `finalize`. Each shipping layer adds its
+   own dated changelog entry and its own `SPEC.md` §13.8 sentence.
 2. No database migration and no configuration change.
    `BASH_WORKING_DIRECTORY` keeps its meaning as the default directory.
 3. The `bash` input schema and description change, so the deploy follows the
    existing declaration cutover: quiesce Run acceptance, drain Runs bound to
    the prior declaration, deploy matching API and worker binaries, resume.
-4. Rollback restores the process-local ledger; existing `native.attempt`
-   events with `operation: 'bash'` are ignored by the older code's
-   `hasMutation` only if it is changed to filter them, so roll back the API
-   and worker together before any Run has run bash on the new build.
+4. Rollback restores the process-local ledger. The older `hasMutation` does
+   not filter by operation, so a rolled-back worker resuming a Run that ran
+   bash on the new build fails it with `outcome_unknown`: the conservative
+   direction, with no code change needed.
 
 ## Risks / Trade-offs
 
@@ -261,6 +319,25 @@ output. `chat-default.md` gains one sentence on non-persistence.
   to own a boundary it never sat on.
 - [Unpinned peer line cites] → the design pins none; the issues carry the
   disclosure and each cite was verified against a clone on the stated dates.
+
+## Revision history
+
+- **v2 (2026-09-08):** Review round 2 (two independent reviewers). R2 becomes
+  REMOVED plus ADDED so the name and the mismatched-executor scenario go
+  (H-F4, I-F1). `cwd` predicate is "enterable" and a no-pid spawn is a known
+  refusal (H-F1). Quiescence is stated as a process-group proof with the
+  `setsid` gap named (H-F2). `PATH` claims rewritten as an argument-shape
+  rule; base-key collision gets its own scenario and the widening scenario
+  covers unknown keys with the runner's generic refusal (H-F3, I-F2). R3
+  scoped to the executor result with neutralization named (I-F3). §13.8
+  rewritten once in task 1.6 to defer to the spec (I-F4). Admission-before-
+  attempt seam, progress gate, recovery message, `priorOutcome` reach, D7/D8
+  layer assignment, changelog per layer, `timed_out` truncation note,
+  rollback wording, `LANG` pin, BREAKING on both schema bullets, line-range
+  cite (H-P2 1-7, I-F5-F9). D3 now records that it reverses #733's own key
+  recommendation.
+- **v1 (2026-09-08):** Initial proposal; round 1 (plannotator) clarified that
+  every base env collision is rejected.
 
 ## Open Questions
 
