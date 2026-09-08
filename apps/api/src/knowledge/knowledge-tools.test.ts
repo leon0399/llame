@@ -2,7 +2,6 @@ import { ZodError } from 'zod';
 
 import {
   KNOWLEDGE_CONTENT_NOTICE,
-  knowledgeReadTool,
   knowledgeSearchTool,
   KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS,
 } from './knowledge-tools';
@@ -127,20 +126,17 @@ function multiSpaceContext(
 }
 
 describe('Knowledge tool declarations', () => {
-  it('declares both tools read-only with strict model-only arguments', () => {
+  it('declares search read-only with strict model-only arguments', () => {
     expect(knowledgeSearchTool.id).toBe('knowledge_search');
-    expect(knowledgeReadTool.id).toBe('knowledge_read');
     expect(knowledgeSearchTool.classification).toBe('read_only');
-    expect(knowledgeReadTool.classification).toBe('read_only');
     expect(knowledgeSearchTool.description).toMatch(/untrusted|stale/iu);
     expect(knowledgeSearchTool.description).toMatch(/relative path/iu);
     expect(knowledgeSearchTool.description).toMatch(/verify|volatile/iu);
-    expect(knowledgeReadTool.description).toMatch(/untrusted|stale/iu);
-    expect(knowledgeReadTool.description).toMatch(/^Deprecated:/u);
+    expect(knowledgeSearchTool.description).toMatch(/kb:\/\//u);
     expect(KNOWLEDGE_CONTENT_NOTICE).toMatch(/owner-maintained/iu);
     expect(KNOWLEDGE_CONTENT_NOTICE).toMatch(/untrusted|stale/iu);
 
-    for (const tool of [knowledgeSearchTool, knowledgeReadTool]) {
+    for (const tool of [knowledgeSearchTool]) {
       const schema = tool.inputSchema;
       if (!isZodSchema(schema)) {
         throw new Error('Expected a Zod schema');
@@ -193,59 +189,6 @@ describe('Knowledge tool declarations', () => {
     expect(() => {
       schema.parse({ query: 'x', cursor: 'x', extra: true });
     }).toThrow(ZodError);
-  });
-
-  it('requires exactly one read path', () => {
-    const schema = knowledgeReadTool.inputSchema;
-    if (!isZodSchema(schema)) {
-      throw new Error('Expected a Zod schema');
-    }
-    expect(() => {
-      schema.parse({ path: 'notes/a.md' });
-    }).toThrow(ZodError);
-    expect(() => {
-      schema.parse({ path: 'notes/a.md', root: '/srv' });
-    }).toThrow(ZodError);
-    expect(
-      schema.parse({ path: 'notes/a.md', knowledgeSpaceId: binding.id }),
-    ).toEqual({ path: 'notes/a.md', knowledgeSpaceId: binding.id });
-  });
-
-  it('accepts bounded zero-based read ranges and rejects unsafe values', () => {
-    const schema = knowledgeReadTool.inputSchema;
-    if (!isZodSchema(schema)) {
-      throw new Error('Expected a Zod schema');
-    }
-    expect(
-      schema.parse({
-        path: 'notes/a.md',
-        knowledgeSpaceId: binding.id,
-        offset: 0,
-        limit: 2000,
-      }),
-    ).toEqual({
-      path: 'notes/a.md',
-      knowledgeSpaceId: binding.id,
-      offset: 0,
-      limit: 2000,
-    });
-    for (const invalid of [
-      { offset: -1 },
-      { offset: 1.5 },
-      { offset: Number.MAX_SAFE_INTEGER + 1 },
-      { limit: 0 },
-      { limit: 2001 },
-      { limit: 1.5 },
-      { limit: Number.MAX_SAFE_INTEGER + 1 },
-    ]) {
-      expect(() => {
-        void schema.parse({
-          path: 'notes/a.md',
-          knowledgeSpaceId: binding.id,
-          ...invalid,
-        });
-      }).toThrow(ZodError);
-    }
   });
 });
 
@@ -1546,166 +1489,6 @@ describe('knowledge_search', () => {
   });
 });
 
-describe('knowledge_read', () => {
-  it('forwards optional ranges and preserves continuation metadata without hashes', async () => {
-    const read = vi.fn<KnowledgeFilesystemAdapterPort['read']>(() =>
-      Promise.resolve({
-        path: 'notes/a.md',
-        offset: 4,
-        lineCount: 2,
-        content: '5: fifth\n6: sixth\n',
-        nextOffset: 6,
-      }),
-    );
-    const result = await knowledgeReadTool.execute(
-      context(fakeAdapter({ read })),
-      {
-        knowledgeSpaceId: binding.id,
-        path: 'notes/a.md',
-        offset: 4,
-        limit: 2,
-      },
-    );
-
-    const readCall = read.mock.calls[0];
-    expect(readCall?.[0]).toBe('notes/a.md');
-    expect(readCall?.[1]).toMatchObject({
-      signal: undefined,
-      offset: 4,
-      limit: 2,
-    });
-    expect(readCall?.[1]?.maxResultCodeUnits).toBe(
-      KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS,
-    );
-    expect(readCall?.[1]?.fixedResultCodeUnits).toBeGreaterThan(0);
-    expect(result).toEqual({
-      status: 'success',
-      knowledgeSpaceId: binding.id,
-      knowledgeSpaceName: binding.name,
-      path: 'notes/a.md',
-      offset: 4,
-      lineCount: 2,
-      content: '5: fifth\n6: sixth\n',
-      nextOffset: 6,
-      notice: KNOWLEDGE_CONTENT_NOTICE,
-    });
-    expect(result).not.toHaveProperty('contentHash');
-  });
-
-  it('preserves the adapter cut reason when a bounded read continues', async () => {
-    const adapter = fakeAdapter({
-      read: vi.fn(() =>
-        Promise.resolve({
-          path: 'notes/a.md',
-          offset: 0,
-          lineCount: 2,
-          content: '1: first\n2: second',
-          nextOffset: 2,
-          cutReason: 'line_limit' as const,
-        }),
-      ),
-    });
-
-    await expect(
-      knowledgeReadTool.execute(context(adapter), {
-        knowledgeSpaceId: binding.id,
-        path: 'notes/a.md',
-        limit: 2,
-      }),
-    ).resolves.toMatchObject({
-      status: 'success',
-      nextOffset: 2,
-      cutReason: 'line_limit',
-    });
-  });
-
-  it('returns the closed range error from the adapter', async () => {
-    const adapter = fakeAdapter({
-      read: vi.fn(() =>
-        Promise.reject(new KnowledgeFilesystemError('knowledge_range_invalid')),
-      ),
-    });
-
-    await expect(
-      knowledgeReadTool.execute(context(adapter), {
-        knowledgeSpaceId: binding.id,
-        path: 'notes/a.md',
-        offset: 99,
-      }),
-    ).resolves.toEqual({
-      status: 'error',
-      type: 'knowledge_range_invalid',
-      message: 'The Knowledge line range is invalid.',
-    });
-  });
-
-  it('returns complete live content and exact attribution', async () => {
-    const result = await knowledgeReadTool.execute(context(), {
-      knowledgeSpaceId: binding.id,
-      path: 'notes/a.md',
-    });
-
-    expect(result).toEqual({
-      status: 'success',
-      knowledgeSpaceId: binding.id,
-      knowledgeSpaceName: binding.name,
-      path: 'notes/a.md',
-      offset: 0,
-      lineCount: 1,
-      content: '1: note',
-      notice: KNOWLEDGE_CONTENT_NOTICE,
-    });
-    expect(result).not.toHaveProperty('contentHash');
-  });
-
-  it('returns a whole-operation limit error instead of partial content', async () => {
-    const adapter = fakeAdapter({
-      read: vi.fn(() =>
-        Promise.resolve({
-          path: 'notes/a.md',
-          content: 'x'.repeat(KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS),
-          offset: 0,
-          lineCount: 1,
-        }),
-      ),
-    });
-
-    const result = await knowledgeReadTool.execute(context(adapter), {
-      knowledgeSpaceId: binding.id,
-      path: 'notes/a.md',
-    });
-
-    expect(result).toMatchObject({
-      status: 'error',
-      type: 'knowledge_limit_exceeded',
-    });
-    expect(JSON.stringify(result)).not.toContain('x'.repeat(100));
-  });
-
-  it('preflights JavaScript UTF-16 code units rather than UTF-8 bytes', async () => {
-    const adapter = fakeAdapter({
-      read: vi.fn(() =>
-        Promise.resolve({
-          path: 'notes/a.md',
-          content: '😀'.repeat(6000),
-          offset: 0,
-          lineCount: 1,
-        }),
-      ),
-    });
-
-    const result = await knowledgeReadTool.execute(context(adapter), {
-      knowledgeSpaceId: binding.id,
-      path: 'notes/a.md',
-    });
-
-    expect(result.status).toBe('success');
-    expect(JSON.stringify(result).length).toBeLessThanOrEqual(
-      KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS,
-    );
-  });
-});
-
 describe('Knowledge tool failure boundaries', () => {
   it('reports unavailable when trusted worker binding is not injected', async () => {
     const result = await knowledgeSearchTool.execute(
@@ -1733,31 +1516,15 @@ describe('Knowledge tool failure boundaries', () => {
     });
   });
 
-  it('maps resolver and adapter failures without exposing private paths', async () => {
-    const resolverResult = await knowledgeReadTool.execute(
+  it('maps resolver failures without exposing private paths', async () => {
+    const resolverResult = await knowledgeSearchTool.execute(
       context(undefined, binding, new Error('/srv/knowledge secret')),
-      { knowledgeSpaceId: binding.id, path: 'notes/a.md' },
+      { query: 'needle', limit: 5, knowledgeSpaceId: binding.id },
     );
     expect(resolverResult).toEqual({
       status: 'error',
       type: 'knowledge_space_unavailable',
       message: 'The Knowledge Space is unavailable.',
-    });
-
-    const adapter = fakeAdapter({
-      read: vi.fn(() =>
-        Promise.reject(new KnowledgeFilesystemError('knowledge_path_invalid')),
-      ),
-    });
-    await expect(
-      knowledgeReadTool.execute(context(adapter), {
-        knowledgeSpaceId: binding.id,
-        path: 'bad.md',
-      }),
-    ).resolves.toEqual({
-      status: 'error',
-      type: 'knowledge_path_invalid',
-      message: 'The Knowledge path is invalid.',
     });
   });
 
@@ -1772,25 +1539,11 @@ describe('Knowledge tool failure boundaries', () => {
           );
         },
       ),
-      read: vi.fn<KnowledgeFilesystemAdapterPort['read']>(
-        (_path, options = {}) => {
-          expect(options.signal).toBe(abort.signal);
-          return Promise.reject(
-            new KnowledgeFilesystemError('knowledge_cancelled'),
-          );
-        },
-      ),
     });
     const toolContext = { ...context(adapter), abortSignal: abort.signal };
 
     await expect(
       knowledgeSearchTool.execute(toolContext, { query: 'x', limit: 5 }),
-    ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
-    await expect(
-      knowledgeReadTool.execute(toolContext, {
-        knowledgeSpaceId: binding.id,
-        path: 'note.md',
-      }),
     ).rejects.toMatchObject({ code: 'knowledge_cancelled' });
   });
 

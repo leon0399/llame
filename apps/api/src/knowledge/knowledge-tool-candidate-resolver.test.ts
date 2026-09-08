@@ -8,7 +8,7 @@ import {
 import * as schema from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
-import { knowledgeReadTool, knowledgeSearchTool } from './knowledge-tools';
+import { knowledgeSearchTool } from './knowledge-tools';
 import {
   KnowledgeToolCandidateResolver,
   type KnowledgeToolCandidateResolverInput,
@@ -135,15 +135,10 @@ describe('KnowledgeToolCandidateResolver', () => {
         state: 'available',
         tool: knowledgeSearchTool,
       },
-      {
-        source: { type: 'code_owned' },
-        state: 'available',
-        tool: knowledgeReadTool,
-      },
     ]);
   });
 
-  it('keeps both Knowledge tools callable when configured root has zero owner rows', async () => {
+  it('keeps knowledge_search callable when configured root has zero owner rows', async () => {
     const findForOwnerForBinding = vi.spyOn(
       KnowledgeSpaceRepository.prototype,
       'findForOwnerForBinding',
@@ -162,7 +157,7 @@ describe('KnowledgeToolCandidateResolver', () => {
     ).toEqual([]);
   });
 
-  it('marks Knowledge tools unavailable when the configured root is absent', async () => {
+  it('marks knowledge_search unavailable when the configured root is absent', async () => {
     const findForOwnerForBinding = vi.spyOn(
       KnowledgeSpaceRepository.prototype,
       'findForOwnerForBinding',
@@ -170,7 +165,7 @@ describe('KnowledgeToolCandidateResolver', () => {
     const resolver = new KnowledgeToolCandidateResolver(makeConfig(undefined));
 
     const candidates = await makeInput(resolver, {
-      allowedToolRules: ['knowledge_search', 'knowledge_read'],
+      allowedToolRules: ['knowledge_search'],
     });
 
     expect(findForOwnerForBinding).not.toHaveBeenCalled();
@@ -181,13 +176,6 @@ describe('KnowledgeToolCandidateResolver', () => {
         source: { type: 'code_owned' },
         state: 'unavailable',
         id: 'knowledge_search',
-        classification: 'read_only',
-        reason: 'knowledge_space_unavailable',
-      },
-      {
-        source: { type: 'code_owned' },
-        state: 'unavailable',
-        id: 'knowledge_read',
         classification: 'read_only',
         reason: 'knowledge_space_unavailable',
       },

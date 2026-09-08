@@ -15,7 +15,7 @@ import {
 } from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
 
-const KNOWLEDGE_TOOL_IDS = ['knowledge_search', 'knowledge_read'] as const;
+const KNOWLEDGE_TOOL_IDS = ['knowledge_search'] as const;
 
 type KnowledgeToolId = (typeof KNOWLEDGE_TOOL_IDS)[number];
 
@@ -108,5 +108,5 @@ export class KnowledgeToolCandidateResolver {
 }
 
 function isKnowledgeToolId(id: string): id is KnowledgeToolId {
-  return id === 'knowledge_search' || id === 'knowledge_read';
+  return id === 'knowledge_search';
 }

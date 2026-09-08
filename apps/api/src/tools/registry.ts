@@ -4,10 +4,7 @@ import {
   nativeWriteTool,
 } from './native-files';
 import { bashTool, isHostCapabilityTool } from './bash';
-import {
-  knowledgeReadTool,
-  knowledgeSearchTool,
-} from '../knowledge/knowledge-tools';
+import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
 import { conversationReadTool } from './conversation-read';
 import { searchConversationsTool } from './search-conversations';
 import {
@@ -27,7 +24,6 @@ export const TOOLS: ReadonlyArray<Tool> = [
   searchConversationsTool,
   conversationReadTool,
   knowledgeSearchTool,
-  knowledgeReadTool,
 ];
 
 type ToolRegistrationCandidate = Omit<Tool, 'classification'> & {
