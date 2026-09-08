@@ -150,6 +150,13 @@ Path and file: native `FileFailure` types. One vocabulary per tool.
 - Escape from the Space via `..`, absolute segments, or a symbolic link swapped
   in after validation → Knowledge path rules, per-component `lstat`, and
   `O_NOFOLLOW` at open time; a link at the target is `not_found`.
+- A `write` creating intermediate directories through a symbolic link planted
+  at a component that did not exist when the path was validated → directories
+  are created one component at a time and re-checked after creation, so a
+  recursive create can never adopt a link; a collision is decided by the check,
+  not by the create. The actor is not only the host: a deployment that
+  allowlists `bash` beside `write` lets the model plant the link itself, so the
+  boundary cannot rest on the native tools being unable to create one.
 - Host path or owner identity leaking into results, attempt events, or errors →
   results carry the locator and Space identity only; the attempt event records
   the locator; binding errors map to the two closed Knowledge results.
