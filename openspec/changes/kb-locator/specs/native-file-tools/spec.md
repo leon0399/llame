@@ -129,7 +129,7 @@ existing file unchanged on every failure.
 
 - **WHEN** write targets an absent path with valid bounded content
 - **THEN** the file is created atomically
-- **AND** the result identifies the created absolute path
+- **AND** the result identifies the created target as the caller named it: the absolute path for an absolute path, the locator for a `kb://` write, never the resolved host path
 
 #### Scenario: Missing intermediate directories are created
 
