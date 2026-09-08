@@ -1,4 +1,5 @@
-import { isHostCapabilityTool } from '../tools/bash';
+import { isBashTool } from '../tools/bash';
+import { isNativeFileTool } from '../tools/native-files';
 import { Inject, Injectable } from '@nestjs/common';
 
 import { type Db } from '../db/tenant-db.service';
@@ -14,7 +15,7 @@ import {
 } from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
 
-const KNOWLEDGE_TOOL_IDS = ['knowledge_search', 'knowledge_read'] as const;
+const KNOWLEDGE_TOOL_IDS = ['knowledge_search'] as const;
 
 type KnowledgeToolId = (typeof KNOWLEDGE_TOOL_IDS)[number];
 
@@ -49,9 +50,7 @@ export class KnowledgeToolCandidateResolver {
     input: KnowledgeToolCandidateResolverInput,
   ): Promise<Array<TurnToolCandidate>> {
     const tools = [...(input.codeOwnedTools ?? TOOL_REGISTRY.values())].filter(
-      (tool) =>
-        !isHostCapabilityTool(tool) ||
-        this.instanceConfig.config.tools.nativeExecutorId !== undefined,
+      (tool) => this.admitsHostCapability(tool),
     );
     const shouldResolveOwner = tools.some(
       (tool) =>
@@ -85,6 +84,22 @@ export class KnowledgeToolCandidateResolver {
     );
   }
 
+  /**
+   * `bash` needs an accepted native host. The native file tools also serve
+   * `kb://` locators, which need no executor identity, so a Knowledge root
+   * alone admits them; an absolute path on such a process still fails closed
+   * with `executor_unavailable` at execution.
+   */
+  private admitsHostCapability(tool: Tool): boolean {
+    const { nativeExecutorId } = this.instanceConfig.config.tools;
+    if (isBashTool(tool)) return nativeExecutorId !== undefined;
+    if (!isNativeFileTool(tool)) return true;
+    return (
+      nativeExecutorId !== undefined ||
+      this.instanceConfig.config.knowledge.root !== undefined
+    );
+  }
+
   private resolveUnavailableReason(): ToolUnavailableReason | undefined {
     return this.instanceConfig.config.knowledge.root === undefined
       ? 'knowledge_space_unavailable'
@@ -93,5 +108,5 @@ export class KnowledgeToolCandidateResolver {
 }
 
 function isKnowledgeToolId(id: string): id is KnowledgeToolId {
-  return id === 'knowledge_search' || id === 'knowledge_read';
+  return id === 'knowledge_search';
 }

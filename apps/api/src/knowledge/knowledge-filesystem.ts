@@ -3,7 +3,6 @@ import path from 'node:path';
 import {
   KNOWLEDGE_MAX_ENTRIES,
   KNOWLEDGE_MAX_FILES,
-  KNOWLEDGE_MAX_READ_BYTES,
   KNOWLEDGE_MAX_SEARCH_BYTES,
   KNOWLEDGE_MAX_SEARCH_FILE_BYTES,
 } from './knowledge-filesystem-limits';
@@ -27,21 +26,17 @@ import {
   closeDirectoryAndTranslateFailure,
   closeFileAndTranslateFailure,
   readAllDirectoryEntries,
-  readKnowledgeFileLines,
   readWholeFileBytes,
-  resolveLineSelectionBudget,
-  resolveLineSelectionResult,
-  serializedFixedReadResultLength,
-  type KnowledgeReadLinesRequest,
 } from './knowledge-filesystem-read';
 import {
+  isLocatorAddressablePath,
   isMarkdownPath,
   joinRelativePath,
-  validateBinding,
   validatePath,
-  validateReadRange,
   validateSearchInput,
 } from './knowledge-filesystem-validation';
+import { resolveKnowledgeBindingDirectory } from './knowledge-filesystem-binding';
+import { resolveKnowledgeHostPath } from './knowledge-filesystem-host-path';
 import { NODE_FILESYSTEM } from './knowledge-filesystem-node-port';
 
 export * from './knowledge-filesystem-limits';
@@ -129,18 +124,9 @@ export type KnowledgeFilesystemSearchMatch = {
   readonly excerpt: string;
 };
 
-export type KnowledgeFilesystemReadResult = {
-  readonly path: string;
-  readonly offset: number;
-  readonly lineCount: number;
-  readonly content: string;
-  readonly nextOffset?: number;
-  readonly cutReason?: 'line_limit' | 'output_limit';
-};
-
 export type KnowledgeFilesystemAdapterPort = Pick<
   KnowledgeFilesystemAdapter,
-  'search' | 'read'
+  'search' | 'resolveHostPath'
 >;
 
 export type KnowledgeFilesystemSearchOptions = {
@@ -161,15 +147,6 @@ export type KnowledgeFilesystemPassageOptions = {
   readonly maxResults?: number;
 };
 
-export type KnowledgeFilesystemReadOptions =
-  KnowledgeFilesystemSearchOptions & {
-    readonly offset?: number;
-    readonly limit?: number;
-    /** Internal serialized-result budget, expressed in UTF-16 code units. */
-    readonly maxResultCodeUnits?: number;
-    /** Serialized size of the result fields fixed before the read starts. */
-    readonly fixedResultCodeUnits?: number;
-  };
 type DirectoryReadResult = {
   readonly entries: Array<KnowledgeFilesystemDirent>;
   readonly count: number;
@@ -193,8 +170,8 @@ type KnowledgeSearchEntryOutcome =
   | { kind: 'descend'; item: { absolutePath: string; relativePath: string } }
   | { kind: 'none' };
 
-/** Shared by `readFile` and `readFileLines`: the already-open file must be a
- *  regular, non-symlink file within its own caller's byte budget. */
+/** Used by `readFile`: the already-open file must be a regular, non-symlink
+ *  file within its own caller's byte budget. */
 function assertReadableFileStats(
   fileStats: KnowledgeFilesystemStats,
   maxBytes: number,
@@ -274,7 +251,7 @@ export class KnowledgeFilesystemAdapter {
     ctx: KnowledgeSearchWalkContext,
   ): Promise<KnowledgeSearchEntryOutcome> {
     const relativePath = joinRelativePath(current.relativePath, entry.name);
-    const components = validatePath(relativePath, false);
+    const components = validatePath(relativePath);
     const absolutePath = path.join(directory, ...components);
     const stats = await this.lstat(
       absolutePath,
@@ -287,7 +264,11 @@ export class KnowledgeFilesystemAdapter {
     if (stats.isDirectory()) {
       return { kind: 'descend', item: { absolutePath, relativePath } };
     }
-    if (stats.isFile() && isMarkdownPath(relativePath)) {
+    if (
+      stats.isFile() &&
+      isMarkdownPath(relativePath) &&
+      isLocatorAddressablePath(relativePath)
+    ) {
       await this.searchMarkdownFile(absolutePath, relativePath, stats, ctx);
     }
     return { kind: 'none' };
@@ -327,121 +308,35 @@ export class KnowledgeFilesystemAdapter {
     }
   }
 
-  async read(
-    relativePath: string,
-    options: KnowledgeFilesystemReadOptions = {},
-  ): Promise<KnowledgeFilesystemReadResult> {
-    const components = validatePath(relativePath, true);
-    validateReadRange(options.offset, options.limit);
-    const signal = options.signal;
-    const directory = await this.resolveBindingDirectory(signal);
-    let current = directory;
-    let remainingEntries = KNOWLEDGE_MAX_ENTRIES;
-
-    for (const [index, component] of components.entries()) {
-      throwIfAborted(signal);
-      const step = await this.descendPathComponent(
-        { current, component, isFinal: index === components.length - 1 },
-        remainingEntries,
-        signal,
-      );
-      current = step.current;
-      remainingEntries -= step.count;
-    }
-
-    const stats = await this.lstat(current, 'knowledge_not_found', signal);
-    if (stats.size > KNOWLEDGE_MAX_READ_BYTES) {
-      throw new KnowledgeFilesystemError('knowledge_limit_exceeded');
-    }
-    const offset = options.offset ?? 0;
-    return this.readFileLines(
-      {
-        filePath: current,
-        relativePath,
-        offset,
-        requestedLimit: options.limit,
-        maxResultCodeUnits: options.maxResultCodeUnits ?? 15_000,
-        fixedResultCodeUnits:
-          options.fixedResultCodeUnits ??
-          serializedFixedReadResultLength({ path: relativePath, offset }),
-      },
-      signal,
-    );
-  }
-
   /**
-   * Resolve and validate one path component while descending toward the
-   * target: it must exist in its parent directory, must not be (or resolve
-   * through) a symlink, and must be a directory unless it is the final
-   * component, in which case it must be a file.
+   * Resolve a Knowledge-relative path to its host path for a caller that
+   * opens the target itself. Every component is `lstat`ed and a symbolic link
+   * anywhere on the way is refused without being followed; `undefined`
+   * addresses the Space's own directory. The final component may be a file or
+   * a directory, so this is not a read: the caller decides what to do with
+   * what it finds, and closes the check-to-open window with `O_NOFOLLOW`.
    */
-  private async descendPathComponent(
-    step: { current: string; component: string; isFinal: boolean },
-    remainingEntries: number,
-    signal: AbortSignal | undefined,
-  ): Promise<{ current: string; count: number }> {
-    const directoryResult = await this.readDirectory(
-      step.current,
-      remainingEntries,
+  async resolveHostPath(
+    relativePath: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const directory = await this.resolveBindingDirectory(signal);
+    return resolveKnowledgeHostPath(
+      directory,
+      relativePath,
+      (filePath) => this.lstat(filePath, 'knowledge_not_found', signal),
       signal,
     );
-    const entry = directoryResult.entries.find(
-      (candidate) => candidate.name === step.component,
-    );
-    if (entry === undefined) {
-      throw new KnowledgeFilesystemError('knowledge_not_found');
-    }
-    const next = path.join(step.current, step.component);
-    const stats = await this.lstat(next, 'knowledge_not_found', signal);
-    if (stats.isSymbolicLink() || entry.isSymbolicLink()) {
-      throw new KnowledgeFilesystemError('knowledge_path_invalid');
-    }
-    if (!step.isFinal && !stats.isDirectory()) {
-      throw new KnowledgeFilesystemError('knowledge_not_found');
-    }
-    if (step.isFinal && !stats.isFile()) {
-      throw new KnowledgeFilesystemError('knowledge_not_found');
-    }
-    return { current: next, count: directoryResult.count };
   }
 
-  private async resolveBindingDirectory(
+  private resolveBindingDirectory(
     signal: AbortSignal | undefined,
   ): Promise<string> {
-    validateBinding(this.binding);
-    const root = path.resolve(this.binding.root);
-    const directory = path.resolve(this.binding.directory);
-    const expectedDirectory = path.join(root, this.binding.id);
-    if (directory !== expectedDirectory) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
-    }
-
-    const rootStats = await this.lstat(
-      root,
-      'knowledge_space_unavailable',
-      signal,
-    );
-    if (rootStats.isSymbolicLink() || !rootStats.isDirectory()) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
-    }
-    const canonicalRoot = await this.realpath(root, signal);
-    if (canonicalRoot !== root) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
-    }
-
-    const childStats = await this.lstat(
-      directory,
-      'knowledge_space_unavailable',
-      signal,
-    );
-    if (childStats.isSymbolicLink() || !childStats.isDirectory()) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
-    }
-    const canonicalDirectory = await this.realpath(directory, signal);
-    if (canonicalDirectory !== directory) {
-      throw new KnowledgeFilesystemError('knowledge_space_unavailable');
-    }
-    return directory;
+    return resolveKnowledgeBindingDirectory(this.binding, {
+      lstat: (filePath) =>
+        this.lstat(filePath, 'knowledge_space_unavailable', signal),
+      realpath: (filePath) => this.realpath(filePath, signal),
+    });
   }
 
   private async readDirectory(
@@ -514,44 +409,6 @@ export class KnowledgeFilesystemAdapter {
     }
     await closeFileAndTranslateFailure(file, failure, signal);
     return bytes ?? Buffer.alloc(0);
-  }
-
-  private async readFileLines(
-    request: KnowledgeReadLinesRequest,
-    signal: AbortSignal | undefined,
-  ): Promise<KnowledgeFilesystemReadResult> {
-    const { filePath, relativePath, offset } = request;
-    let file: KnowledgeFilesystemFile | undefined;
-    let failure: unknown;
-    let result: KnowledgeFilesystemReadResult | undefined;
-    try {
-      file = await observeResource(
-        () => this.fileSystem.open(filePath),
-        signal,
-      );
-      const fileStats = await observe(file.stat(), signal);
-      assertReadableFileStats(fileStats, KNOWLEDGE_MAX_READ_BYTES);
-
-      const budget = resolveLineSelectionBudget(request);
-      const state = await readKnowledgeFileLines(
-        file,
-        fileStats,
-        budget,
-        signal,
-      );
-      result = resolveLineSelectionResult(state, budget, relativePath);
-    } catch (error) {
-      failure = error;
-    }
-    await closeFileAndTranslateFailure(file, failure, signal);
-    return (
-      result ?? {
-        path: relativePath,
-        offset,
-        lineCount: 0,
-        content: '',
-      }
-    );
   }
 
   private async realpath(

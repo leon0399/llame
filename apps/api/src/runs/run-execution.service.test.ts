@@ -168,8 +168,8 @@ const knowledgeResolver: KnowledgeToolResolver = {
   resolveBindingForOwnerById: () => Promise.resolve(undefined),
   createAdapter: () => ({
     search: () => Promise.resolve([]),
-    read: (path) =>
-      Promise.resolve({ path, offset: 0, lineCount: 0, content: '' }),
+    resolveHostPath: () =>
+      Promise.reject(new Error('Knowledge adapter is not exercised')),
   }),
 };
 

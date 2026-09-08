@@ -1,7 +1,11 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveReadTarget } from "./path";
+import {
+  applySelectorSuffix,
+  parsePathScheme,
+  resolveReadTarget,
+} from "./path";
 
 describe("native read selectors", () => {
   let directory: string;
@@ -93,4 +97,75 @@ describe("native read selectors", () => {
       raw: false,
     });
   });
+});
+
+describe("native path schemes", () => {
+  let directory: string;
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "native-scheme-"));
+  });
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it.each([
+    ["kb://space/notes/a.md", "kb", "space/notes/a.md"],
+    ["kb://space/notes/a.md:41-53", "kb", "space/notes/a.md:41-53"],
+    ["KB://space/", "kb", "space/"],
+    ["vault://x", "vault", "x"],
+    ["chats+v1://x", "chats+v1", "x"],
+  ])("parses %s", (input, scheme, rest) => {
+    expect(parsePathScheme(input)).toEqual({ scheme, rest });
+  });
+
+  it.each(["/tmp/a.md", "/tmp/weird://name.md", "kb:/space", "://x", "1x://y"])(
+    "does not read %s as a scheme",
+    (input) => {
+      expect(parsePathScheme(input)).toBeUndefined();
+    },
+  );
+
+  it.each(["kb://space/notes/a.md", "kb://space/a.md:41-53", "vault://x"])(
+    "refuses %s as a host path",
+    async (input) => {
+      await expect(resolveReadTarget(input)).rejects.toMatchObject({
+        type: "invalid_path",
+      });
+    },
+  );
+
+  it("keeps an absolute filename containing :// literal", async () => {
+    const path = join(directory, "weird://name.md");
+    await mkdir(join(directory, "weird:"), { recursive: true });
+    await writeFile(path.replace("weird://", "weird:/"), "literal");
+    expect(
+      await resolveReadTarget(path.replace("weird://", "weird:/")),
+    ).toEqual({
+      path: path.replace("weird://", "weird:/"),
+      offset: 0,
+      raw: false,
+    });
+  });
+
+  it.each([
+    [undefined, { offset: 0, raw: false }],
+    ["11-13", { offset: 10, limit: 3, raw: false }],
+    ["11+3", { offset: 10, limit: 3, raw: false }],
+    ["raw", { offset: 0, raw: true }],
+    ["raw:1-2", { offset: 0, limit: 2, raw: true }],
+  ])("applies the split selector %s", (selector, expected) => {
+    expect(applySelectorSuffix("/root/a.md", selector)).toEqual({
+      path: "/root/a.md",
+      ...expected,
+    });
+  });
+
+  it.each(["0-1", "2-1", "raw:x", "nonsense"])(
+    "rejects the split selector %s",
+    (selector) => {
+      expect(() => applySelectorSuffix("/root/a.md", selector)).toThrow(
+        expect.objectContaining({ type: "invalid_selector" }),
+      );
+    },
+  );
 });

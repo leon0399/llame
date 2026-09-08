@@ -1,9 +1,6 @@
 import { searchConversationsTool } from './search-conversations';
 import { conversationReadTool } from './conversation-read';
-import {
-  knowledgeReadTool,
-  knowledgeSearchTool,
-} from '../knowledge/knowledge-tools';
+import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
 import {
   buildRegistry,
   resolveAdvertisedTools,
@@ -19,19 +16,16 @@ describe('tool registry', () => {
     );
     expect(TOOL_REGISTRY.get('conversation_read')).toBe(conversationReadTool);
     expect(TOOL_REGISTRY.get('knowledge_search')).toBe(knowledgeSearchTool);
-    expect(TOOL_REGISTRY.get('knowledge_read')).toBe(knowledgeReadTool);
     expect(searchConversationsTool.classification).toBe('read_only');
     expect(conversationReadTool.classification).toBe('read_only');
     expect(knowledgeSearchTool.classification).toBe('read_only');
-    expect(knowledgeReadTool.classification).toBe('read_only');
   });
 
   it('keeps the static registry immutable while allowlisting Knowledge ids', () => {
-    expect(
-      resolveAdvertisedTools(new Set(['knowledge_search', 'knowledge_read'])),
-    ).toEqual([knowledgeSearchTool, knowledgeReadTool]);
+    expect(resolveAdvertisedTools(new Set(['knowledge_search']))).toEqual([
+      knowledgeSearchTool,
+    ]);
     expect(TOOL_REGISTRY.get('knowledge_search')).toBe(knowledgeSearchTool);
-    expect(TOOL_REGISTRY.get('knowledge_read')).toBe(knowledgeReadTool);
   });
 
   it('advertises conversation_read only when it is explicitly allowlisted', () => {

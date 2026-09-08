@@ -126,35 +126,50 @@ Every tool declares one classification: `read_only`, `write_low_risk`, `write_hi
 
 ### 13.6 Personal Knowledge reads
 
-The code-owned `knowledge_search` and deprecated `knowledge_read` tools are optional,
-operator-allowlisted `read_only` tools. Run acceptance resolves availability
-for the authenticated owner inside the Run-binding RLS transaction, without
-probing the API process filesystem. Workers resolve the binding from trusted Run
-context, revalidate their local mount at execution, and fail closed when it is
+The code-owned `knowledge_search` tool is an optional, operator-allowlisted
+`read_only` tool; Knowledge file reads are the `kb://` locator of the native
+`read` tool (§13.7), not a separate Knowledge-owned reader. `knowledge_read` is deleted: a `tools.allowed` entry naming it fails
+boot, and a Run accepted before removal whose immutable snapshot names it fails
+closed before the provider request rather than executing a substitute. Run acceptance resolves `knowledge_search` availability for the
+authenticated owner inside the Run-binding RLS transaction, without probing the
+API process filesystem. Workers resolve the binding from trusted Run context,
+revalidate their local mount at execution, and fail closed when it is
 unavailable. Tool declarations remain static; no tenant mutates the registry.
+
+Each `knowledge_search` passage carries a `locator`
+(`kb://<space-id>/<path>:N-M`, one-based inclusive) that is directly a valid
+`read` argument, in place of zero-based `offset`/`limit`.
 
 Completed calls, bounded outputs, failures, and unavailable reasons use the
 generic durable tool-event and message-part path, so replay and the browser show
-the same Knowledge-relative attribution. See
+the same Knowledge-relative attribution. Historical `knowledge_read` observations
+render as recorded. See
 [`knowledge-tools`](openspec/specs/knowledge-tools/spec.md),
 [`tool-calling`](openspec/specs/tool-calling/spec.md), and the
 [operator runbook](docs/knowledge.md).
 
 ### 13.7 Native file execution
 
-An operator-provided `tools.nativeExecutorId` enables native host authority for
-allowlisted `read`, `edit`, and `write`. Paths are absolute, regular-file reads
-stream bounded source windows, edits replace one exact unique current match,
-and writes create only. Host process mutations are serialized, including
-symlink aliases; other processes and external editors are outside that guarantee.
+The scheme of `read`, `edit`, and `write`'s `path` argument selects authority.
+An operator-provided `tools.nativeExecutorId` enables host authority for
+absolute paths: reads stream bounded source windows, edits replace one exact
+unique current match, and writes create only. Host process mutations are
+serialized, including symlink aliases; other processes and external editors
+are outside that guarantee. A `kb://<space-id>/<path>[:selector]` locator
+instead resolves through the trusted Run owner's current Knowledge Space
+access on every call, under RLS, never through `tools.nativeExecutorId`. In
+this iteration `kb://` is a `read` scheme: `edit` and `write` refuse a locator
+with `invalid_path`. The three tools are advertised when the process has
+accepted native host authority or has a configured `knowledge.root`, and an
+absolute path on a process without accepted native authority fails closed with
+`executor_unavailable`.
 
-The first native call binds the Run's existing `worker_id` to that stable host
-identity. Native mutation attempts and results use the owner-scoped event log.
-An unsettled attempt never executes again; an unknown result aborts the model
-loop. Native files have no Knowledge-specific size ceiling, and their output
-shares the common result cap. The legacy Knowledge adapter retains its own
-owner/Space boundary and exact-range response while sharing reader primitives.
-Removal is tracked in #691. See [native file behavior](openspec/specs/native-file-tools/spec.md)
+The first absolute-path native call binds the Run's existing `worker_id` to
+that stable host identity; a `kb://` read never binds or requires one. Native
+mutation attempts and results use the owner-scoped event log; an unsettled
+attempt never executes again, and an unknown result aborts the model loop. Native files have no
+Knowledge-specific size ceiling, and their output shares the common result
+cap. See [native file behavior](openspec/specs/native-file-tools/spec.md)
 and [operator setup](docs/native-files.md).
 
 ### 13.8 Managed bash contract
@@ -197,35 +212,41 @@ while every `runs` consumer needs read access to all children it may execute.
 Missing or unusable mounts fail closed, with no fallback to another owner or
 host path.
 
-When configured and allowlisted, `knowledge_search` and `knowledge_read` remain
-callable even when the owner has no current space. Every invocation resolves the
-owner's current access under RLS. Search accepts an optional stable ID and an
-opaque live cursor; without an ID it traverses every current space in
-deterministic keyset pages under one shared operation budget. Search is a
-case-insensitive literal scan of admitted Markdown and returns bounded passages,
-each with response-time space attribution, a Knowledge-relative path, zero-based
-line `offset`/`limit`, and an excerpt. Matching lines in one file may produce
-multiple passages; touching or overlapping context windows are merged before the
-result limit is applied. Passage coordinates are directly usable as
-`knowledge_read` arguments. A partial all-space search returns usable matches
-with `complete: false` and bounded space-scoped warnings; a missing explicit ID,
+When configured and allowlisted, `knowledge_search` remains callable even when
+the owner has no current space. Every invocation resolves the owner's current
+access under RLS. Search accepts an optional stable ID and an opaque live
+cursor; without an ID it traverses every current space in deterministic
+keyset pages under one shared operation budget. Search is a case-insensitive
+literal scan of admitted Markdown, capped at 1 MiB per file, and returns
+bounded passages, each with response-time space attribution, a
+Knowledge-relative path, a one-based inclusive `locator`
+(`kb://<space-id>/<path>:N-M`), and an excerpt. Matching lines in one file may
+produce multiple passages; touching or overlapping context windows are merged
+before the result limit is applied. The locator is directly a valid `read`
+argument. A partial all-space search returns usable matches with
+`complete: false` and bounded space-scoped warnings; a missing explicit ID,
 zero inventory, total failure, invalid cursor, or global bound fails closed as
 specified by `knowledge-tools`. The cursor is a live keyset continuation, not a
 filesystem snapshot or revision receipt.
 
-`knowledge_read` always requires an explicit stable ID and relative Markdown
-path. It accepts optional zero-based line `offset` and `limit` coordinates, with
-`limit` capped at 2,000. An omitted range requests the current note through EOF,
-subject to the 2,000-line and structured-output bounds. Successful reads return
-one-based line-numbered content, `lineCount`, and `nextOffset` when current lines
-remain; a server cut reports `cutReason` and never clips a line. Search and read
-use the current bounded Markdown filesystem, including modified or newly created
-files without a Git commit. Admitted files remain capped at 1 MiB, and output
-remains bounded. Newly executed results persist response-time space ID and name,
-Knowledge-relative path, and live line coordinates; they expose no content hash,
-expected hash, revision, host path, or alternate locator. Historical persisted
-results may retain the earlier hash-bearing shape and remain immutable. Later
-access changes affect the next check but do not rewrite historical results.
+`kb://<space-id>/<path>[:selector]` resolves through the trusted Run owner's
+current access on every call under RLS, never through
+`tools.nativeExecutorId`. An absent, removed, malformed, or other-owner
+identifier returns `knowledge_space_not_found`; an unresolvable root or
+stable-ID child returns `knowledge_space_unavailable`. `kb://` reads carry no
+Markdown-only suffix rule and no 1 MiB size cap — a Space is a directory of
+arbitrary files — and otherwise follow the native `read` selector, context,
+and truncation contract from [`native-file-tools`](openspec/specs/native-file-tools/spec.md)
+in full. `kb://<space-id>` and `kb://<space-id>/` list the Space through the
+shipped directory listing; a bare `kb://` is `invalid_path`. Every successful
+`kb://` read or listing carries the Space identifier, display name, locator,
+and the closed untrusted-content notice, with content returned verbatim.
+Search and read use the current bounded filesystem, including modified or
+newly created files without a Git commit. New `kb://` results expose no
+content hash, expected hash, revision, or host path. Historical
+`knowledge_read` results retain their earlier hash-bearing shape and remain
+immutable; the tool itself is deleted, and a Run whose snapshot names it fails
+closed before the provider request.
 
 Git history, versioned publication, accepted revisions, and synchronization
 begin in #212 or later capabilities. No Knowledge index or embedding projection,

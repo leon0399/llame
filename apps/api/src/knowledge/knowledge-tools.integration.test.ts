@@ -20,7 +20,8 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { KnowledgeToolCandidateResolver } from './knowledge-tool-candidate-resolver';
-import { knowledgeReadTool, knowledgeSearchTool } from './knowledge-tools';
+import { nativeReadTool } from '../tools/native-files';
+import { knowledgeSearchTool } from './knowledge-tools';
 import { KnowledgeSpaceLocalResolver } from './knowledge-space.local-resolver';
 import { KnowledgeSpaceService } from './knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from './knowledge-tool-runtime-resolver';
@@ -84,12 +85,32 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
   }
 
   async function runKnowledge(
-    tool: typeof knowledgeSearchTool | typeof knowledgeReadTool,
+    tool: typeof knowledgeSearchTool | typeof nativeReadTool,
     userId: string,
     args: KnowledgeTestArguments,
     resolver: KnowledgeToolRuntimeResolver = runtimeResolver,
   ): Promise<ToolResult> {
     return runTool(tool, args, context(userId, resolver), 15);
+  }
+
+  /** The locator is the whole `read` argument: one string, one authority. */
+  function locator(spaceId: string, relativePath?: string): string {
+    return relativePath === undefined
+      ? `kb://${spaceId}/`
+      : `kb://${spaceId}/${relativePath}`;
+  }
+
+  function runLocatorRead(
+    userId: string,
+    target: string,
+    resolver: KnowledgeToolRuntimeResolver = runtimeResolver,
+  ): Promise<ToolResult> {
+    return runTool(
+      nativeReadTool,
+      { path: target },
+      context(userId, resolver),
+      15,
+    );
   }
 
   function json(result: ToolResult): string {
@@ -183,14 +204,14 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
       query: 'shared-term',
       limit: 5,
     });
-    const readA = await runKnowledge(knowledgeReadTool, ownerAId, {
-      knowledgeSpaceId: spaceAId,
-      path: 'notes/owner-a.md',
-    });
-    const readB = await runKnowledge(knowledgeReadTool, ownerBId, {
-      knowledgeSpaceId: spaceBId,
-      path: 'notes/owner-b.md',
-    });
+    const readA = await runLocatorRead(
+      ownerAId,
+      locator(spaceAId, 'notes/owner-a.md'),
+    );
+    const readB = await runLocatorRead(
+      ownerBId,
+      locator(spaceBId, 'notes/owner-b.md'),
+    );
 
     expect(resultA).toMatchObject({
       status: 'success',
@@ -199,8 +220,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
           knowledgeSpaceId: spaceAId,
           knowledgeSpaceName: 'Personal',
           path: 'notes/owner-a.md',
-          offset: 0,
-          limit: 1,
+          locator: `kb://${spaceAId}/notes/owner-a.md:1-1`,
           excerpt: ownerAContent,
         },
       ],
@@ -212,26 +232,23 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
           knowledgeSpaceId: spaceBId,
           knowledgeSpaceName: 'Personal',
           path: 'notes/owner-b.md',
-          offset: 0,
-          limit: 1,
+          locator: `kb://${spaceBId}/notes/owner-b.md:1-1`,
           excerpt: ownerBContent,
         },
       ],
     });
     expect(readA).toMatchObject({
       status: 'success',
+      kind: 'file',
       knowledgeSpaceId: spaceAId,
-      path: 'notes/owner-a.md',
-      offset: 0,
-      lineCount: 1,
+      path: locator(spaceAId, 'notes/owner-a.md'),
       content: `1: ${ownerAContent}`,
     });
     expect(readB).toMatchObject({
       status: 'success',
+      kind: 'file',
       knowledgeSpaceId: spaceBId,
-      path: 'notes/owner-b.md',
-      offset: 0,
-      lineCount: 1,
+      path: locator(spaceBId, 'notes/owner-b.md'),
       content: `1: ${ownerBContent}`,
     });
 
@@ -304,10 +321,10 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     await spaceService.renameForOwner(ownerAId, second.id, {
       name: 'Renamed projects',
     });
-    const renamedRead = await runKnowledge(knowledgeReadTool, ownerAId, {
-      knowledgeSpaceId: second.id,
-      path: 'projects/note.md',
-    });
+    const renamedRead = await runLocatorRead(
+      ownerAId,
+      locator(second.id, 'projects/note.md'),
+    );
     expect(renamedRead).toMatchObject({
       status: 'success',
       knowledgeSpaceId: second.id,
@@ -321,10 +338,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     });
     writeNote(revoked.id, 'revoked.md', 'revoked content');
     await expect(
-      runKnowledge(knowledgeReadTool, ownerAId, {
-        knowledgeSpaceId: revoked.id,
-        path: 'revoked.md',
-      }),
+      runLocatorRead(ownerAId, locator(revoked.id, 'revoked.md')),
     ).resolves.toMatchObject({ status: 'success' });
     await tenantDb.runAs(ownerAId, (tx) =>
       tx
@@ -332,10 +346,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
         .where(eq(schema.knowledgeSpaces.knowledgeSpaceId, revoked.id)),
     );
     await expect(
-      runKnowledge(knowledgeReadTool, ownerAId, {
-        knowledgeSpaceId: revoked.id,
-        path: 'revoked.md',
-      }),
+      runLocatorRead(ownerAId, locator(revoked.id, 'revoked.md')),
     ).resolves.toEqual({
       status: 'error',
       type: 'knowledge_space_not_found',
@@ -371,30 +382,21 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     const after = 'shared-term after the edit';
     writeNote(spaceAId, relativePath, before);
 
-    const first = await runKnowledge(knowledgeReadTool, ownerAId, {
-      knowledgeSpaceId: spaceAId,
-      path: relativePath,
-      offset: 0,
-      limit: 1,
-    });
+    const target = `${locator(spaceAId, relativePath)}:1-1`;
+    const first = await runLocatorRead(ownerAId, target);
     writeNote(spaceAId, relativePath, after);
-    const second = await runKnowledge(knowledgeReadTool, ownerAId, {
-      knowledgeSpaceId: spaceAId,
-      path: relativePath,
-      offset: 0,
-      limit: 1,
-    });
+    const second = await runLocatorRead(ownerAId, target);
 
     expect(first).toMatchObject({
       status: 'success',
-      offset: 0,
-      lineCount: 1,
+      kind: 'file',
+      path: target,
       content: `1: ${before}`,
     });
     expect(second).toMatchObject({
       status: 'success',
-      offset: 0,
-      lineCount: 1,
+      kind: 'file',
+      path: target,
       content: `1: ${after}`,
     });
     expect(first).not.toEqual(second);
@@ -411,7 +413,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
       apiCandidateResolver.resolve({
         tx,
         ownerUserId: ownerAId,
-        allowedToolRules: ['knowledge_search', 'knowledge_read'],
+        allowedToolRules: ['knowledge_search', 'read'],
       }),
     );
 
@@ -420,12 +422,13 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
         .filter(
           (candidate) =>
             candidate.state === 'available' &&
-            candidate.tool.id.startsWith('knowledge_'),
+            (candidate.tool.id === 'knowledge_search' ||
+              candidate.tool.id === 'read'),
         )
         .map((candidate) =>
           candidate.state === 'available' ? candidate.tool.id : undefined,
         ),
-    ).toEqual(['knowledge_search', 'knowledge_read']);
+    ).toEqual(['read', 'knowledge_search']);
 
     const workerRoot = path.join(root, 'separate-worker-mount-is-missing');
     const workerResolver = new KnowledgeToolRuntimeResolver(
@@ -434,10 +437,9 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
         new KnowledgeSpaceLocalResolver(workerRoot),
       ),
     );
-    const result = await runKnowledge(
-      knowledgeReadTool,
+    const result = await runLocatorRead(
       ownerAId,
-      { knowledgeSpaceId: spaceAId, path: 'notes/owner-a.md' },
+      locator(spaceAId, 'notes/owner-a.md'),
       workerResolver,
     );
 
@@ -457,15 +459,21 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     );
     const invalidCalls: Array<
       [
-        typeof knowledgeSearchTool | typeof knowledgeReadTool,
+        typeof knowledgeSearchTool | typeof nativeReadTool,
         KnowledgeTestArguments,
       ]
     > = [
       [knowledgeSearchTool, { query: 'shared-term', ownerUserId: ownerBId }],
       [knowledgeSearchTool, { query: 'shared-term', root }],
-      [knowledgeReadTool, { path: 'notes/owner-a.md', ownerUserId: ownerBId }],
-      [knowledgeReadTool, { path: 'notes/owner-a.md', root }],
-      [knowledgeReadTool, { path: 'notes/owner-a.md', source: 'other' }],
+      [
+        nativeReadTool,
+        { path: locator(spaceAId, 'notes/owner-a.md'), ownerUserId: ownerBId },
+      ],
+      [nativeReadTool, { path: locator(spaceAId, 'notes/owner-a.md'), root }],
+      [
+        nativeReadTool,
+        { path: locator(spaceAId, 'notes/owner-a.md'), source: 'other' },
+      ],
     ];
 
     for (const [tool, args] of invalidCalls) {
@@ -482,10 +490,7 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
         knowledgeSearchTool,
         { query: 'shared-term', knowledgeSpaceId: spaceBId },
       ],
-      [
-        knowledgeReadTool,
-        { path: 'notes/owner-a.md', knowledgeSpaceId: spaceBId },
-      ],
+      [nativeReadTool, { path: locator(spaceBId, 'notes/owner-b.md') }],
     ] as const) {
       const result = await runKnowledge(tool, ownerAId, args);
       expect(result).toEqual({
@@ -501,15 +506,15 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
 
   it('keeps a path-shaped other-owner identifier inside the current child', async () => {
     const guessedPath = `${spaceBId}/notes/owner-b.md`;
-    const result = await runKnowledge(knowledgeReadTool, ownerAId, {
-      knowledgeSpaceId: spaceAId,
-      path: guessedPath,
-    });
+    const result = await runLocatorRead(
+      ownerAId,
+      locator(spaceAId, guessedPath),
+    );
 
     expect(result).toEqual({
       status: 'error',
-      type: 'knowledge_not_found',
-      message: 'The Knowledge note was not found.',
+      type: 'not_found',
+      message: 'File not found.',
     });
     expect(lstatSync(childPath(spaceAId)).isDirectory()).toBe(true);
     expect(() => lstatSync(path.join(childPath(spaceAId), spaceBId))).toThrow(
@@ -540,10 +545,9 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     const unavailableRootResolver = new KnowledgeToolRuntimeResolver(
       unavailableRootService,
     );
-    const noRoot = await runKnowledge(
-      knowledgeReadTool,
+    const noRoot = await runLocatorRead(
       ownerAId,
-      { knowledgeSpaceId: spaceAId, path: 'notes/owner-a.md' },
+      locator(spaceAId, 'notes/owner-a.md'),
       unavailableRootResolver,
     );
     expect(noRoot).toEqual({
@@ -555,10 +559,10 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     const child = childPath(spaceBId);
     rmSync(child, { recursive: true, force: true });
     try {
-      const noChild = await runKnowledge(knowledgeReadTool, ownerBId, {
-        knowledgeSpaceId: spaceBId,
-        path: 'notes/owner-b.md',
-      });
+      const noChild = await runLocatorRead(
+        ownerBId,
+        locator(spaceBId, 'notes/owner-b.md'),
+      );
       expect(noChild).toEqual({
         status: 'error',
         type: 'knowledge_space_unavailable',
@@ -585,8 +589,8 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
       'resolveBindingForOwner',
     );
     const absent = await runTool(
-      knowledgeReadTool,
-      { knowledgeSpaceId: spaceAId, path: 'notes/owner-a.md' },
+      nativeReadTool,
+      { path: locator(spaceAId, 'notes/owner-a.md') },
       undefined,
       15,
     );
@@ -597,8 +601,8 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
     });
 
     const anonymous = await runTool(
-      knowledgeReadTool,
-      { knowledgeSpaceId: spaceAId, path: 'notes/owner-a.md' },
+      nativeReadTool,
+      { path: locator(spaceAId, 'notes/owner-a.md') },
       context(''),
       15,
     );
