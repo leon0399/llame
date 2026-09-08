@@ -6,12 +6,14 @@ import {
   readFile,
   readResolvedFile,
   serializeNativeModelOutput,
+  type NativeMutateOptions,
   type NativeReadOptions,
 } from '@workspace/native-file-tools';
 import {
   KNOWLEDGE_LOCATOR_SCHEME,
   knowledgeResultEnvelope,
   resolveKnowledgeLocator,
+  type ResolvedKnowledgeTarget,
 } from '../knowledge/knowledge-locator';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -44,7 +46,14 @@ function executeNative(
     return executeKnowledge(context, call, scheme.rest);
   }
   if (call.operation === 'read') return executeNativeBound(context, call);
-  const pending = nativeMutations.then(() => executeNativeBound(context, call));
+  return serializeMutation(() => executeNativeBound(context, call));
+}
+
+/** One host mutation at a time, whatever scheme resolved the target. */
+function serializeMutation(
+  operation: () => Promise<ToolResult>,
+): Promise<ToolResult> {
+  const pending = nativeMutations.then(operation);
   nativeMutations = pending.then(
     () => {},
     () => {},
@@ -57,10 +66,20 @@ async function executeKnowledge(
   call: NativeCall,
   rest: string,
 ): Promise<ToolResult> {
-  if (call.operation !== 'read') return knowledgeReadOnlyResult();
   context.abortSignal?.throwIfAborted();
-  const target = await resolveKnowledgeLocator(context, call.input.path, rest);
+  // A `write` names a file that does not exist yet, and may name directories
+  // above it that do not either.
+  const target = await resolveKnowledgeLocator(context, call.input.path, rest, {
+    allowMissing: call.operation === 'write',
+  });
   if ('status' in target) return target;
+  if (call.operation === 'read') return readKnowledge(target);
+  return serializeMutation(() => mutateKnowledge(context, call, target));
+}
+
+async function readKnowledge(
+  target: ResolvedKnowledgeTarget,
+): Promise<ToolResult> {
   const envelope = knowledgeResultEnvelope(target);
   const options: NativeReadOptions = {
     displayPath: target.locator,
@@ -74,6 +93,63 @@ async function executeKnowledge(
       : { ...options, selector: target.selector },
   );
   return result.status === 'success' ? { ...result, ...envelope } : result;
+}
+
+/**
+ * A `kb://` mutation takes the same durable pre-effect fence as an absolute
+ * path, minus the executor bind: the attempt records the locator, never the
+ * resolved host path, so a queue retry on another worker replays the outcome
+ * instead of failing on an executor it never needed.
+ */
+async function mutateKnowledge(
+  context: ToolContext,
+  call: NativeCall,
+  target: ResolvedKnowledgeTarget,
+): Promise<ToolResult> {
+  const { runId, toolCallId, userId } = context;
+  if (!runId || !toolCallId) return knowledgeFenceUnavailableResult();
+  if (target.selector !== undefined) return selectorOnMutationResult();
+  const prior = await context.tenantDb.runAs(userId, (db) =>
+    new NativeFilesRepository(db).begin({
+      runId,
+      userId,
+      deliverySequence: context.nativeDeliverySequence,
+      toolCallId,
+      operation: call.operation,
+      path: target.locator,
+    }),
+  );
+  if (prior) return prior;
+  context.abortSignal?.throwIfAborted();
+  const options: NativeMutateOptions = { displayPath: target.locator };
+  const result = await performKnowledgeMutation(
+    call,
+    target.hostPath,
+    options,
+    context.abortSignal,
+  );
+  await context.tenantDb.runAs(userId, async (db) => {
+    await new RunEventsRepository(db).append(runId, 'native.result', {
+      toolCallId,
+      result,
+    });
+  });
+  return result.status === 'success'
+    ? { ...result, ...knowledgeResultEnvelope(target) }
+    : result;
+}
+
+function performKnowledgeMutation(
+  call: NativeCall,
+  hostPath: string,
+  options: NativeMutateOptions,
+  signal?: AbortSignal,
+): Promise<ToolResult> {
+  if (call.operation === 'edit')
+    return editFile({ ...call.input, path: hostPath }, signal, options);
+  if (call.operation === 'write')
+    return createFile({ ...call.input, path: hostPath }, signal, options);
+  throw new Error('A read never reaches the mutation path');
 }
 
 async function executeNativeBound(
@@ -136,23 +212,28 @@ function unknownSchemeResult(): ToolResult {
   };
 }
 
-function knowledgeReadOnlyResult(): ToolResult {
+function knowledgeFenceUnavailableResult(): ToolResult {
+  return {
+    status: 'error',
+    type: 'executor_unavailable',
+    message: 'A Knowledge mutation needs a trusted Run context.',
+  };
+}
+
+function selectorOnMutationResult(): ToolResult {
   return {
     status: 'error',
     type: 'invalid_path',
-    message: 'Knowledge locators support read only.',
+    message: 'A line selector cannot be used with edit or write.',
   };
 }
 
 const HOST_GUIDANCE =
   "An absolute path has the host OS user's file authority and needs a configured native executor. Output line-number prefixes are navigation metadata, never file bytes. Model-facing results are standard JSON text; decode JSON string escapes before copying source into edit oldText.";
 
-/** Only `read` implements `kb://` in this iteration, so only `read` may say so:
- *  a description that advertised it on `edit` or `write` would send the model
- *  after a locator those tools refuse. */
 const READ_PATH_GUIDANCE = `Use an absolute path on this native host, or a kb:// Knowledge locator as returned by knowledge_search, which resolves through your Knowledge Space access and needs no native executor. ${HOST_GUIDANCE}`;
 
-const MUTATE_PATH_GUIDANCE = `Use an absolute path on this native host. ${HOST_GUIDANCE} kb:// Knowledge locators are read-only and are refused here.`;
+const MUTATE_PATH_GUIDANCE = `Use an absolute path on this native host, or a kb:// Knowledge locator as returned by knowledge_search, without its :range suffix. ${HOST_GUIDANCE}`;
 
 export const nativeReadTool: Tool<{ path: string }> = {
   id: 'read',

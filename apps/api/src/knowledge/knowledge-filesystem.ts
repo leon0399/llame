@@ -36,7 +36,10 @@ import {
   validateSearchInput,
 } from './knowledge-filesystem-validation';
 import { resolveKnowledgeBindingDirectory } from './knowledge-filesystem-binding';
-import { resolveKnowledgeHostPath } from './knowledge-filesystem-host-path';
+import {
+  resolveKnowledgeHostPath,
+  type KnowledgeHostPathOptions,
+} from './knowledge-filesystem-host-path';
 import { NODE_FILESYSTEM } from './knowledge-filesystem-node-port';
 
 export * from './knowledge-filesystem-limits';
@@ -318,14 +321,14 @@ export class KnowledgeFilesystemAdapter {
    */
   async resolveHostPath(
     relativePath: string | undefined,
-    signal?: AbortSignal,
+    options: KnowledgeHostPathOptions = {},
   ): Promise<string> {
-    const directory = await this.resolveBindingDirectory(signal);
+    const directory = await this.resolveBindingDirectory(options.signal);
     return resolveKnowledgeHostPath(
       directory,
       relativePath,
-      (filePath) => this.lstat(filePath, 'knowledge_not_found', signal),
-      signal,
+      (filePath) => this.lstat(filePath, 'knowledge_not_found', options.signal),
+      options,
     );
   }
 

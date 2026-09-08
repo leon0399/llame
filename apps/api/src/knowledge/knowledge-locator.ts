@@ -84,6 +84,7 @@ export async function resolveKnowledgeLocator(
   context: ToolContext,
   locator: string,
   rest: string,
+  options: { readonly allowMissing?: boolean | undefined } = {},
 ): Promise<ResolvedKnowledgeTarget | ToolResult> {
   const parsed = parseKnowledgeLocator(rest);
   if (parsed === undefined) return invalidPathResult();
@@ -94,10 +95,10 @@ export async function resolveKnowledgeLocator(
   if ('status' in access) return access;
 
   try {
-    const hostPath = await access.adapter.resolveHostPath(
-      parsed.relativePath,
-      context.abortSignal,
-    );
+    const hostPath = await access.adapter.resolveHostPath(parsed.relativePath, {
+      allowMissing: options.allowMissing,
+      signal: context.abortSignal,
+    });
     const target: ResolvedKnowledgeTarget = {
       // The separator rides along so the reader's own `lstat`/open applies the
       // native rule: a directory resolves, a file is `ENOTDIR` and reports

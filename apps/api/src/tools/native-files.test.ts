@@ -340,13 +340,15 @@ describe('knowledge locator reads', () => {
 });
 
 describe('native tool descriptions', () => {
-  it('offers kb:// only on the tool that implements it', () => {
-    expect(nativeReadTool.description).toContain('kb://');
+  it('describes kb:// exactly as each tool supports it', () => {
+    // Search hands out locators with a `:range`; only `read` accepts one, so a
+    // description that omitted the restriction would send the model after a
+    // call `edit` and `write` refuse.
+    expect(nativeReadTool.description).toMatch(/kb:\/\//u);
+    expect(nativeReadTool.description).not.toMatch(/without its :range/u);
     for (const tool of [nativeEditTool, nativeWriteTool]) {
-      // A description that advertised kb:// here would send the model after a
-      // locator these tools refuse — search hands out locators freely.
-      expect(tool.description).toMatch(/kb:\/\/[^.]*read-only/u);
-      expect(tool.description).not.toMatch(/or a kb:\/\//u);
+      expect(tool.description).toMatch(/kb:\/\//u);
+      expect(tool.description).toMatch(/without its :range suffix/u);
     }
   });
 });

@@ -17,19 +17,30 @@ export type KnowledgeHostPathLstat = (
   filePath: string,
 ) => Promise<KnowledgeFilesystemStats>;
 
+export type KnowledgeHostPathOptions = {
+  /** A write names a file that does not exist yet, and may name directories
+   *  above it that do not either. Nothing below a missing component can exist,
+   *  so the walk stops there and the rest of the path is joined unchecked. */
+  readonly allowMissing?: boolean | undefined;
+  readonly signal?: AbortSignal | undefined;
+};
+
 export async function resolveKnowledgeHostPath(
   directory: string,
   relativePath: string | undefined,
   lstat: KnowledgeHostPathLstat,
-  signal?: AbortSignal,
+  options: KnowledgeHostPathOptions = {},
 ): Promise<string> {
   if (relativePath === undefined) return directory;
   const components = validatePath(relativePath);
   let current = directory;
   for (const [index, component] of components.entries()) {
-    throwIfAborted(signal);
+    throwIfAborted(options.signal);
     current = path.join(current, component);
-    const stats = await lstat(current);
+    const stats = await statOrMissing(current, lstat, options.allowMissing);
+    if (stats === undefined) {
+      return path.join(current, ...components.slice(index + 1));
+    }
     if (stats.isSymbolicLink()) {
       throw new KnowledgeFilesystemError('knowledge_not_found');
     }
@@ -38,4 +49,24 @@ export async function resolveKnowledgeHostPath(
     }
   }
   return current;
+}
+
+/** `undefined` means the component is absent and the caller tolerates it. */
+async function statOrMissing(
+  current: string,
+  lstat: KnowledgeHostPathLstat,
+  allowMissing: boolean | undefined,
+): Promise<KnowledgeFilesystemStats | undefined> {
+  try {
+    return await lstat(current);
+  } catch (error) {
+    if (
+      allowMissing === true &&
+      error instanceof KnowledgeFilesystemError &&
+      error.code === 'knowledge_not_found'
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
 }

@@ -8,10 +8,17 @@ import { type Db } from '../db/tenant-db.service';
 export class NativeFilesRepository {
   constructor(private readonly db: Db) {}
 
+  /**
+   * `executorId` is an absolute-path concern: those operations pin the Run to
+   * one host filesystem. A `kb://` operation resolves through the owner on any
+   * runs worker, so it is fenced and replayed without a bind — otherwise a
+   * queue retry on another worker would fail `executor_unavailable` for a
+   * target every worker can reach.
+   */
   async begin(input: {
     runId: string;
     userId: string;
-    executorId: string;
+    executorId?: string;
     deliverySequence: number | undefined;
     toolCallId: string;
     operation: 'read' | 'edit' | 'write';
@@ -24,7 +31,10 @@ export class NativeFilesRepository {
       (await this.latestStartedSequence(input.runId)) !== input.deliverySequence
     )
       return executorUnavailable();
-    if (!(await this.bind(input.runId, input.userId, input.executorId)))
+    if (
+      input.executorId !== undefined &&
+      !(await this.bind(input.runId, input.userId, input.executorId))
+    )
       return executorUnavailable();
     if (input.operation === 'read') return undefined;
     const outcome = await this.priorOutcome(input.runId, input.toolCallId);

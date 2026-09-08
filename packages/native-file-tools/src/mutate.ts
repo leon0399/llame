@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { link, lstat, open, realpath, rename, unlink } from "node:fs/promises";
+import {
+  link,
+  lstat,
+  mkdir,
+  open,
+  realpath,
+  rename,
+  unlink,
+} from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { NativeFileError, parsePathScheme } from "./path";
 import {
@@ -13,6 +21,15 @@ import type { FileFailure, LineRange } from "./read";
 
 type EditInput = { path: string; oldText: string; newText: string };
 type WriteInput = { path: string; content: string };
+
+/**
+ * What a scheme resolver supplies once it has authorized the caller and
+ * resolved the host path. `displayPath` is what the model sees, so the result
+ * carries and is bounded against it rather than the host path. A resolved
+ * target is never resolved through a symbolic link: the owner authorized one
+ * specific entry, and following a link would mutate a different one.
+ */
+export type NativeMutateOptions = { readonly displayPath: string };
 type MutationSuccess = {
   status: "success";
   operation: "edit" | "write";
@@ -41,12 +58,17 @@ function mutate(
       return { status: "error", type: error.type, message: error.message };
     const code =
       error instanceof Error && "code" in error ? error.code : undefined;
+    // `ELOOP` is `O_NOFOLLOW` refusing a symbolic link at a resolved target,
+    // which reads report as `not_found`; `ENOTDIR` is a path component that
+    // exists but is not a directory.
     const type =
-      code === "ENOENT"
+      code === "ENOENT" || code === "ELOOP"
         ? "not_found"
         : code === "EEXIST"
           ? "file_exists"
-          : "executor_unavailable";
+          : code === "ENOTDIR"
+            ? "not_regular_file"
+            : "executor_unavailable";
     return {
       status: "error",
       type,
@@ -92,9 +114,10 @@ function describeMutation(
   input: WriteInput,
   region: { offset: number; limit: number; diff: string },
   operation: "edit" | "write",
+  displayPath = input.path,
 ): MutationSuccess {
   const read = selectSourceLines(input.content, {
-    path: input.path,
+    path: displayPath,
     raw: false,
     offset: region.offset,
     limit: region.limit,
@@ -102,7 +125,7 @@ function describeMutation(
   const result: MutationSuccess = {
     status: "success",
     operation,
-    path: input.path,
+    path: displayPath,
     ...(operation === "edit"
       ? { replacements: 1 as const }
       : { created: true as const }),
@@ -178,17 +201,22 @@ function replacement(source: string, input: EditInput) {
 export function editFile(
   input: EditInput,
   signal?: AbortSignal,
+  options?: NativeMutateOptions,
 ): Promise<MutationSuccess | FileFailure> {
   return mutate(async () => {
     validateContent(input.path, input.newText, signal);
-    const path = await realpath(input.path);
-    const source = await loadText(path);
+    // An absolute path is the host's own; a resolved target was authorized as
+    // one exact entry, so resolving it through a link would edit another.
+    const path =
+      options === undefined ? await realpath(input.path) : input.path;
+    const source = await loadText(path, options === undefined);
     const change = replacement(source, input);
     validateContent(path, change.content, signal);
     const result = describeMutation(
       { path: input.path, content: change.content },
       change,
       "edit",
+      options?.displayPath,
     );
     if (input.oldText !== input.newText) {
       const stats = await lstat(path);
@@ -204,6 +232,7 @@ export function editFile(
 export function createFile(
   input: WriteInput,
   signal?: AbortSignal,
+  options?: NativeMutateOptions,
 ): Promise<MutationSuccess | FileFailure> {
   return mutate(async () => {
     validateContent(input.path, "", signal);
@@ -213,10 +242,29 @@ export function createFile(
       input,
       { offset: 0, limit: 2000, diff: "" },
       "write",
+      options?.displayPath,
     );
+    await createParentDirectories(input.path);
     await publishFile(input, { create: true, signal });
     return result;
   });
+}
+
+/**
+ * A write names the file it wants, not the directories above it, so the
+ * missing ones are created. An existing component that is not a directory is
+ * the caller's mistake and nothing is created.
+ */
+async function createParentDirectories(path: string): Promise<void> {
+  try {
+    await mkdir(dirname(path), { recursive: true });
+  } catch (error) {
+    const code =
+      error instanceof Error && "code" in error ? error.code : undefined;
+    if (code === "ENOTDIR" || code === "EEXIST")
+      throw new NativeFileError("not_regular_file");
+    throw error;
+  }
 }
 
 async function requireAbsent(path: string): Promise<void> {
