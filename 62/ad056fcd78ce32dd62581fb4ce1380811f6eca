@@ -1,0 +1,28 @@
+openspec/changes/host-bash-context/specs/bash-execution/spec.md
+  72afd302e13299dd 1-30,41-55,58-60,62,69,75-79,86-102,105-109,124-126,128-132,134-138,140-142,144-146,148,150,152,155,157,169-170
+openspec/changes/host-bash-context/proposal.md
+  72afd302e13299dd 1-15,17,21-24,31-32,42,44-64,68-76
+openspec/changes/host-bash-context/tasks.md
+  72afd302e13299dd 1-19,26-29,32,34-36,39-44
+openspec/changes/host-bash-context/design.md
+  72afd302e13299dd 1-51,53-79,82,111-123,140-148,155-179,203-207,215-217,232-238,245-257,259-265,280-287,294-304,308-315,321-328,332-336,341-358,390-394
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "62ad056fcd78ce32dd62581fb4ce1380811f6eca",
+  "prompts": {
+    "72afd302e13299dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f16d9b15-e4ab-425f-8902-231614e695d7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 542,
+      "total_deletions": 0,
+      "accepted_lines": 537,
+      "overriden_lines": 5
+    }
+  }
+}
