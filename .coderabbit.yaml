@@ -129,8 +129,9 @@ reviews:
 
   # Walkthrough poem adds no review value.
   poem: false
-  # Human approval gates remain human-owned.
-  request_changes_workflow: false
+  # Request changes while CodeRabbit has unresolved comments, then approve once
+  # they are resolved and pre-merge checks pass. Both halves come together.
+  request_changes_workflow: true
   auto_apply_labels: true
 
 knowledge_base:

@@ -1,0 +1,146 @@
+# yaml-language-server: $schema=https://cubic.dev/schema/cubic-repository-config.schema.json
+#
+# Read from the DEFAULT BRANCH only — a copy on a feature branch is ignored.
+# Precedence: this file > org `cubic-config` repo > dashboard > defaults.
+#
+# Only the first 5 custom_rules take effect. Each rule is truncated SILENTLY at
+# 10,000 characters across its description, its linked file_paths, and
+# custom_instructions — which is prepended to every rule and therefore charged
+# against each one separately. Rule bodies live in `.cubic/`.
+version: 1
+
+reviews:
+  enabled: true
+  # Submit a real GitHub approval on a clean, low-risk review. `master` is
+  # unprotected, so this is a signal rather than a merge gate.
+  auto_approve_behavior: live
+  auto_approve: low_risk_only
+  auto_approve_rules:
+    # Never auto-approve a change that can weaken isolation or CI, however clean
+    # the review looked. Never-rules take precedence over everything below.
+    exclude:
+      - "apps/api/src/db/**"
+      - "apps/api/src/auth/**"
+      - "apps/api/src/identity/**"
+      - ".github/workflows/**"
+      - "cubic.yaml"
+      - ".cubic/**"
+      - ".coderabbit.yaml"
+    exclude_titles:
+      - "WIP:*"
+      - "wip:*"
+    exclude_external_contributors: true
+  # 3x the reviewed-line cost; trigger by hand on a risky stack.
+  ultrareview: manual
+  auto_ultrareview: disabled
+  merge_confidence_summary: false
+  architecture_diagrams: false
+  resolve_threads_when_addressed: true
+
+  ignore:
+    files:
+      - "pnpm-lock.yaml"
+      - "**/dist/**"
+      - "**/__fixtures__/**"
+      - "**/__screenshots__/**"
+      - "**/*.snap"
+      - "CHANGELOG.md"
+      # Generated artifacts — review the generator input, never the output.
+      - "apps/api/openapi.json"
+      - "apps/web/lib/api/generated/**"
+      # Archived OpenSpec records are history, not proposals under review.
+      - "openspec/changes/archive/**"
+
+  # Prepended to every rule above, so it holds only what is true of all of them.
+  custom_instructions: |
+    Apply the review framework in REVIEW_GUIDE.md. Its priority order governs every
+    comment you make: (1) tenant isolation and security, (2) durability and correctness
+    of persisted history, (3) product fit and contract containment, (4) maintainability,
+    (5) measured performance on a hot path.
+
+    llame is multi-tenant and self-hosted. Treat request bodies, params, headers, model
+    output, tool results, and MCP responses as attacker-controlled. Report a security
+    finding only with a reachable, evidence-backed path: client-controlled authorization
+    identity; missing datastore isolation for tenant data; fail-open authorization; or
+    credentials, resolved secrets, MCP session ids, or host paths reaching logs, errors,
+    model context, or owner-visible output.
+
+    CodeRabbit reviews every file on every PR and a Codex reviewer runs as a second
+    opinion. Your reviewed-line budget is finite, so do not restate a finding either has
+    already made on the same lines. Concentrate your added depth on:
+      (1) bugs and logic errors, including the failure input or state that triggers them;
+      (2) violations of the documented conventions of the workspace the file belongs to —
+          the nearest AGENTS.md, plus CODING_STANDARDS.md and CONTRIBUTING.md;
+      (3) missed reuse and duplication across the monorepo, and speculative abstraction
+          (an interface with one implementation, a helper with one call site, config or
+          options nothing sets);
+      (4) cross-document contradiction: an OpenSpec delta spec that contradicts the
+          capability spec it modifies or its own requirements, a SPEC.md, README.md, or
+          CHANGELOG.md claim that a capability ships while the change's tasks.md gates are
+          unchecked, and a requirement naming a config key, tool, or endpoint the code no
+          longer has.
+
+    Do not repeat what CI already enforces: oxlint (type-aware, on tsgo), prettier,
+    ast-grep, knip, markdownlint-cli2, actionlint, zizmor, and pinact all run as gates. Do
+    not comment on formatting, line wrapping, import order, or prose style.
+
+    Name the bug and its failure scenario, or name the specific documented rule violated.
+    Comment only on changed code. Before asserting a version number, an API behavior, or a
+    deprecation, verify it against the lockfile or the installed package in this repo
+    rather than from memory. This project is pre-launch: removing an obsolete path is
+    correct and a compatibility shim is a defect, so never ask for backward compatibility,
+    fallbacks, or migrations for an internal contract.
+
+  custom_rules:
+    - name: Backend API
+      description: Enforce the apps/api conventions in the linked file.
+      file_paths:
+        - .cubic/api.md
+      include:
+        - "apps/api/**"
+      exclude:
+        - "apps/api/src/db/**"
+        - "**/*.test.ts"
+
+    - name: Database, migrations, and RLS
+      description: Enforce the schema, migration, and RLS contract in the linked file.
+      file_paths:
+        - .cubic/database.md
+      include:
+        - "apps/api/src/db/**"
+
+    - name: Frontend
+      description: Enforce the apps/web and packages/ui conventions in the linked file.
+      file_paths:
+        - .cubic/frontend.md
+      include:
+        - "apps/web/**"
+        - "packages/ui/**"
+      exclude:
+        - "**/*.test.ts"
+        - "**/*.test.tsx"
+
+    - name: Test quality
+      description: Enforce docs/testing.md as summarized in the linked file.
+      file_paths:
+        - .cubic/tests.md
+      include:
+        - "**/*.test.ts"
+        - "**/*.test.tsx"
+        - "e2e/**"
+
+    - name: GitHub Actions
+      description: Enforce the workflow security rules in the linked file.
+      file_paths:
+        - .cubic/workflows.md
+      include:
+        - ".github/workflows/**"
+
+# cubic writes its summary into the GitHub PR body and has no option to post it as a
+# separate comment, so off is the only control.
+pr_descriptions:
+  generate: false
+  cubic_review_link: false
+
+issues:
+  fix_commits_to_pr: false
