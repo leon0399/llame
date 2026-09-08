@@ -11,7 +11,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   grace, the result is `outcome_unknown`. Pending durable admission releases
   its reserved process slot on abort, and a late `begin` completion cannot start
   the command. Parent cancellation waits through bounded cleanup so a known
-  bash result can win before the synthetic `outcome_unknown` fallback.
+  bash result can win before the synthetic `outcome_unknown` fallback. The
+  resolved bash `cwd` remains in `native.attempt` as persisted provenance but
+  is omitted from owner-facing Run events.
 
 # 2026-09-08
 
