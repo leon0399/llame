@@ -1,5 +1,13 @@
+import { constants } from "node:fs";
 import { lstat, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
+
+/** `O_NOFOLLOW` makes the kernel refuse a symbolic link at the target, so a
+ *  resolver's `lstat` checks cannot be raced by a link swapped in after. */
+export function openFlags(followSymlinks: boolean): number {
+  const base = constants.O_RDONLY | constants.O_NONBLOCK;
+  return followSymlinks ? base : base | constants.O_NOFOLLOW;
+}
 
 export function isNodeError(value: unknown): value is NodeJS.ErrnoException {
   return value instanceof Error && "code" in value;
@@ -31,7 +39,28 @@ export type ReadTarget = {
   limit?: number;
   raw: boolean;
   directory?: boolean;
+  /** Room withheld from the shared result cap for a caller's envelope. */
+  reserveCodeUnits?: number;
 };
+
+/**
+ * A `scheme://` prefix names the authority that resolves the rest of the
+ * path. This package implements only the host authority, so it recognizes
+ * the prefix solely to refuse it before any selector split or filesystem
+ * probe; callers that implement a scheme resolve it before calling here.
+ */
+const SCHEME_PREFIX = /^([A-Za-z][A-Za-z0-9+.-]*):\/\//u;
+
+export function parsePathScheme(
+  input: string,
+): { scheme: string; rest: string } | undefined {
+  const match = SCHEME_PREFIX.exec(input);
+  if (!match) return undefined;
+  return {
+    scheme: match[1].toLowerCase(),
+    rest: input.slice(match[0].length),
+  };
+}
 
 function parseRange(value: string) {
   const match = /^(\d+)([-+])(\d+)$/.exec(value);
@@ -63,7 +92,7 @@ async function isDirectoryTarget(path: string): Promise<boolean> {
 }
 
 export async function resolveReadTarget(input: string): Promise<ReadTarget> {
-  if (!isAbsolute(input) || input.includes("\0"))
+  if (parsePathScheme(input) || !isAbsolute(input) || input.includes("\0"))
     throw new NativeFileError("invalid_path");
 
   const hasTrailingSep = input.length > 1 && input.endsWith("/");
@@ -86,6 +115,22 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
 
   const parsed = parseSelector(input);
   return classifyParsedTarget(parsed);
+}
+
+/** Apply an already-split selector suffix to a path used verbatim. */
+export function applySelectorSuffix(
+  path: string,
+  selector: string | undefined,
+): ReadTarget {
+  if (selector === undefined) return { path, offset: 0, raw: false };
+  if (selector === "raw") return { path, offset: 0, raw: true };
+  const raw = /^raw:(.*)$/u.exec(selector);
+  if (raw) {
+    if (!/^\d+-\d+$/.test(raw[1]))
+      throw new NativeFileError("invalid_selector");
+    return { path, ...parseRange(raw[1]), raw: true };
+  }
+  return { path, ...parseRange(selector), raw: false };
 }
 
 function parseSelector(input: string): ReadTarget {

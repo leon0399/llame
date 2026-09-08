@@ -1,4 +1,4 @@
-import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { truncateOversizedResult } from "@workspace/runtime-safety";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import {
   loadText,
   selectSourceLines,
   readFile,
+  readResolvedFile,
   MAX_RESULT_CODE_UNITS,
   splitSourceLines,
 } from "./read";
@@ -313,5 +314,97 @@ describe("native source reads", () => {
       shownRange: { startLine: 1, endLine: 1 },
       truncated: false,
     });
+  });
+});
+
+describe("native reads resolved by a scheme owner", () => {
+  let directory: string;
+  let path: string;
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "native-scheme-read-"));
+    path = join(directory, "note.md");
+  });
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("shows the display path and the pre-split selector", async () => {
+    await writeFile(path, "a\nb\nc\nd\ne\n");
+    const result = await readResolvedFile(path, {
+      displayPath: "kb://space/note.md",
+      selector: "2-3",
+    });
+    assertFileSuccess(result);
+    expect(result).toMatchObject({
+      path: "kb://space/note.md",
+      requestedRange: { startLine: 2, endLine: 3 },
+      shownRange: { startLine: 1, endLine: 4 },
+    });
+  });
+
+  it("never reinterprets the host path as a selector or a scheme", async () => {
+    const literal = join(directory, "kb://weird:name.md");
+    await mkdir(join(directory, "kb:"), { recursive: true });
+    const hostPath = literal.replace("kb://", "kb:/");
+    await writeFile(hostPath, "only\n");
+    const result = await readResolvedFile(hostPath, {
+      displayPath: "kb://space/a.md",
+    });
+    assertFileSuccess(result);
+    expect(result.content).toBe("1: only\n");
+  });
+
+  it("returns not_found for a symbolic link when links are refused", async () => {
+    await writeFile(path, "secret\n");
+    const link = join(directory, "link.md");
+    await symlink(path, link);
+    expect(
+      await readResolvedFile(link, { displayPath: "kb://space/link.md" }),
+    ).toMatchObject({ status: "error", type: "not_found" });
+  });
+
+  it("still follows a symbolic link when links are allowed", async () => {
+    await writeFile(path, "shared\n");
+    const link = join(directory, "link.md");
+    await symlink(path, link);
+    const result = await readResolvedFile(link, {
+      displayPath: "kb://space/link.md",
+      followSymlinks: true,
+    });
+    assertFileSuccess(result);
+    expect(result.content).toBe("1: shared\n");
+  });
+
+  it("withholds the reserved envelope room from the shared cap", async () => {
+    const line = "x".repeat(200);
+    await writeFile(path, `${line}\n`.repeat(200));
+    const full = await readResolvedFile(path, {
+      displayPath: "kb://space/a.md",
+    });
+    const reserved = await readResolvedFile(path, {
+      displayPath: "kb://space/a.md",
+      reserveCodeUnits: 10_000,
+    });
+    assertFileSuccess(full);
+    assertFileSuccess(reserved);
+    expect(reserved.content.length).toBeLessThan(full.content.length);
+    expect(measureNativeModelOutput(reserved)).toBeLessThanOrEqual(
+      MAX_RESULT_CODE_UNITS - 10_000,
+    );
+  });
+
+  it("headers a directory listing with the display path", async () => {
+    await writeFile(path, "a\n");
+    const result = await readResolvedFile(directory, {
+      displayPath: "kb://space/",
+    });
+    expect(result).toMatchObject({
+      status: "success",
+      kind: "directory",
+      path: "kb://space/",
+    });
+    expect(
+      "content" in result && result.content.startsWith("kb://space/\n"),
+    ).toBe(true);
   });
 });

@@ -1,6 +1,5 @@
-import { constants } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
-import { NativeFileError, type ReadTarget } from "./path";
+import { NativeFileError, openFlags, type ReadTarget } from "./path";
 import {
   appendReadLine,
   boundedReadLineCount,
@@ -77,10 +76,11 @@ async function collectWindow(
 
 export async function streamFileWindow(
   target: ReadTarget,
+  source: { hostPath?: string; followSymlinks?: boolean } = {},
 ): Promise<ReadSuccess> {
   const file = await open(
-    target.path,
-    constants.O_RDONLY | constants.O_NONBLOCK,
+    source.hostPath ?? target.path,
+    openFlags(source.followSymlinks ?? true),
   );
   try {
     if (!(await file.stat()).isFile())

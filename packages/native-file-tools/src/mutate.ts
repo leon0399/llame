@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { link, lstat, open, realpath, rename, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
-import { NativeFileError } from "./path";
+import { NativeFileError, parsePathScheme } from "./path";
 import {
   loadText,
   MAX_RESULT_CODE_UNITS,
@@ -61,7 +61,7 @@ function validateContent(
   signal?: AbortSignal,
 ): void {
   signal?.throwIfAborted();
-  if (!isAbsolute(path) || path.includes("\0"))
+  if (parsePathScheme(path) || !isAbsolute(path) || path.includes("\0"))
     throw new NativeFileError("invalid_path");
   if (Buffer.from(content).toString("utf8") !== content)
     throw new NativeFileError("invalid_utf8");
