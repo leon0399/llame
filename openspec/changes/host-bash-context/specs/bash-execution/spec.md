@@ -53,18 +53,25 @@ without changing the command/result contract.
 
 #### Scenario: Unusable working directory does not run the command
 
-- **WHEN** the supplied `cwd` is not an enterable directory, or the process
-  cannot be started in it
-- **THEN** the attempt is recorded as a known refusal, never as
-  `outcome_unknown`
+- **WHEN** the supplied `cwd` is not an enterable directory
+- **THEN** no process starts and no attempt is recorded
 - **AND** the result states that the literal argument was not usable, that no
   shell expansion was applied to it, and how to list or create it
+
+#### Scenario: Spawn failure after the attempt is recorded
+
+- **WHEN** the attempt is recorded and the process still fails to start
+- **THEN** the attempt's recorded result is a known refusal, never
+  `outcome_unknown`
+- **AND** the Run continues
 
 #### Scenario: Child environment is declared, not inherited
 
 - **WHEN** a command prints its environment
-- **THEN** it contains only the base variables and the call's own additions
-- **AND** no credential or variable of the llame process appears
+- **THEN** it contains exactly the declared base variables and the call's own
+  additions
+- **AND** no other variable of the llame process, and no llame credential,
+  appears
 
 ### Requirement: Command results are bounded and explicit
 
@@ -107,10 +114,13 @@ process group is proven empty SHALL be a known `timed_out` result carrying
 bounded partial output. An unproven stop after timeout, cancellation, or host
 failure SHALL produce terminal `outcome_unknown`. A process that never started
 SHALL be a known refusal, never `outcome_unknown`. An `outcome_unknown` SHALL
-terminate the Run that issued it and SHALL NOT affect any other Run. The host
-SHALL NOT rerun an attempt automatically, under the same or another tool-call
-ID: a Run resumed on any host after an attempt without a recorded result SHALL
-NOT re-execute it.
+terminate the Run that issued it. While a process of that attempt is still
+observed alive on the host, the host SHALL refuse new bash admission and SHALL
+re-signal the group on each refusal; the refusal SHALL lift without operator
+action once the group is empty, and SHALL NOT outlive the process it names.
+The host SHALL NOT rerun an attempt automatically, under the same or another
+tool-call ID: a Run resumed on any host after an attempt without a recorded
+result SHALL NOT re-execute it.
 
 #### Scenario: Normal completion permits the next call
 
@@ -143,9 +153,19 @@ NOT re-execute it.
 - **AND** the fenced context is the Run: it terminates, and no other Run is
   affected
 
-#### Scenario: Other Runs are unaffected
+#### Scenario: Surviving process quarantines the host until it is gone
 
-- **WHEN** one Run ends with `outcome_unknown`
+- **WHEN** one Run ends with `outcome_unknown` and its process group is still
+  alive
+- **THEN** a bash call in another Run on the same host is refused with a
+  result naming the surviving attempt, and the group is signalled again
+- **AND** once the group is observed empty the next call is admitted, with no
+  operator or process restart
+
+#### Scenario: Other Runs are unaffected once nothing survives
+
+- **WHEN** one Run ends with `outcome_unknown` and no process of it is observed
+  alive
 - **THEN** a later bash call in another Run on the same host is admitted
 - **AND** no operator or process restart is needed
 

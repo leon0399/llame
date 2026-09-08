@@ -13,15 +13,19 @@ requirement block.
 
 ## What Changes
 
-- A timeout whose process tree is proven stopped is a known `timed_out` result
+- A timeout whose process group is proven empty is a known `timed_out` result
   with its bounded partial output. `outcome_unknown` is reserved for an
-  unproven stop after timeout, cancellation, or host failure.
+  unproven stop after timeout, cancellation, or host failure. The proof is a
+  process-group probe, stated as such: a descendant that leaves the group is
+  outside it, on exit as much as on timeout, as in the shipped alpha.
 - The command attempt is recorded in the durable Run event log before the
   process starts and its result after, through the same pre-effect fence the
   native mutations use. A Run resumed on any worker after an unproven attempt
   does not re-execute it. The process-local directory fence and command-digest
-  block list are deleted; an unknown outcome terminates the Run that issued it
-  and affects no other Run.
+  block list are deleted; an unknown outcome terminates the Run that issued it.
+  While a process from that attempt is still observed alive on the host, new
+  bash admission on that host is refused and the group is re-signalled; the
+  refusal lifts by itself once the group is empty.
 - **BREAKING** (input schema, declaration cutover) `bash` takes an optional
   per-call `cwd`. Each call is a fresh
   process; nothing persists between calls, and the tool description says so.

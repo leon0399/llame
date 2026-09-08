@@ -89,9 +89,20 @@ timeout.
 The proof is `kill(-pgid, 0)` (`process-tree.ts:4-11`): a process group probe.
 A descendant that calls `setsid` leaves the group and is invisible to it; the
 shipped spec said "process tree and descendants", which the code never
-delivered. The delta says "process group" and states the gap. A tree-wide
-mechanism (cgroup or a `/proc` session scan) is a later change if a real case
-needs it; none of the surveyed peers has one either.
+delivered. The delta says "process group" and states the gap.
+
+The same gap exists on a normal exit today and in the shipped alpha: `bash -c
+"setsid work &"` returns a known result the moment the shell exits. Timeout
+is not the special case; the proof boundary is. A tree-wide mechanism (a
+cgroup, which needs delegation the llame user does not have, or a `/proc`
+scan, which loses reparented processes) is a later change if a real case
+needs it; none of the surveyed peers has one either. "Remain unknown" is not
+an option the probe can implement: it cannot see what it would classify.
+
+The probe is bounded: `waitForProcessGroupQuiescence` polls for 250 ms after
+`SIGKILL` and reports the group alive if it is still there at expiry, which is
+the unknown branch. The number is an implementation constant; the contract
+states only that expiry is unknown.
 
 A process that never started is a known refusal, never unknown. Today
 `watch.ts:61-64` maps an undefined pid to `outcome_unknown`, and a `cwd` that
@@ -111,9 +122,14 @@ result after. This is the mechanism the spec described and the alpha did not
 build; it already exists a directory away, so the ladder stops at reuse.
 
 The executor is split at its existing seam: admission (`admitExecution`, the
-bound, process-limit, tool-set, fence, and pre-abort checks) returns either a
-refusal or a run request, and `bash.ts` records the attempt between the two,
-so a refused call never writes `native.attempt` and never sets `hasMutation`.
+bound, process-limit, tool-set, quarantine, and pre-abort checks) returns
+either a refusal or a run request, and `bash.ts` records the attempt between
+the two, so a refused call never writes `native.attempt` and never sets
+`hasMutation`. Admission reserves the process slot; the increment moves out
+of `runAdmitted` so two calls cannot both pass `maxProcesses` while one is
+waiting on the durable write, and a refusal or a failed `begin` releases the
+slot. A spawn that fails after the attempt is recorded appends a known
+`unavailable` result.
 Bash also joins the pre-execute progress gate that native tools use
 (`run-execution.service.ts:653-657`, keyed on `isHostCapabilityTool`), since
 its attempt is now durable for the same reason. The recovery message at
@@ -161,8 +177,21 @@ recovery proves safety" had no recovery path in llame or any peer, and its
 the alpha. Cross-Run protection through a directory key was a heuristic with
 permanent cost: an unknown command can mutate anywhere, the fence was
 process-local and invisible to a second worker, and native `edit` and `write`
-never consulted it. The submit scenario keeps its wording; #212 implements it
-durably against the same `native.attempt` events when it lands. The shipped
+never consulted it.
+
+What replaces it is narrower and self-releasing: the executor keeps the
+process-group ids of attempts that ended unknown because the group was still
+alive. Admission re-probes each one, re-sends `SIGKILL`, and refuses the call
+while any is alive, naming the surviving attempt; an empty group is dropped
+from the set on that probe. The quarantine is keyed to a process that
+provably exists, lifts the moment it is gone, and needs no durable state,
+because a process cannot outlive its worker and a Run whose worker was lost
+is already failed by D2. This is the shipped fence's stated purpose, "until
+recovery proves safety", with the proof supplied by the probe instead of by a
+restart.
+
+The submit scenario keeps its wording; #212 implements it durably against the
+same `native.attempt` events when it lands. The shipped
 "does not rerun the command under another tool-call ID" is kept in the
 requirement text rather than as a scenario: with the digest set gone, the
 guarantee rests on the Run terminating and on the durable attempt, not on a
@@ -180,7 +209,8 @@ default (`BASH_WORKING_DIRECTORY` or the process cwd). It must be an
 enterable directory, probed with `opendir` before the attempt is recorded, so
 a directory with mode `000` or one that is a regular file is refused up front;
 a `spawn` that still fails with no pid (the directory vanished in between,
-`EACCES`) is the same `unavailable` refusal, never `outcome_unknown`. The
+`EACCES`) is a known `unavailable` result recorded against the attempt, never
+`outcome_unknown`. The preflight refusal records no attempt at all. The
 refusal takes openclaw's shape: the command did not run, the argument was
 taken literally with no `~` or variable expansion, and the model can list the
 parent or create the directory. `cwd` leaves `WIDENING_KEYS`; the whole set is
@@ -241,9 +271,12 @@ and passes every other byte through. Bash is not a native file tool and stays
 on that path. R3's verbatim guarantee is scoped to the executor result so no
 implementer reads it as licence to exempt bash from neutralization.
 
-Knowledge host paths, stated: `knowledge-tools` §11, §180, and §212 keep the
-configured root and resolved host paths out of `kb://` results and
-`knowledge_search`. With the path pass gone, `find / -name '*.md'` prints the
+Knowledge host paths, stated: `AGENTS.md` ("Never expose credentials,
+resolved secret values, tokens, or host paths") and `knowledge-tools` §11,
+§180, and §212 keep the configured root and resolved host paths out of
+`kb://` results and `knowledge_search`. The native `read` on an absolute path
+already returns the host path it was given, so the rule has always meant
+resolved paths the model did not supply, not every string containing `/`. With the path pass gone, `find / -name '*.md'` prints the
 vault's host path into a bash result. That was already reconstructible by
 walking `ls` one level at a time and readable with `cat`, so the pass
 protected nothing against a model with shell access; the invariant is enforced
@@ -280,8 +313,11 @@ output. `chat-default.md` gains one sentence on non-persistence.
   fails the Run before the tool loop starts, and a replayed tool-call id
   returns the recorded result.
 - An unknown outcome in one Run denies bash to every other Run on the worker
-  → the process-local fence is deleted; the Run terminates and nothing else
-  is keyed.
+  → the directory fence is deleted; only a provably live process group from
+  an unknown attempt refuses admission, and only until it is gone.
+- A surviving process from an unknown outcome keeps mutating while another
+  Run works → the live-group quarantine above; the escaped-`setsid` case is
+  outside the probe and stated as such in D1.
 - Host paths of the Knowledge root reach model context through shell output
   → accepted and stated in D6; the `kb://` surface never emits one.
 - `cwd` used to probe for directory existence outside the model's authority
@@ -321,6 +357,18 @@ output. `chat-default.md` gains one sentence on non-persistence.
   disclosure and each cite was verified against a clone on the stated dates.
 
 ## Revision history
+
+- **v3 (2026-09-08):** PR #739 round (Codex, CodeRabbit). Live-group
+  quarantine replaces "no other Run is affected": a still-alive group from an
+  unknown attempt refuses admission and is re-signalled until empty (Codex
+  P1). Process slot reserved at admission, released on refusal (Codex P1).
+  Proposal now says process group, and D1 states the gap applies to normal
+  exit too and why "remain unknown" is not implementable (Codex P1,
+  CodeRabbit major). Preflight `cwd` rejection records no attempt; a
+  post-attempt spawn failure records a known refusal (Codex P2). Environment
+  scenario names the exact base set (CodeRabbit major). Probe budget named
+  in D1 (CodeRabbit minor). Host-path finding answered in D6 with the
+  `AGENTS.md` rule quoted and the decision recorded, not changed.
 
 - **v2 (2026-09-08):** Review round 2 (two independent reviewers). R2 becomes
   REMOVED plus ADDED so the name and the mismatched-executor scenario go
