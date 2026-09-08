@@ -27,11 +27,11 @@ rather than executing a substitute.
 process validates its mount when used. Missing allowlist IDs disable the tools.
 
 Two Knowledge tool ids exist: `knowledge_search` scans Markdown across a Space,
-and native `read` opens a passage or lists a Space's directory by locator. A
-configured `knowledge.root` alone advertises `read`, with no
-`tools.nativeExecutorId` required; on such a process an absolute path argument
-to `read` fails closed with `executor_unavailable` instead of resolving
-through the Knowledge root.
+and native `read` opens a passage or lists a Space's directory by locator. `read` still needs its own
+`tools.allowed` entry; what a configured `knowledge.root` removes is the
+`tools.nativeExecutorId` requirement, so an allowlisted `read` is advertised
+without one. On such a process an absolute path argument to `read` fails closed
+with `executor_unavailable` instead of resolving through the Knowledge root.
 
 The authenticated collection is:
 

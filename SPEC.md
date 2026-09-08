@@ -127,9 +127,8 @@ Every tool declares one classification: `read_only`, `write_low_risk`, `write_hi
 ### 13.6 Personal Knowledge reads
 
 The code-owned `knowledge_search` tool is an optional, operator-allowlisted
-`read_only` tool; Knowledge file reads, edits, and writes are the `kb://`
-locator of the native file tools (§13.7), not a separate Knowledge-owned
-reader. `knowledge_read` is deleted: a `tools.allowed` entry naming it fails
+`read_only` tool; Knowledge file reads are the `kb://` locator of the native
+`read` tool (§13.7), not a separate Knowledge-owned reader. `knowledge_read` is deleted: a `tools.allowed` entry naming it fails
 boot, and a Run accepted before removal whose immutable snapshot names it fails
 closed before the provider request rather than executing a substitute. Run acceptance resolves `knowledge_search` availability for the
 authenticated owner inside the Run-binding RLS transaction, without probing the
@@ -158,16 +157,17 @@ unique current match, and writes create only. Host process mutations are
 serialized, including symlink aliases; other processes and external editors
 are outside that guarantee. A `kb://<space-id>/<path>[:selector]` locator
 instead resolves through the trusted Run owner's current Knowledge Space
-access on every call, under RLS, never through `tools.nativeExecutorId`; the
-three tools are advertised when the process has accepted native host authority
-or has a configured `knowledge.root`, and an absolute path on a process
-without accepted native authority fails closed with `executor_unavailable`.
+access on every call, under RLS, never through `tools.nativeExecutorId`. In
+this iteration `kb://` is a `read` scheme: `edit` and `write` refuse a locator
+with `invalid_path`. The three tools are advertised when the process has
+accepted native host authority or has a configured `knowledge.root`, and an
+absolute path on a process without accepted native authority fails closed with
+`executor_unavailable`.
 
 The first absolute-path native call binds the Run's existing `worker_id` to
-that stable host identity; a `kb://` call never binds or requires one. Native
-and `kb://` mutation attempts and results share the owner-scoped event log,
-recorded against the locator for `kb://`; an unsettled attempt never executes
-again, and an unknown result aborts the model loop. Native files have no
+that stable host identity; a `kb://` read never binds or requires one. Native
+mutation attempts and results use the owner-scoped event log; an unsettled
+attempt never executes again, and an unknown result aborts the model loop. Native files have no
 Knowledge-specific size ceiling, and their output shares the common result
 cap. See [native file behavior](openspec/specs/native-file-tools/spec.md)
 and [operator setup](docs/native-files.md).

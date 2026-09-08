@@ -13,12 +13,16 @@ import {
 /** Undefined marks a source line too large to fit any tool result. */
 async function* sourceLines(
   file: FileHandle,
+  signal: AbortSignal | undefined,
 ): AsyncGenerator<string | undefined> {
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   const buffer = Buffer.allocUnsafe(64 * 1024);
   let partial = "";
   let oversized = false;
   while (true) {
+    // A cancelled or timed-out call must stop reading, not merely stop being
+    // awaited: without this the loop keeps consuming a file no one will read.
+    signal?.throwIfAborted();
     const { bytesRead } = await file.read(buffer);
     let text: string;
     try {
@@ -50,13 +54,14 @@ async function* sourceLines(
 async function collectWindow(
   file: FileHandle,
   target: ReadTarget,
+  signal: AbortSignal | undefined,
 ): Promise<ReadSuccess> {
   const requestedEnd = target.offset + (target.limit ?? MAX_READ_LINES);
   const boundedEnd = target.offset + boundedReadLineCount(target.limit);
   const start = target.raw ? target.offset : Math.max(0, target.offset - 1);
   const result = emptyReadResult(target, requestedEnd);
   let count = 0;
-  for await (const text of sourceLines(file)) {
+  for await (const text of sourceLines(file, signal)) {
     const index = count++;
     if (index < start) continue;
     if (index >= boundedEnd) {
@@ -76,13 +81,17 @@ async function collectWindow(
 
 export async function streamFileWindow(
   target: ReadTarget,
-  source: { hostPath: string; followSymlinks: boolean },
+  source: {
+    hostPath: string;
+    followSymlinks: boolean;
+    signal?: AbortSignal | undefined;
+  },
 ): Promise<ReadSuccess> {
   const file = await open(source.hostPath, openFlags(source.followSymlinks));
   try {
     if (!(await file.stat()).isFile())
       throw new NativeFileError("not_regular_file");
-    return await collectWindow(file, target);
+    return await collectWindow(file, target, source.signal);
   } finally {
     await file.close();
   }

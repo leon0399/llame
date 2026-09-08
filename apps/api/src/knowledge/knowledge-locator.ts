@@ -1,5 +1,7 @@
 import { type ToolResult } from '@workspace/runtime-safety';
 
+import { sep } from 'node:path';
+
 import { isSelectorSuffix } from '@workspace/native-file-tools';
 
 import {
@@ -23,6 +25,10 @@ export type ParsedKnowledgeLocator = {
   /** Undefined addresses the Space's own directory. */
   readonly relativePath?: string;
   readonly selector?: string;
+  /** The locator ended in `/`, which addresses a directory. Kept rather than
+   *  normalized away: the native contract accepts it on a directory and fails
+   *  `not_found` on a file, and dropping it here would read the file. */
+  readonly trailingSeparator?: true;
 };
 
 /** Parse `<space-id>[/<path>][:selector]`; `undefined` means `invalid_path`. */
@@ -46,14 +52,17 @@ export function parseKnowledgeLocator(
   // A trailing separator addresses a directory; the native reader already
   // fails a file target that carries one, and here it can only address the
   // Space directory or a subdirectory.
-  const relativePath = rawPath.endsWith('/') ? rawPath.slice(0, -1) : rawPath;
+  const trailing = rawPath.endsWith('/');
+  const relativePath = trailing ? rawPath.slice(0, -1) : rawPath;
   if (relativePath.length === 0)
     return selector === undefined
       ? { knowledgeSpaceId }
       : { knowledgeSpaceId, selector };
-  return selector === undefined
-    ? { knowledgeSpaceId, relativePath }
-    : { knowledgeSpaceId, relativePath, selector };
+  const base =
+    selector === undefined
+      ? { knowledgeSpaceId, relativePath }
+      : { knowledgeSpaceId, relativePath, selector };
+  return trailing ? { ...base, trailingSeparator: true } : base;
 }
 
 export type ResolvedKnowledgeTarget = {
@@ -90,7 +99,11 @@ export async function resolveKnowledgeLocator(
       context.abortSignal,
     );
     const target: ResolvedKnowledgeTarget = {
-      hostPath,
+      // The separator rides along so the reader's own `lstat`/open applies the
+      // native rule: a directory resolves, a file is `ENOTDIR` and reports
+      // `not_found`.
+      hostPath:
+        parsed.trailingSeparator === true ? `${hostPath}${sep}` : hostPath,
       locator,
       knowledgeSpaceId: parsed.knowledgeSpaceId,
       knowledgeSpaceName: access.knowledgeSpaceName,

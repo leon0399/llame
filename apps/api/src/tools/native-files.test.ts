@@ -284,6 +284,29 @@ describe('knowledge locator reads', () => {
     },
   );
 
+  it('refuses a trailing separator on a file and keeps it on a directory', async () => {
+    await mkdir(join(directory, 'research'));
+    await writeFile(join(directory, 'note.md'), 'a\n');
+    // The native contract accepts a trailing separator on a directory and
+    // fails `not_found` on a file; normalizing it away would read the file.
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: `kb://${SPACE}/note.md/` },
+        knowledgeContext(),
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: `kb://${SPACE}/research/` },
+        knowledgeContext(),
+        5,
+      ),
+    ).toMatchObject({ status: 'success', kind: 'directory' });
+  });
+
   it.each([
     ['kb://', 'invalid_path'],
     [`kb://${SPACE}/notes/a:b.md`, 'invalid_path'],

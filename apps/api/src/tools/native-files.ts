@@ -65,6 +65,7 @@ async function executeKnowledge(
   const options: NativeReadOptions = {
     displayPath: target.locator,
     reserveCodeUnits: serializeNativeModelOutput(envelope).length,
+    signal: context.abortSignal,
   };
   const result = await readResolvedFile(
     target.hostPath,
@@ -119,7 +120,7 @@ function performNative(
 ): Promise<ToolResult> {
   switch (call.operation) {
     case 'read':
-      return readFile(call.input);
+      return readFile(call.input, signal);
     case 'edit':
       return editFile(call.input, signal);
     case 'write':

@@ -381,6 +381,20 @@ describe("native reads resolved by a scheme owner", () => {
     );
   });
 
+  it("stops consuming the file when the read is aborted", async () => {
+    await writeFile(path, "line\n".repeat(50_000));
+    const abort = new AbortController();
+    abort.abort();
+    const result = await readResolvedFile(path, {
+      displayPath: "kb://space/big.md",
+      signal: abort.signal,
+    });
+    // Without the signal reaching the loop this returns a full successful
+    // window: the abort would only discard the promise, not the reading.
+    expect(result.status).toBe("error");
+    expect("content" in result).toBe(false);
+  });
+
   it("headers a directory listing with the display path", async () => {
     await writeFile(path, "a\n");
     const result = await readResolvedFile(directory, {

@@ -51,6 +51,7 @@ export type NativeReadOptions = {
   readonly displayPath: string;
   readonly selector?: string;
   readonly reserveCodeUnits?: number;
+  readonly signal?: AbortSignal | undefined;
 };
 
 export async function loadText(
@@ -74,7 +75,10 @@ export async function loadText(
   }
 }
 
-export async function readFile(input: { path: string }): Promise<ReadOutcome> {
+export async function readFile(
+  input: { path: string },
+  signal?: AbortSignal,
+): Promise<ReadOutcome> {
   try {
     const target = await resolveReadTarget(input.path);
     return target.directory
@@ -82,6 +86,7 @@ export async function readFile(input: { path: string }): Promise<ReadOutcome> {
       : await streamFileWindow(target, {
           hostPath: target.path,
           followSymlinks: true,
+          signal,
         });
   } catch (error) {
     return readFailure(error);
@@ -97,7 +102,11 @@ export async function readResolvedFile(
     const target = await resolveResolvedTarget(hostPath, options);
     return target.directory
       ? await runListing(hostPath, target)
-      : await streamFileWindow(target, { hostPath, followSymlinks: false });
+      : await streamFileWindow(target, {
+          hostPath,
+          followSymlinks: false,
+          signal: options.signal,
+        });
   } catch (error) {
     return readFailure(error);
   }
