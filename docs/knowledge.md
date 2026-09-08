@@ -34,7 +34,8 @@ neither binding the Run to a worker. A write may name directories that do not
 exist yet.
 
 Two Knowledge tool ids exist: `knowledge_search` scans Markdown across a Space,
-and native `read` opens a passage or lists a Space's directory by locator. `read` still needs its own
+and native `read`, `edit`, and `write` open, change, or create a Space's files
+by locator. `read` still needs its own
 `tools.allowed` entry; what a configured `knowledge.root` removes is the
 `tools.nativeExecutorId` requirement, so an allowlisted `read` is advertised
 without one. On such a process an absolute path argument to `read` fails closed

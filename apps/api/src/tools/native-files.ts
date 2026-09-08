@@ -77,13 +77,14 @@ async function executeKnowledge(
     call.operation === 'write',
   );
   if ('status' in target) return target;
-  if (call.operation === 'read') return readKnowledge(target);
+  if (call.operation === 'read') return readKnowledge(context, target);
   // A `const` keeps the narrowing across the closure the queue runs later.
   const mutation = call;
   return serializeMutation(() => mutateKnowledge(context, mutation, target));
 }
 
 async function readKnowledge(
+  context: ToolContext,
   target: ResolvedKnowledgeTarget,
 ): Promise<ToolResult> {
   const envelope = knowledgeResultEnvelope(target);
