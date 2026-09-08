@@ -43,6 +43,19 @@ issues):
   five-variant ladder silently. deepseek-harness and llame return a flat
   error.
 - No harness instructs a model about spaces.
+- Fuzzy engines, surveyed for the suggestion scorer on 2026-09-08: fzf,
+  `fzf-for-js`, `fuzzysort`, `microfuzz`, `nucleo`, `skim`, and `zf` are
+  subsequence matchers (every query character must appear in the candidate in
+  order, raw unbounded score). Hand-traced, they fail outright in both match
+  directions on three of the four error classes here: wrong extension,
+  percent-encoding (a substitution, not an insertion), and transposed words.
+  `frizbee` (the backend of dmtrKovalenko's `fff`) is the one engine built
+  for typos, and it ships as a native addon or MCP server with no maintained
+  npm or WASM build. No harness applies any of these at miss time; opencode
+  (`fuzzysort` plus a native `fff` binding), gemini-cli (`fzf`), and
+  deepseek-harness keep them for the human file picker and give the model a
+  bare "not found". `fuzzysort` and `leven` are in this repo's lockfile only
+  as transitive dev dependencies of shadcn and orval.
 
 A representative vault (232 entries): 123 names with spaces, 15 with
 parentheses, 11 with `@`, 9 with `+`, 5 with `&`, none with `:`, `%`, `#`, or
@@ -120,11 +133,30 @@ name carries no path and therefore nothing a `kb://` result must hide.
 (#737 proposed per-caller composition for that reason; with names only it
 buys nothing, so it is dropped.)
 
-Scoring, simplest that separates the cases: case-insensitive; same stem with
-a different extension, then prefix, then substring, then a bigram Dice
-coefficient of at least 0.5; ties by name. No dependency; no `difflib`
-port. A miss with nothing above the threshold returns the bare error, per the
-issue.
+Scoring is an edit-distance pipeline, not a subsequence matcher, because the
+query is a wrong spelling of an existing name rather than an abbreviation of
+one (see the engine survey in Context):
+
+1. Normalize the requested basename and every candidate identically: NFC,
+   then percent-decode inside a try/catch. This alone settles encoding and
+   NFC/NFD for absolute paths, where D1's decode-on-parse does not apply.
+2. Split stem from extension. An extension mismatch is a fixed small penalty,
+   never fatal, so `notes.txt` finds `notes.md`.
+3. Score stems by Damerau-Levenshtein similarity, `1 - distance / maxLength`,
+   case-insensitive; keep candidates at or above 0.5. The normalized distance
+   gives the threshold a subsequence score lacks: a hopeless miss returns
+   nothing.
+4. For a candidate below threshold, re-score once with its whitespace- and
+   punctuation-separated tokens sorted, so `MOC Pet Projects.md` finds
+   `Pet Projects MOC.md`; character edit distance alone does not recover a
+   block move.
+
+Top five by score, ties by name. Hand-rolled, about forty lines, no
+dependency: the candidate set is one directory and the strings are short.
+`fuse.js` (bounded edit distance, zero dependencies, active) is the library
+alternative if owning the DP is unwanted; `fastest-levenshtein` is zero-dep
+but last published 2022. A miss with nothing above threshold returns the bare
+error, per the issue.
 
 The tool description says suggestions may appear, following hermes.
 
@@ -191,6 +223,15 @@ and gains the `%3A` answer.
   write path has run this way since `kb-locator`.
 - [This change and #738 both edit `native-file-tools/spec.md`] → different
   requirement blocks; whichever lands second rebases and re-diffs.
+
+## Revision history
+
+- **v2 (2026-09-08):** D4 scorer replaced after an engine survey requested by
+  the owner: fzf-class subsequence matching and the `fff`/`frizbee` native
+  engine rejected with reasons recorded in Context; edit-distance pipeline
+  (normalize, stem/extension split, Damerau-Levenshtein similarity with a
+  0.5 cutoff, token-sorted retry) adopted, hand-rolled.
+- **v1 (2026-09-08):** Initial proposal.
 
 ## Open Questions
 
