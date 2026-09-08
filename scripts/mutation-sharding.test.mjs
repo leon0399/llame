@@ -184,7 +184,12 @@ test("mergeMutationReports uses Stryker's mutation score semantics", () => {
 
   const result = mergeMutationReports([
     report("src/a.ts", ["Killed", "Timeout", "Survived"]),
-    report("src/b.ts", ["NoCoverage", "CompileError", "RuntimeError"]),
+    report("src/b.ts", [
+      "NoCoverage",
+      "CompileError",
+      "RuntimeError",
+      "Ignored",
+    ]),
   ]);
 
   assert.deepEqual(result.counts, {

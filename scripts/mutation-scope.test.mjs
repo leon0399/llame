@@ -27,6 +27,11 @@ for (const variable of execFileSync("git", ["rev-parse", "--local-env-vars"], {
   .split("\n")) {
   delete process.env[variable];
 }
+process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+process.env.GIT_CONFIG_COUNT = "1";
+process.env.GIT_CONFIG_KEY_0 = "core.excludesFile";
+process.env.GIT_CONFIG_VALUE_0 = "/dev/null";
 
 const sources = {
   "apps/api": ["src/a.ts", "src/b.ts"],
