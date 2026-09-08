@@ -86,6 +86,15 @@ already proves one and reports `cancelled` as known, so this aligns the third
 path with the other two. Every surveyed peer preserves partial output on
 timeout.
 
+The runner passes bash a distinct per-call timeout signal and effective timeout;
+the effective deadline is the lesser of the runner's call timeout and the
+managed executor's 300-second cap, while caller cancellation remains separate.
+After the runner's per-call timeout or Run cancellation, the runner gives bash
+750 ms to settle and persist `native.result`. Group-stop cleanup waits up to
+250 ms for proof; timeout settlement drains output for up to 50 ms, marking an
+open stream truncated and destroying it. If settlement or result persistence
+exceeds the grace, the runner returns `outcome_unknown`.
+
 The proof is `kill(-pgid, 0)` (`process-tree.ts:4-11`): a process group probe.
 A descendant that calls `setsid` leaves the group and is invisible to it; the
 shipped spec said "process tree and descendants", which the code never

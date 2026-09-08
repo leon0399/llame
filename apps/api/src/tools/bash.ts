@@ -4,11 +4,18 @@ import {
   type BashExecutorContext,
   type BashResult,
 } from '@workspace/bash-executor';
-import { type Tool, type ToolResult } from './types';
+import { type Tool, type ToolContext, type ToolResult } from './types';
 import { isNativeFileTool } from './native-files';
 import { bashWorkingDirectory } from './env';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
+
+type AdmittedBashExecution = Extract<
+  ReturnType<typeof admitManagedBash>,
+  { readonly run: () => Promise<BashResult> }
+>;
+type AdmittedBashContext = ToolContext &
+  Required<Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId'>>;
 
 function managedContext(): BashExecutorContext {
   const workingDirectory = bashWorkingDirectory();
@@ -58,6 +65,37 @@ export function toToolResult(result: BashResult): ToolResult {
   };
 }
 
+async function runAdmittedBash(
+  context: AdmittedBashContext,
+  admitted: AdmittedBashExecution,
+): Promise<ToolResult> {
+  const { runId, userId, nativeExecutorId, toolCallId } = context;
+  try {
+    const prior = await context.tenantDb.runAs(userId, (db) =>
+      new NativeFilesRepository(db).begin({
+        runId,
+        userId,
+        fence: { bound: true, executorId: nativeExecutorId },
+        deliverySequence: context.nativeDeliverySequence,
+        toolCallId,
+        operation: 'bash',
+        path: admitted.cwd,
+      }),
+    );
+    if (prior) return prior;
+    const result = toToolResult(await admitted.run());
+    await context.tenantDb.runAs(userId, async (db) => {
+      await new RunEventsRepository(db).append(runId, 'native.result', {
+        toolCallId,
+        result,
+      });
+    });
+    return result;
+  } finally {
+    admitted.release();
+  }
+}
+
 export const bashTool: Tool<{
   command: string;
 }> = {
@@ -80,33 +118,18 @@ export const bashTool: Tool<{
     const admitted = admitManagedBash(
       { command: 'bash', args: ['-c', input.command] },
       managedContext(),
-      { signal: context.abortSignal, toolCallId },
+      {
+        signal: context.abortSignal,
+        timeoutSignal: context.timeoutSignal,
+        timeoutMs: context.timeoutMs,
+        toolCallId,
+      },
     );
     if ('type' in admitted) return toToolResult(admitted);
-    try {
-      const prior = await context.tenantDb.runAs(userId, (db) =>
-        new NativeFilesRepository(db).begin({
-          runId,
-          userId,
-          fence: { bound: true, executorId: nativeExecutorId },
-          deliverySequence: context.nativeDeliverySequence,
-          toolCallId,
-          operation: 'bash',
-          path: admitted.cwd,
-        }),
-      );
-      if (prior) return prior;
-      const result = toToolResult(await admitted.run());
-      await context.tenantDb.runAs(userId, async (db) => {
-        await new RunEventsRepository(db).append(runId, 'native.result', {
-          toolCallId,
-          result,
-        });
-      });
-      return result;
-    } finally {
-      admitted.release();
-    }
+    return runAdmittedBash(
+      { ...context, runId, userId, nativeExecutorId, toolCallId },
+      admitted,
+    );
   },
 };
 

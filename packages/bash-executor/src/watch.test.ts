@@ -3,6 +3,7 @@ import { PassThrough } from "node:stream";
 import { executeManagedBash, resetManagedExecutorForTests } from "./execute";
 import { watchManagedChild } from "./watch";
 import type { BashExecutorContext, BashResult } from "./types";
+import * as processTree from "./process-tree";
 
 const context: BashExecutorContext = {
   workingDirectory: process.cwd(),
@@ -17,8 +18,71 @@ const context: BashExecutorContext = {
 
 describe("process-group settlement", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     resetManagedExecutorForTests();
+  });
+
+  it("drains output queued while the process group is stopped", async () => {
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_347 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "stopProcessGroup").mockImplementation(() => {
+      setImmediate(() => {
+        child.stdout?.emit("data", Buffer.from("late"));
+        child.stdout?.emit("end");
+        child.stderr?.emit("end");
+      });
+      return Promise.resolve(true);
+    });
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: { ...context, durationMs: 0 },
+          attemptId: "late-output",
+          options: {},
+        },
+        resolve,
+      );
+    });
+
+    expect(await pending).toMatchObject({
+      type: "timed_out",
+      stdout: "late",
+      stderr: "",
+      truncated: false,
+    });
+  });
+
+  it("bounds an open output pipe and marks its result truncated", async () => {
+    vi.useFakeTimers();
+    const child = new ChildProcess();
+    Object.defineProperty(child, "pid", { value: 12_348 });
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    vi.spyOn(processTree, "stopProcessGroup").mockReturnValue(
+      Promise.resolve(true),
+    );
+    const pending = new Promise<BashResult>((resolve) => {
+      watchManagedChild(
+        child,
+        {
+          context: { ...context, durationMs: 0 },
+          attemptId: "open-output",
+          options: {},
+        },
+        resolve,
+      );
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await pending).toMatchObject({
+      type: "timed_out",
+      truncated: true,
+    });
   });
 
   it("keeps a deadline unknown while a group survives the kill budget", async () => {

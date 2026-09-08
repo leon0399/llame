@@ -250,6 +250,29 @@ describe('runTool', () => {
     expect(result).toMatchObject({ status: 'error', type: 'timeout' });
   });
 
+  it('passes the effective timeout separately from the composed execution signal', async () => {
+    let observed: ToolContext | undefined;
+    const parentAbort = new AbortController();
+    const observingTool: Tool = {
+      ...echoTool,
+      execute: (context) => {
+        observed = context;
+        return { status: 'success' };
+      },
+    };
+
+    await runTool(
+      observingTool,
+      { value: 'x' },
+      { ...fakeContext(), abortSignal: parentAbort.signal },
+      0.05,
+    );
+
+    expect(observed?.timeoutMs).toBe(50);
+    expect(observed?.timeoutSignal).toBeDefined();
+    expect(observed?.timeoutSignal).not.toBe(observed?.abortSignal);
+  });
+
   it('truncates an oversized result with a visible marker', async () => {
     const bigTool: Tool = {
       ...echoTool,

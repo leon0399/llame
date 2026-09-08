@@ -1424,7 +1424,7 @@ export class RunExecutionService {
             );
           }
           const nativeResult =
-            toolName === 'edit' || toolName === 'write'
+            toolName === 'edit' || toolName === 'write' || toolName === 'bash'
               ? await new NativeFilesRepository(tx).priorOutcome(
                   input.runId,
                   toolCallId,

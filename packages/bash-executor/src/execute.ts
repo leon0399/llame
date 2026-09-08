@@ -4,6 +4,7 @@ import type {
   BashCommandInput,
   BashExecutorContext,
   BashResult,
+  BashTimedOutResult,
   BashUnavailableResult,
 } from "./types";
 import {
@@ -23,6 +24,10 @@ let activeProcesses = 0;
 
 export type ExecuteManagedBashOptions = {
   readonly signal?: AbortSignal;
+  /** Trusted per-call deadline signal, distinct from caller cancellation. */
+  readonly timeoutSignal?: AbortSignal;
+  /** Effective per-call deadline in milliseconds. */
+  readonly timeoutMs?: number;
   readonly protectedValues?: ReadonlyArray<string>;
   /** Opaque model tool-call identity; never invents a replay. */
   readonly toolCallId?: string;
@@ -59,7 +64,7 @@ function rejectLimits(
   input: BashCommandInput,
   context: BashExecutorContext,
   options: ExecuteManagedBashOptions,
-): BashUnavailableResult | null {
+): BashUnavailableResult | BashTimedOutResult | null {
   const tool = resolveConfiguredTool(input.command);
   if (tool === null) {
     return {
@@ -82,6 +87,9 @@ function rejectLimits(
       message: "Managed process limit reached.",
     };
   }
+  if (options.timeoutSignal?.aborted) {
+    return timedOutResult(context, options);
+  }
   if (options.signal?.aborted) {
     return {
       status: "error",
@@ -96,7 +104,7 @@ function rejectIfNotAdmitted(
   input: BashCommandInput,
   context: BashExecutorContext,
   options: ExecuteManagedBashOptions,
-): BashUnavailableResult | null {
+): BashUnavailableResult | BashTimedOutResult | null {
   const boundary = requireManagedBoundary(context);
   if (boundary) return boundary;
   const quarantine = rejectQuarantinedGroups();
@@ -110,7 +118,7 @@ function admitExecution(
   input: BashCommandInput,
   context: BashExecutorContext,
   options: ExecuteManagedBashOptions,
-): RunRequest | BashUnavailableResult {
+): RunRequest | BashUnavailableResult | BashTimedOutResult {
   const cwdResult = sharedWorkingDirectory(context);
   if (isBashUnavailable(cwdResult)) return cwdResult;
 
@@ -161,7 +169,7 @@ export function admitManagedBash(
   input: BashCommandInput,
   context: BashExecutorContext,
   options: ExecuteManagedBashOptions = {},
-): AdmittedBashExecution | BashUnavailableResult {
+): AdmittedBashExecution | BashUnavailableResult | BashTimedOutResult {
   const request = admitExecution(input, context, options);
   if ("type" in request) return request;
   activeProcesses += 1;
@@ -188,6 +196,9 @@ export function admitManagedBash(
 
 async function runAdmitted(request: RunRequest): Promise<BashResult> {
   try {
+    if (request.options.timeoutSignal?.aborted) {
+      return timedOutResult(request.context, request.options);
+    }
     if (request.options.signal?.aborted) {
       return {
         status: "error",
@@ -199,6 +210,27 @@ async function runAdmitted(request: RunRequest): Promise<BashResult> {
   } finally {
     activeProcesses -= 1;
   }
+}
+
+function effectiveDeadlineMs(
+  context: BashExecutorContext,
+  options: ExecuteManagedBashOptions,
+): number {
+  return Math.min(context.durationMs, options.timeoutMs ?? context.durationMs);
+}
+
+function timedOutResult(
+  context: BashExecutorContext,
+  options: ExecuteManagedBashOptions,
+): BashTimedOutResult {
+  return {
+    status: "error",
+    type: "timed_out",
+    durationMs: effectiveDeadlineMs(context, options),
+    stdout: "",
+    stderr: "",
+    truncated: false,
+  };
 }
 
 function spawnManaged(request: RunRequest): Promise<BashResult> {

@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-09
+
+- Bound bash timeout cleanup (#733, #734): each call receives its effective
+  per-call deadline separately from Run cancellation, capped by the managed
+  executor's 300-second duration. After the runner's per-call timeout or Run
+  cancellation, bash has 750 ms to settle and persist `native.result`; timeout
+  cleanup waits up to 250 ms for group-stop proof and drains output for 50 ms,
+  marking open streams truncated. If settlement or persistence exceeds the
+  grace, the result is `outcome_unknown`.
+
 # 2026-09-08
 
 - Fix bash timeout recovery and persist command attempts (#733, #734): a

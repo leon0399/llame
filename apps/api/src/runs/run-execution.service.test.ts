@@ -2248,6 +2248,151 @@ describe('RunExecutionService settleTerminalRun', () => {
     );
   });
 
+  it('settles an open bash attempt as outcome_unknown when no result was recorded', async () => {
+    vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
+      ...run,
+      status: 'failed',
+    });
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      {
+        ...event,
+        sequence: 1,
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'bash-call',
+          toolName: 'bash',
+          input: { command: 'touch effect' },
+        },
+      },
+      {
+        ...event,
+        sequence: 2,
+        eventType: 'native.attempt',
+        payload: {
+          toolCallId: 'bash-call',
+          operation: 'bash',
+          path: '/tmp',
+        },
+      },
+    ]);
+    const priorOutcome = vi
+      .spyOn(NativeFilesRepository.prototype, 'priorOutcome')
+      .mockResolvedValue(undefined);
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: undefined,
+    });
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createAssistantReplyIfAbsent',
+    ).mockResolvedValue(assistantMessage);
+    const appended = recordAppendedEvents();
+    const execution = makeExecutionService();
+
+    await execution.service.settleTerminalRun({
+      userId,
+      runId,
+      status: 'failed',
+      runPayload: { status: 'failed', message: 'worker died' },
+    });
+
+    expect(priorOutcome).toHaveBeenCalledWith(runId, 'bash-call');
+    expect(appended[0]).toStrictEqual({
+      type: 'tool.completed',
+      payload: {
+        toolCallId: 'bash-call',
+        toolName: 'bash',
+        status: 'error',
+        output: {
+          status: 'error',
+          type: 'outcome_unknown',
+          message:
+            'The host command was interrupted. Inspect the current host state before a new attempt.',
+        },
+      },
+    });
+  });
+
+  it('reuses a known timed-out bash result during terminal settlement', async () => {
+    vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
+      ...run,
+      status: 'failed',
+    });
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      {
+        ...event,
+        sequence: 1,
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'bash-timeout',
+          toolName: 'bash',
+          input: { command: 'sleep 5' },
+        },
+      },
+      {
+        ...event,
+        sequence: 2,
+        eventType: 'native.attempt',
+        payload: {
+          toolCallId: 'bash-timeout',
+          operation: 'bash',
+          path: '/tmp',
+        },
+      },
+      {
+        ...event,
+        sequence: 3,
+        eventType: 'native.result',
+        payload: {
+          toolCallId: 'bash-timeout',
+          result: {
+            status: 'error',
+            type: 'timed_out',
+            message: 'Command exceeded its deadline.',
+          },
+        },
+      },
+    ]);
+    const knownResult: ToolResult = {
+      status: 'error',
+      type: 'timed_out',
+      message: 'Command exceeded its deadline.',
+    };
+    const priorOutcome = vi
+      .spyOn(NativeFilesRepository.prototype, 'priorOutcome')
+      .mockResolvedValue(knownResult);
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: undefined,
+    });
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createAssistantReplyIfAbsent',
+    ).mockResolvedValue(assistantMessage);
+    const appended = recordAppendedEvents();
+    const execution = makeExecutionService();
+
+    await execution.service.settleTerminalRun({
+      userId,
+      runId,
+      status: 'failed',
+      runPayload: { status: 'failed', message: 'worker died' },
+    });
+
+    expect(priorOutcome).toHaveBeenCalledWith(runId, 'bash-timeout');
+    expect(appended[0]).toStrictEqual({
+      type: 'tool.completed',
+      payload: {
+        toolCallId: 'bash-timeout',
+        toolName: 'bash',
+        status: 'error',
+        output: knownResult,
+      },
+    });
+  });
+
   it('refuses to complete a run whose durable tool calls are still open', async () => {
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
       ...run,

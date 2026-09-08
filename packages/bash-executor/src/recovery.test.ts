@@ -91,6 +91,24 @@ describe("recovery and attempt ledger", () => {
     });
   });
 
+  it("drops dead quarantined groups without waiting for another admission", async () => {
+    vi.useFakeTimers();
+    const alive = vi
+      .spyOn(processTree, "processGroupAlive")
+      .mockReturnValue(true);
+    completeAttemptUnknown("swept-attempt", 12_346);
+    alive.mockReturnValue(false);
+    vi.advanceTimersByTime(100);
+    vi.useRealTimers();
+
+    alive.mockReturnValue(true);
+    const result = await executeManagedBash(
+      { command: "bash", args: ["-c", "printf swept"] },
+      context(directory),
+    );
+    expect(result).toMatchObject({ status: "success", stdout: "swept" });
+  });
+
   it("treats a non-ESRCH group probe failure as alive", () => {
     const kill = vi.spyOn(process, "kill").mockImplementation(() => {
       const denied = new Error("permission denied");

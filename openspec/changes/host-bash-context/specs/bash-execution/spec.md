@@ -82,7 +82,9 @@ return output as the command produced it, cut at the bound, without rewriting,
 reordering, or deleting lines. Values the host knows to be secret SHALL be
 redacted before the result leaves the executor. The delimiter neutralization
 every model-facing tool result receives SHALL still apply to the copy the model
-reads.
+reads. After timeout settlement proves the process group stopped, the watcher
+SHALL drain output for at most 50 ms; a stream still open at that bound SHALL be
+marked truncated and destroyed.
 
 #### Scenario: Oversized output is bounded
 
@@ -118,6 +120,12 @@ terminate the Run that issued it. While a process of that attempt is still
 observed alive on the host, the host SHALL refuse new bash admission and SHALL
 re-signal the group on each refusal; the refusal SHALL lift without operator
 action once the group is empty, and SHALL NOT outlive the process it names.
+The runner SHALL pass bash a distinct effective timeout signal and duration;
+the effective deadline SHALL be the lesser of the runner's per-call timeout
+and the managed executor's 300-second cap, while caller cancellation remains
+separate. After the runner's per-call timeout or Run cancellation, bash SHALL
+have at most 750 ms to settle and persist `native.result`; if settlement or
+persistence exceeds that grace, the result SHALL be `outcome_unknown`.
 The host SHALL NOT rerun an attempt automatically, under the same or another
 tool-call ID: a Run resumed on any host after an attempt without a recorded
 result SHALL NOT re-execute it.

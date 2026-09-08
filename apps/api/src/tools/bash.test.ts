@@ -41,6 +41,122 @@ describe('bash durable admission', () => {
     resetManagedExecutorForTests();
   });
 
+  it('returns a proven timeout with partial output and admits the next call', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-timeout-'));
+    const context = testContext();
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+    try {
+      const timedOut = await runTool(
+        bashTool,
+        {
+          command:
+            'printf partial-stdout; printf partial-stderr >&2; while true; do :; done',
+        },
+        context,
+        0.05,
+      );
+
+      expect(timedOut).toMatchObject({
+        status: 'error',
+        type: 'timed_out',
+      });
+      if (timedOut.status === 'error') {
+        expect(timedOut.message).toContain('partial-stdout');
+        expect(timedOut.message).toContain('partial-stderr');
+      }
+
+      const next = await runTool(
+        bashTool,
+        { command: 'printf next' },
+        { ...context, toolCallId: 'call-2' },
+        0.05,
+      );
+      expect(next).toMatchObject({
+        status: 'success',
+        stdout: 'next',
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps user cancellation separate from the effective timeout', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-cancel-'));
+    const abort = new AbortController();
+    const context = {
+      ...testContext(),
+      abortSignal: abort.signal,
+    };
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+    try {
+      const resultPromise = runTool(
+        bashTool,
+        { command: 'while true; do :; done' },
+        context,
+        5,
+      );
+      setTimeout(() => abort.abort(), 20);
+
+      await expect(resultPromise).resolves.toMatchObject({
+        status: 'error',
+        type: 'cancelled',
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to an unknown outcome when result persistence exceeds the grace', async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), 'bash-persistence-timeout-'),
+    );
+    const context = testContext();
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+      () => new Promise(() => {}),
+    );
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+    const startedAt = Date.now();
+    try {
+      const result = await runTool(
+        bashTool,
+        { command: 'while true; do :; done' },
+        context,
+        0.05,
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'outcome_unknown',
+      });
+      expect(Date.now() - startedAt).toBeLessThan(1500);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     { truncated: true, note: '\nOutput was truncated.' },
     { truncated: false, note: '' },
