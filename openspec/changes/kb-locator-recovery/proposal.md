@@ -34,7 +34,9 @@ fix.
   reported as such. `edit` and `write` are unchanged.
 - To reach that layer, a `kb://` read resolves its locator tolerating a
   missing leaf, exactly as a `kb://` write already does; containment is proven
-  on the nearest existing ancestor before the read is attempted.
+  on the nearest existing ancestor before the read is attempted, and the
+  parent directory is `lstat`-checked and refused as a symbolic link
+  immediately before it is opened for names.
 
 ## Capabilities
 
@@ -54,8 +56,9 @@ None.
 ## Impact
 
 `apps/api/src/knowledge/knowledge-locator.ts` (decode on parse),
-`knowledge-filesystem-validation.ts` (`isLocatorAddressablePath` deleted, a
-decoded-segment `/` check added), `knowledge-filesystem.ts` (the search skip
+`knowledge-filesystem-validation.ts` (`isLocatorAddressablePath` deleted; the
+decoded-segment `/` check lives in the locator parser, per segment, before
+the segments are rejoined, because `validatePath` sees only the joined string), `knowledge-filesystem.ts` (the search skip
 goes), `knowledge-tools.ts` (`passageLocator` encodes conditionally),
 `apps/api/src/tools/native-files.ts` (reads resolve with the missing leaf
 allowed). `packages/native-file-tools/src/read.ts` (suggestions on the

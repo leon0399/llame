@@ -15,33 +15,48 @@ consulted once, at `knowledge-filesystem.ts:276`, to skip a file from search.
 `passageLocator` (`knowledge-tools.ts:474`) emits raw paths.
 
 Misses today: a `kb://` read resolves with `allowMissing=false`
-(`apps/api/src/tools/native-files.ts:76`); the adapter lstats every component
+(`apps/api/src/tools/native-files.ts:77`); the adapter lstats every component
 and throws `knowledge_not_found`, which `mapResolutionFailure` renders as the
 same `File not found.` the native reader would, before `readResolvedFile`
 runs. An absolute-path miss surfaces as `ENOENT` in `readFailure`
-(`packages/native-file-tools/src/read.ts:151-167`). `isInsideSpace`
+(`packages/native-file-tools/src/read.ts:151-165`). `isInsideSpace`
 (`knowledge-filesystem.ts:332-349`) already handles a missing path by walking
 up to the nearest existing ancestor and checking its `realpath`.
 
-Prior art, verified on fresh clones on 2026-09-07/08 (cites unpinned; see the
-issues):
+Prior art, re-verified on fresh clones on 2026-09-08 and pinned; where the
+issue text said something different, the pinned reading wins:
 
-- oh-my-pi decodes on parse for 9 of its 13 internal schemes, builds the raw
-  pathname with a regex over the original input so a literal space survives,
-  and instructs the model only about `:`, `?`, `#`
-  (`internal-urls/parse.ts`, `prompts/tools/read.md`). The archived
-  `kb-locator` design D6 misread this as "OMP requires percent-encoding for
-  `ssh://`"; it decodes, and it accepts both spellings.
-- openclaw splits before decoding so `%2F` cannot cross a boundary
-  (`agent-tools.read.ts`).
-- gemini-cli ships the `%25` cost undocumented across `read_file`,
-  `write_file`, and `edit` (`utils/paths.ts`).
-- hermes `_suggest_similar_files` lists the directory on `ENOENT`, scores
-  (same stem 90, prefix 70, substring 60, ratio ≥ 0.8 → 50), returns five, and
-  advertises it in the tool description. gemini-cli BFS-searches by basename
-  across workspace roots, capped at 50 directories. oh-my-pi probes a
-  five-variant ladder silently. deepseek-harness and llame return a flat
-  error.
+- oh-my-pi @ `a33cc26`: `internal-urls/parse.ts` keeps the pathname encoded
+  (`PATHNAME_RE`, `:15,74,101`) and each scheme decodes once, downstream, on
+  the whole combined path before any segment split (`local-protocol.ts:230`,
+  `vault-protocol.ts:157`, and seven more). Both spellings therefore resolve
+  alike, and a literal space survives because decoding is a no-op on it; but
+  decode-before-split is exactly the `%2F` boundary risk D1 avoids. The
+  model instruction "Literal `:`, `?`, `#` -> percent-encode"
+  (`prompts/tools/read.md:28`) sits under the `ssh://` bullet only. So the
+  archived `kb-locator` D6 was right that the instruction is `ssh://`-scoped
+  and wrong that encoding is required: decoding is general and both
+  spellings work. #736's own correction overstated this; the pinned reading
+  is recorded here.
+- openclaw @ `1a06c2f8`: `agent-tools.read.ts:623-628` detects an encoded
+  separator in the pathname before `decodeURIComponent` and bails to the
+  raw path (reject-on-detection through `@openclaw/fs-safe`), not
+  split-then-decode as #736 said. D1's per-segment refusal has the same
+  effect by a different mechanism.
+- gemini-cli @ `c647533`: `resolveToRealPath` (`utils/paths.ts:441,449`)
+  decodes the whole path once for `read_file`, `write_file`, and `edit`;
+  `%25` appears nowhere in the repository, so the literal-`%` cost is
+  undocumented.
+- hermes @ `091cc0e8be`: `_suggest_similar_files`
+  (`tools/file_operations.py:1744-1801`) lists the directory on `ENOENT`,
+  scores (exact 100, same stem 90, prefix 70, substring 60, then a
+  Ratcliff/Obershelp ratio ≥ 0.8 → 50), returns five, and the names reach the
+  model in the tool's JSON error (`tools/file_tools.py:1861-1865`).
+  gemini-cli @ `0bd1d4397` `pathCorrector.ts:34-82` is an exact-basename BFS
+  for the edit tool only, capped at 50 directories, failing on ambiguity.
+  oh-my-pi @ `1adcef976` `path-utils.ts:1372-1410` probes a five-variant
+  ladder silently, then a unique workspace glob. deepseek-harness, goose,
+  aider, and llame return a flat error.
 - No harness instructs a model about spaces.
 - Fuzzy engines, surveyed for the suggestion scorer on 2026-09-08: fzf,
   `fzf-for-js`, `fuzzysort`, `microfuzz`, `nucleo`, `skim`, and `zf` are
@@ -90,9 +105,20 @@ exactly as today; then each path segment is `decodeURIComponent`-ed. Because
 the split precedes decoding, `%2F` decodes into a segment that contains `/`
 and is refused, and `%3A` decodes into a segment that contains `:` and is
 accepted: the selector colon was already consumed on the raw string. A
-`URIError` from a malformed sequence maps to `invalid_path`. The existing
-`validatePath` then runs on the decoded segments, so `%2E%2E` is `..` and is
-refused there; one added check refuses a decoded segment containing `/`.
+`URIError` from a malformed sequence maps to `invalid_path`. Decoding happens
+exactly once, so `%252E%252E` is the literal name `%2E%2E`. The Space
+identifier and the selector are matched on the raw string and never decoded:
+an identifier carrying `%` fails the identifier pattern and returns
+`knowledge_space_not_found`; a selector carrying `%` is not a selector and
+returns `invalid_path`. The decoded segments are rejoined with `/` and handed
+to the existing `validatePath`, which refuses `..`, empty, backslash, NUL and
+control-character components; because `validatePath` re-splits the joined
+string, a decoded `/` is invisible to it, so the parser refuses a decoded
+segment containing `/` itself, per segment, before rejoining. The
+discriminating test is `notes%2Fsecret.md`: it must be `invalid_path`, and
+`notes/secret.md` must not be opened. A traversal such as `%2F..%2F` is
+refused by the `..` rule whether or not the per-segment check exists, so it
+proves nothing about it.
 
 Alternatives: instruct the model to always encode (rejected: no peer does;
 123 of 232 vault names would carry `%20`); instruct it never to encode
@@ -110,7 +136,15 @@ on disk becomes ambiguous. Everything else stays literal so the common case
 reads as a path. `isLocatorAddressablePath` is deleted along with its call.
 
 A `kb://` listing renders entry names, not locators, so nothing there
-encodes; the header stays the locator as given.
+encodes; the header stays the locator as given. This narrows #736, which
+asked for listings to encode too; recorded here as a changed decision.
+
+Downstream, every model-facing tool result passes the delimiter neutralizer,
+which entity-escapes reserved tag names such as `<tool-result>` in any string,
+the `locator` field included. A file named after a reserved tag therefore
+reaches the model with that name escaped. Accepted: it is the same treatment
+every other result string receives, and the file remains addressable by the
+literal name.
 
 ### D3: One sentence for the model, in two places
 
@@ -123,15 +157,23 @@ the `%` cost gemini-cli leaves undocumented.
 ### D4: Suggestions live in the native package, on the `ENOENT` path
 
 `readFailure` in `packages/native-file-tools/src/read.ts` is the one place
-both schemes reach a miss once D5 lands. On `ENOENT` for a file target it
-opens the parent once, reads names under the existing traversal budget,
-scores each against the requested basename, and appends up to five names to
-the `not_found` message: `File not found. Similar names in the same
-directory: a, b, c.` If the parent itself is missing, the message says so and
-lists nothing. Names only; the message is composed once here, because a bare
-name carries no path and therefore nothing a `kb://` result must hide.
-(#737 proposed per-caller composition for that reason; with names only it
-buys nothing, so it is dropped.)
+both schemes reach a miss once D5 lands. Today it receives only the error; it
+gains the resolved host path and the display path, and derives the parent
+and the requested basename from them. The `ENOENT` error's own `path` field
+is never used, so no host path can leak into a `kb://` message. On `ENOENT`
+for a file target without a trailing separator it `lstat`s the parent,
+refuses a symbolic link (mirroring the leaf rule at `read.ts:126-127`, and
+honoring `followSymlinks` so absolute paths keep their behavior), opens it
+once, reads names under the existing traversal budget, scores each against
+the requested basename, and appends up to five names to the `not_found`
+message: `File not found. Similar names in the same directory: a, b, c.` If
+the parent itself is missing, the message says so and lists nothing. A target
+with a trailing separator is a directory read and gets no suggestions on any
+scheme, which is what the absolute-path resolver already does. Names only;
+the message is composed once here, because a bare name carries no path and
+therefore nothing a `kb://` result must hide. (#737 proposed per-caller
+composition for that reason; with names only it buys nothing, so it is
+dropped.)
 
 Scoring is an edit-distance pipeline, not a subsequence matcher, because the
 query is a wrong spelling of an existing name rather than an abbreviation of
@@ -140,18 +182,26 @@ one (see the engine survey in Context):
 1. Normalize the requested basename and every candidate identically: NFC,
    then percent-decode inside a try/catch. This alone settles encoding and
    NFC/NFD for absolute paths, where D1's decode-on-parse does not apply.
-2. Split stem from extension. An extension mismatch is a fixed small penalty,
-   never fatal, so `notes.txt` finds `notes.md`.
+2. Split stem from extension: the extension is the text after the last `.`
+   that is not the first character, so `a.b.md` has stem `a.b` and extension
+   `md`, and `.env` has no extension. A differing extension subtracts 0.1
+   from the final score, never fails the candidate, so `notes.txt` finds
+   `notes.md` at 0.9.
 3. Score stems by Damerau-Levenshtein similarity, `1 - distance / maxLength`,
-   case-insensitive; keep candidates at or above 0.5. The normalized distance
-   gives the threshold a subsequence score lacks: a hopeless miss returns
-   nothing.
+   case-insensitive, then apply the extension penalty; keep candidates whose
+   final score is at least 0.5. A stem shorter than three characters must
+   match exactly, because one edit on two characters scores 0.5 by
+   arithmetic and means nothing. The normalized distance gives the threshold
+   a subsequence score lacks: a hopeless miss returns nothing.
 4. For a candidate below threshold, re-score once with its whitespace- and
-   punctuation-separated tokens sorted, so `MOC Pet Projects.md` finds
-   `Pet Projects MOC.md`; character edit distance alone does not recover a
-   block move.
+   punctuation-separated tokens sorted, so `Notes Standup 2026-09-08.md`
+   (0.167 raw) finds `2026-09-08 Standup Notes.md`; character edit distance
+   alone does not recover a block move.
 
-Top five by score, ties by name. Hand-rolled, about forty lines, no
+Top five by score, ties by name. Short names produce false positives at 0.5
+(`config` finds `conflict` at 0.625, `ROADMAP` finds `README` at 0.571);
+accepted, because the list is a suggestion the model reads, never a path the
+tool resolves, and the cap and the single-directory scope bound it. Hand-rolled, about forty lines, no
 dependency: the candidate set is one directory and the strings are short.
 `fuse.js` (bounded edit distance, zero dependencies, active) is the library
 alternative if owning the DP is unwanted; `fastest-levenshtein` is zero-dep
@@ -169,7 +219,10 @@ one; `assertInsideSpace` then proves the nearest existing ancestor is inside
 the Space by `realpath`; only then does the native reader open the path and
 raise `ENOENT`. The parent directory the suggestion reads is therefore
 either that proven ancestor or a directory beneath it that also failed to
-exist, in which case D4 reports the parent missing and reads nothing.
+exist, in which case D4 reports the parent missing and reads nothing. The
+proof is one instant old by the time the parent is opened, and `opendir`
+follows links, so D4's `lstat`-and-refuse on the parent closes the window in
+which a link could be planted at that position.
 
 Space-level failures are unchanged and precede all of this: an absent,
 removed, or other-owner identifier returns `knowledge_space_not_found` before
@@ -203,7 +256,8 @@ and gains the `%3A` answer.
 
 1. `encoding` layer: D1, D2, D3, D6. `suggestions` layer: D4, D5. `finalize`.
 2. No database change. Persisted locators from before this change are literal
-   and still parse.
+   and still parse, except one carrying a literal `%`, which the new parser
+   refuses as malformed; the risk entry below owns that cost.
 3. The `read` description changes, so the deploy follows the declaration
    cutover (quiesce, drain, deploy API and worker together, resume). Rollback
    is the reverse; a locator emitted with `%3A` by the new search is refused
@@ -225,6 +279,22 @@ and gains the `%3A` answer.
   requirement blocks; whichever lands second rebases and re-diffs.
 
 ## Revision history
+
+- **v3 (2026-09-08):** Review round 1 (two independent reviewers). Decoded-`/`
+  check moved into the locator parser, per segment, with `notes%2Fsecret.md`
+  as the discriminating case (both reviewers). Parent `lstat`-and-refuse
+  before the suggestion `opendir` (both). Extension penalty fixed at 0.1
+  after similarity, extension defined, two-character stems exact-only, the
+  token-sort example replaced by one that is below threshold, short-name
+  false positives stated as accepted (hostile P1-4, P2). `readFailure`
+  signature named; trailing-separator targets get no suggestions on any
+  scheme; decoded exactly once, identifier and selector never decoded;
+  neutralizer escaping of reserved-tag names stated (P2s). The
+  knowledge-tools scenario that kept its name now has a true body and the
+  `:` case is its own scenario. Word "Space" in the no-probe sentence is an
+  intended edit, listed here. D2 narrowing of #736 recorded. Migration line
+  qualified for literal-`%` locators. Line cites corrected. Peer cites pinned
+  to observed commits.
 
 - **v2 (2026-09-08):** D4 scorer replaced after an engine survey requested by
   the owner: fzf-class subsequence matching and the `fff`/`frizbee` native

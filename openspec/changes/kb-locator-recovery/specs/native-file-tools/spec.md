@@ -10,7 +10,9 @@ other argument or persisted declaration field SHALL. `edit` and `write` SHALL op
 operate on regular files and directories; every other entry kind SHALL fail. A
 `read` that misses a regular file SHALL offer bounded sibling-name
 suggestions from its existing parent directory on every scheme, names only,
-with one bounded directory read on the error path and none on success. A
+with one bounded directory read on the error path and none on success; the
+parent SHALL be checked without following links immediately before that read
+and a symbolic-link parent SHALL yield the bare error. A
 trailing path separator SHALL be accepted on a directory path and SHALL fail as
 `not_found` on any other target. A model argument SHALL NOT select a different
 executor, owner, tenant, permission mode, or remote authority. The three tools SHALL be advertised when the process has accepted native
@@ -44,9 +46,9 @@ there.
 
 #### Scenario: A missed read suggests sibling names
 
-- **WHEN** `read` targets a missing regular file whose parent directory exists, on any scheme
-- **THEN** the `not_found` result also lists at most five entry names from that directory that are plausible spellings of the requested name, as bare names without any path
-- **AND** a miss with no plausible sibling returns the bare `not_found`, and the suggestion list is never produced for `edit` or `write`
+- **WHEN** `read` targets a missing regular file, named without a trailing separator, whose parent directory exists and is not a symbolic link, on any scheme
+- **THEN** the `not_found` result also lists at most five entry names from that directory that score as plausible spellings of the requested name, as bare names without any path
+- **AND** a miss with no plausible sibling, a parent that is a symbolic link, or a trailing separator returns the bare `not_found`, and the suggestion list is never produced for `edit` or `write`
 
 #### Scenario: A missed read under a missing parent says so
 
@@ -90,8 +92,10 @@ removed, or another owner's, and SHALL carry names only.
 
 The locator SHALL be split on `/` and on the first `:` after the Space
 identifier before any decoding, and each path segment SHALL then be
-percent-decoded; a segment that fails to decode, or that decodes to a string
-containing `/`, SHALL return `invalid_path`. A literal and an encoded spelling
+percent-decoded exactly once; the Space identifier and the selector SHALL NOT
+be decoded. A segment that fails to decode, or that decodes to a string
+containing `/`, SHALL return `invalid_path`, and that check SHALL run on the
+individual segment before segments are rejoined. A literal and an encoded spelling
 of the same path SHALL resolve to the same file, so a segment containing `:`
 is addressed as `%3A` and one containing a literal `%` as `%25`. Path
 validation SHALL apply to the decoded segments and SHALL reject absolute
@@ -164,9 +168,9 @@ unsupported operation SHALL return a structured error without side effects.
 
 #### Scenario: Encoded separator cannot cross a boundary
 
-- **WHEN** the model calls `read` with `kb://<id>/notes%2F..%2Fsecret.md`
+- **WHEN** the model calls `read` with `kb://<id>/notes%2Fsecret.md`
 - **THEN** the tool returns `invalid_path`
-- **AND** no file outside `notes` is opened or probed
+- **AND** `notes/secret.md` is not opened or probed, even though that literal path would be valid
 
 #### Scenario: Malformed encoding fails closed
 

@@ -22,9 +22,15 @@ There is no operation-wide content revision or snapshot. A file changed after it
 
 #### Scenario: A path with no locator is not searched
 
+- **WHEN** a Space contains an entry whose relative path fails path validation, such as a name containing a backslash or a control character
+- **THEN** no passage and no locator is emitted for it, because no `kb://` spelling of it is valid
+- **AND** the Space reports its existing `knowledge_path_invalid` condition rather than a locator `read` would refuse
+
+#### Scenario: A colon path is searched with an encoded locator
+
 - **WHEN** a Space contains a Markdown file whose relative path contains `:`, such as `notes/2026-09-08 14:30 standup.md`
 - **THEN** search returns its passages with the locator `kb://<id>/notes/2026-09-08 14%3A30 standup.md:<start>-<end>`
-- **AND** passing that locator unchanged to `read` opens the passage; no emitted locator is one `read` refuses
+- **AND** passing that locator unchanged to `read` opens the passage
 
 #### Scenario: Search finds a live note
 
