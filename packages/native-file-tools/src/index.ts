@@ -25,6 +25,7 @@ export type {
   DirectoryFailure,
 } from "./read";
 export { editFile, createFile } from "./mutate";
+export type { NativeMutateOptions } from "./mutate";
 export {
   measureNativeModelOutput,
   serializeNativeModelOutput,

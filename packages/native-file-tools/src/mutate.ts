@@ -23,12 +23,19 @@ type EditInput = { path: string; oldText: string; newText: string };
 type WriteInput = { path: string; content: string };
 
 /**
- * `displayPath` is what a scheme resolver wants the model to see in place of
- * the host path, and marks the target as already authorized and resolved: it
- * is never resolved again through a symbolic link, because the owner
- * authorized one specific entry and following a link would mutate another.
+ * What a scheme resolver supplies once it has authorized and resolved the
+ * target. `displayPath` is what the model sees in place of the host path, and
+ * its presence marks the target as already resolved: it is never resolved
+ * again through a symbolic link, because the owner authorized one specific
+ * entry and following a link would mutate another. `reserveCodeUnits`
+ * withholds room for the envelope the resolver wraps the result in, so the
+ * preview is bounded against what the model receives rather than truncated
+ * generically afterwards.
  */
-type DisplayPath = string | undefined;
+export type NativeMutateOptions = {
+  readonly displayPath?: string | undefined;
+  readonly reserveCodeUnits?: number | undefined;
+};
 type MutationSuccess = {
   status: "success";
   operation: "edit" | "write";
@@ -112,13 +119,16 @@ function describeMutation(
   input: WriteInput,
   region: { offset: number; limit: number; diff: string },
   operation: "edit" | "write",
-  displayPath = input.path,
+  options: NativeMutateOptions = {},
 ): MutationSuccess {
+  const displayPath = options.displayPath ?? input.path;
+  const reserve = options.reserveCodeUnits ?? 0;
   const read = selectSourceLines(input.content, {
     path: displayPath,
     raw: false,
     offset: region.offset,
     limit: region.limit,
+    reserveCodeUnits: reserve,
   });
   const result: MutationSuccess = {
     status: "success",
@@ -132,14 +142,18 @@ function describeMutation(
     shownRange: read.shownRange,
     truncated: read.truncated,
   };
-  return boundMutationResult(result);
+  return boundMutationResult(result, reserve);
 }
 
-function boundMutationResult(result: MutationSuccess): MutationSuccess {
+function boundMutationResult(
+  result: MutationSuccess,
+  reserveCodeUnits: number,
+): MutationSuccess {
+  const cap = MAX_RESULT_CODE_UNITS - reserveCodeUnits;
   const diffLines = splitSourceLines(result.diff);
   result.diff = "";
   const contentLines = splitSourceLines(result.content);
-  while (measureNativeModelOutput(result) > MAX_RESULT_CODE_UNITS) {
+  while (measureNativeModelOutput(result) > cap) {
     result.truncated = true;
     if (contentLines.length === 0) throw new NativeFileError("invalid_path");
     contentLines.pop();
@@ -156,8 +170,7 @@ function boundMutationResult(result: MutationSuccess): MutationSuccess {
       ...result,
       diff: diffLines.slice(0, middle).join(""),
     };
-    if (measureNativeModelOutput(candidate) <= MAX_RESULT_CODE_UNITS)
-      low = middle;
+    if (measureNativeModelOutput(candidate) <= cap) low = middle;
     else high = middle - 1;
   }
   result.diff = diffLines.slice(0, low).join("");
@@ -199,9 +212,10 @@ function replacement(source: string, input: EditInput) {
 export function editFile(
   input: EditInput,
   signal?: AbortSignal,
-  displayPath?: DisplayPath,
+  options: NativeMutateOptions = {},
 ): Promise<MutationSuccess | FileFailure> {
   return mutate(async () => {
+    const displayPath = options.displayPath;
     validateContent(input.path, input.newText, signal);
     // An absolute path is the host's own; a resolved target was authorized as
     // one exact entry, so resolving it through a link would edit another.
@@ -214,7 +228,7 @@ export function editFile(
       { path: input.path, content: change.content },
       change,
       "edit",
-      displayPath,
+      { displayPath, reserveCodeUnits: options.reserveCodeUnits },
     );
     if (input.oldText !== input.newText) {
       const stats = await lstat(path);
@@ -230,9 +244,10 @@ export function editFile(
 export function createFile(
   input: WriteInput,
   signal?: AbortSignal,
-  displayPath?: DisplayPath,
+  options: NativeMutateOptions = {},
 ): Promise<MutationSuccess | FileFailure> {
   return mutate(async () => {
+    const displayPath = options.displayPath;
     validateContent(input.path, "", signal);
     await requireAbsent(input.path);
     validateContent(input.path, input.content, signal);
@@ -240,7 +255,7 @@ export function createFile(
       input,
       { offset: 0, limit: 2000, diff: "" },
       "write",
-      displayPath,
+      { displayPath, reserveCodeUnits: options.reserveCodeUnits },
     );
     // A resolved target's directories were created by its scheme owner, one
     // component at a time under its own symlink refusal; a recursive create

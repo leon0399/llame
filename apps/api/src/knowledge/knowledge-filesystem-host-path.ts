@@ -29,6 +29,12 @@ export type KnowledgeHostPathOptions = {
    * inside it.
    */
   readonly allowMissing?: boolean | undefined;
+  /**
+   * Create the missing directories rather than only tolerating them. This is a
+   * filesystem effect, so it runs after the durable attempt is recorded, never
+   * during the resolution that decides whether the call is admissible at all.
+   */
+  readonly createDirectories?: boolean | undefined;
   readonly signal?: AbortSignal | undefined;
 };
 
@@ -49,14 +55,21 @@ export async function resolveKnowledgeHostPath(
       allowMissing: options.allowMissing,
       // The leaf is the file the caller is about to create; only the
       // directories above it are made here.
-      create: options.allowMissing === true && !isLeaf,
+      create: options.createDirectories === true && !isLeaf,
     });
-    if (stats === undefined) return current;
+    // Nothing under a missing component can exist, so the rest of the path is
+    // joined unchecked. When creating, only the leaf can be missing, and the
+    // slice is empty.
+    if (stats === undefined) {
+      return path.join(current, ...components.slice(index + 1));
+    }
     if (stats.isSymbolicLink()) {
       throw new KnowledgeFilesystemError('knowledge_not_found');
     }
     if (!isLeaf && !stats.isDirectory()) {
-      throw new KnowledgeFilesystemError('knowledge_not_found');
+      // Present but unusable is a different answer from absent, and the write
+      // contract reports it as such on every scheme.
+      throw new KnowledgeFilesystemError('knowledge_not_directory');
     }
   }
   return current;

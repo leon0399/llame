@@ -132,7 +132,7 @@ export type KnowledgeFilesystemSearchMatch = {
 
 export type KnowledgeFilesystemAdapterPort = Pick<
   KnowledgeFilesystemAdapter,
-  'search' | 'resolveHostPath'
+  'search' | 'resolveHostPath' | 'isInsideSpace'
 >;
 
 export type KnowledgeFilesystemSearchOptions = {
@@ -322,6 +322,32 @@ export class KnowledgeFilesystemAdapter {
    * a directory, so this is not a read: the caller decides what to do with
    * what it finds, and closes the check-to-open window with `O_NOFOLLOW`.
    */
+  /**
+   * Resolve the deepest existing ancestor of `hostPath` through every symbolic
+   * link and report whether it is still inside this Space. The walk refuses a
+   * link at each component, but only at the moment it looks; this is the check
+   * that runs immediately before an operation, so a component swapped in
+   * afterwards is caught before the bytes move rather than after.
+   */
+  async isInsideSpace(
+    hostPath: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const directory = await this.resolveBindingDirectory(signal);
+    let candidate = hostPath;
+    while (candidate.length > directory.length) {
+      try {
+        const real = await this.realpath(candidate, signal);
+        return real === directory || real.startsWith(directory + path.sep);
+      } catch {
+        const parent = path.dirname(candidate);
+        if (parent === candidate) return false;
+        candidate = parent;
+      }
+    }
+    return candidate === directory;
+  }
+
   async resolveHostPath(
     relativePath: string | undefined,
     options: KnowledgeHostPathOptions = {},

@@ -695,7 +695,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       ).rejects.toMatchObject({ code: 'knowledge_not_found' });
       await expect(
         adapter.resolveHostPath('notes/own.md/deeper.md'),
-      ).rejects.toMatchObject({ code: 'knowledge_not_found' });
+      ).rejects.toMatchObject({ code: 'knowledge_not_directory' });
       await expect(
         adapter.resolveHostPath('../escape.md'),
       ).rejects.toMatchObject({ code: 'knowledge_path_invalid' });
@@ -730,6 +730,7 @@ describe('KnowledgeFilesystemAdapter', () => {
 
       const created = await adapter.resolveHostPath('research/2026/note.md', {
         allowMissing: true,
+        createDirectories: true,
       });
       expect(created).toBe(path.join(directory, 'research', '2026', 'note.md'));
       expect(
@@ -744,6 +745,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       await expect(
         adapter.resolveHostPath('escape/deeper/note.md', {
           allowMissing: true,
+          createDirectories: true,
         }),
       ).rejects.toMatchObject({ code: 'knowledge_not_found' });
       expect(() => lstatSync(path.join(outside, 'deeper'))).toThrow(/ENOENT/);
@@ -763,7 +765,10 @@ describe('KnowledgeFilesystemAdapter', () => {
         },
       });
       await expect(
-        raced.resolveHostPath('raced/note.md', { allowMissing: true }),
+        raced.resolveHostPath('raced/note.md', {
+          allowMissing: true,
+          createDirectories: true,
+        }),
       ).rejects.toMatchObject({ code: 'knowledge_not_found' });
       expect(() => lstatSync(path.join(outside, 'note.md'))).toThrow(/ENOENT/);
 
@@ -771,8 +776,35 @@ describe('KnowledgeFilesystemAdapter', () => {
       // not an error: the `lstat` finds a real directory and the walk goes on.
       await mkdir(path.join(directory, 'shared'), { recursive: true });
       await expect(
-        adapter.resolveHostPath('shared/note.md', { allowMissing: true }),
+        adapter.resolveHostPath('shared/note.md', {
+          allowMissing: true,
+          createDirectories: true,
+        }),
       ).resolves.toBe(path.join(directory, 'shared', 'note.md'));
+
+      await rm(outside, { recursive: true, force: true });
+    });
+  });
+
+  it('reports a target swapped outside the Space after validation', async () => {
+    await withFixture(async ({ binding, directory }) => {
+      const outside = await mkdtemp(
+        path.join(tmpdir(), 'llame-knowledge-swap-'),
+      );
+      await writeFile(path.join(outside, 'note.md'), 'secret\n');
+      await mkdir(path.join(directory, 'notes'), { recursive: true });
+      await writeFile(path.join(directory, 'notes', 'note.md'), 'mine\n');
+      const adapter = new KnowledgeFilesystemAdapter(binding);
+      const target = path.join(directory, 'notes', 'note.md');
+
+      expect(await adapter.isInsideSpace(target)).toBe(true);
+
+      // The walk refuses links when it looks; this is the check that runs
+      // immediately before the operation, so a parent replaced afterwards is
+      // caught before any bytes move.
+      await rm(path.join(directory, 'notes'), { recursive: true, force: true });
+      await symlink(outside, path.join(directory, 'notes'), 'dir');
+      expect(await adapter.isInsideSpace(target)).toBe(false);
 
       await rm(outside, { recursive: true, force: true });
     });

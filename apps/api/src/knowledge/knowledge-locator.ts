@@ -71,6 +71,21 @@ export type ResolvedKnowledgeTarget = {
   readonly knowledgeSpaceId: string;
   readonly knowledgeSpaceName: string;
   readonly selector?: string;
+  /**
+   * Creates the directories a write needs, refusing a symbolic link at every
+   * component exactly as resolution did. Kept as a deferred step because it is
+   * a filesystem effect: it must not run until the attempt is durably
+   * recorded, and re-walking immediately before the write also narrows the
+   * window in which an already-checked parent could be replaced.
+   */
+  readonly createDirectories: () => Promise<ToolResult | undefined>;
+  /**
+   * Re-checks, as late as possible, that the target still resolves inside the
+   * Space. Node exposes no descriptor-relative open, so this cannot be atomic
+   * with the operation; it narrows the window from a fence round trip to the
+   * gap before the syscall.
+   */
+  readonly assertInsideSpace: () => Promise<ToolResult | undefined>;
 };
 
 /**
@@ -108,10 +123,47 @@ export async function resolveKnowledgeLocator(
       locator,
       knowledgeSpaceId: parsed.knowledgeSpaceId,
       knowledgeSpaceName: access.knowledgeSpaceName,
+      createDirectories: () => createDirectories(context, access, parsed),
+      assertInsideSpace: () => assertInsideSpace(context, access, hostPath),
     };
     return parsed.selector === undefined
       ? target
       : { ...target, selector: parsed.selector };
+  } catch (error) {
+    return mapResolutionFailure(error);
+  }
+}
+
+/** The deferred filesystem effect a write needs, kept out of resolution so the
+ *  durable attempt is recorded before anything touches the disk. */
+async function createDirectories(
+  context: ToolContext,
+  access: KnowledgeSpaceAccess,
+  parsed: ParsedKnowledgeLocator,
+): Promise<ToolResult | undefined> {
+  try {
+    await access.adapter.resolveHostPath(parsed.relativePath, {
+      allowMissing: true,
+      createDirectories: true,
+      signal: context.abortSignal,
+    });
+    return undefined;
+  } catch (error) {
+    return mapResolutionFailure(error);
+  }
+}
+
+async function assertInsideSpace(
+  context: ToolContext,
+  access: KnowledgeSpaceAccess,
+  hostPath: string,
+): Promise<ToolResult | undefined> {
+  try {
+    const inside = await access.adapter.isInsideSpace(
+      hostPath,
+      context.abortSignal,
+    );
+    return inside ? undefined : knowledgeNotFoundResult();
   } catch (error) {
     return mapResolutionFailure(error);
   }
@@ -157,6 +209,12 @@ function mapResolutionFailure(error: unknown): ToolResult {
       throw error;
     case 'knowledge_not_found':
       return { status: 'error', type: 'not_found', message: 'File not found.' };
+    case 'knowledge_not_directory':
+      return {
+        status: 'error',
+        type: 'not_regular_file',
+        message: 'A path component is not a directory.',
+      };
     case 'knowledge_space_unavailable':
       return knowledgeUnavailableResult();
     default:

@@ -5,6 +5,7 @@
 export type KnowledgeFilesystemErrorCode =
   | 'knowledge_path_invalid'
   | 'knowledge_not_found'
+  | 'knowledge_not_directory'
   | 'knowledge_range_invalid'
   | 'knowledge_content_invalid'
   | 'knowledge_limit_exceeded'
@@ -24,6 +25,8 @@ function messageFor(code: KnowledgeFilesystemErrorCode): string {
       return 'The Knowledge path is invalid.';
     case 'knowledge_not_found':
       return 'The Knowledge note was not found.';
+    case 'knowledge_not_directory':
+      return 'A Knowledge path component is not a directory.';
     case 'knowledge_range_invalid':
       return 'The Knowledge line range is invalid.';
     case 'knowledge_content_invalid':

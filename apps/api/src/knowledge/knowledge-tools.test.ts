@@ -35,6 +35,7 @@ function fakeAdapter(
   return {
     search: vi.fn(() => Promise.resolve([])),
     resolveHostPath: vi.fn(() => Promise.resolve(binding.directory)),
+    isInsideSpace: vi.fn(() => Promise.resolve(true)),
     ...overrides,
   };
 }

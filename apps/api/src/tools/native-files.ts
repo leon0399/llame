@@ -87,6 +87,8 @@ async function readKnowledge(
   context: ToolContext,
   target: ResolvedKnowledgeTarget,
 ): Promise<ToolResult> {
+  const escaped = await target.assertInsideSpace();
+  if (escaped) return escaped;
   const envelope = knowledgeResultEnvelope(target);
   const options: NativeReadOptions = {
     displayPath: target.locator,
@@ -129,19 +131,39 @@ async function mutateKnowledge(
   );
   if (prior) return prior;
   context.abortSignal?.throwIfAborted();
-  const result = await performMutation(call, target.hostPath, {
-    signal: context.abortSignal,
-    displayPath: target.locator,
-  });
+  const settled = await settleKnowledgeMutation(context, call, target);
   await context.tenantDb.runAs(userId, async (db) => {
     await new RunEventsRepository(db).append(runId, 'native.result', {
       toolCallId,
-      result,
+      // Persist what the model is given: recovery replays this event, and an
+      // unattributed result would settle the turn differently from the first.
+      result: settled,
     });
   });
-  return result.status === 'success'
-    ? { ...result, ...knowledgeResultEnvelope(target) }
-    : result;
+  return settled;
+}
+
+/** Runs after the attempt is durably recorded, so a refused selector or a
+ *  stale delivery leaves no directories behind. */
+async function settleKnowledgeMutation(
+  context: ToolContext,
+  call: NativeMutationCall,
+  target: ResolvedKnowledgeTarget,
+): Promise<ToolResult> {
+  const blocked =
+    call.operation === 'write' ? await target.createDirectories() : undefined;
+  if (blocked) return blocked;
+  const escaped = await target.assertInsideSpace();
+  if (escaped) return escaped;
+  const envelope = knowledgeResultEnvelope(target);
+  const result = await performMutation(call, target.hostPath, {
+    signal: context.abortSignal,
+    displayPath: target.locator,
+    // The envelope is part of what the model receives, so the preview is
+    // bounded against it rather than truncated generically afterwards.
+    reserveCodeUnits: serializeNativeModelOutput(envelope).length,
+  });
+  return result.status === 'success' ? { ...result, ...envelope } : result;
 }
 
 async function executeNativeBound(
@@ -196,20 +218,22 @@ function performNative(
 function performMutation(
   call: NativeMutationCall,
   hostPath: string,
-  runtime: { signal?: AbortSignal; displayPath?: string },
+  runtime: {
+    signal?: AbortSignal;
+    displayPath?: string;
+    reserveCodeUnits?: number;
+  },
 ): Promise<ToolResult> {
   if (call.operation === 'edit') {
-    return editFile(
-      { ...call.input, path: hostPath },
-      runtime.signal,
-      runtime.displayPath,
-    );
+    return editFile({ ...call.input, path: hostPath }, runtime.signal, {
+      displayPath: runtime.displayPath,
+      reserveCodeUnits: runtime.reserveCodeUnits,
+    });
   }
-  return createFile(
-    { ...call.input, path: hostPath },
-    runtime.signal,
-    runtime.displayPath,
-  );
+  return createFile({ ...call.input, path: hostPath }, runtime.signal, {
+    displayPath: runtime.displayPath,
+    reserveCodeUnits: runtime.reserveCodeUnits,
+  });
 }
 
 function unknownSchemeResult(): ToolResult {

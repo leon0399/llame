@@ -1,3 +1,4 @@
+import { lstatSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -634,6 +635,48 @@ describe('kb:// mutations under real owner binding', () => {
     expect(
       await readFile(notePath(spaceId, 'research/2026/note.md'), 'utf8'),
     ).toBe('new\n');
+  });
+
+  it('creates no directories for a write the fence refuses', async () => {
+    // The attempt is the pre-effect record, so a call rejected for its
+    // selector, or by a stale delivery, must not have touched the disk first.
+    expect(
+      await runTool(
+        nativeWriteTool,
+        {
+          path: `${locator(spaceId, 'rejected/deep/note.md')}:1-2`,
+          content: 'x\n',
+        },
+        context,
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'invalid_selector' });
+    expect(() => lstatSync(notePath(spaceId, 'rejected'))).toThrow(/ENOENT/);
+
+    expect(
+      await runTool(
+        nativeWriteTool,
+        { path: locator(spaceId, 'stale/deep/note.md'), content: 'x\n' },
+        { ...context, nativeDeliverySequence: 999_999 },
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'executor_unavailable' });
+    expect(() => lstatSync(notePath(spaceId, 'stale'))).toThrow(/ENOENT/);
+  });
+
+  it('reports an intermediate regular file as not_regular_file', async () => {
+    await writeFile(notePath(spaceId, 'blocker'), 'not a directory\n');
+    expect(
+      await runTool(
+        nativeWriteTool,
+        { path: locator(spaceId, 'blocker/note.md'), content: 'x\n' },
+        context,
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'not_regular_file' });
+    expect(await readFile(notePath(spaceId, 'blocker'), 'utf8')).toBe(
+      'not a directory\n',
+    );
   });
 
   it('refuses another owner Space and mutates nothing', async () => {

@@ -218,7 +218,7 @@ describe("native mutations resolved by a scheme owner", () => {
     const edited = await editFile(
       { path: target, oldText: "beta", newText: "gamma" },
       undefined,
-      "kb://space/note.md",
+      { displayPath: "kb://space/note.md" },
     );
     expect(edited).toMatchObject({
       status: "success",
@@ -236,7 +236,7 @@ describe("native mutations resolved by a scheme owner", () => {
       await editFile(
         { path: link, oldText: "secret", newText: "leaked" },
         undefined,
-        "kb://space/link.md",
+        { displayPath: "kb://space/link.md" },
       ),
     ).toMatchObject({ status: "error", type: "not_found" });
     expect(await readFile(outside, "utf8")).toBe("secret\n");
