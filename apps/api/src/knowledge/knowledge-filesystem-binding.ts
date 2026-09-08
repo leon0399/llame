@@ -12,13 +12,13 @@ import { KnowledgeFilesystemError } from './knowledge-filesystem-errors';
 import { validateBinding } from './knowledge-filesystem-validation';
 import type {
   KnowledgeFilesystemBinding,
-  KnowledgeFilesystemStats,
+  KnowledgeFilesystemPort,
 } from './knowledge-filesystem';
 
-export type KnowledgeBindingPort = {
-  lstat(filePath: string): Promise<KnowledgeFilesystemStats>;
-  realpath(filePath: string): Promise<string>;
-};
+export type KnowledgeBindingPort = Pick<
+  KnowledgeFilesystemPort,
+  'lstat' | 'realpath'
+>;
 
 export async function resolveKnowledgeBindingDirectory(
   binding: KnowledgeFilesystemBinding,

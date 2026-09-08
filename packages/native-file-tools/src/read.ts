@@ -1,4 +1,4 @@
-import { lstat, opendir, open, stat } from "node:fs/promises";
+import { lstat, opendir, open } from "node:fs/promises";
 import {
   applySelectorSuffix,
   isNodeError,
@@ -38,15 +38,18 @@ type ReadOutcome =
  * resolved the host path. `displayPath` is what the model sees, so the result
  * carries it and is bounded against it rather than against the host path;
  * `selector` is the suffix the resolver already split off, so no literal-path
- * probe can reinterpret it; `followSymlinks: false` opens with `O_NOFOLLOW`,
- * closing the window between the resolver's `lstat` checks and this open; and
- * `reserveCodeUnits` withholds room for the envelope the resolver wraps the
- * result in, so the shared cap still holds for what the model receives.
+ * probe can reinterpret it; and `reserveCodeUnits` withholds room for the
+ * envelope the resolver wraps the result in, so the shared cap still holds for
+ * what the model receives.
+ *
+ * A resolved target is always opened with `O_NOFOLLOW` and a symbolic link is
+ * always refused. A scheme owner authorized one specific entry, so following a
+ * link would serve a different one, and there is no caller for whom that is
+ * correct.
  */
 export type NativeReadOptions = {
   readonly displayPath: string;
   readonly selector?: string;
-  readonly followSymlinks?: boolean;
   readonly reserveCodeUnits?: number;
 };
 
@@ -94,10 +97,7 @@ export async function readResolvedFile(
     const target = await resolveResolvedTarget(hostPath, options);
     return target.directory
       ? await runListing(hostPath, target)
-      : await streamFileWindow(target, {
-          hostPath,
-          followSymlinks: options.followSymlinks === true,
-        });
+      : await streamFileWindow(target, { hostPath, followSymlinks: false });
   } catch (error) {
     return readFailure(error);
   }
@@ -115,12 +115,8 @@ async function resolveResolvedTarget(
   if (options.reserveCodeUnits !== undefined)
     target.reserveCodeUnits = options.reserveCodeUnits;
   const stats = await lstat(hostPath);
-  if (stats.isSymbolicLink() && options.followSymlinks !== true)
-    throw new NativeFileError("not_found");
-  const directory = stats.isSymbolicLink()
-    ? (await stat(hostPath)).isDirectory()
-    : stats.isDirectory();
-  return directory ? { ...target, directory: true } : target;
+  if (stats.isSymbolicLink()) throw new NativeFileError("not_found");
+  return stats.isDirectory() ? { ...target, directory: true } : target;
 }
 
 function runListing(

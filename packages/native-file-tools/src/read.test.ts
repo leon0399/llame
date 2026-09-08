@@ -363,18 +363,6 @@ describe("native reads resolved by a scheme owner", () => {
     ).toMatchObject({ status: "error", type: "not_found" });
   });
 
-  it("still follows a symbolic link when links are allowed", async () => {
-    await writeFile(path, "shared\n");
-    const link = join(directory, "link.md");
-    await symlink(path, link);
-    const result = await readResolvedFile(link, {
-      displayPath: "kb://space/link.md",
-      followSymlinks: true,
-    });
-    assertFileSuccess(result);
-    expect(result.content).toBe("1: shared\n");
-  });
-
   it("withholds the reserved envelope room from the shared cap", async () => {
     const line = "x".repeat(200);
     await writeFile(path, `${line}\n`.repeat(200));
