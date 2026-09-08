@@ -38,10 +38,12 @@ const knowledgeRoot = process.env.E2E_KNOWLEDGE_ROOT;
 const modelId = "system:openai:gpt-5.4-mini";
 const longNotePath = "notes/long-note.md";
 const pagedQuery = "KNOWLEDGE_E2E_PAGED";
-// The `read` tool's rendered title is the bare id ("read"); a plain substring
-// filter would also match unrelated button text ("already read", "thread"),
-// so every read-card lookup below anchors on the word boundary.
-const readToolFilter = /\bread\b/;
+// The `read` tool's rendered title is the bare id ("read"). `ToolHeader`
+// renders that title span immediately followed by the status badge span with
+// no separating text node, so a card's text reads "readCompleted" and a
+// `/\bread\b/` filter matches nothing at all. Anchor at the start instead and
+// exclude the longer ids that end in `_read`.
+const readToolFilter = /^read(?![a-z_])/u;
 
 type KnowledgeSpaceResponse = {
   id: string;
