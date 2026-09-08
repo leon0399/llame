@@ -188,5 +188,13 @@ Path and file: native `FileFailure` types. One vocabulary per tool.
   rule; `docs/knowledge.md` and the changelog say to remove the entry.
 - [`knowledge-submit` D2 contradicts D7] → its design is edited here; its spec
   delta already says "regular-file paths".
+- [A Knowledge path containing `:` has no locator, so search must skip it] →
+  D6 splits the trailing selector on the first colon, so a file such as
+  `notes/2026-09-08 14:30 standup.md` cannot be addressed at all; search treats
+  it as it treats a non-Markdown file rather than returning a passage `read`
+  refuses. The file stays on disk and out of both surfaces, which is a
+  regression against `knowledge_read`, which had no such restriction.
+  Percent-encoding the path segment, as OMP does for `ssh://`, is the general
+  fix and needs its own change because it alters this grammar.
 - [Locator UUIDs cost ~20 tokens each in search results] → accepted; #332 adds a
   slug alias through the same owner-scoped lookup later.
