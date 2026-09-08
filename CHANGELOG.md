@@ -8,7 +8,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   cancellation, bash has 750 ms to settle and persist `native.result`; timeout
   cleanup waits up to 250 ms for group-stop proof and drains output for 50 ms,
   marking open streams truncated. If settlement or persistence exceeds the
-  grace, the result is `outcome_unknown`.
+  grace, the result is `outcome_unknown`. Pending durable admission releases
+  its reserved process slot on abort, and a late `begin` completion cannot start
+  the command. Parent cancellation waits through bounded cleanup so a known
+  bash result can win before the synthetic `outcome_unknown` fallback.
 
 # 2026-09-08
 

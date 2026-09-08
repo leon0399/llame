@@ -70,6 +70,9 @@ async function runAdmittedBash(
   admitted: AdmittedBashExecution,
 ): Promise<ToolResult> {
   const { runId, userId, nativeExecutorId, toolCallId } = context;
+  const onAbort = () => admitted.release();
+  if (context.abortSignal?.aborted) admitted.release();
+  else context.abortSignal?.addEventListener('abort', onAbort, { once: true });
   try {
     const prior = await context.tenantDb.runAs(userId, (db) =>
       new NativeFilesRepository(db).begin({
@@ -92,6 +95,7 @@ async function runAdmittedBash(
     });
     return result;
   } finally {
+    context.abortSignal?.removeEventListener('abort', onAbort);
     admitted.release();
   }
 }

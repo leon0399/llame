@@ -157,6 +157,62 @@ describe('bash durable admission', () => {
     }
   });
 
+  it('releases a pending durable admission when interrupted before begin resolves', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-pending-begin-'));
+    const firstPath = join(directory, 'late-effect');
+    const secondPath = join(directory, 'next-effect');
+    const context = testContext();
+    let resolveFirstBegin!: (value: undefined) => void;
+    const firstBegin = new Promise<undefined>((resolve) => {
+      resolveFirstBegin = resolve;
+    });
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockReturnValueOnce(firstBegin)
+      .mockResolvedValue(undefined);
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockResolvedValue({
+        runId: 'run',
+        sequence: 1,
+        eventType: 'native.result',
+        payload: null,
+        createdAt: new Date(),
+      });
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+    try {
+      const first = runTool(
+        bashTool,
+        { command: `printf late > '${firstPath}'` },
+        context,
+        0.05,
+      );
+      await expect(first).resolves.toMatchObject({
+        status: 'error',
+        type: 'outcome_unknown',
+      });
+
+      const next = await runTool(
+        bashTool,
+        { command: `printf next > '${secondPath}'` },
+        { ...context, toolCallId: 'call-2' },
+        5,
+      );
+      expect(next).toMatchObject({ status: 'success' });
+      await expect(readFile(secondPath, 'utf8')).resolves.toBe('next');
+
+      resolveFirstBegin(undefined);
+      await vi.waitFor(() => expect(append).toHaveBeenCalledTimes(2));
+      await expect(readFile(firstPath, 'utf8')).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+      expect(begin).toHaveBeenCalledTimes(2);
+    } finally {
+      resolveFirstBegin(undefined);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     { truncated: true, note: '\nOutput was truncated.' },
     { truncated: false, note: '' },

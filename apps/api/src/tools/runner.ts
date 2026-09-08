@@ -27,7 +27,7 @@ type PreparedToolExecution = {
  * append a small bounded window; a hung database call must still fall back to
  * the unknown outcome.
  */
-const BASH_SETTLEMENT_GRACE_MS = 750;
+export const BASH_SETTLEMENT_GRACE_MS = 750;
 
 /**
  * Race an execution against the exact signal passed to the tool. Cooperative

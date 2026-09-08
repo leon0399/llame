@@ -997,6 +997,18 @@ function withDeclaredTool() {
   ).mockResolvedValue({ ...snapshot, toolDeclarations: [toolDeclaration] });
 }
 
+async function withDeclaredBashTool() {
+  const declaration = {
+    id: bashTool.id,
+    description: bashTool.description,
+    inputSchema: await resolveJsonSchema(bashTool.inputSchema),
+  };
+  vi.spyOn(
+    ModelContextSnapshotsRepository.prototype,
+    'findByOwnedRun',
+  ).mockResolvedValue({ ...snapshot, toolDeclarations: [declaration] });
+}
+
 /** `toolDeclaration.inputSchema`'s own shape: one required string `q`. */
 type LookupToolArgs = { q: string };
 
@@ -1022,6 +1034,25 @@ async function executeBoundTool(
     throw new TypeError(
       `${toolDeclaration.id} returned a non-ToolResult value`,
     );
+  }
+  return settled;
+}
+
+async function executeBoundBash(
+  options: StreamOptions,
+  args: { command: string },
+  toolCallId: string,
+): Promise<ToolResult> {
+  const bound = options.tools?.bash;
+  if (!bound?.execute) {
+    throw new Error('bash was not offered to the model');
+  }
+  const settled: unknown = await bound.execute(args, {
+    toolCallId,
+    messages: [],
+  });
+  if (!isToolObservation(settled)) {
+    throw new TypeError('bash returned a non-ToolResult value');
   }
   return settled;
 }
@@ -1077,6 +1108,99 @@ describe('RunExecutionService executeRun — tool loop', () => {
       'native.attempt',
       expect.anything(),
     );
+  });
+
+  it('keeps a known bash cancellation when the parent abort settles the run', async () => {
+    const controller = new AbortController();
+    mockNormalExecutionRepositories();
+    await withDeclaredBashTool();
+    const appended = recordAppendedEvents();
+    replayAppendedEvents(appended);
+    const capturing = makeCapturingClient();
+    let releaseBash: (result: ToolResult) => void = () => {};
+    const knownResult: ToolResult = {
+      status: 'error',
+      type: 'cancelled',
+      message: 'Command was cancelled after its process group stopped.',
+    };
+    const execute = vi.spyOn(bashTool, 'execute').mockImplementation(
+      () =>
+        new Promise<ToolResult>((resolve) => {
+          releaseBash = resolve;
+        }),
+    );
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+    );
+
+    await execution.service.executeRun(
+      executionInput(capturing.client, controller.signal),
+    );
+    const options = capturing.streamOptions();
+    const call = executeBoundBash(
+      options,
+      { command: 'while true; do :; done' },
+      'bash-cancelled',
+    );
+    await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+    controller.abort();
+    releaseBash(knownResult);
+    await expect(call).resolves.toMatchObject(knownResult);
+    await vi.waitFor(() => expect(appended.at(-1)?.type).toBe('run.cancelled'));
+
+    expect(appended.at(-2)?.payload).toStrictEqual({
+      toolCallId: 'bash-cancelled',
+      toolName: 'bash',
+      status: 'error',
+      output: knownResult,
+    });
+    expect(appended.at(-1)?.type).toBe('run.cancelled');
+  });
+
+  it('bounds a stuck bash call and settles it as outcome_unknown', async () => {
+    const controller = new AbortController();
+    mockNormalExecutionRepositories();
+    await withDeclaredBashTool();
+    const appended = recordAppendedEvents();
+    replayAppendedEvents(appended);
+    const execute = vi
+      .spyOn(bashTool, 'execute')
+      .mockImplementation(() => new Promise<ToolResult>(() => {}));
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+    );
+
+    await execution.service.executeRun(
+      executionInput(capturing.client, controller.signal),
+    );
+    const options = capturing.streamOptions();
+    const call = executeBoundBash(
+      options,
+      { command: 'while true; do :; done' },
+      'bash-stuck',
+    );
+    await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+    const startedAt = Date.now();
+    controller.abort();
+    await expect(call).rejects.toThrow(
+      'Host command or mutation outcome is unknown',
+    );
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(elapsedMs).toBeGreaterThanOrEqual(600);
+    expect(elapsedMs).toBeLessThan(1500);
+    expect(appended.at(-2)?.payload).toMatchObject({
+      toolCallId: 'bash-stuck',
+      toolName: 'bash',
+      status: 'error',
+      output: { status: 'error', type: 'outcome_unknown' },
+    });
+    expect(appended.at(-1)?.type).toBe('run.cancelled');
   });
 
   it('aborts the model signal when a native outcome is unknown', async () => {
