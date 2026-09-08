@@ -117,11 +117,13 @@ target path SHALL resolve to its target directory as file reads resolve today.
 Entries below the second level SHALL be counted but never rendered. A directory
 with no entries SHALL render `(empty directory)` as its only line after the
 header. Within one directory, entries SHALL be ordered with directories first
-and then by name under the host's collation. Entries SHALL be shown verbatim:
+and then by name under the runtime's default `localeCompare`. Entries SHALL be shown verbatim:
 hidden entries, ignore files, and entry metadata SHALL NOT alter the listing in
 this iteration. The listing SHALL be a pure function of entry names, kinds,
-counts, and the host's collation, so two reads of an unchanged directory
-produce identical content. Result details SHALL identify the path and the
+counts, and that comparator, so two reads of an unchanged directory on one
+host produce identical content. The comparator resolves against the runtime's
+default locale, so ordering is stable per host rather than defined across
+hosts. Result details SHALL identify the path and the
 directory kind, and listing lines SHALL carry no generated line-number
 prefixes.
 
