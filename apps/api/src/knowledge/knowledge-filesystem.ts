@@ -421,11 +421,18 @@ export class KnowledgeFilesystemAdapter {
     return bytes ?? Buffer.alloc(0);
   }
 
+  /**
+   * A single-level create. `EEXIST` means something else got there first —
+   * another worker creating the same directory, or a symbolic link planted in
+   * the race this walk exists to lose safely. Either way the caller's next
+   * `lstat` is what decides, so the collision is not an error here.
+   */
   private async mkdir(directoryPath: string): Promise<void> {
     try {
       await this.fileSystem.mkdir(directoryPath);
     } catch (error) {
       if (error instanceof KnowledgeFilesystemError) throw error;
+      if (isErrno(error, 'EEXIST')) return;
       throw new KnowledgeFilesystemError('knowledge_space_unavailable');
     }
   }

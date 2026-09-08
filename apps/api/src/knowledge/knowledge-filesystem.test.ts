@@ -11,6 +11,8 @@ import { lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { NODE_FILESYSTEM } from './knowledge-filesystem-node-port';
+
 import {
   KnowledgeFilesystemAdapter,
   createKnowledgeFilesystemSearchBudget,
@@ -745,6 +747,32 @@ describe('KnowledgeFilesystemAdapter', () => {
         }),
       ).rejects.toMatchObject({ code: 'knowledge_not_found' });
       expect(() => lstatSync(path.join(outside, 'deeper'))).toThrow(/ENOENT/);
+
+      // The link can also arrive between the walk and the create, which the
+      // single-level `mkdir` turns into `EEXIST` rather than a traversal. The
+      // component is then `lstat`ed and refused exactly as above, so losing
+      // the race costs an error, not the Space boundary.
+      const raced = new KnowledgeFilesystemAdapter(binding, {
+        ...NODE_FILESYSTEM,
+        mkdir: async (directoryPath) => {
+          if (directoryPath.endsWith('raced')) {
+            await symlink(outside, directoryPath, 'dir');
+            return;
+          }
+          await NODE_FILESYSTEM.mkdir(directoryPath);
+        },
+      });
+      await expect(
+        raced.resolveHostPath('raced/note.md', { allowMissing: true }),
+      ).rejects.toMatchObject({ code: 'knowledge_not_found' });
+      expect(() => lstatSync(path.join(outside, 'note.md'))).toThrow(/ENOENT/);
+
+      // A benign collision — another worker creating the same directory — is
+      // not an error: the `lstat` finds a real directory and the walk goes on.
+      await mkdir(path.join(directory, 'shared'), { recursive: true });
+      await expect(
+        adapter.resolveHostPath('shared/note.md', { allowMissing: true }),
+      ).resolves.toBe(path.join(directory, 'shared', 'note.md'));
 
       await rm(outside, { recursive: true, force: true });
     });
