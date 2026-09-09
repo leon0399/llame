@@ -141,8 +141,10 @@ must be enterable before the attempt is recorded, and no shell expansion is
 applied to the argument. Each call starts a fresh process, so its working
 directory, environment, and shell state do not persist. The child receives the
 fixed managed base (`PATH`, `LANG=C.UTF-8`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`
-when set, and `TERM=dumb`) plus the call's additions; base variables cannot be
-replaced.
+when set, and `TERM=dumb`) plus the call's additions as its initial
+environment; base variables cannot be replaced. Bash, its launcher, or the
+runtime may add variables such as `PWD`, `SHLVL`, and `_` before a command prints
+its environment.
 Command stdout and stderr are returned as produced up to the configured bound,
 with truncation reported. Host-known protected values are redacted before the
 result leaves the executor, and the shared model-facing neutralizer escapes
