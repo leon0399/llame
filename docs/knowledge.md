@@ -85,10 +85,8 @@ line on each side; touching windows merge and split at 2,000 lines. Each
 result carries current space ID/name, relative path, a one-based inclusive
 `locator` (`kb://<knowledgeSpaceId>/<path>:N-M`), and an excerpt capped at 500
 Unicode code points. The locator is a ready `read` argument; drop the `:N-M`
-suffix to read the whole note. A locator splits its selector on the first `:`,
-so a file whose relative path contains one has no unambiguous locator and is
-skipped by search exactly as a non-Markdown file is — it stays on disk and out
-of both surfaces rather than being advertised as an unopenable passage. Cropped excerpts show ellipses while the
+suffix to read the whole note. Reserved characters in the filename are encoded
+in the locator; colon-named Markdown files are searched normally. Cropped excerpts show ellipses while the
 locator still addresses the full passage.
 
 Unscoped search may return usable matches with `complete: false` when one space

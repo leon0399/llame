@@ -13,14 +13,11 @@ import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture';
 import { RunsRepository } from './runs-repository';
 
-const hasDb = !!process.env.POSTGRES_URL;
-const d = hasDb ? describe : describe.skip;
-
 function isUnknownArray(value: unknown): value is ReadonlyArray<unknown> {
   return Array.isArray(value);
 }
 
-d('GET /api/v1/runs/:id/context-receipt', () => {
+describe('GET /api/v1/runs/:id/context-receipt', () => {
   let app: INestApplication<import('http').Server>;
   let http: import('http').Server;
   let tenantDb: TenantDbService;
@@ -64,6 +61,8 @@ d('GET /api/v1/runs/:id/context-receipt', () => {
   }
 
   beforeAll(async () => {
+    if (!process.env.POSTGRES_URL)
+      throw new Error('Integration database was not provisioned.');
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -161,6 +160,24 @@ d('GET /api/v1/runs/:id/context-receipt', () => {
       .get(`/api/v1/runs/${run.id}/context-receipt`)
       .set('Cookie', otherCookie);
     expect(otherResponse.status).toBe(404);
+  });
+
+  it('returns the encoded-locator guidance from the stored read declaration', async () => {
+    const snapshot = await tenantDb.runAs(ownerId, (tx) =>
+      seedModelContextSnapshot(tx, ownerId, 'receipt-encoding', ['read']),
+    );
+    const run = await seedRun(ownerId, snapshot.id);
+    const response = await request(http)
+      .get(`/api/v1/runs/${run.id}/context-receipt`)
+      .set('Cookie', ownerCookie);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ tools: [{ id: 'read' }] });
+    expect(response.body).toHaveProperty(
+      'tools.0.description',
+      expect.stringContaining(
+        'write a literal :, ?, #, or % as %3A, %3F, %23, or %25',
+      ),
+    );
   });
 
   it('reports historical v0 as unobserved rather than an empty catalog', async () => {
