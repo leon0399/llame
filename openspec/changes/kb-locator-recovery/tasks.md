@@ -33,5 +33,5 @@ and updates the #701 tracker. Every layer references #736 and #737.
 ## 3. finalize
 
 - [ ] 3.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify all pass and record the results in the PR body.
-- [ ] 3.2 Check #736 and #737 in the #701 tracker; verify `pnpm lint:markdown` passes.
+- [x] 3.2 Check #736 and #737 in the #701 tracker; verify `pnpm lint:markdown` passes.
 - [ ] 3.3 Confirm every task above is checked, run `openspec status --change kb-locator-recovery --json` and require `complete`, and only then run `$openspec-archive-change`.

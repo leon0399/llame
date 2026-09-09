@@ -16,6 +16,11 @@ capability, and SHALL accept `kb://` locators under the Knowledge locator
 requirement. The scheme of the `path` argument SHALL select the authority; no
 other argument or persisted declaration field SHALL. `edit` and `write` SHALL operate only on regular files. `read` SHALL
 operate on regular files and directories; every other entry kind SHALL fail. A
+`read` that misses a regular file SHALL offer bounded sibling-name
+suggestions from its existing parent directory on every scheme, names only,
+with one bounded directory read and bounded scoring work on the error path
+and none on success; an absolute-path miss SHALL follow a symbolic-link
+parent exactly as the read itself follows links. A
 trailing path separator SHALL be accepted on a directory path and SHALL fail as
 `not_found` on any other target. A model argument SHALL NOT select a different
 executor, owner, tenant, permission mode, or remote authority. The three tools SHALL be advertised when the process has accepted native
@@ -46,6 +51,18 @@ there.
 - **WHEN** `read`, `edit`, or `write` targets a missing entry, or a device, socket, FIFO, or other special entry
 - **THEN** the tool returns a bounded structured error
 - **AND** it does not follow a different path or invoke another executor
+
+#### Scenario: A missed read suggests sibling names
+
+- **WHEN** `read` targets a missing regular file, named without a trailing separator, whose parent directory exists, on any scheme
+- **THEN** the `not_found` result also lists at most five entry names from that directory that score as plausible spellings of the requested name, as bare names without any path
+- **AND** a miss with no plausible sibling, a trailing separator, or scoring work past its bound returns the bare `not_found`, and the suggestion list is never produced for `edit` or `write`
+
+#### Scenario: A missed read under a missing parent says so
+
+- **WHEN** `read` targets a path whose parent directory does not exist
+- **THEN** the `not_found` result states that the parent directory is missing
+- **AND** no entry of any other directory is listed
 
 #### Scenario: Mutation on a directory fails
 
@@ -352,11 +369,29 @@ identifier SHALL return the same closed `knowledge_space_not_found` result. A
 currently owned Space whose root or stable-ID child cannot be resolved safely
 SHALL return `knowledge_space_unavailable`. Neither result SHALL reveal whether
 another owner, row, or directory exists, and the tool SHALL NOT probe candidate
-directories.
+Space directories. Sibling-name suggestions on a missed `kb://` read SHALL be
+drawn only from a parent directory that has already been proven inside the
+resolved Space, SHALL never be produced when the Space itself is absent,
+removed, or another owner's, and SHALL carry names only; the parent SHALL be
+checked without following links immediately before it is opened for names,
+and a symbolic-link parent SHALL yield the bare `not_found`.
 
-Path validation SHALL reject absolute paths, empty components, `.` or `..`
-components, backslashes, `:`, NUL or control characters, and paths above 1,024
-UTF-8 bytes or 32 components, returning `invalid_path`. It SHALL refuse every
+The locator SHALL be split on `/` and on the first `:` after the Space
+identifier before any decoding, and each path segment SHALL then be
+percent-decoded exactly once; the Space identifier and the selector SHALL NOT
+be decoded. A segment that fails to decode, or that decodes to a string
+containing `/`, SHALL return `invalid_path`, and that check SHALL run on the
+individual segment before segments are rejoined. Where a path has a literal
+spelling that is valid under this grammar, that spelling and its encoded
+spelling SHALL resolve to the same file; a segment containing `:` or a
+literal `%` has no valid literal spelling and SHALL be addressed as `%3A` or
+`%25`, and `/` SHALL never be encoded. Path
+validation SHALL apply to the decoded segments and SHALL reject absolute
+paths, empty components, `.` or `..` components, backslashes, NUL or control
+characters, and paths above 1,024 UTF-8 bytes or 32 components, returning
+`invalid_path`. A `kb://` locator emitted by the system SHALL encode a segment
+only when it contains `:`, `?`, `#`, or `%`, and SHALL leave every other
+character, spaces included, literal. It SHALL refuse every
 symbolic-link component or entry without following it, returning `not_found`.
 `kb://<space-id>` and `kb://<space-id>/` SHALL address the Space's directory and
 list it under the directory listing requirements; a bare `kb://` or a locator
@@ -410,8 +445,26 @@ unsupported operation SHALL return a structured error without side effects.
 #### Scenario: Colon inside a Knowledge path is rejected
 
 - **WHEN** the model calls `read` with `kb://<id>/notes/a:b.md`
+- **THEN** the tool returns `invalid_path`, because a literal `:` after the identifier starts the selector and `b.md` is not one
+- **AND** it does not probe for a literal file; the file is addressed as `kb://<id>/notes/a%3Ab.md`
+
+#### Scenario: Encoded and literal spellings resolve alike
+
+- **WHEN** the model calls `read` with `kb://<id>/01_Areas/Pet%20Projects/MOC.md` and then with `kb://<id>/01_Areas/Pet Projects/MOC.md`
+- **THEN** both calls open the same file
+- **AND** neither result reveals which spelling the filesystem holds
+
+#### Scenario: Encoded separator cannot cross a boundary
+
+- **WHEN** the model calls `read` with `kb://<id>/notes%2Fsecret.md`
 - **THEN** the tool returns `invalid_path`
-- **AND** it does not interpret `b.md` as a selector or probe for a literal file
+- **AND** `notes/secret.md` is not opened or probed, even though that literal path would be valid
+
+#### Scenario: Malformed encoding fails closed
+
+- **WHEN** the model calls `read` with `kb://<id>/reports/100%.md`
+- **THEN** the tool returns `invalid_path`
+- **AND** the description tells the model to write `%25` for a literal percent sign
 
 #### Scenario: Edit copies verbatim content
 
