@@ -134,6 +134,12 @@ Markdown processing, URLs, and logical resource schemes other than `kb://` are
 separate capabilities. Allowlisted `bash` shares the absolute-path native host
 gate: the model supplies shell text and the host runs `bash -c` in
 `BASH_WORKING_DIRECTORY` (or the API cwd). It is not tenant isolation.
+After an unproven stop, the process-group quarantine is local to the worker and
+is lost if that worker crashes. An in-flight shell process group can survive
+that crash, so a replacement worker can admit a new bash command while the old
+group remains alive because the replacement has no quarantine for the lost
+worker. The durable `native.attempt` still prevents Run recovery from replaying
+the command, and the Run becomes `outcome_unknown`.
 Directory reads are bounded by a 10,000-entry traversal budget per directory.
 When the rendered two-level listing exceeds the result cap, child blocks are
 elided last-first into `… N entries` markers before root-level entries are

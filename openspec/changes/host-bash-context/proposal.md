@@ -23,9 +23,13 @@ requirement block.
   native mutations use. A Run resumed on any worker after an unproven attempt
   does not re-execute it. The process-local directory fence and command-digest
   block list are deleted; an unknown outcome terminates the Run that issued it.
-  While a process from that attempt is still observed alive on the host, new
-  bash admission on that host is refused and the group is re-signalled; the
-  refusal lifts by itself once the group is empty.
+  While a process from that attempt is still observed alive by the worker, new
+  bash admission on that worker is refused and the group is re-signalled; the
+  refusal lifts by itself once the group is empty. The quarantine is
+  process-local and is lost if the worker crashes. An in-flight shell process
+  group can survive that crash, and a replacement worker can admit a new
+  command while the old group remains alive because the replacement has no
+  quarantine for the lost worker. Durable `native.attempt` prevents replay.
 - **BREAKING** (input schema, declaration cutover) `bash` takes an optional
   per-call `cwd`. Each call is a fresh
   process; nothing persists between calls, and the tool description says so.

@@ -13,7 +13,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   the command. Parent cancellation waits through bounded cleanup so a known
   bash result can win before the synthetic `outcome_unknown` fallback. The
   resolved bash `cwd` remains in `native.attempt` as persisted provenance but
-  is omitted from owner-facing Run events.
+  is omitted from owner-facing Run events. The process-group quarantine is
+  worker-local and disappears on worker crash. An in-flight shell process group
+  can survive that crash, so a replacement worker can admit a new command while
+  the old group remains alive; durable `native.attempt` prevents replay.
 
 # 2026-09-08
 

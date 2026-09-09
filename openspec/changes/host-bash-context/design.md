@@ -193,11 +193,12 @@ process-group ids of attempts that ended unknown because the group was still
 alive. Admission re-probes each one, re-sends `SIGKILL`, and refuses the call
 while any is alive, naming the surviving attempt; an empty group is dropped
 from the set on that probe. The quarantine is keyed to a process that
-provably exists, lifts the moment it is gone, and needs no durable state,
-because a process cannot outlive its worker and a Run whose worker was lost
-is already failed by D2. This is the shipped fence's stated purpose, "until
-recovery proves safety", with the proof supplied by the probe instead of by a
-restart.
+provably exists and lifts the moment it is gone. It is process-local, so a
+worker crash loses the in-memory quarantine. An in-flight shell process group
+can survive that crash, and a replacement worker can admit a new command while
+the old group remains alive because the replacement has no quarantine for the
+lost worker. The durable `native.attempt` still prevents recovery from
+re-executing the command, and recovery fails that Run with `outcome_unknown`.
 
 The submit scenario keeps its wording; #212 implements it durably against the
 same `native.attempt` events when it lands. The shipped

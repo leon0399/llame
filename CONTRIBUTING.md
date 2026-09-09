@@ -185,8 +185,11 @@ rejections with evidence, and rerun affected checks.
 
 After every non-draft push:
 
-1. List and trigger every configured/requested automated reviewer. Unknown
-   reviewer membership is blocking; ask Leo.
+1. List every configured/requested automated reviewer. If a reviewer is
+   quota-exhausted, record it as skipped and continue; quota exhaustion is
+   nonblocking. Unknown reviewer membership is blocking; ask Leo. Do not
+   manually retrigger reviews with comments or draft/ready toggles; automatic
+   review triggers when needed.
 2. Record head commit and push time; any push restarts the loop.
 3. For at least 15 uninterrupted minutes, poll CI, verdicts, comments, and
    review threads at least every two minutes. Do not replace polling with one
@@ -205,8 +208,9 @@ After every non-draft push:
    non-draft stack PR.
 
 Exit only after the 15-minute floor, terminal passing CI, completion from every
-expected automated reviewer, and zero actionable unresolved feedback. Pending
-or unknown state extends the loop.
+expected automated reviewer except those recorded as quota-exhausted skips, and
+zero actionable unresolved feedback. A quota-exhausted reviewer recorded as
+skipped does not keep the loop open. Pending or unknown state extends the loop.
 
 ## Merge
 
