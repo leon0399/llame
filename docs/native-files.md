@@ -134,6 +134,23 @@ Markdown processing, URLs, and logical resource schemes other than `kb://` are
 separate capabilities. Allowlisted `bash` shares the absolute-path native host
 gate: the model supplies shell text and the host runs `bash -c` in
 `BASH_WORKING_DIRECTORY` (or the API cwd). It is not tenant isolation.
+`bash` accepts an optional literal `cwd` and string-record `env`. An absolute
+`cwd` is used as given; a relative `cwd` resolves from `BASH_WORKING_DIRECTORY`
+or the API cwd. When omitted, the default directory is used. The directory
+must be enterable before the attempt is recorded, and no shell expansion is
+applied to the argument. Each call starts a fresh process, so its working
+directory, environment, and shell state do not persist. The child receives the
+fixed managed base (`PATH`, `LANG=C.UTF-8`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`
+when set, and `TERM=dumb`) plus the call's additions as its initial
+environment; base variables cannot be replaced. Bash, its launcher, or the
+runtime may add variables such as `PWD`, `SHLVL`, and `_` before a command prints
+its environment.
+Command stdout and stderr are returned as produced up to the configured bound,
+with truncation reported. Host-known protected values are redacted before the
+result leaves the executor, and the shared model-facing neutralizer escapes
+reserved tool delimiters in the copy sent to the model. Host `bash` can also
+discover a mounted `knowledge.root` through ordinary filesystem commands; that
+is separate from the owner-scoped `knowledge_search` and `kb://` capabilities.
 After an unproven stop, the process-group quarantine is local to the worker and
 is lost if that worker crashes. An in-flight shell process group can survive
 that crash, so a replacement worker can admit a new bash command while the old
