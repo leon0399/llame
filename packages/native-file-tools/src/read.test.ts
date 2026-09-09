@@ -443,6 +443,8 @@ describe("missing file suggestions", () => {
     ["a.b.txt", "a.b.md"],
     ["Pet%20Projects.md", "Pet Projects.md"],
     ["cafe\u0301.md", "caf\u00e9.md"],
+    ["e%CC%81.md", "\u00e9.md"],
+    ["\u00e9.md", "e%CC%81.md"],
     ["notse.md", "notes.md"],
     ["cafoo.txt", "abcfoo.md"],
     ["NOTES.md", "notes.md"],
@@ -471,6 +473,19 @@ describe("missing file suggestions", () => {
       type: "not_found",
       message: "File not found.",
     });
+  });
+
+  it("does not suggest a dangling link as its own recovery", async () => {
+    await symlink(join(directory, "absent"), join(directory, "notes.md"));
+    await writeFile(join(directory, "notes.txt"), "readable");
+    expect(await readFile({ path: join(directory, "notes.md") })).toStrictEqual(
+      {
+        status: "error",
+        type: "not_found",
+        message:
+          "File not found. Similar names in the same directory: notes.txt.",
+      },
+    );
   });
 
   it("ranks extension mismatches at the same score as one edit in ten characters", async () => {
