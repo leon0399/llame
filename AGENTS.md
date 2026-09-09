@@ -150,7 +150,10 @@ stories.
 - Omit or gate any reachable surface that cannot yet be secured.
 - Data/auth/tenancy changes state threats up front and ship a negative isolation
   test.
-- Never expose credentials, resolved secret values, tokens, or host paths.
+- Never expose credentials, resolved secret values, or tokens. Keep
+  server-resolved host paths private; command-produced host paths may appear
+  in output from explicitly allowlisted host `bash`, under the
+  [bash execution contract](openspec/specs/bash-execution/spec.md).
 - Stop for a decision if a change may weaken isolation.
 
 ## Current runtime traps
