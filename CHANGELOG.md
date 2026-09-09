@@ -18,6 +18,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   can survive that crash, so a replacement worker can admit a new command while
   the old group remains alive; durable `native.attempt` prevents replay.
 
+- Per-call bash context (#733, #734): an optional literal `cwd` resolves
+  against the trusted default directory and must be enterable before the
+  attempt is recorded. Each call starts a fresh process. The child receives a
+  fixed base environment plus declared string additions; base variables cannot
+  be replaced.
+
 # 2026-09-08
 
 - Fix bash timeout recovery and persist command attempts (#733, #734): a

@@ -12,7 +12,6 @@ function context(
 ): BashExecutorContext {
   return {
     workingDirectory: directory,
-    fileToolsWorkingDirectory: directory,
     secretBoundary: true,
     processIsolation: true,
     outputBound: 256,

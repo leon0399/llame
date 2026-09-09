@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -39,6 +46,207 @@ describe('bash durable admission', () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     resetManagedExecutorForTests();
+  });
+
+  it.each([
+    {
+      label: 'an unknown key',
+      input: { command: 'printf never', extra: true },
+    },
+    {
+      label: 'a non-string environment value',
+      input: { command: 'printf never', env: { VALUE: 1 } },
+    },
+  ])('rejects $label before durable admission', async ({ input }) => {
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+
+    await expect(
+      runTool(bashTool, input, testContext(), 5),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_input',
+    });
+    expect(begin).not.toHaveBeenCalled();
+  });
+
+  it('uses absolute and relative cwd values per call, then returns to the default', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-cwd-'));
+    const nested = join(directory, 'nested');
+    const relativeCwd = 'nested';
+    await mkdir(nested);
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValue(undefined);
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
+    try {
+      await expect(
+        runTool(
+          bashTool,
+          { command: 'printf absolute > absolute-effect', cwd: nested },
+          testContext(),
+          5,
+        ),
+      ).resolves.toMatchObject({ status: 'success' });
+      await expect(
+        readFile(join(nested, 'absolute-effect'), 'utf8'),
+      ).resolves.toBe('absolute');
+
+      await expect(
+        runTool(
+          bashTool,
+          { command: 'printf relative > relative-effect', cwd: relativeCwd },
+          { ...testContext('call-2'), nativeDeliverySequence: 1 },
+          5,
+        ),
+      ).resolves.toMatchObject({ status: 'success' });
+      await expect(
+        readFile(join(nested, 'relative-effect'), 'utf8'),
+      ).resolves.toBe('relative');
+
+      await expect(
+        runTool(
+          bashTool,
+          { command: 'printf default > default-effect' },
+          { ...testContext('call-3'), nativeDeliverySequence: 1 },
+          5,
+        ),
+      ).resolves.toMatchObject({ status: 'success' });
+      await expect(
+        readFile(join(directory, 'default-effect'), 'utf8'),
+      ).resolves.toBe('default');
+
+      expect(begin).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ operation: 'bash', path: nested }),
+      );
+      expect(begin).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ operation: 'bash', path: nested }),
+      );
+      expect(begin).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({ operation: 'bash', path: directory }),
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses missing, regular-file, and mode-000 cwd values before recording an attempt', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-cwd-invalid-'));
+    const regularFile = join(directory, 'regular-file');
+    const lockedDirectory = join(directory, 'locked');
+    await writeFile(regularFile, 'not a directory');
+    await mkdir(lockedDirectory);
+    await chmod(lockedDirectory, 0o000);
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
+    try {
+      for (const cwd of [
+        join(directory, 'missing'),
+        regularFile,
+        lockedDirectory,
+      ]) {
+        const result = await runTool(
+          bashTool,
+          { command: 'touch should-not-run', cwd },
+          testContext(`invalid-${cwd}`),
+          5,
+        );
+        expect(result).toMatchObject({ status: 'error', type: 'unavailable' });
+        if (result.status === 'error') {
+          expect(result.message).toContain('literal');
+        }
+      }
+      expect(begin).not.toHaveBeenCalled();
+    } finally {
+      await chmod(lockedDirectory, 0o700);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('adds env values to the fixed base without inheriting the parent environment', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-env-'));
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValue(undefined);
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+    vi.stubEnv('LLAME_HOST_ONLY_SECRET', 'must-not-reach-child');
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
+    try {
+      const result = await runTool(
+        bashTool,
+        {
+          command:
+            'printf "%s\\n" "$LANG" "${HOME:+set}" "${TMPDIR:+set}" "$USER" "$LOGNAME" "$TERM" "$BASH_TEST_ADDITION" "${LLAME_HOST_ONLY_SECRET-<unset>}"',
+          env: { BASH_TEST_ADDITION: 'declared-value' },
+        },
+        testContext(),
+        5,
+      );
+
+      expect(result).toMatchObject({ status: 'success' });
+      if (result.status === 'success') {
+        expect(result.stdout).toBe(
+          [
+            'C.UTF-8',
+            process.env.HOME === undefined ? '' : 'set',
+            process.env.TMPDIR === undefined ? '' : 'set',
+            process.env.USER ?? '',
+            process.env.LOGNAME ?? '',
+            'dumb',
+            'declared-value',
+            '<unset>',
+            '',
+          ].join('\n'),
+        );
+      }
+      expect(begin).toHaveBeenCalledOnce();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects env collisions before durable admission and names the key', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-env-collision-'));
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
+    try {
+      const result = await runTool(
+        bashTool,
+        { command: 'printf never', env: { PATH: '/tmp' } },
+        testContext(),
+        5,
+      );
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'unavailable',
+      });
+      if (result.status !== 'error') {
+        throw new Error('Expected an unavailable result');
+      }
+      expect(result.message).toContain('PATH');
+      expect(begin).not.toHaveBeenCalled();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('returns a proven timeout with partial output and admits the next call', async () => {

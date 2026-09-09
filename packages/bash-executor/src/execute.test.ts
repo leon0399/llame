@@ -1,6 +1,6 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   CONFIGURED_TOOLS,
   admitManagedBash,
@@ -11,6 +11,7 @@ import {
   resolveConfiguredTool,
   resetManagedExecutorForTests,
 } from "./index";
+import { isRecord, isString } from "@workspace/runtime-safety";
 import type { BashExecutorContext } from "./types";
 
 function context(
@@ -19,7 +20,6 @@ function context(
 ): BashExecutorContext {
   return {
     workingDirectory: directory,
-    fileToolsWorkingDirectory: directory,
     secretBoundary: true,
     processIsolation: true,
     outputBound: 256,
@@ -39,6 +39,7 @@ describe("managed executor contract", () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     resetManagedExecutorForTests();
     await rm(directory, { recursive: true, force: true });
   });
@@ -88,6 +89,160 @@ describe("managed executor contract", () => {
       stdout: "hello",
     });
   });
+
+  it.each([
+    { label: "relative", cwd: "nested" },
+    { label: "absolute", cwd: "absolute" },
+  ])("runs in a $label per-call cwd", async ({ cwd, label }) => {
+    const nested = join(
+      directory,
+      label === "relative" ? "nested" : "absolute",
+    );
+    await mkdir(nested, { recursive: true });
+    const result = await executeManagedBash(
+      {
+        command: "python3",
+        args: ["-c", "import os; print(os.path.basename(os.getcwd()))"],
+        cwd: label === "relative" ? cwd : nested,
+      },
+      context(directory),
+    );
+    expect(result).toMatchObject({
+      status: "success",
+      stdout: `${basename(nested)}\n`,
+    });
+  });
+
+  it("uses the host default directory when cwd is omitted", async () => {
+    const result = await executeManagedBash(
+      {
+        command: "python3",
+        args: ["-c", "import os; print(os.path.basename(os.getcwd()))"],
+      },
+      context(directory),
+    );
+    expect(result).toMatchObject({
+      status: "success",
+      stdout: `${basename(directory)}\n`,
+    });
+  });
+
+  it.each([
+    { label: "missing", cwd: "missing" },
+    { label: "regular file", cwd: "file.txt" },
+    { label: "mode-000", cwd: "unenterable" },
+  ])(
+    "refuses an unusable $label cwd before admission",
+    async ({ cwd, label }) => {
+      if (label === "regular file")
+        await writeFile(join(directory, cwd), "file");
+      if (label === "mode-000") {
+        await mkdir(join(directory, cwd));
+        await chmod(join(directory, cwd), 0o000);
+      }
+      const result = await executeManagedBash(
+        { command: "bash", args: ["-c", "printf never"], cwd },
+        context(directory),
+      );
+      expect(result).toMatchObject({
+        status: "error",
+        type: "unavailable",
+      });
+      if (result.status !== "error" || !("message" in result)) return;
+      expect(result.message).toContain(JSON.stringify(cwd));
+      if (label === "mode-000") await chmod(join(directory, cwd), 0o755);
+      expect(
+        await executeManagedBash(
+          { command: "bash", args: ["-c", "printf default"] },
+          context(directory),
+        ),
+      ).toMatchObject({ status: "success", stdout: "default" });
+    },
+  );
+
+  it("measures UTF-8 environment keys and values against inputBound", async () => {
+    const result = await executeManagedBash(
+      {
+        command: "bash",
+        args: ["-c", "true"],
+        env: { É: "😀" },
+      },
+      context(directory, { inputBound: 18 }),
+    );
+    expect(result).toMatchObject({
+      type: "unavailable",
+      message: "Command input exceeds the managed input bound.",
+    });
+  });
+
+  it("passes only the declared base environment and additions", async () => {
+    vi.stubEnv("LLAME_INHERITED_SENTINEL", "must-not-reach-child");
+    const result = await executeManagedBash(
+      {
+        command: "jq",
+        args: ["-nr", "env | tojson | @base64"],
+        env: { DECLARED_ADDITION: "declared" },
+      },
+      context(directory, { outputBound: 20_000 }),
+    );
+    expect(result).toMatchObject({ status: "success" });
+    if (result.status !== "success") return;
+    // SAFETY: JSON.parse returns any; asserting unknown keeps the value at the
+    // parsing boundary until the record and string values are validated below.
+    const parsed = JSON.parse(
+      Buffer.from(result.stdout.trim(), "base64").toString("utf8"),
+    ) as unknown;
+    if (!isRecord(parsed))
+      throw new Error("Child environment was not an object.");
+    const entries = Object.entries(parsed);
+    if (!entries.every(([, value]) => isString(value))) {
+      throw new Error("Child environment contained a non-string value.");
+    }
+    const actual = Object.fromEntries(
+      entries.filter((entry): entry is [string, string] => isString(entry[1])),
+    );
+    const expectedEntries: Array<[string, string]> = [
+      ["PATH", process.env.PATH ?? "/usr/bin:/bin"],
+      ["LANG", "C.UTF-8"],
+      ["TERM", "dumb"],
+      ["DECLARED_ADDITION", "declared"],
+    ];
+    for (const name of ["HOME", "TMPDIR", "USER", "LOGNAME"]) {
+      const value = process.env[name];
+      if (value !== undefined) expectedEntries.push([name, value]);
+    }
+    const expected = Object.fromEntries(expectedEntries);
+    expect(actual).toEqual(expected);
+    expect(actual).not.toHaveProperty("LLAME_INHERITED_SENTINEL");
+  });
+
+  it.each(["PATH", "LANG", "HOME", "TMPDIR", "USER", "LOGNAME", "TERM"])(
+    "refuses env collision with managed base %s",
+    async (name) => {
+      const originalHome = name === "HOME" ? process.env.HOME : undefined;
+      if (name === "HOME") delete process.env.HOME;
+      try {
+        const result = await executeManagedBash(
+          {
+            command: "bash",
+            args: ["-c", "printf never"],
+            env: { [name]: "override" },
+          },
+          context(directory),
+        );
+        expect(result).toMatchObject({
+          type: "unavailable",
+        });
+        if (result.status !== "error" || !("message" in result)) return;
+        expect(result.message).toContain(name);
+      } finally {
+        if (name === "HOME") {
+          if (originalHome === undefined) delete process.env.HOME;
+          else process.env.HOME = originalHome;
+        }
+      }
+    },
+  );
 
   it("rejects oversized input and non-configured tools", async () => {
     const oversized = await executeManagedBash(

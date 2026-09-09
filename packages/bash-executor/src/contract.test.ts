@@ -1,12 +1,6 @@
 import { readFileSync } from "node:fs";
 import { isRecord, isString } from "@workspace/runtime-safety";
-import {
-  assertSharedWorkingDirectory,
-  parseCommandInput,
-  requireManagedBoundary,
-  sanitizeKnownResult,
-  sharedWorkingDirectory,
-} from "./index";
+import { requireManagedBoundary, sanitizeKnownResult } from "./index";
 import type { BashExecutorContext, BashKnownResult } from "./types";
 
 function context(
@@ -14,7 +8,6 @@ function context(
 ): BashExecutorContext {
   return {
     workingDirectory: "/tmp/llame-workspace",
-    fileToolsWorkingDirectory: "/tmp/llame-workspace",
     secretBoundary: true,
     processIsolation: true,
     outputBound: 64,
@@ -45,16 +38,6 @@ describe("bash-executor contract", () => {
     expect(joined).toContain("@workspace/runtime-safety");
   });
 
-  it("rejects model widening of cwd/executor/policy", () => {
-    expect(parseCommandInput({ command: "rg", cwd: "/etc" })).toMatchObject({
-      type: "unavailable",
-    });
-    expect(parseCommandInput({ command: "rg", args: ["a"] })).toEqual({
-      command: "rg",
-      args: ["a"],
-    });
-  });
-
   it("sanitizes host paths, secrets, stack traces, and unbounded output", () => {
     const raw: BashKnownResult = {
       status: "success",
@@ -73,15 +56,6 @@ describe("bash-executor contract", () => {
     expect(sanitized.truncated).toBe(true);
     expect(sanitized.stderr).not.toContain("/home/leon0399");
     expect(sanitized.stderr).not.toMatch(/at fail/);
-  });
-
-  it("refuses mismatched native-file-tools working directories", () => {
-    expect(
-      assertSharedWorkingDirectory(
-        context({ fileToolsWorkingDirectory: "/tmp/other" }),
-      ),
-    ).toMatchObject({ type: "workspace_mismatch" });
-    expect(sharedWorkingDirectory(context())).toBe("/tmp/llame-workspace");
   });
 
   it("stays unavailable when a managed boundary field is missing", () => {

@@ -47,6 +47,16 @@ describe('packaged default prompt — recalled conversation evidence', () => {
   });
 });
 
+describe('packaged default prompt — host bash', () => {
+  it('states that bash calls do not persist process state', () => {
+    const rendered = render();
+
+    expect(rendered).toContain(
+      'Each `bash` call starts a fresh process; its working directory, variables, and shell state do not persist between calls.',
+    );
+  });
+});
+
 function removeDigestBlock(source: string): string {
   const start = source.indexOf('{{#if chats}}');
   expect(start).toBeGreaterThanOrEqual(0);

@@ -1,13 +1,14 @@
-/** Model-facing command text. The host supplies cwd, env, and policy. */
+/** Model-facing command text plus per-call cwd and additive environment. */
 export type BashCommandInput = {
   readonly command: string;
   readonly args?: ReadonlyArray<string>;
+  readonly cwd?: string;
+  readonly env?: Readonly<Record<string, string>>;
 };
 
-/** Trusted host context shared with native file tools. Never model-selected. */
+/** Trusted host context. Never model-selected. */
 export type BashExecutorContext = {
   readonly workingDirectory: string;
-  readonly fileToolsWorkingDirectory: string;
   readonly secretBoundary: boolean;
   readonly processIsolation: boolean;
   readonly outputBound: number;
@@ -49,11 +50,7 @@ export type BashTimedOutResult = {
 
 export type BashUnavailableResult = {
   readonly status: "error";
-  readonly type:
-    | "unavailable"
-    | "boundary_missing"
-    | "workspace_mismatch"
-    | "cancelled";
+  readonly type: "unavailable" | "boundary_missing" | "cancelled";
   readonly message: string;
 };
 

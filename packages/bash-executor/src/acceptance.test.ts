@@ -12,7 +12,6 @@ import type { BashExecutorContext } from "./types";
 function context(directory: string): BashExecutorContext {
   return {
     workingDirectory: directory,
-    fileToolsWorkingDirectory: directory,
     secretBoundary: true,
     processIsolation: true,
     outputBound: 512,

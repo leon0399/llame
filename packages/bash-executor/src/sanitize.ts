@@ -1,10 +1,5 @@
-import {
-  cutStringAtCodePointBoundary,
-  isRecord,
-  isString,
-} from "@workspace/runtime-safety";
+import { cutStringAtCodePointBoundary } from "@workspace/runtime-safety";
 import type {
-  BashCommandInput,
   BashExecutorContext,
   BashKnownResult,
   BashUnavailableResult,
@@ -13,48 +8,10 @@ import type {
 const STACK_LINE =
   /^\s*(?:at\s+\S+|Exception|Error:|Traceback \(most recent call last\):)/;
 
-const WIDENING_KEYS = new Set([
-  "cwd",
-  "workingDirectory",
-  "executor",
-  "env",
-  "path",
-  "policy",
-  "network",
-  "permission",
-]);
-
 type SanitizedStream = {
   readonly text: string;
   readonly truncated: boolean;
 };
-
-function unavailable(message: string): BashUnavailableResult {
-  return { status: "error", type: "unavailable", message };
-}
-
-/** Parse model command JSON at the I/O boundary; reject cwd/executor widening. */
-export function parseCommandInput(
-  input: unknown,
-): BashCommandInput | BashUnavailableResult {
-  if (!isRecord(input)) {
-    return unavailable("Command arguments cannot select execution context.");
-  }
-  for (const key of Object.keys(input)) {
-    if (WIDENING_KEYS.has(key)) {
-      return unavailable("Command arguments cannot select execution context.");
-    }
-  }
-  if (!isString(input.command)) {
-    return unavailable("Command arguments cannot select execution context.");
-  }
-  const args = input.args;
-  if (args === undefined) return { command: input.command };
-  if (!Array.isArray(args) || !args.every((arg) => isString(arg))) {
-    return unavailable("Command arguments cannot select execution context.");
-  }
-  return { command: input.command, args };
-}
 
 export function requireManagedBoundary(
   context: BashExecutorContext,

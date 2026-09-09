@@ -1,6 +1,6 @@
 import { lstatSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import postgres, { type Sql } from 'postgres';
@@ -175,7 +175,10 @@ describe('native file authority and durable effects', () => {
   });
 
   it('records a known bash refusal when the process has no pid', async () => {
-    vi.stubEnv('BASH_WORKING_DIRECTORY', join(directory, 'missing'));
+    const emptyPath = join(directory, 'empty-path');
+    await mkdir(emptyPath);
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+    vi.stubEnv('PATH', emptyPath);
     const result = await runTool(
       bashTool,
       { command: 'printf never' },
@@ -191,6 +194,11 @@ describe('native file authority and durable effects', () => {
       'native.attempt',
       'native.result',
     ]);
+    expect(events[1].payload).toEqual({
+      toolCallId: context.toolCallId,
+      operation: 'bash',
+      path: directory,
+    });
     expect(events[2].payload).toEqual({
       toolCallId: context.toolCallId,
       result,
