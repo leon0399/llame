@@ -1,6 +1,13 @@
+import * as filesystem from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdir, mkdtemp, open, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { truncateOversizedResult } from "@workspace/runtime-safety";
+import {
+  isNumber,
+  isRecord,
+  truncateOversizedResult,
+} from "@workspace/runtime-safety";
 import { join } from "node:path";
 import {
   loadText,
@@ -12,6 +19,11 @@ import {
 } from "./read";
 import type { ReadSuccess } from "./source-lines";
 import { measureNativeModelOutput } from "./serialization";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...original, opendir: vi.fn(original.opendir) };
+});
 
 function assertFileSuccess(
   result: Awaited<ReturnType<typeof readFile>>,
@@ -409,4 +421,252 @@ describe("native reads resolved by a scheme owner", () => {
       "content" in result && result.content.startsWith("kb://space/\n"),
     ).toBe(true);
   });
+});
+
+describe("missing file suggestions", () => {
+  let directory: string;
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    directory = await mkdtemp(join(tmpdir(), "native-suggestions-"));
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it.each([
+    ["notes.txt", "notes.md"],
+    ["notes.txt:1-2", "notes.md"],
+    ["abcdef.md", "abcxyz.md"],
+    ["ab.txt", "ab.md"],
+    [".env.local", ".env"],
+    ["a.b.txt", "a.b.md"],
+    ["Pet%20Projects.md", "Pet Projects.md"],
+    ["cafe\u0301.md", "caf\u00e9.md"],
+    ["notse.md", "notes.md"],
+    ["cafoo.txt", "abcfoo.md"],
+    ["NOTES.md", "notes.md"],
+    ["Notes Standup 2026-09-08.md", "2026-09-08 Standup Notes.md"],
+    ["100%25.md", "100%.md"],
+    ["100%.md", "100%25.md"],
+  ])("suggests %s as %s", async (requested, sibling) => {
+    await writeFile(join(directory, sibling), "unchanged");
+    expect(await readFile({ path: join(directory, requested) })).toStrictEqual({
+      status: "error",
+      type: "not_found",
+      message: `File not found. Similar names in the same directory: ${sibling}.`,
+    });
+  });
+
+  it.each([
+    ["ab", "ac"],
+    ["-a", "a-"],
+    ["abcdef.txt", "abcxyz.md"],
+    ["notes", "unrelated"],
+    ["notes", "a-very-long-unrelated-filename"],
+  ])("does not suggest %s as %s", async (requested, sibling) => {
+    await writeFile(join(directory, sibling), "unchanged");
+    expect(await readFile({ path: join(directory, requested) })).toStrictEqual({
+      status: "error",
+      type: "not_found",
+      message: "File not found.",
+    });
+  });
+
+  it("ranks extension mismatches at the same score as one edit in ten characters", async () => {
+    for (const name of ["abcdefghij.md", "abcdefghik.txt"]) {
+      await writeFile(join(directory, name), "unchanged");
+    }
+    expect(
+      await readFile({ path: join(directory, "abcdefghij.txt") }),
+    ).toMatchObject({
+      message:
+        "File not found. Similar names in the same directory: abcdefghij.md, abcdefghik.txt.",
+    });
+  });
+
+  it("sorts ties by name and returns at most five", async () => {
+    for (const name of [
+      "notes6",
+      "notes3",
+      "notes5",
+      "notes1",
+      "notes4",
+      "notes2",
+    ]) {
+      await writeFile(join(directory, name), "unchanged");
+    }
+    expect(await readFile({ path: join(directory, "notes0") })).toMatchObject({
+      message:
+        "File not found. Similar names in the same directory: notes1, notes2, notes3, notes4, notes5.",
+    });
+  });
+
+  it("reports a missing parent without listing another directory", async () => {
+    const opened = vi.spyOn(filesystem, "opendir");
+    expect(
+      await readFile({ path: join(directory, "missing", "notes.md") }),
+    ).toMatchObject({
+      type: "not_found",
+      message: "File not found. Parent directory does not exist.",
+    });
+    expect(opened).not.toHaveBeenCalled();
+  });
+
+  it("refuses a linked parent for resolved reads and follows it for host reads", async () => {
+    const parent = join(directory, "parent");
+    const linked = join(directory, "linked");
+    await mkdir(parent);
+    await writeFile(join(parent, "notes.md"), "unchanged");
+    await symlink(parent, linked);
+    const hostPath = join(linked, "notes.txt");
+    expect(
+      await readResolvedFile(hostPath, { displayPath: "kb://space/notes.txt" }),
+    ).toStrictEqual({
+      status: "error",
+      type: "not_found",
+      message: "File not found.",
+    });
+    expect(await readFile({ path: hostPath })).toMatchObject({
+      message: "File not found. Similar names in the same directory: notes.md.",
+    });
+  });
+
+  it("does not suggest for a trailing separator on either authority", async () => {
+    await writeFile(join(directory, "notes.md"), "unchanged");
+    const path = `${join(directory, "notes.txt")}/`;
+    const opened = vi.spyOn(filesystem, "opendir");
+    for (const result of [
+      await readFile({ path }),
+      await readResolvedFile(path, { displayPath: "kb://space/notes.txt/" }),
+    ]) {
+      expect(result).toMatchObject({ type: "not_found" });
+      if (result.status !== "error")
+        throw new Error("Expected a missing target");
+      expect(result.message).not.toContain("Similar names");
+    }
+    expect(opened).not.toHaveBeenCalled();
+  });
+
+  it("does no directory read on successful file reads", async () => {
+    const path = join(directory, "notes.md");
+    await writeFile(path, "source");
+    const opened = vi.spyOn(filesystem, "opendir");
+    expect(await readFile({ path })).toMatchObject({
+      status: "success",
+      content: "1: source",
+    });
+    expect(
+      await readResolvedFile(path, { displayPath: "kb://space/notes.md" }),
+    ).toMatchObject({ status: "success" });
+    expect(opened).not.toHaveBeenCalled();
+  });
+
+  it("preserves directory elision and root continuation under output bounds", async () => {
+    for (const child of ["alpha", "beta"]) {
+      await mkdir(join(directory, child));
+      for (const prefix of ["0", "1", "2"]) {
+        await writeFile(join(directory, child, prefix + "x".repeat(99)), "");
+      }
+    }
+    const lastName = "z" + "x".repeat(99);
+    await writeFile(join(directory, lastName), "");
+    const partial = await readResolvedFile(directory, {
+      displayPath: "kb://space/",
+      reserveCodeUnits: MAX_RESULT_CODE_UNITS - 700,
+    });
+    expect(partial).toMatchObject({
+      status: "success",
+      kind: "directory",
+      truncated: true,
+    });
+    expect(partial).toHaveProperty(
+      "content",
+      expect.stringContaining(`  - alpha/\n    - 0${"x".repeat(99)}`),
+    );
+    expect(partial).toHaveProperty(
+      "content",
+      expect.stringContaining(`  - beta/\n    … 3 entries\n  - ${lastName}`),
+    );
+    expect(measureNativeModelOutput(partial)).toBeLessThanOrEqual(700);
+
+    const truncated = await readResolvedFile(directory, {
+      displayPath: "kb://space/",
+      reserveCodeUnits: MAX_RESULT_CODE_UNITS - 250,
+    });
+    expect(truncated).toMatchObject({
+      content:
+        "kb://space/\n  - alpha/\n    … 3 entries\n  - beta/\n    … 3 entries\n",
+      truncated: true,
+      nextOffset: 2,
+    });
+    expect(measureNativeModelOutput(truncated)).toBeLessThanOrEqual(250);
+    expect(
+      await readResolvedFile(directory, {
+        displayPath: "kb://space/",
+        selector: "3-5",
+        reserveCodeUnits: MAX_RESULT_CODE_UNITS - 250,
+      }),
+    ).toMatchObject({
+      content: `kb://space/\n  - ${lastName}\n`,
+      truncated: false,
+    });
+
+    const flat = await readResolvedFile(directory, {
+      displayPath: "kb://space/",
+      selector: "1-5",
+      reserveCodeUnits: MAX_RESULT_CODE_UNITS - 200,
+    });
+    expect(flat).toMatchObject({
+      content: "kb://space/\n  - alpha/\n  - beta/\n",
+      truncated: true,
+      nextOffset: 2,
+    });
+    expect(measureNativeModelOutput(flat)).toBeLessThanOrEqual(200);
+  });
+
+  it("discards suggestions within 200 ms when long names exhaust the scoring budget", async () => {
+    for (let index = 0; index < 10_000; index++) {
+      await mkdir(
+        join(directory, `${String(index).padStart(5, "0")}${"a".repeat(250)}`),
+      );
+    }
+    const opened = vi.spyOn(filesystem, "opendir");
+    const result = await readFile({ path: join(directory, "a".repeat(255)) });
+    expect(result).toStrictEqual({
+      status: "error",
+      type: "not_found",
+      message: "File not found.",
+    });
+    expect(opened).toHaveBeenCalledTimes(1);
+
+    // Coverage instrumentation changes DP latency; measure the same source in
+    // a fresh process while the read above retains behavioral coverage.
+    const { stdout } = await promisify(execFile)(process.execPath, [
+      "--import",
+      "tsx",
+      "--eval",
+      `const { readFile } = require('./src/read.ts');
+       const started = performance.now();
+       readFile({ path: process.argv[1] }).then(result => {
+         console.log(JSON.stringify({ elapsed: performance.now() - started, result }));
+       });`,
+      join(directory, "a".repeat(255)),
+    ]);
+    const measured: unknown = JSON.parse(stdout);
+    if (!isRecord(measured) || !isNumber(measured.elapsed))
+      throw new Error("Missing timing result");
+    expect(measured.result).toStrictEqual(result);
+    expect(measured.elapsed).toBeLessThan(200);
+
+    // A plausible name cannot be emitted from a directory over the entry cap.
+    await mkdir(join(directory, "notes.md"));
+    expect(
+      await readFile({ path: join(directory, "notes.txt") }),
+    ).toStrictEqual({
+      status: "error",
+      type: "not_found",
+      message: "File not found.",
+    });
+  }, 30_000);
 });

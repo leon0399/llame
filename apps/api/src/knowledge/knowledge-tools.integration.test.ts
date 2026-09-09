@@ -253,6 +253,48 @@ describe('Knowledge tools — real Postgres owner binding', () => {
     }
   });
 
+  it('suggests only contained sibling names for an owned Space miss', async () => {
+    const result = await runLocatorRead(
+      ownerAId,
+      locator(spaceAId, 'notes/owner-a.txt'),
+    );
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'not_found',
+      message:
+        'File not found. Similar names in the same directory: owner-a.md.',
+    });
+    expect(json(result)).not.toContain(root);
+    expect(json(result)).not.toContain(ownerBContent);
+    expect(json(result)).not.toContain('owner-b.md');
+    for (const id of [spaceBId, crypto.randomUUID()]) {
+      const denied = await runLocatorRead(
+        ownerAId,
+        locator(id, 'notes/owner-b.txt'),
+      );
+      expect(denied).toMatchObject({
+        status: 'error',
+        type: 'knowledge_space_not_found',
+      });
+      expect(json(denied)).not.toContain('Similar names');
+      expect(json(denied)).not.toContain('owner-b.md');
+      expect(json(denied)).not.toContain(root);
+    }
+  });
+
+  it('reports a missing Knowledge parent without leaking its path', async () => {
+    const result = await runLocatorRead(
+      ownerAId,
+      locator(spaceAId, 'missing/note.md'),
+    );
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'not_found',
+      message: 'File not found. Parent directory does not exist.',
+    });
+    expect(json(result)).not.toContain(root);
+  });
+
   it('binds each owner to only its stable child and returns safe attribution', async () => {
     const ownerAPage = await runtimeResolver.listForOwnerPage(ownerAId);
     const ownerABinding = await runtimeResolver.resolveBindingForOwnerById(
@@ -587,7 +629,7 @@ describe('Knowledge tools — real Postgres owner binding', () => {
     expect(result).toEqual({
       status: 'error',
       type: 'not_found',
-      message: 'File not found.',
+      message: 'File not found. Parent directory does not exist.',
     });
     expect(lstatSync(childPath(spaceAId)).isDirectory()).toBe(true);
     expect(() => lstatSync(path.join(childPath(spaceAId), spaceBId))).toThrow(

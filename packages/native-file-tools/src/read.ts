@@ -8,6 +8,7 @@ import {
   type ReadTarget,
 } from "./path";
 import { streamFileWindow } from "./stream-read";
+import { missingFileMessage } from "./read-suggestions";
 import {
   listDirectory,
   type DirectoryListingOptions,
@@ -79,8 +80,10 @@ export async function readFile(
   input: { path: string },
   signal?: AbortSignal,
 ): Promise<ReadOutcome> {
+  let hostPath = input.path;
   try {
     const target = await resolveReadTarget(input.path);
+    hostPath = target.path;
     return target.directory
       ? await runListing(target.path, target)
       : await streamFileWindow(target, {
@@ -89,7 +92,7 @@ export async function readFile(
           signal,
         });
   } catch (error) {
-    return readFailure(error);
+    return readFailure(error, hostPath, input.path, true);
   }
 }
 
@@ -108,7 +111,7 @@ export async function readResolvedFile(
           signal: options.signal,
         });
   } catch (error) {
-    return readFailure(error);
+    return readFailure(error, hostPath, options.displayPath, false);
   }
 }
 
@@ -148,7 +151,12 @@ function runListing(
   return listDirectory(hostPath, NODE_DIRECTORY_PORT, options);
 }
 
-function readFailure(error: unknown): FileFailure {
+async function readFailure(
+  error: unknown,
+  hostPath: string,
+  displayPath: string,
+  followSymlinks: boolean,
+): Promise<FileFailure> {
   if (error instanceof NativeFileError)
     return { status: "error", type: error.type, message: error.message };
   const code = isNodeError(error) ? error.code : undefined;
@@ -156,6 +164,17 @@ function readFailure(error: unknown): FileFailure {
     code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP"
       ? "not_found"
       : "executor_unavailable";
+  if (
+    code === "ENOENT" &&
+    !hostPath.endsWith("/") &&
+    !displayPath.endsWith("/")
+  ) {
+    return {
+      status: "error",
+      type: "not_found",
+      message: await missingFileMessage(hostPath, followSymlinks),
+    };
+  }
   return {
     status: "error",
     type,

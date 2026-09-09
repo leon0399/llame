@@ -174,6 +174,10 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
     expect(response.body).toMatchObject({ tools: [{ id: 'read' }] });
     expect(response.body).toHaveProperty(
       'tools.0.description',
+      expect.stringContaining('suggests similar names when a file is missing'),
+    );
+    expect(response.body).toHaveProperty(
+      'tools.0.description',
       expect.stringContaining(
         'write a literal :, ?, #, or % as %3A, %3F, %23, or %25',
       ),

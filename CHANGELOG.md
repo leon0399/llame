@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-09
 
+- Suggest up to five similar sibling names when `read` misses a file (#737),
+  for absolute paths and `kb://` locators. Scoring normalizes Unicode and
+  percent encoding, handles transpositions and reordered words, and stops at
+  8,000,000 distance cells or 10,000 directory entries. Missing parents are
+  reported directly. Knowledge suggestions require current owner access and
+  containment, refuse linked parents, and expose names only. Mutation misses
+  remain unchanged.
+
 - Decode `kb://` paths once per segment and search colon-named Knowledge notes
   (#736). Search locators escape `:`, `?`, `#`, and `%`, keeping spaces literal;
   reads accept literal and encoded spaces. Encoded separators and traversal
