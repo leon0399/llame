@@ -1,0 +1,26 @@
+openspec/changes/kb-locator-recovery/proposal.md
+  72afd302e13299dd 1-33,34-36,37-38,39-43,44-62,66-75
+openspec/changes/kb-locator-recovery/design.md
+  72afd302e13299dd 1-17,19-21,23-25,60,74-107,122-138,148-152,153-154,155-160,165-171,188-190,208-223,233-244,247-257,258-277,278-283,284-288,289-290,291-297,300-301,302-309,310-325,328-345,369-371
+openspec/changes/kb-locator-recovery/tasks.md
+  72afd302e13299dd 1-18,20-22,25-27,28,29-34,36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "df56a6b63bc41a35bdab754af3db343090f3ee15",
+  "prompts": {
+    "72afd302e13299dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f16d9b15-e4ab-425f-8902-231614e695d7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 302,
+      "total_deletions": 0,
+      "accepted_lines": 302,
+      "overriden_lines": 0
+    }
+  }
+}
