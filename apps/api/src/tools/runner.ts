@@ -15,6 +15,20 @@ const logger = new Logger('ToolRunner');
 
 class ToolAbortError extends Error {}
 
+type PreparedToolExecution = {
+  readonly context: ToolContext;
+  readonly timeoutSignal: AbortSignal;
+  readonly composedSignal: AbortSignal;
+};
+
+/**
+ * The Bash watcher proves process-group quiescence within 250 ms and drains
+ * its streams before resolving. Give that proof and the durable native.result
+ * append a small bounded window; a hung database call must still fall back to
+ * the unknown outcome.
+ */
+export const BASH_SETTLEMENT_GRACE_MS = 750;
+
 /**
  * Race an execution against the exact signal passed to the tool. Cooperative
  * tools can stop work when it aborts; tools that ignore it still produce a
@@ -22,25 +36,67 @@ class ToolAbortError extends Error {}
  * cancelled. Native mutations check the signal before publication, and an
  * interrupted native mutation returns an unknown outcome rather than retrying.
  */
-function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+function withAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  abortGraceMs = 0,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(new ToolAbortError('Tool call aborted'));
-    if (signal.aborted) {
-      onAbort();
-    } else {
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
+    let settled = false;
+    let graceTimer: NodeJS.Timeout | undefined;
+    const cleanup = () => {
+      signal.removeEventListener('abort', onAbort);
+      if (graceTimer !== undefined) clearTimeout(graceTimer);
+    };
+    const finish = (settle: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      settle();
+    };
+    const onAbort = () => {
+      if (abortGraceMs === 0) {
+        finish(() => reject(new ToolAbortError('Tool call aborted')));
+        return;
+      }
+      if (graceTimer !== undefined) return;
+      graceTimer = setTimeout(() => {
+        finish(() => reject(new ToolAbortError('Tool call aborted')));
+      }, abortGraceMs);
+    };
+
     promise.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(value);
-      },
-      (error: unknown) => {
-        signal.removeEventListener('abort', onAbort);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      },
+      (value) => finish(() => resolve(value)),
+      (error: unknown) =>
+        finish(() =>
+          reject(error instanceof Error ? error : new Error(String(error))),
+        ),
     );
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+function prepareToolExecution(
+  tool: Tool,
+  context: ToolContext,
+  callTimeoutSeconds: number,
+): PreparedToolExecution {
+  const timeoutMs = (tool.timeoutSeconds ?? callTimeoutSeconds) * 1000;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const composedSignal = context.abortSignal
+    ? AbortSignal.any([context.abortSignal, timeoutSignal])
+    : timeoutSignal;
+  return {
+    context: {
+      ...context,
+      abortSignal: composedSignal,
+      timeoutSignal,
+      timeoutMs,
+    },
+    timeoutSignal,
+    composedSignal,
+  };
 }
 
 /** Structured refusal for a tool the model requested but is unavailable (D3/D6). */
@@ -95,21 +151,20 @@ export async function runTool(
   const admission = admitToolCall(tool, args, context, callTimeoutSeconds);
   if ('result' in admission) return admission.result;
   const { context: validContext, args: validArgs } = admission;
-
-  const timeoutMs = (tool.timeoutSeconds ?? callTimeoutSeconds) * 1000;
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
-  const composedSignal = validContext.abortSignal
-    ? AbortSignal.any([validContext.abortSignal, timeoutSignal])
-    : timeoutSignal;
-  const executionContext: ToolContext = {
-    ...validContext,
-    abortSignal: composedSignal,
-  };
+  const {
+    context: executionContext,
+    timeoutSignal,
+    composedSignal,
+  } = prepareToolExecution(tool, validContext, callTimeoutSeconds);
   onValidated?.();
   try {
+    const execution = Promise.resolve(
+      tool.execute(executionContext, validArgs),
+    );
     const result = await withAbort(
-      Promise.resolve(tool.execute(executionContext, validArgs)),
+      execution,
       composedSignal,
+      isBashTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
     );
     if (
       isHostCapabilityTool(tool) &&

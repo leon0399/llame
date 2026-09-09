@@ -28,6 +28,7 @@ import type { Request } from 'express';
 import { CurrentUser } from '../auth/auth-context';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { type Run, type RunEvent } from '../db/schema';
+import { isRecord } from '@workspace/runtime-safety';
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
@@ -350,14 +351,30 @@ function lastEventId(request: RunEventRequest): number | undefined {
 }
 
 function formatSseEvent(event: RunEvent): string {
+  const ownerEvent = ownerEventForSse(event);
   const data = JSON.stringify({
-    sequence: event.sequence,
-    eventType: event.eventType,
-    payload: event.payload ?? null,
-    createdAt: event.createdAt,
+    sequence: ownerEvent.sequence,
+    eventType: ownerEvent.eventType,
+    payload: ownerEvent.payload ?? null,
+    createdAt: ownerEvent.createdAt,
   });
 
   return `id: ${event.sequence}\ndata: ${data}\n\n`;
+}
+
+/** Keep the resolved host cwd durable, but do not expose it in owner output. */
+function ownerEventForSse(event: RunEvent): RunEvent {
+  if (
+    event.eventType !== 'native.attempt' ||
+    !isRecord(event.payload) ||
+    event.payload.operation !== 'bash'
+  ) {
+    return event;
+  }
+
+  const payload = { ...event.payload };
+  delete payload.path;
+  return { ...event, payload };
 }
 
 function sleep(ms: number): Promise<void> {

@@ -174,17 +174,24 @@ and [operator setup](docs/native-files.md).
 
 ### 13.8 Managed bash contract
 
-`@workspace/bash-executor` defines the managed-executor bash contract shared with
-native file tools: one live working directory, bounded input/output/duration/
-process limits, attempt recording before start, known results only after
-process-tree quiescence, and `outcome_unknown` fencing without automatic replay.
-When `tools.nativeExecutorId` is set and `bash` is allowlisted, model-facing
-`bash` runs on that alpha host as `bash -c` over model-supplied shell text. The
-model cannot select executor, host path, environment, network, or permission
-mode. This is explicit host authority, not tenant isolation. A future managed
-Sandbox adapter and a separate permission proposal may strengthen isolation
-without changing the command/result contract. See
-[bash execution](openspec/specs/bash-execution/spec.md).
+`@workspace/bash-executor` runs the model-facing `bash` tool on the alpha host
+when `tools.nativeExecutorId` is configured and `bash` is allowlisted. The host
+runs the model's shell text as `bash -c` under the host OS user. This is
+explicit host authority, not tenant isolation: the model cannot select the
+executor, network mode, or permission mode. A future managed Sandbox adapter
+and a separate permission proposal may strengthen isolation.
+
+Before starting a command, the host records a durable `native.attempt` in the
+Run event log and records a `native.result` after settlement. If a worker is
+lost before the result is recorded, a Run claimed on another worker fails with
+`outcome_unknown` before the command can execute again. The unknown outcome is
+scoped to the issuing Run and does not create a permanent cross-Run fence. If
+the process group is still observed alive, bash admission on that host is
+temporarily quarantined: each refusal re-signals the group, and the quarantine
+lifts once the group is observed empty. The process group is the proof boundary;
+a descendant that calls `setsid` leaves it. The
+[bash-execution spec](openspec/specs/bash-execution/spec.md) owns command
+inputs, output handling, bounds, and result shapes.
 
 ## 14. Provider and model configuration
 

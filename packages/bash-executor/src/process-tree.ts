@@ -1,12 +1,17 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { isRecord } from "@workspace/runtime-safety";
 
 /** True when any process in the group still accepts a signal probe. */
 export function processGroupAlive(pgid: number): boolean {
   try {
     process.kill(-pgid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isRecord(error) && error.code === "ESRCH") {
+      return false;
+    }
+    // Any probe failure other than ESRCH is an unproven stop.
+    return true;
   }
 }
 

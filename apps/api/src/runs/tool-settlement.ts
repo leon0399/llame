@@ -15,6 +15,14 @@ export function toolTerminationResult(
   status: ToolTerminationStatus,
   toolName: string,
 ): ToolResult {
+  if (toolName === 'bash') {
+    return {
+      status: 'error',
+      type: 'outcome_unknown',
+      message:
+        'The host command was interrupted. Inspect the current host state before a new attempt.',
+    };
+  }
   if (toolName === 'edit' || toolName === 'write') {
     return {
       status: 'error',

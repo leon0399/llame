@@ -1,25 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import type {
-  BashAttemptReceipt,
   BashCommandInput,
   BashExecutorContext,
   BashResult,
+  BashTimedOutResult,
   BashUnavailableResult,
 } from "./types";
 import {
-  clearFence,
-  getAttempt,
-  isDirectoryFenced,
-  recordAttemptStart,
-  recoverIncompleteAttempts,
-  refusesUnknownReplay,
-  releaseUnknownCommands,
+  rejectQuarantinedGroups,
   resetAttemptLedgerForTests,
 } from "./attempt-ledger";
 import { managedChildPath } from "./env";
 import { MANAGED_EXECUTOR } from "./managed-constants";
-import { requireManagedBoundary, safeCommandMetadata } from "./sanitize";
+import { requireManagedBoundary } from "./sanitize";
 import { sharedWorkingDirectory } from "./workspace";
 import { resolveConfiguredTool } from "./tools";
 import { watchManagedChild } from "./watch";
@@ -30,6 +24,10 @@ let activeProcesses = 0;
 
 export type ExecuteManagedBashOptions = {
   readonly signal?: AbortSignal;
+  /** Trusted per-call deadline signal, distinct from caller cancellation. */
+  readonly timeoutSignal?: AbortSignal;
+  /** Effective per-call deadline in milliseconds. */
+  readonly timeoutMs?: number;
   readonly protectedValues?: ReadonlyArray<string>;
   /** Opaque model tool-call identity; never invents a replay. */
   readonly toolCallId?: string;
@@ -40,30 +38,8 @@ type RunRequest = {
   readonly args: ReadonlyArray<string>;
   readonly context: BashExecutorContext;
   readonly cwd: string;
-  readonly attempt: BashAttemptReceipt;
+  readonly attemptId: string;
   readonly options: ExecuteManagedBashOptions;
-  readonly toolCallId: string | null;
-};
-
-export function createAttemptReceipt(
-  input: BashCommandInput,
-): BashAttemptReceipt {
-  const attemptId = randomUUID();
-  const meta = safeCommandMetadata(attemptId, input);
-  return {
-    attemptId,
-    recordedAt: new Date().toISOString(),
-    commandDigest: meta.commandDigest,
-  };
-}
-
-export {
-  clearFence,
-  getAttempt,
-  recoverIncompleteAttempts,
-  releaseUnknownCommands,
-  refusesUnknownReplay,
-  resetAttemptLedgerForTests,
 };
 
 export function resetManagedExecutorForTests(): void {
@@ -88,7 +64,7 @@ function rejectLimits(
   input: BashCommandInput,
   context: BashExecutorContext,
   options: ExecuteManagedBashOptions,
-): BashUnavailableResult | null {
+): BashUnavailableResult | BashTimedOutResult | null {
   const tool = resolveConfiguredTool(input.command);
   if (tool === null) {
     return {
@@ -111,6 +87,9 @@ function rejectLimits(
       message: "Managed process limit reached.",
     };
   }
+  if (options.timeoutSignal?.aborted) {
+    return timedOutResult(context, options);
+  }
   if (options.signal?.aborted) {
     return {
       status: "error",
@@ -125,28 +104,13 @@ function rejectIfNotAdmitted(
   input: BashCommandInput,
   context: BashExecutorContext,
   options: ExecuteManagedBashOptions,
-  cwd: string,
-): BashUnavailableResult | null {
+): BashUnavailableResult | BashTimedOutResult | null {
   const boundary = requireManagedBoundary(context);
   if (boundary) return boundary;
-  if (isDirectoryFenced(cwd)) {
-    return {
-      status: "error",
-      type: "unavailable",
-      message: "Executor context is fenced after an unknown command outcome.",
-    };
-  }
+  const quarantine = rejectQuarantinedGroups();
+  if (quarantine) return quarantine;
   const limits = rejectLimits(input, context, options);
   if (limits) return limits;
-  const digest = safeCommandMetadata("probe", input).commandDigest;
-  if (refusesUnknownReplay(digest)) {
-    return {
-      status: "error",
-      type: "unavailable",
-      message:
-        "Unknown command outcomes are not replayed under a new tool-call ID.",
-    };
-  }
   return null;
 }
 
@@ -154,11 +118,11 @@ function admitExecution(
   input: BashCommandInput,
   context: BashExecutorContext,
   options: ExecuteManagedBashOptions,
-): RunRequest | BashUnavailableResult {
+): RunRequest | BashUnavailableResult | BashTimedOutResult {
   const cwdResult = sharedWorkingDirectory(context);
   if (isBashUnavailable(cwdResult)) return cwdResult;
 
-  const rejected = rejectIfNotAdmitted(input, context, options, cwdResult);
+  const rejected = rejectIfNotAdmitted(input, context, options);
   if (rejected) return rejected;
 
   const tool = resolveConfiguredTool(input.command);
@@ -175,9 +139,8 @@ function admitExecution(
     args: input.args ?? [],
     context,
     cwd: cwdResult,
-    attempt: createAttemptReceipt(input),
+    attemptId: options.toolCallId ?? randomUUID(),
     options,
-    toolCallId: options.toolCallId ?? null,
   };
 }
 
@@ -190,35 +153,110 @@ export async function executeManagedBash(
   context: BashExecutorContext,
   options: ExecuteManagedBashOptions = {},
 ): Promise<BashResult> {
-  const admitted = admitExecution(input, context, options);
+  const admitted = admitManagedBash(input, context, options);
   if ("type" in admitted) return admitted;
-  return runAdmitted(admitted);
+  return admitted.run();
+}
+
+export type AdmittedBashExecution = {
+  readonly cwd: string;
+  readonly run: () => Promise<BashResult>;
+  readonly release: () => void;
+};
+
+/** Reserve a process slot before the caller commits its durable attempt. */
+export function admitManagedBash(
+  input: BashCommandInput,
+  context: BashExecutorContext,
+  options: ExecuteManagedBashOptions = {},
+): AdmittedBashExecution | BashUnavailableResult | BashTimedOutResult {
+  const request = admitExecution(input, context, options);
+  if ("type" in request) return request;
+  activeProcesses += 1;
+  let reserved = true;
+  return {
+    cwd: request.cwd,
+    release: () => {
+      if (!reserved) return;
+      reserved = false;
+      activeProcesses -= 1;
+    },
+    run: async () => {
+      if (!reserved)
+        return {
+          status: "error",
+          type: "unavailable",
+          message: "Command admission has already been consumed or released.",
+        };
+      reserved = false;
+      return runAdmitted(request);
+    },
+  };
 }
 
 async function runAdmitted(request: RunRequest): Promise<BashResult> {
-  recordAttemptStart(request.attempt, request.cwd, request.toolCallId);
-  activeProcesses += 1;
   try {
+    if (request.options.timeoutSignal?.aborted) {
+      return timedOutResult(request.context, request.options);
+    }
+    if (request.options.signal?.aborted) {
+      return {
+        status: "error",
+        type: "cancelled",
+        message: "Command was cancelled before start.",
+      };
+    }
     return await spawnManaged(request);
   } finally {
     activeProcesses -= 1;
   }
 }
 
+function effectiveDeadlineMs(
+  context: BashExecutorContext,
+  options: ExecuteManagedBashOptions,
+): number {
+  return Math.min(context.durationMs, options.timeoutMs ?? context.durationMs);
+}
+
+function timedOutResult(
+  context: BashExecutorContext,
+  options: ExecuteManagedBashOptions,
+): BashTimedOutResult {
+  return {
+    status: "error",
+    type: "timed_out",
+    durationMs: effectiveDeadlineMs(context, options),
+    stdout: "",
+    stderr: "",
+    truncated: false,
+  };
+}
+
 function spawnManaged(request: RunRequest): Promise<BashResult> {
   return new Promise((resolve) => {
-    const child = spawn(request.tool, [...request.args], {
-      cwd: request.cwd,
-      env: { PATH: managedChildPath(), LANG: "C.UTF-8" },
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: false,
-      detached: true,
-    });
+    let child: ChildProcess;
+    try {
+      child = spawn(request.tool, [...request.args], {
+        cwd: request.cwd,
+        env: { PATH: managedChildPath(), LANG: "C.UTF-8" },
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: false,
+        detached: true,
+      });
+    } catch {
+      resolve({
+        status: "error",
+        type: "unavailable",
+        message: "Configured tool could not be started.",
+      });
+      return;
+    }
     watchManagedChild(
       child,
       {
         context: request.context,
-        attemptId: request.attempt.attemptId,
+        attemptId: request.attemptId,
         options: request.options,
       },
       resolve,

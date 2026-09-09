@@ -16,14 +16,6 @@ export type BashExecutorContext = {
   readonly maxProcesses: number;
 };
 
-/** Durable attempt identity recorded before process start. */
-export type BashAttemptReceipt = {
-  readonly attemptId: string;
-  readonly recordedAt: string;
-  /** Host-only command fingerprint; never includes secrets or host paths. */
-  readonly commandDigest: string;
-};
-
 export type BashCancellation = {
   readonly signal: AbortSignal;
 };
@@ -46,6 +38,15 @@ export type BashUnknownResult = {
   readonly message: string;
 };
 
+export type BashTimedOutResult = {
+  readonly status: "error";
+  readonly type: "timed_out";
+  readonly durationMs: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly truncated: boolean;
+};
+
 export type BashUnavailableResult = {
   readonly status: "error";
   readonly type:
@@ -58,11 +59,6 @@ export type BashUnavailableResult = {
 
 export type BashResult =
   | BashKnownResult
+  | BashTimedOutResult
   | BashUnknownResult
   | BashUnavailableResult;
-
-export type BashSafeCommandMetadata = {
-  readonly attemptId: string;
-  readonly commandDigest: string;
-  readonly argCount: number;
-};

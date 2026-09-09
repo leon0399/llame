@@ -1,4 +1,4 @@
-import { isHostCapabilityTool } from '../tools/bash';
+import { isBashTool, isHostCapabilityTool } from '../tools/bash';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
@@ -54,7 +54,12 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
-import { invalidCallResult, refusalResult, runTool } from '../tools/runner';
+import {
+  BASH_SETTLEMENT_GRACE_MS,
+  invalidCallResult,
+  refusalResult,
+  runTool,
+} from '../tools/runner';
 import { toFlexibleSchema } from '../tools/schema-utils';
 import {
   type KnowledgeToolResolver,
@@ -331,7 +336,7 @@ export class RunExecutionService {
     }
     if ('nativeRecovery' in claim) {
       const message =
-        'A previous native mutation may have executed. This Run will not replay it.';
+        'A previous host command or mutation may have executed. This Run will not replay it.';
       await this.settleTerminalRun({
         userId: input.userId,
         runId: input.runId,
@@ -598,20 +603,23 @@ export class RunExecutionService {
     };
 
     /**
-     * Settle every still-open tool call when the run terminates (#293). Runs
-     * through recordToolCompleted so each settlement emits its durable
+     * Settle selected still-open tool calls when the run terminates (#293).
+     * Runs through recordToolCompleted so each settlement emits its durable
      * `tool.completed` event AND fills its reserved part — the live stream,
-     * the event log and history then agree. `type: 'cancelled'` marks the
-     * result as produced by termination rather than by the tool, so an audit
-     * can tell "we stopped this" from "the tool failed"; the part collector
-     * ignores a genuine late result for an already-settled call.
+     * the event log and history then agree. Host bash calls stay open during
+     * the bounded parent-abort grace so a known result can win; the fallback
+     * from toolTerminationResult records unknown effects after that grace.
+     * The part collector ignores a genuine late result for an already-settled
+     * call.
      */
     const settleOpenToolCalls = (
       status: 'cancelled' | 'expired' | 'failed',
+      shouldSettle: (toolName: string) => boolean = () => true,
     ) => {
       // recordToolCompleted deletes the current key; removing the entry being
       // visited is well-defined for a Map iterator, so no snapshot is needed.
       for (const [toolCallId, { toolName, toolInput }] of openToolCalls) {
+        if (!shouldSettle(toolName)) continue;
         recordToolCompleted(
           toolCallId,
           toolName,
@@ -650,7 +658,7 @@ export class RunExecutionService {
               toolCallId,
               toolName: declaration.id,
             });
-            if (isNativeFileTool(executor)) {
+            if (isHostCapabilityTool(executor)) {
               await deltaWrites;
               if (progressWriteFailed)
                 throw new Error('Native tool activity could not be recorded.');
@@ -662,7 +670,20 @@ export class RunExecutionService {
               callTimeoutSeconds,
             );
             if (input.abortSignal?.aborted) {
-              await parentAbortSettlement;
+              // Bash gets a bounded chance to report its own proven result after
+              // cancellation. Other tools are settled synchronously by the
+              // parent-abort listener. An unknown bash result remains owned by
+              // that listener's synthetic settlement.
+              if (
+                isBashTool(executor) &&
+                !(
+                  result.status === 'error' && result.type === 'outcome_unknown'
+                )
+              ) {
+                recordToolCompleted(toolCallId, declaration.id, args, result);
+              } else {
+                await parentAbortSettlement;
+              }
             } else {
               // The observation records the tool's exact output; only what the
               // model reads is neutralized.
@@ -693,21 +714,29 @@ export class RunExecutionService {
     );
     const hasTools = Object.keys(toolSet).length > 0;
 
-    // Reserve termination settlement synchronously on the PARENT run signal,
-    // before runTool's promise continuation can record its own cancellation
-    // result. Abort event listeners run synchronously in registration order;
-    // this listener is installed before the provider starts any tool, so
-    // recordToolCompleted's first-writer guard makes the later runTool result a
-    // no-op. A per-call timeout aborts only runTool's derived signal and never
-    // reaches this listener, so ordinary timeout completions are unchanged.
+    // Reserve termination settlement synchronously on the PARENT run signal.
+    // Ordinary tools settle immediately. Bash stays open for the bounded grace
+    // so a proven cancellation can persist its own result before the unknown
+    // fallback. A per-call timeout aborts only runTool's derived signal and
+    // never reaches this listener, so ordinary timeout completions are
+    // unchanged.
     const settleToolsOnParentAbort = () => {
       if (openToolCalls.size === 0 || parentAbortSettlement) {
         return;
       }
       const status = classifyAbortedRun(input.abortSignal);
       const message = toolTerminationMessage(status);
-      settleOpenToolCalls(status);
+      const hasBashCall = [...openToolCalls.values()].some(
+        ({ toolName }) => toolName === 'bash',
+      );
+      settleOpenToolCalls(status, (toolName) => toolName !== 'bash');
       parentAbortSettlement = (async () => {
+        if (hasBashCall) {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, BASH_SETTLEMENT_GRACE_MS);
+          });
+        }
+        settleOpenToolCalls(status);
         await deltaWrites;
         if (progressWriteFailed) {
           await this.failRunProgressPersistence({
@@ -1424,7 +1453,7 @@ export class RunExecutionService {
             );
           }
           const nativeResult =
-            toolName === 'edit' || toolName === 'write'
+            toolName === 'edit' || toolName === 'write' || toolName === 'bash'
               ? await new NativeFilesRepository(tx).priorOutcome(
                   input.runId,
                   toolCallId,

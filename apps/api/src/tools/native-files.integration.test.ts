@@ -21,6 +21,7 @@ import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
 import { runTool } from './runner';
 import { type ToolContext } from './types';
+import { bashTool } from './bash';
 
 describe('native file authority and durable effects', () => {
   let sql: Sql;
@@ -90,6 +91,7 @@ describe('native file authority and durable effects', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await rm(directory, { recursive: true, force: true });
   });
   afterAll(async () => {
@@ -116,7 +118,7 @@ describe('native file authority and durable effects', () => {
   const begin = (input: {
     deliverySequence?: number;
     toolCallId: string;
-    operation: 'read' | 'edit' | 'write';
+    operation: 'read' | 'edit' | 'write' | 'bash';
   }) =>
     tenantDb.runAs(owner, (tx) =>
       new NativeFilesRepository(tx).begin({
@@ -129,6 +131,86 @@ describe('native file authority and durable effects', () => {
         path,
       }),
     );
+
+  it('records bash before execution and replays its result without a second effect', async () => {
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+    const input = { command: 'printf changed > notes; printf completed' };
+    const result = await runTool(bashTool, input, context, 5);
+    expect(result).toMatchObject({ status: 'success', stdout: 'completed' });
+    expect(await readFile(path, 'utf8')).toBe('changed');
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    expect(events.map((event) => event.eventType)).toEqual([
+      'run.started',
+      'native.attempt',
+      'native.result',
+    ]);
+    expect(events[1].payload).toEqual({
+      toolCallId: context.toolCallId,
+      operation: 'bash',
+      path: directory,
+    });
+    expect(events[2].payload).toEqual({
+      toolCallId: context.toolCallId,
+      result,
+    });
+    await writeFile(path, 'independent change');
+    expect(await runTool(bashTool, input, context, 5)).toEqual(result);
+    expect(await readFile(path, 'utf8')).toBe('independent change');
+  });
+
+  it('refuses oversized bash input before recording an attempt or binding the Run', async () => {
+    expect(
+      await runTool(bashTool, { command: 'x'.repeat(8001) }, context, 5),
+    ).toMatchObject({ type: 'unavailable' });
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    expect(events.map((event) => event.eventType)).toEqual(['run.started']);
+    const run = await tenantDb.runAs(owner, (tx) =>
+      new RunsRepository(tx).findById(runId, owner),
+    );
+    expect(run?.workerId).toBeNull();
+  });
+
+  it('records a known bash refusal when the process has no pid', async () => {
+    vi.stubEnv('BASH_WORKING_DIRECTORY', join(directory, 'missing'));
+    const result = await runTool(
+      bashTool,
+      { command: 'printf never' },
+      context,
+      5,
+    );
+    expect(result).toMatchObject({ type: 'unavailable' });
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    expect(events.map((event) => event.eventType)).toEqual([
+      'run.started',
+      'native.attempt',
+      'native.result',
+    ]);
+    expect(events[2].payload).toEqual({
+      toolCallId: context.toolCallId,
+      result,
+    });
+  });
+
+  it('refuses another tenant before starting bash or recording an attempt', async () => {
+    const result = await runTool(
+      bashTool,
+      { command: `printf changed > '${path}'` },
+      { ...context, userId: otherOwner },
+      5,
+    );
+    expect(result).toMatchObject({ type: 'executor_unavailable' });
+    expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    expect(events.map((event) => event.eventType)).toEqual(['run.started']);
+  });
 
   it('binds on the first read and rejects another host before mutation', async () => {
     expect(await runTool(nativeReadTool, { path }, context, 5)).toMatchObject({
@@ -346,51 +428,57 @@ describe('native file authority and durable effects', () => {
     ).toMatchObject({ workerId: 'host-b' });
   });
 
-  it('rejects a redelivery after the first native mutation is admitted', async () => {
-    const sequence = context.nativeDeliverySequence;
-    const first = await begin({
-      deliverySequence: sequence,
-      toolCallId: 'first-mutation',
-      operation: 'edit',
-    });
-    expect(first).toBeUndefined();
+  it.each(['edit', 'bash'] as const)(
+    'rejects a redelivery after the first %s attempt is admitted',
+    async (operation) => {
+      const sequence = context.nativeDeliverySequence;
+      const first = await begin({
+        deliverySequence: sequence,
+        toolCallId: 'first-mutation',
+        operation,
+      });
+      expect(first).toBeUndefined();
 
-    expect(await claimDelivery()).toBeUndefined();
-    const events = await tenantDb.runAs(owner, (tx) =>
-      new RunEventsRepository(tx).listByRunId(runId, owner),
-    );
-    expect(
-      events.filter((event) => event.eventType === 'run.started'),
-    ).toHaveLength(1);
-    expect(
-      events.filter((event) => event.eventType === 'native.attempt'),
-    ).toHaveLength(1);
-  });
+      expect(await claimDelivery()).toBeUndefined();
+      const events = await tenantDb.runAs(owner, (tx) =>
+        new RunEventsRepository(tx).listByRunId(runId, owner),
+      );
+      expect(
+        events.filter((event) => event.eventType === 'run.started'),
+      ).toHaveLength(1);
+      expect(
+        events.filter((event) => event.eventType === 'native.attempt'),
+      ).toHaveLength(1);
+    },
+  );
 
-  it('deduplicates concurrent admissions with the same tool call id', async () => {
-    const results = await Promise.all([
-      begin({
-        deliverySequence: context.nativeDeliverySequence,
-        toolCallId: 'same-call',
-        operation: 'edit',
-      }),
-      begin({
-        deliverySequence: context.nativeDeliverySequence,
-        toolCallId: 'same-call',
-        operation: 'edit',
-      }),
-    ]);
-    expect(results.filter((result) => result === undefined)).toHaveLength(1);
-    expect(
-      results.filter((result) => result?.type === 'outcome_unknown'),
-    ).toHaveLength(1);
-    const events = await tenantDb.runAs(owner, (tx) =>
-      new RunEventsRepository(tx).listByRunId(runId, owner),
-    );
-    expect(
-      events.filter((event) => event.eventType === 'native.attempt'),
-    ).toHaveLength(1);
-  });
+  it.each(['edit', 'bash'] as const)(
+    'deduplicates concurrent %s admissions with the same tool call id',
+    async (operation) => {
+      const results = await Promise.all([
+        begin({
+          deliverySequence: context.nativeDeliverySequence,
+          toolCallId: 'same-call',
+          operation,
+        }),
+        begin({
+          deliverySequence: context.nativeDeliverySequence,
+          toolCallId: 'same-call',
+          operation,
+        }),
+      ]);
+      expect(results.filter((result) => result === undefined)).toHaveLength(1);
+      expect(
+        results.filter((result) => result?.type === 'outcome_unknown'),
+      ).toHaveLength(1);
+      const events = await tenantDb.runAs(owner, (tx) =>
+        new RunEventsRepository(tx).listByRunId(runId, owner),
+      );
+      expect(
+        events.filter((event) => event.eventType === 'native.attempt'),
+      ).toHaveLength(1);
+    },
+  );
 
   it('does not let another tenant bind or mutate through an owned Run', async () => {
     const foreign = { ...context, userId: otherOwner };

@@ -63,6 +63,10 @@ export interface ToolContext {
   readonly chatId: string;
   readonly tenantDb: TenantRunner;
   readonly abortSignal?: AbortSignal;
+  /** Trusted per-call deadline signal; distinct from parent Run cancellation. */
+  readonly timeoutSignal?: AbortSignal;
+  /** Effective per-call deadline in milliseconds, supplied by the runner. */
+  readonly timeoutMs?: number;
   /** Trusted AI SDK call correlation, never supplied by model arguments. */
   readonly toolCallId?: string;
   /** Trusted worker-bound Knowledge capability; never model supplied. */

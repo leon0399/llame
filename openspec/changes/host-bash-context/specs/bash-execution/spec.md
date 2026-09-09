@@ -82,7 +82,9 @@ return output as the command produced it, cut at the bound, without rewriting,
 reordering, or deleting lines. Values the host knows to be secret SHALL be
 redacted before the result leaves the executor. The delimiter neutralization
 every model-facing tool result receives SHALL still apply to the copy the model
-reads.
+reads. After timeout settlement proves the process group stopped, the watcher
+SHALL drain output for at most 50 ms; a stream still open at that bound SHALL be
+marked truncated and destroyed.
 
 #### Scenario: Oversized output is bounded
 
@@ -115,9 +117,22 @@ bounded partial output. An unproven stop after timeout, cancellation, or host
 failure SHALL produce terminal `outcome_unknown`. A process that never started
 SHALL be a known refusal, never `outcome_unknown`. An `outcome_unknown` SHALL
 terminate the Run that issued it. While a process of that attempt is still
-observed alive on the host, the host SHALL refuse new bash admission and SHALL
-re-signal the group on each refusal; the refusal SHALL lift without operator
-action once the group is empty, and SHALL NOT outlive the process it names.
+observed alive by the worker, the worker SHALL refuse new bash admission on
+that worker and SHALL re-signal the group on each refusal; the refusal SHALL
+lift without operator action once the group is empty, and SHALL NOT outlive
+the process it names.
+The quarantine is process-local and is lost if the worker crashes; the durable
+`native.attempt` SHALL still prevent recovery from re-executing the command,
+and recovery SHALL fail the Run with `outcome_unknown`. An in-flight shell
+process group can survive that crash, and a replacement worker can admit a new
+bash command while the old group remains alive because the replacement has no
+quarantine for the lost worker.
+The runner SHALL pass bash a distinct effective timeout signal and duration;
+the effective deadline SHALL be the lesser of the runner's per-call timeout
+and the managed executor's 300-second cap, while caller cancellation remains
+separate. After the runner's per-call timeout or Run cancellation, bash SHALL
+have at most 750 ms to settle and persist `native.result`; if settlement or
+persistence exceeds that grace, the result SHALL be `outcome_unknown`.
 The host SHALL NOT rerun an attempt automatically, under the same or another
 tool-call ID: a Run resumed on any host after an attempt without a recorded
 result SHALL NOT re-execute it.
@@ -145,28 +160,30 @@ result SHALL NOT re-execute it.
 - **WHEN** the worker is lost after command start before a result is recorded
 - **THEN** a resume on any worker does not re-execute the command
 - **AND** the Run reports that a host command or mutation may have executed
+- **AND** the old process group may remain alive and untracked on the replacement
+  worker, which may admit a new bash command beside it
 
 #### Scenario: Failed cancellation fences the context
 
 - **WHEN** cancellation cannot prove the process group empty
 - **THEN** the result is `outcome_unknown`
 - **AND** the fenced context is the Run: it terminates, and no other Run is
-  affected
+  affected once its process group is observed empty
 
-#### Scenario: Surviving process quarantines the host until it is gone
+#### Scenario: Surviving process quarantines the worker until it is gone
 
 - **WHEN** one Run ends with `outcome_unknown` and its process group is still
   alive
-- **THEN** a bash call in another Run on the same host is refused with a
+- **THEN** a bash call in another Run on the same worker is refused with a
   result naming the surviving attempt, and the group is signalled again
-- **AND** once the group is observed empty the next call is admitted, with no
-  operator or process restart
+- **AND** once the group is observed empty the next call on that worker is
+  admitted, with no operator or process restart
 
 #### Scenario: Other Runs are unaffected once nothing survives
 
 - **WHEN** one Run ends with `outcome_unknown` and no process of it is observed
   alive
-- **THEN** a later bash call in another Run on the same host is admitted
+- **THEN** a later bash call in another Run on the same worker is admitted
 - **AND** no operator or process restart is needed
 
 ## REMOVED Requirements

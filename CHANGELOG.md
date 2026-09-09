@@ -1,6 +1,34 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-09
+
+- Bound bash timeout cleanup (#733, #734): each call receives its effective
+  per-call deadline separately from Run cancellation, capped by the managed
+  executor's 300-second duration. After the runner's per-call timeout or Run
+  cancellation, bash has 750 ms to settle and persist `native.result`; timeout
+  cleanup waits up to 250 ms for group-stop proof and drains output for 50 ms,
+  marking open streams truncated. If settlement or persistence exceeds the
+  grace, the result is `outcome_unknown`. Pending durable admission releases
+  its reserved process slot on abort, and a late `begin` completion cannot start
+  the command. Parent cancellation waits through bounded cleanup so a known
+  bash result can win before the synthetic `outcome_unknown` fallback. The
+  resolved bash `cwd` remains in `native.attempt` as persisted provenance but
+  is omitted from owner-facing Run events. The process-group quarantine is
+  worker-local and disappears on worker crash. An in-flight shell process group
+  can survive that crash, so a replacement worker can admit a new command while
+  the old group remains alive; durable `native.attempt` prevents replay.
+
 # 2026-09-08
+
+- Fix bash timeout recovery and persist command attempts (#733, #734): a
+  deadline now yields `timed_out` with bounded partial output when the process
+  group is proven empty; an unproven stop remains `outcome_unknown` and
+  terminates only the issuing Run. Bash attempts and results persist as
+  `native.attempt` and `native.result`, so worker recovery cannot replay an
+  unsettled command. A process group that is still observed alive temporarily
+  quarantines bash on that host and is re-signalled until it disappears, after
+  which admission resumes automatically. The group proof does not include a
+  descendant that escapes with `setsid`.
 
 - Reduce development pipeline latency (#730): scope PR/local mutation to changed
   files with full-workspace fallbacks, preserve compatible incremental baselines,

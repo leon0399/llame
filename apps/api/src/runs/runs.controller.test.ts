@@ -355,6 +355,83 @@ describe('RunsController context receipt', () => {
     expect(output.end).toHaveBeenCalledOnce();
   });
 
+  it('redacts a bash attempt path from owner SSE without changing stored events', async () => {
+    const events: Array<RunEvent> = [
+      {
+        runId: run.id,
+        sequence: 7,
+        eventType: 'native.attempt',
+        payload: {
+          toolCallId: 'bash-call',
+          operation: 'bash',
+          path: '/srv/private-project',
+        },
+        createdAt: new Date('2026-07-18T10:00:01.000Z'),
+      },
+      {
+        runId: run.id,
+        sequence: 8,
+        eventType: 'native.attempt',
+        payload: {
+          toolCallId: 'edit-call',
+          operation: 'edit',
+          path: '/tmp/file.txt',
+        },
+        createdAt: new Date('2026-07-18T10:00:01.500Z'),
+      },
+      {
+        runId: run.id,
+        sequence: 9,
+        eventType: 'native.result',
+        payload: {
+          toolCallId: 'edit-call',
+          result: { status: 'success', path: '/tmp/file.txt' },
+        },
+        createdAt: new Date('2026-07-18T10:00:02.000Z'),
+      },
+    ];
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValueOnce(events)
+      .mockResolvedValueOnce([]);
+    const output = response();
+
+    await controller().streamRunEvents(
+      'owner',
+      run.id,
+      {},
+      request(),
+      output.value,
+    );
+
+    expect(events[0].payload).toEqual({
+      toolCallId: 'bash-call',
+      operation: 'bash',
+      path: '/srv/private-project',
+    });
+    expect(output.writes).toEqual([
+      `id: 7\ndata: ${JSON.stringify({
+        sequence: 7,
+        eventType: 'native.attempt',
+        payload: { toolCallId: 'bash-call', operation: 'bash' },
+        createdAt: events[0].createdAt,
+      })}\n\n`,
+      `id: 8\ndata: ${JSON.stringify({
+        sequence: 8,
+        eventType: 'native.attempt',
+        payload: events[1].payload,
+        createdAt: events[1].createdAt,
+      })}\n\n`,
+      `id: 9\ndata: ${JSON.stringify({
+        sequence: 9,
+        eventType: 'native.result',
+        payload: events[2].payload,
+        createdAt: events[2].createdAt,
+      })}\n\n`,
+      'data: [DONE]\n\n',
+    ]);
+  });
+
   it.each([
     { header: undefined, query: 3, expected: 3 },
     { header: '', query: 4, expected: 4 },
