@@ -31,12 +31,16 @@ fix.
   directory, for absolute paths and `kb://` locators alike, through one
   implementation in the native package. Names only, scored and capped; a miss
   with no plausible sibling stays a bare error; a missing parent directory is
-  reported as such. `edit` and `write` are unchanged.
+  reported as such. `edit` and `write` parse `kb://` through the same decoding
+  parser and keep their mutation and missing-target behavior; they never
+  suggest.
 - To reach that layer, a `kb://` read resolves its locator tolerating a
   missing leaf, exactly as a `kb://` write already does; containment is proven
-  on the nearest existing ancestor before the read is attempted, and the
-  parent directory is `lstat`-checked and refused as a symbolic link
-  immediately before it is opened for names.
+  on the nearest existing ancestor before the read is attempted, and a
+  `kb://` parent directory is `lstat`-checked and refused as a symbolic link
+  immediately before it is opened for names, narrowing the check-to-open
+  window as the shipped listing does. An absolute-path miss follows a linked
+  parent as the read itself would.
 
 ## Capabilities
 

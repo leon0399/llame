@@ -10,9 +10,9 @@ other argument or persisted declaration field SHALL. `edit` and `write` SHALL op
 operate on regular files and directories; every other entry kind SHALL fail. A
 `read` that misses a regular file SHALL offer bounded sibling-name
 suggestions from its existing parent directory on every scheme, names only,
-with one bounded directory read on the error path and none on success; the
-parent SHALL be checked without following links immediately before that read
-and a symbolic-link parent SHALL yield the bare error. A
+with one bounded directory read and bounded scoring work on the error path
+and none on success; an absolute-path miss SHALL follow a symbolic-link
+parent exactly as the read itself follows links. A
 trailing path separator SHALL be accepted on a directory path and SHALL fail as
 `not_found` on any other target. A model argument SHALL NOT select a different
 executor, owner, tenant, permission mode, or remote authority. The three tools SHALL be advertised when the process has accepted native
@@ -46,9 +46,9 @@ there.
 
 #### Scenario: A missed read suggests sibling names
 
-- **WHEN** `read` targets a missing regular file, named without a trailing separator, whose parent directory exists and is not a symbolic link, on any scheme
+- **WHEN** `read` targets a missing regular file, named without a trailing separator, whose parent directory exists, on any scheme
 - **THEN** the `not_found` result also lists at most five entry names from that directory that score as plausible spellings of the requested name, as bare names without any path
-- **AND** a miss with no plausible sibling, a parent that is a symbolic link, or a trailing separator returns the bare `not_found`, and the suggestion list is never produced for `edit` or `write`
+- **AND** a miss with no plausible sibling, a trailing separator, or scoring work past its bound returns the bare `not_found`, and the suggestion list is never produced for `edit` or `write`
 
 #### Scenario: A missed read under a missing parent says so
 
@@ -88,16 +88,20 @@ another owner, row, or directory exists, and the tool SHALL NOT probe candidate
 Space directories. Sibling-name suggestions on a missed `kb://` read SHALL be
 drawn only from a parent directory that has already been proven inside the
 resolved Space, SHALL never be produced when the Space itself is absent,
-removed, or another owner's, and SHALL carry names only.
+removed, or another owner's, and SHALL carry names only; the parent SHALL be
+checked without following links immediately before it is opened for names,
+and a symbolic-link parent SHALL yield the bare `not_found`.
 
 The locator SHALL be split on `/` and on the first `:` after the Space
 identifier before any decoding, and each path segment SHALL then be
 percent-decoded exactly once; the Space identifier and the selector SHALL NOT
 be decoded. A segment that fails to decode, or that decodes to a string
 containing `/`, SHALL return `invalid_path`, and that check SHALL run on the
-individual segment before segments are rejoined. A literal and an encoded spelling
-of the same path SHALL resolve to the same file, so a segment containing `:`
-is addressed as `%3A` and one containing a literal `%` as `%25`. Path
+individual segment before segments are rejoined. Where a path has a literal
+spelling that is valid under this grammar, that spelling and its encoded
+spelling SHALL resolve to the same file; a segment containing `:` or a
+literal `%` has no valid literal spelling and SHALL be addressed as `%3A` or
+`%25`, and `/` SHALL never be encoded. Path
 validation SHALL apply to the decoded segments and SHALL reject absolute
 paths, empty components, `.` or `..` components, backslashes, NUL or control
 characters, and paths above 1,024 UTF-8 bytes or 32 components, returning

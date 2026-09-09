@@ -150,7 +150,8 @@ literal name.
 
 The `read` description gains: "In a `kb://` path, write a literal `:`, `?`,
 `#`, or `%` as `%3A`, `%3F`, `%23`, or `%25`; spaces and other characters may
-be literal or encoded." `chat-default.md` gains the same rule in its
+be literal or encoded; `/` is the separator and is never encoded."
+`chat-default.md` gains the same rule in its
 Knowledge sentence. This mirrors oh-my-pi's three-character instruction plus
 the `%` cost gemini-cli leaves undocumented.
 
@@ -161,10 +162,14 @@ both schemes reach a miss once D5 lands. Today it receives only the error; it
 gains the resolved host path and the display path, and derives the parent
 and the requested basename from them. The `ENOENT` error's own `path` field
 is never used, so no host path can leak into a `kb://` message. On `ENOENT`
-for a file target without a trailing separator it `lstat`s the parent,
-refuses a symbolic link (mirroring the leaf rule at `read.ts:126-127`, and
-honoring `followSymlinks` so absolute paths keep their behavior), opens it
-once, reads names under the existing traversal budget, scores each against
+for a file target without a trailing separator it `lstat`s the parent and,
+when the read refused links (`followSymlinks` false, which is every `kb://`
+read, mirroring the leaf rule at `read.ts:126-127`), refuses a symbolic-link
+parent with the bare error; an absolute-path read passes `followSymlinks`
+true (`read.ts:88`) and its suggestions follow a linked parent exactly as the
+read itself would have, because the host process is the authority there and
+no Space boundary exists. It then opens the parent once, reads names under
+the existing traversal budget, scores each against
 the requested basename, and appends up to five names to the `not_found`
 message: `File not found. Similar names in the same directory: a, b, c.` If
 the parent itself is missing, the message says so and lists nothing. A target
@@ -180,8 +185,10 @@ query is a wrong spelling of an existing name rather than an abbreviation of
 one (see the engine survey in Context):
 
 1. Normalize the requested basename and every candidate identically: NFC,
-   then percent-decode inside a try/catch. This alone settles encoding and
-   NFC/NFD for absolute paths, where D1's decode-on-parse does not apply.
+   then percent-decode inside a try/catch; a string that fails to decode
+   (`100%.md`) is compared as spelled, so a malformed name on disk or in the
+   request is scored, never thrown. This alone settles encoding and NFC/NFD
+   for absolute paths, where D1's decode-on-parse does not apply.
 2. Split stem from extension: the extension is the text after the last `.`
    that is not the first character, so `a.b.md` has stem `a.b` and extension
    `md`, and `.env` has no extension. A differing extension subtracts 0.1
@@ -197,6 +204,22 @@ one (see the engine survey in Context):
    punctuation-separated tokens sorted, so `Notes Standup 2026-09-08.md`
    (0.167 raw) finds `2026-09-08 Standup Notes.md`; character edit distance
    alone does not recover a block move.
+
+The work is bounded, because the scorer runs synchronously on the worker's
+event loop and the tool timeout cannot interrupt it. Measured: 10,000
+entries of `NAME_MAX` (255) characters against a 255-character request is
+650 million DP cells and 5.9 s in Node on one miss; the sample vault (232
+names, 24 characters on average) is 2 ms. Two bounds, both stated in the
+task: a candidate whose length differs from the request's by more than half
+the longer length is skipped before the DP, because the distance is at least
+the length difference and such a candidate cannot reach 0.5 (exact, drops
+nothing that could qualify, and token sorting preserves length); and the
+scoring of one miss, token-sorted retries included, stops at 8,000,000 DP
+cells (about 70 ms measured), after which no suggestions are returned, the
+same answer the directory-entry budget gives. Names are sorted before
+scoring so the budget cuts deterministically. A full 10,000-entry directory
+of typical names (10,000 × 24²) scores in about 5.8 million cells, under the
+budget.
 
 Top five by score, ties by name. Short names produce false positives at 0.5
 (`config` finds `conflict` at 0.625, `ROADMAP` finds `README` at 0.571);
@@ -221,8 +244,17 @@ raise `ENOENT`. The parent directory the suggestion reads is therefore
 either that proven ancestor or a directory beneath it that also failed to
 exist, in which case D4 reports the parent missing and reads nothing. The
 proof is one instant old by the time the parent is opened, and `opendir`
-follows links, so D4's `lstat`-and-refuse on the parent closes the window in
-which a link could be planted at that position.
+follows links, so D4 `lstat`s the parent and refuses a link immediately
+before opening it. That narrows the window to the gap between two syscalls;
+it does not close it, because Node exposes no descriptor-relative directory
+open (`fdopendir`), so a link planted between the `lstat` and the `opendir`
+would be followed. This is the limitation `assertInsideSpace` already
+documents for itself (`knowledge-locator.ts:80-88`), and the shipped `kb://`
+directory listing runs the same `lstat`-then-`opendir` sequence today
+(`read.ts:126`, `directory-listing.ts:106`), so a suggestion read is no wider
+than a listing. Planting that link requires write access inside the owner's
+own Space directory on the host; such a writer already reads the Space.
+Closing the window needs a native addon and is out of scope.
 
 Space-level failures are unchanged and precede all of this: an absent,
 removed, or other-owner identifier returns `knowledge_space_not_found` before
@@ -243,12 +275,19 @@ and gains the `%3A` answer.
   is refused by the existing rule; a negative test covers both spellings.
 - Suggestions used to enumerate another owner's Space → Space resolution
   fails closed before any path work; suggestions exist only after
-  containment of the parent is proven by `realpath`.
+  containment of the parent is proven by `realpath`, and a `kb://` parent is
+  `lstat`-checked and refused as a link immediately before it is opened.
+  Residual: the check and the open are two syscalls, so a link planted
+  between them is followed; that needs write access inside the owner's Space
+  directory, and it is the window the shipped listing and
+  `assertInsideSpace` already accept (D5).
 - Suggestions revealing a resolved host path → names only, composed in the
   package from `Dirent.name`; an assertion in the `kb://` test checks the
   message against the configured root.
 - A huge parent directory on the error path → one `opendir` bounded by the
   existing `DIRECTORY_TRAVERSAL_BUDGET`; over budget, no suggestions.
+- Scoring 10,000 long names blocks the event loop for seconds → the length
+  prefilter and the 8,000,000-cell budget in D4; over budget, no suggestions.
 - Decoding applied to an absolute path by mistake → decoding lives in
   `parseKnowledgeLocator` only; absolute paths are untouched.
 
@@ -260,8 +299,14 @@ and gains the `%3A` answer.
    refuses as malformed; the risk entry below owns that cost.
 3. The `read` description changes, so the deploy follows the declaration
    cutover (quiesce, drain, deploy API and worker together, resume). Rollback
-   is the reverse; a locator emitted with `%3A` by the new search is refused
-   by the old parser, which is the pre-change behavior for that file.
+   is the reverse, and it breaks every locator the new search emitted with
+   `%3A`, `%3F`, `%23`, or `%25`, because the old parser decodes nothing. For
+   `%3A` that is the pre-change behavior: the file had no locator before. For
+   `?`, `#`, and `%` it is a new break: `validatePath` accepts those
+   characters raw, so such a file was addressable by its literal locator
+   before the change and its persisted search results stop opening after a
+   rollback. Accepted under the pre-launch rule against compatibility paths;
+   no such file exists in the sample vault.
 
 ## Risks / Trade-offs
 
@@ -279,6 +324,24 @@ and gains the `%3A` answer.
   requirement blocks; whichever lands second rebases and re-diffs.
 
 ## Revision history
+
+- **v4 (2026-09-09):** PR #740 review (Codex, CodeRabbit). Parent-link rule
+  scoped: refused when the read refuses links (`kb://`), followed as the read
+  would on absolute paths; spec sentence moved into the `kb://` requirement
+  (Codex P2, CodeRabbit). D5 no longer claims the `lstat` closes the TOCTOU
+  window: narrowed, with the `assertInsideSpace` and shipped-listing
+  precedents and the residual stated; atomic no-follow open rejected as
+  unavailable in Node (Codex P1, partially accepted). Scoring bound added:
+  length prefilter plus an 8,000,000-cell budget, measured (Codex P1).
+  Rollback entry covers all four encodings and names the new break for `?`,
+  `#`, `%` (Codex P2). D3 states `/` is never encoded; D4 defines the
+  decode-failure fallback and task 2.1 tests `100%.md` as a sibling; the
+  spec's equivalence rule limited to spellings valid under the grammar;
+  proposal says `edit` and `write` use the new parser without suggestions;
+  task 3.1 command spelled out; task 3.3 checks status before archiving
+  (CodeRabbit). Rejected: person-level owners in `tasks.md` (CONTRIBUTING
+  asks for layer ownership, recorded) and post-follow containment for
+  absolute-path parents (no Space boundary exists on that scheme).
 
 - **v3 (2026-09-08):** Review round 1 (two independent reviewers). Decoded-`/`
   check moved into the locator parser, per segment, with `notes%2Fsecret.md`
