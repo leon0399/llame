@@ -119,8 +119,9 @@ Add an explicit local Sandbox mode before accepting remote Workspace placement:
    validates, builds, and activates only as a later accepted revision.
 
 The shipped [bash-execution](openspec/specs/bash-execution/spec.md) contract is
-the adapter seam: same workspace as native file tools, bounded results, attempt
-receipts, and unknown-outcome fencing. Alpha host bash is already available under
+the adapter seam: the same live host filesystem as native file tools, bounded
+results, attempt receipts, and unknown-outcome fencing. Alpha host bash is
+already available under
 the native `tools.nativeExecutorId` gate when allowlisted. A follow-up managed
 Sandbox proposal strengthens secret boundary, process isolation, and workspace
 mount without changing the command/result contract. A separate permission

@@ -18,7 +18,9 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 - Bounded tool loop: `search_conversations`, optional line-ranged
   `conversation_read`, and operator-configured Streamable HTTP MCP tools.
 - Optional native host file tools: selector-based `read`, exact `edit`, and
-  create-only `write`, with durable mutation fencing. See [native file setup](docs/native-files.md).
+  create-only `write`, with durable mutation fencing, plus host `bash` with
+  per-call literal `cwd` and additive `env`, fresh processes, and bounded
+  output. See [native file setup](docs/native-files.md).
 - Owner-scoped Markdown Knowledge Spaces: `knowledge_search` over live files
   (including uncommitted changes), plus `kb://` reads through the native
   `read` tool, operator-configured and allowlisted.
@@ -65,8 +67,10 @@ process that can provision or consume Runs, and add `knowledge_search` and
 `read` to `tools.allowed`. Every Run-authoring API must declare the setting for
 consistent accept-time availability, even if it does not mount the root.
 Configuration loading does not probe the root; provisioning and worker
-execution fail closed when their mount is missing. The root and local binding
-never enter model context or owner-facing results. See [docs/knowledge.md](docs/knowledge.md).
+execution fail closed when their mount is missing. The Knowledge API keeps the
+root and local binding out of model context and owner-facing results; allowlisted
+host `bash` can discover a mounted root through ordinary filesystem commands.
+See [docs/knowledge.md](docs/knowledge.md).
 
 **Breaking**: `knowledge_read` is deleted. An allowlisted `knowledge_read`
 entry now fails boot; remove it from `tools.allowed` before upgrading. Read

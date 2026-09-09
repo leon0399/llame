@@ -34,8 +34,8 @@ master
 
 ## 3. output-fidelity
 
-- [ ] 3.1 Delete `stripHostPaths` and `stripStackTraces`, keeping protected-value redaction and the bounded cut; verify package tests that an absolute path, a `Traceback` block, and a line beginning `Error:` survive verbatim, that a protected value is still redacted, and an API-level test that a bash result containing `</tool-result>` still reaches the model escaped.
-- [ ] 3.2 Update `docs/native-files.md` (per-call `cwd` and `env`, default directory, fresh process per call, output returned as produced, Knowledge root discoverability stated), README, and add this layer's dated changelog entry; verify `pnpm lint:markdown` and `pnpm format:check` pass.
+- [x] 3.1 Delete `stripHostPaths` and `stripStackTraces`, keeping protected-value redaction and the bounded cut; verify package tests that an absolute path, a `Traceback` block, and a line beginning `Error:` survive verbatim, that a protected value is still redacted, and an API-level test that a bash result containing `</tool-result>` still reaches the model escaped.
+- [x] 3.2 Update `docs/native-files.md` (per-call `cwd` and `env`, default directory, fresh process per call, output returned as produced, Knowledge root discoverability stated), README, and add this layer's dated changelog entry; verify `pnpm lint:markdown` and `pnpm format:check` pass.
 - [ ] 3.3 Focused e2e: a chat command that prints a path and exits non-zero renders the path and the exit code; verify it passes in CI.
 
 ## 4. finalize

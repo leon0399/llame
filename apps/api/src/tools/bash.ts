@@ -107,7 +107,7 @@ export const bashTool: Tool<{
   id: 'bash',
   classification: 'execute_code',
   description:
-    'Run a shell command as the host user via `bash -c`. Optional `cwd` is a literal existing directory resolved against the default directory; `~` and `$` expansion are not applied. Optional `env` adds variables to the fixed managed base and cannot replace its keys. Each call is a fresh process with no persisted shell state. Output is bounded at the managed limit; a timeout with a proven stop reports `timed_out` with partial output. Alpha host authority — not tenant isolation. Prefer native edit for small exact replacements. Example: command="pwd && ls".',
+    'Run a shell command as the host user via `bash -c`. Optional `cwd` is a literal existing directory resolved against the default directory; `~` and `$` expansion are not applied. Optional `env` adds variables to the fixed managed base and cannot replace its keys. Each call is a fresh process with no persisted shell state. Output is returned as produced and cut at the bound; a timeout with a proven stop reports `timed_out` with partial output. Alpha host authority — not tenant isolation. Prefer native edit for small exact replacements. Example: command="pwd && ls".',
   inputSchema: z
     .object({
       command: z.string().min(1),

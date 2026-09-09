@@ -38,24 +38,44 @@ describe("bash-executor contract", () => {
     expect(joined).toContain("@workspace/runtime-safety");
   });
 
-  it("sanitizes host paths, secrets, stack traces, and unbounded output", () => {
+  it("preserves paths, tracebacks, and error lines while redacting secrets", () => {
     const raw: BashKnownResult = {
       status: "success",
       operation: "bash",
       executor: "managed",
       exitCode: 0,
-      stdout: `${"/tmp/llame-workspace"}/secret.txt\nAUTH-TOKEN\nat Object.run (/usr/lib/node)\n${"x".repeat(200)}`,
+      stdout: `${"/tmp/llame-workspace"}/secret.txt\nTraceback (most recent call last):\n  at Object.run (/usr/lib/node)\nError: boom\nAUTH-TOKEN\n`,
       stderr: "Error: boom\n    at fail (/home/leon0399/proj/x.ts:1:1)",
       truncated: false,
     };
-    const sanitized = sanitizeKnownResult(raw, context(), ["AUTH-TOKEN"]);
-    expect(sanitized.stdout).not.toContain("/tmp/llame-workspace");
+    const sanitized = sanitizeKnownResult(raw, context({ outputBound: 512 }), [
+      "AUTH-TOKEN",
+    ]);
+    expect(sanitized.stdout).toBe(
+      `${"/tmp/llame-workspace"}/secret.txt\nTraceback (most recent call last):\n  at Object.run (/usr/lib/node)\nError: boom\n[REDACTED]\n`,
+    );
+    expect(sanitized.stderr).toBe(
+      "Error: boom\n    at fail (/home/leon0399/proj/x.ts:1:1)",
+    );
+    expect(sanitized.truncated).toBe(false);
+  });
+
+  it("redacts protected values before cutting at a code point boundary", () => {
+    const raw: BashKnownResult = {
+      status: "success",
+      operation: "bash",
+      executor: "managed",
+      exitCode: 0,
+      stdout: "prefix AUTH-TOKEN 😀 suffix",
+      stderr: "",
+      truncated: false,
+    };
+    const sanitized = sanitizeKnownResult(raw, context({ outputBound: 19 }), [
+      "AUTH-TOKEN",
+    ]);
+    expect(sanitized.stdout).toBe("prefix [REDACTED] ");
     expect(sanitized.stdout).not.toContain("AUTH-TOKEN");
-    expect(sanitized.stdout).not.toContain("at Object.run");
-    expect(sanitized.stdout.length).toBeLessThanOrEqual(64);
     expect(sanitized.truncated).toBe(true);
-    expect(sanitized.stderr).not.toContain("/home/leon0399");
-    expect(sanitized.stderr).not.toMatch(/at fail/);
   });
 
   it("stays unavailable when a managed boundary field is missing", () => {

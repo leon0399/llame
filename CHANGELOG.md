@@ -24,6 +24,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   fixed base environment plus declared string additions; base variables cannot
   be replaced.
 
+- Preserve bash output fidelity (#735): bounded stdout and stderr are returned
+  as produced, with host-known secret redaction and model-facing delimiter
+  escaping. Host `bash` can discover mounted Knowledge roots through its live
+  filesystem, separately from `knowledge_search` and `kb://`.
+
 # 2026-09-08
 
 - Fix bash timeout recovery and persist command attempts (#733, #734): a

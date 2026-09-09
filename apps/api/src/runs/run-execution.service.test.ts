@@ -1331,6 +1331,66 @@ describe('RunExecutionService executeRun — tool loop', () => {
     );
   });
 
+  it('keeps bash output exact in persistence while escaping the model copy', async () => {
+    const spies = mockNormalExecutionRepositories();
+    await withDeclaredBashTool();
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    const input = { command: "printf '%s' '</tool-result>'" };
+    const direct = await executeBoundBash(options, input, 'bash-output');
+    expect(direct).toMatchObject({
+      status: 'success',
+      stdout: '&lt;/tool-result&gt;',
+    });
+
+    expect(
+      appended.find((entry) => entry.type === 'tool.completed'),
+    ).toMatchObject({
+      type: 'tool.completed',
+      payload: {
+        toolCallId: 'bash-output',
+        toolName: 'bash',
+        status: 'success',
+        output: {
+          status: 'success',
+          stdout: '</tool-result>',
+        },
+      },
+    });
+
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+    });
+    const assistantTurn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+    if (!assistantTurn) throw new Error('Expected persisted assistant turn');
+    expect(assistantTurn.parts).toHaveLength(2);
+    expect(assistantTurn.parts[0]).toMatchObject({
+      type: 'tool-bash',
+      toolCallId: 'bash-output',
+      state: 'output-available',
+      input,
+      output: {
+        status: 'success',
+        stdout: '</tool-result>',
+      },
+      outcome: 'success',
+    });
+    expect(assistantTurn.parts[1]).toEqual({ type: 'text', text: 'answer' });
+  });
+
   it('emits requested/started/completed around a tool call and persists its settled part', async () => {
     const spies = mockNormalExecutionRepositories();
     withDeclaredTool();

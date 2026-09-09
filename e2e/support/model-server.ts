@@ -114,10 +114,13 @@ const CONVERSATION_ANSWER_TOKENS = [
 
 const MCP_TOOL_ID = "mcp__fixture_search__search";
 const STDIO_TOOL_ID = "mcp__fixture_local__lookup";
+const BASH_TOOL_ID = "bash";
 const KNOWLEDGE_SEARCH_TOOL_ID = "knowledge_search";
 // The code-owned native file tool; Knowledge reads select it via a `kb://`
 // locator in its `path` argument -- there is no separate Knowledge-only tool.
 const NATIVE_READ_TOOL_ID = "read";
+const BASH_PROMPT_MARKER = "host bash output fidelity e2e";
+const BASH_OUTPUT_PATH = "/tmp/llame-e2e-bash-output";
 const STDIO_PROMPT_MARKER = "local stdio fixture evidence";
 const STDIO_RESULT_SENTINEL = "FIXTURE_STDIO_SENTINEL";
 const STDIO_ANSWER_TOKENS = [
@@ -513,6 +516,8 @@ function classify(raw: string) {
       hasMcpFixtureResult: raw.includes(MCP_RESULT_SENTINEL),
       asksStdioFixture: content.includes(STDIO_PROMPT_MARKER),
       hasStdioFixtureResult: raw.includes(STDIO_RESULT_SENTINEL),
+      asksBash: content.includes(BASH_PROMPT_MARKER),
+      hasBashTool: toolIsOffered(body.tools, BASH_TOOL_ID),
       asksKnowledge: knowledge.asksKnowledge,
       hasKnowledgeSearchTool: toolIsOffered(
         body.tools,
@@ -557,6 +562,8 @@ function classify(raw: string) {
       hasMcpFixtureResult: false,
       asksStdioFixture: false,
       hasStdioFixtureResult: false,
+      asksBash: false,
+      hasBashTool: false,
       asksKnowledge: false,
       hasKnowledgeSearchTool: false,
       hasNativeReadTool: false,
@@ -880,6 +887,22 @@ function tryStdioFixtureFirstTurn(ctx: ChunkContext): boolean {
   return true;
 }
 
+// Host bash acceptance first turn. The marker and exact allowlist gate keep
+// this deterministic tool call isolated from the other browser fixtures.
+function tryBashFirstTurn(ctx: ChunkContext): boolean {
+  if (!ctx.asksBash || !ctx.hasBashTool || ctx.hasCurrentTurnToolResult) {
+    return false;
+  }
+  writeToolCall(ctx.res, {
+    id: "call_bash_output_fidelity_e2e",
+    name: BASH_TOOL_ID,
+    arguments: {
+      command: `printf '%s\\n' '${BASH_OUTPUT_PATH}'; exit 7`,
+    },
+  });
+  return true;
+}
+
 function tryStdioFixtureResultAnswer(ctx: ChunkContext): boolean {
   if (!ctx.hasStdioFixtureResult) return false;
   writeAnswer(ctx.res, STDIO_ANSWER_TOKENS);
@@ -977,6 +1000,7 @@ async function respondToChatCompletion(
   if (tryKnowledgeCompletionAnswer(ctx)) return;
 
   if (tryMcpFixtureFirstTurn(ctx)) return;
+  if (tryBashFirstTurn(ctx)) return;
   if (tryStdioFixtureFirstTurn(ctx)) return;
   if (tryStdioFixtureResultAnswer(ctx)) return;
   if (tryMcpFixtureResultAnswer(ctx)) return;
