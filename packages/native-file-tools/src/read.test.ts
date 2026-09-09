@@ -625,6 +625,22 @@ describe("missing file suggestions", () => {
     expect(measureNativeModelOutput(flat)).toBeLessThanOrEqual(200);
   });
 
+  it("counts token retries against the same scoring budget", async () => {
+    await mkdir(join(directory, "a".repeat(254)));
+    for (let index = 0; index < 70; index++) {
+      await mkdir(
+        join(directory, `${String(index).padStart(5, "0")}${"b".repeat(250)}`),
+      );
+    }
+    expect(
+      await readFile({ path: join(directory, "a".repeat(255)) }),
+    ).toStrictEqual({
+      status: "error",
+      type: "not_found",
+      message: "File not found.",
+    });
+  });
+
   it("discards suggestions within 200 ms when long names exhaust the scoring budget", async () => {
     for (let index = 0; index < 10_000; index++) {
       await mkdir(

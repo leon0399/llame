@@ -72,10 +72,20 @@ function sortedTokens(stem: string): string {
 
 function similarNames(requested: string, names: Array<string>): Array<string> {
   const request = splitName(normalizedName(requested));
+  const entries = names.map((name) => ({
+    name,
+    ...splitName(normalizedName(name)),
+  }));
+  // Every eligible first comparison is mandatory. Refuse an over-budget
+  // directory before spending cells on results that must be discarded.
+  const minimumCells = entries.reduce(
+    (total, entry) => total + distanceCells(request.stem, entry.stem),
+    0,
+  );
+  if (minimumCells > SCORING_CELL_BUDGET) return [];
   const budget = { remaining: SCORING_CELL_BUDGET };
   const candidates: Array<{ name: string; score: number }> = [];
-  for (const name of names) {
-    const candidate = splitName(normalizedName(name));
+  for (const candidate of entries) {
     const penalty = request.extension === candidate.extension ? 0 : 0.1;
     let score = similarity(request.stem, candidate.stem, budget) - penalty;
     if (
@@ -90,7 +100,8 @@ function similarNames(requested: string, names: Array<string>): Array<string> {
         ) - penalty;
     }
     if (budget.remaining < 0) return [];
-    if (score >= MIN_SIMILARITY) candidates.push({ name, score });
+    if (score >= MIN_SIMILARITY)
+      candidates.push({ name: candidate.name, score });
   }
   // Stable sorting retains the directory's name order for equal scores.
   return candidates
@@ -105,15 +116,22 @@ function similarity(
   budget: { remaining: number },
 ): number {
   if (left === right) return 1;
-  const longest = Math.max(left.length, right.length);
-  if (
-    Math.min(left.length, right.length) < 3 ||
-    Math.abs(left.length - right.length) > longest / 2
-  )
-    return 0;
-  budget.remaining -= left.length * right.length;
+  const cells = distanceCells(left, right);
+  if (cells === 0) return 0;
+  budget.remaining -= cells;
   if (budget.remaining < 0) return 0;
-  return 1 - damerauLevenshtein(left, right) / longest;
+  return (
+    1 - damerauLevenshtein(left, right) / Math.max(left.length, right.length)
+  );
+}
+
+function distanceCells(left: string, right: string): number {
+  return left === right ||
+    Math.min(left.length, right.length) < 3 ||
+    Math.abs(left.length - right.length) >
+      Math.max(left.length, right.length) / 2
+    ? 0
+    : left.length * right.length;
 }
 
 /** Unrestricted Damerau-Levenshtein: a transposed character may be edited again. */
