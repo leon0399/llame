@@ -78,10 +78,12 @@ without changing the command/result contract.
 #### Scenario: Child environment is declared, not inherited
 
 - **WHEN** a command prints its environment
-- **THEN** it contains exactly the declared base variables and the call's own
-  additions
-- **AND** no other variable of the llame process, and no llame credential,
-  appears
+- **THEN** the initial environment passed to the child contains exactly the
+  declared base variables and the call's own additions
+- **AND** no unlisted variable of the llame process, and no llame credential,
+  is inherited into that initial environment
+- **AND** Bash, its launcher, or the runtime can add variables such as `PWD`,
+  `SHLVL`, and `_` before the command prints its environment
 
 ### Requirement: Command results are bounded and explicit
 
