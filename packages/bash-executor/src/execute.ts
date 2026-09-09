@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import { accessSync, constants, opendirSync } from "node:fs";
+import { resolve } from "node:path";
 import type {
   BashCommandInput,
   BashExecutorContext,
@@ -11,10 +13,9 @@ import {
   rejectQuarantinedGroups,
   resetAttemptLedgerForTests,
 } from "./attempt-ledger";
-import { managedChildPath } from "./env";
+import { managedChildEnvironment, managedEnvironmentCollision } from "./env";
 import { MANAGED_EXECUTOR } from "./managed-constants";
 import { requireManagedBoundary } from "./sanitize";
-import { sharedWorkingDirectory } from "./workspace";
 import { resolveConfiguredTool } from "./tools";
 import { watchManagedChild } from "./watch";
 
@@ -38,6 +39,7 @@ type RunRequest = {
   readonly args: ReadonlyArray<string>;
   readonly context: BashExecutorContext;
   readonly cwd: string;
+  readonly env: Record<string, string>;
   readonly attemptId: string;
   readonly options: ExecuteManagedBashOptions;
 };
@@ -49,15 +51,38 @@ export function resetManagedExecutorForTests(): void {
 
 function measureInput(input: BashCommandInput): number {
   const args = input.args ?? [];
-  return (
-    input.command.length + args.reduce((sum, arg) => sum + arg.length + 1, 0)
-  );
+  let size = Buffer.byteLength(input.command, "utf8");
+  for (const arg of args) size += Buffer.byteLength(arg, "utf8") + 1;
+  if (input.cwd !== undefined) size += Buffer.byteLength(input.cwd, "utf8") + 1;
+  for (const [key, value] of Object.entries(input.env ?? {})) {
+    size +=
+      Buffer.byteLength(key, "utf8") + Buffer.byteLength(value, "utf8") + 2;
+  }
+  return size;
 }
 
-function isBashUnavailable(
-  value: string | BashUnavailableResult,
-): value is BashUnavailableResult {
-  return typeof value !== "string";
+function unusableWorkingDirectory(literal: string): BashUnavailableResult {
+  return {
+    status: "error",
+    type: "unavailable",
+    message: `Working directory argument ${JSON.stringify(literal)} is not usable. The command did not run; the argument was taken literally with no ~ or variable expansion. List its parent or create the directory.`,
+  };
+}
+
+function resolveWorkingDirectory(
+  input: BashCommandInput,
+  context: BashExecutorContext,
+): { readonly cwd: string } | BashUnavailableResult {
+  const literal = input.cwd ?? ".";
+  const cwd = resolve(context.workingDirectory, literal);
+  try {
+    accessSync(cwd, constants.X_OK);
+    const directory = opendirSync(cwd);
+    directory.closeSync();
+    return { cwd };
+  } catch {
+    return unusableWorkingDirectory(literal);
+  }
 }
 
 function rejectLimits(
@@ -109,6 +134,14 @@ function rejectIfNotAdmitted(
   if (boundary) return boundary;
   const quarantine = rejectQuarantinedGroups();
   if (quarantine) return quarantine;
+  const collision = managedEnvironmentCollision(input.env);
+  if (collision !== undefined) {
+    return {
+      status: "error",
+      type: "unavailable",
+      message: `Environment variable ${collision} cannot replace a managed base variable.`,
+    };
+  }
   const limits = rejectLimits(input, context, options);
   if (limits) return limits;
   return null;
@@ -119,11 +152,11 @@ function admitExecution(
   context: BashExecutorContext,
   options: ExecuteManagedBashOptions,
 ): RunRequest | BashUnavailableResult | BashTimedOutResult {
-  const cwdResult = sharedWorkingDirectory(context);
-  if (isBashUnavailable(cwdResult)) return cwdResult;
-
   const rejected = rejectIfNotAdmitted(input, context, options);
   if (rejected) return rejected;
+
+  const cwdResult = resolveWorkingDirectory(input, context);
+  if ("type" in cwdResult) return cwdResult;
 
   const tool = resolveConfiguredTool(input.command);
   if (tool === null) {
@@ -138,7 +171,8 @@ function admitExecution(
     tool,
     args: input.args ?? [],
     context,
-    cwd: cwdResult,
+    cwd: cwdResult.cwd,
+    env: managedChildEnvironment(input.env),
     attemptId: options.toolCallId ?? randomUUID(),
     options,
   };
@@ -239,7 +273,7 @@ function spawnManaged(request: RunRequest): Promise<BashResult> {
     try {
       child = spawn(request.tool, [...request.args], {
         cwd: request.cwd,
-        env: { PATH: managedChildPath(), LANG: "C.UTF-8" },
+        env: request.env,
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
         detached: true,

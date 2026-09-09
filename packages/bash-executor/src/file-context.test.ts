@@ -2,11 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFile, editFile, readFile } from "@workspace/native-file-tools";
-import {
-  assertSharedWorkingDirectory,
-  executeManagedBash,
-  resetManagedExecutorForTests,
-} from "./index";
+import { executeManagedBash, resetManagedExecutorForTests } from "./index";
 import type { BashExecutorContext } from "./types";
 
 function context(
@@ -15,7 +11,6 @@ function context(
 ): BashExecutorContext {
   return {
     workingDirectory: directory,
-    fileToolsWorkingDirectory: directory,
     secretBoundary: true,
     processIsolation: true,
     outputBound: 1024,
@@ -120,15 +115,5 @@ describe("file-context handoff", () => {
     expect(second).toMatchObject({ type: "unavailable" });
     controller.abort();
     expect(await first).toMatchObject({ type: "cancelled" });
-  });
-
-  it("fails closed when bash and native directories diverge", () => {
-    expect(
-      assertSharedWorkingDirectory(
-        context(directory, {
-          fileToolsWorkingDirectory: join(directory, "missing-sibling"),
-        }),
-      ),
-    ).toMatchObject({ type: "workspace_mismatch" });
   });
 });

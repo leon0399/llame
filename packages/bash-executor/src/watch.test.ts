@@ -7,7 +7,6 @@ import * as processTree from "./process-tree";
 
 const context: BashExecutorContext = {
   workingDirectory: process.cwd(),
-  fileToolsWorkingDirectory: process.cwd(),
   secretBoundary: true,
   processIsolation: true,
   outputBound: 32,

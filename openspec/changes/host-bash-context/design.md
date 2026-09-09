@@ -249,11 +249,14 @@ directory, and cannot resolve a pnpm store. Per-call `env` is a string record;
 a key equal to a base name is rejected before the attempt is recorded, and the
 refusal names the key. This is an argument-shape rule, not containment: the
 model can write `PATH=/x foo` inside the command text on any call. What the
-rule buys is that the child's environment as declared is the child's
-environment as observed, so a test can assert it and an operator can read it.
-Keys and values count toward the existing input bound. The parent environment is never inherited
-wholesale, which is the posture the MCP stdio contract already takes and the
-opposite of oh-my-pi's `{ ...Bun.env }`.
+rule buys is that the initial environment passed to the child is exactly the
+declared base plus the call's additions. Bash, its launcher, and the runtime may
+add variables such as `PWD`, `SHLVL`, and `_` after spawn, so an `env` command's
+output is not required to equal that initial map. Unlisted llame-process
+variables and credentials are absent from the initial environment. Keys and
+values count toward the existing input bound. The parent environment is never
+inherited wholesale, which is the posture the MCP stdio contract already takes
+and the opposite of oh-my-pi's `{ ...Bun.env }`.
 
 Adding `HOME` exposes nothing that an absolute path did not already expose;
 the child runs as the llame OS user in every case. `env` grants no authority
@@ -315,9 +318,11 @@ output. `chat-default.md` gains one sentence on non-persistence.
 - Model sets a base key through `env` → rejected before the attempt with the
   key named. This does not contain the model, which can set `PATH` inside
   the command text; it keeps the declared environment honest (D5).
-- llame credentials reach a child → the child receives the declared base and
-  the call's `env` only; a test asserts a printed environment holds no llame
-  variable.
+- llame credentials reach a child → the initial environment receives only the
+  declared base and the call's `env`; a regression through the actual bash
+  wrapper sets a unique sentinel in the llame process environment and asserts
+  that the sentinel is absent while accepting Bash/launcher-generated runtime
+  variables.
 - A queue retry re-executes a command whose effect is unknown → the
   `native.attempt` is durable and bound to the worker; a resume elsewhere
   fails the Run before the tool loop starts, and a replayed tool-call id

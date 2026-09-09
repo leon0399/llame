@@ -21,7 +21,6 @@ function managedContext(): BashExecutorContext {
   const workingDirectory = bashWorkingDirectory();
   return {
     workingDirectory,
-    fileToolsWorkingDirectory: workingDirectory,
     // ponytail: alpha host claims; managed Sandbox must prove these for stronger isolation.
     secretBoundary: true,
     processIsolation: true,
@@ -102,12 +101,20 @@ async function runAdmittedBash(
 
 export const bashTool: Tool<{
   command: string;
+  cwd?: string;
+  env?: Record<string, string>;
 }> = {
   id: 'bash',
   classification: 'execute_code',
   description:
-    'Run a shell command in the trusted working directory (invoked as `bash -c`). Alpha host authority — not tenant isolation. Prefer native edit for small exact replacements. Example: command="pwd && ls".',
-  inputSchema: z.object({ command: z.string().min(1) }).strict(),
+    'Run a shell command as the host user via `bash -c`. Optional `cwd` is a literal existing directory resolved against the default directory; `~` and `$` expansion are not applied. Optional `env` adds variables to the fixed managed base and cannot replace its keys. Each call is a fresh process with no persisted shell state. Output is bounded at the managed limit; a timeout with a proven stop reports `timed_out` with partial output. Alpha host authority — not tenant isolation. Prefer native edit for small exact replacements. Example: command="pwd && ls".',
+  inputSchema: z
+    .object({
+      command: z.string().min(1),
+      cwd: z.string().optional(),
+      env: z.record(z.string(), z.string()).optional(),
+    })
+    .strict(),
   execute: async (context, input): Promise<ToolResult> => {
     const { runId, userId, nativeExecutorId, toolCallId } = context;
     if (!runId || !nativeExecutorId || !toolCallId) {
@@ -120,7 +127,12 @@ export const bashTool: Tool<{
     // Always wrap in bash -c: the managed allowlist only admits basenames like
     // `bash`, not `ls`/`cat`. Models pass ordinary shell text here.
     const admitted = admitManagedBash(
-      { command: 'bash', args: ['-c', input.command] },
+      {
+        command: 'bash',
+        args: ['-c', input.command],
+        cwd: input.cwd,
+        env: input.env,
+      },
       managedContext(),
       {
         signal: context.abortSignal,

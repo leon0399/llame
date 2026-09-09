@@ -8,13 +8,17 @@ import { configureApp } from '../app.setup';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { modelContextSnapshots } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
-import { isRecord } from '@workspace/runtime-safety';
+import { isRecord, isString } from '@workspace/runtime-safety';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture';
 import { RunsRepository } from './runs-repository';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
+
+function isUnknownArray(value: unknown): value is ReadonlyArray<unknown> {
+  return Array.isArray(value);
+}
 
 d('GET /api/v1/runs/:id/context-receipt', () => {
   let app: INestApplication<import('http').Server>;
@@ -94,6 +98,7 @@ d('GET /api/v1/runs/:id/context-receipt', () => {
     const snapshot = await tenantDb.runAs(ownerId, (tx) =>
       seedModelContextSnapshot(tx, ownerId, 'receipt-v1', [
         'search_conversations',
+        'bash',
       ]),
     );
     const run = await seedRun(ownerId, snapshot.id);
@@ -109,11 +114,43 @@ d('GET /api/v1/runs/:id/context-receipt', () => {
         version: 1,
         entries: [
           {
+            id: 'bash',
+            state: 'available',
+            label: 'available',
+          },
+          {
             id: 'search_conversations',
             state: 'available',
             label: 'available',
           },
         ],
+      },
+    });
+    const ownerBody: unknown = ownerResponse.body;
+    if (!isRecord(ownerBody) || !isUnknownArray(ownerBody.tools)) {
+      throw new Error('Expected owner receipt with tool declarations');
+    }
+    const bashDeclaration = ownerBody.tools.find(
+      (tool) => isRecord(tool) && tool.id === 'bash',
+    );
+    if (!isRecord(bashDeclaration) || !isString(bashDeclaration.description)) {
+      throw new Error('Expected bash declaration in owner receipt');
+    }
+    expect(bashDeclaration.description).toContain('fresh process');
+    expect(bashDeclaration).toMatchObject({
+      id: 'bash',
+      inputSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          command: { type: 'string' },
+          cwd: { type: 'string' },
+          env: {
+            type: 'object',
+            additionalProperties: { type: 'string' },
+          },
+        },
+        required: ['command'],
       },
     });
     expect(JSON.stringify(ownerResponse.body)).not.toMatch(

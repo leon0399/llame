@@ -7,15 +7,7 @@ export type {
   BashUnavailableResult,
   BashUnknownResult,
 } from "./types";
-export {
-  parseCommandInput,
-  requireManagedBoundary,
-  sanitizeKnownResult,
-} from "./sanitize";
-export {
-  assertSharedWorkingDirectory,
-  sharedWorkingDirectory,
-} from "./workspace";
+export { requireManagedBoundary, sanitizeKnownResult } from "./sanitize";
 export {
   CONFIGURED_TOOLS,
   isConfiguredTool,
