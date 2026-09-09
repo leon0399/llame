@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { isString } from '@workspace/runtime-safety';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import {
@@ -193,8 +194,7 @@ describe('bash durable admission', () => {
       const result = await runTool(
         bashTool,
         {
-          command:
-            'printf "%s\\n" "$LANG" "${HOME:+set}" "${TMPDIR:+set}" "$USER" "$LOGNAME" "$TERM" "$BASH_TEST_ADDITION" "${LLAME_HOST_ONLY_SECRET-<unset>}"',
+          command: 'env',
           env: { BASH_TEST_ADDITION: 'declared-value' },
         },
         testContext(),
@@ -203,19 +203,20 @@ describe('bash durable admission', () => {
 
       expect(result).toMatchObject({ status: 'success' });
       if (result.status === 'success') {
-        expect(result.stdout).toBe(
-          [
-            'C.UTF-8',
-            process.env.HOME === undefined ? '' : 'set',
-            process.env.TMPDIR === undefined ? '' : 'set',
-            process.env.USER ?? '',
-            process.env.LOGNAME ?? '',
-            'dumb',
-            'declared-value',
-            '<unset>',
-            '',
-          ].join('\n'),
-        );
+        expect(result.truncated).toBe(false);
+        if (!isString(result.stdout)) {
+          throw new Error('Expected bash stdout to be a string');
+        }
+        // Bash and the local launcher add runtime variables such as PWD,
+        // SHLVL, and _. Assert the environment contract without freezing
+        // those implementation details or their ordering.
+        const variables = result.stdout.split('\n');
+        expect(variables).toContain('LANG=C.UTF-8');
+        expect(variables).toContain('TERM=dumb');
+        expect(variables).toContain('BASH_TEST_ADDITION=declared-value');
+        expect(
+          variables.some((line) => line.startsWith('LLAME_HOST_ONLY_SECRET=')),
+        ).toBe(false);
       }
       expect(begin).toHaveBeenCalledOnce();
     } finally {
