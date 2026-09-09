@@ -1,0 +1,116 @@
+packages/bash-executor/src/execute.test.ts
+  fa8017af45a4b210 253,258-263,265-270,272
+  792d3a8a80068177 106-111,114-126
+  aa6614ab25fe08a2 6,112-113,138,226-252,254-257
+  542f48f42f2d8275 264,271
+apps/api/src/runs/run-execution.service.ts
+  93ad2253713d27b2 1456
+apps/api/src/runs/tool-settlement.ts
+  93ad2253713d27b2 18-25
+apps/api/src/runs/run-execution.service.test.ts
+  542f48f42f2d8275 2404,2435
+  93ad2253713d27b2 2375-2403,2405-2434,2436-2519
+apps/api/src/tools/bash.ts
+  542f48f42f2d8275 73-75,98
+apps/api/src/tools/bash.test.ts
+  542f48f42f2d8275 160-215
+CHANGELOG.md
+  fa8017af45a4b210 14-15,17-19
+  544b857877e53d3f 16
+docs/native-files.md
+  544b857877e53d3f 137
+  fa8017af45a4b210 138-142
+CONTRIBUTING.md
+  544b857877e53d3f 188-192
+  fa8017af45a4b210 211-213
+openspec/changes/host-bash-context/proposal.md
+  544b857877e53d3f 26-28
+  fa8017af45a4b210 29-32
+openspec/changes/host-bash-context/tasks.md
+  544b857877e53d3f 30
+openspec/changes/host-bash-context/specs/bash-execution/spec.md
+  544b857877e53d3f 120-121,123-125,173,177,179,186
+  fa8017af45a4b210 126-129,163-164
+openspec/changes/host-bash-context/design.md
+  544b857877e53d3f 196
+  fa8017af45a4b210 197-201
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "e470e06b5b6915839e2f124211ae013f1fe1b96a",
+  "prompts": {
+    "542f48f42f2d8275": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a082d5-4818-7152-bb58-f92c0ab8889f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 7,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "544b857877e53d3f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a082d4-1b09-7dd3-8cf9-b465aade9ee7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 39,
+      "total_deletions": 18,
+      "accepted_lines": 21,
+      "overriden_lines": 0
+    },
+    "792d3a8a80068177": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a082c5-37c3-7e61-9342-5850aae204ec",
+        "model": "unknown"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 15,
+      "total_deletions": 0,
+      "accepted_lines": 19,
+      "overriden_lines": 0
+    },
+    "93ad2253713d27b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a082d4-693a-7880-8402-42ced130a19c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 159,
+      "total_deletions": 1,
+      "accepted_lines": 152,
+      "overriden_lines": 0
+    },
+    "aa6614ab25fe08a2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a082c2-322a-7ed1-b179-b33eaa11ad5b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 41,
+      "total_deletions": 1,
+      "accepted_lines": 36,
+      "overriden_lines": 0
+    },
+    "fa8017af45a4b210": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a082d4-a00b-7262-a756-70477127d9af",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 11,
+      "total_deletions": 0,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    }
+  }
+}
