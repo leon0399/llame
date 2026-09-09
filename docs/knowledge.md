@@ -108,6 +108,13 @@ failures use the native vocabulary (`invalid_path`, `not_found`,
 `not_regular_file`, ...). See [native files](native-files.md) for the full
 selector grammar, symlink handling, and error set.
 
+Locator paths are percent-decoded once per segment after splitting. A literal
+`:`, `?`, `#`, or `%` is written as `%3A`, `%3F`, `%23`, or `%25`; spaces and
+other characters may be literal or encoded, and `/` is never encoded. Search
+emits those four escapes only and includes colon-named notes. Malformed encoding
+and encoded separators fail with `invalid_path`. Previously saved locators with
+a literal `%` must now use `%25`.
+
 `kb://` reads carry no Markdown-only suffix rule and no 1 MiB per-file limit —
 a Space is a directory of arbitrary files. `knowledge_search` itself is
 unchanged: it still indexes only Markdown and still warns per Space on an

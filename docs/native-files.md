@@ -53,9 +53,14 @@ result reveals whether another owner, row, or directory exists.
 
 `<path>` follows the same component rules as an absolute path — no empty
 components, `.`/`..`, backslashes, or NUL/control characters, and no more than
-1,024 UTF-8 bytes or 32 components — plus one addition: a `kb://` path may not
-contain `:`, so the trailing selector is split unambiguously without probing
-the filesystem; a colon anywhere in the path returns `invalid_path`. Every
+1,024 UTF-8 bytes or 32 components. Split the locator before decoding each
+path segment exactly once. Encode a literal `:`, `?`, `#`, or `%` as `%3A`,
+`%3F`, `%23`, or `%25`; other characters, including spaces, may be literal or
+encoded. Never encode `/`: an encoded separator and malformed encoding return
+`invalid_path`. Validation applies after decoding, so encoded `..` is refused.
+A raw colon starts the selector; use `%3A` inside a filename. Existing literal
+percent names now require `%25`, including locators saved before this change.
+The Space identifier and selector are never decoded. Every
 path component is `lstat`ed and a symbolic link is refused without being
 followed, returning `not_found`; the reader itself opens with `O_NOFOLLOW`, so
 a link swapped in after validation also reads back as `not_found`.

@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-09
 
+- Decode `kb://` paths once per segment and search colon-named Knowledge notes
+  (#736). Search locators escape `:`, `?`, `#`, and `%`, keeping spaces literal;
+  reads accept literal and encoded spaces. Encoded separators and traversal
+  fail closed. **Breaking:** a literal percent in a filename now requires
+  `%25`, including previously saved locators. Deploy API and workers together
+  after quiescing and draining Runs because the `read` declaration changed.
+
 - Bound bash timeout cleanup (#733, #734): each call receives its effective
   per-call deadline separately from Run cancellation, capped by the managed
   executor's 300-second duration. After the runner's per-call timeout or Run
