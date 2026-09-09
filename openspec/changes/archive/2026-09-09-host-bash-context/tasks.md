@@ -40,5 +40,5 @@ master
 
 ## 4. finalize
 
-- [ ] 4.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict`, `--all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify all pass and record the results in the PR body.
-- [ ] 4.2 Confirm every task above is checked, then run `$openspec-archive-change`; verify `openspec status --change host-bash-context --json` reports complete before archiving.
+- [x] 4.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict`, `--all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; verify all pass and record the results in the PR body.
+- [x] 4.2 Confirm every task above is checked, then run `$openspec-archive-change`; verify `openspec status --change host-bash-context --json` reports complete before archiving.
