@@ -1,0 +1,198 @@
+docs/research/harnesses/opencode.md
+  aaa7220bdeace25f 1-5,9-26,27-45
+docs/research/harnesses/fabric.md
+  aaa7220bdeace25f 1-5,9-26,27-56
+docs/research/harnesses/index.md
+  aaa7220bdeace25f 1-15,22-26,30-44,48-49,57-73
+docs/research/harnesses/neural-code.md
+  aaa7220bdeace25f 1-5,9-26,27-55
+docs/research/harnesses/t3-code.md
+  aaa7220bdeace25f 1-5,9-38,39-84
+docs/research/harnesses/open-knowledge-format.md
+  aaa7220bdeace25f 1-5,9-23,24-53
+docs/research/harnesses/zeroshot.md
+  aaa7220bdeace25f 1-5,9-32,33-73
+docs/research/harnesses/codex-cli.md
+  aaa7220bdeace25f 1-5,9-29,30-62
+docs/research/harnesses/agent-memory.md
+  aaa7220bdeace25f 1-5,9,13-35,36,38-45,48-58
+  0d67b56ea6a67ddc 10-12,37,46
+docs/research/harnesses/open-webui.md
+  aaa7220bdeace25f 1-5,9-23,24-40
+README.md
+  aaa7220bdeace25f 45,126
+docs/research/harnesses/elai.md
+  aaa7220bdeace25f 1-5,9-26,27-44
+docs/research/harnesses/beads.md
+  aaa7220bdeace25f 1-5,9-35,36-80
+docs/research/harnesses/seal.md
+  aaa7220bdeace25f 1-5,9-29,30-65
+docs/research/harnesses/vercel-chatbot.md
+  aaa7220bdeace25f 1-5,9-23,24-40
+docs/research/harnesses/goose.md
+  aaa7220bdeace25f 1-5,9-23,24-53
+docs/research/harnesses/nanoclaw.md
+  aaa7220bdeace25f 1-5,9-23,24-53
+docs/research/harnesses/hermes-agent.md
+  aaa7220bdeace25f 1-5,9-23,24-38
+docs/research/harnesses/continue.md
+  aaa7220bdeace25f 1-5,9-29,30-65
+docs/research/harnesses/gbrain.md
+  aaa7220bdeace25f 1-5,9-26,27-43
+docs/research/harnesses/oh-my-pi.md
+  aaa7220bdeace25f 1-3,5,9-32,37-58
+docs/research/harnesses/openclaw.md
+  aaa7220bdeace25f 1-5,9-35,36-38,42-63
+docs/research/harnesses/buzz.md
+  aaa7220bdeace25f 1-5,9-32,33-54
+docs/research/harnesses/gemini-cli.md
+  aaa7220bdeace25f 1-5,9-26,27-58
+AGENTS.md
+  aaa7220bdeace25f 16,35
+docs/research/harnesses/qwen-audio-agent.md
+  aaa7220bdeace25f 1-5,9-29,30-52
+docs/research/harnesses/deepseek-harness.md
+  aaa7220bdeace25f 1-5,9-26,27-41,45-56
+  0d67b56ea6a67ddc 42-44
+docs/research/harnesses/openmausbot.md
+  aaa7220bdeace25f 1-5,9-32,33-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "06b2a0ff162c1efd46139c67b029de9a7059d885",
+  "prompts": {
+    "0d67b56ea6a67ddc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b4c-e671-77b2-991d-e1464fc530e8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 9,
+      "total_deletions": 3,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    },
+    "1e330384d8ecf168": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ac6-5ffe-73f2-8fc9-09e06a41a355",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 17,
+      "total_deletions": 19,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    },
+    "3eeb7b1050a4e826": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ab9-1ce5-7a91-96b2-3d9539a78142",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 27,
+      "total_deletions": 99,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    },
+    "3fdd46d6cce7106f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ab9-4a3d-7fe0-822e-5be33b468bd5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 60,
+      "total_deletions": 30,
+      "accepted_lines": 12,
+      "overriden_lines": 0
+    },
+    "51de0de7432dae39": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ac6-347e-7752-b2ed-add7f857139f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 422,
+      "total_deletions": 416,
+      "accepted_lines": 404,
+      "overriden_lines": 0
+    },
+    "780a2c0ea35175f8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08aa0-fc87-7262-8a85-0c1813158541",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 4,
+      "total_deletions": 4,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    },
+    "a363740c4d1e76ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a9b-06bc-7fd1-92d9-39e62532a00e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 69,
+      "total_deletions": 4,
+      "accepted_lines": 65,
+      "overriden_lines": 0
+    },
+    "a41191eb145bf48c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08aa0-9165-7812-a08c-a164e4285674",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 76,
+      "total_deletions": 0,
+      "accepted_lines": 75,
+      "overriden_lines": 0
+    },
+    "aa490b5c6039005e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08a9a-5d6a-7443-8d3f-8c1aeb8435a6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 131,
+      "total_deletions": 2,
+      "accepted_lines": 128,
+      "overriden_lines": 0
+    },
+    "aaa7220bdeace25f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ab6-fd6a-77d2-b1cf-8e49cca3d9a6",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1432,
+      "total_deletions": 687,
+      "accepted_lines": 1432,
+      "overriden_lines": 0
+    },
+    "bc28203e2343fc5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ab9-7419-7490-bb34-b59bb51056eb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 44,
+      "total_deletions": 49,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    }
+  }
+}
