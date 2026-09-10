@@ -41,6 +41,9 @@ PR items after each GitHub transition and verifies them before handoff.
 
 Apply the explicit deferred/experimental Backlog exception before the active
 phase rules. Draft state takes precedence over an earlier approval.
+When an implementation PR merges without completing the issue's published
+acceptance, mark that PR Done and keep the issue In progress until a later PR
+transition, even if no implementation PR remains open.
 
 `Priority` and `Order` select work independently of readiness. Keep `Workstream`
 and `Next action` current; name the missing decision, native blocker, or next
