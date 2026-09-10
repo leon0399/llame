@@ -425,3 +425,12 @@ describe('packaged default prompt — chat recency digest', () => {
     });
   });
 });
+
+describe('packaged default prompt - Knowledge locator encoding', () => {
+  it('preserves the encoding rule in the rendered model prompt', () => {
+    expect(render()).toContain(
+      'write a literal `:`, `?`, `#`, or `%` as `%3A`, `%3F`, `%23`, or `%25`',
+    );
+    expect(render()).toContain('`/` is the separator and is never encoded.');
+  });
+});

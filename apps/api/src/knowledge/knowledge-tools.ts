@@ -472,7 +472,10 @@ function buildSearchPage(
  *  model one coordinate system it can pass through unchanged removes the
  *  zero-based translation it used to have to make. */
 function passageLocator(match: AttributedMatch): string {
-  return `${KNOWLEDGE_LOCATOR_SCHEME}://${match.knowledgeSpaceId}/${match.path}:${match.offset + 1}-${match.offset + match.limit}`;
+  const path = match.path.replaceAll(/[:?#%]/gu, (character) =>
+    encodeURIComponent(character),
+  );
+  return `${KNOWLEDGE_LOCATOR_SCHEME}://${match.knowledgeSpaceId}/${path}:${match.offset + 1}-${match.offset + match.limit}`;
 }
 
 function attributeMatch(

@@ -85,10 +85,8 @@ line on each side; touching windows merge and split at 2,000 lines. Each
 result carries current space ID/name, relative path, a one-based inclusive
 `locator` (`kb://<knowledgeSpaceId>/<path>:N-M`), and an excerpt capped at 500
 Unicode code points. The locator is a ready `read` argument; drop the `:N-M`
-suffix to read the whole note. A locator splits its selector on the first `:`,
-so a file whose relative path contains one has no unambiguous locator and is
-skipped by search exactly as a non-Markdown file is — it stays on disk and out
-of both surfaces rather than being advertised as an unopenable passage. Cropped excerpts show ellipses while the
+suffix to read the whole note. Reserved characters in the filename are encoded
+in the locator; colon-named Markdown files are searched normally. Cropped excerpts show ellipses while the
 locator still addresses the full passage.
 
 Unscoped search may return usable matches with `complete: false` when one space
@@ -107,6 +105,13 @@ root or stable-ID child returns `knowledge_space_unavailable`. Path and file
 failures use the native vocabulary (`invalid_path`, `not_found`,
 `not_regular_file`, ...). See [native files](native-files.md) for the full
 selector grammar, symlink handling, and error set.
+
+Locator paths are percent-decoded once per segment after splitting. A literal
+`:`, `?`, `#`, or `%` is written as `%3A`, `%3F`, `%23`, or `%25`; spaces and
+other characters may be literal or encoded, and `/` is never encoded. Search
+emits those four escapes only and includes colon-named notes. Malformed encoding
+and encoded separators fail with `invalid_path`. Previously saved locators with
+a literal `%` must now use `%25`.
 
 `kb://` reads carry no Markdown-only suffix rule and no 1 MiB per-file limit —
 a Space is a directory of arbitrary files. `knowledge_search` itself is

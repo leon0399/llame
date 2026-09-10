@@ -10,6 +10,8 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { isRecord, isString } from '@workspace/runtime-safety';
+
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq } from 'drizzle-orm';
 import postgres from 'postgres';
@@ -27,7 +29,6 @@ import { KnowledgeSpaceService } from './knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from './knowledge-tool-runtime-resolver';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
-const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = ReturnType<typeof postgres>;
 type KnowledgeTestArguments = {
   readonly query?: string;
@@ -40,7 +41,7 @@ type KnowledgeTestArguments = {
   readonly source?: string;
 };
 
-describeIfDb('Knowledge tools — real Postgres owner binding', () => {
+describe('Knowledge tools — real Postgres owner binding', () => {
   let sql: SqlClient;
   let tenantDb: TenantDbService;
   let root: string;
@@ -118,10 +119,12 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
   }
 
   beforeAll(async () => {
+    if (!TEST_DB_URL)
+      throw new Error('Integration database was not provisioned.');
     root = mkdtempSync(path.join(tmpdir(), 'llame-knowledge-tools-'));
-    sql = postgres(TEST_DB_URL!, {
+    sql = postgres(TEST_DB_URL, {
       max: 6,
-      ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
+      ssl: /sslmode=require/.test(TEST_DB_URL) ? 'require' : false,
     });
     tenantDb = new TenantDbService(drizzle(sql, { schema }));
     spaceService = new KnowledgeSpaceService(
@@ -178,6 +181,76 @@ describeIfDb('Knowledge tools — real Postgres owner binding', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['Pet Projects.md', 'Pet Projects.md'],
+    ['14:30 standup.md', '14%3A30 standup.md'],
+    ['100%.md', '100%25.md'],
+    ['why?#.md', 'why%3F%23.md'],
+    ['%2E%2E.md', '%252E%252E.md'],
+  ])('opens the emitted locator for %s unchanged', async (name, encoded) => {
+    const content = `encoding-recovery-${crypto.randomUUID()}`;
+    writeNote(spaceAId, `notes/${name}`, content);
+    try {
+      const result = await runKnowledge(knowledgeSearchTool, ownerAId, {
+        query: content,
+      });
+      expect(result).toMatchObject({
+        status: 'success',
+        results: [{ locator: locator(spaceAId, `notes/${encoded}:1-1`) }],
+      });
+      if (result.status !== 'success' || !Array.isArray(result.results)) {
+        throw new Error('Expected search passages');
+      }
+      for (const passage of result.results) {
+        if (!isRecord(passage) || !isString(passage.locator)) {
+          throw new Error('Expected a passage locator');
+        }
+        const read = await runLocatorRead(ownerAId, passage.locator);
+        expect(read).toMatchObject({ status: 'success' });
+        expect(json(read)).toContain(content);
+        expect(json(read)).not.toContain(root);
+      }
+      if (name === 'Pet Projects.md') {
+        const read = await runLocatorRead(
+          ownerAId,
+          locator(spaceAId, 'notes/Pet%20Projects.md'),
+        );
+        expect(read).toMatchObject({ status: 'success' });
+        expect(json(read)).toContain(content);
+      }
+    } finally {
+      rmSync(notePath(spaceAId, `notes/${name}`));
+    }
+  });
+
+  it.each(['notes%2Fowner-a.md', '%2E%2E/notes/owner-a.md', 'notes/100%.md'])(
+    'refuses unsafe spelling %s without exposing content or host paths',
+    async (name) => {
+      const result = await runLocatorRead(ownerAId, locator(spaceAId, name));
+      expect(result).toMatchObject({ status: 'error', type: 'invalid_path' });
+      expect(json(result)).not.toContain(root);
+      expect(json(result)).not.toContain(ownerAContent);
+    },
+  );
+
+  it('refuses an encoded identifier without decoding or exposing another owner', async () => {
+    for (const id of [
+      spaceBId,
+      `%${spaceAId.charCodeAt(0).toString(16)}${spaceAId.slice(1)}`,
+    ]) {
+      const result = await runLocatorRead(
+        ownerAId,
+        locator(id, 'notes/owner-b.md'),
+      );
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'knowledge_space_not_found',
+      });
+      expect(json(result)).not.toContain(root);
+      expect(json(result)).not.toContain(ownerBContent);
+    }
   });
 
   it('binds each owner to only its stable child and returns safe attribution', async () => {

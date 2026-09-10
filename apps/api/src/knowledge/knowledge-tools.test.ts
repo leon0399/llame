@@ -588,6 +588,27 @@ describe('knowledge_search cursor continuation', () => {
     expect(searchLater).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    ['notes/Pet Projects.md', 'notes/Pet Projects.md'],
+    ['notes/14:30.md', 'notes/14%3A30.md'],
+    ['notes/100%.md', 'notes/100%25.md'],
+    ['notes/why?#.md', 'notes/why%3F%23.md'],
+  ])('emits a reusable locator for %s', async (path, encoded) => {
+    const adapter = fakeAdapter({
+      search: () =>
+        Promise.resolve([{ path, offset: 4, limit: 2, excerpt: 'needle' }]),
+    });
+    await expect(
+      knowledgeSearchTool.execute(context(adapter), {
+        query: 'needle',
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({
+      status: 'success',
+      results: [{ locator: `kb://${binding.id}/${encoded}:5-6` }],
+    });
+  });
+
   it('returns later passages without locating a deleted anchor', async () => {
     const search = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.resolve([

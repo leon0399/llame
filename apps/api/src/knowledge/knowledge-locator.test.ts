@@ -13,6 +13,28 @@ import { type KnowledgeToolResolver, type ToolContext } from '../tools/types';
 const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
 
 describe('knowledge locator parsing', () => {
+  it.each([
+    ['notes/Pet%20Projects.md', 'notes/Pet Projects.md'],
+    ['notes/Pet Projects.md', 'notes/Pet Projects.md'],
+    ['notes/a%3Ab.md', 'notes/a:b.md'],
+    ['notes/%252E%252E.md', 'notes/%2E%2E.md'],
+    ['%252E%252E', '%2E%2E'],
+    ['notes/100%25.md', 'notes/100%.md'],
+  ])('decodes %s exactly once', (path, relativePath) => {
+    expect(parseKnowledgeLocator(`${SPACE}/${path}:1-2`)).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath,
+      selector: '1-2',
+    });
+  });
+
+  it.each(['notes%2Fsecret.md', '100%.md', 'note.md:%31-2'])(
+    'refuses invalid encoding in %s',
+    (path) => {
+      expect(parseKnowledgeLocator(`${SPACE}/${path}`)).toBeUndefined();
+    },
+  );
+
   it('addresses the Space directory with or without a trailing separator', () => {
     expect(parseKnowledgeLocator(SPACE)).toEqual({
       knowledgeSpaceId: SPACE,

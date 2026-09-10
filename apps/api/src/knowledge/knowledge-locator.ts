@@ -41,10 +41,7 @@ export function parseKnowledgeLocator(
   const remainder = separator < 0 ? '' : rest.slice(separator + 1);
   if (remainder.length === 0) return { knowledgeSpaceId };
 
-  // A `kb://` path component never contains `:`, so the first colon after the
-  // Space identifier always starts the selector. A suffix that is not one means
-  // the colon was inside the path: an invalid path, not an invalid selector.
-  // The shape test is the native reader own grammar, so the two cannot drift.
+  // Split before decoding so an encoded colon remains part of the filename.
   const colon = remainder.indexOf(':');
   const selector = colon < 0 ? undefined : remainder.slice(colon + 1);
   if (selector !== undefined && !isSelectorSuffix(selector)) return undefined;
@@ -53,7 +50,10 @@ export function parseKnowledgeLocator(
   // fails a file target that carries one, and here it can only address the
   // Space directory or a subdirectory.
   const trailing = rawPath.endsWith('/');
-  const relativePath = trailing ? rawPath.slice(0, -1) : rawPath;
+  const relativePath = decodeKnowledgePath(
+    trailing ? rawPath.slice(0, -1) : rawPath,
+  );
+  if (relativePath === undefined) return undefined;
   if (relativePath.length === 0)
     return selector === undefined
       ? { knowledgeSpaceId }
@@ -63,6 +63,20 @@ export function parseKnowledgeLocator(
       ? { knowledgeSpaceId, relativePath }
       : { knowledgeSpaceId, relativePath, selector };
   return trailing ? { ...base, trailingSeparator: true } : base;
+}
+
+function decodeKnowledgePath(path: string): string | undefined {
+  try {
+    const segments = path
+      .split('/')
+      .map((segment) => decodeURIComponent(segment));
+    // Check before joining: validation cannot distinguish an introduced slash.
+    if (segments.some((segment) => segment.includes('/'))) return undefined;
+    return segments.join('/');
+  } catch (error) {
+    if (error instanceof URIError) return undefined;
+    throw error;
+  }
 }
 
 export type ResolvedKnowledgeTarget = {

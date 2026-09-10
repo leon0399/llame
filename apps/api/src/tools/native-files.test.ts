@@ -345,6 +345,12 @@ describe('native tool descriptions', () => {
     // description that omitted the restriction would send the model after a
     // call `edit` and `write` refuse.
     expect(nativeReadTool.description).toMatch(/kb:\/\//u);
+    expect(nativeReadTool.description).toContain(
+      'write a literal :, ?, #, or % as %3A, %3F, %23, or %25',
+    );
+    expect(nativeReadTool.description).toContain(
+      '/ is the separator and is never encoded.',
+    );
     expect(nativeReadTool.description).not.toMatch(/without its :range/u);
     for (const tool of [nativeEditTool, nativeWriteTool]) {
       expect(tool.description).toMatch(/kb:\/\//u);

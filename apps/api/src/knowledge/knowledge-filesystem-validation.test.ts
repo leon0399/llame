@@ -1,5 +1,4 @@
 import {
-  isLocatorAddressablePath,
   isMarkdownPath,
   joinRelativePath,
   validateBinding,
@@ -86,14 +85,6 @@ describe('Knowledge filesystem validation', () => {
       'note.md',
     ];
     expect(validatePath(maxComponents.join('/'))).toEqual(maxComponents);
-  });
-
-  it.each([
-    ['notes/plain.md', true],
-    ['notes/2026-09-08 14:30 standup.md', false],
-    ['notes/a:b.md', false],
-  ])('treats %s as locator-addressable: %s', (relativePath, expected) => {
-    expect(isLocatorAddressablePath(relativePath)).toBe(expected);
   });
 
   it('distinguishes Markdown suffixes and joins relative components', () => {
