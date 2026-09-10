@@ -12,6 +12,49 @@ const messages = [
 ] satisfies Array<ModelMessage>;
 
 describe('createOpenAICodexModelClient', () => {
+  it('serializes a self-contained non-stored Responses request through the real SDK', async () => {
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        new Response(
+          [
+            'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"item-1"}}\n\n',
+            'data: {"type":"response.output_text.delta","item_id":"item-1","delta":"done"}\n\n',
+            'data: {"type":"response.completed","response":{"incomplete_details":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
+            'data: [DONE]\n\n',
+          ].join(''),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+      );
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = createOpenAICodexModelClient({
+        credential: 'access-token',
+        accountId: 'account-id',
+        providerModelId: 'gpt-test',
+        modelId: 'system:codex:gpt-test',
+        contextWindowTokens: 128_000,
+      });
+
+      await expect(client.streamText({ messages }).text).resolves.toBe('done');
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://chatgpt.com/backend-api/codex/responses',
+        expect.anything(),
+      );
+      const serializedCall = JSON.stringify(fetchMock.mock.calls);
+      expect(serializedCall).toContain(String.raw`\"model\":\"gpt-test\"`);
+      expect(serializedCall).toContain(String.raw`\"stream\":true`);
+      expect(serializedCall).toContain(String.raw`\"store\":false`);
+      expect(serializedCall).not.toContain('item_reference');
+      expect(serializedCall).not.toContain('previous_response_id');
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   it('uses the fixed Responses transport with private subscription headers and no remote storage', async () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',

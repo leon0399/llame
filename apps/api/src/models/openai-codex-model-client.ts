@@ -1,3 +1,6 @@
+import { createOpenAI } from '@ai-sdk/openai';
+import { streamText } from 'ai';
+
 import {
   createOpenAIModelClient,
   type OpenAIModelClientDependencies,
@@ -52,5 +55,3 @@ export function createOpenAICodexModelClient(
     dependencies,
   );
 }
-import { createOpenAI } from '@ai-sdk/openai';
-import { streamText } from 'ai';
