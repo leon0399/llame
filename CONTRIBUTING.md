@@ -29,26 +29,30 @@ local reviews, and unpublished branch activity do not change Project status or
 advance its Next action. The agent doing the work updates the issue and relevant
 PR items after each GitHub transition and verifies them before handoff.
 
-| Status            | GitHub evidence                                                                                                                                                                       |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backlog           | No published delivery PR, intentionally deferred work, or an experimental PR without approved scope.                                                                                  |
-| Design            | An open draft proposal PR, or a proposal PR with requested substantive changes.                                                                                                       |
-| Awaiting approval | An open, non-draft proposal PR awaiting approval of its published revision.                                                                                                           |
-| Ready             | An approved or merged proposal PR, satisfied native blockers, and no published implementation PR.                                                                                     |
-| In progress       | An open draft implementation PR, requested implementation changes, or remaining unpublished layers behind a published implementation PR. Temporary blockers are named in Next action. |
-| In review         | The implementation or other deliverable has an open non-draft PR ready for review/merge. Proposal review uses Awaiting approval.                                                      |
-| Done              | The item's own delivery PR is merged, or the item is closed. Record cancellation or supersession in Next action; a merged proposal PR does not complete its feature issue.            |
+| Status            | GitHub evidence                                                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backlog           | No published delivery PR, or a published PR explicitly marked deferred/experimental without approved scope.                                                                                                   |
+| Design            | An open draft proposal PR, or a proposal PR with requested substantive changes.                                                                                                                               |
+| Awaiting approval | An open, non-draft proposal PR awaiting approval of its published revision, with no outstanding change request.                                                                                               |
+| Ready             | A merged proposal PR or an approved open non-draft proposal PR, with no outstanding change request and no published implementation PR. Native blockers remain in Next action and must clear before execution. |
+| In progress       | An open draft implementation PR or a published implementation PR with outstanding GitHub change requests. Temporary blockers are named in Next action.                                                        |
+| In review         | The implementation or other deliverable has an open non-draft PR without outstanding change requests, ready for review/merge. Proposal review uses Awaiting approval.                                         |
+| Done              | The item's own delivery PR is merged. A closed, unmerged PR is recorded as cancelled or superseded in Next action; a merged proposal PR does not complete its feature issue.                                  |
+
+Apply the explicit deferred/experimental Backlog exception before the active
+phase rules. Draft state takes precedence over an earlier approval.
 
 `Priority` and `Order` select work independently of readiness. Keep `Workstream`
 and `Next action` current; name the missing decision, native blocker, or next
 concrete step and link the evidence. Preserve intentional deferrals. A parent
 issue reflects its remaining outcome, not the most advanced child or PR. Each PR
-tracks its own layer; keep the issue In progress while implementation layers
-remain, and move it to In review when the complete outcome is reviewable.
+tracks its own layer. Derive the issue status from the published PRs covering
+its outcome; creating or editing an unpublished layer does not change it.
 
 Before implementation, carry forward approval of the actual revision and recheck
-native blockers; do not request the same approval again. Substantive changes outside an approved contract return to Design and require
-approval of the revised scope. Reconcile legacy proposals by their approved
+native blockers; do not request the same approval again. Published substantive proposal revisions return to Design when their PR becomes
+draft or receives a GitHub change request; approval of the revised scope is
+required before implementation. Reconcile legacy proposals by their approved
 contract, rather than reopening approval because a review record is absent.
 Bug fixes and chores that skip OpenSpec follow their published PR state directly.
 
