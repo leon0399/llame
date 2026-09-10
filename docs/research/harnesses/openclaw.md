@@ -36,6 +36,9 @@ sources:
 
 Primary alpha reference for capability behavior, with concrete routing, memory, and transcript-search implementations. High confidence in the cited mechanisms; llame retains canonical Chat/Run identity and its own storage contracts.
 
+For coding capabilities and tool behavior, [OMP (oh-my-pi)](./oh-my-pi.md) has
+primary reference priority.
+
 **Study**
 
 1. **F28: Canonical files and explicit imports.** Core/episodic files and bootstrap limits[^docs-concepts-memory-md-l9-l62] distinguish curated root memory from daily notes; imports remain source-specific[^docs-concepts-memory-md-l64-l89]. High confidence applicability to llame's source/projection boundary and Knowledge imports.

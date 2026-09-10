@@ -13,10 +13,12 @@ records upstream repositories and in-repo deep dives only. Refresh a local clone
 for line-level work via the `librarian` skill.
 
 During alpha, **[OpenClaw](./openclaw.md) is the primary upstream implementation
-reference for capabilities and behavior**. Consult its implementation first when
-designing or implementing a capability, then use the other references for
-targeted alternatives. Adapt its behavior to llame's ownership, lifecycle,
-provenance, and isolation contracts; llame's specs remain authoritative.
+reference for broad capabilities and behavior**. **[OMP (oh-my-pi)](./oh-my-pi.md)
+is the primary reference for coding capabilities and tool behavior**. Consult OMP
+first for coding-specific decisions and OpenClaw first for other capability
+areas, then use the remaining references for targeted alternatives. Adapt their
+behavior to llame's ownership, lifecycle, provenance, and isolation contracts;
+llame's specs remain authoritative.
 
 The 2026-09-10 assessments inspected upstream source and test code without
 executing it. Inclusion identifies a useful mechanism or comparison; adoption
@@ -40,17 +42,18 @@ Read the ranked index first, then open individual references as needed.
 
 Ordered by implementation relevance during llame's alpha: breadth of reusable
 capability behavior and fit with the meta-harness architecture come first,
-followed by focused mechanisms and cautionary comparisons. OpenClaw's priority
-is a project decision; the remaining order is a moderate-confidence assessment.
+followed by focused mechanisms and cautionary comparisons. OpenClaw's and OMP's
+priorities are project decisions; the remaining order is a moderate-confidence
+assessment.
 
 1. [OpenClaw](./openclaw.md) — Primary alpha implementation reference for capabilities and behavior
-2. [qwen-audio-agent](./qwen-audio-agent.md) — Host-owned sessions with ACP/A2A peer execution
-3. [OpenCode](./opencode.md) — TypeScript coding harness; provider, session, and permission boundaries
-4. [Codex CLI](./codex-cli.md) — Native peer lifecycle protocol and observable compaction
-5. [goose](./goose.md) — ACP peer integration and tool approval boundaries
-6. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
-7. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
-8. [oh-my-pi](./oh-my-pi.md) — Session branching, compaction, and model-visible history
+2. [oh-my-pi](./oh-my-pi.md) — Primary coding implementation reference for capabilities and tool behavior
+3. [qwen-audio-agent](./qwen-audio-agent.md) — Host-owned sessions with ACP/A2A peer execution
+4. [OpenCode](./opencode.md) — TypeScript coding harness; provider, session, and permission boundaries
+5. [Codex CLI](./codex-cli.md) — Native peer lifecycle protocol and observable compaction
+6. [goose](./goose.md) — ACP peer integration and tool approval boundaries
+7. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
+8. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
 9. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
 10. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
 11. [Seal](./seal.md) — Durable approval suspension and nested continuation streams

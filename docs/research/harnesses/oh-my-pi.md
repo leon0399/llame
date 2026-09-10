@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "oh-my-pi"
-description: "Session branching, compaction, and model-visible history"
+description: "Primary coding implementation reference for capabilities and tool behavior"
 resource: "https://github.com/can1357/oh-my-pi/tree/7728213eef8be770a67b2b20710d705ee63fefe7"
 observed:
   date: "2026-09-10"
@@ -30,6 +30,10 @@ sources:
 # oh-my-pi
 
 - **Stack:** Bun/TypeScript coding agent with Rust support crates; MIT
+
+OMP is llame's primary implementation reference for coding capabilities and tool
+behavior. Consult it first for coding-specific decisions; [OpenClaw](./openclaw.md)
+remains the broad alpha capability reference. llame's specs remain authoritative.
 
 `oh-my-pi` is useful implementation prior art for a durable agent session, provider-boundary transformations, and stream-time policy. Its session tree keeps append-only entries behind a mutable leaf pointer. Compaction records an explicit `firstKeptEntryId`; rebuilding context replays entries from that boundary, so the source transcript and model view remain distinct. That is directly comparable to llame's stored `messages.parts` and explicit compaction boundary.
 
