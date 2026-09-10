@@ -1,6 +1,6 @@
 ## Context
 
-See [proposal.md](proposal.md) for scope. `InstanceConfigService` loads once; `ModelsService` resolves the system catalog and caches clients. `model-client-factory.ts` is the provider dispatch boundary. The existing OpenAI client selects native Responses using the provider ID and uses Chat Completions for object generation; neither behavior can be assumed suitable for Codex.
+See [proposal.md](proposal.md) for scope. `InstanceConfigService` loads once; `ModelsService` caches provider/model configuration and creates clients per call. `model-client-factory.ts` is the provider dispatch boundary. The existing OpenAI client selects native Responses using the provider ID and uses Chat Completions for object generation; neither behavior can be assumed suitable for Codex.
 
 ## Goals / Non-Goals
 
@@ -12,7 +12,7 @@ Preserve the existing `ModelClient` execution contract and configuration interpo
 
 Introduce `type: "openai-codex"`, independent of operator-chosen provider ID. Use `key` for the access token and a required `accountId` string for the account header. Keep the existing `openai` variant unchanged. Reject `baseUrl` and arbitrary headers for the new variant. Reject embedding catalog references to this provider at boot.
 
-The destination is `https://chatgpt.com/backend-api/codex/responses`; send bearer authorization and `ChatGPT-Account-ID`. Reject redirects so credentials cannot follow an endpoint-controlled redirect. Prefer the installed AI SDK Responses implementation with a narrow transport adapter over a second streaming parser. Do not import the OpenCode plugin as a dependency or reuse its prompt/history transformations.
+The destination is `https://chatgpt.com/backend-api/codex/responses`; send bearer authorization, `ChatGPT-Account-ID`, SSE `Accept`, and the Responses beta header used by the inspected protocol. Transport-owned client metadata must identify llame rather than copying another harness identity; validate the exact request envelope in fixtures and the real proof. Optional cache/session headers must not introduce remote conversation ownership or credential data. Reject redirects so credentials cannot follow an endpoint-controlled redirect. Prefer the installed AI SDK Responses implementation with a narrow transport adapter over a second streaming parser. Do not import the OpenCode plugin as a dependency or reuse its prompt/history transformations.
 
 ### D2: Operator-managed credential snapshot
 
@@ -33,9 +33,9 @@ This is the agreed alpha alternative to llame-managed OAuth, refresh locking, an
 
 ### D3: llame-owned inference and continuation
 
-Use streaming Responses with `store: false`, llame's effective system instructions, model identity, persisted effort, and authorized tool declarations. Carry cancellation and existing step/duration limits through the adapter. Preserve ordered tool calls/results and reasoning display behavior. Encrypted reasoning, when required for an active multi-step inference, stays transient and private; do not add it to persisted history, owner output, or later Run context.
+Use streaming Responses with `store: false`, llame's effective system instructions, model identity, persisted effort, and authorized tool declarations. The wire adapter must emit self-contained input without remote `item_reference` or previous-response dependencies, preserve function `call_id` pairing, and remove only unsupported provider item IDs. Verify both within-Run continuation and a later Run built from persisted history. Reject malformed call/result pairing rather than silently dropping tool results. Reuse the installed SDK's `store: false` and encrypted-reasoning conversion where compatible, applying only necessary wire normalization. Carry cancellation and existing step/duration limits through the adapter. Preserve ordered tool calls/results and reasoning display behavior. Encrypted reasoning, when required for an active multi-step inference, stays transient and private; do not add it to persisted history, owner output, or later Run context.
 
-Do not silently strip meaningful unsupported request fields: implement their semantics or fail with a sanitized unsupported-operation error. Preserve local output/run bounds if the endpoint cannot accept a corresponding request field. Compaction uses the same provider transport and existing source-model/effort rules. Titles use the existing optional title flow and no inherited effort; unsupported structured output can use its text fallback on the same provider. Title failure must not invalidate a completed answer.
+Do not silently strip meaningful unsupported request fields: implement their semantics or fail with a sanitized unsupported-operation error. Preserve the existing output-token context reservation and step/time/cancellation limits. `runs.maxOutputTokens` currently reserves context capacity; this change does not introduce a hard generated-token cap or claim that reservation enforces one. Compaction uses the same provider transport and existing source-model/effort rules. The Codex client omits the optional `generateObject` capability in this alpha. `TitleService.requestTitle` then uses its existing `streamText` path directly on the same provider with no inherited effort; no unary SSE-to-JSON adapter is needed. Title failure must not invalidate a completed answer.
 
 ### D4: Failure and security boundary
 
@@ -72,4 +72,5 @@ Add the provider alongside existing types without changing existing configuratio
 
 ## Revision history
 
+- v2 (2026-09-10): Reconciled the canonical embedding acceptance scenario with the excluded Codex binding; clarified output-token reservation versus generation limits, explicit wire compatibility tests, and omission of optional object generation. Corrected client lifecycle wording. Rejected blanket copying of peer client/session headers and orphan-result repair: neither is established as required, and silent history repair violates the existing context contract.
 - v1 (2026-09-10): Initial proposal from the confirmed alpha scope; live compatibility remains an implementation acceptance gate.
