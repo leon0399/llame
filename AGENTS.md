@@ -13,7 +13,7 @@ behavior. `CLAUDE.md` and `GEMINI.md` link here.
 
 @CODING_STANDARDS.md
 
-@docs/research/harnesses/REFERENCE-HARNESSES.md
+@docs/research/harnesses/index.md
 
 @CLAUDE.local.md
 
@@ -32,7 +32,7 @@ depend on it.
 - [docs/testing.md](docs/testing.md), [docs/scaling.md](docs/scaling.md): test
   placement and runtime topology.
 - [`docs/research`](docs/research): noncanonical evidence.
-- [docs/research/harnesses/REFERENCE-HARNESSES.md](docs/research/harnesses/REFERENCE-HARNESSES.md):
+- [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
   prior-art index for peer harnesses and protocols.
 
 Put commands and traps in the closest `AGENTS.md`, capability behavior in
