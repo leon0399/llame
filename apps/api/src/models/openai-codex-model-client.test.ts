@@ -1,4 +1,4 @@
-import type { ModelMessage, streamText } from 'ai';
+import { RetryError, type ModelMessage, type streamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import type { createOpenAI } from '@ai-sdk/openai';
 
@@ -295,6 +295,101 @@ describe('createOpenAICodexModelClient', () => {
     await options?.onError?.({
       error: Object.assign(new Error(`429 quota exceeded: ${secret}`), {
         statusCode: 429,
+      }),
+    });
+
+    expect(onError).toHaveBeenCalledWith({
+      error: new Error(
+        'Codex subscription limit reached. Retry manually later.',
+      ),
+    });
+    expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
+  });
+
+  it('sanitizes an upstream rejection from the stream result', async () => {
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
+    });
+    const provider = Object.assign(
+      vi.fn(() => providerModel),
+      {
+        chat: vi.fn(() => providerModel),
+      },
+    );
+    const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
+      partial: true,
+    });
+    createOpenAIMock.mockReturnValue(provider);
+    const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
+      partial: true,
+    });
+    const secret = 'codex-result-error-canary';
+    streamTextMock.mockReturnValue({
+      text: Promise.reject(new Error(`provider failure: ${secret}`)),
+    });
+    const client = createOpenAICodexModelClient(
+      {
+        credential: 'access-token',
+        accountId: 'account-id',
+        providerModelId: 'gpt-test',
+        modelId: 'system:codex:gpt-test',
+        contextWindowTokens: 128_000,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
+
+    await expect(client.streamText({ messages }).text).rejects.toThrow(
+      'Codex subscription request failed.',
+    );
+    await expect(client.streamText({ messages }).text).rejects.not.toThrow(
+      secret,
+    );
+  });
+
+  it('classifies a retry-exhausted quota error without exposing its details', async () => {
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
+    });
+    const provider = Object.assign(
+      vi.fn(() => providerModel),
+      {
+        chat: vi.fn(() => providerModel),
+      },
+    );
+    const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
+      partial: true,
+    });
+    createOpenAIMock.mockReturnValue(provider);
+    const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
+      partial: true,
+    });
+    streamTextMock.mockReturnValue({});
+    const onError = vi.fn();
+    const secret = 'codex-retry-quota-canary';
+    const client = createOpenAICodexModelClient(
+      {
+        credential: 'access-token',
+        accountId: 'account-id',
+        providerModelId: 'gpt-test',
+        modelId: 'system:codex:gpt-test',
+        contextWindowTokens: 128_000,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
+
+    client.streamText({ messages, onError });
+    const [options] = streamTextMock.mock.calls.at(0) ?? [];
+    await options?.onError?.({
+      error: new RetryError({
+        message: `retries exhausted: ${secret}`,
+        reason: 'maxRetriesExceeded',
+        errors: [
+          Object.assign(new Error(`429 quota exceeded: ${secret}`), {
+            statusCode: 429,
+          }),
+        ],
       }),
     });
 

@@ -163,20 +163,32 @@ function trackAbortSettlement(input: ModelStreamInput): AbortSettlement {
 function awaitSettlementAfter(
   result: ReturnType<typeof streamText>,
   settlement: AbortSettlement,
+  sanitizeError?: (error: unknown) => Error,
 ): ReturnType<typeof streamText> {
   return wrapStreamTextResult(result, {
     consumeStream: (target) => ({
       value: async (...args: Parameters<typeof target.consumeStream>) => {
-        await target.consumeStream(...args);
-        await settlement.wait();
+        try {
+          await target.consumeStream(...args);
+          await settlement.wait();
+        } catch (error) {
+          throw sanitizeError?.(error) ?? error;
+        }
       },
     }),
     text: (target) => ({
       value: (async () => {
         try {
-          return await target.text;
-        } finally {
+          const text = await target.text;
           await settlement.wait();
+          return text;
+        } catch (error) {
+          try {
+            await settlement.wait();
+          } catch (settlementError) {
+            throw sanitizeError?.(settlementError) ?? settlementError;
+          }
+          throw sanitizeError?.(error) ?? error;
         }
       })(),
     }),
@@ -291,7 +303,7 @@ function runOpenAIStream(
   }
   const result = dependencies.streamText(streamOptions);
 
-  return awaitSettlementAfter(result, settlement);
+  return awaitSettlementAfter(result, settlement, config.sanitizeError);
 }
 
 /**

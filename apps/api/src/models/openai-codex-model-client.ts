@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { streamText } from 'ai';
+import { RetryError, streamText } from 'ai';
 import { isNumber, isRecord } from '@workspace/runtime-safety';
 
 import {
@@ -26,10 +26,19 @@ function rejectRedirects(fetchImplementation: typeof globalThis.fetch) {
     fetchImplementation(input, { ...init, redirect: 'manual' });
 }
 
-function httpStatus(error: unknown): number | undefined {
+function directHttpStatus(error: unknown): number | undefined {
   if (!isRecord(error)) return undefined;
   const statusCode = error['statusCode'];
   return isNumber(statusCode) ? statusCode : undefined;
+}
+
+function httpStatus(error: unknown): number | undefined {
+  const statusCode = directHttpStatus(error);
+  if (statusCode !== undefined) return statusCode;
+  if (!RetryError.isInstance(error)) return undefined;
+  return error.errors
+    .map(directHttpStatus)
+    .find((status): status is number => status !== undefined);
 }
 
 function sanitizeCodexError(error: unknown): Error {
