@@ -183,7 +183,7 @@ function awaitSettlementAfter(
   });
 }
 
-type OpenAIModelClientConfig = {
+export type OpenAIModelClientConfig = {
   credential?: string;
   providerModelId: string;
   modelId: string;
@@ -191,6 +191,16 @@ type OpenAIModelClientConfig = {
   baseUrl?: string;
   /** Native OpenAI only; compatible endpoints remain on Chat Completions. */
   nativeOpenAI?: boolean;
+  /** Fixed-provider transport headers. */
+  headers?: Record<string, string>;
+  /** Fixed-provider transport fetch wrapper. */
+  fetch?: typeof globalThis.fetch;
+  /** Disable provider-side Responses state. */
+  storeResponses?: boolean;
+  /** Omit structured-object generation when the transport does not support it. */
+  generateObject?: boolean;
+  /** Public provider identifier exposed by this client. */
+  provider?: string;
   pricing?: TokenPrice;
   compactionThresholdTokens?: number;
 };
@@ -201,7 +211,7 @@ type OpenAIModelClientConfig = {
  * `@ai-sdk/openai`/`ai`. Production call sites never pass this — the default
  * is the real SDK.
  */
-type OpenAIModelClientDependencies = {
+export type OpenAIModelClientDependencies = {
   createOpenAI: typeof createOpenAI;
   streamText: (
     options: Parameters<typeof streamText>[0],
@@ -220,11 +230,20 @@ function applyReasoningOptions(
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
 ): void {
-  if (!config.nativeOpenAI && input.effort === undefined) return;
+  if (
+    !config.nativeOpenAI &&
+    input.effort === undefined &&
+    config.storeResponses === undefined
+  ) {
+    return;
+  }
   streamOptions.providerOptions = {
     openai: {
       ...(config.nativeOpenAI && { reasoningSummary: 'auto' }),
       ...(input.effort !== undefined && { reasoningEffort: input.effort }),
+      ...(config.storeResponses !== undefined && {
+        store: config.storeResponses,
+      }),
     },
   };
 }
@@ -325,11 +344,13 @@ export function createOpenAIModelClient(
     // apiKey passed through — see KEYLESS_PLACEHOLDER_API_KEY.
     apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
     ...(config.baseUrl && { baseURL: config.baseUrl }),
+    ...(config.headers && { headers: config.headers }),
+    ...(config.fetch && { fetch: config.fetch }),
   });
 
   return {
     model: config.modelId,
-    provider: 'openai',
+    provider: config.provider ?? 'openai',
     contextWindowTokens: config.contextWindowTokens,
     ...(config.pricing !== undefined && { pricing: config.pricing }),
     ...(config.compactionThresholdTokens !== undefined && {
@@ -337,7 +358,9 @@ export function createOpenAIModelClient(
     }),
     streamText: (input: ModelStreamInput) =>
       runOpenAIStream(openai, config, dependencies, input),
-    generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
-      generateToolBoundObject(openai, config.providerModelId, input),
+    ...(config.generateObject !== false && {
+      generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
+        generateToolBoundObject(openai, config.providerModelId, input),
+    }),
   };
 }

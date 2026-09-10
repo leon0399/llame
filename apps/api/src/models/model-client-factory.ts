@@ -1,7 +1,17 @@
-import type { ProviderConfig } from '../instance-config/llame-config';
+import type {
+  OpenAICodexProviderConfig,
+  OpenAIProviderConfig,
+  ProviderConfig,
+} from '../instance-config/llame-config';
 import { toTokenPrice, type SystemModelCatalogEntry } from './model-catalog';
 import type { ModelClient } from './model-client';
+import { createOpenAICodexModelClient } from './openai-codex-model-client';
 import { createOpenAIModelClient } from './openai-model-client';
+
+type ModelClientDependencies = {
+  createOpenAIModelClient: typeof createOpenAIModelClient;
+  createOpenAICodexModelClient?: typeof createOpenAICodexModelClient;
+};
 
 /**
  * Type-dispatch client factory (providers-and-models-as-code, #167): the
@@ -23,39 +33,74 @@ export function createModelClient(
    * Production call sites never pass this — the default is the real
    * constructor.
    */
-  dependencies: {
-    createOpenAIModelClient: typeof createOpenAIModelClient;
-  } = { createOpenAIModelClient },
+  dependencies: ModelClientDependencies = {
+    createOpenAIModelClient,
+    createOpenAICodexModelClient,
+  },
 ): ModelClient {
   const { provider, model } = input;
-  const pricing = toTokenPrice(model.pricingUsdPer1M);
-
   switch (provider.type) {
-    case 'openai': {
-      const openAIConfig: Parameters<typeof createOpenAIModelClient>[0] = {
-        credential: provider.key ?? undefined,
-        baseUrl: provider.baseUrl ?? undefined,
-        nativeOpenAI: provider.id === 'openai',
-        providerModelId: model.providerModelId,
-        modelId: model.id,
-        contextWindowTokens: model.contextWindowTokens,
-      };
-      if (pricing !== undefined) openAIConfig.pricing = pricing;
-      if (model.compactionThresholdTokens !== undefined) {
-        openAIConfig.compactionThresholdTokens =
-          model.compactionThresholdTokens;
-      }
-      return dependencies.createOpenAIModelClient(openAIConfig);
-    }
+    case 'openai':
+      return createOpenAIClient(provider, model, dependencies);
+    case 'openai-codex':
+      return createCodexClient(provider, model, dependencies);
     default: {
       // Unreachable while the JSON Schema's `providerType` enum stays in
       // sync with the cases above (config-loader rejects any other `type` at
       // boot) — kept as an internal error, not a silent fallback, in case
       // that sync ever drifts.
-      const unsupported: never = provider.type;
+      const unsupported: never = provider;
       throw new Error(
-        `No model client implementation for provider type "${String(unsupported)}"`,
+        `No model client implementation for ${String(unsupported)}`,
       );
     }
+  }
+}
+
+function createOpenAIClient(
+  provider: OpenAIProviderConfig,
+  model: SystemModelCatalogEntry,
+  dependencies: ModelClientDependencies,
+): ModelClient {
+  const config: Parameters<typeof createOpenAIModelClient>[0] = {
+    credential: provider.key ?? undefined,
+    baseUrl: provider.baseUrl ?? undefined,
+    nativeOpenAI: provider.id === 'openai',
+    providerModelId: model.providerModelId,
+    modelId: model.id,
+    contextWindowTokens: model.contextWindowTokens,
+  };
+  assignModelMetadata(config, model);
+  return dependencies.createOpenAIModelClient(config);
+}
+
+function createCodexClient(
+  provider: OpenAICodexProviderConfig,
+  model: SystemModelCatalogEntry,
+  dependencies: ModelClientDependencies,
+): ModelClient {
+  const config: Parameters<typeof createOpenAICodexModelClient>[0] = {
+    credential: provider.key,
+    accountId: provider.accountId,
+    providerModelId: model.providerModelId,
+    modelId: model.id,
+    contextWindowTokens: model.contextWindowTokens,
+  };
+  assignModelMetadata(config, model);
+  return (
+    dependencies.createOpenAICodexModelClient ?? createOpenAICodexModelClient
+  )(config);
+}
+
+function assignModelMetadata(
+  config:
+    | Parameters<typeof createOpenAIModelClient>[0]
+    | Parameters<typeof createOpenAICodexModelClient>[0],
+  model: SystemModelCatalogEntry,
+): void {
+  const pricing = toTokenPrice(model.pricingUsdPer1M);
+  if (pricing !== undefined) config.pricing = pricing;
+  if (model.compactionThresholdTokens !== undefined) {
+    config.compactionThresholdTokens = model.compactionThresholdTokens;
   }
 }

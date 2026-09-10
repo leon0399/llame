@@ -88,6 +88,11 @@ export function resolveEmbeddingBackendConfig(
       `embeddingModels[${model.id}].provider: "${model.provider}" is not defined in providers[] — cannot build the embed backend`,
     );
   }
+  if (provider.type !== 'openai') {
+    throw new Error(
+      `embeddingModels[${model.id}].provider: "${model.provider}" does not support embeddings`,
+    );
+  }
   const config: OpenAIEmbeddingBackendConfig = {
     providerModelId: model.providerModelId,
     dimensions: model.dimensions,

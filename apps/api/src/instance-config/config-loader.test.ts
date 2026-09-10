@@ -1070,6 +1070,99 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     expect(config.providers.map((p) => p.id)).toEqual(['openai', 'ollama']);
   });
 
+  it('loads nonblank Codex credentials once from provider interpolation', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "personal-codex",
+        "type": "openai-codex",
+        "key": "{env:CODEX_ACCESS_TOKEN}",
+        "accountId": "{env:CODEX_ACCOUNT_ID}"
+      }]
+    }`);
+
+    expect(
+      loadInstanceConfig({
+        CODEX_ACCESS_TOKEN: 'access-token',
+        CODEX_ACCOUNT_ID: 'account-id',
+      }).providers,
+    ).toEqual([
+      {
+        id: 'personal-codex',
+        type: 'openai-codex',
+        key: 'access-token',
+        accountId: 'account-id',
+      },
+    ]);
+  });
+
+  it.each(['key', 'accountId'] as const)(
+    'rejects a blank resolved Codex %s without exposing the other credential',
+    (field) => {
+      const secret = 'codex-secret-canary';
+      const fields = {
+        key: field === 'key' ? '{env:CODEX_BLANK:-}' : secret,
+        accountId: field === 'accountId' ? '{env:CODEX_BLANK:-}' : secret,
+      };
+      writeConfig(`{
+        "providers": [{
+          "id": "personal-codex",
+          "type": "openai-codex",
+          "key": "${fields.key}",
+          "accountId": "${fields.accountId}"
+        }]
+      }`);
+
+      try {
+        loadInstanceConfig({ CODEX_BLANK: '' });
+        expect.unreachable('expected blank Codex credential rejection');
+      } catch (error) {
+        expect(errorMessage(error)).toContain(
+          `providers[personal-codex].${field}`,
+        );
+        expect(errorMessage(error)).not.toContain(secret);
+      }
+    },
+  );
+
+  it('names a Codex JSON-pointer credential failure without exposing file content', () => {
+    const credentialFile = path.join(tmpDir, 'codex-auth.json');
+    const secret = 'codex-secret-canary';
+    writeFileSync(credentialFile, `{ "tokens": { "refresh": "${secret}" } }`);
+    writeConfig(`{
+      "providers": [{
+        "id": "personal-codex",
+        "type": "openai-codex",
+        "key": "{path:${credentialFile}|json:/tokens/access_token}",
+        "accountId": "account-id"
+      }]
+    }`);
+
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected missing Codex JSON pointer rejection');
+    } catch (error) {
+      expect(errorMessage(error)).toContain('providers[personal-codex].key');
+      expect(errorMessage(error)).not.toContain(secret);
+    }
+  });
+
+  it.each(['baseUrl', 'headers'] as const)(
+    'rejects the forbidden Codex %s configuration field',
+    (field) => {
+      writeConfig(`{
+        "providers": [{
+          "id": "personal-codex",
+          "type": "openai-codex",
+          "key": "access-token",
+          "accountId": "account-id",
+          "${field}": "https://untrusted.example.test"
+        }]
+      }`);
+
+      expect(() => loadInstanceConfig()).toThrow(new RegExp(field, 'u'));
+    },
+  );
+
   it('rejects a duplicate provider id', () => {
     writeConfig(`{
       "providers": [
@@ -1094,6 +1187,27 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       `{ "providers": [{ "id": "ollama", "type": "openai", "key": "{env:PM_KEY_UNSET:-}" }] }`,
     );
     expect(loadInstanceConfig().providers[0].key).toBeNull();
+  });
+
+  it('rejects a Codex provider as an embedding backend', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "personal-codex",
+        "type": "openai-codex",
+        "key": "access-token",
+        "accountId": "account-id"
+      }],
+      "embeddingModels": [{
+        "id": "codex-embedding",
+        "provider": "personal-codex",
+        "providerModelId": "text-embedding-3-small",
+        "dimensions": 1536
+      }]
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /embeddingModels\[codex-embedding\]\.provider.*openai-codex/u,
+    );
   });
 
   it('rejects a duplicate model id', () => {
@@ -1938,6 +2052,9 @@ describe('loadInstanceConfig — per-entry settings name their own entry', () =>
     );
 
     const provider = loadInstanceConfig().providers[0];
+    if (provider?.type !== 'openai') {
+      expect.unreachable('expected an OpenAI-compatible provider');
+    }
     expect(provider.key).toBe('literal-key');
     expect(provider.baseUrl).toBe('https://example.test');
   });

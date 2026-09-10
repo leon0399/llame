@@ -18,6 +18,7 @@ import {
   type McpServerConfig,
   type McpStdioServerConfig,
   type ProviderConfig,
+  type RawProviderEntry,
   type RawInstanceConfig,
   type RawMcpServerEntry,
   type RawModelEntry,
@@ -208,11 +209,14 @@ export function loadInstanceConfig(
 
   const providers = resolveProviders(raw, env);
   const providerIds = new Set(providers.map((p) => p.id));
+  const providersById = new Map(
+    providers.map((provider) => [provider.id, provider]),
+  );
   const promptLoader = createModelPromptLoader({ configPath });
   const models = resolveModels(raw, env, providerIds, promptLoader);
   promptLoader.validateProjectDefault();
   const modelIds = new Set(models.map((m) => m.id));
-  const embeddingModels = resolveEmbeddingModels(raw, env, providerIds);
+  const embeddingModels = resolveEmbeddingModels(raw, env, providersById);
   const embeddingModelIds = new Set(embeddingModels.map((m) => m.id));
   const search = resolveSearchConfig(raw, env, embeddingModelIds);
   const mcpServers = resolveMcpServers(raw, env);
@@ -910,26 +914,71 @@ function resolveProviders(
     }
     seenIds.add(entry.id);
 
-    return {
-      id: entry.id,
-      type: entry.type,
-      // Same absent/null/empty-means-unset semantics as every other nullable
-      // string setting — no separate helper needed, just an explicit
-      // per-element path label (there is no top-level group/key leaf here).
-      key: resolveNullableString({
-        configPath: `providers[${entry.id}].key`,
-        present: entry.key !== undefined,
-        raw: entry.key,
-        env,
-      }),
-      baseUrl: resolveNullableString({
-        configPath: `providers[${entry.id}].baseUrl`,
-        present: entry.baseUrl !== undefined,
-        raw: entry.baseUrl,
-        env,
-      }),
-    };
+    return entry.type === 'openai-codex'
+      ? resolveCodexProvider(entry, env)
+      : resolveOpenAIProvider(entry, env);
   });
+}
+
+function resolveOpenAIProvider(
+  entry: Extract<RawProviderEntry, { type: 'openai' }>,
+  env: NodeJS.ProcessEnv,
+): ProviderConfig {
+  return {
+    id: entry.id,
+    type: entry.type,
+    key: resolveNullableString({
+      configPath: `providers[${entry.id}].key`,
+      present: entry.key !== undefined,
+      raw: entry.key,
+      env,
+    }),
+    baseUrl: resolveNullableString({
+      configPath: `providers[${entry.id}].baseUrl`,
+      present: entry.baseUrl !== undefined,
+      raw: entry.baseUrl,
+      env,
+    }),
+  };
+}
+
+function resolveCodexProvider(
+  entry: Extract<RawProviderEntry, { type: 'openai-codex' }>,
+  env: NodeJS.ProcessEnv,
+): ProviderConfig {
+  return {
+    id: entry.id,
+    type: entry.type,
+    key: requireProviderCredential(
+      `providers[${entry.id}].key`,
+      entry.key,
+      env,
+    ),
+    accountId: requireProviderCredential(
+      `providers[${entry.id}].accountId`,
+      entry.accountId,
+      env,
+    ),
+  };
+}
+
+function requireProviderCredential(
+  configPath: string,
+  raw: string | null,
+  env: NodeJS.ProcessEnv,
+): string {
+  const value = resolveNullableString({
+    configPath,
+    present: true,
+    raw,
+    env,
+  });
+  if (value === null) {
+    throw new InstanceConfigError(
+      `${configPath}: must resolve to a nonblank string`,
+    );
+  }
+  return value;
 }
 
 /**
@@ -1153,7 +1202,7 @@ function resolveModelReasoning(
 function resolveEmbeddingModels(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
-  providerIds: ReadonlySet<string>,
+  providersById: ReadonlyMap<string, ProviderConfig>,
 ): Array<EmbeddingModelCatalogEntry> {
   const entries = raw?.embeddingModels ?? [];
   const seenIds = new Set<string>();
@@ -1166,9 +1215,15 @@ function resolveEmbeddingModels(
     }
     seenIds.add(entry.id);
 
-    if (!providerIds.has(entry.provider)) {
+    const provider = providersById.get(entry.provider);
+    if (!provider) {
       throw new InstanceConfigError(
         `embeddingModels[${entry.id}].provider: unknown provider id "${entry.provider}" (not defined in providers[])`,
+      );
+    }
+    if (provider.type !== 'openai') {
+      throw new InstanceConfigError(
+        `embeddingModels[${entry.id}].provider: provider "${entry.provider}" has type "${provider.type}" and does not support embeddings`,
       );
     }
 

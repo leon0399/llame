@@ -17,7 +17,7 @@ import type { SystemModelCatalogEntry } from '../models/model-catalog';
  * advertised a `type` it cannot execute would fail at request time instead
  * of at the offending config path.
  */
-export const PROVIDER_TYPES = ['openai'] as const;
+export const PROVIDER_TYPES = ['openai', 'openai-codex'] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
 /**
@@ -27,12 +27,21 @@ export type ProviderType = (typeof PROVIDER_TYPES)[number];
  * `id`s and `baseUrl`s (e.g. hosted OpenAI + a local Ollama) coexist.
  * `key: null` means keyless (the resolved credential was empty/absent).
  */
-export type ProviderConfig = {
+export type OpenAIProviderConfig = {
   id: string;
-  type: ProviderType;
+  type: 'openai';
   key: string | null;
   baseUrl: string | null;
 };
+
+export type OpenAICodexProviderConfig = {
+  id: string;
+  type: 'openai-codex';
+  key: string;
+  accountId: string;
+};
+
+export type ProviderConfig = OpenAIProviderConfig | OpenAICodexProviderConfig;
 
 /** Resolved private Streamable HTTP server configuration. */
 export type McpRemoteServerConfig = {
@@ -117,12 +126,19 @@ export type RawMcpServerEntry =
     };
 
 /** The still-uninterpolated `providers[]` entry shape once schema-validated. */
-export type RawProviderEntry = {
-  id: string;
-  type: ProviderType;
-  key?: unknown;
-  baseUrl?: unknown;
-};
+export type RawProviderEntry =
+  | {
+      id: string;
+      type: 'openai';
+      key?: unknown;
+      baseUrl?: unknown;
+    }
+  | {
+      id: string;
+      type: 'openai-codex';
+      key: string | null;
+      accountId: string | null;
+    };
 
 /**
  * Distance metric a declared embedding model produces (chat-search-embeddings

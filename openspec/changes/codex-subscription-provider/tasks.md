@@ -11,7 +11,7 @@ This slice serves #753 and the OpenAI part of #752. No layer owns closing either
 
 ## 2. Provider layer
 
-- [ ] 2.1 [provider] Add discriminated configuration/schema and normalization for `openai-codex` credentials; verify nonblank requirements, pointer errors, forbidden endpoint/headers, rejected embedding bindings, credential redaction, and unchanged keyless OpenAI behavior with focused configuration tests.
+- [x] 2.1 [provider] Add discriminated configuration/schema and normalization for `openai-codex` credentials; verify nonblank requirements, pointer errors, forbidden endpoint/headers, rejected embedding bindings, credential redaction, and unchanged keyless OpenAI behavior with focused configuration tests.
 - [ ] 2.2 [provider] Add explicit client dispatch and fixed Responses transport using startup snapshots; verify arbitrary provider IDs, transport-owned headers, `store: false`, streaming, redirect rejection, and absence of refresh or credential file writes using synthetic credentials and transport fixtures.
 - [ ] 2.3 [provider] Integrate llame instructions, tools, persisted effort, continuation and private transient reasoning; verify self-contained wire input without remote item references, exact function call/result pairing, an active multi-step exchange and a later Run from persisted history, stored part ordering, no peer prompt injection, no opaque reasoning persistence, and existing context replay invariants.
 - [ ] 2.4 [provider] Integrate cancellation and local execution bounds; verify abort propagation, terminal settlement, already-recorded effects, and no automatic replacement Run in focused runtime tests.
