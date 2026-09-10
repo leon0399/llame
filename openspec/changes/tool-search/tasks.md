@@ -1,6 +1,11 @@
+Track [#338](https://github.com/leon0399/llame/issues/338) and its PR layers
+through [Project tracking](../../../CONTRIBUTING.md#project-tracking).
+Carry forward the recorded proposal approval and recheck native blockers
+before starting; keep live status in the Project.
+
 Implementation is a single `gh stack` rooted on `master`, one PR per layer, bottom to top. The
-bottom layer is this change itself — proposal, specs, design, and this task list — so the design is
-reviewed and merged before any code builds on it. Every layer is published with
+bottom layer owns the proposal, specs, design, and this task list. Its recorded approval governs
+the implementation layers. Every layer is published with
 `gh stack submit --auto`, implemented with `$openspec-apply-change`, and monitored per
 `CONTRIBUTING.md`; the finalize layer closes #338.
 

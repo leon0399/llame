@@ -1,5 +1,12 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-10
+
+- Define agent-owned Project status transitions in `CONTRIBUTING.md`, separating
+  proposal approval from implementation review and carrying forward approval
+  of proposals committed to `master`. Link active committed proposal task lists
+  to the same tracking contract.
+
 # 2026-09-09
 
 - Suggest up to five similar sibling names when `read` misses a file (#737),
