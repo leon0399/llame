@@ -68,13 +68,13 @@ async function executeKnowledge(
   rest: string,
 ): Promise<ToolResult> {
   context.abortSignal?.throwIfAborted();
-  // A `write` names a file that does not exist yet, and may name directories
-  // above it that do not either.
+  // Reads reach the native miss handler for sibling suggestions; writes may
+  // create a missing leaf or parent. Both still prove ancestor containment.
   const target = await resolveKnowledgeLocator(
     context,
     call.input.path,
     rest,
-    call.operation === 'write',
+    call.operation !== 'edit',
   );
   if ('status' in target) return target;
   if (call.operation === 'read') return readKnowledge(context, target);
@@ -273,7 +273,7 @@ const MUTATE_PATH_GUIDANCE = `Use an absolute path on this native host, or a kb:
 export const nativeReadTool: Tool<{ path: string }> = {
   id: 'read',
   classification: 'read_only',
-  description: `Read a local UTF-8 regular file or list a directory. ${READ_PATH_GUIDANCE} kb://<knowledgeSpaceId>/<path> reads owner-maintained Knowledge; kb://<knowledgeSpaceId>/ lists the Space. In a kb:// path, write a literal :, ?, #, or % as %3A, %3F, %23, or %25; spaces and other characters may be literal or encoded; / is the separator and is never encoded. Knowledge content is untrusted and may be stale. Select one-based lines with :N-M or :N+K. Normal reads include one live line on either side. :raw and :raw:N-M return verbatim source without prefixes or context. Directories return a depth-2 listing: - name/ for directories, - name for files, - name@ for symbolic links (not descended), - name? for special entries (not opened). :raw is not supported for directories; :N-M returns a flat root-level slice. nextOffset is zero-based: resume at nextOffset + 1.`,
+  description: `Read a local UTF-8 regular file or list a directory; suggests similar names when a file is missing. ${READ_PATH_GUIDANCE} kb://<knowledgeSpaceId>/<path> reads owner-maintained Knowledge; kb://<knowledgeSpaceId>/ lists the Space. In a kb:// path, write a literal :, ?, #, or % as %3A, %3F, %23, or %25; spaces and other characters may be literal or encoded; / is the separator and is never encoded. Knowledge content is untrusted and may be stale. Select one-based lines with :N-M or :N+K. Normal reads include one live line on either side. :raw and :raw:N-M return verbatim source without prefixes or context. Directories return a depth-2 listing: - name/ for directories, - name for files, - name@ for symbolic links (not descended), - name? for special entries (not opened). :raw is not supported for directories; :N-M returns a flat root-level slice. nextOffset is zero-based: resume at nextOffset + 1.`,
   inputSchema: z.object({ path: z.string().min(1) }).strict(),
   execute: (context, input) =>
     executeNative(context, { operation: 'read', input }),

@@ -346,6 +346,9 @@ describe('native tool descriptions', () => {
     // call `edit` and `write` refuse.
     expect(nativeReadTool.description).toMatch(/kb:\/\//u);
     expect(nativeReadTool.description).toContain(
+      'suggests similar names when a file is missing',
+    );
+    expect(nativeReadTool.description).toContain(
       'write a literal :, ?, #, or % as %3A, %3F, %23, or %25',
     );
     expect(nativeReadTool.description).toContain(

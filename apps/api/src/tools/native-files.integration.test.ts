@@ -648,6 +648,25 @@ describe('kb:// mutations under real owner binding', () => {
     }
   });
 
+  it('keeps a missing edit closed without read suggestions', async () => {
+    expect(
+      await runTool(
+        nativeEditTool,
+        {
+          path: locator(spaceId, 'note.txt'),
+          oldText: 'alpha',
+          newText: 'delta',
+        },
+        context,
+        5,
+      ),
+    ).toStrictEqual({
+      status: 'error',
+      type: 'not_found',
+      message: 'File not found.',
+    });
+  });
+
   it('edits an exact match and leaves the Run unbound to any worker', async () => {
     const result = await runTool(
       nativeEditTool,
