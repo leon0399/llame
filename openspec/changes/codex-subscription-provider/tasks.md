@@ -6,7 +6,7 @@ The proposal layer owns proposal, design, delta specs, and this task ledger. The
 
 This slice serves #753 and the OpenAI part of #752. No layer owns closing either issue under their current broader acceptance. The provider layer records remaining acceptance and automatic model discovery as follow-ups before completion.
 
-- [ ] 1.1 [proposal] Complete two independent adversarial reviews, verify findings, and commit each substantive revision separately; verify convergence with no new substantive findings.
+- [x] 1.1 [proposal] Complete two independent adversarial reviews, verify findings, and commit each substantive revision separately; verify convergence with no new substantive findings.
 - [ ] 1.2 [proposal] Validate with `pnpm exec openspec validate codex-subscription-provider --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; inspect the actual proposal diff and obtain publication authorization and explicit approval of the published revision before implementation.
 
 ## 2. Provider layer

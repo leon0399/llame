@@ -12,7 +12,7 @@ Preserve the existing `ModelClient` execution contract and configuration interpo
 
 Introduce `type: "openai-codex"`, independent of operator-chosen provider ID. Use `key` for the access token and a required `accountId` string for the account header. Keep the existing `openai` variant unchanged. Reject `baseUrl` and arbitrary headers for the new variant. Reject embedding catalog references to this provider at boot.
 
-The destination is `https://chatgpt.com/backend-api/codex/responses`; send bearer authorization, `ChatGPT-Account-ID`, SSE `Accept`, and the Responses beta header used by the inspected protocol. Transport-owned client metadata must identify llame rather than copying another harness identity; validate the exact request envelope in fixtures and the real proof. Optional cache/session headers must not introduce remote conversation ownership or credential data. Reject redirects so credentials cannot follow an endpoint-controlled redirect. Prefer the installed AI SDK Responses implementation with a narrow transport adapter over a second streaming parser. Do not import the OpenCode plugin as a dependency or reuse its prompt/history transformations.
+The destination is `https://chatgpt.com/backend-api/codex/responses`; send bearer authorization, `ChatGPT-Account-ID`, SSE `Accept`, and `OpenAI-Beta: responses=experimental` from the inspected protocol. Transport-owned client metadata must identify llame rather than copying another harness identity; validate the exact request envelope in fixtures and the real proof. Optional cache/session headers must not introduce remote conversation ownership or credential data. Reject redirects so credentials cannot follow an endpoint-controlled redirect. Prefer the installed AI SDK Responses implementation with a narrow transport adapter over a second streaming parser. Do not import the OpenCode plugin as a dependency or reuse its prompt/history transformations.
 
 ### D2: Operator-managed credential snapshot
 
@@ -71,6 +71,8 @@ A real personal-account proof remains mandatory before declaring implementation 
 Add the provider alongside existing types without changing existing configuration. Configure the manual model entry after file-backed login, restart API/workers, and perform the bounded proof. Roll back by removing the provider and its models, restoring any affected defaults, and restarting all processes. Do not delete Chats or rewrite stored model IDs; historical records remain, and queued work naming removed models follows the existing unavailable-model failure contract.
 
 ## Revision history
+
+Final review: two independent reviewers found no remaining substantive issues in v2. The header-value precision nit was resolved explicitly; live acceptance remains pending.
 
 - v2 (2026-09-10): Reconciled the canonical embedding acceptance scenario with the excluded Codex binding; clarified output-token reservation versus generation limits, explicit wire compatibility tests, and omission of optional object generation. Corrected client lifecycle wording. Rejected blanket copying of peer client/session headers and orphan-result repair: neither is established as required, and silent history repair violates the existing context contract.
 - v1 (2026-09-10): Initial proposal from the confirmed alpha scope; live compatibility remains an implementation acceptance gate.
