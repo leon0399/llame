@@ -14,7 +14,7 @@ The personal operator needs to use an existing ChatGPT/Codex subscription throug
 
 ### New Capabilities
 
-- `codex-subscription-provider`: Direct subscription inference, credential lifecycle, execution compatibility, and failure containment.
+- `subscription-access-openai-codex`: Direct subscription inference, credential lifecycle, execution compatibility, and failure containment.
 
 ### Modified Capabilities
 

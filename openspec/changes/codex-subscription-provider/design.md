@@ -72,6 +72,8 @@ Add the provider alongside existing types without changing existing configuratio
 
 ## Revision history
 
+- v3 (2026-09-10): Renamed the new capability to `subscription-access-openai-codex` after local review, grouping future subscription integrations by a shared prefix. The change and delivery branch names remain stable.
+
 Final review: two independent reviewers found no remaining substantive issues in v2. The header-value precision nit was resolved explicitly; live acceptance remains pending.
 
 - v2 (2026-09-10): Reconciled the canonical embedding acceptance scenario with the excluded Codex binding; clarified output-token reservation versus generation limits, explicit wire compatibility tests, and omission of optional object generation. Corrected client lifecycle wording. Rejected blanket copying of peer client/session headers and orphan-result repair: neither is established as required, and silent history repair violates the existing context contract.
