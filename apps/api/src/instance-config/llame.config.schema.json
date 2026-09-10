@@ -38,7 +38,7 @@
     },
     "providerType": {
       "type": "string",
-      "description": "Executable provider client implementation. Only \"openai\" is supported in this slice (native OpenAI + any OpenAI-compatible endpoint, e.g. Ollama). Anthropic is a follow-up: this enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
+      "description": "Executable provider client implementation. \"openai\" supports native OpenAI and OpenAI-compatible endpoints; \"openai-codex\" uses the personal Codex subscription endpoint. Anthropic is a follow-up: this enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
       "enum": ["openai", "openai-codex"]
     },
     "providerEntry": {

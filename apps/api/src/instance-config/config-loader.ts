@@ -453,6 +453,9 @@ function resolveInterpolatedString(
     return interpolateString(raw, env);
   } catch (error) {
     if (error instanceof InterpolationError) {
+      if (error.message.startsWith('JSON pointer ')) {
+        throw new InstanceConfigError(`${configPath}: interpolation failed`);
+      }
       throw new InstanceConfigError(`${configPath}: ${error.message}`);
     }
     throw error;

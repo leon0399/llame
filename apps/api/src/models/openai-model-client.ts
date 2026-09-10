@@ -276,7 +276,7 @@ function runOpenAIStream(
           onError: ({ error }: { error: unknown }) =>
             input.onError?.({ error: config.sanitizeError?.(error) ?? error }),
         };
-  const settlement = trackAbortSettlement(sanitizedInput);
+  const settlement = trackAbortSettlement(input);
   const streamOptions: Parameters<typeof streamText>[0] = {
     // Only the configured native OpenAI provider uses Responses. Every
     // compatible endpoint stays on Chat Completions.

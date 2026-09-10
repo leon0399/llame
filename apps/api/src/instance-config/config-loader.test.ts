@@ -1143,6 +1143,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     } catch (error) {
       expect(errorMessage(error)).toContain('providers[personal-codex].key');
       expect(errorMessage(error)).not.toContain(secret);
+      expect(errorMessage(error)).not.toContain(credentialFile);
     }
   });
 
