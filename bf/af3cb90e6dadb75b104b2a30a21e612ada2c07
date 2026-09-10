@@ -1,0 +1,44 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "bfaf3cb90e6dadb75b104b2a30a21e612ada2c07",
+  "prompts": {
+    "92b082cb197da76f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c0c-9fbe-7d00-b940-1d8d54bfc639",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "9a3e54129dfe956c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b6c-8ab4-7a11-b8c2-444dca0597ff",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 77,
+      "total_deletions": 14,
+      "accepted_lines": 77,
+      "overriden_lines": 0
+    },
+    "bba3420eacaa703b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c0c-8b50-7c00-bad9-9ec7e80daa5a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 54,
+      "overriden_lines": 0
+    }
+  }
+}
