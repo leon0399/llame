@@ -11,7 +11,7 @@ loads, so a clone carries every skill this file asks you to run.
 ## Gates
 
 1. Features start with an issue and OpenSpec proposal.
-2. Implementation waits for explicit proposal-PR approval.
+2. Implementation waits for proposal approval.
 3. Feature work is a linear stack: proposal, implementation layer(s), finalize.
 4. Every PR is reviewable, verified, self-reviewed, and monitored.
 5. Merge requires Leo's explicit permission.
@@ -19,6 +19,45 @@ loads, so a clone carries every skill this file asks you to run.
 Bug fixes and chores may skip OpenSpec only when they do not change a product
 contract. Use an issue whenever scope, acceptance, or follow-up ownership would
 otherwise be implicit.
+
+## Project tracking
+
+The [llame delivery Project](https://github.com/users/leon0399/projects/2) owns
+live delivery status. The agent doing the work updates the issue and relevant PR
+items when entering a phase, after approval or feedback, and before handing work
+back. Do not wait for a separate tracking request.
+
+| Status            | Entry condition                                                                                                                                                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backlog           | Retained or deferred work, or work blocked before it starts, without an active design/review step. Experimental PRs without approved scope stay here.                                                                           |
+| Design            | Investigating, drafting, or revising the proposal. A requested substantive revision returns here.                                                                                                                               |
+| Awaiting approval | A concrete, committed proposal revision is ready for Leo's decision, including a local revision awaiting publication. Record its branch/SHA or PR link.                                                                         |
+| Ready             | The final proposal revision is approved under the approval gate below, blockers are satisfied, and implementation has not started.                                                                                              |
+| In progress       | Approved implementation is underway, including draft layers, verification, requested code changes, and temporary blockers named in Next action.                                                                                 |
+| In review         | The implementation or other deliverable is ready for review/merge; required review and CI remain tracked. Proposal approval uses Awaiting approval.                                                                             |
+| Done              | The item's own outcome is complete and merged/closed. For cancellation or supersession, use Done and state that reason in Next action; do not report it as delivered. A merged proposal PR does not complete its feature issue. |
+
+`Priority` and `Order` select work independently of readiness. Keep `Workstream`
+and `Next action` current; name the missing decision, native blocker, or next
+concrete step and link the evidence. Preserve intentional deferrals. A parent
+issue reflects its remaining outcome, not the most advanced child or PR. Each PR
+tracks its own layer; keep the issue In progress while implementation layers
+remain, and move it to In review when the complete outcome is reviewable.
+
+Before implementation, carry forward approval of the actual revision and recheck
+native blockers; do not request the same approval again. Substantive changes outside an approved contract return to Design and require
+approval of the revised scope. Reconcile legacy proposals by their approved
+contract, rather than reopening approval because a review record is absent.
+Bug fixes and chores that skip OpenSpec may move directly from Backlog to
+In progress.
+
+At each transition, fetch current Project fields/items, update Status and Next
+action together with any changed native dependencies, then read them back. Add
+missing issue/PR items with Status, Priority, Workstream, and Next action. Do not
+change priority or native dependencies merely to make a status fit. If Project access
+fails, report the unsynchronized transition in the handoff; do not claim it was
+updated. Keep live status in the Project rather than duplicating it in task
+files or issue bodies. OpenSpec checkboxes continue to record completed tasks.
 
 ## Feature delivery
 
@@ -89,9 +128,11 @@ gh stack view --json
 gh pr ready <proposal-pr>
 ```
 
-Publication approval and proposal approval are distinct. Proposal approval is a
-GitHub Approval from Leo or his named delegate. If Leo authored the proposal, a
-top-level comment identifying the approved revision suffices.
+Publication approval and proposal approval are distinct. A proposal committed
+to `master` is approved; carry that decision forward. Before it lands on
+`master`, approval is a GitHub Approval from Leo or his named delegate. If Leo
+authored the proposal, a top-level comment identifying the approved revision
+suffices. A local commit on a proposal branch alone is not approval.
 
 ### 4. Implementation layers
 

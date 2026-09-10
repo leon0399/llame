@@ -1,4 +1,12 @@
+Track [#212](https://github.com/leon0399/llame/issues/212) and its PR layers
+through [Project tracking](../../../CONTRIBUTING.md#project-tracking).
+Carry forward the recorded proposal approval and recheck native blockers
+before starting; keep live status in the Project.
+
 ## Delivery stack
+
+The finalize layer owns closing #212 after the complete approved outcome is
+verified.
 
 This proposal depends on the approved and landed `native-file-tools` contract.
 Do not create `knowledge-submit/proposal` from bare `master` until
