@@ -17,9 +17,6 @@ import type { SystemModelCatalogEntry } from '../models/model-catalog';
  * advertised a `type` it cannot execute would fail at request time instead
  * of at the offending config path.
  */
-export const PROVIDER_TYPES = ['openai', 'openai-codex'] as const;
-export type ProviderType = (typeof PROVIDER_TYPES)[number];
-
 /**
  * A configured provider connection: `type` selects the client
  * implementation, `key`/`baseUrl` are resolved (interpolated) values.
@@ -144,7 +141,7 @@ export type RawProviderEntry =
  * Distance metric a declared embedding model produces (chat-search-embeddings
  * design D12). Cosine is the default and, in this change, the ONLY metric any
  * adapter produces — closed on purpose so a config naming an unimplemented
- * metric fails validation, not execution (same posture as `ProviderType`).
+ * metric fails validation, not execution (the same posture as the provider union).
  */
 export const EMBEDDING_DISTANCE_METRICS = ['cosine'] as const;
 export type EmbeddingDistanceMetric =
