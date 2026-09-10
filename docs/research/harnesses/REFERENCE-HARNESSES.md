@@ -11,6 +11,10 @@ SPEC, OpenSpec, and shipped code win any disagreement with notes here. This file
 records upstream repositories and in-repo deep dives only. Refresh a local clone
 for line-level work via the `librarian` skill.
 
+The 2026-09-10 assessments inspected upstream source and test code without
+executing it. Inclusion identifies a useful mechanism or comparison; adoption
+still requires a llame decision and validation.
+
 ## Authority and related research
 
 Broad persistence and memory lessons are retained as noncanonical provenance in the [long-term-memory synthesis](../long-term-memory/2026-07-05-memory-landscape/CROSS-REPORT.md) and [product-vision synthesis](../product-vision/2026-07-15-working-synthesis/report.md). The current compaction contract is **[SPEC.md](../../../SPEC.md) §2.1**, backed by `apps/api/src/compaction`, `apps/api/src/db/schema/chats.ts`, and the focused OpenSpec links from that section. Issues **#53** and **#57** are implementation provenance, not current contracts. Check SPEC, code/schema, and OpenSpec first, then use the research for alternatives and evidence.
@@ -32,6 +36,10 @@ Broad persistence and memory lessons are retained as noncanonical provenance in 
 - [agent-memory](#agent-memory) — Markdown SoT + commit-pinned federated stores + evals
 - [OKF (Open Knowledge Format)](#okf-open-knowledge-format) — Frontmatter trust vocabulary; do not adopt as Knowledge on-disk format
 
+**Prompt assets and extensions**
+
+- [Fabric](#fabric) — File-based prompt composition and executable drift checks
+
 **Coding harnesses and peer executors**
 
 - [qwen-audio-agent](#qwen-audio-agent) — Shipped meta-harness; 12 ACP peers + A2A as executors
@@ -43,6 +51,12 @@ Broad persistence and memory lessons are retained as noncanonical provenance in 
 - [nanoclaw](#nanoclaw) — Container-per-agent bot host; contrast case
 - [ELAI](#elai) — Abandoned harness archive; measurement-honesty patterns and the overengineering postmortem
 - [Buzz](#buzz) — Formal multi-tenant RLS axioms (TLA+/Tamarin)
+- [Continue](#continue) — CLI surface reuse, argument-aware permissions, Markdown agent profiles
+- [Zeroshot](#zeroshot) — Typed bounded orchestration graphs, runtime bindings, reconnect contracts
+- [neural-code](#neural-code) — Minimal context-pressure and child-loop comparison; unsafe fallback examples
+- [Seal](#seal) — Durable approval suspension, continuation cursors, nested child streams
+- [T3 Code](#t3-code) — Environment identity, transactional command receipts, provider-instance contracts
+- [OpenMausBot](#openmausbot) — Bounded MCP control and imports that separate persona from privileges
 
 ## Platform and chat stack
 
@@ -127,9 +141,35 @@ Its "RLS" is enabled-with-zero-policies (anon-block only, no tenant column) — 
 ### beads
 
 - **Upstream:** [gastownhall/beads](https://github.com/gastownhall/beads)
-- **Stack:** Go + Dolt, Steve Yegge
+- **Stack:** Go + Dolt, MIT
+- **Observed:** 2026-09-10 @ `a690b0a8c4d1ddc4f0bd9bf767499625dd71bc96`
 
-Issue-graph "memory for coding agents"; feeds llame's **goals/todos/runs** design, not §20 memory. Study for: 4-type dependency vocabulary with readiness semantics incl. `discovered-from` provenance (`docs/ARCHITECTURE.md`), ready-work as deterministic SQL with transitive descendants (`internal/storage/issueops/ready_work.go`), lease + heartbeat + reclaim with documented co-mutation invariant (`internal/storage/issueops/lease.go` — the `row_lock` comment), wisp→digest run-trace compaction (`docs/MOLECULES.md`), reference-aware pruning. Memory anti-example: `bd prime` dumps all `bd remember` KV entries alphabetically, unframed (`cmd/bd/prime.go:430-500`) — but its elision banner + injection-carried usage instructions are worth copying. No access control anywhere.
+Distributed issue graph; high-confidence reference for deferred goals and work
+coordination. Keep llame's [episodic memory](../../../SPEC.md#20-memory-and-search)
+in Chats/Runs and its Knowledge in files.
+
+**Study**
+
+1. **F1: Readiness and claiming.** Typed dependencies distinguish blockers,
+   hierarchy, and `discovered-from` provenance. [Ready-work computation](https://github.com/gastownhall/beads/blob/a690b0a8c4d1ddc4f0bd9bf767499625dd71bc96/internal/storage/issueops/ready_work.go#L44-L72)
+   expands parent descendants before building SQL; [ready-and-claim](https://github.com/gastownhall/beads/blob/a690b0a8c4d1ddc4f0bd9bf767499625dd71bc96/internal/storage/issueops/claim.go#L245-L300)
+   uses one transaction. Useful for future goal scheduling without making the
+   model responsible for concurrency.
+2. **F2: Liveness separate from history.** Clone-local leases avoid recording
+   every heartbeat in Dolt history. The [co-mutation invariant](https://github.com/gastownhall/beads/blob/a690b0a8c4d1ddc4f0bd9bf767499625dd71bc96/internal/storage/issueops/lease.go#L45-L87)
+   names which claim/status writers must serialize with reclaim. Study the
+   invariant; llame already has PostgreSQL locking and pg-boss recovery.
+3. **F3: Explicit trace retention.** [Wisps](https://github.com/gastownhall/beads/blob/a690b0a8c4d1ddc4f0bd9bf767499625dd71bc96/docs/workflows/wisps.md)
+   can be discarded or [squashed into a durable digest](https://github.com/gastownhall/beads/blob/a690b0a8c4d1ddc4f0bd9bf767499625dd71bc96/cmd/bd/mol_squash.go#L268-L300). A future llame digest
+   could summarize an outcome, but must not replace source messages or the
+   event history required by its replay/provenance contract.
+
+**Caution:** [Memory injection](https://github.com/gastownhall/beads/blob/a690b0a8c4d1ddc4f0bd9bf767499625dd71bc96/cmd/bd/prime.go#L519-L587)
+is alphabetic flat KV without timestamps. Its elision count and browse command
+are useful; its byte cap can be exceeded by the first entry. The
+[HTTP authentication](https://github.com/gastownhall/beads/blob/a690b0a8c4d1ddc4f0bd9bf767499625dd71bc96/internal/httpapi/auth.go#L16-L27)
+accepts shared bearer tokens for the whole surface, without user identity or
+per-record authorization.
 
 **Deep dives**
 
@@ -190,6 +230,36 @@ The vendor-neutral standard for agent-readable knowledge as **plain Markdown + Y
 - **(b2)** **§11 conformance is prose only — there is no validator, schema, or bundle checker in the spec repo.** The sole `validate()` is a single-document non-empty-`type` check in the reference agent (`src/reference_agent/bundle/document.py:89-93`), used as a write-time guard, and `tests/` covers the reference agent's own machinery, not spec conformance. Open issue **#8** is literally the request for a JSON Schema. The third-party Go implementation ships a real validator; the canonical repo does not.
 - **(b3)** **Maintenance signal is poor**: 310 stars, 13 forks, **9 open issues and zero closed**, **no visible maintainer reply in any thread**, one unmerged PR, and no commits since 2026-08-21. Real independent implementers showed up fast and are not being triaged. Live proposals worth tracking because they touch our own problems: **#13 `refuted`** (a checked-and-found-wrong tier — today a never-checked and a checked-and-rejected concept are both bare "unverified"), **#15 `imported`** (cross-bundle trust laundering: re-emitting an imported concept forces you to fabricate, downgrade, or launder the upstream human's confirmation), **#11 deletion semantics** (a removed and a never-written concept are indistinguishable — no tombstone), and **#16** typed/directed relationships (links are untyped prose today).
 - **(c)** v0.2 with **6 commits** and light activity — young enough that the ecosystem (`okf-lint`, `okf-conformance`, `openknowledge` CLI, `okf-skills`, and a competing Go memory implementation `okf-memory/okf-agent-memory`) is moving faster than the spec repo. Re-`librarian` before quoting a section number.
+
+## Prompt assets and extensions
+
+### Fabric
+
+- **Upstream:** [danielmiessler/fabric](https://github.com/danielmiessler/fabric)
+- **Stack:** Go CLI/server, filesystem-backed patterns, contexts, and sessions; MIT
+- **Observed:** 2026-09-10 @ `b682dad740f24e85ce9a48d23babc6780dd476ac`
+
+High-confidence narrow reference for prompt assets; moderate applicability to
+future Profiles/Skills. [Pattern loading](https://github.com/danielmiessler/fabric/blob/b682dad740f24e85ce9a48d23babc6780dd476ac/internal/plugins/db/fsdb/patterns.go)
+supports named files, explicit variables, an input insertion point, and custom
+overrides. [Request assembly](https://github.com/danielmiessler/fabric/blob/b682dad740f24e85ce9a48d23babc6780dd476ac/internal/core/chatter.go#L218-L346)
+composes patterns with reusable context and strategies. This informs llame's
+file-native profile direction: resolve composition through trusted code and bind
+the effective result to the Run receipt.
+
+Its [extension registry](https://github.com/danielmiessler/fabric/blob/b682dad740f24e85ce9a48d23babc6780dd476ac/internal/plugins/template/extension_registry.go#L238-L275)
+checks both definition and executable hashes before returning an extension.
+Useful drift-detection prior art for future installed executable capabilities;
+the hashes do not establish trust or prevent a replacement after the check.
+
+**Caution:** Template expansion can invoke file, network, and executable plugins
+during prompt construction. [Extension execution](https://github.com/danielmiessler/fabric/blob/b682dad740f24e85ce9a48d23babc6780dd476ac/internal/plugins/template/extension_executor.go#L31-L152)
+uses unsandboxed `sh -c` with inherited process environment; only the file-output
+path applies its timeout. These mechanisms require llame's explicit tool and
+executor authority, not permission inferred from a prompt asset. Local JSON
+sessions and a global server API key do not supply llame's durable Runs or
+owner isolation. Study assets and integrity checks without importing a second
+session store or ambient execution into prompt rendering.
 
 ## Coding harnesses and peer executors
 
@@ -454,3 +524,203 @@ Self-hosted Nostr-relay workspace where humans and agents are first-class peers:
 **Caution**
 
 That §9 is load-bearing — **rate limiting is a trait with only an `AlwaysAllowRateLimiter` stub** (the four human/agent-standard/agent-elevated/agent-platform tiers are defined but unenforced), **workflow approval gates are not wired end-to-end** (WF-08: a run hitting one is marked Failed) and two workflow actions return `NotImplemented`, and there is **no sqlx compile-time query checking**. Don't cite the workflow engine or the rate limiter as shipped. `docs/nips/NIP-AE.md` is a negative memory reference for llame: best-effort listing, timestamp-selected heads, no authoritative version chain, and an agent-key compromise that permits silent rewrite/tombstone of the entire memory pair.
+
+### Continue
+
+- **Upstream:** [continuedev/continue](https://github.com/continuedev/continue)
+- **Stack:** TypeScript monorepo; IDE extensions and CLI; Apache-2.0
+- **Observed:** 2026-09-10 @ `5522c6f44ca0ac3528b37244818fbfa39b5af470`
+
+High-confidence reference for llame's future CLI, profiles, and tool policy.
+Scope this comparison to the inspected CLI implementation.
+
+**Study**
+
+1. **F4: Shared execution across surfaces.** [Interactive and headless entrypoints](https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/extensions/cli/src/commands/chat.ts)
+   initialize shared services and use the same streaming loop; local sessions
+   support resume and history forks. Relevant to a first-party llame CLI over
+   the existing Chat/Run core, without a parallel session authority.
+2. **F5: Policy compilation.** [Precedence resolution](https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/extensions/cli/src/permissions/precedenceResolver.ts)
+   combines CLI flags, user YAML, and defaults into `allow`/`ask`/`exclude`.
+   Argument-aware checks cover selected tool fields; [request filtering](https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/extensions/cli/src/stream/handleToolCalls.ts#L172-L195)
+   omits tools classified `ask` in headless mode. Useful for future approvals,
+   provided llame resolves policy from trusted owner scope and records outcomes.
+3. **F6: File-based agent composition.** [Markdown agent files](https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/packages/config-yaml/src/markdown/agentFiles.ts)
+   combine prompt text with model, rules, and built-in/MCP tool selection.
+   Study the composition surface for Profiles/Skills; a file selecting a tool
+   must never grant llame authority to execute it.
+
+**Caution:** The [beta subagent executor](https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/extensions/cli/src/subagent/executor.ts#L54-L122)
+temporarily replaces shared permissions with `* allow` and disables shared
+history while running an in-memory child. This conflicts with llame's intended
+inspectable child Chats/Runs and bounded inherited authority. Local session
+files and permission YAML are single-user state, not tenant isolation or
+durable execution recovery.
+
+### Zeroshot
+
+- **Upstream:** [the-open-engine/zeroshot](https://github.com/the-open-engine/zeroshot)
+- **Stack:** Rust; SQLite local ledger; cluster protocol adapters; MIT
+- **Observed:** 2026-09-10 @ `e1d66438ccfd91e3296deea5482204baeacc7cee`
+
+High-confidence reference for deferred meta-harness orchestration. Codex and
+Claude execute nodes in a caller-authored graph. This is later work under
+[VISION.md](../../../VISION.md#runs-are-the-unit-of-execution), not a dependency
+of llame's current single-agent knowledge loop.
+
+**Study**
+
+1. **F7: Validate control flow before execution.** The [graph verifier](https://github.com/the-open-engine/zeroshot/blob/e1d66438ccfd91e3296deea5482204baeacc7cee/crates/openengine-cluster-server/src/graph_verifier.rs#L20-L79)
+   checks a typed graph before worker lookup. Its [bound analyzer](https://github.com/the-open-engine/zeroshot/blob/e1d66438ccfd91e3296deea5482204baeacc7cee/crates/openengine-cluster-server/src/graph_verifier/analyzer_bounds.rs)
+   folds sequence, parallel, loop, and map structure into execution/concurrency
+   ceilings. Borrow deterministic admission and bounded repair; adopting the
+   entire graph language would be a separate architecture decision.
+2. **F8: Explicit reconnect behavior.** The [local ledger](https://github.com/the-open-engine/zeroshot/blob/e1d66438ccfd91e3296deea5482204baeacc7cee/zeroshot/src/v2_run_ledger/sqlite.rs)
+   appends events and updates the projection transactionally. The [watch contract](https://github.com/the-open-engine/zeroshot/blob/e1d66438ccfd91e3296deea5482204baeacc7cee/docs/reference/cluster/watch.md#L57-L83)
+   specifies at-least-once delivery, cursor-based deduplication, and slow-consumer
+   closure with a resumable cursor. Compare those guarantees with llame's Run
+   reconnect behavior; keep PostgreSQL and pg-boss as its current authority.
+3. **F9: Bind roles outside model output.** An immutable [node role plan](https://github.com/the-open-engine/zeroshot/blob/e1d66438ccfd91e3296deea5482204baeacc7cee/zeroshot/src/native_v2_runner/plan.rs#L3-L69)
+   rejects changed worker/instruction/runtime bindings and assigns verifier
+   read-only versus worker/delivery exclusive workspace access. This informs
+   future peer adapters whose scope is resolved by llame, not by an agent's
+   claimed role.
+
+**Caution:** A read-only workspace role alone is not proof of OS confinement.
+The [local target](https://github.com/the-open-engine/zeroshot/blob/e1d66438ccfd91e3296deea5482204baeacc7cee/docs/concepts/targets.md)
+uses the caller's worktree and host-user authority; the direct target delegates
+authentication to its deployment boundary. Its graph and local ledger do not
+provide llame's RLS tenancy or authorize cross-node execution transfer.
+
+### neural-code
+
+- **Upstream:** [avbiswas/neural-code](https://github.com/avbiswas/neural-code)
+- **Stack:** Python, OpenAI-compatible Chat Completions; educational implementation
+- **Observed:** 2026-09-10 @ `e3d2b9b96ffe95cd9d2da53510401bbd124bbcf2`
+
+Moderate-confidence inclusion as a small comparison implementation. Its
+[child loop](https://github.com/avbiswas/neural-code/blob/e3d2b9b96ffe95cd9d2da53510401bbd124bbcf2/neuralcode/subagent.py)
+starts fresh, caps execution at 12 turns, and returns a final report. That
+parent-facing result shape is useful for future delegation; llame would retain
+the child's underlying Chat/Run for inspection instead of discarding it.
+
+[Context-pressure handling](https://github.com/avbiswas/neural-code/blob/e3d2b9b96ffe95cd9d2da53510401bbd124bbcf2/neuralcode/history.py)
+caps fresh tool output, spills full text temporarily, then strips or drops
+eligible older results while protecting a frozen prefix. Study the explicit
+stages and disclosed truncation, not its destructive history mutations: llame's
+source messages and declared compaction boundary remain authoritative. Spill
+files expire at turn end, so their paths are not durable citations.
+
+**Caution:** The child exclusion set names `write`, while the actual tool is
+[`write_file`](https://github.com/avbiswas/neural-code/blob/e3d2b9b96ffe95cd9d2da53510401bbd124bbcf2/neuralcode/tools.py#L149-L160);
+it does not enforce read-only exploration. [Sandbox selection](https://github.com/avbiswas/neural-code/blob/e3d2b9b96ffe95cd9d2da53510401bbd124bbcf2/neuralcode/sandbox.py#L30-L65)
+falls back to an ordinary shell on Linux without bubblewrap and on Windows.
+That fallback conflicts with VISION's rule against silently downgrading a
+requested Sandbox to native execution. Local JSONL sessions provide neither
+llame's tenant isolation nor durable Run recovery.
+
+### Seal
+
+- **Upstream:** [vercel-labs/seal](https://github.com/vercel-labs/seal)
+- **Stack:** Python, FastAPI, Vercel Workflows/AI SDK, Vite
+- **Observed:** 2026-09-10 @ `7724faa0c71c744a44751dcf15d666a296e8badb`
+
+High-confidence mechanism reference; moderate confidence in longer-term reuse
+from this example app. Relevant to future approvals and child Runs, with useful
+reconnect test cases for the current stream contract.
+
+**Study**
+
+1. **F10: Durable parent/child completion.** A [session workflow](https://github.com/vercel-labs/seal/blob/7724faa0c71c744a44751dcf15d666a296e8badb/backend/agent/driver.py)
+   starts turn workflows and waits on typed hooks. The [subagent tool](https://github.com/vercel-labs/seal/blob/7724faa0c71c744a44751dcf15d666a296e8badb/backend/agent/turn.py#L210-L257)
+   starts a child turn, records its identity, and awaits durable completion.
+   Study the lifecycle mapping while retaining llame-owned Chat/Run identities.
+2. **F11: Cursor before resume.** [Approval submission](https://github.com/vercel-labs/seal/blob/7724faa0c71c744a44751dcf15d666a296e8badb/backend/app/chat.py#L101-L117)
+   calculates the continuation cursor before resuming a batch of decisions,
+   so resumed output cannot advance past the cursor before it is captured.
+   A concrete ordering invariant for a future persisted approval pause.
+3. **F12: Reconnect and nested output.** The [stream adapter](https://github.com/vercel-labs/seal/blob/7724faa0c71c744a44751dcf15d666a296e8badb/backend/app/chat.py)
+   tails child progress into preliminary nested output; completed child messages
+   support reconstruction on reload. Contract tests cover [parallel approvals](https://github.com/vercel-labs/seal/blob/7724faa0c71c744a44751dcf15d666a296e8badb/backend/tests/test_contract.py#L194-L230)
+   and reload behavior. These are useful test scenarios, not evidence that
+   llame needs Vercel's workflow storage.
+
+**Caution:** This demo has no authenticated approval identity or owner-scoped
+access model, and child turns explicitly set `gated=False` to run bash without
+approval. A child lacking approval UI must not gain authority in llame. Keep
+llame's RLS, immutable context receipts, native mutation fencing, and existing
+PostgreSQL/pg-boss execution path.
+
+### T3 Code
+
+- **Upstream:** [pingdotgg/t3code](https://github.com/pingdotgg/t3code)
+- **Stack:** TypeScript/Effect; SQLite server, web, Electron, mobile, relay; MIT
+- **Observed:** 2026-09-10 @ `d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4`
+
+High-confidence reference for future Surface/Node and peer-executor contracts.
+Its execution environment owns local state and providers; clients reach that
+environment through different transports.
+
+**Study**
+
+1. **F13: Identity independent of endpoint.** The [environment descriptor](https://github.com/pingdotgg/t3code/blob/d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4/apps/server/src/environment/ServerEnvironment.ts#L82-L245)
+   exposes persisted identity and capabilities. [Remote semantics](https://github.com/pingdotgg/t3code/blob/d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4/docs/internals/remote.md#L3-L59)
+   separate reachability from execution ownership. Useful for independently
+   versioned llame surfaces without turning a transport URL into Node identity.
+2. **F14: Commit before notification.** The [orchestration engine](https://github.com/pingdotgg/t3code/blob/d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4/apps/server/src/orchestration/Layers/OrchestrationEngine.ts#L273-L327)
+   commits events, projections, and an accepted command receipt together before
+   publishing events. [Receipt reuse](https://github.com/pingdotgg/t3code/blob/d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4/apps/server/src/orchestration/Layers/OrchestrationEngine.ts#L144-L171)
+   rejects a command ID reused against a different aggregate. Compare the
+   transaction boundary with llame's terminal Run/answer settlement; it does
+   not justify replacing PostgreSQL with an event-sourcing rewrite.
+3. **F15: Instance-scoped peer state.** The [driver contract](https://github.com/pingdotgg/t3code/blob/d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4/apps/server/src/provider/ProviderDriver.ts#L58-L172)
+   requires separate provider instances to own their mutable state and lifetime.
+   [Adapter capabilities](https://github.com/pingdotgg/t3code/blob/d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4/apps/server/src/provider/Services/ProviderAdapter.ts)
+   disclose conversation rollback support. Its [checkpoint reactor](https://github.com/pingdotgg/t3code/blob/d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4/apps/server/src/orchestration/Layers/CheckpointReactor.ts#L686-L815)
+   coordinates Git workspace restoration with provider rollback. Future llame
+   Workspace recovery must likewise distinguish file state from peer history;
+   neither rollback implies reversal of external side effects.
+
+**Caution:** Remote control targets one environment; it is not Personal Realm
+replication or cross-node execution routing. Its [authorization documentation](https://github.com/pingdotgg/t3code/blob/d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4/docs/internals/environment-auth.md#L40-L55)
+states that Projects do not sandbox the filesystem and read scope can reach
+host-readable absolute paths outside a Project. Provider-instance separation
+does not supply llame's datastore tenant isolation.
+
+### OpenMausBot
+
+- **Upstream:** [milind-soni/OpenMausBot](https://github.com/milind-soni/OpenMausBot)
+- **Stack:** TypeScript local app/server; Apache-2.0 main tree, separately licensed enterprise directory
+- **Observed:** 2026-09-10 @ `ca61118787f687749eb1251bc3007e4d7d7bdd93`
+
+High-confidence reference for model-facing control and portable profile imports.
+Study selected boundaries rather than importing its bots/rooms/runtime model.
+
+**Study**
+
+1. **F16: Preserve unavailable provider instances.** The [registry](https://github.com/milind-soni/OpenMausBot/blob/ca61118787f687749eb1251bc3007e4d7d7bdd93/server/harness/registry.ts#L76-L124)
+   retains unknown or failed drivers as unavailable entries with reasons. The
+   [event bus](https://github.com/milind-soni/OpenMausBot/blob/ca61118787f687749eb1251bc3007e4d7d7bdd93/server/harness/bus.ts#L27-L90)
+   rejects cross-driver events and stamps provider-instance identity. Useful
+   adapter correlation and degradation behavior for future llame peer executors.
+2. **F17: Small external control surface.** The [MCP interface](https://github.com/milind-soni/OpenMausBot/blob/ca61118787f687749eb1251bc3007e4d7d7bdd93/docs/mcp-server.md)
+   excludes approval grants, credentials, deletion, and VM lifecycle. Its
+   [implementation](https://github.com/milind-soni/OpenMausBot/blob/ca61118787f687749eb1251bc3007e4d7d7bdd93/scripts/mcp-server.ts)
+   validates bounded inputs, projects result fields, checks task-to-bot/channel
+   association, and supports cancellable waits with distinct needs-user and
+   timeout outcomes. Relevant to future external Run control; task association
+   checks do not replace authenticated owner authorization.
+3. **F18: Import descriptions without privileges.** [Persona import](https://github.com/milind-soni/OpenMausBot/blob/ca61118787f687749eb1251bc3007e4d7d7bdd93/server/team-manifest.ts#L210-L272)
+   constructs an explicit field allowlist, excluding approval policy, connectors,
+   computer access, and host paths. The [package schema](https://github.com/milind-soni/OpenMausBot/blob/ca61118787f687749eb1251bc3007e4d7d7bdd93/server/bot-package.ts)
+   validates local references and requires imported routines to remain disabled.
+   This directly informs future llame Profiles/Skills import: setup intent and
+   human-readable instructions cannot carry an execution grant.
+
+**Caution:** The event bus warns on NDJSON append failure and continues live
+delivery, so its log is not sufficient for llame's authoritative durable Run
+record. Its redaction applies to the persisted copy; the bus passes the original
+event to live subscribers. Local JSON state and pairing/session checks do not
+establish llame's PostgreSQL/RLS boundary. In persona import, the caller must
+also force `composio: false`: omission alone enables that connector, as the
+import function's contract explicitly warns.
