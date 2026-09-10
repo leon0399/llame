@@ -201,6 +201,8 @@ export type OpenAIModelClientConfig = {
   generateObject?: boolean;
   /** Public provider identifier exposed by this client. */
   provider?: string;
+  /** Replaces provider errors before they enter the run lifecycle. */
+  sanitizeError?: (error: unknown) => Error;
   pricing?: TokenPrice;
   compactionThresholdTokens?: number;
 };
@@ -254,7 +256,15 @@ function runOpenAIStream(
   dependencies: OpenAIModelClientDependencies,
   input: ModelStreamInput,
 ): ReturnType<typeof streamText> {
-  const settlement = trackAbortSettlement(input);
+  const sanitizedInput =
+    config.sanitizeError === undefined
+      ? input
+      : {
+          ...input,
+          onError: ({ error }: { error: unknown }) =>
+            input.onError?.({ error: config.sanitizeError?.(error) ?? error }),
+        };
+  const settlement = trackAbortSettlement(sanitizedInput);
   const streamOptions: Parameters<typeof streamText>[0] = {
     // Only the configured native OpenAI provider uses Responses. Every
     // compatible endpoint stays on Chat Completions.
@@ -264,7 +274,7 @@ function runOpenAIStream(
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
-    onError: input.onError,
+    onError: sanitizedInput.onError,
     onAbort: settlement.onAbort,
     onFinish: input.onFinish,
   };
@@ -356,8 +366,13 @@ export function createOpenAIModelClient(
     ...(config.compactionThresholdTokens !== undefined && {
       compactionThresholdTokens: config.compactionThresholdTokens,
     }),
-    streamText: (input: ModelStreamInput) =>
-      runOpenAIStream(openai, config, dependencies, input),
+    streamText: (input: ModelStreamInput) => {
+      try {
+        return runOpenAIStream(openai, config, dependencies, input);
+      } catch (error) {
+        throw config.sanitizeError?.(error) ?? error;
+      }
+    },
     ...(config.generateObject !== false && {
       generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
         generateToolBoundObject(openai, config.providerModelId, input),

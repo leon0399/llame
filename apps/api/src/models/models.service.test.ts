@@ -164,6 +164,44 @@ describe('ModelsService', () => {
     expect(firstModel).not.toHaveProperty('providerModelId');
   });
 
+  it('publishes a manually declared Codex model without provider credentials or invented pricing', () => {
+    const service = createService({
+      defaultModelId: 'system:codex:gpt-test',
+      providers: [
+        {
+          id: 'personal-codex',
+          type: 'openai-codex',
+          key: 'access-token',
+          accountId: 'account-id',
+        },
+      ],
+      models: [
+        {
+          id: 'system:codex:gpt-test',
+          source: 'system',
+          provider: 'personal-codex',
+          providerModelId: 'gpt-test',
+          name: 'Configured Codex model',
+          contextWindowTokens: 128_000,
+          systemPromptTemplate: 'Internal prompt',
+          systemPromptSource: 'project_default',
+        },
+      ],
+    });
+
+    const [model] = service.getAvailableModels().models;
+
+    expect(model).toMatchObject({
+      id: 'system:codex:gpt-test',
+      name: 'Configured Codex model',
+      contextWindowTokens: 128_000,
+    });
+    expect(model).not.toHaveProperty('pricingUsdPer1M');
+    expect(JSON.stringify(model)).not.toContain('personal-codex');
+    expect(JSON.stringify(model)).not.toContain('access-token');
+    expect(JSON.stringify(model)).not.toContain('account-id');
+  });
+
   it('rejects a missing, blank, or unknown default model id as typed server configuration failure', () => {
     for (const defaultModelId of [undefined, null, 'not-configured']) {
       const service = createService({ defaultModelId });

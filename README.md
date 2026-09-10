@@ -123,6 +123,8 @@ read-only. See [docs/mcp-tools.md](docs/mcp-tools.md).
 - [AGENTS.md](AGENTS.md): repository workflow and engineering rules
 - [docs/knowledge.md](docs/knowledge.md): personal Knowledge operator runbook
 - [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook
+- [docs/codex-subscription.md](docs/codex-subscription.md): ChatGPT/Codex
+  subscription operator runbook
 - [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
   peer harness / protocol prior art (noncanonical)
 

@@ -1,5 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { streamText } from 'ai';
+import { isNumber, isRecord } from '@workspace/runtime-safety';
 
 import {
   createOpenAIModelClient,
@@ -25,6 +26,25 @@ function rejectRedirects(fetchImplementation: typeof globalThis.fetch) {
     fetchImplementation(input, { ...init, redirect: 'manual' });
 }
 
+function httpStatus(error: unknown): number | undefined {
+  if (!isRecord(error)) return undefined;
+  const statusCode = error['statusCode'];
+  return isNumber(statusCode) ? statusCode : undefined;
+}
+
+function sanitizeCodexError(error: unknown): Error {
+  const statusCode = httpStatus(error);
+  if (statusCode === 401 || statusCode === 403) {
+    return new Error(
+      'Codex subscription authentication failed. Re-login and restart llame.',
+    );
+  }
+  if (statusCode === 429) {
+    return new Error('Codex subscription limit reached. Retry manually later.');
+  }
+  return new Error('Codex subscription request failed.');
+}
+
 export function createOpenAICodexModelClient(
   config: OpenAICodexModelClientConfig,
   dependencies: OpenAIModelClientDependencies = { createOpenAI, streamText },
@@ -47,6 +67,7 @@ export function createOpenAICodexModelClient(
       storeResponses: false,
       generateObject: false,
       provider: 'openai-codex',
+      sanitizeError: sanitizeCodexError,
       ...(config.pricing !== undefined && { pricing: config.pricing }),
       ...(config.compactionThresholdTokens !== undefined && {
         compactionThresholdTokens: config.compactionThresholdTokens,

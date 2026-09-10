@@ -55,6 +55,73 @@ describe('createOpenAICodexModelClient', () => {
     }
   });
 
+  it('replays a persisted tool call and result with its original call id', async () => {
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        new Response(
+          [
+            'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"item-2"}}\n\n',
+            'data: {"type":"response.output_text.delta","item_id":"item-2","delta":"continued"}\n\n',
+            'data: {"type":"response.completed","response":{"incomplete_details":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
+            'data: [DONE]\n\n',
+          ].join(''),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+      );
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = createOpenAICodexModelClient({
+        credential: 'access-token',
+        accountId: 'account-id',
+        providerModelId: 'gpt-test',
+        modelId: 'system:codex:gpt-test',
+        contextWindowTokens: 128_000,
+      });
+      const replayedMessages: Array<ModelMessage> = [
+        { role: 'user', content: 'Find the answer.' },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool-call',
+              toolCallId: 'call-persisted',
+              toolName: 'lookup',
+              input: { query: 'answer' },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          content: [
+            {
+              type: 'tool-result',
+              toolCallId: 'call-persisted',
+              toolName: 'lookup',
+              output: { type: 'text', value: '42' },
+            },
+          ],
+        },
+        { role: 'user', content: 'Continue from that result.' },
+      ];
+
+      await expect(
+        client.streamText({ messages: replayedMessages }).text,
+      ).resolves.toBe('continued');
+
+      const serializedCall = JSON.stringify(fetchMock.mock.calls);
+      expect(serializedCall).toContain('function_call');
+      expect(serializedCall).toContain('function_call_output');
+      expect(serializedCall).toContain('call-persisted');
+      expect(serializedCall).not.toContain('item_reference');
+      expect(serializedCall).not.toContain('previous_response_id');
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   it('uses the fixed Responses transport with private subscription headers and no remote storage', async () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',
@@ -141,5 +208,101 @@ describe('createOpenAICodexModelClient', () => {
     } finally {
       globalThis.fetch = previousFetch;
     }
+  });
+
+  it('replaces an upstream authentication error before it reaches the run', async () => {
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
+    });
+    const provider = Object.assign(
+      vi.fn(() => providerModel),
+      {
+        chat: vi.fn(() => providerModel),
+      },
+    );
+    const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
+      partial: true,
+    });
+    createOpenAIMock.mockReturnValue(provider);
+    const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
+      partial: true,
+    });
+    streamTextMock.mockReturnValue({});
+    const onError = vi.fn();
+    const secret = 'codex-access-token-canary';
+    const client = createOpenAICodexModelClient(
+      {
+        credential: secret,
+        accountId: 'account-id',
+        providerModelId: 'gpt-test',
+        modelId: 'system:codex:gpt-test',
+        contextWindowTokens: 128_000,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
+
+    client.streamText({ messages, onError });
+    const [options] = streamTextMock.mock.calls.at(0) ?? [];
+    const upstreamError = Object.assign(
+      new Error(`401 unauthorized: Bearer ${secret}`),
+      { statusCode: 401 },
+    );
+    await options?.onError?.({ error: upstreamError });
+
+    expect(onError).toHaveBeenCalledWith({
+      error: new Error(
+        'Codex subscription authentication failed. Re-login and restart llame.',
+      ),
+    });
+    expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
+  });
+
+  it('reports a subscription limit without retaining the upstream response', async () => {
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
+    });
+    const provider = Object.assign(
+      vi.fn(() => providerModel),
+      {
+        chat: vi.fn(() => providerModel),
+      },
+    );
+    const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
+      partial: true,
+    });
+    createOpenAIMock.mockReturnValue(provider);
+    const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
+      partial: true,
+    });
+    streamTextMock.mockReturnValue({});
+    const onError = vi.fn();
+    const secret = 'codex-quota-canary';
+    const client = createOpenAICodexModelClient(
+      {
+        credential: 'access-token',
+        accountId: 'account-id',
+        providerModelId: 'gpt-test',
+        modelId: 'system:codex:gpt-test',
+        contextWindowTokens: 128_000,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
+
+    client.streamText({ messages, onError });
+    const [options] = streamTextMock.mock.calls.at(0) ?? [];
+    await options?.onError?.({
+      error: Object.assign(new Error(`429 quota exceeded: ${secret}`), {
+        statusCode: 429,
+      }),
+    });
+
+    expect(onError).toHaveBeenCalledWith({
+      error: new Error(
+        'Codex subscription limit reached. Retry manually later.',
+      ),
+    });
+    expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
   });
 });
