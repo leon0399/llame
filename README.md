@@ -42,7 +42,7 @@ owner-scoped files; Git-backed writes begin in #212. Workspaces, artifacts, chil
 agents, automation, peer harness adapters (ACP/A2A and similar), and messaging
 channels follow only after that core loop works. See [VISION.md](VISION.md).
 Prior art for those adapters:
-[docs/research/harnesses/REFERENCE-HARNESSES.md](docs/research/harnesses/REFERENCE-HARNESSES.md).
+[docs/research/harnesses/index.md](docs/research/harnesses/index.md).
 
 ## Getting started
 
@@ -123,7 +123,7 @@ read-only. See [docs/mcp-tools.md](docs/mcp-tools.md).
 - [AGENTS.md](AGENTS.md): repository workflow and engineering rules
 - [docs/knowledge.md](docs/knowledge.md): personal Knowledge operator runbook
 - [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook
-- [docs/research/harnesses/REFERENCE-HARNESSES.md](docs/research/harnesses/REFERENCE-HARNESSES.md):
+- [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
   peer harness / protocol prior art (noncanonical)
 
 TypeScript throughout: Next.js (`apps/web`), NestJS + worker (`apps/api`),
