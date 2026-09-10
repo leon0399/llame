@@ -39,8 +39,9 @@ its developer-preview contracts require implementation validation before reuse.
 2. **Explicit approval outcomes.** Approval is a closed, fail-closed outcome set: `allowed-once`, `rejected`,
    `cancelled`, and `unavailable`; a missing or throwing answerer becomes
    `unavailable`. Per-session `ask`/`never` policy is itself reconstructed by
-   replay (approval contract[^docs-subsystems-approval-md-l1-l58]). This is a useful authorization
-   result contract for llame's future policy engine.
+   replay (approval contract[^docs-subsystems-approval-md-l1-l58]). This is a useful approval
+   outcome contract for llame. llame must enforce authorization independently of
+   approval outcomes.
 
 **Caution**
 
