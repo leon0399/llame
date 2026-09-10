@@ -2,6 +2,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-10
 
+- Derive Project delivery transitions from published GitHub PR state; local
+  commits and local reviews no longer advance board status.
+
 - Define agent-owned Project status transitions in `CONTRIBUTING.md`, separating
   proposal approval from implementation review and carrying forward approval
   of proposals committed to `master`. Link active committed proposal task lists
