@@ -3,6 +3,9 @@ type: Reference
 title: "Continue"
 description: "Shared CLI execution, permission rules, and agent profiles"
 resource: "https://github.com/continuedev/continue"
+observed:
+  date: "2026-09-10"
+  revision: "5522c6f44ca0ac3528b37244818fbfa39b5af470"
 sources:
   - id: extensions-cli-src-commands-chat-ts
     resource: "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/extensions/cli/src/commands/chat.ts"
@@ -24,7 +27,6 @@ sources:
 # Continue
 
 - **Stack:** TypeScript monorepo; IDE extensions and CLI; Apache-2.0
-- **Observed:** 2026-09-10 @ `5522c6f44ca0ac3528b37244818fbfa39b5af470`
 
 High-confidence reference for llame's future CLI, profiles, and tool policy.
 Scope this comparison to the inspected CLI implementation.

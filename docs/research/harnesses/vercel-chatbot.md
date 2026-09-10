@@ -3,6 +3,9 @@ type: Reference
 title: "Vercel Chatbot (formerly ai-chatbot)"
 description: "Chat/message schema and request admission"
 resource: "https://github.com/vercel/chatbot/tree/c2f8235e1f3ea903ad8b7f61447c4f74164b5c58"
+observed:
+  date: "2026-09-10"
+  revision: "c2f8235e1f3ea903ad8b7f61447c4f74164b5c58"
 sources:
   - id: lib-db-schema-ts-l28-l53
     resource: "https://github.com/vercel/chatbot/blob/c2f8235e1f3ea903ad8b7f61447c4f74164b5c58/lib/db/schema.ts#L28-L53"
@@ -18,7 +21,6 @@ sources:
 # Vercel Chatbot (formerly ai-chatbot)
 
 - **Stack:** Next.js, React, AI SDK, Drizzle, PostgreSQL, optional Redis; Apache-2.0
-- **Observed:** 2026-09-10 @ `c2f8235e1f3ea903ad8b7f61447c4f74164b5c58`
 
 A compact reference for role-plus-parts message persistence and request admission.
 High confidence in those implementation comparisons; its route-owned execution

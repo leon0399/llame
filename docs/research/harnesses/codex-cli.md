@@ -3,6 +3,9 @@ type: Reference
 title: "Codex CLI"
 description: "Native peer lifecycle protocol and observable compaction"
 resource: "https://github.com/openai/codex"
+observed:
+  date: "2026-09-10"
+  revision: "5d3fe48b08049165ef8143dca152869c1f18059c"
 sources:
   - id: codex-rs-app-server-protocol-src-protocol-common-rs-l556-l576
     resource: "https://github.com/openai/codex/blob/5d3fe48b08049165ef8143dca152869c1f18059c/codex-rs/app-server-protocol/src/protocol/common.rs#L556-L576"
@@ -24,7 +27,6 @@ sources:
 # Codex CLI
 
 - **Stack:** Rust workspace with CLI and App Server surfaces
-- **Observed:** 2026-09-10 @ `5d3fe48b08049165ef8143dca152869c1f18059c`
 
 High-confidence reference for a native peer-executor protocol and alternative
 compaction lifecycle. Its App Server can inform an adapter while llame retains

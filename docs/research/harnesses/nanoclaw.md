@@ -3,6 +3,9 @@ type: Reference
 title: "nanoclaw"
 description: "Containerized agent execution and host-side authority"
 resource: "https://github.com/nanocoai/nanoclaw"
+observed:
+  date: "2026-09-10"
+  revision: "2c754a2234390fcc597273cef6344d99e8ac03d0"
 sources:
   - id: src-container-runner-ts-l808-l1015
     resource: "https://github.com/nanocoai/nanoclaw/blob/2c754a2234390fcc597273cef6344d99e8ac03d0/src/container-runner.ts#L808-L1015"
@@ -18,7 +21,6 @@ sources:
 # nanoclaw
 
 - **Stack:** TypeScript personal bot host with Linux containers; MIT
-- **Observed:** 2026-09-10 @ `2c754a2234390fcc597273cef6344d99e8ac03d0`
 
 NanoClaw routes messaging channels into agent-group sessions and runs agent work
 inside per-session containers. Moderate-confidence reference for executor

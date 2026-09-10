@@ -3,6 +3,9 @@ type: Reference
 title: "T3 Code"
 description: "Environment identity, transactional receipts, and provider instances"
 resource: "https://github.com/pingdotgg/t3code"
+observed:
+  date: "2026-09-10"
+  revision: "d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4"
 sources:
   - id: apps-server-src-environment-serverenvironment-ts-l82-l245
     resource: "https://github.com/pingdotgg/t3code/blob/d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4/apps/server/src/environment/ServerEnvironment.ts#L82-L245"
@@ -33,7 +36,6 @@ sources:
 # T3 Code
 
 - **Stack:** TypeScript/Effect; SQLite server, web, Electron, mobile, relay; MIT
-- **Observed:** 2026-09-10 @ `d29c56a5c404cb0f58d3b2ac41762fa0d0ac28d4`
 
 High-confidence reference for future Surface/Node and peer-executor contracts.
 Its execution environment owns local state and providers; clients reach that

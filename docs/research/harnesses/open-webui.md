@@ -3,6 +3,9 @@ type: Reference
 title: "Open WebUI"
 description: "Multi-user chat, tool access, and provider integration"
 resource: "https://github.com/open-webui/open-webui/tree/0a7c15832fb30b1903753e83f81dc7d27e5b0944"
+observed:
+  date: "2026-09-10"
+  revision: "0a7c15832fb30b1903753e83f81dc7d27e5b0944"
 sources:
   - id: backend-open-webui-models-access-grants-py-l25-l45
     resource: "https://github.com/open-webui/open-webui/blob/0a7c15832fb30b1903753e83f81dc7d27e5b0944/backend/open_webui/models/access_grants.py#L25-L45"
@@ -18,7 +21,6 @@ sources:
 # Open WebUI
 
 - **Stack:** Python/FastAPI, SQLAlchemy, SvelteKit, SQLite or PostgreSQL; Open WebUI License
-- **Observed:** 2026-09-10 @ `0a7c15832fb30b1903753e83f81dc7d27e5b0944`
 
 A reference for application-level multi-user sharing and permission-filtered tool
 catalogs. Moderate confidence for reuse in future llame sharing capabilities;

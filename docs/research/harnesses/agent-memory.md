@@ -3,6 +3,9 @@ type: Reference
 title: "agent-memory"
 description: "Derived memory indexes and federated retrieval"
 resource: "https://github.com/xChuCx/agent-memory"
+observed:
+  date: "2026-09-10"
+  revision: "e42f455865538a59110c6510ae8e340969feb810"
 sources:
   - id: eval-behavioural-readme-md-l11-l37
     resource: "https://github.com/xChuCx/agent-memory/blob/e42f455865538a59110c6510ae8e340969feb810/eval/behavioural/README.md#L11-L37"
@@ -27,7 +30,6 @@ sources:
 # agent-memory
 
 - **Stack:** Go; Markdown stores; SQLite FTS5; git; MCP stdio server
-- **Observed:** 2026-09-10 @ `e42f455865538a59110c6510ae8e340969feb810`
 
 Small, current reference for staged Markdown memory, imported-store pinning, inline provenance, and write-time secret/PII rejection. Its retrieval evaluation is a deterministic search regression fixture; its behavioral evaluation is explicitly a scaffold with no published number[^eval-behavioural-readme-md-l11-l37]. Applicability is moderate for llame's owner-scoped Knowledge operations and any later imported-store capability.
 

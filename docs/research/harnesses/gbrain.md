@@ -3,6 +3,9 @@ type: Reference
 title: "gbrain"
 description: "File-backed knowledge and provenance-aware recall"
 resource: "https://github.com/garrytan/gbrain"
+observed:
+  date: "2026-09-10"
+  revision: "43597b19e50a3abf56409337f248f7966860293c"
 sources:
   - id: docs-architecture-system-of-record-md-l3-l18
     resource: "https://github.com/garrytan/gbrain/blob/43597b19e50a3abf56409337f248f7966860293c/docs/architecture/system-of-record.md#L3-L18"
@@ -21,7 +24,6 @@ sources:
 # gbrain
 
 - **Stack:** TypeScript; Markdown repository; Postgres/PGLite retrieval projection
-- **Observed:** 2026-09-10 @ `43597b19e50a3abf56409337f248f7966860293c`
 
 Personal knowledge brain whose Markdown files are the system of record and whose database supports retrieval and graph queries. It is a narrow, high-confidence reference for source-versus-projection boundaries and durable forget semantics. llame already treats Knowledge as owner-scoped Markdown; the useful comparison is write and rebuild discipline rather than gbrain's database or security posture.
 

@@ -3,6 +3,9 @@ type: Reference
 title: "Hermes Agent"
 description: "Recall framing and memory-provider lifecycle"
 resource: "https://github.com/NousResearch/hermes-agent"
+observed:
+  date: "2026-09-10"
+  revision: "6271d772d2dab79ec613c08038ecf3039ad27a0c"
 sources:
   - id: agent-memory-manager-py-l167-l285
     resource: "https://github.com/NousResearch/hermes-agent/blob/6271d772d2dab79ec613c08038ecf3039ad27a0c/agent/memory_manager.py#L167-L285"
@@ -18,7 +21,6 @@ sources:
 # Hermes Agent
 
 - **Stack:** Python; multi-platform gateway; FTS5 session search
-- **Observed:** 2026-09-10 @ `6271d772d2dab79ec613c08038ecf3039ad27a0c`
 
 Self-improving agent with agent-curated memory, isolated subagents, and a pluggable memory-provider boundary. The useful comparison is lifecycle and context handling: llame owns Chat/Run identity and isolation, while any future memory implementation would be an adapter behind those boundaries.
 

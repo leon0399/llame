@@ -3,6 +3,9 @@ type: Reference
 title: "OpenCode"
 description: "TypeScript coding harness; provider, session, and permission boundaries"
 resource: "https://github.com/anomalyco/opencode/tree/b3f1a96c6dd7adeb28b36dd11add1998fc84d67b"
+observed:
+  date: "2026-09-10"
+  revision: "b3f1a96c6dd7adeb28b36dd11add1998fc84d67b"
 sources:
   - id: packages-core-src-session-sql-ts-l22-l176
     resource: "https://github.com/anomalyco/opencode/blob/b3f1a96c6dd7adeb28b36dd11add1998fc84d67b/packages/core/src/session/sql.ts#L22-L176"
@@ -21,7 +24,6 @@ sources:
 # OpenCode
 
 - **Stack:** Bun/TypeScript, Effect, Drizzle/SQLite, AI SDK, Solid; MIT
-- **Observed:** 2026-09-10 @ `b3f1a96c6dd7adeb28b36dd11add1998fc84d67b`
 
 A TypeScript AI SDK harness with session projections and suspendable approvals.
 High confidence for comparing replay and permission UX; moderate for direct reuse

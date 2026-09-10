@@ -22,6 +22,9 @@ The 2026-09-10 assessments inspected upstream source and test code without
 executing it. Inclusion identifies a useful mechanism or comparison; adoption
 still requires a llame decision and validation.
 
+The `observed` frontmatter extension records the source inspection `date` and
+upstream Git `revision`. It does not record document generation or verification.
+
 ## Authority and related research
 
 The [long-term-memory synthesis](../long-term-memory/2026-07-05-memory-landscape/CROSS-REPORT.md)

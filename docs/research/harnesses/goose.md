@@ -3,6 +3,9 @@ type: Reference
 title: "goose"
 description: "ACP peer integration and tool approval boundaries"
 resource: "https://github.com/aaif-goose/goose"
+observed:
+  date: "2026-09-10"
+  revision: "bea9954b9378d5129c5b2ba8ae8d663d034b6c52"
 sources:
   - id: crates-goose-src-tool-inspection-rs-l10-l118
     resource: "https://github.com/aaif-goose/goose/blob/bea9954b9378d5129c5b2ba8ae8d663d034b6c52/crates/goose/src/tool_inspection.rs#L10-L118"
@@ -18,7 +21,6 @@ sources:
 # goose
 
 - **Stack:** Rust workspace with React/TypeScript desktop; Apache-2.0
-- **Observed:** 2026-09-10 @ `bea9954b9378d5129c5b2ba8ae8d663d034b6c52`
 
 Local agent with desktop, CLI, API, MCP, and ACP surfaces. High-confidence
 reference for typed inspection outcomes and selective context reduction.

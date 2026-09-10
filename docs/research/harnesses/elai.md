@@ -3,6 +3,9 @@ type: Reference
 title: "ELAI"
 description: "Archived architecture and measurement discipline"
 resource: "https://github.com/DITlieD/ELAI-archive/tree/26bf2bc72d030a2d5ec022f04e1f9603bb285ae1"
+observed:
+  date: "2026-09-10"
+  revision: "26bf2bc72d030a2d5ec022f04e1f9603bb285ae1"
 sources:
   - id: benchmarks-md-l60-l70
     resource: "https://github.com/DITlieD/ELAI-archive/blob/26bf2bc72d030a2d5ec022f04e1f9603bb285ae1/BENCHMARKS.md#L60-L70"
@@ -21,7 +24,6 @@ sources:
 # ELAI
 
 - **Stack:** Rust workspace with Python and Svelte/Tauri components; MIT; abandoned
-- **Observed:** 2026-09-10 @ `26bf2bc72d030a2d5ec022f04e1f9603bb285ae1`
 
 ELAI is an archive of an abandoned harness experiment. Its value is accounting discipline: the author separates design goals, existing source, recorded fixtures, and claims that were never rebuilt or rerun. The README explicitly says its enforcement model is a goal, not proof that every path enforced it. This makes ELAI a negative reference for llame's evidence and completion contracts, not a runtime architecture to adopt.
 

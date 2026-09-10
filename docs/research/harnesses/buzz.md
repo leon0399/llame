@@ -3,6 +3,9 @@ type: Reference
 title: "Buzz"
 description: "Formal isolation models to compare with runtime enforcement"
 resource: "https://github.com/block/buzz/tree/051c3a270be9c73da9ab06700bcab7d5552fceaa"
+observed:
+  date: "2026-09-10"
+  revision: "051c3a270be9c73da9ab06700bcab7d5552fceaa"
 sources:
   - id: docs-multi-tenant-relay-md-l344-l374
     resource: "https://github.com/block/buzz/blob/051c3a270be9c73da9ab06700bcab7d5552fceaa/docs/multi-tenant-relay.md#L344-L374"
@@ -27,7 +30,6 @@ sources:
 # Buzz
 
 - **Stack:** Rust monorepo with TypeScript/Tauri desktop and Dart/Flutter mobile; Apache 2.0
-- **Observed:** 2026-09-10 @ `051c3a270be9c73da9ab06700bcab7d5552fceaa`
 
 Buzz is a self-hosted Nostr workspace where humans and agents share a signed event log. Its useful material is the explicit security contract around tenant context and synchronization. The relay derives a community from the connection host before handlers run, and its formal model states the deployment assumptions needed for RLS. NIP-RS also treats completeness as a state that must be established before destructive synchronization. Borrow these boundaries while keeping llame's durable pg-boss Run model.
 

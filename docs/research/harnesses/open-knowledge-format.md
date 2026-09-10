@@ -3,6 +3,9 @@ type: Reference
 title: "OKF (Open Knowledge Format)"
 description: "Optional authorship, verification, and freshness metadata"
 resource: "https://github.com/GoogleCloudPlatform/open-knowledge-format"
+observed:
+  date: "2026-09-10"
+  revision: "ad30107c31c06aec8a7d5636e0d1058118604e6f"
 sources:
   - id: spec-md-l736-l764
     resource: "https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/ad30107c31c06aec8a7d5636e0d1058118604e6f/SPEC.md#L736-L764"
@@ -18,7 +21,6 @@ sources:
 # OKF (Open Knowledge Format)
 
 - **Stack:** Markdown/YAML specification and Python reference agent; Apache-2.0
-- **Observed:** 2026-09-10 @ `ad30107c31c06aec8a7d5636e0d1058118604e6f`
 
 High-confidence reference for optional Knowledge provenance metadata. Its
 conformance rules[^spec-md-l736-l764]

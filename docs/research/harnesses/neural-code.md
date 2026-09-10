@@ -3,6 +3,9 @@ type: Reference
 title: "neural-code"
 description: "Small context-pressure and child-loop comparison"
 resource: "https://github.com/avbiswas/neural-code"
+observed:
+  date: "2026-09-10"
+  revision: "e3d2b9b96ffe95cd9d2da53510401bbd124bbcf2"
 sources:
   - id: neuralcode-subagent-py
     resource: "https://github.com/avbiswas/neural-code/blob/e3d2b9b96ffe95cd9d2da53510401bbd124bbcf2/neuralcode/subagent.py"
@@ -21,7 +24,6 @@ sources:
 # neural-code
 
 - **Stack:** Python, OpenAI-compatible Chat Completions; educational implementation
-- **Observed:** 2026-09-10 @ `e3d2b9b96ffe95cd9d2da53510401bbd124bbcf2`
 
 Moderate-confidence inclusion as a small comparison implementation. Its
 child loop[^neuralcode-subagent-py]

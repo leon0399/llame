@@ -3,6 +3,9 @@ type: Reference
 title: "Zeroshot"
 description: "Bounded orchestration graphs and reconnect contracts"
 resource: "https://github.com/the-open-engine/zeroshot"
+observed:
+  date: "2026-09-10"
+  revision: "e1d66438ccfd91e3296deea5482204baeacc7cee"
 sources:
   - id: crates-openengine-cluster-server-src-graph-verifier-rs-l20-l79
     resource: "https://github.com/the-open-engine/zeroshot/blob/e1d66438ccfd91e3296deea5482204baeacc7cee/crates/openengine-cluster-server/src/graph_verifier.rs#L20-L79"
@@ -27,7 +30,6 @@ sources:
 # Zeroshot
 
 - **Stack:** Rust; SQLite local ledger; cluster protocol adapters; MIT
-- **Observed:** 2026-09-10 @ `e1d66438ccfd91e3296deea5482204baeacc7cee`
 
 High-confidence reference for deferred meta-harness orchestration. Codex and
 Claude execute nodes in a caller-authored graph. This is later work under

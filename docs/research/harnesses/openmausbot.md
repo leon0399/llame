@@ -3,6 +3,9 @@ type: Reference
 title: "OpenMausBot"
 description: "Bounded MCP control and persona imports"
 resource: "https://github.com/milind-soni/OpenMausBot"
+observed:
+  date: "2026-09-10"
+  revision: "ca61118787f687749eb1251bc3007e4d7d7bdd93"
 sources:
   - id: server-harness-registry-ts-l76-l124
     resource: "https://github.com/milind-soni/OpenMausBot/blob/ca61118787f687749eb1251bc3007e4d7d7bdd93/server/harness/registry.ts#L76-L124"
@@ -27,7 +30,6 @@ sources:
 # OpenMausBot
 
 - **Stack:** TypeScript local app/server; Apache-2.0 main tree, separately licensed enterprise directory
-- **Observed:** 2026-09-10 @ `ca61118787f687749eb1251bc3007e4d7d7bdd93`
 
 High-confidence reference for model-facing control and portable profile imports.
 Study selected boundaries rather than importing its bots/rooms/runtime model.

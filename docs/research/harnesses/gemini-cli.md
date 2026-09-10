@@ -3,6 +3,9 @@ type: Reference
 title: "Gemini CLI"
 description: "Argument-aware policy and behavioral evaluation"
 resource: "https://github.com/google-gemini/gemini-cli"
+observed:
+  date: "2026-09-10"
+  revision: "ed2ac40df67a319bf348bd7e3d10494696b31b38"
 sources:
   - id: packages-core-src-policy-types-ts-l125-l166
     resource: "https://github.com/google-gemini/gemini-cli/blob/ed2ac40df67a319bf348bd7e3d10494696b31b38/packages/core/src/policy/types.ts#L125-L166"
@@ -21,7 +24,6 @@ sources:
 # Gemini CLI
 
 - **Stack:** TypeScript npm-workspaces monorepo; Apache-2.0
-- **Observed:** 2026-09-10 @ `ed2ac40df67a319bf348bd7e3d10494696b31b38`
 
 Google's terminal agent is a high-confidence reference for argument-aware policy
 and behavioral evaluation. Its policy engine can inform llame's future approval

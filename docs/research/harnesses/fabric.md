@@ -3,6 +3,9 @@ type: Reference
 title: "Fabric"
 description: "File-based prompt composition and drift checks"
 resource: "https://github.com/danielmiessler/fabric"
+observed:
+  date: "2026-09-10"
+  revision: "b682dad740f24e85ce9a48d23babc6780dd476ac"
 sources:
   - id: internal-plugins-db-fsdb-patterns-go
     resource: "https://github.com/danielmiessler/fabric/blob/b682dad740f24e85ce9a48d23babc6780dd476ac/internal/plugins/db/fsdb/patterns.go"
@@ -21,7 +24,6 @@ sources:
 # Fabric
 
 - **Stack:** Go CLI/server, filesystem-backed patterns, contexts, and sessions; MIT
-- **Observed:** 2026-09-10 @ `b682dad740f24e85ce9a48d23babc6780dd476ac`
 
 High-confidence narrow reference for prompt assets; moderate applicability to
 future Profiles/Skills. Pattern loading[^internal-plugins-db-fsdb-patterns-go]

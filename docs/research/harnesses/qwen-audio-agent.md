@@ -3,6 +3,9 @@ type: Reference
 title: "qwen-audio-agent"
 description: "Host-owned sessions with ACP/A2A peer execution"
 resource: "https://github.com/QwenAudio/qwen-audio-agent/tree/94d6cd372379f9c889ea8d6f6190e4cd45122adb"
+observed:
+  date: "2026-09-10"
+  revision: "94d6cd372379f9c889ea8d6f6190e4cd45122adb"
 sources:
   - id: docs-architecture-deep-dive-md-l191-l214
     resource: "https://github.com/QwenAudio/qwen-audio-agent/blob/94d6cd372379f9c889ea8d6f6190e4cd45122adb/docs/architecture/deep-dive.md#L191-L214"
@@ -24,7 +27,6 @@ sources:
 # qwen-audio-agent
 
 - **Stack:** Plain ESM `.mjs`, Zod, Node 22+, ACP, A2A, and custom backends; Apache-2.0.
-- **Observed:** 2026-09-10 @ `94d6cd372379f9c889ea8d6f6190e4cd45122adb`
 
 A meta-harness whose gateway owns task/session routing while backends retain
 execution state. High confidence for executor boundaries and declared environment

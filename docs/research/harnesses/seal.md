@@ -3,6 +3,9 @@ type: Reference
 title: "Seal"
 description: "Durable approval suspension and nested continuation streams"
 resource: "https://github.com/vercel-labs/seal"
+observed:
+  date: "2026-09-10"
+  revision: "7724faa0c71c744a44751dcf15d666a296e8badb"
 sources:
   - id: backend-agent-driver-py
     resource: "https://github.com/vercel-labs/seal/blob/7724faa0c71c744a44751dcf15d666a296e8badb/backend/agent/driver.py"
@@ -24,7 +27,6 @@ sources:
 # Seal
 
 - **Stack:** Python, FastAPI, Vercel Workflows/AI SDK, Vite
-- **Observed:** 2026-09-10 @ `7724faa0c71c744a44751dcf15d666a296e8badb`
 
 High-confidence mechanism reference; moderate confidence in longer-term reuse
 from this example app. Relevant to future approvals and child Runs, with useful

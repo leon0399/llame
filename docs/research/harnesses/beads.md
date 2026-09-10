@@ -3,6 +3,9 @@ type: Reference
 title: "beads"
 description: "Dependency-aware work tracking, claims, and trace retention"
 resource: "https://github.com/gastownhall/beads"
+observed:
+  date: "2026-09-10"
+  revision: "a690b0a8c4d1ddc4f0bd9bf767499625dd71bc96"
 sources:
   - id: internal-storage-issueops-ready-work-go-l44-l72
     resource: "https://github.com/gastownhall/beads/blob/a690b0a8c4d1ddc4f0bd9bf767499625dd71bc96/internal/storage/issueops/ready_work.go#L44-L72"
@@ -30,7 +33,6 @@ sources:
 # beads
 
 - **Stack:** Go + Dolt, MIT
-- **Observed:** 2026-09-10 @ `a690b0a8c4d1ddc4f0bd9bf767499625dd71bc96`
 
 Distributed issue graph; high-confidence reference for deferred goals and work
 coordination. Keep llame's [episodic memory](../../../SPEC.md#20-memory-and-search)

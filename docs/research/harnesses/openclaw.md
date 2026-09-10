@@ -3,6 +3,9 @@ type: Reference
 title: "OpenClaw"
 description: "Primary alpha implementation reference for capabilities and behavior"
 resource: "https://github.com/openclaw/openclaw"
+observed:
+  date: "2026-09-10"
+  revision: "f3c230c208d9f48a102ab457c0669e01341d91d1"
 sources:
   - id: docs-concepts-memory-md-l9-l62
     resource: "https://github.com/openclaw/openclaw/blob/f3c230c208d9f48a102ab457c0669e01341d91d1/docs/concepts/memory.md#L9-L62"
@@ -30,7 +33,6 @@ sources:
 # OpenClaw
 
 - **Stack:** TypeScript; multi-channel gateway; Markdown memory; SQLite session/transcript state and search
-- **Observed:** 2026-09-10 @ `f3c230c208d9f48a102ab457c0669e01341d91d1`
 
 Primary alpha reference for capability behavior, with concrete routing, memory, and transcript-search implementations. High confidence in the cited mechanisms; llame retains canonical Chat/Run identity and its own storage contracts.
 

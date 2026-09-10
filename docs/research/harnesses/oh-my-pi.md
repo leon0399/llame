@@ -3,6 +3,9 @@ type: Reference
 title: "oh-my-pi"
 description: "Session branching, compaction, and model-visible history"
 resource: "https://github.com/can1357/oh-my-pi/tree/7728213eef8be770a67b2b20710d705ee63fefe7"
+observed:
+  date: "2026-09-10"
+  revision: "7728213eef8be770a67b2b20710d705ee63fefe7"
 sources:
   - id: docs-compaction-md-l27-l55
     resource: "https://github.com/can1357/oh-my-pi/blob/7728213eef8be770a67b2b20710d705ee63fefe7/docs/compaction.md#L27-L55"
@@ -27,7 +30,6 @@ sources:
 # oh-my-pi
 
 - **Stack:** Bun/TypeScript coding agent with Rust support crates; MIT
-- **Observed:** 2026-09-10 @ `7728213eef8be770a67b2b20710d705ee63fefe7`
 
 `oh-my-pi` is useful implementation prior art for a durable agent session, provider-boundary transformations, and stream-time policy. Its session tree keeps append-only entries behind a mutable leaf pointer. Compaction records an explicit `firstKeptEntryId`; rebuilding context replays entries from that boundary, so the source transcript and model view remain distinct. That is directly comparable to llame's stored `messages.parts` and explicit compaction boundary.
 

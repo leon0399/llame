@@ -3,6 +3,9 @@ type: Reference
 title: "DeepSeek Harness"
 description: "Session projections and explicit approval outcomes"
 resource: "https://github.com/deepseek-ai/deepseek-harness"
+observed:
+  date: "2026-09-10"
+  revision: "aa8262ec091698bae9a6b04773a6b5b06ad4aef2"
 sources:
   - id: docs-subsystems-session-md-l1-l25
     resource: "https://github.com/deepseek-ai/deepseek-harness/blob/aa8262ec091698bae9a6b04773a6b5b06ad4aef2/docs/subsystems/session.md#L1-L25"
@@ -21,7 +24,6 @@ sources:
 # DeepSeek Harness
 
 - **Stack:** TypeScript monorepo on the Cordis plugin kernel; MIT; developer preview
-- **Observed:** 2026-09-10 @ `aa8262ec091698bae9a6b04773a6b5b06ad4aef2`
 
 `dsh` is a localhost harness built on Cordis plugins. Moderate-confidence
 reference for documented session projections and explicit approval outcomes;
