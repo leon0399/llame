@@ -97,6 +97,153 @@ describe("native read selectors", () => {
       raw: false,
     });
   });
+
+  it("sorts, merges, and expands comma ranges", async () => {
+    const path = join(directory, "notes");
+    expect(await resolveReadTarget(`${path}:20-30,5-10,10+10`)).toEqual({
+      path,
+      offset: 4,
+      raw: false,
+      ranges: [{ offset: 4, limit: 26 }],
+      expandedRanges: [{ offset: 3, limit: 28 }],
+    });
+  });
+
+  it("keeps disjoint ranges separate with per-range context", async () => {
+    const path = join(directory, "notes");
+    expect(await resolveReadTarget(`${path}:20-30,5-10`)).toEqual({
+      path,
+      offset: 4,
+      raw: false,
+      ranges: [
+        { offset: 4, limit: 6 },
+        { offset: 19, limit: 11 },
+      ],
+      expandedRanges: [
+        { offset: 3, limit: 8 },
+        { offset: 18, limit: 13 },
+      ],
+    });
+  });
+
+  it("merges expansions that touch", async () => {
+    const path = join(directory, "notes");
+    expect(await resolveReadTarget(`${path}:4-5,7-8`)).toEqual({
+      path,
+      offset: 3,
+      raw: false,
+      ranges: [
+        { offset: 3, limit: 2 },
+        { offset: 6, limit: 2 },
+      ],
+      expandedRanges: [{ offset: 2, limit: 7 }],
+    });
+  });
+
+  it("clips expansion at the first line", async () => {
+    const path = join(directory, "notes");
+    expect(await resolveReadTarget(`${path}:1-2,5-6`)).toEqual({
+      path,
+      offset: 0,
+      raw: false,
+      ranges: [
+        { offset: 0, limit: 2 },
+        { offset: 4, limit: 2 },
+      ],
+      expandedRanges: [{ offset: 0, limit: 7 }],
+    });
+  });
+
+  it("preserves comma mode when members merge to one range", async () => {
+    const path = join(directory, "notes");
+    expect(await resolveReadTarget(`${path}:20-30,20-30`)).toEqual({
+      path,
+      offset: 19,
+      raw: false,
+      ranges: [{ offset: 19, limit: 11 }],
+      expandedRanges: [{ offset: 18, limit: 13 }],
+    });
+    expect(await resolveReadTarget(`${path}:20-30`)).toEqual({
+      path,
+      offset: 19,
+      limit: 11,
+      raw: false,
+    });
+  });
+
+  it("accepts plus members in a comma selector", async () => {
+    const path = join(directory, "notes");
+    expect(await resolveReadTarget(`${path}:5+3,20+2`)).toEqual({
+      path,
+      offset: 4,
+      raw: false,
+      ranges: [
+        { offset: 4, limit: 3 },
+        { offset: 19, limit: 2 },
+      ],
+      expandedRanges: [
+        { offset: 3, limit: 5 },
+        { offset: 18, limit: 4 },
+      ],
+    });
+  });
+
+  it("keeps raw multi-range reads verbatim", async () => {
+    const path = join(directory, "notes");
+    expect(await resolveReadTarget(`${path}:raw:5-10,20-30`)).toEqual({
+      path,
+      offset: 4,
+      raw: true,
+      ranges: [
+        { offset: 4, limit: 6 },
+        { offset: 19, limit: 11 },
+      ],
+      expandedRanges: [
+        { offset: 4, limit: 6 },
+        { offset: 19, limit: 11 },
+      ],
+    });
+  });
+
+  it.each([
+    "5-10,,20-30",
+    "5-10,",
+    ",5-10",
+    "5-10,0-2",
+    "5-10,2-1",
+    "5-10, 20-30",
+    "raw:5-10,20+2",
+    "raw:5-10,",
+  ])("rejects invalid multi-range %s", async (selector) => {
+    await expect(
+      resolveReadTarget(`${directory}/notes:${selector}`),
+    ).rejects.toMatchObject({ type: "invalid_selector" });
+  });
+
+  it("caps comma selectors at 64 input ranges", async () => {
+    const members = (count: number) =>
+      Array.from(
+        { length: count },
+        (_, i) => `${i * 10 + 1}-${i * 10 + 2}`,
+      ).join(",");
+    const accepted = await resolveReadTarget(
+      `${directory}/notes:${members(64)}`,
+    );
+    expect(accepted.ranges).toHaveLength(64);
+    await expect(
+      resolveReadTarget(`${directory}/notes:${members(65)}`),
+    ).rejects.toMatchObject({ type: "invalid_selector" });
+  });
+
+  it("prefers an existing literal comma-selector filename", async () => {
+    const path = join(directory, "report:5-10,20-30");
+    await writeFile(path, "literal");
+    expect(await resolveReadTarget(path)).toEqual({
+      path,
+      offset: 0,
+      raw: false,
+    });
+  });
 });
 
 describe("native path schemes", () => {

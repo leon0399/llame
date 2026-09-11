@@ -66,6 +66,26 @@ describe('knowledge locator parsing', () => {
     });
   });
 
+  it('splits a comma selector and rejects a malformed suffix', () => {
+    expect(
+      parseKnowledgeLocator(`${SPACE}/research/note.md:5-10,20-30`),
+    ).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath: 'research/note.md',
+      selector: '5-10,20-30',
+    });
+    expect(
+      parseKnowledgeLocator(`${SPACE}/research/note.md:raw:5-10,20-30`),
+    ).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath: 'research/note.md',
+      selector: 'raw:5-10,20-30',
+    });
+    expect(
+      parseKnowledgeLocator(`${SPACE}/research/note.md:5-10,,20-30`),
+    ).toBeUndefined();
+  });
+
   // A selector on the Space directory itself: the colon opens the remainder,
   // so the path is empty and only the selector survives.
   it('selects the Space directory with a leading selector', () => {
@@ -378,6 +398,21 @@ describe('knowledge locator resolution', () => {
         contextWithAdapter(() => Promise.resolve(hostPath), calls),
         `kb://${SPACE}/a:b.md`,
         `${SPACE}/a:b.md`,
+      ),
+    ).resolves.toStrictEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'The Knowledge locator is invalid.',
+    });
+  });
+
+  it('refuses a malformed comma suffix as an invalid path', async () => {
+    const calls: Array<ResolveCall> = [];
+    await expect(
+      resolveKnowledgeLocator(
+        contextWithAdapter(() => Promise.resolve(hostPath), calls),
+        `kb://${SPACE}/note.md:5-10,,20-30`,
+        `${SPACE}/note.md:5-10,,20-30`,
       ),
     ).resolves.toStrictEqual({
       status: 'error',

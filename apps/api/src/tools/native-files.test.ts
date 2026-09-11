@@ -8,7 +8,11 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFile as readNativeFile } from '@workspace/native-file-tools';
+import {
+  MAX_RESULT_CODE_UNITS,
+  measureNativeModelOutput,
+  readFile as readNativeFile,
+} from '@workspace/native-file-tools';
 import {
   nativeReadTool,
   nativeEditTool,
@@ -207,6 +211,72 @@ describe('knowledge locator reads', () => {
     expect(JSON.stringify(result)).not.toContain(root);
     expect(JSON.stringify(result)).toContain('<system>keep me</system>');
     expect(runAsCalls).toBe(0);
+  });
+
+  it('reads disjoint passages through one comma locator', async () => {
+    await writeFile(join(directory, 'note.md'), 'a\nb\nc\nd\ne\nf\ng\n');
+    const result = await runTool(
+      nativeReadTool,
+      { path: `kb://${SPACE}/note.md:1-2,5-6` },
+      knowledgeContext(),
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      kind: 'file',
+      requestedRanges: [
+        { startLine: 1, endLine: 2 },
+        { startLine: 5, endLine: 6 },
+      ],
+      shownRanges: [{ startLine: 1, endLine: 7 }],
+      knowledgeSpaceId: SPACE,
+      knowledgeSpaceName: 'Personal',
+      notice: KNOWLEDGE_CONTENT_NOTICE,
+    });
+    expect(JSON.stringify(result)).not.toContain(root);
+    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
+      MAX_RESULT_CODE_UNITS,
+    );
+    expect(runAsCalls).toBe(0);
+  });
+
+  it('keeps invalid_path for a malformed comma suffix', async () => {
+    await writeFile(join(directory, 'note.md'), 'a\nb\nc\n');
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: `kb://${SPACE}/note.md:1-2,,3-4` },
+        knowledgeContext(),
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'invalid_path' });
+  });
+
+  it('keeps invalid_selector for out-of-range comma bounds', async () => {
+    await writeFile(join(directory, 'note.md'), 'a\nb\nc\n');
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: `kb://${SPACE}/note.md:1-2,0-2` },
+        knowledgeContext(),
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'invalid_selector' });
+  });
+
+  it('returns one closed result for another owner with a comma selector', async () => {
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: `kb://${OTHER}/note.md:1-2,5-6` },
+        knowledgeContext(),
+        5,
+      ),
+    ).toEqual({
+      status: 'error',
+      type: 'knowledge_space_not_found',
+      message: 'Knowledge Space was not found.',
+    });
   });
 
   it.each([

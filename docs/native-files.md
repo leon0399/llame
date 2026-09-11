@@ -102,7 +102,15 @@ is read, created, or modified.
   plus one live line on either side when available. `:10+11` selects the same
   requested range. `:raw` and `:raw:10-20` return verbatim source, without line
   numbers or added context. Existing literal filenames take precedence over
-  selector syntax.
+  selector syntax. Comma-separated ranges such as `:4-5,7-8` read several
+  passages in one bounded call: ranges sort, merge, grow one context line per
+  side, and merge again when the grown windows touch, so `:4-5,7-8` renders
+  lines 3 through 9. `:raw:4-5,7-8` stays verbatim without context. Up to 64
+  ranges per read. Multi-range results report `requestedRanges` (the merged
+  request) and `shownRanges` (emitted lines); a truncated read reports a
+  zero-based `nextOffset` — trim `requestedRanges` at `nextOffset + 1` and
+  re-read. A future overview feature (#572) will reference passages with this
+  same multi-range syntax; overviews themselves are not implemented.
 - `read({ path: "/absolute/directory" })` returns a depth-2 listing:
   directories first, then files, sorted by name under the host collation.
   Each entry renders as `- name/` (directory), `- name` (file), `- name@`
@@ -129,11 +137,15 @@ file failure — `invalid_path`, `not_found`, `not_regular_file`, `file_exists`,
 vocabulary regardless of scheme.
 
 Line numbers are display metadata, not source. Continuation uses zero-based
-`nextOffset`; add one when composing the next one-based read selector.
+`nextOffset`; add one when composing the next one-based read selector. For
+multi-range reads, trim `requestedRanges` at `nextOffset + 1` (dropping fully
+shown ranges) and re-run the same selector pipeline; context lines may
+reappear, as in single-range continuations.
 
 Native files have no blanket size cap. Reads stream a bounded window; exact
 editing currently buffers the file in memory. Normal reads default to 2,000
-requested lines, plus available adjacent context. Serialized native results
+requested lines, plus available adjacent context. Multi-range reads share the
+same 2,000-line ceiling across all passages. Serialized native results
 are bounded to the shared 16,000 UTF-16 code-unit cap and retain whole source lines.
 Markdown processing, URLs, and logical resource schemes other than `kb://` are
 separate capabilities. Allowlisted `bash` shares the absolute-path native host

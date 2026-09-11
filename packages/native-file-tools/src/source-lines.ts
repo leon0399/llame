@@ -10,17 +10,27 @@ export function resultBudget(target: { reserveCodeUnits?: number }): number {
 }
 
 export type LineRange = { startLine: number; endLine: number };
-export type ReadSuccess = {
+type ReadSuccessBase = {
   status: "success";
   kind: "file";
   path: string;
   representation: "text" | "raw";
   content: string;
-  requestedRange: LineRange | null;
-  shownRange: LineRange | null;
   nextOffset?: number;
   truncated: boolean;
 };
+
+export type SingleReadSuccess = ReadSuccessBase & {
+  requestedRange: LineRange | null;
+  shownRange: LineRange | null;
+};
+
+export type MultiReadSuccess = ReadSuccessBase & {
+  requestedRanges: Array<LineRange>;
+  shownRanges: Array<LineRange>;
+};
+
+export type ReadSuccess = SingleReadSuccess | MultiReadSuccess;
 export type FileFailure = {
   status: "error";
   type: NativeFileError["type"];
@@ -35,7 +45,8 @@ export function splitSourceLines(source: string): Array<string> {
 export function selectSourceLines(
   source: string,
   target: ReadTarget,
-): ReadSuccess {
+): SingleReadSuccess {
+  if (target.ranges !== undefined) throw new NativeFileError("invalid_input");
   const lines = splitSourceLines(source);
   if (
     target.offset >= lines.length &&
@@ -61,9 +72,9 @@ export function selectSourceLines(
 function renderSelection(
   lines: Array<string>,
   target: ReadTarget,
-  result: ReadSuccess,
+  result: SingleReadSuccess,
   window: { start: number; end: number },
-): ReadSuccess {
+): SingleReadSuccess {
   const { start, end } = window;
   for (let index = start; index < end; index += 1) {
     if (!appendReadLine(result, lines[index], index, target)) break;
@@ -81,14 +92,14 @@ function retryOffset(target: ReadTarget, index: number): number {
 }
 
 export function appendReadLine(
-  result: ReadSuccess,
+  result: SingleReadSuccess,
   text: string | undefined,
   index: number,
   target: ReadTarget,
 ): boolean {
   const line =
     text === undefined ? undefined : renderSourceLine(text, index, target.raw);
-  const candidate: ReadSuccess = {
+  const candidate: SingleReadSuccess = {
     ...result,
     content: result.content + (line ?? ""),
     shownRange: {
@@ -124,8 +135,8 @@ export function appendReadLine(
 export function emptyReadResult(
   target: ReadTarget,
   endLine: number,
-): ReadSuccess {
-  const result: ReadSuccess = {
+): SingleReadSuccess {
+  const result: SingleReadSuccess = {
     status: "success",
     kind: "file",
     path: target.path,
@@ -157,4 +168,65 @@ export function renderSourceLine(
   raw = false,
 ): string {
   return raw ? source : `${index + 1}: ${source}`;
+}
+export function emptyMultiReadResult(target: ReadTarget): MultiReadSuccess {
+  const result: MultiReadSuccess = {
+    status: "success",
+    kind: "file",
+    path: target.path,
+    representation: target.raw ? "raw" : "text",
+    content: "",
+    requestedRanges: (target.ranges ?? []).map((range) => ({
+      startLine: range.offset + 1,
+      endLine: range.offset + range.limit,
+    })),
+    shownRanges: [],
+    truncated: false,
+  };
+  if (
+    measureNativeModelOutput({ ...result, nextOffset: target.offset }) >
+    resultBudget(target)
+  )
+    throw new NativeFileError("invalid_selector");
+  return result;
+}
+
+/**
+ * Append one selected line to a multi-range result. Oversized lines never
+ * reach here — the stream reader skips them and continues — so any overflow
+ * ends the read.
+ */
+export function appendMultiReadLine(
+  result: MultiReadSuccess,
+  text: string,
+  index: number,
+  target: ReadTarget,
+): boolean {
+  const line = renderSourceLine(text, index, target.raw);
+  const last = result.shownRanges.at(-1);
+  const contiguous = last !== undefined && last.endLine === index;
+  const shown: LineRange = {
+    startLine: contiguous ? last.startLine : index + 1,
+    endLine: index + 1,
+  };
+  const candidate: MultiReadSuccess = {
+    ...result,
+    content: result.content + line,
+    shownRanges: contiguous
+      ? [...result.shownRanges.slice(0, -1), shown]
+      : [...result.shownRanges, shown],
+  };
+  const isFirstLineOfResult = result.content === "";
+  const overflows =
+    measureNativeModelOutput({ ...candidate, nextOffset: index + 1 }) >
+    resultBudget(target);
+  if (overflows) {
+    result.truncated = true;
+    // A line that fails even as the first line of a fresh result fails again
+    // at this same index on any retry — nextOffset must skip past it instead.
+    result.nextOffset = isFirstLineOfResult ? index + 1 : index;
+    return false;
+  }
+  Object.assign(result, candidate);
+  return true;
 }

@@ -41,6 +41,16 @@ export type ReadTarget = {
   directory?: boolean;
   /** Room withheld from the shared result cap for a caller's envelope. */
   reserveCodeUnits?: number;
+  /**
+   * Comma request: merged requested intervals, zero-based. Absent for
+   * single-range reads, whose `offset`/`limit` window is unchanged.
+   */
+  ranges?: Array<{ offset: number; limit: number }>;
+  /**
+   * Comma request: read intervals after one-line context growth and
+   * re-merge. Absent for single-range reads.
+   */
+  expandedRanges?: Array<{ offset: number; limit: number }>;
 };
 
 /**
@@ -80,6 +90,54 @@ function parseRange(value: string) {
   }
   return { offset: start - 1, limit: end - start + 1 };
 }
+/** Input members stay bounded so metadata and normalization work do too. */
+const MAX_SELECTOR_RANGES = 64;
+
+function mergeIntervals(
+  intervals: Array<{ offset: number; limit: number }>,
+): Array<{ offset: number; limit: number }> {
+  const sorted = [...intervals].sort((a, b) => a.offset - b.offset);
+  const merged: Array<{ offset: number; limit: number }> = [];
+  for (const current of sorted) {
+    const last = merged.at(-1);
+    if (last !== undefined && current.offset <= last.offset + last.limit) {
+      last.limit =
+        Math.max(last.offset + last.limit, current.offset + current.limit) -
+        last.offset;
+    } else {
+      merged.push({ ...current });
+    }
+  }
+  return merged;
+}
+
+/**
+ * Split a comma selector and validate every member with the single-range
+ * rules. The shape gate already enforced each member's form (raw members are
+ * `N-M`), so `parseRange` only repeats the numeric checks here.
+ */
+function parseRanges(value: string): Array<{ offset: number; limit: number }> {
+  const members = value.split(",");
+  if (members.length > MAX_SELECTOR_RANGES)
+    throw new NativeFileError("invalid_selector");
+  return mergeIntervals(members.map(parseRange));
+}
+
+/**
+ * Grow each merged interval one line per side and re-merge windows that now
+ * overlap or sit adjacent. The trailing growth always applies; the reader
+ * clips it at EOF. The leading growth clips at the first line here.
+ */
+function expandRanges(
+  ranges: Array<{ offset: number; limit: number }>,
+): Array<{ offset: number; limit: number }> {
+  return mergeIntervals(
+    ranges.map((range) => ({
+      offset: Math.max(0, range.offset - 1),
+      limit: range.limit + (range.offset > 0 ? 1 : 0) + 1,
+    })),
+  );
+}
 
 async function isDirectoryTarget(path: string): Promise<boolean> {
   const lstats = await lstat(path);
@@ -109,7 +167,9 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
     if (!isNodeError(error)) throw error;
     const code = error.code;
     if (code === "ENOTDIR") throw new NativeFileError("not_found");
-    if (code !== "ENOENT") throw error;
+    // An overlong name cannot exist as a literal path, so it falls through
+    // to selector parsing instead of surfacing a filesystem error.
+    if (code !== "ENOENT" && code !== "ENAMETOOLONG") throw error;
   }
   if (hasTrailingSep) throw new NativeFileError("not_found");
 
@@ -123,7 +183,8 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
  * shape first; everything else applies it and lets `parseRange` reject the
  * ranges this shape admits but the bounds do not.
  */
-const SELECTOR_SUFFIX = /^(?:raw(?::\d+-\d+)?|\d+[-+]\d+)$/u;
+const SELECTOR_SUFFIX =
+  /^(?:raw(?::\d+-\d+(?:,\d+-\d+)*)?|\d+[-+]\d+(?:,\d+[-+]\d+)*)$/u;
 
 export function isSelectorSuffix(value: string): boolean {
   return SELECTOR_SUFFIX.test(value);
@@ -139,9 +200,32 @@ export function applySelectorSuffix(
   if (!isSelectorSuffix(selector))
     throw new NativeFileError("invalid_selector");
   const raw = /^raw:(.*)$/u.exec(selector);
-  return raw
-    ? { path, ...parseRange(raw[1]), raw: true }
-    : { path, ...parseRange(selector), raw: false };
+  if (raw) return applyRangedSelector(path, raw[1], true);
+  return applyRangedSelector(path, selector, false);
+}
+
+/**
+ * Build a single- or multi-range target from validated members. A comma
+ * request keeps its merged request for `requestedRanges` and reads the
+ * context-grown intervals; `offset` stays the first requested start for the
+ * shared EOF rule.
+ */
+function applyRangedSelector(
+  path: string,
+  members: string,
+  raw: boolean,
+): ReadTarget {
+  if (!members.includes(",")) return { path, ...parseRange(members), raw };
+  const ranges = parseRanges(members);
+  return {
+    path,
+    offset: ranges[0].offset,
+    raw,
+    ranges,
+    expandedRanges: raw
+      ? ranges.map((range) => ({ ...range }))
+      : expandRanges(ranges),
+  };
 }
 
 /** Split a combined `path:selector` string, then apply the shared grammar. */

@@ -1,12 +1,16 @@
 import { open, type FileHandle } from "node:fs/promises";
 import { NativeFileError, openFlags, type ReadTarget } from "./path";
 import {
+  appendMultiReadLine,
   appendReadLine,
   boundedReadLineCount,
+  emptyMultiReadResult,
   splitSourceLines,
   emptyReadResult,
   MAX_READ_LINES,
   MAX_RESULT_CODE_UNITS,
+  type LineRange,
+  type MultiReadSuccess,
   type ReadSuccess,
 } from "./source-lines";
 
@@ -78,6 +82,176 @@ async function collectWindow(
   if (count === 0) result.requestedRange = null;
   return result;
 }
+/** A selected line exists past `index` in this or a later expanded range. */
+function hasSelectedLineAfter(
+  expanded: Array<{ offset: number; limit: number }>,
+  rangeIndex: number,
+  index: number,
+): boolean {
+  const range = expanded[rangeIndex];
+  if (index + 1 < range.offset + range.limit) return true;
+  return rangeIndex + 1 < expanded.length;
+}
+
+/** Index of the first expanded range that can still contain `index`. */
+function activeRangeIndex(
+  expanded: Array<{ offset: number; limit: number }>,
+  rangeIndex: number,
+  index: number,
+): number {
+  while (
+    rangeIndex < expanded.length &&
+    index >= expanded[rangeIndex].offset + expanded[rangeIndex].limit
+  ) {
+    rangeIndex++;
+  }
+  return rangeIndex;
+}
+
+/**
+ * Cursor of the single-pass multi-range walk: the expanded selection, the
+ * current range, the source line under inspection, and its text. Built only
+ * for selected, emittable lines — gaps and oversized lines never reach it.
+ */
+type MultiCursor = {
+  expanded: Array<{ offset: number; limit: number }>;
+  rangeIndex: number;
+  index: number;
+  text: string;
+};
+
+/** Result state as a later range started, for whole-range rollback. */
+type RangeSnapshot = {
+  content: string;
+  shownRanges: Array<LineRange>;
+};
+
+type RangeAdmission =
+  | { admitted: true; snapshot: RangeSnapshot | undefined }
+  | { admitted: false; nextOffset: number };
+
+/**
+ * Whole-range admission: a later range must fit whole in the remaining line
+ * budget; only the first range may split at the ceiling. Admission also
+ * captures the rollback snapshot at a later range's first line.
+ */
+function admitRangeLine(
+  cursor: MultiCursor,
+  emitted: number,
+  result: MultiReadSuccess,
+): RangeAdmission {
+  const range = cursor.expanded[cursor.rangeIndex];
+  if (
+    cursor.rangeIndex > 0 &&
+    cursor.index === range.offset &&
+    emitted + range.limit > MAX_READ_LINES
+  ) {
+    return { admitted: false, nextOffset: range.offset };
+  }
+  if (cursor.rangeIndex === 0 && emitted >= MAX_READ_LINES) {
+    return { admitted: false, nextOffset: cursor.index };
+  }
+  return {
+    admitted: true,
+    snapshot:
+      cursor.rangeIndex > 0 && cursor.index === range.offset
+        ? { content: result.content, shownRanges: [...result.shownRanges] }
+        : undefined,
+  };
+}
+
+/**
+ * Budget-failure recovery: roll a partial later range back so the retry
+ * drops earlier ranges and fits on a fresh budget. Without a snapshot the
+ * failing line is the first range's own split point, kept unless nothing
+ * selected remains for a retry.
+ */
+function recoverAppendFailure(
+  cursor: MultiCursor,
+  snapshot: RangeSnapshot | undefined,
+  result: MultiReadSuccess,
+): void {
+  if (snapshot !== undefined) {
+    result.content = snapshot.content;
+    result.shownRanges = snapshot.shownRanges;
+    result.nextOffset = cursor.expanded[cursor.rangeIndex].offset;
+    return;
+  }
+  if (
+    result.content === "" &&
+    !hasSelectedLineAfter(cursor.expanded, cursor.rangeIndex, cursor.index)
+  ) {
+    delete result.nextOffset;
+  }
+}
+
+/**
+ * Append one selected line, recovering a partial later range on budget
+ * failure. Returns true when the read ends here.
+ */
+function haltAfterAppend(
+  cursor: MultiCursor,
+  snapshot: RangeSnapshot | undefined,
+  result: MultiReadSuccess,
+  target: ReadTarget,
+): boolean {
+  if (appendMultiReadLine(result, cursor.text, cursor.index, target))
+    return false;
+  recoverAppendFailure(cursor, snapshot, result);
+  return true;
+}
+
+/** EOF rule for a multi-range read: clip, fail a start past EOF, or empty. */
+function finishMultiWindow(
+  result: MultiReadSuccess,
+  target: ReadTarget,
+  count: number,
+): MultiReadSuccess {
+  if (result.shownRanges.length === 0) {
+    if (target.offset >= count && (count > 0 || target.offset !== 0))
+      throw new NativeFileError("invalid_selector");
+    if (count === 0) result.requestedRanges = [];
+  }
+  return result;
+}
+
+async function collectMultiWindow(
+  file: FileHandle,
+  target: ReadTarget,
+  signal: AbortSignal | undefined,
+): Promise<MultiReadSuccess> {
+  const expanded = target.expandedRanges ?? [];
+  const result = emptyMultiReadResult(target);
+  let emitted = 0;
+  let count = 0;
+  let rangeIndex = 0;
+  let rangeSnapshot: RangeSnapshot | undefined;
+  for await (const text of sourceLines(file, signal)) {
+    const index = count++;
+    rangeIndex = activeRangeIndex(expanded, rangeIndex, index);
+    if (rangeIndex >= expanded.length) break;
+    if (index < expanded[rangeIndex].offset) continue;
+    if (text === undefined) {
+      // An individually oversized line is omitted and skipped: the read
+      // continues past it, so one poison line never ends the whole read.
+      result.truncated = true;
+      continue;
+    }
+    const cursor: MultiCursor = { expanded, rangeIndex, index, text };
+    const admission = admitRangeLine(cursor, emitted, result);
+    if (!admission.admitted) {
+      result.truncated = true;
+      result.nextOffset = admission.nextOffset;
+      return result;
+    }
+    if (admission.snapshot !== undefined) rangeSnapshot = admission.snapshot;
+    if (haltAfterAppend(cursor, rangeSnapshot, result, target)) {
+      return result;
+    }
+    emitted += 1;
+  }
+  return finishMultiWindow(result, target, count);
+}
 
 export async function streamFileWindow(
   target: ReadTarget,
@@ -91,7 +265,9 @@ export async function streamFileWindow(
   try {
     if (!(await file.stat()).isFile())
       throw new NativeFileError("not_regular_file");
-    return await collectWindow(file, target, source.signal);
+    return target.ranges !== undefined
+      ? await collectMultiWindow(file, target, source.signal)
+      : await collectWindow(file, target, source.signal);
   } finally {
     await file.close();
   }

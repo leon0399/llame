@@ -24,8 +24,10 @@ listing is included.
   metadata and normalization work.
 - D3: Stream once through one open descriptor and buffer at most one
   budget-sized candidate range. Commit complete ranges until one cannot fit;
-  split only an oversized first range. Apply final serialized envelope bounds
-  before returning, including escaped content and all range metadata.
+  split only an oversized first range, and skip individually oversized lines
+  and continue past them instead of ending the read. Apply final serialized
+  envelope bounds before returning, including escaped content and all range
+  metadata.
 - D4: Keep `nextOffset` as a source coordinate over the expanded selection.
   Document trimming `requestedRanges` at `nextOffset + 1` and re-running
   sort, merge, and expansion on the trimmed request, rather than introducing

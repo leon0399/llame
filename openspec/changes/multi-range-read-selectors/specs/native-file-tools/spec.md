@@ -100,7 +100,7 @@ The tool SHALL return a prefix of expanded ranges, favoring whole ranges:
 after emitting one complete range, a subsequent range that cannot fit SHALL be
 omitted in full and end the read. If the first range cannot fit, the tool SHALL
 emit the complete source lines from its prefix that fit. An individually
-oversized line SHALL be omitted under the existing forward-progress rule.
+oversized line SHALL be omitted and skipped without ending the read: the tool reports truncation and continues past it.
 A truncated result's zero-based `nextOffset`, when present, SHALL identify the
 first remaining selected line, skipping gaps and an individually oversized
 line that cannot fit on retry. It SHALL be absent when no selected line remains.

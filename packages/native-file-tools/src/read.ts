@@ -141,6 +141,13 @@ function runListing(
       type: "invalid_selector",
       message: "The :raw selector is not supported for directory reads.",
     };
+  if (target.ranges !== undefined)
+    return {
+      status: "error",
+      type: "invalid_selector",
+      message:
+        "Comma-separated selectors are not supported for directory reads.",
+    };
   const options: DirectoryListingOptions = { displayPath: target.path };
   if (target.offset > 0 || target.limit !== undefined) {
     options.offset = target.offset;
