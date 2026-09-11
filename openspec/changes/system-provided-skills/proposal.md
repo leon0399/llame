@@ -4,13 +4,17 @@ llame has no reusable operator-provided workflow catalog. Issue [#770](https://g
 
 ## What Changes
 
-- D1: Configure directories containing skill directories; later sources override earlier sources by name. Only operator-managed sources participate.
-- D2: Advertise bounded skill metadata in a frozen system-prompt baseline. Announce catalog changes on the next user turn through existing system reminders; refresh the baseline while preparing the next user turn after compaction, leaving an already-bound Run unchanged.
-- D3: Load current instructions and references through read-only `skill://` locators. Expose real package/file paths so existing Bash can run bundled scripts without URI rewriting or implicit working-directory changes.
-- D4: Support explicit `$skill-name` references and proactive multi-skill use. Honor existing manual-only invocation controls without granting permissions.
-- D5: Check current availability at invocation; preserve historical observations without pinning future reads. Removal prevents new skill loads, not ordinary permitted access to surviving files.
+Delivered as five implementation layers, each independently reviewable and each leaving the product working end to end:
 
-MCP-provided skills (#772), personal/workspace discovery, marketplaces, script runtimes, and active-Run model steering (#782) are outside this change.
+- D1 (catalog): Configure directories containing skill directories; later sources override earlier sources by name. Only operator-managed sources participate. Validate packages, resolve invocation controls, and expose the catalog to authenticated owners through `GET /api/v1/skills`. No model-facing behavior yet.
+- D2 (read): Load current instructions and references through read-only `skill://` locators in the native `read` tool. Expose real package/file paths so existing Bash can run bundled scripts without URI rewriting or implicit working-directory changes.
+- D3 (prompt): Advertise proactively eligible skills through a `skills` Handlebars namespace: `{{#if skills}}` gates the section and `{{#each skills.entries}}` lists name and description. The packaged default prompt carries the block; an operator template opts in by referencing the namespace. The advertised set is a frozen per-epoch baseline stored on the chat, re-resolved at the next accepted turn after compaction, bounded with shown/total disclosure.
+- D4 (activation): Recognize `$skill-name` mentions in user text, load each selected skill before the first model request through the common read admission path, and persist one `skill-activation` context item per selection carrying the skill directory, resolved file, relative-path guidance, and the current instructions. Manual-only skills load only this way.
+- D5 (notices): On each later user turn, compare the current proactively eligible set with the set the chat was last told and append one `skill-catalog` notice listing added entries with descriptions and removed names. An overflowing delta is replaced by a bounded snapshot that supersedes earlier notices. Compaction starts a fresh baseline.
+
+Across every layer: check current availability at each read; preserve historical observations without pinning future reads. Removal prevents new skill loads, not ordinary permitted access to surviving files.
+
+Deferred to a follow-up change: notices for a changed description or changed instruction content of an entry that stays advertised. Reads are live, so the next load returns current content; only the reminder to reload is missing. MCP-provided skills (#772), personal/workspace discovery, marketplaces, script runtimes, and active-Run model steering (#782) are outside this change.
 
 ## Capabilities
 
@@ -22,11 +26,11 @@ MCP-provided skills (#772), personal/workspace discovery, marketplaces, script r
 
 - `instance-config`: Operator skill source directories with an empty default.
 - `native-file-tools`: Read-only skill locators and model-visible package paths.
-- `context-injection`: Skill catalog and explicit-activation producers, ordered on the existing rail.
-- `model-system-prompts`: Explicitly permit published skill paths in owner receipts while preserving private configuration boundaries.
+- `model-system-prompts`: The `skills` prompt projection namespace (gate, bounded collection, scalar metadata, boot probe), and explicitly permitted published skill paths in owner receipts.
+- `context-injection`: `skill-activation` and `skill-catalog` producers, ordered on the existing rail, with the frozen catalog baseline classified as prefix-resident state.
 
 ## Impact
 
-API instance configuration, native read dispatch/classification, user-turn preparation, prompt composition, context receipts, and owner-visible context/tool results. Reuse the current Bash executor and permission admission contract; coordinate with #763 without editing its implementation in this proposal.
+API instance configuration, native read dispatch/classification, prompt template validation and projection, user-turn preparation, chat-row baseline columns, context receipts, and owner-visible context/tool results. Reuse the current Bash executor and permission admission contract; coordinate with #763 without editing its implementation in this proposal.
 
 Global skill packages are operator-trusted and intentionally publish their paths and content to authenticated owners. Knowledge backing paths and owner data remain protected. Scripts retain the executor's ordinary authority; skills do not create an isolation boundary or automatic tool grants.

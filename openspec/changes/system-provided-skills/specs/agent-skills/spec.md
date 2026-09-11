@@ -1,6 +1,6 @@
 ## Purpose
 
-Provides operator-managed reusable skill packages with explicit and proactive activation, live resource reads, executable path disclosure, and durable owner-visible observations.
+Provides operator-managed reusable skill packages with explicit and proactive activation, live resource reads, executable path disclosure, and durable owner-visible observations. Prompt advertisement is owned by `model-system-prompts`; rail items are owned by `context-injection`; this capability owns the catalog, invocation semantics, and reads.
 
 ## ADDED Requirements
 
@@ -26,7 +26,7 @@ The system SHALL discover immediate skill directories beneath configured operato
 
 ### Requirement: Invocation controls distinguish explicit selection from proactive use
 
-The system SHALL resolve the first present invocation-control value in this order: `agents/llame.yaml` `policy.allow_implicit_invocation`, then `SKILL.md` frontmatter `disable-model-invocation` with inverted boolean meaning, then `agents/openai.yaml` `policy.allow_implicit_invocation`, then proactive loading enabled by default. A configured boolean SHALL end resolution even when it enables proactive loading. Lower-priority invocation settings SHALL NOT be parsed, validated, or allowed to override that value. A sidecar with no control SHALL fall through. A malformed consulted sidecar or wrong-typed consulted control SHALL invalidate the package without fallback. Required `SKILL.md` package metadata SHALL always be parsed and validated independently of invocation-control selection; an ignored lower-priority invocation field SHALL NOT invalidate otherwise valid frontmatter. Manual-only packages SHALL be absent from proactive model catalog entries and SHALL require explicit selection in the current user turn for skill-locator body/resource reads. Authenticated owner inspection SHALL include manual-only packages. These controls SHALL NOT change ordinary absolute-path permissions or grant tool authority.
+The system SHALL resolve the first present invocation-control value in this order: `agents/llame.yaml` `policy.allow_implicit_invocation`, then `SKILL.md` frontmatter `disable-model-invocation` with inverted boolean meaning, then `agents/openai.yaml` `policy.allow_implicit_invocation`, then proactive loading enabled by default. A configured boolean SHALL end resolution even when it enables proactive loading. Lower-priority invocation settings SHALL NOT be parsed, validated, or allowed to override that value. A sidecar with no control SHALL fall through. A malformed consulted sidecar or wrong-typed consulted control SHALL invalidate the package without fallback. Required `SKILL.md` package metadata SHALL always be parsed and validated independently of invocation-control selection; an ignored lower-priority invocation field SHALL NOT invalidate otherwise valid frontmatter. Manual-only packages SHALL be absent from the proactive `skills` prompt projection and from `skill://` listings, and SHALL require explicit selection in the current user turn for skill-locator body/resource reads. Authenticated owner inspection SHALL include manual-only packages. These controls SHALL NOT change ordinary absolute-path permissions or grant tool authority.
 
 #### Scenario: Model combines skills
 
@@ -62,13 +62,19 @@ The system SHALL resolve the first present invocation-control value in this orde
 
 ### Requirement: Explicit mentions load skills before the first model request
 
-The system SHALL recognize exact `$skill-name` tokens in user-authored text outside fenced code, inline code, and escaped dollar signs, with valid name boundaries. It SHALL load distinct selected skills in first-mention order before the Run's first model request, deduplicating repeated mentions within that user turn. Ordinary mentions SHALL remain model-selected. Activation SHALL use the same read availability, input validation, permission admission, live resolver, and result bounds as proactive reads. The user text SHALL be retained subject to existing reserved-delimiter sanitation; activation SHALL NOT remove mention tokens or perform argument substitution. Explicit activation SHALL attempt at most eight distinct selections, with a 128 KiB aggregate serialized output bound including envelopes and a 30-second aggregate work deadline further limited by the Run deadline. Remaining output/time SHALL constrain each read, and exhausted budgets SHALL stop further reads. Unattempted selections SHALL produce one bounded omission notice, without per-selection discovery or output. Each activation result SHALL be persisted as an owner-visible context item rather than a fabricated model tool call. An unavailable, invalid, or denied selection SHALL produce a bounded failure item without stopping other selections or the Run.
+The system SHALL recognize exact `$skill-name` tokens in user-authored text outside fenced code, inline code, and escaped dollar signs, with valid name boundaries. It SHALL load distinct selected skills in first-mention order before the Run's first model request, deduplicating repeated mentions within that user turn. Ordinary mentions SHALL remain model-selected. Activation SHALL use the same read availability, input validation, permission admission, live resolver, and result bounds as proactive reads, issuing the raw root read `skill://<name>:raw` with the turn's selection set so the persisted instructions carry no line-number prefixes and a manual-only selection loads. The user text SHALL be retained subject to existing reserved-delimiter sanitation; activation SHALL NOT remove mention tokens or perform argument substitution. Explicit activation SHALL attempt at most eight distinct selections, with a 128 KiB aggregate serialized output bound including envelopes and a 30-second aggregate work deadline further limited by the Run deadline. Remaining output/time SHALL constrain each read, and exhausted budgets SHALL stop further reads. Unattempted selections SHALL produce one bounded omission notice, without per-selection discovery or output. Each activation result SHALL be persisted as an owner-visible context item rather than a fabricated model tool call. An unavailable, invalid, or denied selection SHALL produce a bounded failure item carrying one closed reason from `not_found`, `unavailable`, `permission_denied`, and `read_failed`, without stopping other selections or the Run. The rendered activation item SHALL state the mention, the absolute skill directory and instructions file, the relative-path and `cwd` guidance, a precedence statement, and the verbatim instructions, per `context-injection`.
 
 #### Scenario: User selects two skills
 
 - **WHEN** the user sends `$research $technical-writing compare these APIs`
 - **THEN** both current instruction bodies are loaded in that order before the first model request, subject to read admission
 - **AND** the retained user text, with existing delimiter sanitation applied, follows the activation items
+
+#### Scenario: Manual-only skill is selected explicitly
+
+- **WHEN** the user sends `$review` and `review` is manual-only
+- **THEN** its instructions are loaded through the same read admission with `review` in the turn's selection set
+- **AND** a model-initiated `skill://review` read on a later turn without that selection is refused
 
 #### Scenario: Example text is not an activation
 
@@ -125,7 +131,7 @@ Skill loading SHALL publish the selected package's real absolute directory and r
 
 ### Requirement: Owners can inspect the current catalog
 
-Authenticated owners SHALL be able to inspect the same system catalog through `GET /api/v1/skills`, including source paths, invocation eligibility, unavailable entries, diagnostics, and pagination or explicit omission metadata. Unauthenticated requests SHALL fail. This surface SHALL NOT publish credentials or allow catalog mutation. Skill read listing at `skill://` SHALL be bounded and filter manual-only entries unless selected in the current user turn. Catalog bodies SHALL remain absent until selected.
+Authenticated owners SHALL be able to inspect the same system catalog through `GET /api/v1/skills`, including source paths, invocation eligibility, unavailable entries, diagnostics, and pagination or explicit omission metadata. Unauthenticated requests SHALL fail. This surface SHALL NOT publish credentials or allow catalog mutation. Skill read listing at `skill://` SHALL be bounded and filter manual-only entries unless selected in the current user turn. Catalog bodies SHALL remain absent until selected. Prompt advertisement SHALL be limited to proactively eligible entries admitted to the chat's frozen baseline, and a description or content change of a still-advertised entry SHALL NOT be announced in this change.
 
 #### Scenario: Two owners inspect shared packages
 
