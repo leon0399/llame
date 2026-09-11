@@ -182,7 +182,40 @@ Stored completed effects and observations SHALL remain historical facts. The exi
 
 Every newly evaluated call SHALL obtain a trusted decision before executor dispatch. Its owner-scoped tool activity and stored tool-part metadata SHALL record an opaque random policy-instance ID independent of policy contents, allow/reject decision, static reason, and bounded deterministic clause reference when one matched. No-match, invalid-field, and input-limit decisions SHALL use explicit static reasons. Policy bodies, matched fragments, and resolved config secrets SHALL NOT be included. The ID SHALL remain fixed within its executor process and be regenerated on restart, even with unchanged configuration. It SHALL NOT expose a deterministic digest of interpolated private values. The metadata SHALL be excluded from model replay, public shares, exports, and search.
 
-A rejected otherwise valid call SHALL return `status: "error"`, `type: "permission_denied"`, and the static message `Tool call rejected by operator permissions.` It SHALL produce no tool effect or native attempt, no automatic retry, no approval request, and no permission-caused Run termination. The model SHALL observe the error and continue subject to existing Run limits. The decision SHALL be durably recorded on `tool.requested` before any `tool.started` event or executor dispatch, and carried through completion, abort settlement, and durable transcript reconstruction into stored tool-part metadata. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.
+A rejected otherwise valid call SHALL return `status: "error"`, `type: "permission_denied"`, and the code-owned message selected by the static decision reason below It SHALL produce no tool effect or native attempt, no automatic retry, no approval request, and no permission-caused Run termination. The model SHALL observe the error and continue subject to existing Run limits. The decision SHALL be durably recorded on `tool.requested` before any `tool.started` event or executor dispatch, and carried through completion, abort settlement, and durable transcript reconstruction into stored tool-part metadata. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.
+
+The model-visible message SHALL use one of these fixed templates. It SHALL NOT interpolate rule text, matching fragments, field names, private paths, operator-authored explanations, clause references, policy IDs, or secret values. The static reason explanation is deliberately model-visible; the separate diagnostic metadata remains excluded from model context. These instructions guide model behavior and SHALL NOT be represented as an enforced sandbox or an equivalence detector. Every later submitted call still receives its own admission decision.
+
+#### Message for `explicit_reject`
+
+```text
+Tool call rejected before execution by operator permissions. A reject rule matched. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.
+```
+
+#### Message for `no_allow`
+
+```text
+Tool call rejected before execution by operator permissions. No allow rule permits this call. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.
+```
+
+#### Message for `invalid_field`
+
+```text
+Tool call rejected before execution by operator permissions. The configured permission rule is incompatible with this tool. Do not retry this call or change permission settings yourself. Report the configuration problem to the user and continue with other permitted work. In-run approval is unavailable.
+```
+
+#### Message for `input_limit`
+
+```text
+Tool call rejected before execution by operator permissions. The submitted input exceeds the permission inspection limit. Do not retry unchanged or evade a reject by splitting, encoding, switching tools, or delegating. A smaller request may be submitted only as independently permitted work. In-run approval is unavailable; explain any blocked required step to the user.
+```
+
+#### Scenario: Reject explains its effect without revealing policy
+
+- **WHEN** a reject rule blocks a call
+- **THEN** the result identifies rejection before execution, gives the fixed matching-reject reason, and instructs the model against retrying or bypassing it through other tools or agents
+- **AND** neither interpolated private rule text nor matched input appears in the message
+- **AND** other permitted work may continue without claiming that this call ran
 
 #### Scenario: Reject then continue with another tool
 

@@ -76,13 +76,13 @@ Inject the immutable process policy through trusted executor dependencies, never
 
 The decision algorithm is: check all applicable rejects and input limits; reject if any matches or evaluation cannot complete safely; otherwise allow if the whole-tool allow or any field allow matches; otherwise reject. Existing cancellation, invalid-input, and unavailable-executor behavior remains applicable; this change does not convert every failure into a permission error.
 
-Rejected calls produce the stable model-visible result:
+Rejected calls retain the existing error envelope and use a fixed reason-specific message from the capability spec. Example for a matching reject:
 
 ```json
 {
   "status": "error",
   "type": "permission_denied",
-  "message": "Tool call rejected by operator permissions."
+  "message": "Tool call rejected before execution by operator permissions. A reject rule matched. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user."
 }
 ```
 
@@ -112,6 +112,15 @@ A queued call that has not executed uses the restarted worker's new policy. Alre
 - OpenClaw corrected durable approvals that omitted cwd/argument binding. Those approval mechanics belong to #778; here the actual submitted fields and process policy are evaluated at each new call. [Cwd fix](https://github.com/openclaw/openclaw/commit/1c37c8cdc71bd2738b35bb5c433b3d545e040501).
 - Claude Code limits generic parameter allows, and both Claude Code and Codex expose programmable whole-input checks through hooks. A built-in bounded string matcher meets this request without adding a general hook runtime. [Claude rules](https://code.claude.com/docs/en/permissions#match-by-input-parameter), [Codex hooks](https://learn.chatgpt.com/docs/hooks#pretooluse).
 
+The rejection-message comparison supports reason-specific guidance without copying another harness's approval model:
+
+| Source                                                                                                                                                                           | Observed behavior                                                                                                    | Decision for this change                                                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Codex approval resolution](https://github.com/openai/codex/blob/02a8f038b87ad34d4a1dc5058eda26972ed7aa6c/codex-rs/core/src/tools/approvals.rs#L434)                             | Distinguishes user, configuration, and automatic-review rejection.                                                   | Name operator policy as the source; do not claim the user declined an approval.                                                            |
+| [Claude Code PreToolUse](https://code.claude.com/docs/en/hooks#pretooluse-decision-control)                                                                                      | A deny blocks execution and exposes its reason to the model.                                                         | Give a fixed reason and explicit behavioral guidance without accepting arbitrary policy-authored text.                                     |
+| [OMP approval wrapper](https://github.com/can1357/oh-my-pi/blob/8d01d3b79099a0ad10d050538a08bd4c22886dd7/packages/coding-agent/src/extensibility/extensions/wrapper.ts#L305)     | Distinguishes unavailable interactive approval from user denial; its unavailable-UI error suggests settings changes. | Do not suggest enabling approval bypass or editing configuration; no in-run approval exists in this slice.                                 |
+| [Pi permission-gate example](https://github.com/badlogic/pi-mono/blob/f3c672245d25ef2283ffc0d9cdec8a5482651103/packages/coding-agent/examples/extensions/permission-gate.ts#L19) | An extension supplies a short blocking reason, including lack of a confirmation UI.                                  | Preserve rejection as a tool observation and add guidance about what to do next. This is an example extension, not a universal Pi default. |
+
 ### D8: Portable defaults and local-only policy
 
 The source image supplies examples of destructive host operations, not a complete permission model. The inspected `~/.claude/settings.json` mixes credential protection with one operator's developer tools, MCP servers, personal instruction files, and workflow preferences. These inform the following default map; neither source's syntax is imported. Sources: [provided image](https://pbs.twimg.com/media/HReP41pbsAA6Bdz?format=png&name=900x900), local permission settings inspected on 2026-09-11, and [Claude's documented settings shape](https://code.claude.com/docs/en/settings). The local nested `permissions.read`/`permissions.write` blocks are treated as stated intent, not evidence of effective enforcement by that installation.
@@ -135,6 +144,125 @@ Local-only examples should explain decisions without copying Leo's machine paths
 - L3: MCP namespaces, named skills, and personal instruction-file edit exceptions are installation-specific. No MCP wildcard permission groups, skill permission engine, HTTP tool, or imported `auto`/`ask` mode is introduced here.
 - L4: Generic `secrets`/`credentials` directories, all `.key`/`.pem` files, `.npm` caches, `docker-compose*.yml`, and `config/database.yml` may contain secrets or ordinary fixtures/configuration. Keep broader bans explicit and local; standard credential locations are the narrower global default.
 
+### D9: Concrete shipped configuration example
+
+The implementation will replace the `tools` section in `apps/api/llame.config.json.example` with the following complete section. Other existing configuration remains outside this excerpt. It preserves the current example's `search_conversations` availability opt-in; listing a permission group does not enable Bash or native files. Removing the entire `permissions` property selects the same built-in policy. Keeping it makes this a complete operator replacement, including every default group and reject.
+
+```json
+{
+  "tools": {
+    "allowed": ["search_conversations"],
+    "permissions": {
+      "bash": {
+        "allow": true,
+        "reject": [
+          {
+            "field": "command",
+            "regex": "(^|[^A-Za-z0-9_])(sudo|shutdown|reboot|halt|poweroff|mkfs([.][A-Za-z0-9_-]+)?)(\\s|$)"
+          },
+          {
+            "field": "command",
+            "regex": "\\brm\\s+-(rf|fr)\\s+['\"]?(/\\*?|~(\\*|/\\*?)?|\\$HOME(/\\*?)?|\\$\\{{HOME\\}(/\\*?)?)['\"]?($|[\\s;&|])"
+          },
+          {
+            "field": "command",
+            "regex": "\\bdd\\s+[^\\r\\n;&|]*\\bof=/dev/"
+          },
+          {
+            "field": "command",
+            "literal": "diskutil erase"
+          },
+          {
+            "field": "command",
+            "literal": "diskutil apfs delete"
+          },
+          {
+            "field": "command",
+            "literal": "git reset --hard"
+          },
+          {
+            "field": "command",
+            "literal": "chmod -R 777"
+          },
+          {
+            "field": "command",
+            "regex": "\\b(curl|wget)\\s+[^\\r\\n;|]*\\x7c\\s*(ba|z|da|k)?sh(\\s|$)"
+          }
+        ]
+      },
+      "read": {
+        "allow": true,
+        "reject": [
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.ssh|\\.aws|\\.azure|\\.gnupg|\\.kube)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.git-credentials|\\.npmrc|\\.pypirc)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.docker[/\\\\]config\\.json|\\.gem[/\\\\]credentials|\\.config[/\\\\]gh)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])\\.env($|:|\\.(local|development|production|staging|test)(\\.local)?($|:))"
+          }
+        ]
+      },
+      "edit": {
+        "allow": true,
+        "reject": [
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.ssh|\\.aws|\\.azure|\\.gnupg|\\.kube)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.git-credentials|\\.npmrc|\\.pypirc)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.docker[/\\\\]config\\.json|\\.gem[/\\\\]credentials|\\.config[/\\\\]gh)([/\\\\]|$|:)"
+          }
+        ]
+      },
+      "write": {
+        "allow": true,
+        "reject": [
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.ssh|\\.aws|\\.azure|\\.gnupg|\\.kube)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.git-credentials|\\.npmrc|\\.pypirc)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.docker[/\\\\]config\\.json|\\.gem[/\\\\]credentials|\\.config[/\\\\]gh)([/\\\\]|$|:)"
+          }
+        ]
+      },
+      "knowledge_search": {
+        "allow": true
+      },
+      "search_conversations": {
+        "allow": true
+      },
+      "conversation_read": {
+        "allow": true
+      }
+    },
+    "maxStepsPerRun": 20,
+    "callTimeoutSeconds": 120
+  }
+}
+```
+
+The doubled opening brace in B2 is intentional config-source escaping: the single interpolation pass restores the regex's literal `${HOME}` spelling. Implementation tests must load this example through the real loader, compare the effective permission map to the built-in constants, and run the default matrix through both paths. Do not copy an incomplete group excerpt into this whole-map replacement setting.
+
 ## Risks / Trade-offs
 
 - R1: Text patterns reject quoted mentions and miss differently spelled commands. Publish the example matrix in the capability spec; make no sandbox or command-equivalence claim.
@@ -152,6 +280,8 @@ Local-only examples should explain decisions without copying Leo's machine paths
 5. Roll back by restoring the previous binary and its compatible config together. The old binary cannot accept the new closed-schema key; rolling back also removes this call-policy gate and must be an explicit operator decision.
 
 ## Revision history
+
+- v7 (2026-09-11): Applied Plannotator feedback with source-checked reason-specific rejection messages and a complete configuration example matching the default map.
 
 - v6 (2026-09-11): Made credential-locator defaults recognize backslash separators as well as slashes.
 
