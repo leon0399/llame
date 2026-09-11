@@ -1,8 +1,10 @@
+# subscription-access-openai-codex
+
 ## Purpose
 
 Enable a personal operator's ChatGPT/Codex subscription as a system model provider while llame retains durable execution and owner isolation.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Fixed direct inference transport
 
@@ -38,7 +40,7 @@ The system SHALL use startup credential snapshots without llame-managed login, r
 
 ### Requirement: Preserve llame execution semantics
 
-The provider SHALL preserve llame's effective instructions, authorized tools, ordered tool calls/results, recorded reasoning display, persisted effort, cancellation, and execution bounds. It SHALL NOT inject peer-agent prompts or add opaque reasoning to persisted history, later Run context, or owner-visible output. It SHALL support compaction through the same transport and existing source-model/effort semantics. Unsupported meaningful request features SHALL fail explicitly rather than being silently discarded.
+The provider SHALL preserve llame's effective instructions, authorized tools, ordered tool calls/results, provider-returned condensed reasoning summaries, persisted effort, cancellation, and execution bounds. It SHALL persist only the SDK `reasoningSummary: "auto"` display text as a `reasoning` part; opaque provider reasoning, encrypted reasoning, and reasoning-item identifiers SHALL remain transient and SHALL NOT reach persisted history, later Run context, owner-visible output, logs, telemetry, or errors. It SHALL support compaction through the same transport and existing source-model/effort semantics. Unsupported meaningful request features SHALL fail explicitly rather than being silently discarded.
 
 #### Scenario: Authorized multi-step Run
 
@@ -66,7 +68,7 @@ The provider SHALL preserve llame's effective instructions, authorized tools, or
 
 ### Requirement: Contain credential and owner data
 
-The system SHALL keep credentials, account IDs, and resolved host paths out of owner/public output, model context, logs, and telemetry. Upstream failures SHALL be sanitized without exposing raw response bodies or authorization headers. Startup diagnostics SHALL follow the existing operator interpolation error contract. System catalog visibility SHALL retain the existing authenticated instance policy; it SHALL NOT grant access to another owner's Chats, Runs, or tool data.
+The system SHALL keep credentials, account IDs, and resolved host paths out of persisted history, message parts, Run records, receipts, errors, owner/public output, model context, logs, and telemetry. Sanitization SHALL occur before any durable write or owner-visible event. Upstream failures SHALL be sanitized without exposing raw response bodies or authorization headers. Startup diagnostics SHALL follow the existing operator interpolation error contract. System catalog visibility SHALL retain the existing authenticated instance policy; it SHALL NOT grant access to another owner's Chats, Runs, or tool data.
 
 #### Scenario: Another owner accesses execution data
 
