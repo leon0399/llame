@@ -121,6 +121,19 @@ const KNOWLEDGE_SEARCH_TOOL_ID = "knowledge_search";
 const NATIVE_READ_TOOL_ID = "read";
 const BASH_PROMPT_MARKER = "host bash output fidelity e2e";
 const BASH_OUTPUT_PATH = "/tmp/llame-e2e-bash-output";
+// Permission-gate acceptance: a rejected Bash call, then an allowed read.
+const PERMISSION_PROMPT_MARKER = "permission rejection e2e";
+const PERMISSION_DENIED_COMMAND = "e2e-permission-denied";
+const PERMISSION_READ_PATH = "/etc/hostname";
+const PERMISSION_ANSWER_TOKENS = [
+  "Blocked",
+  " bash",
+  " was",
+  " skipped",
+  ";",
+  " read",
+  " continued.",
+];
 const STDIO_PROMPT_MARKER = "local stdio fixture evidence";
 const STDIO_RESULT_SENTINEL = "FIXTURE_STDIO_SENTINEL";
 const STDIO_ANSWER_TOKENS = [
@@ -518,6 +531,10 @@ function classify(raw: string) {
       hasStdioFixtureResult: raw.includes(STDIO_RESULT_SENTINEL),
       asksBash: content.includes(BASH_PROMPT_MARKER),
       hasBashTool: toolIsOffered(body.tools, BASH_TOOL_ID),
+      asksPermissionFlow: content.includes(PERMISSION_PROMPT_MARKER),
+      hasPermissionDeniedBashResult: raw.includes("permission_denied"),
+      hasPermissionReadResult:
+        findConversationReadResult(currentTurnMessages) !== undefined,
       asksKnowledge: knowledge.asksKnowledge,
       hasKnowledgeSearchTool: toolIsOffered(
         body.tools,
@@ -564,6 +581,9 @@ function classify(raw: string) {
       hasStdioFixtureResult: false,
       asksBash: false,
       hasBashTool: false,
+      asksPermissionFlow: false,
+      hasPermissionDeniedBashResult: false,
+      hasPermissionReadResult: false,
       asksKnowledge: false,
       hasKnowledgeSearchTool: false,
       hasNativeReadTool: false,
@@ -915,6 +935,50 @@ function tryMcpFixtureResultAnswer(ctx: ChunkContext): boolean {
   return true;
 }
 
+// Permission-gate acceptance: ask for a Bash command the e2e policy rejects,
+// then — after observing the `permission_denied` observation — ask for an
+// allowed read, then answer. Gated on its own marker so it cannot affect the
+// other browser fixtures.
+function tryPermissionBashTurn(ctx: ChunkContext): boolean {
+  if (
+    !ctx.asksPermissionFlow ||
+    !ctx.hasBashTool ||
+    ctx.hasPermissionDeniedBashResult ||
+    ctx.hasPermissionReadResult
+  ) {
+    return false;
+  }
+  writeToolCall(ctx.res, {
+    id: "call_permission_denied_bash_e2e",
+    name: BASH_TOOL_ID,
+    arguments: { command: PERMISSION_DENIED_COMMAND },
+  });
+  return true;
+}
+
+function tryPermissionReadTurn(ctx: ChunkContext): boolean {
+  if (
+    !ctx.asksPermissionFlow ||
+    !ctx.hasPermissionDeniedBashResult ||
+    !ctx.hasNativeReadTool ||
+    ctx.hasPermissionReadResult
+  ) {
+    return false;
+  }
+  writeToolCall(ctx.res, {
+    id: "call_permission_allowed_read_e2e",
+    name: NATIVE_READ_TOOL_ID,
+    arguments: { path: PERMISSION_READ_PATH },
+  });
+  return true;
+}
+
+function tryPermissionAnswerTurn(ctx: ChunkContext): boolean {
+  if (!ctx.asksPermissionFlow || !ctx.hasPermissionReadResult) return false;
+  writeAnswer(ctx.res, PERMISSION_ANSWER_TOKENS);
+  return true;
+}
+
 // Native tool-loop first turn: the real DB-backed search is unchanged.
 function tryNativeToolLoopFirstTurn(ctx: ChunkContext): boolean {
   if (
@@ -1004,6 +1068,10 @@ async function respondToChatCompletion(
   if (tryStdioFixtureFirstTurn(ctx)) return;
   if (tryStdioFixtureResultAnswer(ctx)) return;
   if (tryMcpFixtureResultAnswer(ctx)) return;
+
+  if (tryPermissionBashTurn(ctx)) return;
+  if (tryPermissionReadTurn(ctx)) return;
+  if (tryPermissionAnswerTurn(ctx)) return;
 
   if (tryNativeToolLoopFirstTurn(ctx)) return;
 
