@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
-import { BUILT_IN_TOOL_PERMISSIONS } from './built-in-policy';
+import { PORTABLE_TOOL_PERMISSIONS } from '../../testing/portable-tool-policy';
 import { PermissionCompileError } from './limits';
 import {
   toolPermissionPolicyProvider,
@@ -16,8 +16,8 @@ const invalidRegex: ToolPermissionMap = {
 };
 
 describe('buildToolPermissionPolicy', () => {
-  it('compiles the built-in map and stamps an opaque policy id', async () => {
-    const policy = await buildToolPermissionPolicy(BUILT_IN_TOOL_PERMISSIONS);
+  it('compiles the portable map and stamps an opaque policy id', async () => {
+    const policy = await buildToolPermissionPolicy(PORTABLE_TOOL_PERMISSIONS);
     expect(policy.groups.size).toBe(7);
     expect(policy.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
@@ -25,8 +25,8 @@ describe('buildToolPermissionPolicy', () => {
   });
 
   it('generates a distinct id for each process even with identical config', async () => {
-    const first = await buildToolPermissionPolicy(BUILT_IN_TOOL_PERMISSIONS);
-    const second = await buildToolPermissionPolicy(BUILT_IN_TOOL_PERMISSIONS);
+    const first = await buildToolPermissionPolicy(PORTABLE_TOOL_PERMISSIONS);
+    const second = await buildToolPermissionPolicy(PORTABLE_TOOL_PERMISSIONS);
     expect(first.id).not.toBe(second.id);
   });
 

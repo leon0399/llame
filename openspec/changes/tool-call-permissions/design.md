@@ -16,7 +16,7 @@ This is not command containment. An allowed interpreter retains its executor's a
 
 ### D1: A closed configuration grouped by exact tool identity
 
-Add optional `tools.permissions`, defaulting to the explicit built-in map in D8. A supplied map replaces that entire map; `{}` explicitly denies every call. There is no implicit deep merge or append. Keys are exact registered code-owned IDs or exact canonical IDs for configured MCP servers. No new tool-name wildcard language is added; operators may still use namespace wildcards in `tools.allowed`, but each executing tool needs its own permission group. This prevents a newly discovered MCP tool from acquiring call permission merely through namespace membership.
+Add optional `tools.permissions`. When omitted, no permission groups exist and every call is rejected — there is no built-in fallback policy. The shipped `llame.config.json.example` documents the recommended map in D8 for operators to copy. A supplied map is the complete effective policy; `{}` denies every call. There is no implicit deep merge or append. Keys are exact registered code-owned IDs or exact canonical IDs for configured MCP servers. No new tool-name wildcard language is added; operators may still use namespace wildcards in `tools.allowed`, but each executing tool needs its own permission group. This prevents a newly discovered MCP tool from acquiring call permission merely through namespace membership.
 
 Each group has optional `allow` and `reject` values, each either `true` (whole-tool match) or an array of clauses. Omitted values and empty arrays do not match; `false` is invalid. A clause contains exactly one of `literal` or `regex`, plus exactly one target: `field` or `allFields: true`:
 
@@ -121,15 +121,15 @@ The rejection-message comparison supports reason-specific guidance without copyi
 | [OMP approval wrapper](https://github.com/can1357/oh-my-pi/blob/8d01d3b79099a0ad10d050538a08bd4c22886dd7/packages/coding-agent/src/extensibility/extensions/wrapper.ts#L305)     | Distinguishes unavailable interactive approval from user denial; its unavailable-UI error suggests settings changes. | Do not suggest enabling approval bypass or editing configuration; no in-run approval exists in this slice.                                 |
 | [Pi permission-gate example](https://github.com/badlogic/pi-mono/blob/f3c672245d25ef2283ffc0d9cdec8a5482651103/packages/coding-agent/examples/extensions/permission-gate.ts#L19) | An extension supplies a short blocking reason, including lack of a confirmation UI.                                  | Preserve rejection as a tool observation and add guidance about what to do next. This is an example extension, not a universal Pi default. |
 
-### D8: Portable defaults and local-only policy
+### D8: Recommended example policy and local-only policy
 
-The source image supplies examples of destructive host operations, not a complete permission model. The inspected `~/.claude/settings.json` mixes credential protection with one operator's developer tools, MCP servers, personal instruction files, and workflow preferences. These inform the following default map; neither source's syntax is imported. Sources: [provided image](https://pbs.twimg.com/media/HReP41pbsAA6Bdz?format=png&name=900x900), local permission settings inspected on 2026-09-11, and [Claude's documented settings shape](https://code.claude.com/docs/en/settings). The local nested `permissions.read`/`permissions.write` blocks are treated as stated intent, not evidence of effective enforcement by that installation.
+The source image supplies examples of destructive host operations, not a complete permission model. The inspected `~/.claude/settings.json` mixes credential protection with one operator's developer tools, MCP servers, personal instruction files, and workflow preferences. These inform the following recommended map; neither source's syntax is imported. Sources: [provided image](https://pbs.twimg.com/media/HReP41pbsAA6Bdz?format=png&name=900x900), local permission settings inspected on 2026-09-11, and [Claude's documented settings shape](https://code.claude.com/docs/en/settings). The local nested `permissions.read`/`permissions.write` blocks are treated as stated intent, not evidence of effective enforcement by that installation.
 
-Only these seven current code-owned tools receive built-in groups: `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, and `conversation_read`. Each group has `allow: true`; file groups and Bash add the rejects below. No current/future MCP tool or future code-owned tool acquires an implicit group. `tools.allowed` still defaults to empty, and native authority/owner checks remain mandatory. Enabling Bash therefore deliberately admits arbitrary host commands except the listed textual rejects; these defaults catch common mistakes and do not restrict Bash to a safe command subset.
+There is no runtime built-in policy: omitting `tools.permissions` yields no groups and rejects every call. The shipped `apps/api/llame.config.json.example` documents the recommended map for these seven current code-owned tools — `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, and `conversation_read`. Each group has `allow: true`; file groups and Bash add the rejects below. No current/future MCP tool or future code-owned tool acquires an implicit group. `tools.allowed` still defaults to empty, and native authority/owner checks remain mandatory. Enabling Bash therefore deliberately admits arbitrary host commands except the listed textual rejects; these recommended rules catch common mistakes and do not restrict Bash to a safe command subset.
 
-A supplied `tools.permissions` map replaces the complete built-in map. This avoids hidden inheritance and makes `{}` an explicit reject-all policy. Operators customizing one group must copy every other group they want to retain; examples must say this clearly. Built-in rejects are replaceable operator defaults, not a mandatory tier.
+Operators supply their own `tools.permissions` map; it is the complete effective policy. This avoids hidden policy and makes `{}` an explicit reject-all policy. Operators copying the example must keep every group they want to retain; examples must say this clearly. The recommended rejects are replaceable operator defaults, not a mandatory tier.
 
-The [portable policy requirement](specs/tool-call-permissions/spec.md#requirement-portable-built-in-policy-with-explicit-replacement) owns the exact B1-B8/F1-F4 default rules. They are compile-time constants; operator JSON examples must escape backslashes and opening interpolation braces appropriately.
+The [portable policy requirement](specs/tool-call-permissions/spec.md#requirement-recommended-portable-policy-with-explicit-replacement) owns the exact B1-B8/F1-F4 recommended rules and their matrix. The example is the operator-facing source; tests load it through the real pipeline and compare it to a test fixture, and operator JSON examples must escape backslashes and opening interpolation braces appropriately.
 
 F1-F3 protect explicit credential locations from native reads and mutations. F4 covers common secret-bearing environment files on reads; editing environment configuration remains available because deployment work needs it. Rules recognize slash and backslash separators, and apply to logical Knowledge locators and submitted absolute host locators. They do not inspect private Knowledge backing paths, enumerate hidden files inside a directory listing, filter search excerpts, or prevent Bash from accessing those files. `knowledge_search` is owner-scoped retrieval; file-call rules do not become an implicit indexing policy. A future content-exclusion capability would need its own enforcement.
 
@@ -146,7 +146,7 @@ Local-only examples should explain decisions without copying Leo's machine paths
 
 ### D9: Concrete shipped configuration example
 
-The implementation will replace the `tools` section in `apps/api/llame.config.json.example` with the following complete section. Other existing configuration remains outside this excerpt. It preserves the current example's `search_conversations` availability opt-in; listing a permission group does not enable Bash or native files. Removing the entire `permissions` property selects the same built-in policy. Keeping it makes this a complete operator replacement, including every default group and reject.
+The implementation will replace the `tools` section in `apps/api/llame.config.json.example` with the following complete section. Other existing configuration remains outside this excerpt. It preserves the current example's `search_conversations` availability opt-in; listing a permission group does not enable Bash or native files. Removing the entire `permissions` property rejects every call, so this example is the recommended starting point operators copy. Keeping it makes this a complete operator policy, including every recommended group and reject.
 
 ```json
 {
@@ -261,7 +261,7 @@ The implementation will replace the `tools` section in `apps/api/llame.config.js
 }
 ```
 
-The doubled opening brace in B2 is intentional config-source escaping: the single interpolation pass restores the regex's literal `${HOME}` spelling. Implementation tests must load this example through the real loader, compare the effective permission map to the built-in constants, and run the default matrix through both paths. Do not copy an incomplete group excerpt into this whole-map replacement setting.
+The doubled opening brace in B2 is intentional config-source escaping: the single interpolation pass restores the regex's literal `${HOME}` spelling. Implementation tests must load this example through the real loader, compare the effective permission map to the portable test fixture, and run the matrix through both paths. Do not copy an incomplete group excerpt into this whole-map replacement setting.
 
 ## Risks / Trade-offs
 
@@ -273,13 +273,15 @@ The doubled opening brace in B2 is intentional config-source escaping: the singl
 
 ## Migration Plan
 
-1. Extend the schema and evaluator, then wire the mandatory gate and private metadata in one deployable implementation layer. Update shipped config examples and execution fixtures to distinguish built-in defaults from complete operator replacement maps.
+1. Extend the schema and evaluator, then wire the mandatory gate and private metadata in one deployable implementation layer. Ship the recommended map in the example and keep execution fixtures intentionally permissive or explicit.
 2. Document the default policy and breaking explicit-map/no-match rejection behavior and inspect the operator's intended configuration before deployment. Do not generate wildcard allow rules or change Leo's live config automatically.
-3. Stop all affected API/worker processes, deploy the implementation with its intended config, and restart them. The absent setting applies the built-in code-owned defaults; explicit maps replace them, so customized deployments must supply every group they intend to retain. MCP execution requires explicit groups.
+3. Stop all affected API/worker processes, deploy the implementation with its intended config, and restart them. The absent setting rejects every call; operators must copy the recommended example map (or write their own) into each instance, and customized deployments must supply every group they intend to retain. MCP execution requires explicit groups.
 4. Verify allow, deny-with-continuation, unchanged visibility, restart policy, and two-owner isolation. No chat deletion, schema reset, or new table is needed.
 5. Roll back by restoring the previous binary and its compatible config together. The old binary cannot accept the new closed-schema key; rolling back also removes this call-policy gate and must be an explicit operator decision.
 
 ## Revision history
+
+- v8 (2026-09-11): Removed the runtime built-in policy: omitting `tools.permissions` now rejects every call, and the recommended portable map ships only in the example configuration for operators to copy.
 
 - v7 (2026-09-11): Applied Plannotator feedback with source-checked reason-specific rejection messages and a complete configuration example matching the default map.
 

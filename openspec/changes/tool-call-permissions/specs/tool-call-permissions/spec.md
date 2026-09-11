@@ -241,11 +241,11 @@ Tool call rejected before execution by operator permissions. The submitted input
 - **THEN** the exposed policy ID is generated independently of those values
 - **AND** restarting with identical configuration produces a new ID while decisions in one process retain the same ID
 
-### Requirement: Portable built-in policy with explicit replacement
+### Requirement: Recommended portable policy with explicit replacement
 
-When `tools.permissions` is omitted, the system SHALL use exactly these seven groups: `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, and `conversation_read`, with the B1-B8/F1-F4 rejects below. Each listed group SHALL have a whole-tool allow, subject to those rejects and existing availability/authority gates. Future code-owned tools and all MCP tools SHALL receive no implicit group. `tools.allowed` SHALL remain empty by default. An explicitly supplied permission map SHALL replace the complete built-in map; omitted groups in that map SHALL reject calls, and `{}` SHALL reject all calls. Operator replacement MAY remove built-in rejects. No mandatory policy tier or implicit merge SHALL be added.
+When `tools.permissions` is omitted, the system SHALL create no permission groups, so every call is rejected; there is no built-in fallback policy. The shipped `llame.config.json.example` SHALL document exactly these seven groups — `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, and `conversation_read` — each with a whole-tool allow, plus the B1-B8/F1-F4 rejects below, as the recommended portable map for operators to copy. Future code-owned tools and all MCP tools SHALL receive no implicit group, and `tools.allowed` SHALL remain empty by default. An explicitly supplied permission map SHALL be the complete effective policy; omitted groups in that map SHALL reject calls, and `{}` SHALL reject all calls. Operator policy MAY remove any recommended reject. No mandatory policy tier or implicit merge SHALL be added.
 
-The following table is the authoritative default reject list. Regex cells contain engine input, not JSON string escaping. Implementation stores the compiled defaults directly rather than passing them through configuration interpolation. Operator JSON examples must escape backslashes and opening interpolation braces appropriately.
+The following table is the authoritative recommended reject list, shipped in the example. Regex cells contain engine input, not JSON string escaping. The example stores these compiled-ready spellings directly; operators copy them, and configuration interpolation still applies to operator-authored values. Operator JSON examples must escape backslashes and opening interpolation braces appropriately.
 
 | ID  | Tool / field                           | Matcher | Value                                                                                              |
 | --- | -------------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
@@ -277,22 +277,23 @@ The following table is the authoritative default reject list. Regex cells contai
 | `read: /project/docker-compose.yml` or `/project/certificate.pem` | Allow; blanket extension/configuration bans obstruct routine inspection. |
 | A newly discovered MCP tool, even in an allowed namespace         | Reject until an explicit permission group is supplied.                   |
 
-The default rules SHALL be covered by the preceding example matrix, including both rejection and routine-work acceptance cases. Native path rejects SHALL NOT be represented as Bash confinement, search-result filtering, directory-listing filtering, or hidden-backing-path policy.
+The recommended rules SHALL be covered by the preceding example matrix, including both rejection and routine-work acceptance cases, and SHALL match the shipped example. Native path rejects SHALL NOT be represented as Bash confinement, search-result filtering, directory-listing filtering, or hidden-backing-path policy.
 
-#### Scenario: Default policy does not expose tools
+#### Scenario: Omitted permissions reject every call
 
 - **WHEN** both `tools.allowed` and `tools.permissions` are omitted
-- **THEN** the built-in policy exists but no tool becomes available
+- **THEN** no permission group exists and no tool is advertised or executable
+- **AND** a requested call would be rejected as `no_allow`
 
-#### Scenario: Operator map is a complete replacement
+#### Scenario: Operator map is the complete policy
 
 - **WHEN** the operator supplies only a `bash` group with `allow: true`
-- **THEN** built-in Bash rejects are not inherited
+- **THEN** recommended Bash rejects are not inherited
 - **AND** other tools receive no allow even if present in `tools.allowed`
 
 #### Scenario: Ordinary cleanup and credential reads differ
 
-- **GIVEN** the built-in policy and otherwise admitted native tools
+- **GIVEN** the recommended example policy and otherwise admitted native tools
 - **WHEN** Bash submits `rm -rf /tmp/build-output`
 - **THEN** it is allowed
 - **WHEN** read submits `/home/operator/.ssh/id_ed25519`

@@ -85,7 +85,7 @@
       "mcp__fixture_local__lookup"
     ],
     // Explicit whole-map replacement: every allowed tool needs its own group
-    // (MCP tools never receive a built-in one). Bash rejects one literal so the
+    // (MCP tools never receive an implicit one). Bash rejects one literal so the
     // permission-gate e2e can prove a rejected call continues the Run.
     "permissions": {
       "bash": {

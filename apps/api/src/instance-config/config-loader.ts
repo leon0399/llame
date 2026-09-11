@@ -716,8 +716,9 @@ function assertValidPermissionToolId(
 }
 
 /** Resolve the operator map: identity-checked, interpolated, still-uncompiled.
- *  Omitted selects the portable built-in map; a supplied map replaces it
- *  completely, so `{}` yields a reject-all policy. */
+ *  There is no built-in policy: an omitted map is empty, so every call is
+ *  rejected until the operator supplies rules. A supplied map replaces the
+ *  (empty) default wholesale. */
 function resolveToolPermissions(opts: {
   configPath: string;
   present: boolean;

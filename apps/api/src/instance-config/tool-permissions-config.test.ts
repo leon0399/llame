@@ -7,11 +7,9 @@ import { parse as parseJsonc } from 'jsonc-parser';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { evaluatePermission } from '../tools/permissions/evaluator';
-import {
-  BUILT_IN_TOOL_PERMISSIONS,
-  isBashCommandField,
-} from '../tools/permissions/built-in-policy';
+import { isBashCommandField } from '../tools/permissions/bash-command-field';
 import { buildToolPermissionPolicy } from '../tools/permissions/policy-provider';
+import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { loadInstanceConfig } from './config-loader';
 
 let dir: string;
@@ -41,15 +39,15 @@ function tools(permissions: UnknownRecord): string {
 }
 
 describe('tools.permissions configuration', () => {
-  it('omitted selects the portable built-in map', () => {
-    expect(load('{}').tools.permissions).toEqual(BUILT_IN_TOOL_PERMISSIONS);
+  it('an omitted map is empty and rejects every call', () => {
+    expect(load('{}').tools.permissions).toEqual({});
   });
 
-  it('an explicit empty map replaces the built-in map', () => {
+  it('an explicit empty map is also empty', () => {
     expect(load(tools({})).tools.permissions).toEqual({});
   });
 
-  it('a supplied map replaces the built-in map wholesale', () => {
+  it('a supplied map is the effective policy', () => {
     expect(load(tools({ bash: { allow: true } })).tools.permissions).toEqual({
       bash: { allow: true },
     });
@@ -159,21 +157,21 @@ describe('shipped example configuration', () => {
     return permissions;
   }
 
-  it('loads through the real pipeline and equals the built-in defaults', () => {
+  it('loads through the real pipeline and equals the portable fixture', () => {
     const loaded = load(
       JSON.stringify({ tools: { permissions: examplePermissions() } }),
     );
-    expect(loaded.tools.permissions).toEqual(BUILT_IN_TOOL_PERMISSIONS);
+    expect(loaded.tools.permissions).toEqual(PORTABLE_TOOL_PERMISSIONS);
   });
 
-  it('decides the default matrix identically to the built-in constants', async () => {
+  it('decides the default matrix identically to the portable fixture', async () => {
     const loaded = load(
       JSON.stringify({ tools: { permissions: examplePermissions() } }),
     );
     const fromExample = await buildToolPermissionPolicy(
       loaded.tools.permissions,
     );
-    const builtIn = await buildToolPermissionPolicy(BUILT_IN_TOOL_PERMISSIONS);
+    const portable = await buildToolPermissionPolicy(PORTABLE_TOOL_PERMISSIONS);
 
     const matrix: ReadonlyArray<readonly [string, UnknownRecord]> = [
       ['bash', { command: 'git status && git push' }],
@@ -199,7 +197,7 @@ describe('shipped example configuration', () => {
           isBashCommandField(toolId, field),
       };
       const left = evaluatePermission(fromExample, options);
-      const right = evaluatePermission(builtIn, options);
+      const right = evaluatePermission(portable, options);
       expect({ decision: left.decision, reason: left.reason }).toEqual({
         decision: right.decision,
         reason: right.reason,

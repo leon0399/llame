@@ -2,16 +2,16 @@ import { describe, expect, it } from 'vitest';
 
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
-import {
-  BUILT_IN_PERMISSION_TOOL_IDS,
-  BUILT_IN_TOOL_PERMISSIONS,
-  isBashCommandField,
-} from './built-in-policy';
+import { isBashCommandField } from './bash-command-field';
 import { compileToolPermissionMap } from './compile-permissions';
 import { evaluatePermission } from './evaluator';
 import { compileLiteralMatcher, compileRegexMatcher } from './matcher';
 import { PermissionCompileError } from './limits';
 import { type ToolPermissionMap } from './types';
+import {
+  PORTABLE_PERMISSION_TOOL_IDS,
+  PORTABLE_TOOL_PERMISSIONS,
+} from '../../testing/portable-tool-policy';
 
 const POLICY_ID = 'test-policy';
 
@@ -260,9 +260,9 @@ describe('evaluatePermission value selection', () => {
   });
 });
 
-describe('built-in policy', () => {
+describe('portable policy fixture', () => {
   it('groups exactly the seven code-owned tools', () => {
-    expect([...BUILT_IN_PERMISSION_TOOL_IDS].sort()).toEqual([
+    expect([...PORTABLE_PERMISSION_TOOL_IDS].sort()).toEqual([
       'bash',
       'conversation_read',
       'edit',
@@ -274,7 +274,7 @@ describe('built-in policy', () => {
   });
 
   it('grants no implicit group to an unknown or MCP tool', () => {
-    const policy = compiled(BUILT_IN_TOOL_PERMISSIONS);
+    const policy = compiled(PORTABLE_TOOL_PERMISSIONS);
     expect(
       evaluatePermission(policy, { toolId: 'mcp__docs__fetch', args: {} }),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
@@ -332,7 +332,7 @@ describe('built-in policy', () => {
     ['write', { path: '/home/operator/.npmrc' }, 'reject', 'explicit_reject'],
     ['knowledge_search', { query: 'anything' }, 'allow', 'matched_allow'],
   ] as const)('decides %s %o', (toolId, args, decision, reason) => {
-    expect(decide(BUILT_IN_TOOL_PERMISSIONS, toolId, args)).toMatchObject({
+    expect(decide(PORTABLE_TOOL_PERMISSIONS, toolId, args)).toMatchObject({
       decision,
       reason,
     });

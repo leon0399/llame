@@ -8,7 +8,6 @@
  */
 
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
-import { BUILT_IN_TOOL_PERMISSIONS } from '../tools/permissions/built-in-policy';
 import { type ToolPermissionMap } from '../tools/permissions/types';
 
 /**
@@ -309,9 +308,10 @@ export type LlameConfig = {
     /** Code-owned ids or exact / canonical configured-MCP namespace permissions admitted for advertisement/execution. Default: empty. */
     allowed: ReadonlyArray<string>;
     /**
-     * Operator allow/reject rules keyed by exact tool identity. Omitted from
-     * the file = the portable built-in map; a supplied map replaces it
-     * wholesale (`{}` rejects every call). Availability is governed separately
+     * Operator allow/reject rules keyed by exact tool identity. There is no
+     * built-in policy: omitting `tools.permissions` from the file leaves the
+     * map empty, so every call is rejected; `llame.config.json.example` ships
+     * a recommended portable map to copy. Availability is governed separately
      * by `allowed`; permission rules never change tool visibility.
      */
     permissions: ToolPermissionMap;
@@ -389,7 +389,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   },
   tools: {
     allowed: [],
-    permissions: BUILT_IN_TOOL_PERMISSIONS,
+    permissions: {},
     maxStepsPerRun: 20,
     callTimeoutSeconds: 120,
   },

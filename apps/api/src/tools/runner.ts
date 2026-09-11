@@ -11,7 +11,7 @@ import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { evaluatePermission } from './permissions/evaluator';
-import { isBashCommandField } from './permissions/built-in-policy';
+import { isBashCommandField } from './permissions/bash-command-field';
 import { declaredStringProperties } from './permissions/declared-fields';
 import { nativeFileProjection } from './permissions/locator-projection';
 import { permissionDeniedResult } from './permissions/messages';

@@ -268,15 +268,15 @@
     // coverage a startup gate. Add conversation_read independently for exact
     // line reads; see docs/conversation-recall.md.
     "allowed": ["search_conversations"],
-    // Allow/reject rules per exact tool id. Omit this whole property to use the
-    // portable built-in map (the seven code-owned tools, each with a whole-tool
-    // allow plus the documented destructive-command and credential-locator
-    // rejects). A supplied map REPLACES the built-in map completely: list every
-    // group you intend to keep, and note that `{}` rejects every call. MCP tools
-    // need an explicit group here; permission rules never change tool
-    // visibility. This block spells the built-in map out, so it is a complete
-    // replacement example. Regex values are engine input; operator JSON must
-    // escape backslashes and any interpolation-looking opening brace.
+    // Allow/reject rules per exact tool id. There is NO built-in policy:
+    // omitting this property rejects every call. This block is the recommended
+    // portable map — the seven code-owned tools, each with a whole-tool allow
+    // plus destructive-command and credential-locator rejects — copy it (or
+    // replace it with your own). A supplied map is the complete policy: list
+    // every group you intend to keep, and note that `{}` rejects every call.
+    // MCP tools need an explicit group here; permission rules never change tool
+    // visibility. Regex values are engine input; operator JSON must escape
+    // backslashes and any interpolation-looking opening brace.
     "permissions": {
       "bash": {
         "allow": true,

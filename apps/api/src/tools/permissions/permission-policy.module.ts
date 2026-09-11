@@ -2,12 +2,9 @@ import { Global, Module } from '@nestjs/common';
 
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
 import { buildToolPermissionPolicy } from './policy-provider';
-import { type CompiledPolicy } from './types';
 
 /** Injection token for the immutable per-process compiled permission policy. */
 export const TOOL_PERMISSION_POLICY = Symbol('TOOL_PERMISSION_POLICY');
-
-export type ToolPermissionPolicy = CompiledPolicy;
 
 /**
  * The awaited provider definition. Kept exported so tests can assert that an

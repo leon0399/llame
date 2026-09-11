@@ -1,13 +1,16 @@
-import { type PermissionClause, type ToolPermissionMap } from './types';
+import {
+  type PermissionClause,
+  type ToolPermissionMap,
+} from '../tools/permissions/types';
 
 /**
- * The portable built-in operator policy (openspec/changes/tool-call-permissions
- * D8). Exactly seven current code-owned tools receive a group; every group has
- * a whole-tool allow, and Bash/read/edit/write add the B1-B8/F1-F4 rejects.
- * Future code-owned tools and all MCP tools receive no implicit group.
+ * The recommended portable operator policy, mirrored verbatim in
+ * `apps/api/llame.config.json.example`. This is a TEST FIXTURE, not a runtime
+ * default: an omitted `tools.permissions` rejects every call. Tests use this
+ * map to exercise the documented matrix and to keep the shipped example honest
+ * (see `tool-permissions-config.test.ts`).
  *
- * These regexes are engine input, not JSON string escaping. They are compiled
- * directly, never routed through configuration interpolation.
+ * Regexes are engine input, not JSON string escaping.
  */
 
 const B1_SYSTEM_COMMAND = String.raw`(^|[^A-Za-z0-9_])(sudo|shutdown|reboot|halt|poweroff|mkfs([.][A-Za-z0-9_-]+)?)(\s|$)`;
@@ -55,7 +58,7 @@ const MUTATE_REJECTS: ReadonlyArray<PermissionClause> = [
   pathRegex(F3_TOOL_CREDENTIAL),
 ];
 
-export const BUILT_IN_TOOL_PERMISSIONS: ToolPermissionMap = {
+export const PORTABLE_TOOL_PERMISSIONS: ToolPermissionMap = {
   bash: { allow: true, reject: BASH_REJECTS },
   read: { allow: true, reject: READ_REJECTS },
   edit: { allow: true, reject: MUTATE_REJECTS },
@@ -65,15 +68,6 @@ export const BUILT_IN_TOOL_PERMISSIONS: ToolPermissionMap = {
   conversation_read: { allow: true },
 };
 
-/** The seven code-owned tool ids that receive a built-in permission group. */
-export const BUILT_IN_PERMISSION_TOOL_IDS: ReadonlyArray<string> = Object.keys(
-  BUILT_IN_TOOL_PERMISSIONS,
+export const PORTABLE_PERMISSION_TOOL_IDS: ReadonlyArray<string> = Object.keys(
+  PORTABLE_TOOL_PERMISSIONS,
 );
-
-/** Tool ids whose literal `command` matching uses flexible whitespace. */
-export const BASH_COMMAND_TOOL_ID = 'bash';
-export const BASH_COMMAND_FIELD = 'command';
-
-export function isBashCommandField(toolId: string, field: string): boolean {
-  return toolId === BASH_COMMAND_TOOL_ID && field === BASH_COMMAND_FIELD;
-}

@@ -100,17 +100,18 @@ an allow already matched. Invalid or unsupported patterns, unknown ids, and
 malformed clauses fail startup before the process serves requests or claims
 jobs.
 
-## Portable defaults and replacement
+## Recommended portable policy and replacement
 
-Omitting `tools.permissions` selects the built-in portable map: a whole-tool
-allow for the seven current code-owned tools (`bash`, `read`, `edit`, `write`,
-`knowledge_search`, `search_conversations`, `conversation_read`), with these
-rejects. These recognize common destructive host operations and standard
-credential-locator locations. They are textual, not a sandbox, and quoted
-mentions match.
+There is no built-in policy: omitting `tools.permissions` rejects every call.
+`apps/api/llame.config.json.example` ships this recommended portable map — a
+whole-tool allow for the seven current code-owned tools (`bash`, `read`,
+`edit`, `write`, `knowledge_search`, `search_conversations`,
+`conversation_read`) plus these rejects. They recognize common destructive host
+operations and standard credential-locator locations. They are textual, not a
+sandbox, and quoted mentions match.
 
 | ID  | Tool/field                             | Matcher | Value                                                                                              |
-| --- | -------------------------------------- | ------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| --- | -------------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
 | B1  | `bash.command`                         | regex   | `(^\|[^A-Za-z0-9_])(sudo\|shutdown\|reboot\|halt\|poweroff\|mkfs([.][A-Za-z0-9_-]+)?)(\s\|$)`      |
 | B2  | `bash.command`                         | regex   | `\brm\s+-(rf\|fr)\s+['"]?(/\*?\|~(\*\|/\*?)?\|\$HOME(/\*?)?\|\$\{HOME\}(/\*?)?)['"]?($\|[\s;&\|])` |
 | B3  | `bash.command`                         | regex   | `\bdd\s+[^\r\n;&\|]*\bof=/dev/`                                                                    |
@@ -120,15 +121,15 @@ mentions match.
 | B7  | `bash.command`                         | literal | `chmod -R 777`                                                                                     |
 | B8  | `bash.command`                         | regex   | `\b(curl\|wget)\s+[^\r\n;\|]*\x7c\s*(ba\|z\|da\|k)?sh(\s\|$)`                                      |
 | F1  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|[/\\])(\.ssh\|\.aws\|\.azure\|\.gnupg\|\.kube)([/\\]\|$\|:)`                                  |
-| F2  | `read.path`, `edit.path`, `write.path` | regex   | `(^                                                                                                | [/\\])(\.git-credentials\|\.npmrc\|\.pypirc)([/\\]\|$\|:)`                              |
-| F3  | `read.path`, `edit.path`, `write.path` | regex   | `(^                                                                                                | [/\\])(\.docker[/\\]config\.json\|\.gem[/\\]credentials\|\.config[/\\]gh)([/\\]\|$\|:)` |
+| F2  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|[/\\])(\.git-credentials\|\.npmrc\|\.pypirc)([/\\]\|$\|:)`                                    |
+| F3  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|[/\\])(\.docker[/\\]config\.json\|\.gem[/\\]credentials\|\.config[/\\]gh)([/\\]\|$\|:)`       |
 | F4  | `read.path`                            | regex   | `(^\|[/\\])\.env($\|:\|\.(local\|development\|production\|staging\|test)(\.local)?($\|:))`         |
 
-An explicit `tools.permissions` **replaces the entire built-in map** — there is
-no merge. List every group you intend to keep; `{}` rejects every call. Every
-MCP tool needs its own explicit group; a newly discovered MCP tool is rejected
-until one is supplied. To customize one default group, copy the whole map and
-edit it.
+A supplied `tools.permissions` **is the complete policy** — there is no merge
+and no default to inherit. Copy the map from the example, keep every group you
+intend to retain, and note that `{}` rejects every call. Every MCP tool needs
+its own explicit group; a newly discovered MCP tool is rejected until one is
+supplied.
 
 What to keep portable vs local:
 
