@@ -1,5 +1,7 @@
 import { bashTool } from '../tools/bash';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
+import { type CompiledPolicy } from '../tools/permissions/types';
 import { nativeEditTool, nativeReadTool } from '../tools/native-files';
 import { resolveJsonSchema } from '../tools/schema-utils';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -180,6 +182,9 @@ function makeExecutionService(
   client: ModelClient = createFakeModelClient(['answer']),
   dynamicToolResolver?: DynamicToolExecutorResolver,
   nativeExecutorId?: string,
+  permissionPolicy: CompiledPolicy = compileTestPermissionPolicy([
+    'mcp__demo__lookup',
+  ]),
 ) {
   const db: Db = drizzle.mock({ schema });
   const tenantDb = new TenantDbService({
@@ -225,7 +230,7 @@ function makeExecutionService(
     knowledgeResolver,
     embedDispatch,
     noopQueryEmbedder(),
-    compileTestPermissionPolicy(['mcp__demo__lookup']),
+    permissionPolicy,
     dynamicToolResolver,
   );
   return {
@@ -1496,6 +1501,74 @@ describe('RunExecutionService executeRun — tool loop', () => {
         ],
       }),
     );
+  });
+
+  it('applies a restarted process policy to a queued call and continues the run', async () => {
+    mockNormalExecutionRepositories();
+    withDeclaredTool();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execute = vi.fn(() =>
+      Promise.resolve({ status: 'success' as const }),
+    );
+    const denyPolicy = compileToolPermissionMap(
+      {
+        mcp__demo__lookup: {
+          allow: true,
+          reject: [{ field: 'q', literal: 'llame' }],
+        },
+      },
+      'restarted-policy',
+    );
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'read_only',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      denyPolicy,
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    const result = await executeBoundTool(options, { q: 'llame' }, 'call-1');
+    await options.onFinish?.({
+      text: 'continued',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+    });
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
+    });
+    expect(execute).not.toHaveBeenCalled();
+    const toolTypes = appended
+      .map((entry) => entry.type)
+      .filter((type) => type.startsWith('tool.'));
+    expect(toolTypes).toEqual(['tool.requested', 'tool.completed']);
+    expect(
+      appended.find((entry) => entry.type === 'tool.requested')?.payload,
+    ).toStrictEqual({
+      toolCallId: 'call-1',
+      toolName: toolDeclaration.id,
+      input: { q: 'llame' },
+      permission: {
+        policyId: 'restarted-policy',
+        decision: 'reject',
+        reason: 'explicit_reject',
+        clause: {
+          groupId: 'mcp__demo__lookup',
+          list: 'reject',
+          clauseIndex: 0,
+        },
+      },
+    });
+    expect(appended.map((entry) => entry.type)).toContain('run.completed');
   });
 
   it('records the step cap as an event and a persisted cap notice', async () => {
