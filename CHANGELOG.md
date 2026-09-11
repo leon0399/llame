@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-11
+
+- Add the manually configured `openai-codex` provider for one trusted personal
+  ChatGPT/Codex subscription. It uses the fixed Codex Responses transport with
+  a startup credential snapshot, self-contained non-stored requests, local
+  continuation/tool history, cancellation, compaction, and title fallback.
+  Credential refresh, provider-side discovery, automatic fallback, and pricing
+  inference remain absent; authentication and quota failures require manual
+  operator recovery.
+
 # 2026-09-10
 
 - Derive Project delivery transitions from published GitHub PR state; local

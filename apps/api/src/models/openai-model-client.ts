@@ -163,27 +163,39 @@ function trackAbortSettlement(input: ModelStreamInput): AbortSettlement {
 function awaitSettlementAfter(
   result: ReturnType<typeof streamText>,
   settlement: AbortSettlement,
+  sanitizeError?: (error: unknown) => Error,
 ): ReturnType<typeof streamText> {
   return wrapStreamTextResult(result, {
     consumeStream: (target) => ({
       value: async (...args: Parameters<typeof target.consumeStream>) => {
-        await target.consumeStream(...args);
-        await settlement.wait();
+        try {
+          await target.consumeStream(...args);
+          await settlement.wait();
+        } catch (error) {
+          throw sanitizeError?.(error) ?? error;
+        }
       },
     }),
     text: (target) => ({
       value: (async () => {
         try {
-          return await target.text;
-        } finally {
+          const text = await target.text;
           await settlement.wait();
+          return text;
+        } catch (error) {
+          try {
+            await settlement.wait();
+          } catch (settlementError) {
+            throw sanitizeError?.(settlementError) ?? settlementError;
+          }
+          throw sanitizeError?.(error) ?? error;
         }
       })(),
     }),
   });
 }
 
-type OpenAIModelClientConfig = {
+export type OpenAIModelClientConfig = {
   credential?: string;
   providerModelId: string;
   modelId: string;
@@ -191,6 +203,18 @@ type OpenAIModelClientConfig = {
   baseUrl?: string;
   /** Native OpenAI only; compatible endpoints remain on Chat Completions. */
   nativeOpenAI?: boolean;
+  /** Fixed-provider transport headers. */
+  headers?: Record<string, string>;
+  /** Fixed-provider transport fetch wrapper. */
+  fetch?: typeof globalThis.fetch;
+  /** Disable provider-side Responses state. */
+  storeResponses?: boolean;
+  /** Omit structured-object generation when the transport does not support it. */
+  generateObject?: boolean;
+  /** Public provider identifier exposed by this client. */
+  provider?: string;
+  /** Replaces provider errors before they enter the run lifecycle. */
+  sanitizeError?: (error: unknown) => Error;
   pricing?: TokenPrice;
   compactionThresholdTokens?: number;
 };
@@ -201,7 +225,7 @@ type OpenAIModelClientConfig = {
  * `@ai-sdk/openai`/`ai`. Production call sites never pass this — the default
  * is the real SDK.
  */
-type OpenAIModelClientDependencies = {
+export type OpenAIModelClientDependencies = {
   createOpenAI: typeof createOpenAI;
   streamText: (
     options: Parameters<typeof streamText>[0],
@@ -220,11 +244,20 @@ function applyReasoningOptions(
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
 ): void {
-  if (!config.nativeOpenAI && input.effort === undefined) return;
+  if (
+    !config.nativeOpenAI &&
+    input.effort === undefined &&
+    config.storeResponses === undefined
+  ) {
+    return;
+  }
   streamOptions.providerOptions = {
     openai: {
       ...(config.nativeOpenAI && { reasoningSummary: 'auto' }),
       ...(input.effort !== undefined && { reasoningEffort: input.effort }),
+      ...(config.storeResponses !== undefined && {
+        store: config.storeResponses,
+      }),
     },
   };
 }
@@ -235,6 +268,14 @@ function runOpenAIStream(
   dependencies: OpenAIModelClientDependencies,
   input: ModelStreamInput,
 ): ReturnType<typeof streamText> {
+  const sanitizedInput =
+    config.sanitizeError === undefined
+      ? input
+      : {
+          ...input,
+          onError: ({ error }: { error: unknown }) =>
+            input.onError?.({ error: config.sanitizeError?.(error) ?? error }),
+        };
   const settlement = trackAbortSettlement(input);
   const streamOptions: Parameters<typeof streamText>[0] = {
     // Only the configured native OpenAI provider uses Responses. Every
@@ -245,7 +286,7 @@ function runOpenAIStream(
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
-    onError: input.onError,
+    onError: sanitizedInput.onError,
     onAbort: settlement.onAbort,
     onFinish: input.onFinish,
   };
@@ -262,7 +303,7 @@ function runOpenAIStream(
   }
   const result = dependencies.streamText(streamOptions);
 
-  return awaitSettlementAfter(result, settlement);
+  return awaitSettlementAfter(result, settlement, config.sanitizeError);
 }
 
 /**
@@ -325,19 +366,28 @@ export function createOpenAIModelClient(
     // apiKey passed through — see KEYLESS_PLACEHOLDER_API_KEY.
     apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
     ...(config.baseUrl && { baseURL: config.baseUrl }),
+    ...(config.headers && { headers: config.headers }),
+    ...(config.fetch && { fetch: config.fetch }),
   });
 
   return {
     model: config.modelId,
-    provider: 'openai',
+    provider: config.provider ?? 'openai',
     contextWindowTokens: config.contextWindowTokens,
     ...(config.pricing !== undefined && { pricing: config.pricing }),
     ...(config.compactionThresholdTokens !== undefined && {
       compactionThresholdTokens: config.compactionThresholdTokens,
     }),
-    streamText: (input: ModelStreamInput) =>
-      runOpenAIStream(openai, config, dependencies, input),
-    generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
-      generateToolBoundObject(openai, config.providerModelId, input),
+    streamText: (input: ModelStreamInput) => {
+      try {
+        return runOpenAIStream(openai, config, dependencies, input);
+      } catch (error) {
+        throw config.sanitizeError?.(error) ?? error;
+      }
+    },
+    ...(config.generateObject !== false && {
+      generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
+        generateToolBoundObject(openai, config.providerModelId, input),
+    }),
   };
 }

@@ -46,6 +46,15 @@
     //   "type": "openai",
     //   "baseUrl": "{env:OLLAMA_BASE_URL:-http://localhost:11434/v1}"
     // }
+    // A ChatGPT/Codex subscription uses fixed transport settings and a
+    // file-backed `codex login` credential snapshot. See
+    // docs/codex-subscription.md for the required stop/re-login/restart flow.
+    // {
+    //   "id": "personal-codex",
+    //   "type": "openai-codex",
+    //   "key": "{path:/run/secrets/codex-auth.json|json:/tokens/access_token}",
+    //   "accountId": "{path:/run/secrets/codex-auth.json|json:/tokens/account_id}"
+    // }
   ],
 
   // Executable model catalog. Each provider must name a providers[].id.

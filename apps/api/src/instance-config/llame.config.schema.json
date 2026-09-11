@@ -38,8 +38,8 @@
     },
     "providerType": {
       "type": "string",
-      "description": "Executable provider client implementation. Only \"openai\" is supported in this slice (native OpenAI + any OpenAI-compatible endpoint, e.g. Ollama). Anthropic is a follow-up: this enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
-      "enum": ["openai"]
+      "description": "Executable provider client implementation. \"openai\" supports native OpenAI and OpenAI-compatible endpoints; \"openai-codex\" uses the personal Codex subscription endpoint. Anthropic is a follow-up: this enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
+      "enum": ["openai", "openai-codex"]
     },
     "providerEntry": {
       "type": "object",
@@ -60,8 +60,25 @@
         "baseUrl": {
           "$ref": "#/$defs/nullableString",
           "description": "Provider endpoint base URL. Absent/null uses the client implementation's own default (OpenAI's hosted API for `type: \"openai\"`)."
+        },
+        "accountId": {
+          "$ref": "#/$defs/nullableString",
+          "description": "Codex subscription account identifier. Required for `type: \"openai-codex\"`; resolved values stay private."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "openai" } } },
+          "then": { "not": { "required": ["accountId"] } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "openai-codex" } } },
+          "then": {
+            "required": ["key", "accountId"],
+            "properties": { "baseUrl": false }
+          }
+        }
+      ]
     },
     "mcpServerEntry": {
       "type": "object",

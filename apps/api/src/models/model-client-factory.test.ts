@@ -1,4 +1,5 @@
 import type { createOpenAIModelClient } from './openai-model-client';
+import type { createOpenAICodexModelClient } from './openai-codex-model-client';
 import { createModelClient } from './model-client-factory';
 
 // Test seam (anti-slop/no-module-mocking): overrides createOpenAIModelClient
@@ -12,6 +13,12 @@ const createOpenAIModelClientMock = vi.mocked(
 );
 createOpenAIModelClientMock.mockReturnValue({ model: 'fake' });
 
+const createOpenAICodexModelClientMock = vi.mocked(
+  vi.fn<typeof createOpenAICodexModelClient>(),
+  { partial: true },
+);
+createOpenAICodexModelClientMock.mockReturnValue({ model: 'fake' });
+
 const model = {
   id: 'system:test:model',
   source: 'system' as const,
@@ -24,7 +31,37 @@ const model = {
 };
 
 describe('createModelClient native OpenAI routing', () => {
-  beforeEach(() => createOpenAIModelClientMock.mockClear());
+  beforeEach(() => {
+    createOpenAIModelClientMock.mockClear();
+    createOpenAICodexModelClientMock.mockClear();
+  });
+
+  it('routes any Codex provider id to the fixed subscription transport', () => {
+    createModelClient(
+      {
+        provider: {
+          id: 'personal-codex',
+          type: 'openai-codex',
+          key: 'access-token',
+          accountId: 'account-id',
+        },
+        model: { ...model, provider: 'personal-codex' },
+      },
+      {
+        createOpenAIModelClient: createOpenAIModelClientMock,
+        createOpenAICodexModelClient: createOpenAICodexModelClientMock,
+      },
+    );
+
+    expect(createOpenAICodexModelClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credential: 'access-token',
+        accountId: 'account-id',
+        providerModelId: 'model',
+      }),
+    );
+    expect(createOpenAIModelClientMock).not.toHaveBeenCalled();
+  });
 
   it('uses the native Responses path only for the configured openai provider id', () => {
     createModelClient(
