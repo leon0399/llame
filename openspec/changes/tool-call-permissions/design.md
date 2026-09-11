@@ -122,11 +122,11 @@ A supplied `tools.permissions` map replaces the complete built-in map. This avoi
 
 The [portable policy requirement](specs/tool-call-permissions/spec.md#requirement-portable-built-in-policy-with-explicit-replacement) owns the exact B1-B8/F1-F4 default rules. They are compile-time constants; operator JSON examples must escape backslashes and opening interpolation braces appropriately.
 
-F1-F3 protect explicit credential locations from native reads and mutations. F4 covers common secret-bearing environment files on reads; editing environment configuration remains available because deployment work needs it. Rules apply to logical Knowledge locators and submitted absolute host locators. They do not inspect private Knowledge backing paths, enumerate hidden files inside a directory listing, filter search excerpts, or prevent Bash from accessing those files. `knowledge_search` is owner-scoped retrieval; file-call rules do not become an implicit indexing policy. A future content-exclusion capability would need its own enforcement.
+F1-F3 protect explicit credential locations from native reads and mutations. F4 covers common secret-bearing environment files on reads; editing environment configuration remains available because deployment work needs it. Rules recognize slash and backslash separators, and apply to logical Knowledge locators and submitted absolute host locators. They do not inspect private Knowledge backing paths, enumerate hidden files inside a directory listing, filter search excerpts, or prevent Bash from accessing those files. `knowledge_search` is owner-scoped retrieval; file-call rules do not become an implicit indexing policy. A future content-exclusion capability would need its own enforcement.
 
 B1 and B4-B5 cover host administration across common operating systems; including macOS command spellings introduces no macOS dependency. B2 targets obvious root/home recursive removal rather than every `rm -rf`, preserving ordinary build cleanup. B3 targets device writes rather than every use of `dd`. B8 covers the common download-pipe-to-shell spelling. None parses shell syntax: reordered options, wrappers, expansions, aliases, or alternate encodings can evade a textual rule. Quoted mentions can also match. Explicit regex whitespace follows D2's engine syntax; literal defaults receive Bash whitespace flexibility.
 
-The capability spec owns the acceptance/rejection matrix. During proposal validation, RE2JS 2.8.6 compiled all eight regex defaults and passed 25 representative acceptance/rejection checks in a disposable environment; repository dependencies remain unchanged. Literal matcher behavior remains covered by the implementation tasks.
+The capability spec owns the acceptance/rejection matrix. During proposal validation, RE2JS 2.8.6 compiled all eight regex defaults and passed 27 representative acceptance/rejection checks in a disposable environment; repository dependencies remain unchanged. Literal matcher behavior remains covered by the implementation tasks.
 
 Local-only examples should explain decisions without copying Leo's machine paths or server grants into shipped configuration:
 
@@ -152,6 +152,8 @@ Local-only examples should explain decisions without copying Leo's machine paths
 5. Roll back by restoring the previous binary and its compatible config together. The old binary cannot accept the new closed-schema key; rolling back also removes this call-policy gate and must be an explicit operator decision.
 
 ## Revision history
+
+- v6 (2026-09-11): Made credential-locator defaults recognize backslash separators as well as slashes.
 
 - v5 (2026-09-11): Added source-derived portable defaults and explicit whole-map replacement, separated local workflow policy, and corrected the Knowledge-only execution scenario.
 

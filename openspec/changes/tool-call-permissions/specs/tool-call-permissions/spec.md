@@ -224,10 +224,10 @@ The following table is the authoritative default reject list. Regex cells contai
 | B6  | `bash.command`                         | literal | `git reset --hard`                                                                                 |
 | B7  | `bash.command`                         | literal | `chmod -R 777`                                                                                     |
 | B8  | `bash.command`                         | regex   | `\b(curl\|wget)\s+[^\r\n;\|]*\x7c\s*(ba\|z\|da\|k)?sh(\s\|$)`                                      |
-| F1  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|/)(\.ssh\|\.aws\|\.azure\|\.gnupg\|\.kube)(/\|$\|:)`                                          |
-| F2  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|/)(\.git-credentials\|\.npmrc\|\.pypirc)(/\|$\|:)`                                            |
-| F3  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|/)(\.docker/config\.json\|\.gem/credentials\|\.config/gh)(/\|$\|:)`                           |
-| F4  | `read.path`                            | regex   | `(^\|/)\.env($\|:\|\.(local\|development\|production\|staging\|test)(\.local)?($\|:))`             |
+| F1  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|[/\\])(\.ssh\|\.aws\|\.azure\|\.gnupg\|\.kube)([/\\]\|$\|:)`                                  |
+| F2  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|[/\\])(\.git-credentials\|\.npmrc\|\.pypirc)([/\\]\|$\|:)`                                    |
+| F3  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|[/\\])(\.docker[/\\]config\.json\|\.gem[/\\]credentials\|\.config[/\\]gh)([/\\]\|$\|:)`       |
+| F4  | `read.path`                            | regex   | `(^\|[/\\])\.env($\|:\|\.(local\|development\|production\|staging\|test)(\.local)?($\|:))`         |
 
 | Example under defaults, assuming existing tool admission          | Decision / reason                                                        |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------ |
