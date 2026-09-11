@@ -1,10 +1,6 @@
 import type { ESTree, Scope, SourceCode, Variable } from "@oxlint/plugins";
 
-/**
- * Resolve `identifier` to its declaring variable by walking the scope chain
- * outward from its own scope, or null when nothing in the program declares
- * it (a true global).
- */
+/** Resolve an identifier to its binding by walking lexical scopes upward. */
 export function resolveVariable(
   sourceCode: SourceCode,
   identifier: ESTree.IdentifierReference,

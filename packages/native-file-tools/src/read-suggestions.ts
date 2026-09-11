@@ -72,18 +72,18 @@ function sortedTokens(stem: string): string {
 
 function similarNames(requested: string, names: Array<string>): Array<string> {
   const request = splitName(normalizedName(requested));
-  const entries = names
-    .filter((name) => name !== requested)
-    .map((name) => ({
-      name,
-      ...splitName(normalizedName(name)),
-    }));
+  const entries: Array<{ name: string; stem: string; extension: string }> = [];
   // Every eligible first comparison is mandatory. Refuse an over-budget
-  // directory before spending cells on results that must be discarded.
-  const minimumCells = entries.reduce(
-    (total, entry) => total + distanceCells(request.stem, entry.stem),
-    0,
-  );
+  // directory before spending cells on results that must be discarded -- hence
+  // the costly split and the distance floor are computed in this one pass,
+  // over a directory that can hold tens of thousands of entries.
+  let minimumCells = 0;
+  for (const name of names) {
+    if (name === requested) continue;
+    const entry = { name, ...splitName(normalizedName(name)) };
+    minimumCells += distanceCells(request.stem, entry.stem);
+    entries.push(entry);
+  }
   if (minimumCells > SCORING_CELL_BUDGET) return [];
   const budget = { remaining: SCORING_CELL_BUDGET };
   const candidates: Array<{ name: string; score: number }> = [];

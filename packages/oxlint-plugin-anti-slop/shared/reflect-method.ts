@@ -1,6 +1,6 @@
-import type { ESTree, SourceCode } from "@oxlint/plugins";
+import { resolveVariable } from "./scope.ts";
 
-import { resolveVariable } from "./resolve-variable.ts";
+import type { ESTree, SourceCode } from "@oxlint/plugins";
 
 function isGlobalReflect(
   sourceCode: SourceCode,

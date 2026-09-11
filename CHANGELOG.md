@@ -1,5 +1,19 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-12
+
+- Reconcile the vendored anti-slop Oxlint plugin with upstream `dmmulroy/anti-slop`
+  `c44ef22` (23 commits past the previous base). Adds `no-array-filter-map`,
+  `no-reduce-accumulator-copy`, `oxc/no-accumulating-spread`, and upstream's
+  per-use type-alias resolution; pulls the fixes for `no-runtime-typeof`,
+  `no-shape-in-symbol-names`, `no-unsafe-dictionary-type`, and
+  `no-unknown-type-aliases`; and widens `no-known-value-widening` and
+  `no-unknown-parameters` to catch known values entering `unknown` predicates
+  and `unknown` absorbed into a union. Local patches are preserved and recorded
+  in `packages/oxlint-plugin-anti-slop/UPSTREAM.md`, which also records why
+  `require-readable-spacing` (11,315 insertions across 757 files) and the
+  opt-in `effect` rule group are not adopted.
+
 # 2026-09-11
 
 - Read disjoint file passages in one bounded `read` with comma-separated ranges such as `:4-5,7-8` (#705): ranges sort, merge, grow one context line per side, and merge again when the grown windows touch; results report `requestedRanges` and `shownRanges` with `nextOffset` continuation by trimming `requestedRanges`. Raw multi-range reads stay verbatim without context; directory comma selectors fail with `invalid_selector`.

@@ -106,12 +106,14 @@ export function buildPersonalizationPreview(
   // entry contributes its own line and an absent one contributes nothing. The
   // heading blocks additionally open with a blank line.
   const text = [
-    ...inline
-      .filter(rendered)
-      .map(([label, value]) => `${label}: ${String(value)}\n`),
-    ...blocks
-      .filter(rendered)
-      .map(([heading, value]) => `\n### ${heading}\n\n${String(value)}\n`),
+    ...inline.flatMap(([label, value]) =>
+      rendered([label, value]) ? [`${label}: ${String(value)}\n`] : [],
+    ),
+    ...blocks.flatMap(([heading, value]) =>
+      rendered([heading, value])
+        ? [`\n### ${heading}\n\n${String(value)}\n`]
+        : [],
+    ),
   ].join("");
 
   return { text, empty: text.length === 0 };

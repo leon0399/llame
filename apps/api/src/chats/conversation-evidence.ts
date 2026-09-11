@@ -21,8 +21,7 @@ export const CONVERSATION_HISTORY_NOTICE = `${CONVERSATION_HISTORY_UNTRUSTED_NOT
  */
 export function visibleMessageText(parts: ReadonlyArray<unknown>): string {
   return parts
-    .filter(isTextPart)
-    .map((part) => part.text)
+    .flatMap((part) => (isTextPart(part) ? [part.text] : []))
     .join('\n\n');
 }
 

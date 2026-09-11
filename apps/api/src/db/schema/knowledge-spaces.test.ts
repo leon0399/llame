@@ -37,9 +37,9 @@ describe('knowledge_spaces schema', () => {
     ]);
 
     for (const policy of config.policies) {
-      const clauses = [policy.using, policy.withCheck]
-        .filter((clause) => clause !== undefined)
-        .map((clause) => JSON.stringify(clause));
+      const clauses = [policy.using, policy.withCheck].flatMap((clause) =>
+        clause === undefined ? [] : [JSON.stringify(clause)],
+      );
       expect(clauses.length).toBeGreaterThan(0);
       for (const clause of clauses) {
         expect(clause).toContain('app.current_user_id');

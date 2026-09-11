@@ -223,15 +223,15 @@ type JsonValue =
 
 type JsonObject = { [key: string]: JsonValue };
 
-function isJsonString(value: unknown): value is string {
+function isJsonString(value: JsonValue): value is string {
   return typeof value === "string";
 }
 
-function isJsonNumber(value: unknown): value is number {
+function isJsonNumber(value: JsonValue): value is number {
   return typeof value === "number";
 }
 
-function isJsonObject(value: unknown): value is JsonObject {
+function isJsonObject(value: JsonValue): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 

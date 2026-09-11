@@ -365,7 +365,7 @@ function indexChildBlocks(childBlocks: Array<ChildBlockInfo>) {
   const byName = new Map<string, ChildBlockInfo>();
   for (const block of childBlocks) byName.set(block.name, block);
   const elided = new Set(
-    childBlocks.filter((b) => b.childLines.length > 0).map((b) => b.name),
+    childBlocks.flatMap((b) => (b.childLines.length > 0 ? [b.name] : [])),
   );
   return { byName, elided };
 }

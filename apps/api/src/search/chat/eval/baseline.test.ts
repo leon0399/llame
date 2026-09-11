@@ -84,12 +84,12 @@ describe('BASELINE.md matches dataset.ts (counts only, not scores)', () => {
     const recorded = new Set(recordedCategoryCounts.keys());
     const actual = new Set(actualCategoryCounts.keys());
     const violations = [
-      ...[...recorded]
-        .filter((c) => !actual.has(c))
-        .map((c) => `${c}: in BASELINE.md but not in dataset.ts`),
-      ...[...actual]
-        .filter((c) => !recorded.has(c))
-        .map((c) => `${c}: in dataset.ts but not in BASELINE.md`),
+      ...[...recorded].flatMap((c) =>
+        actual.has(c) ? [] : [`${c}: in BASELINE.md but not in dataset.ts`],
+      ),
+      ...[...actual].flatMap((c) =>
+        recorded.has(c) ? [] : [`${c}: in dataset.ts but not in BASELINE.md`],
+      ),
     ];
     expect(violations).toEqual([]);
   });

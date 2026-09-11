@@ -300,12 +300,12 @@ export class PinsRepository {
   ): Promise<Set<string>> {
     if (rows.length === 0) return new Set();
 
-    const chatIds = rows
-      .filter((r) => r.itemType === 'chat')
-      .map((r) => r.itemId);
-    const projectIds = rows
-      .filter((r) => r.itemType === 'project')
-      .map((r) => r.itemId);
+    const chatIds = rows.flatMap((r) =>
+      r.itemType === 'chat' ? [r.itemId] : [],
+    );
+    const projectIds = rows.flatMap((r) =>
+      r.itemType === 'project' ? [r.itemId] : [],
+    );
 
     const chatCards = chatIds.length
       ? await this.db

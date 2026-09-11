@@ -109,6 +109,7 @@ export function createModelChangeItem(input: {
     fromModelId: input.fromModelId,
     toModelId: input.toModelId,
   };
+  // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the non-empty and distinct-id invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isModelChangePayload(payload)) {
     throw new TypeError('Invalid server-authored model change metadata');
   }
@@ -356,6 +357,7 @@ export function createTemporalItem(input: {
     instant: input.instant.toISOString(),
     timeZone: input.timeZone,
   };
+  // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the round-tripping instant and known-IANA-zone invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isTemporalPayload(payload)) {
     throw new TypeError('Invalid server-authored temporal metadata');
   }

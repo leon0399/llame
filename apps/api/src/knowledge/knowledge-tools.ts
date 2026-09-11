@@ -96,6 +96,7 @@ export const knowledgeSearchTool: Tool<KnowledgeSearchArguments> = {
   inputSchema: knowledgeSearchInputSchema,
   async execute(context, args) {
     const cursor = decodeSearchCursor(args);
+    // oxlint-disable-next-line anti-slop/no-known-value-widening -- `isToolResult` narrows a union that already contains `ToolResult`; it is that union's only atomic discriminant, not a redundant re-parse of a known value.
     if (cursor !== undefined && isToolResult(cursor)) return cursor;
     const resolver = context.knowledgeResolver;
     if (resolver === undefined) return unavailableResult();
@@ -453,16 +454,16 @@ function buildSearchPage(
   );
   const baseWithCursor =
     nextCursor === undefined ? base : { ...base, nextCursor };
-  let visibleWarnings: Array<KnowledgeSearchWarning> = [];
+  const visibleWarnings: Array<KnowledgeSearchWarning> = [];
   for (const warning of warnings) {
-    const candidate = {
-      ...baseWithCursor,
-      warnings: [...visibleWarnings, warning],
-    };
-    if (serializedLength(candidate) > KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS) {
+    visibleWarnings.push(warning);
+    if (
+      serializedLength({ ...baseWithCursor, warnings: visibleWarnings }) >
+      KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS
+    ) {
+      visibleWarnings.pop();
       break;
     }
-    visibleWarnings = [...visibleWarnings, warning];
   }
   return preflightSuccess({ ...baseWithCursor, warnings: visibleWarnings });
 }

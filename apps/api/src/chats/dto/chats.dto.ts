@@ -649,25 +649,25 @@ export function toSharedChatResponse(
   return {
     id: chat.id,
     title: chat.title,
-    messages: messages
+    messages: messages.flatMap((m) => {
       // Only the conversation (user + assistant) is public — never system/tool.
-      .filter(
-        (m): m is Message & { role: 'user' | 'assistant' } =>
-          m.role === 'user' || m.role === 'assistant',
-      )
-      .map((m) => ({
-        id: m.id,
-        seq: m.seq,
-        role: m.role,
-        // TEXT-only allowlist: strips reasoning (privacy), model/availability
-        // semantic controls, and every other non-display part.
-        // Reuses the same isTextPart guard as partsToExcerpt (not an ad-hoc
-        // shape check) and remaps to a strict {type, text} pair — any OTHER
-        // field a text-tagged part might carry is dropped, not passed through.
-        parts: (Array.isArray(m.parts) ? m.parts : [])
-          .filter(isTextPart)
-          .map((p) => ({ type: 'text' as const, text: p.text })),
-        createdAt: m.createdAt,
-      })),
+      if (m.role !== 'user' && m.role !== 'assistant') return [];
+      return [
+        {
+          id: m.id,
+          seq: m.seq,
+          role: m.role,
+          // TEXT-only allowlist: strips reasoning (privacy), model/availability
+          // semantic controls, and every other non-display part.
+          // Reuses the same isTextPart guard as partsToExcerpt (not an ad-hoc
+          // shape check) and remaps to a strict {type, text} pair — any OTHER
+          // field a text-tagged part might carry is dropped, not passed through.
+          parts: (Array.isArray(m.parts) ? m.parts : [])
+            .filter(isTextPart)
+            .map((p) => ({ type: 'text' as const, text: p.text })),
+          createdAt: m.createdAt,
+        },
+      ];
+    }),
   };
 }
