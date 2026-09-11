@@ -96,6 +96,7 @@ export const knowledgeSearchTool: Tool<KnowledgeSearchArguments> = {
   inputSchema: knowledgeSearchInputSchema,
   async execute(context, args) {
     const cursor = decodeSearchCursor(args);
+    // oxlint-disable-next-line anti-slop/no-known-value-widening -- `isToolResult` narrows a union that already contains `ToolResult`; it is that union's only atomic discriminant, not a redundant re-parse of a known value.
     if (cursor !== undefined && isToolResult(cursor)) return cursor;
     const resolver = context.knowledgeResolver;
     if (resolver === undefined) return unavailableResult();

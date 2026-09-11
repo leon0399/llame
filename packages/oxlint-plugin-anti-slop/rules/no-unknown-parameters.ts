@@ -2,6 +2,7 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
 
 import {
+  containsUnknownType,
   functionParameterBindingName,
   functionParameterTypeAnnotation,
   type FunctionLikeNode,
@@ -329,7 +330,8 @@ export const noUnknownParametersRule = defineRule({
       const guardedName = predicateSubjectName(node);
       for (const parameter of node.params) {
         const annotation = functionParameterTypeAnnotation(parameter);
-        if (annotation?.typeAnnotation.type !== "TSUnknownKeyword") continue;
+        if (annotation === null || annotation === undefined) continue;
+        if (!containsUnknownType(annotation.typeAnnotation)) continue;
         const name = functionParameterBindingName(
           parameter,
           context.sourceCode,

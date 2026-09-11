@@ -87,6 +87,13 @@ tester.run("anti-slop/no-unknown-parameters", noUnknownParametersRule, {
       code: "function classify(reason: unknown): string { return String(reason); }",
       options: [{ allowErrorFamilyNames: true }],
     },
+    // Upstream cases for the same rule, kept so a re-pull cannot silently
+    // change the exemption surface llame already covers.
+    "function enrich(cause: Error | unknown): void {}",
+    "function assertString(value: unknown): asserts value is string {}",
+    "type Guards = { isString(value: unknown): value is string };",
+    "declare function isString(value: unknown): value is string;",
+    "function parse(value: string | number): void {}",
   ],
   invalid: [
     {
@@ -173,6 +180,20 @@ tester.run("anti-slop/no-unknown-parameters", noUnknownParametersRule, {
       code: "function accept(value: unknown): void; function accept(value: unknown): void { use(value); }",
       options: [{ allowWhenImmediatelyValidated: true }],
       errors: [error("value"), error("value")],
+    },
+    // Upstream cases for the widened `containsUnknownType` check: `unknown`
+    // absorbed into a union is the same unparsed input as a bare `unknown`.
+    {
+      code: "function parse(value: string | unknown): void {}",
+      errors: [error("value")],
+    },
+    {
+      code: "function parse(value: string | (number | unknown)): void {}",
+      errors: [error("value")],
+    },
+    {
+      code: "export function parse({ value }: unknown = {}): void {}",
+      errors: [error("{ value }")],
     },
   ],
 });

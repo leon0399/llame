@@ -190,6 +190,7 @@ export function createContextItemPart(input: {
       text: input.text,
     },
   };
+  // oxlint-disable-next-line anti-slop/no-known-value-widening -- the literal's type is asserted, not verified: this re-check enforces the exact key set the declared type cannot, so a future edit that widens `data` fails here rather than at replay.
   if (!isContextItemPart(part)) {
     throw new TypeError('Invalid server-authored context item');
   }
