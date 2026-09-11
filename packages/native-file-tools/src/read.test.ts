@@ -661,6 +661,28 @@ describe("native source reads", () => {
       });
     });
 
+    it("counts only emittable lines against the shared ceiling", async () => {
+      const lines = Array.from({ length: 2010 }, () => "\n");
+      lines[99] = `${"p".repeat(16_001)}\n`;
+      lines[100] = `${"p".repeat(16_001)}\n`;
+      await writeFile(path, lines.join(""));
+      const result = await readFile({ path: `${path}:1-1,7-2004` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 1, endLine: 1 },
+          { startLine: 7, endLine: 2004 },
+        ],
+        shownRanges: [
+          { startLine: 1, endLine: 2 },
+          { startLine: 6, endLine: 99 },
+          { startLine: 102, endLine: 2005 },
+        ],
+        truncated: true,
+      });
+      expect(result).not.toHaveProperty("nextOffset");
+    });
+
     it("reads lines 1 through 7 exactly once for touching head ranges", async () => {
       await writeFile(path, numbered(10));
       const result = await readFile({ path: `${path}:1-2,5-6` });

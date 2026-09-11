@@ -148,25 +148,22 @@ function entrySnapshot(
 }
 
 /**
- * Whole-range admission: a later range must fit whole in the remaining line
- * budget; only the first range may split at the ceiling. Admission also
- * captures the rollback snapshot at a later range's first line.
+ * Whole-range admission against the shared emitted-line ceiling. The first
+ * range may split at the ceiling; a later range refusal points at the range
+ * start and the caller rolls it back whole. Skipped oversized lines never
+ * reach the budget, so holes leave room for later lines.
  */
 function admitRangeLine(
   position: RangePosition,
   emitted: number,
   result: MultiReadSuccess,
 ): RangeAdmission {
-  const range = position.expanded[position.rangeIndex];
-  if (
-    position.rangeIndex > 0 &&
-    position.index === range.offset &&
-    emitted + range.limit > MAX_READ_LINES
-  ) {
-    return { admitted: false, nextOffset: range.offset };
-  }
   if (position.rangeIndex === 0 && emitted >= MAX_READ_LINES) {
     return { admitted: false, nextOffset: position.index };
+  }
+  if (position.rangeIndex > 0 && emitted >= MAX_READ_LINES) {
+    const range = position.expanded[position.rangeIndex];
+    return { admitted: false, nextOffset: range.offset };
   }
   return {
     admitted: true,
@@ -207,28 +204,23 @@ function recoverAppendFailure(
     delete result.nextOffset;
   }
 }
-type OversizedOutcome = {
-  halted: boolean;
-  snapshot: RangeSnapshot | undefined;
-};
-
 /**
- * Omit and skip an oversized line without ending the read. The entry line of
- * a later range still receives whole-range admission, so a range that cannot
- * fit whole is omitted in full here instead of streaming past the ceiling.
+ * End the read on a refused range: roll a partial later range back whole so
+ * its retry fits on a fresh budget, keep a split first range's prefix, and
+ * point continuation at the resume line.
  */
-function skipOversizedLine(
-  position: RangePosition,
-  emitted: number,
+function haltRefusedRange(
+  rangeIndex: number,
+  snapshot: RangeSnapshot | undefined,
+  nextOffset: number,
   result: MultiReadSuccess,
-): OversizedOutcome {
-  result.truncated = true;
-  const admission = admitRangeLine(position, emitted, result);
-  if (!admission.admitted) {
-    result.nextOffset = admission.nextOffset;
-    return { halted: true, snapshot: undefined };
+): void {
+  if (rangeIndex > 0 && snapshot !== undefined) {
+    result.content = snapshot.content;
+    result.shownRanges = snapshot.shownRanges;
   }
-  return { halted: false, snapshot: admission.snapshot };
+  result.truncated = true;
+  result.nextOffset = nextOffset;
 }
 
 /**
@@ -266,9 +258,9 @@ async function collectMultiWindow(
 ): Promise<MultiReadSuccess> {
   const expanded = target.expandedRanges ?? [];
   const result = emptyMultiReadResult(target);
-  let emitted = 0;
-  let count = 0;
-  let rangeIndex = 0;
+  let emitted = 0,
+    count = 0,
+    rangeIndex = 0;
   let rangeSnapshot: RangeSnapshot | undefined;
   for await (const text of sourceLines(file, signal)) {
     const index = count++;
@@ -276,20 +268,16 @@ async function collectMultiWindow(
     if (rangeIndex >= expanded.length) break;
     if (index < expanded[rangeIndex].offset) continue;
     if (text === undefined) {
-      const skipped = skipOversizedLine(
-        { expanded, rangeIndex, index },
-        emitted,
-        result,
-      );
-      if (skipped.snapshot !== undefined) rangeSnapshot = skipped.snapshot;
-      if (skipped.halted) return result;
+      // An oversized line is omitted and skipped without ending the read.
+      result.truncated = true;
+      const entry = entrySnapshot(expanded, rangeIndex, index, result);
+      if (entry !== undefined) rangeSnapshot = entry;
       continue;
     }
     const cursor: MultiCursor = { expanded, rangeIndex, index, text };
     const admission = admitRangeLine(cursor, emitted, result);
     if (!admission.admitted) {
-      result.truncated = true;
-      result.nextOffset = admission.nextOffset;
+      haltRefusedRange(rangeIndex, rangeSnapshot, admission.nextOffset, result);
       return result;
     }
     if (admission.snapshot !== undefined) rangeSnapshot = admission.snapshot;
