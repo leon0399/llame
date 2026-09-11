@@ -6,7 +6,7 @@
 
 The resolver SHALL re-evaluate the current winning package on each call. An explicitly configured source symlink SHALL resolve to its real root. A package symlink SHALL resolve only within configured real roots, and a resource symlink SHALL resolve only within the selected real package. Missing/invalid packages, unsupported operations, and invalid resource paths SHALL return bounded structured errors. The resolver SHALL NOT follow escaping links or read special files.
 
-Results SHALL carry the logical locator, selected source, absolute `resolvedPath`, and absolute `skillDirectory`. These paths and the relative-reference base explanation SHALL be present in model-facing output as well as owner metadata. This publication exception SHALL apply only to operator skill paths, not Knowledge paths. Ordinary permission admission SHALL match the submitted skill locator, never a substituted physical path.
+Results SHALL carry the logical locator, selected source, absolute `resolvedPath`, and absolute `skillDirectory`. These paths and the relative-reference base explanation SHALL be present in model-facing output as well as owner metadata. The result bound SHALL reserve space for this envelope before truncating resource content; if the envelope cannot fit, the read SHALL fail with a bounded error. This publication exception SHALL apply only to operator skill paths, not Knowledge paths. Ordinary permission admission SHALL match the submitted skill locator, never a substituted physical path.
 
 #### Scenario: Skill resource exposes the execution base
 

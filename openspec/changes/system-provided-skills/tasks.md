@@ -19,16 +19,16 @@ The proposal layer owns planning artifacts. The catalog layer owns configuration
 
 ## 3. Activation layer
 
-- [ ] 3.1 Implement bounded prompt catalog baselines and per-user-turn catalog discovery/deltas; verify no prompt re-render on package edits or model switches, correct compaction re-baselining, omitted-entry promotion, and honest overflow handling.
-- [ ] 3.2 Parse explicit dollar mentions and load selected skills through common admission before the first model request; verify multi-skill order, deduplication, code/escape exclusions, manual-only behavior, and per-selection failure continuation.
+- [ ] 3.1 Persist owner-scoped per-Run baseline/last-disclosed state and resolve the disclosure epoch before prompt rendering; implement bounded catalog discovery/deltas; verify no prompt re-render on package edits or model switches, next-user-turn re-baselining after ordinary and transition compaction, restart recovery, omitted-entry promotion, and honest overflow handling.
+- [ ] 3.2 Parse explicit dollar mentions and load selected skills through common admission before the first model request; verify multi-skill order, deduplication, code/escape exclusions, manual-only behavior, per-selection failure continuation, and partial recovery using stable activation ordinals. Reuse `runTool` and extract its trusted caller context before pre-request activation; verify no independent permission evaluator or synthetic assistant tool record is introduced.
 - [ ] 3.3 Add the two context producers with total author-time ordering and final-text persistence; verify the original user text is retained, receipts include actual output, and recovery after completed activation does not re-read changed files.
 - [ ] 3.4 Verify live edit/removal behavior across user turns and within an active Run: new loads see current state, old observations replay unchanged, and unsolicited reminders never appear mid-Run. Include a surviving script after source removal to prove ordinary Bash permissions remain authoritative.
 - [ ] 3.5 Verify explicit and proactive skills cannot grant tools, expose server credentials, mutate through skill locators, or access another owner's Knowledge; run meaningful negative isolation tests through the Run boundary.
-- [ ] 3.6 Verify model-facing behavior with deterministic model fixtures: only relevant bodies load, multiple skills coexist, references stay lazy, scripts receive valid paths, and owner-visible results retain provenance. Run applicable API/integration/E2E checks and repository gates; record any environment limitation separately from defects.
+- [ ] 3.6 Verify model-facing behavior with deterministic model fixtures: only relevant bodies load, multiple skills coexist, references stay lazy, scripts receive valid paths, and owner-visible results retain provenance, published skill paths, and per-item precedence framing under an operator-replaced prompt. Include reserved-delimiter payloads and envelope-preserving truncation tests. Run applicable API/integration/E2E checks and repository gates; record any environment limitation separately from defects.
 
 ## 4. Finalize layer
 
-- [ ] 4.1 Use `$openspec-sync-specs` to synchronize the four capability deltas and update SPEC/operator docs; verify new behavior is documented once in its owning capability and Knowledge path privacy remains unchanged.
+- [ ] 4.1 Use `$openspec-sync-specs` to synchronize the five capability deltas and update SPEC/operator docs; verify new behavior is documented once in its owning capability and Knowledge path privacy remains unchanged.
 - [ ] 4.2 Reconcile #770 with the approved configured-source, live-read, path-publication, and reminder decisions; keep #772 and #782 separate and verify no new native dependency was invented.
 - [ ] 4.3 Run strict OpenSpec validation, Markdown lint, format checks, and `git diff --check`; complete required delivery review/CI for the stack with recorded results.
 - [ ] 4.4 After implementation verification, use `$openspec-archive-change`; verify every task is complete and the archive is valid. Only this final layer uses `Closes #770`; reconcile project status after its delivery PR is merged.

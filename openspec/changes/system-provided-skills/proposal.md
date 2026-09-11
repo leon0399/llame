@@ -23,6 +23,7 @@ MCP-provided skills (#772), personal/workspace discovery, marketplaces, script r
 - `instance-config`: Operator skill source directories with an empty default.
 - `native-file-tools`: Read-only skill locators and model-visible package paths.
 - `context-injection`: Skill catalog and explicit-activation producers, ordered on the existing rail.
+- `model-system-prompts`: Explicitly permit published skill paths in owner receipts while preserving private configuration boundaries.
 
 ## Impact
 
