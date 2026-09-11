@@ -16,7 +16,7 @@ This is not command containment. An allowed interpreter retains its executor's a
 
 ### D1: A closed configuration grouped by exact tool identity
 
-Add optional `tools.permissions`, default `{}`. Keys are exact registered code-owned IDs or exact canonical IDs for configured MCP servers. No new tool-name wildcard language is added; operators may still use namespace wildcards in `tools.allowed`, but each executing tool needs its own permission group. This prevents a newly discovered MCP tool from acquiring call permission merely through namespace membership.
+Add optional `tools.permissions`, defaulting to the explicit built-in map in D8. A supplied map replaces that entire map; `{}` explicitly denies every call. There is no implicit deep merge or append. Keys are exact registered code-owned IDs or exact canonical IDs for configured MCP servers. No new tool-name wildcard language is added; operators may still use namespace wildcards in `tools.allowed`, but each executing tool needs its own permission group. This prevents a newly discovered MCP tool from acquiring call permission merely through namespace membership.
 
 Each group has optional `allow` and `reject` values, each either `true` (whole-tool match) or an array of clauses. Omitted values and empty arrays do not match; `false` is invalid. A clause contains exactly one of `literal` or `regex`, plus exactly one target: `field` or `allFields: true`:
 
@@ -112,6 +112,29 @@ A queued call that has not executed uses the restarted worker's new policy. Alre
 - OpenClaw corrected durable approvals that omitted cwd/argument binding. Those approval mechanics belong to #778; here the actual submitted fields and process policy are evaluated at each new call. [Cwd fix](https://github.com/openclaw/openclaw/commit/1c37c8cdc71bd2738b35bb5c433b3d545e040501).
 - Claude Code limits generic parameter allows, and both Claude Code and Codex expose programmable whole-input checks through hooks. A built-in bounded string matcher meets this request without adding a general hook runtime. [Claude rules](https://code.claude.com/docs/en/permissions#match-by-input-parameter), [Codex hooks](https://learn.chatgpt.com/docs/hooks#pretooluse).
 
+### D8: Portable defaults and local-only policy
+
+The source image supplies examples of destructive host operations, not a complete permission model. The inspected `~/.claude/settings.json` mixes credential protection with one operator's developer tools, MCP servers, personal instruction files, and workflow preferences. These inform the following default map; neither source's syntax is imported. Sources: [provided image](https://pbs.twimg.com/media/HReP41pbsAA6Bdz?format=png&name=900x900), local permission settings inspected on 2026-09-11, and [Claude's documented settings shape](https://code.claude.com/docs/en/settings). The local nested `permissions.read`/`permissions.write` blocks are treated as stated intent, not evidence of effective enforcement by that installation.
+
+Only these seven current code-owned tools receive built-in groups: `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, and `conversation_read`. Each group has `allow: true`; file groups and Bash add the rejects below. No current/future MCP tool or future code-owned tool acquires an implicit group. `tools.allowed` still defaults to empty, and native authority/owner checks remain mandatory. Enabling Bash therefore deliberately admits arbitrary host commands except the listed textual rejects; these defaults catch common mistakes and do not restrict Bash to a safe command subset.
+
+A supplied `tools.permissions` map replaces the complete built-in map. This avoids hidden inheritance and makes `{}` an explicit reject-all policy. Operators customizing one group must copy every other group they want to retain; examples must say this clearly. Built-in rejects are replaceable operator defaults, not a mandatory tier.
+
+The [portable policy requirement](specs/tool-call-permissions/spec.md#requirement-portable-built-in-policy-with-explicit-replacement) owns the exact B1-B8/F1-F4 default rules. They are compile-time constants; operator JSON examples must escape backslashes and opening interpolation braces appropriately.
+
+F1-F3 protect explicit credential locations from native reads and mutations. F4 covers common secret-bearing environment files on reads; editing environment configuration remains available because deployment work needs it. Rules apply to logical Knowledge locators and submitted absolute host locators. They do not inspect private Knowledge backing paths, enumerate hidden files inside a directory listing, filter search excerpts, or prevent Bash from accessing those files. `knowledge_search` is owner-scoped retrieval; file-call rules do not become an implicit indexing policy. A future content-exclusion capability would need its own enforcement.
+
+B1 and B4-B5 cover host administration across common operating systems; including macOS command spellings introduces no macOS dependency. B2 targets obvious root/home recursive removal rather than every `rm -rf`, preserving ordinary build cleanup. B3 targets device writes rather than every use of `dd`. B8 covers the common download-pipe-to-shell spelling. None parses shell syntax: reordered options, wrappers, expansions, aliases, or alternate encodings can evade a textual rule. Quoted mentions can also match. Explicit regex whitespace follows D2's engine syntax; literal defaults receive Bash whitespace flexibility.
+
+The capability spec owns the acceptance/rejection matrix. During proposal validation, RE2JS 2.8.6 compiled all eight regex defaults and passed 25 representative acceptance/rejection checks in a disposable environment; repository dependencies remain unchanged. Literal matcher behavior remains covered by the implementation tasks.
+
+Local-only examples should explain decisions without copying Leo's machine paths or server grants into shipped configuration:
+
+- L1: CLI/package-manager lists (`brew`, `composer`, `pnpm`, `docker`, `gh`) describe an installed toolchain. Do not turn them into substring allows. Retain the selected host authority baseline or write explicit workload restrictions.
+- L2: `origin`, `main`/`master`, force-push restrictions, and broad recursive-removal bans encode repository workflow preferences. Keep them in an operator replacement map; for example, an additional Bash reject literal `git push` blocks every matching submitted push command under that local policy.
+- L3: MCP namespaces, named skills, and personal instruction-file edit exceptions are installation-specific. No MCP wildcard permission groups, skill permission engine, HTTP tool, or imported `auto`/`ask` mode is introduced here.
+- L4: Generic `secrets`/`credentials` directories, all `.key`/`.pem` files, `.npm` caches, `docker-compose*.yml`, and `config/database.yml` may contain secrets or ordinary fixtures/configuration. Keep broader bans explicit and local; standard credential locations are the narrower global default.
+
 ## Risks / Trade-offs
 
 - R1: Text patterns reject quoted mentions and miss differently spelled commands. Publish the example matrix in the capability spec; make no sandbox or command-equivalence claim.
@@ -122,13 +145,15 @@ A queued call that has not executed uses the restarted worker's new policy. Alre
 
 ## Migration Plan
 
-1. Extend the schema and evaluator, then wire the mandatory gate and private metadata in one deployable implementation layer. Update shipped config examples and all execution fixtures with explicit permission allows.
-2. Document the breaking no-match rejection behavior and inspect the operator's intended configuration before deployment. Do not generate wildcard allow rules or change Leo's live config automatically.
-3. Stop all affected API/worker processes, deploy the implementation with its intended config, and restart them. The absent setting is valid but denies all tool calls; deployments that want existing execution must supply explicit groups.
+1. Extend the schema and evaluator, then wire the mandatory gate and private metadata in one deployable implementation layer. Update shipped config examples and execution fixtures to distinguish built-in defaults from complete operator replacement maps.
+2. Document the default policy and breaking explicit-map/no-match rejection behavior and inspect the operator's intended configuration before deployment. Do not generate wildcard allow rules or change Leo's live config automatically.
+3. Stop all affected API/worker processes, deploy the implementation with its intended config, and restart them. The absent setting applies the built-in code-owned defaults; explicit maps replace them, so customized deployments must supply every group they intend to retain. MCP execution requires explicit groups.
 4. Verify allow, deny-with-continuation, unchanged visibility, restart policy, and two-owner isolation. No chat deletion, schema reset, or new table is needed.
 5. Roll back by restoring the previous binary and its compatible config together. The old binary cannot accept the new closed-schema key; rolling back also removes this call-policy gate and must be an explicit operator decision.
 
 ## Revision history
+
+- v5 (2026-09-11): Added source-derived portable defaults and explicit whole-map replacement, separated local workflow policy, and corrected the Knowledge-only execution scenario.
 
 - v4 (2026-09-11): Replaced the owner-visible content hash with a random process policy-instance ID so interpolated private values cannot be guessed against a deterministic digest.
 

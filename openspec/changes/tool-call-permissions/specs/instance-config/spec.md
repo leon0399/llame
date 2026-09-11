@@ -2,7 +2,7 @@
 
 ### Requirement: First-slice setting surface
 
-The schema SHALL cover the shape-stable operator settings and SHALL be extended by consumer changes, each adding its own keys (add-when-consumed). The settings include: `defaults.modelId`, `defaults.titleGenerationModelId` (instance-level model _pointers_ — not the catalog itself, which lives in the top-level `models` array), `runs.maxOutputTokens`, `runs.heartbeatSeconds`, `runs.timeoutSeconds`, `http.trustProxy`, the `tools` namespace (`tools.allowed`, default empty = no tools, fail closed; `tools.permissions`, default empty = all tool calls rejected without affecting availability; `tools.maxStepsPerRun`, default 20; `tools.callTimeoutSeconds`, default 120), the top-level `mcpServers` named object (default empty = no MCP servers of any transport; entries are `type`-discriminated and may be remote Streamable HTTP or local stdio), the optional `knowledge.root` absolute path (default absent = no local Knowledge capability), the `providers` array (provider connections), and the `models` array (the executable catalog). `tools.allowed` SHALL accept registered code-owned ids, exact canonical configured-MCP ids, and the single configured-MCP namespace wildcard form `mcp__<server>__*`. Provider connection settings (formerly the `OPENAI_BASE_URL` / `OPENAI_API_KEY` environment variables) SHALL be expressed as `providers[]` entries; those environment variables remain valid **interpolation inputs** (`{env:OPENAI_API_KEY:-}`) but are no longer read directly. No `compaction.*` or context-window-fallback setting SHALL exist at the instance level: compaction is driven by the model — every model declares its `contextWindowTokens`, and its trigger threshold resolves per-model via the optional `models[].compactionThresholdTokens`, never by an instance knob.
+The schema SHALL cover the shape-stable operator settings and SHALL be extended by consumer changes, each adding its own keys (add-when-consumed). The settings include: `defaults.modelId`, `defaults.titleGenerationModelId` (instance-level model _pointers_ — not the catalog itself, which lives in the top-level `models` array), `runs.maxOutputTokens`, `runs.heartbeatSeconds`, `runs.timeoutSeconds`, `http.trustProxy`, the `tools` namespace (`tools.allowed`, default empty = no tools, fail closed; `tools.permissions`, default explicit portable code-owned policy without affecting availability; `tools.maxStepsPerRun`, default 20; `tools.callTimeoutSeconds`, default 120), the top-level `mcpServers` named object (default empty = no MCP servers of any transport; entries are `type`-discriminated and may be remote Streamable HTTP or local stdio), the optional `knowledge.root` absolute path (default absent = no local Knowledge capability), the `providers` array (provider connections), and the `models` array (the executable catalog). `tools.allowed` SHALL accept registered code-owned ids, exact canonical configured-MCP ids, and the single configured-MCP namespace wildcard form `mcp__<server>__*`. Provider connection settings (formerly the `OPENAI_BASE_URL` / `OPENAI_API_KEY` environment variables) SHALL be expressed as `providers[]` entries; those environment variables remain valid **interpolation inputs** (`{env:OPENAI_API_KEY:-}`) but are no longer read directly. No `compaction.*` or context-window-fallback setting SHALL exist at the instance level: compaction is driven by the model — every model declares its `contextWindowTokens`, and its trigger threshold resolves per-model via the optional `models[].compactionThresholdTokens`, never by an instance knob.
 
 #### Scenario: Migrated settings resolve from the file
 
@@ -50,13 +50,20 @@ The schema SHALL cover the shape-stable operator settings and SHALL be extended 
 
 ### Requirement: Operator tool permissions compile before process startup completes
 
-The configuration SHALL accept optional `tools.permissions` under the closed published schema. Its default SHALL be an empty policy. It SHALL use the groups, clauses, matching syntax, and bounds defined by `tool-call-permissions`. Unknown keys, invalid tool identities, malformed clauses, all-fields allow clauses, and invalid or unsupported regex SHALL fail startup before serving requests or claiming jobs. Diagnostics SHALL identify configuration locations and static reasons without printing patterns, resolved values, or matched input. Permission strings SHALL follow the existing single-pass interpolation and doubled-opening-brace escaping contract.
+The configuration SHALL accept optional `tools.permissions` under the closed published schema. When omitted, it SHALL use the portable default map defined in this change. A supplied map SHALL replace the entire default map without merging; an explicit empty map SHALL reject all calls. It SHALL use the groups, clauses, matching syntax, and bounds defined by `tool-call-permissions`. Unknown keys, invalid tool identities, malformed clauses, all-fields allow clauses, and invalid or unsupported regex SHALL fail startup before serving requests or claiming jobs. Diagnostics SHALL identify configuration locations and static reasons without printing patterns, resolved values, or matched input. Permission strings SHALL follow the existing single-pass interpolation and doubled-opening-brace escaping contract.
 
-#### Scenario: Existing allowlist without permission rules
+#### Scenario: Existing allowlist selects portable defaults
 
 - **WHEN** an otherwise valid configuration lists a tool in `tools.allowed` and omits `tools.permissions`
 - **THEN** startup succeeds and the existing catalog remains available
-- **AND** calls to that tool are rejected by the empty execution policy
+- **AND** a current code-owned tool uses its built-in group, including applicable default rejects
+- **AND** an MCP tool has no built-in permission group and is rejected
+
+#### Scenario: Explicit empty policy disables execution
+
+- **WHEN** an operator supplies `tools.permissions: {}`
+- **THEN** no built-in permission groups are inherited
+- **AND** available tools remain visible but all calls are rejected
 
 #### Scenario: Invalid regex is not silently ignored
 

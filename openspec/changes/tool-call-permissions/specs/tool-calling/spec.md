@@ -117,7 +117,8 @@ grant authority across source kinds.
 #### Scenario: Native tools are admitted by Knowledge root alone
 
 - **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `read`, `edit`, and `write`
-- **THEN** the three tools are advertised and executable for `kb://` locators
+- **THEN** the three tools are advertised for `kb://` locators
+- **AND** each call executes only when its `tools.permissions` policy allows it; without a matching allow the call receives `permission_denied`
 - **AND** an absolute path fails closed with `executor_unavailable`
 
 #### Scenario: Knowledge root does not admit bash

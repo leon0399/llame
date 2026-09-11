@@ -10,7 +10,8 @@ Issue [#763](https://github.com/leon0399/llame/issues/763) needs operator-contro
 - Check permissions at the shared tool execution boundary. Return `permission_denied` as a tool observation and continue the Run without invoking the rejected tool.
 - Keep `tools.allowed`, capability admission, immutable model catalogs, authentication, RLS, and native effect/retry fencing independent and mandatory. Permission rules do not change tool visibility.
 - Freeze policy per executor process. Restart applies new permissions to subsequent attempts, including unfinished older Runs; retain safe policy-decision provenance outside model context.
-- **BREAKING:** membership in `tools.allowed` no longer suffices for execution. Operators must also configure matching permission allows; absent permissions reject calls. Update shipped examples and fixtures atomically, with no compatibility bypass.
+- Ship an explicit portable default map for the seven current code-owned tools, with common destructive-command and credential-locator rejects. Keep personal toolchains, MCP grants, skill rules, and repository workflow restrictions local.
+- **BREAKING:** every call must pass the execution policy. Omitted permissions select the built-in map; an explicit map replaces it completely, and `{}` rejects every call. MCP tools require explicit permission groups. Update examples and fixtures atomically.
 
 ## Capabilities
 
