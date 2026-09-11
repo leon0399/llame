@@ -131,6 +131,22 @@ type RangeAdmission =
   | { admitted: false; nextOffset: number };
 
 /**
+ * Rollback state at a later range's first line, so a budget failure deeper
+ * in the range still omits it in full. Undefined for the first range and
+ * for lines past a range's start.
+ */
+function entrySnapshot(
+  expanded: Array<{ offset: number; limit: number }>,
+  rangeIndex: number,
+  index: number,
+  result: MultiReadSuccess,
+): RangeSnapshot | undefined {
+  if (rangeIndex === 0 || index !== expanded[rangeIndex].offset)
+    return undefined;
+  return { content: result.content, shownRanges: [...result.shownRanges] };
+}
+
+/**
  * Whole-range admission: a later range must fit whole in the remaining line
  * budget; only the first range may split at the ceiling. Admission also
  * captures the rollback snapshot at a later range's first line.
@@ -153,10 +169,12 @@ function admitRangeLine(
   }
   return {
     admitted: true,
-    snapshot:
-      cursor.rangeIndex > 0 && cursor.index === range.offset
-        ? { content: result.content, shownRanges: [...result.shownRanges] }
-        : undefined,
+    snapshot: entrySnapshot(
+      cursor.expanded,
+      cursor.rangeIndex,
+      cursor.index,
+      result,
+    ),
   };
 }
 
@@ -232,9 +250,10 @@ async function collectMultiWindow(
     if (rangeIndex >= expanded.length) break;
     if (index < expanded[rangeIndex].offset) continue;
     if (text === undefined) {
-      // An individually oversized line is omitted and skipped: the read
-      // continues past it, so one poison line never ends the whole read.
+      // An oversized line is omitted and skipped without ending the read.
       result.truncated = true;
+      const entry = entrySnapshot(expanded, rangeIndex, index, result);
+      if (entry !== undefined) rangeSnapshot = entry;
       continue;
     }
     const cursor: MultiCursor = { expanded, rangeIndex, index, text };

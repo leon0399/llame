@@ -613,6 +613,28 @@ describe("native source reads", () => {
         }),
       ).toThrow("invalid_input");
     });
+
+    it("rolls a later range back whole when its first line is oversized", async () => {
+      await writeFile(
+        path,
+        `${"a\n".repeat(10)}${"x".repeat(MAX_RESULT_CODE_UNITS)}\n${`${"y".repeat(500)}\n`.repeat(10)}`,
+      );
+      const result = await readResolvedFile(path, {
+        displayPath: "kb://space/a.md",
+        selector: "2-3,12-20",
+        reserveCodeUnits: MAX_RESULT_CODE_UNITS - 3000,
+      });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 2, endLine: 3 },
+          { startLine: 12, endLine: 20 },
+        ],
+        shownRanges: [{ startLine: 1, endLine: 4 }],
+        truncated: true,
+        nextOffset: 10,
+      });
+    });
   });
 });
 
