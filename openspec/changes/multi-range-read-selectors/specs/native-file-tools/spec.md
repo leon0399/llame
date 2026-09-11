@@ -65,9 +65,11 @@ directory listing requirements and SHALL NOT add context lines.
 
 A regular-file `read` SHALL accept two or more comma-separated `N-M` or `N+K`
 ranges, or `raw:` followed by two or more comma-separated `N-M` ranges.
-Every bound SHALL satisfy the existing positive safe-integer rules. Empty
-members, whitespace, malformed members, and more than 64 input ranges SHALL
-fail with `invalid_selector`; a malformed member SHALL fail the whole request.
+Every bound SHALL satisfy the existing positive safe-integer rules. Invalid
+bounds and more than 64 input ranges SHALL fail with `invalid_selector`. Empty
+members, whitespace, or malformed members SHALL fail the whole request under
+existing error precedence: `invalid_selector` for parsed host selectors and
+`invalid_path` for malformed `kb://` locator suffixes.
 The tool SHALL sort ranges by start and merge overlapping or adjacent ranges.
 A comma-separated request SHALL remain exact even if normalization leaves one
 range: no context lines or duplicate source lines SHALL be emitted.
@@ -118,13 +120,19 @@ continuation SHALL remain unchanged.
 
 - **WHEN** `:5-10,20-30` fits the first range but not all of the second
 - **THEN** it emits only lines 5..10, reports truncation and `nextOffset: 19`
-- **AND** the remaining request is `:20-30`
+- **AND** an exact numbered retry uses `:20-30,20-30` to preserve comma mode
 
 #### Scenario: First range exceeds the line ceiling
 
 - **WHEN** `:1-2500,4000-4010` targets a sufficiently long file with short lines
 - **THEN** it emits lines 1..2000, reports truncation and `nextOffset: 2000`
 - **AND** the remaining request is `:2001-2500,4000-4010`
+
+#### Scenario: The line ceiling is shared across ranges
+
+- **WHEN** `:1-1500,3000-4500` targets a sufficiently long file with short lines
+- **THEN** it emits only lines 1..1500 because the second whole range exceeds the remaining 500-line budget
+- **AND** it reports truncation and `nextOffset: 2999`; an exact retry uses `:3000-4500,3000-4500`
 
 #### Scenario: EOF limits shown ranges only
 
@@ -134,8 +142,9 @@ continuation SHALL remain unchanged.
 
 #### Scenario: Invalid member rejects the request
 
-- **WHEN** a nonliteral read selector is `:5-10,,20-30`, `:5-10,0-2`, or contains 65 ranges
+- **WHEN** a nonliteral host read selector is `:5-10,,20-30`, `:5-10,0-2`, or contains 65 ranges
 - **THEN** the tool returns `invalid_selector` without returning any selected content
+- **AND** a malformed `kb://` suffix such as `:5-10,,20-30` retains `invalid_path`; valid comma grammar with invalid numeric bounds retains `invalid_selector`
 
 #### Scenario: Literal filename wins
 

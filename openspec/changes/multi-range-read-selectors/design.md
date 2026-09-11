@@ -35,7 +35,8 @@ and existing bounded decoding; opening once does not provide a snapshot against
 concurrent in-place writes. Whole-range truncation can leave output capacity
 unused but makes subsequent requests predictable.
 
-Keep Knowledge locator splitting and owner isolation intact. Coordinate with
+Keep Knowledge locator splitting and owner isolation intact, including
+`invalid_path` for malformed locator suffixes before range validation. Coordinate with
 the permission projection in #763: Knowledge selectors are excluded from resource
 identity; direct host permissions match the submitted path text, including
 selectors. This feature grants no new authority. The pending skills proposal
@@ -50,4 +51,5 @@ as recorded.
 
 ## Revision history
 
+- v2 (2026-09-11): Preserved Knowledge locator error precedence, corrected the exact continuation example, and covered the aggregate line ceiling after independent review.
 - v1 (2026-09-11): Initial proposal for #705.
