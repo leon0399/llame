@@ -41,8 +41,8 @@ The owner SHALL be able to retrieve an immutable context receipt for each new Ru
 - **THEN** the API responds as though the receipt does not exist
 - **AND** no model, prompt, tool, availability, endpoint, or path metadata is disclosed
 
-#### Scenario: Receipt contains an explicit skill activation
+#### Scenario: Skill activation does not mutate the enqueue receipt
 
-- **WHEN** the owner inspects a Run with a skill activation that published its package directory and resolved file path
-- **THEN** those intentionally shared skill paths remain visible in the recorded context
-- **AND** the exception does not expose Knowledge backing paths or private prompt configuration
+- **WHEN** a skill activation publishes its package directory and resolved file path after the Run is claimed
+- **THEN** the immutable enqueue receipt stays unchanged and the separate executed-context record contains the final activation text
+- **AND** the skill path exception does not expose Knowledge backing paths or private prompt configuration

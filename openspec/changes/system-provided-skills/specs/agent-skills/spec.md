@@ -62,7 +62,7 @@ The system SHALL resolve the first present invocation-control value in this orde
 
 ### Requirement: Explicit mentions load skills before the first model request
 
-The system SHALL recognize exact `$skill-name` tokens in user-authored text outside fenced code, inline code, and escaped dollar signs, with valid name boundaries. It SHALL load distinct selected skills in first-mention order before the Run's first model request, deduplicating repeated mentions within that user turn. Ordinary mentions SHALL remain model-selected. Activation SHALL use the same read availability, input validation, permission admission, live resolver, and result bounds as proactive reads. The user text SHALL be retained subject to existing reserved-delimiter sanitation; activation SHALL NOT remove mention tokens or perform argument substitution. Each activation result SHALL be persisted as an owner-visible context item rather than a fabricated model tool call. An unavailable, invalid, or denied selection SHALL produce a bounded failure item without stopping other selections or the Run.
+The system SHALL recognize exact `$skill-name` tokens in user-authored text outside fenced code, inline code, and escaped dollar signs, with valid name boundaries. It SHALL load distinct selected skills in first-mention order before the Run's first model request, deduplicating repeated mentions within that user turn. Ordinary mentions SHALL remain model-selected. Activation SHALL use the same read availability, input validation, permission admission, live resolver, and result bounds as proactive reads. The user text SHALL be retained subject to existing reserved-delimiter sanitation; activation SHALL NOT remove mention tokens or perform argument substitution. Explicit activation SHALL attempt at most eight distinct selections, with a 128 KiB aggregate serialized output bound including envelopes and a 30-second aggregate work deadline further limited by the Run deadline. Remaining output/time SHALL constrain each read, and exhausted budgets SHALL stop further reads. Unattempted selections SHALL produce one bounded omission notice, without per-selection discovery or output. Each activation result SHALL be persisted as an owner-visible context item rather than a fabricated model tool call. An unavailable, invalid, or denied selection SHALL produce a bounded failure item without stopping other selections or the Run.
 
 #### Scenario: User selects two skills
 
@@ -137,3 +137,41 @@ Authenticated owners SHALL be able to inspect the same system catalog through `G
 - **WHEN** the catalog exceeds a response or model metadata bound
 - **THEN** complete entries are returned with explicit continuation or omission information
 - **AND** omitted bodies are not loaded to build the listing
+
+### Requirement: Explicit activation work is bounded before model preparation
+
+The system SHALL enforce the explicit-selection count, aggregate output, and aggregate work bounds before each activation read. Discovery SHALL check cancellation between entries and file operations. It SHALL preserve completed activation results and account for unattempted selections in one bounded notice. Limits SHALL NOT silently claim omitted skills were loaded or perform their filesystem scans.
+
+#### Scenario: User names many distinct skills
+
+- **WHEN** a user message names one thousand distinct skills
+- **THEN** at most the first eight are attempted in order and one bounded notice reports the omitted remainder
+- **AND** the remainder does not trigger skill discovery or create one context part per name
+
+#### Scenario: Aggregate budget is exhausted
+
+- **WHEN** selected reads consume the activation output or work budget before all admitted selections are attempted
+- **THEN** no additional reads start, ordinary truncation remains explicit, and one bounded notice accounts for the unattempted selections
+
+### Requirement: System-origin activations retain permission provenance without assistant tool parts
+
+Explicit skill activation SHALL use the common awaited permission-admission callback. Before dispatch it SHALL durably record `tool.requested` with a trusted `origin: "skill-activation"` discriminator, activation identity, and the safe decision provenance required by tool-call permissions. Allowed reads SHALL emit started/completed activity; denied reads SHALL emit requested/completed without a started event. Required audit persistence failure SHALL prevent execution.
+
+For this system-origin caller, the stored activation context item's private metadata SHALL mirror the safe permission record instead of a stored assistant tool part; model-origin tool calls SHALL retain the ordinary stored-tool-part requirement. The model SHALL NOT control the origin. Live tool-part translation, pending-call recovery/settlement, and durable assistant reconstruction SHALL exclude system-origin activation activity from assistant tool parts while retaining its owner-scoped audit events. Legacy events without an origin SHALL remain model-origin. Diagnostic permission metadata SHALL remain absent from model text, public shares, exports, and search. Completed activation ordinals SHALL replay stored observations; unfinished retries SHALL obtain a fresh decision and distinct attempt record.
+
+#### Scenario: Allowed activation records admission before reading
+
+- **WHEN** an explicit activation is allowed
+- **THEN** its origin-qualified requested event and permission record are durable before the file read
+- **AND** completion mirrors the safe record in private activation metadata without an assistant tool part
+
+#### Scenario: Admission audit cannot be persisted
+
+- **WHEN** the pre-dispatch decision write fails
+- **THEN** the file is not opened and infrastructure-failure handling applies
+
+#### Scenario: Recovery encounters a system-origin pending request
+
+- **WHEN** a worker resumes with an unfinished skill-activation request event
+- **THEN** it does not synthesize a pending assistant tool call or use the old allow decision for execution
+- **AND** a new permitted attempt receives fresh admission provenance while completed activation ordinals remain unchanged
