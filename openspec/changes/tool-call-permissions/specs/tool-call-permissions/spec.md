@@ -180,7 +180,7 @@ Stored completed effects and observations SHALL remain historical facts. The exi
 
 ### Requirement: Safe decision provenance and non-fatal rejection
 
-Every newly evaluated call SHALL obtain a trusted decision before executor dispatch. Its owner-scoped tool activity and stored tool-part metadata SHALL record a versioned policy content hash, allow/reject decision, static reason, and bounded deterministic clause reference when one matched. No-match, invalid-field, and input-limit decisions SHALL use explicit static reasons. Policy bodies, matched fragments, and resolved config secrets SHALL NOT be included. The metadata SHALL be excluded from model replay, public shares, exports, and search.
+Every newly evaluated call SHALL obtain a trusted decision before executor dispatch. Its owner-scoped tool activity and stored tool-part metadata SHALL record an opaque random policy-instance ID independent of policy contents, allow/reject decision, static reason, and bounded deterministic clause reference when one matched. No-match, invalid-field, and input-limit decisions SHALL use explicit static reasons. Policy bodies, matched fragments, and resolved config secrets SHALL NOT be included. The ID SHALL remain fixed within its executor process and be regenerated on restart, even with unchanged configuration. It SHALL NOT expose a deterministic digest of interpolated private values. The metadata SHALL be excluded from model replay, public shares, exports, and search.
 
 A rejected otherwise valid call SHALL return `status: "error"`, `type: "permission_denied"`, and the static message `Tool call rejected by operator permissions.` It SHALL produce no tool effect or native attempt, no automatic retry, no approval request, and no permission-caused Run termination. The model SHALL observe the error and continue subject to existing Run limits. The decision SHALL be durably recorded on `tool.requested` before any `tool.started` event or executor dispatch, and carried through completion, abort settlement, and durable transcript reconstruction into stored tool-part metadata. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.
 
@@ -201,3 +201,9 @@ A rejected otherwise valid call SHALL return `status: "error"`, `type: "permissi
 - **THEN** the stored tool part retains its safe decision metadata
 - **AND** replay to the model contains the ordinary result but not policy metadata
 - **AND** public shares, exports, and search receive no new policy metadata
+
+#### Scenario: Policy identity cannot verify guesses of private values
+
+- **WHEN** permission patterns include interpolated private values
+- **THEN** the exposed policy ID is generated independently of those values
+- **AND** restarting with identical configuration produces a new ID while decisions in one process retain the same ID
