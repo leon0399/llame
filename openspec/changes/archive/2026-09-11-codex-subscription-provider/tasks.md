@@ -27,5 +27,5 @@ This slice serves #753 and the OpenAI part of #752. No layer owns closing either
 ## 3. Finalize layer
 
 - [x] 3.1 [finalize] Use `$openspec-sync-specs` to synchronize the two capabilities; verify strict canonical spec validation and that the delta retains all existing provider scenarios.
-- [ ] 3.2 [finalize] Verify every implementation/proposal task and artifact is complete, record finalization completion, then use `$openspec-archive-change`; verify the archive preserves checked history and passes strict `--specs` and `--all` validation, Markdown lint, formatting, and diff checks.
+- [x] 3.2 [finalize] Verify every implementation/proposal task and artifact is complete, record finalization completion, then use `$openspec-archive-change`; verify the archive preserves checked history and passes strict `--specs` and `--all` validation, Markdown lint, formatting, and diff checks.
       After archive, the finalize layer delivery owner publishes only with authorization, completes the required review/CI monitoring, and requests explicit merge permission. Verify stack bases and terminal checks immediately before any authorized merge; these delivery gates do not claim pre-archive completion.
