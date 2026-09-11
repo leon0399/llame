@@ -14,6 +14,8 @@ tester.run("anti-slop/no-runtime-typeof", noRuntimeTypeofRule, {
     'const hasStorage = typeof localStorage !== "undefined";',
     'if (typeof globalThis.crypto === "undefined") throw new Error("no crypto");',
     'const missing = "undefined" === typeof process;',
+    'const looselyMissing = typeof process == "undefined";',
+    'const looselyPresent = typeof process != "undefined";',
     "const value = input;",
     {
       code: 'function isString(value: unknown): value is string { return typeof value === "string"; }',

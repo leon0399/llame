@@ -36,6 +36,14 @@ tester.run("anti-slop/no-array-filter-map", noArrayFilterMapRule, {
       errors: [error],
     },
     {
+      code: "const users = []; users.flat().filter(active).map(email);",
+      errors: [error],
+    },
+    {
+      code: "const users = []; users.with(0, user).map(email).filter(present);",
+      errors: [error],
+    },
+    {
       code: "const users = []; const alias = users; alias.filter(active).map(email);",
       errors: [error],
     },

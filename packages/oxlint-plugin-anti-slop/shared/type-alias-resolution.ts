@@ -82,6 +82,11 @@ function declaredTypeBinding(node: ESTree.Node): {
   ) {
     return { alias: null, name: node.local.name };
   }
+  // A fourth spelling of the same binding: `import Record = Models.Record`
+  // shadows the built-in exactly as the three above do.
+  if (node.type === "TSImportEqualsDeclaration") {
+    return { alias: null, name: node.id.name };
+  }
   return null;
 }
 

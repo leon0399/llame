@@ -134,6 +134,27 @@ now a single-pass push/pop.
 - `shared/dictionary-types.ts` keeps llame's deletion of
   `isPopulatedObjectExpression`: upstream still exports it, but nothing in
   upstream or here imports it.
+- Local correctness patch: `shared/array-method.ts` recognizes `flat` and
+  `with` as array-returning methods in `isKnownArrayExpression`, so
+  `values.flat().filter(...).map(...)` and `values.with(...).filter(...)` are
+  reported. Upstream omits both, although it lists `with` among the accumulator
+  copy methods in `no-reduce-accumulator-copy`, so the omission is an
+  oversight rather than a boundary. `RuleTester` cases for both pipelines live
+  beside `no-array-filter-map`.
+- Local correctness patch: `shared/type-alias-resolution.ts` records
+  `TSImportEqualsDeclaration` as a type binding, so `import Record =
+Models.Record` shadows the built-in for `hasVisibleTypeBinding` exactly as
+  the three import forms upstream already handles do. Without it,
+  `no-unsafe-dictionary-type` reads a local `Record<string, unknown>` as the
+  built-in. The valid regression case sits with the existing import-shadowing
+  case in `no-unsafe-dictionary-type.test.ts`. Both patches were raised in
+  review of this reconciliation; neither construct appears in llame's own
+  source today, so they are insurance for the vendored rule, not fixes for a
+  live false positive.
+- `no-runtime-typeof.test.ts` adds loose-equality existence probes
+  (`typeof x == "undefined"`, `!=`) to its valid set. The rule exempts all four
+  equality operators; upstream's tests covered only the strict pair, so one of
+  the two exemptions could have been removed without failing.
 - Per-site exceptions live at the call site, not in the rule:
   `oxlint-disable-next-line anti-slop/no-known-value-widening` with a reason at
   the four guards that re-validate a server-authored value the type cannot

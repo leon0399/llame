@@ -80,12 +80,14 @@ export function isKnownArrayExpression(
       [
         "map",
         "filter",
+        "flat",
         "flatMap",
         "slice",
         "concat",
         "toSorted",
         "toReversed",
         "toSpliced",
+        "with",
       ].includes(method.name) &&
       isKnownArrayExpression(sourceCode, method.object, visited)
     );
