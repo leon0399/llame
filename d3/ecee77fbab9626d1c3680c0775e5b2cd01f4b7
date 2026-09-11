@@ -1,0 +1,54 @@
+openspec/changes/system-provided-skills/tasks.md
+  fe76efebbba60dac 23-24
+openspec/changes/system-provided-skills/specs/agent-skills/spec.md
+  fe76efebbba60dac 65,140-177
+openspec/changes/system-provided-skills/specs/context-injection/spec.md
+  fe76efebbba60dac 60,66,100-115
+openspec/changes/system-provided-skills/design.md
+  fe76efebbba60dac 94,96-98,102,142
+openspec/changes/system-provided-skills/specs/model-system-prompts/spec.md
+  fe76efebbba60dac 44,46-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "d3ecee77fbab9626d1c3680c0775e5b2cd01f4b7",
+  "prompts": {
+    "c909b0c4bbe23387": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09131-9551-7a10-aa54-3b6a35cbbb25",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 71,
+      "overriden_lines": 0
+    },
+    "f7acf24f1fbfa9c4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09105-203c-7071-a92e-bb46b5241ca4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 99,
+      "total_deletions": 15,
+      "accepted_lines": 99,
+      "overriden_lines": 0
+    },
+    "fe76efebbba60dac": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09131-b83a-7673-bd9c-6f7a59450b79",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 70,
+      "overriden_lines": 0
+    }
+  }
+}
