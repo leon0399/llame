@@ -2,18 +2,53 @@
 
 The base of this directory is vendored from
 [`dmmulroy/anti-slop`](https://github.com/dmmulroy/anti-slop) commit
-`446268e5d15baa968eaec669ff65358d36ae6259`.
+`c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b` (upstream `main`, 9 commits past the
+`v0.1.2` tag, which predates the last four rule changes).
 
 - Source path: `skills/install-anti-slop/assets/anti-slop/`
 - License: MIT; retained in [`LICENSE`](LICENSE)
 - `package.json` marks the vendored TypeScript boundary as ESM for Node's plugin
   loader; `tsconfig.json` applies upstream's strict compiler settings to the
   installed asset and its local regression.
+- Previous base: `446268e5d15baa968eaec669ff65358d36ae6259`, reconciled on
+  2026-09-12 with upstream's own `skills/install-anti-slop/references/update.md`
+  three-way procedure (base was recoverable from the pinned asset, so every
+  incoming change is classified rather than ported blind). That merge added
+  `no-array-filter-map`, `no-reduce-accumulator-copy`,
+  `shared/array-method.ts`, `shared/type-alias-resolution.ts`,
+  `shared/scope.ts`, and `shared/function-parameters.ts`, rebuilt
+  `shared/dictionary-types.ts` on per-use alias resolution, and adopted
+  upstream's tests for every rule whose semantics changed.
+
+## Deliberately not adopted from the current revision
+
+- `require-readable-spacing` and its vendored
+  `vendor/eslint-stylistic/padding-line-between-statements.ts`. It is an
+  autofixable blank-line policy, llame's formatter is `prettier` and has no
+  blank-line policy, and applying it measured **11,315 insertions across 757
+  files** (362 of them non-test source) — a repository-wide formatting
+  migration, not a lint-rule upgrade. Upstream's own install guidance keeps
+  whitespace fixes out of semantic edits and warns against enabling a competing
+  formatting preset. Adopt it, if ever, as its own isolated autofix commit with
+  a repository-wide diff and no other change in it.
+- The `effect/` plugin and its five rules. llame has no `effect` dependency and
+  no `effect` import, and the upstream skill says to register that group only
+  for repositories that depend on Effect directly.
+
+Upstream's native companion for `no-reduce-accumulator-copy`,
+`oxc/no-accumulating-spread`, **is** enabled in the root `.oxlintrc.json`. It
+found a quadratic accumulator in `apps/api/src/knowledge/knowledge-tools.ts`,
+now a single-pass push/pop.
+
+## Local patches retained
+
 - Local correctness patch: `no-chained-type-assertions` treats
   `TSNonNullExpression` as a transparent wrapper. Without it,
-  `(value as unknown)! as Target` bypasses the rule. The standard Oxlint
-  `RuleTester` regression lives beside the rule. Upstream `main` was still the
-  pinned commit when the patch was added on 2026-08-15.
+  `(value as unknown)! as Target` bypasses the rule. Re-verified against the
+  current revision: upstream still does not report
+  `(maybe as unknown)! as Target`, so the patch remains a divergence. The
+  standard Oxlint `RuleTester` regression lives beside the rule, extended with
+  upstream's own cases so a re-pull cannot change either set silently.
 - Local correctness patch: `no-unknown-parameters` exempts a type predicate's
   own subject parameter (`function isFoo(value: unknown): value is Foo`).
   TypeScript requires that parameter to be typed `unknown` for the guard to
@@ -22,14 +57,18 @@ The base of this directory is vendored from
   upstream's own `cause` carve-out for the same reason. Only the parameter
   the predicate names is exempted; a second `unknown` parameter in the same
   signature, or a predicate on a different parameter, is still flagged. The
-  standard Oxlint `RuleTester` regression lives beside the rule. Upstream
-  `main` was still the pinned commit when the patch was added on 2026-08-19.
+  current upstream revision converged on the same exemption
+  (`isTypePredicateSubject`); llame's form is kept because it shares the
+  predicate-naming helper with the option below, and upstream's test cases for
+  it are merged into llame's suite. The standard Oxlint `RuleTester`
+  regression lives beside the rule.
 - Local correctness patch: `no-unknown-parameters` gains an options schema,
   mirroring `no-runtime-typeof`'s `allowInTypeGuards` shape (both booleans,
   default `false`, opt-in per Oxlint config). Upstream's own exemption
-  mechanism for this rule is already a hardcoded parameter name (`cause`), so
-  a configurable exemption is consistent with its design, not a departure
-  from it.
+  mechanism for this rule is a hardcoded parameter name (`cause`), so a
+  configurable exemption is consistent with its design, not a departure from
+  it. Upstream carries neither option at the current revision, so adopting its
+  body wholesale would drop them.
   - `allowWhenImmediatelyValidated`: exempts a parameter whose first use in
     the function body validates that same parameter -- a type-guard call
     (`isFoo(value)`, `Array.isArray(value)`), a `typeof`/`instanceof`
@@ -65,9 +104,55 @@ The base of this directory is vendored from
     own target population instead of extending a specific, narrow, load-
     bearing exemption.
   - The standard Oxlint `RuleTester` regression lives beside the rule,
-    covering both options' exempted and still-flagged (negative) cases.
-    Upstream `main` was still the pinned commit when the patch was added on
-    2026-08-19.
+    covering both options' exempted and still-flagged (negative) cases, and now
+    upstream's cases for the same rule.
+- Local correctness patch: `no-known-value-widening` only follows a binding's
+  initializer for known-evidence when the binding is a plain identifier. The
+  upstream call-argument check resolves an argument to its declarator, and for
+  `const { data } = value as { data: unknown }` that read the cast's container
+  shape as evidence about `data`, which is `unknown`. Seven boundary validators
+  in `apps/web/lib/services/chat/history.ts` were misreported before the
+  guard. Cost of the guard: a false negative for
+  `const { data } = value as { data: string }`. The rule's stated stance -- a
+  false positive on unvalidated input is the worse failure -- decides it. The
+  standard Oxlint `RuleTester` regression lives beside the rule, extended with
+  upstream's cases.
+- Local policy patch: `no-module-mocking` reports only first-party specifiers;
+  external npm packages stay mockable. Upstream never changed this rule's
+  logic, so the patch is llame's alone: without it the rule reports 32 sites in
+  this repository instead of 1.
+- Style-only divergence, applied to every vendored rule and helper:
+  `Array<T>`/`ReadonlyArray<T>` rather than `T[]`/`readonly T[]`, because
+  `typescript/array-type` is set to `generic` in the root `.oxlintrc.json`.
+  Formatting is `prettier`. Neither changes behavior.
+- `shared/scope.ts` and `shared/function-parameters.ts` are adopted under
+  upstream's own file names, replacing llame's `resolve-variable.ts` and
+  `function-like.ts`, so the next re-pull matches file for file.
+  `FunctionLikeNode` is kept as a documented local export in
+  `function-parameters.ts`; upstream repeats that union inline in four rules,
+  which lets the four drift apart.
+- `shared/dictionary-types.ts` keeps llame's deletion of
+  `isPopulatedObjectExpression`: upstream still exports it, but nothing in
+  upstream or here imports it.
+- Per-site exceptions live at the call site, not in the rule:
+  `oxlint-disable-next-line anti-slop/no-known-value-widening` with a reason at
+  the four guards that re-validate a server-authored value the type cannot
+  fully express (`knowledge-tools.ts` union discriminant; the context-item,
+  model-change, and temporal authoring guards in `apps/api/src/chats/`).
+- `packages/oxlint-plugin-anti-slop/.oxlintrc.json` turns
+  `anti-slop/no-unknown-parameters` off for `rules/**` and `shared/**`:
+  upstream's own `configuredSafetyMarkers(option: unknown)` is the rule's
+  target shape, and repository style does not apply to vendored rule source.
+
+## Verification of the current base
+
+`pnpm lint:code` (all workspaces), `pnpm --filter api typecheck`, the plugin's
+`registry.check.mjs`, and its 16 `RuleTester` files all pass. Behavior parity was
+checked by running the installed plugin against the pinned revision on the same
+fixtures: the existence probe, the borrowed member name, and the type-parameter
+constraint stopped reporting; the union alias, the generic alias return, and the
+known argument to a local `unknown` predicate started reporting; the
+non-null-wrapper assertion chain still reports here and not upstream.
 
 Update by reviewing the upstream diff, running its `install.mjs` into a temporary
 directory, and reconciling every local patch above before replacement. Remove a
@@ -111,9 +196,10 @@ registered fails the check with a stack trace.
 **That guard exists because its absence bit.** A duplicate import in `index.ts`
 made oxlint fail plugin loading outright — which it reports as a configuration
 warning and then lints on without any anti-slop rule. Every workspace read
-"0 violations" while all 21 rules were off. `--report-unused-disable-directives`
-cannot catch this, and neither could the previous registry check, which compared
-file names to map keys without ever loading the module.
+"0 violations" while all 21 then-registered rules were off.
+`--report-unused-disable-directives` cannot catch this, and neither could the
+previous registry check, which compared file names to map keys without ever
+loading the module.
 
 **Local adaptation, not a patch to upstream logic:** llame has no `env.ts`, so
 `forbid-process-env-outside-env-ts` is configured through its own `allowedFiles`
