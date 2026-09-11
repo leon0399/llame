@@ -76,8 +76,11 @@ Before editing, read the issue, dependencies, current code, shipped specs,
 `SPEC.md`, and relevant recent commits. Resolve material product/security
 ambiguity. Data/auth/tenancy work states threats and includes a negative test.
 
-Reference the issue from every stack PR. Only the layer that completes it uses
-`Closes #N`.
+Reference the issue from every stack PR. Put `Closes #N` on the implementation
+layer whose merge enables the functionality and satisfies the issue's acceptance
+criteria. Earlier partial implementation layers only reference the issue.
+Do not defer issue closure to a later spec-sync or archive-only finalize layer;
+that layer remains required delivery work after the feature issue closes.
 
 ### 2. Proposal layer
 

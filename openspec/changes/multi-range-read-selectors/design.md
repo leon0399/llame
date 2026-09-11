@@ -51,5 +51,6 @@ as recorded.
 
 ## Revision history
 
+- v3 (2026-09-11): Assigned issue closure to the implementation layer that enables the feature, per Leo's review; clarified the contribution rule.
 - v2 (2026-09-11): Preserved Knowledge locator error precedence, corrected the exact continuation example, and covered the aggregate line ceiling after independent review.
 - v1 (2026-09-11): Initial proposal for #705.
