@@ -8,7 +8,7 @@ Gate individual tool calls using startup-loaded operator allow/reject rules whil
 
 The system SHALL accept `tools.permissions` as a map keyed by exact registered code-owned tool IDs or exact canonical tool IDs belonging to configured MCP servers. Unconfigured source IDs, unknown code-owned IDs, wildcard keys, and malformed IDs SHALL fail startup. A syntactically valid configured MCP ID SHALL NOT require the server to be online at startup. Configuration SHALL NOT create a missing tool or change its source identity.
 
-Each group SHALL contain only optional `allow` and `reject`. Each SHALL be `true` for a whole-tool match or an array of clauses. Omitted lists and empty arrays SHALL match nothing; `false` SHALL be invalid. Each clause SHALL contain exactly one non-empty string property, `literal` or `regex`, and optional non-empty string `field`. A `field` SHALL name one exact top-level input property, not a nested path expression. An allow clause SHALL require `field`; omission SHALL be valid only for rejection across all string values.
+Each group SHALL contain only optional `allow` and `reject`. Each SHALL be `true` for a whole-tool match or an array of clauses. Omitted lists and empty arrays SHALL match nothing; `false` SHALL be invalid. Each clause SHALL contain exactly one non-empty string property, `literal` or `regex`, and exactly one target: non-empty string `field` or `allFields: true`. A `field` SHALL name one exact top-level input property, not a nested path expression. An allow clause SHALL require `field`; `allFields: true` SHALL be valid only for rejection across all string values. Missing or simultaneous targets and `allFields: false` SHALL be invalid.
 
 #### Scenario: Per-tool whole-call allow
 
@@ -17,7 +17,7 @@ Each group SHALL contain only optional `allow` and `reject`. Each SHALL be `true
 
 #### Scenario: All-fields allow configuration is invalid
 
-- **WHEN** an allow clause contains `literal` or `regex` but no `field`
+- **WHEN** an allow clause selects `allFields: true`
 - **THEN** startup fails rather than allowing a call based on an arbitrary field
 
 #### Scenario: Exact MCP policy does not grant future namespace tools
@@ -53,7 +53,7 @@ The evaluator SHALL reject a call when any reject matches. Otherwise it SHALL al
 
 ### Requirement: Match submitted string values without serialization artifacts
 
-After validating the call schema, the evaluator SHALL match originally submitted parsed argument values. It SHALL NOT match trusted context, inserted defaults, object keys, JSON serialization syntax, or stringified non-string values. A selected field SHALL match only an own top-level string property; an omitted or non-string field SHALL not match. All-fields rejection SHALL independently traverse every submitted string value in nested objects and arrays without concatenation.
+After validating the call schema, the evaluator SHALL match originally submitted parsed argument values. It SHALL NOT match trusted context, inserted defaults, object keys, JSON serialization syntax, or stringified non-string values. The SDK validation adapter SHALL preserve untransformed submitted values for admission while the executor receives separately validated/defaulted arguments. A selected field SHALL match only an own top-level string property; an omitted or non-string field SHALL not match. All-fields rejection SHALL independently traverse every submitted string value in nested objects and arrays without concatenation.
 
 Known incompatible code-owned fields SHALL fail configuration validation. If an exact MCP rule targets a field absent from or incompatible with its currently admitted input declaration, the call SHALL fail closed with a safe policy diagnostic, without changing tool visibility or silently dropping the clause. This applies to both allow and reject field clauses. No field semantics SHALL be inferred from arbitrary MCP names.
 
@@ -126,7 +126,7 @@ Policy limits SHALL be 256 groups, 1,024 total clauses (including whole-tool boo
 
 ### Requirement: File permission matching uses logical resource locators
 
-For native file tools, the selected `path` SHALL be projected through the existing syntactic parser to a canonical logical resource identity. Knowledge resources SHALL retain the Space ID and canonically encoded relative path; configured roots and resolved host paths SHALL NOT enter policy matching. Supported read selectors SHALL be excluded from resource matching. Direct host paths SHALL use their existing normalized absolute identity without a new realpath authorization policy. The same projection SHALL apply when all-fields rejection visits the native `path` field. Other submitted values SHALL remain unchanged.
+For native Knowledge file locators, the selected `path` SHALL be projected through a shared pure parser/formatter to a canonical logical resource identity. Knowledge resources SHALL retain the Space ID and canonically encoded relative path; configured roots and resolved host paths SHALL NOT enter policy matching. Supported Knowledge read selectors SHALL be excluded from resource matching. Direct host locators SHALL match their submitted absolute text, preserving trailing separators and selector-like suffixes without filesystem probes or realpath resolution. The existing executor SHALL retain literal-path precedence over selector interpretation. The same projection SHALL apply when all-fields rejection visits the native `path` field. Other submitted values SHALL remain unchanged.
 
 This projection SHALL NOT rewrite executor arguments, accept an invalid locator or mutation selector, change current percent-decoding rules, bypass current Knowledge ownership/symlink checks, or introduce HTTP fetching. Arbitrary MCP values SHALL not receive native locator normalization.
 
@@ -135,6 +135,13 @@ This projection SHALL NOT rewrite executor arguments, accept an invalid locator 
 - **WHEN** read targets the same Knowledge file with `:10-20` and `:raw`
 - **THEN** its path permission matches the same canonical logical locator
 - **AND** existing selector validity and read behavior still apply
+
+#### Scenario: Literal host filename resembles a selector
+
+- **GIVEN** only an anchored exact allow for `/tmp/file`
+- **WHEN** a direct host read submits `/tmp/file:1-2`
+- **THEN** the allow does not match, whether that literal filename exists or would be interpreted as a selector
+- **AND** permission evaluation performs no filesystem probe
 
 #### Scenario: Encoded spelling resolves to the same identity
 
@@ -152,7 +159,7 @@ This projection SHALL NOT rewrite executor arguments, accept an invalid locator 
 
 Each API or worker process SHALL load and compile one immutable effective policy at startup. Configuration changes SHALL require restarting the affected installation processes. Each new invocation SHALL use its executor process's policy, including invocations from Runs queued or started under an earlier policy. This policy SHALL be independent of the immutable system prompt, tool declarations, and availability snapshot, which SHALL NOT be rebound by permission changes.
 
-Stored completed effects and observations SHALL remain historical facts. Native known-result and unknown-outcome recovery SHALL retain precedence over authorizing any new execution: a policy reject SHALL NOT disguise an already possible effect. Read-only re-execution permitted by the existing recovery contract SHALL pass the restarted process's policy before dispatch.
+Stored completed effects and observations SHALL remain historical facts. The existing Run-level native recovery fence SHALL retain precedence over authorizing any new execution; this capability SHALL NOT add per-call resumption or known-result recovery: a policy reject SHALL NOT disguise an already possible effect. Read-only re-execution permitted by the existing recovery contract SHALL pass the restarted process's policy before dispatch.
 
 #### Scenario: Editing config without restart has no effect
 
@@ -168,14 +175,14 @@ Stored completed effects and observations SHALL remain historical facts. Native 
 #### Scenario: Recovery cannot hide an uncertain native effect
 
 - **WHEN** a native attempt may have executed before a crash and the restarted policy now rejects that call
-- **THEN** recovery reports the durable known result or existing `outcome_unknown` state as applicable
+- **THEN** the existing native recovery fence settles the recovered Run without reexecution, including its existing `outcome_unknown` result when applicable
 - **AND** it does not reexecute or replace uncertainty with a claim that execution was prevented
 
 ### Requirement: Safe decision provenance and non-fatal rejection
 
 Every newly evaluated call SHALL obtain a trusted decision before executor dispatch. Its owner-scoped tool activity and stored tool-part metadata SHALL record a versioned policy content hash, allow/reject decision, static reason, and bounded deterministic clause reference when one matched. No-match, invalid-field, and input-limit decisions SHALL use explicit static reasons. Policy bodies, matched fragments, and resolved config secrets SHALL NOT be included. The metadata SHALL be excluded from model replay, public shares, exports, and search.
 
-A rejected otherwise valid call SHALL return `status: "error"`, `type: "permission_denied"`, and the static message `Tool call rejected by operator permissions.` It SHALL produce no tool effect or native attempt, no automatic retry, no approval request, and no permission-caused Run termination. The model SHALL observe the error and continue subject to existing Run limits. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.
+A rejected otherwise valid call SHALL return `status: "error"`, `type: "permission_denied"`, and the static message `Tool call rejected by operator permissions.` It SHALL produce no tool effect or native attempt, no automatic retry, no approval request, and no permission-caused Run termination. The model SHALL observe the error and continue subject to existing Run limits. The decision SHALL be durably recorded on `tool.requested` before any `tool.started` event or executor dispatch, and carried through completion, abort settlement, and durable transcript reconstruction into stored tool-part metadata. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.
 
 #### Scenario: Reject then continue with another tool
 

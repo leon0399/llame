@@ -239,6 +239,8 @@ A code-owned tool whose trusted executor is missing or incompatible, or whose li
 
 Tool calls and results SHALL persist as structured parts on the assistant message and stream as run events, with the same durability and replay guarantees as text/reasoning: a client that reconnects or refreshes mid-tool-execution SHALL reconstruct the full tool activity from the event stream/persisted parts. When a run hits the step cap, a structured **cap-marker part** SHALL persist on the assistant message alongside the call/result parts (history loads message parts, not run events — the cap notice must be reconstructable from persistence alone). Public chat sharing SHALL NOT expose tool parts (the existing text-only egress allowlist already excludes them — this requirement pins that it stays true for the new parts).
 
+A newly evaluated call SHALL persist the safe permission-decision metadata defined by `tool-call-permissions` in owner-scoped tool activity and stored tool-part metadata. This metadata SHALL remain outside model replay, public shares, exports, and search; adding it SHALL NOT change the stored tool observation or its ordering. A rejected call SHALL NOT report that an executor started. Required decision-persistence failure SHALL prevent execution rather than allowing an unaudited side effect.
+
 #### Scenario: Tool activity survives refresh
 
 - **WHEN** the user refreshes mid-run while a tool is executing
@@ -253,8 +255,6 @@ Tool calls and results SHALL persist as structured parts on the assistant messag
 
 - **WHEN** a chat containing tool calls/results is shared publicly
 - **THEN** the public payload contains no tool parts
-
-A newly evaluated call SHALL persist the safe permission-decision metadata defined by `tool-call-permissions` in owner-scoped tool activity and stored tool-part metadata. This metadata SHALL remain outside model replay, public shares, exports, and search; adding it SHALL NOT change the stored tool observation or its ordering. A rejected call SHALL NOT report that an executor started. Required decision-persistence failure SHALL prevent execution rather than allowing an unaudited side effect.
 
 #### Scenario: History preserves a decision without exposing policy content
 
