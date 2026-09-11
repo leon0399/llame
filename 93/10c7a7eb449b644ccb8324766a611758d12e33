@@ -1,0 +1,49 @@
+apps/api/src/models/models.service.test.ts
+  d02f535e100b853c 167-204
+apps/api/src/models/openai-codex-model-client.ts
+  d02f535e100b853c 33-34,44-56,79
+docs/codex-subscription.md
+  d02f535e100b853c 1-21,24-30,34-52,64-67
+apps/api/llame.config.json.example
+  d02f535e100b853c 49-57
+apps/api/src/models/openai-codex-model-client.test.ts
+  d02f535e100b853c 58-124,212-306
+apps/api/src/models/openai-model-client.ts
+  d02f535e100b853c 216-217,271-278,289,381-387
+README.md
+  d02f535e100b853c 126-127
+openspec/changes/codex-subscription-provider/tasks.md
+  d02f535e100b853c 16-21
+  f8537dfa41fb49f0 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "9310c7a7eb449b644ccb8324766a611758d12e33",
+  "prompts": {
+    "d02f535e100b853c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d82-43b5-75b1-95f5-78def90f75f4",
+        "model": "unknown"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 313,
+      "total_deletions": 10,
+      "accepted_lines": 305,
+      "overriden_lines": 8
+    },
+    "f8537dfa41fb49f0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d62-5c3d-7962-b451-1dbe4002151d",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
