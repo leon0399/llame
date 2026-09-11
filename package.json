@@ -63,7 +63,8 @@
     "ts-complex": "1.0.0",
     "tsx": "catalog:",
     "turbo": "^2.10.4",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "typescript-language-server": "6.0.0"
   },
   "packageManager": "pnpm@11.22.0",
   "engines": {
