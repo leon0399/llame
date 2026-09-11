@@ -6,6 +6,7 @@ import { DbModule } from './db/db.module';
 import * as schema from './db/schema';
 import { InstanceConfigModule } from './instance-config/instance-config.module';
 import { InstanceConfigService } from './instance-config/instance-config.service';
+import { ToolPermissionPolicyModule } from './tools/permissions/permission-policy.module';
 
 /**
  * CoreInfraModule — the cross-cutting infrastructure every entrypoint's own
@@ -45,6 +46,7 @@ import { InstanceConfigService } from './instance-config/instance-config.service
       }),
     }),
     DbModule,
+    ToolPermissionPolicyModule,
   ],
 })
 export class CoreInfraModule {}

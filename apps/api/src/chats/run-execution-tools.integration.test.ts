@@ -437,6 +437,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ...BUILT_IN_DEFAULTS,
         tools: {
           allowed: overrides?.allowed ?? ['search_conversations'],
+          permissions: BUILT_IN_DEFAULTS.tools.permissions,
           maxStepsPerRun:
             overrides?.maxStepsPerRun ?? BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
           callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
