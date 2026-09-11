@@ -1,0 +1,40 @@
+openspec/changes/tool-call-permissions/tasks.md
+  71970c6d4e6528c4 9
+openspec/changes/tool-call-permissions/specs/tool-call-permissions/spec.md
+  71970c6d4e6528c4 11,20,162,178
+openspec/changes/tool-call-permissions/specs/tool-calling/spec.md
+  71970c6d4e6528c4 243-244
+openspec/changes/tool-call-permissions/design.md
+  71970c6d4e6528c4 21,24,29,45,105,294
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "7e89f2828f51c35f9073da925062954772ee8701",
+  "prompts": {
+    "1d0bb231831b891c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ff6-d5be-7af1-9f4e-af9a202e0109",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 71,
+      "overriden_lines": 0
+    },
+    "71970c6d4e6528c4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08ff6-9ba5-75a1-ad1e-036591e48bce",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 112,
+      "total_deletions": 27,
+      "accepted_lines": 112,
+      "overriden_lines": 0
+    }
+  }
+}
