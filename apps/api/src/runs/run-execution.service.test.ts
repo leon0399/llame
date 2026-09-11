@@ -988,7 +988,7 @@ function allowDecision(toolId: string) {
     policyId: 'test-policy',
     decision: 'allow' as const,
     reason: 'matched_allow' as const,
-    clause: { groupId: toolId, list: 'allow' as const, clauseIndex: null },
+    reference: { groupId: toolId, list: 'allow' as const, clauseIndex: null },
   };
 }
 
@@ -1561,7 +1561,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         policyId: 'restarted-policy',
         decision: 'reject',
         reason: 'explicit_reject',
-        clause: {
+        reference: {
           groupId: 'mcp__demo__lookup',
           list: 'reject',
           clauseIndex: 0,

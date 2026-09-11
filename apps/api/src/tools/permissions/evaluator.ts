@@ -13,6 +13,7 @@ import {
   type CompiledPolicy,
   type PermissionClauseReference,
   type PermissionDecision,
+  type PermissionRejectionReason,
 } from './types';
 
 export interface EvaluatePermissionOptions {
@@ -57,19 +58,8 @@ function evaluateGroup(
   group: CompiledPermissionGroup,
   options: EvaluatePermissionOptions,
 ): PermissionDecision {
-  const invalidField = invalidFieldReference(group, options.validFields);
-  if (invalidField !== null) {
-    return reject(policyId, 'invalid_field', invalidField);
-  }
-  return decideGroup(policyId, toolId, group, options);
-}
-
-function decideGroup(
-  policyId: string,
-  toolId: string,
-  group: CompiledPermissionGroup,
-  options: EvaluatePermissionOptions,
-): PermissionDecision {
+  // A whole-tool reject is unconditional and wins over a field-configuration
+  // diagnostic; an invalid configured field is only surfaced otherwise.
   if (group.rejectWholeTool) {
     return reject(
       policyId,
@@ -81,10 +71,27 @@ function decideGroup(
   const clauses = [...group.rejectClauses, ...group.allowClauses];
   if (clauses.length === 0) {
     return group.allowWholeTool
-      ? allow(policyId, 'matched_allow', wholeToolReference(toolId, 'allow'))
+      ? allow(policyId, wholeToolReference(toolId, 'allow'))
       : reject(policyId, 'no_allow', null);
   }
 
+  const invalidField = invalidFieldReference(clauses, options.validFields);
+  if (invalidField !== null) {
+    return reject(policyId, 'invalid_field', invalidField);
+  }
+  return decideGroup({ policyId, toolId, group, options, clauses });
+}
+
+interface GroupDecisionInput {
+  readonly policyId: string;
+  readonly toolId: string;
+  readonly group: CompiledPermissionGroup;
+  readonly options: EvaluatePermissionOptions;
+  readonly clauses: ReadonlyArray<CompiledPermissionClause>;
+}
+
+function decideGroup(input: GroupDecisionInput): PermissionDecision {
+  const { policyId, toolId, group, options, clauses } = input;
   const selection = new ClauseSelection(options, clauses);
   const rejected = firstMatch(selection, group.rejectClauses);
   if (rejected !== undefined) {
@@ -93,15 +100,11 @@ function decideGroup(
   if (selection.exceeded) return reject(policyId, 'input_limit', null);
 
   if (group.allowWholeTool) {
-    return allow(
-      policyId,
-      'matched_allow',
-      wholeToolReference(toolId, 'allow'),
-    );
+    return allow(policyId, wholeToolReference(toolId, 'allow'));
   }
   const allowed = firstMatch(selection, group.allowClauses);
   if (allowed !== undefined) {
-    return allow(policyId, 'matched_allow', clauseReference(allowed));
+    return allow(policyId, clauseReference(allowed));
   }
   if (selection.exceeded) return reject(policyId, 'input_limit', null);
   return reject(policyId, 'no_allow', null);
@@ -118,11 +121,11 @@ function firstMatch(
 }
 
 function invalidFieldReference(
-  group: CompiledPermissionGroup,
+  clauses: ReadonlyArray<CompiledPermissionClause>,
   validFields: ReadonlySet<string> | undefined,
 ): PermissionClauseReference | null {
   if (validFields === undefined) return null;
-  for (const clause of [...group.rejectClauses, ...group.allowClauses]) {
+  for (const clause of clauses) {
     if ('field' in clause.target && !validFields.has(clause.target.field)) {
       return clauseReference(clause);
     }
@@ -132,8 +135,11 @@ function invalidFieldReference(
 
 /**
  * Selects clause values once under a single per-call traversal/byte budget, so
- * a later clause cannot evade an earlier limit. Exceeding a bound marks the
- * selection failed; the caller rejects rather than granting a partial allow.
+ * a later clause cannot evade an earlier limit. Projection runs at most once
+ * per field, and a top-level string already visited by an all-fields traversal
+ * is reused for a field clause instead of being charged again. Exceeding a
+ * bound marks the selection failed; the caller rejects rather than granting a
+ * partial allow.
  */
 class ClauseSelection {
   private readonly args: unknown;
@@ -155,13 +161,16 @@ class ClauseSelection {
     this.isFlexibleField =
       options.isFlexibleWhitespaceField ??
       ((field) => options.toolId === 'bash' && field === 'command');
-    if (!isRecord(this.args)) {
-      this.allFieldsValues = [];
-    } else if (clauses.some((clause) => 'allFields' in clause.target)) {
-      this.allFieldsValues = collectAllStringValues(this.args, this.budget);
-    } else {
-      this.allFieldsValues = [];
-    }
+    const usesAllFields = clauses.some(
+      (clause) => 'allFields' in clause.target,
+    );
+    this.allFieldsValues =
+      !isRecord(this.args) || !usesAllFields
+        ? []
+        : collectAllStringValues(this.args, this.budget).map((selected) => ({
+            field: selected.field,
+            value: this.project(selected.field, selected.value),
+          }));
   }
 
   get exceeded(): boolean {
@@ -173,28 +182,43 @@ class ClauseSelection {
       'allFields' in clause.target
         ? this.allFieldsValues
         : this.fieldValues(clause.target.field);
-    return values.some((selected) => this.matchOne(clause, selected));
+    return values.some((selected) => this.match(clause, selected));
   }
 
   private fieldValues(field: string): ReadonlyArray<SelectedPermissionValue> {
     if (!this.fieldCache.has(field)) {
+      const fromAllFields = this.allFieldsValues.find(
+        (selected) => selected.field === field,
+      );
       this.fieldCache.set(
         field,
-        selectFieldValue(this.args, field, this.budget),
+        fromAllFields ?? this.projectSelected(field, this.budget),
       );
     }
     const selected = this.fieldCache.get(field);
     return selected === undefined ? [] : [selected];
   }
 
-  private matchOne(
+  private projectSelected(
+    field: string,
+    budget: SelectionBudget,
+  ): SelectedPermissionValue | undefined {
+    const selected = selectFieldValue(this.args, field, budget);
+    return selected === undefined
+      ? undefined
+      : {
+          field: selected.field,
+          value: this.project(selected.field, selected.value),
+        };
+  }
+
+  private match(
     clause: CompiledPermissionClause,
     selected: SelectedPermissionValue,
   ): boolean {
-    const value = this.project(selected.field, selected.value);
     return this.isFlexibleField(selected.field)
-      ? clause.matcher.matchesFlexibleWhitespace(value)
-      : clause.matcher.matchesExact(value);
+      ? clause.matcher.matchesFlexibleWhitespace(selected.value)
+      : clause.matcher.matchesExact(selected.value);
   }
 }
 
@@ -217,15 +241,14 @@ function wholeToolReference(
 
 function allow(
   policyId: string,
-  reason: PermissionDecision['reason'],
   reference: PermissionClauseReference | null,
 ): PermissionDecision {
-  return { policyId, decision: 'allow', reason, reference };
+  return { policyId, decision: 'allow', reason: 'matched_allow', reference };
 }
 
 function reject(
   policyId: string,
-  reason: PermissionDecision['reason'],
+  reason: PermissionRejectionReason,
   reference: PermissionClauseReference | null,
 ): PermissionDecision {
   return { policyId, decision: 'reject', reason, reference };

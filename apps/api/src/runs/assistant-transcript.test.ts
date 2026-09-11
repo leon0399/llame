@@ -235,7 +235,7 @@ describe('reconstructDurableAssistant', () => {
       policyId: 'policy-1',
       decision: 'reject' as const,
       reason: 'explicit_reject' as const,
-      clause: { groupId: 'bash', list: 'reject' as const, clauseIndex: 0 },
+      reference: { groupId: 'bash', list: 'reject' as const, clauseIndex: 0 },
     };
     const result = reconstructDurableAssistant([
       event('tool.requested', {

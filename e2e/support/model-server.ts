@@ -533,8 +533,7 @@ function classify(raw: string) {
       hasBashTool: toolIsOffered(body.tools, BASH_TOOL_ID),
       asksPermissionFlow: content.includes(PERMISSION_PROMPT_MARKER),
       hasPermissionDeniedBashResult: raw.includes("permission_denied"),
-      hasPermissionReadResult:
-        findConversationReadResult(currentTurnMessages) !== undefined,
+      hasPermissionReadResult: findConversationReadResult(currentTurnMessages),
       asksKnowledge: knowledge.asksKnowledge,
       hasKnowledgeSearchTool: toolIsOffered(
         body.tools,

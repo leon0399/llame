@@ -92,16 +92,17 @@ interface ClauseInput {
 
 function compileClause(input: ClauseInput): CompiledPermissionClause {
   const { path, groupId, list, clauseIndex, clause } = input;
+  const clausePath = `${path}.${list}[${clauseIndex}]`;
   const literal = 'literal' in clause ? clause.literal : undefined;
   const regex = 'regex' in clause ? clause.regex : undefined;
   const field = 'field' in clause ? clause.field : undefined;
   const allFields = 'allFields' in clause ? clause.allFields : undefined;
 
-  const matcher = compileMatcherPattern(path, literal, regex);
+  const matcher = compileMatcherPattern(clausePath, literal, regex);
   if (allFields === true) {
     if (list === 'allow') {
       throw new PermissionCompileError(
-        path,
+        clausePath,
         'allFields is valid only for reject',
       );
     }
@@ -109,7 +110,7 @@ function compileClause(input: ClauseInput): CompiledPermissionClause {
   }
   if (!isString(field) || field.length === 0) {
     throw new PermissionCompileError(
-      path,
+      clausePath,
       'clause must target exactly one non-empty field or allFields',
     );
   }

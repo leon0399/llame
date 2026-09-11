@@ -63,10 +63,9 @@ import {
 import { toFlexibleSchema } from '../tools/schema-utils';
 import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
 import {
-  toDecisionMetadata,
-  type PermissionDecisionMetadata,
-} from '../tools/permissions/decision-record';
-import { type CompiledPolicy } from '../tools/permissions/types';
+  type CompiledPolicy,
+  type PermissionDecision,
+} from '../tools/permissions/types';
 import {
   type KnowledgeToolResolver,
   type ToolContext,
@@ -182,7 +181,7 @@ type ToolRequestedEventPayload = {
   toolCallId: string;
   toolName: string;
   input: unknown;
-  permission?: PermissionDecisionMetadata;
+  permission?: PermissionDecision;
 };
 
 /** A durably recorded tool completion, carrying the decision for history. */
@@ -191,7 +190,7 @@ type ToolCompletedEventPayload = {
   toolName: string;
   status: ToolResult['status'];
   output: ToolResult;
-  permission?: PermissionDecisionMetadata;
+  permission?: PermissionDecision;
 };
 
 /**
@@ -584,7 +583,7 @@ export class RunExecutionService {
       {
         toolName: string;
         toolInput: unknown;
-        permission?: PermissionDecisionMetadata;
+        permission?: PermissionDecision;
       }
     >();
     // Reserve the persisted part and the open-call entry at request time (before
@@ -607,7 +606,7 @@ export class RunExecutionService {
       toolName: string,
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- same rationale as `reserveToolRequest` above.
       toolInput: unknown,
-      permission: PermissionDecisionMetadata | undefined,
+      permission: PermissionDecision | undefined,
     ) => {
       const payload: ToolRequestedEventPayload = {
         toolCallId,
@@ -712,7 +711,7 @@ export class RunExecutionService {
               { ...toolContext, toolCallId },
               callTimeoutSeconds,
               async (decision) => {
-                const permission = toDecisionMetadata(decision);
+                const permission = decision;
                 const open = openToolCalls.get(toolCallId);
                 if (open !== undefined) open.permission = permission;
                 // Enqueue the decision-bearing request, and — only for an

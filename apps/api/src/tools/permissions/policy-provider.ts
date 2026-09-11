@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
+import { Logger } from '@nestjs/common';
+
 import { TOOL_REGISTRY } from '../registry';
 import { resolveJsonSchema } from '../schema-utils';
 import { compileToolPermissionMap } from './compile-permissions';
@@ -10,6 +12,16 @@ import {
   type PermissionMatcher,
   type ToolPermissionMap,
 } from './types';
+
+const logger = new Logger('ToolPermissions');
+
+/**
+ * Evaluator identity recorded once in startup diagnostics so a stored decision's
+ * policy id can be correlated with the process that produced it. Bump on any
+ * matching-semantics change.
+ */
+export const PERMISSION_EVALUATOR_VERSION =
+  're2js-2.8.6/tool-call-permissions-v1';
 
 /**
  * Build the immutable per-process policy (openspec/changes/tool-call-permissions
@@ -24,7 +36,11 @@ export async function buildToolPermissionPolicy(
   permissions: ToolPermissionMap,
 ): Promise<CompiledPolicy> {
   await validateCodeOwnedFields(permissions);
-  return compileToolPermissionMap(permissions, randomUUID());
+  const policy = compileToolPermissionMap(permissions, randomUUID());
+  logger.log(
+    `Tool permission policy ${policy.id} compiled (evaluator ${PERMISSION_EVALUATOR_VERSION}).`,
+  );
+  return policy;
 }
 
 /** Code-owned fields must exist and be string-capable; a configured MCP field

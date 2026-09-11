@@ -4,6 +4,7 @@ import { type UnknownRecord } from '@workspace/runtime-safety';
 
 import { isBashCommandField } from './bash-command-field';
 import { compileToolPermissionMap } from './compile-permissions';
+import { declaredStringProperties } from './declared-fields';
 import { evaluatePermission } from './evaluator';
 import { compileLiteralMatcher, compileRegexMatcher } from './matcher';
 import { PermissionCompileError } from './limits';
@@ -210,6 +211,34 @@ describe('evaluatePermission value selection', () => {
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
   });
 
+  it('lets a whole-tool reject win over an invalid field diagnostic', () => {
+    const policy = compiled({
+      mcp__demo__lookup: {
+        reject: true,
+        allow: [{ field: 'missing', literal: 'x' }],
+      },
+    });
+    expect(
+      evaluatePermission(policy, {
+        toolId: 'mcp__demo__lookup',
+        args: {},
+        validFields: new Set(['query']),
+      }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  });
+
+  it('discovers string fields declared inside composed object schemas', () => {
+    expect([
+      ...declaredStringProperties({
+        type: 'object',
+        allOf: [
+          { properties: { query: { type: 'string' } } },
+          { properties: { count: { type: 'number' } } },
+        ],
+      }),
+    ]).toEqual(['query']);
+  });
+
   it('does not match a missing optional field even if a default exists', () => {
     const decision = decide(map, 'write', { path: 'kb://SPACE/notes/a' });
     expect(decision).toMatchObject({ decision: 'allow' });
@@ -285,6 +314,15 @@ describe('portable policy fixture', () => {
     ['bash', { command: 'git reset --hard HEAD' }, 'reject', 'explicit_reject'],
     ['bash', { command: 'rm -rf /' }, 'reject', 'explicit_reject'],
     ['bash', { command: 'rm -fr ~/*' }, 'reject', 'explicit_reject'],
+    ['bash', { command: 'rm -r -f /' }, 'reject', 'explicit_reject'],
+    ['bash', { command: 'rm -f -r //' }, 'reject', 'explicit_reject'],
+    [
+      'bash',
+      { command: 'rm --recursive --force /' },
+      'reject',
+      'explicit_reject',
+    ],
+    ['bash', { command: 'rm -rf //' }, 'reject', 'explicit_reject'],
     ['bash', { command: 'rm -rf /tmp/build-output' }, 'allow', 'matched_allow'],
     [
       'bash',

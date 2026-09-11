@@ -38,6 +38,12 @@ export type PermissionDecisionReason =
   | 'input_limit'
   | 'matched_allow';
 
+/** The reasons that describe a rejection; `matched_allow` is allow-only. */
+export type PermissionRejectionReason = Exclude<
+  PermissionDecisionReason,
+  'matched_allow'
+>;
+
 export interface PermissionClauseReference {
   readonly groupId: string;
   readonly list: 'allow' | 'reject';
@@ -45,12 +51,26 @@ export interface PermissionClauseReference {
   readonly clauseIndex: number | null;
 }
 
-export interface PermissionDecision {
-  readonly policyId: string;
-  readonly decision: 'allow' | 'reject';
-  readonly reason: PermissionDecisionReason;
-  readonly reference: PermissionClauseReference | null;
-}
+/**
+ * A trusted, safe admission decision. Discriminated on `decision` so a reject
+ * can never carry the allow-only `matched_allow` reason and vice versa. It
+ * already contains only safe provenance (opaque policy id, decision, static
+ * reason, bounded clause reference) — nothing here needs to be stripped before
+ * persistence.
+ */
+export type PermissionDecision =
+  | {
+      readonly policyId: string;
+      readonly decision: 'allow';
+      readonly reason: 'matched_allow';
+      readonly reference: PermissionClauseReference | null;
+    }
+  | {
+      readonly policyId: string;
+      readonly decision: 'reject';
+      readonly reason: PermissionRejectionReason;
+      readonly reference: PermissionClauseReference | null;
+    };
 
 /** The immutable per-process compiled policy consumed at the execution gate. */
 export interface CompiledPolicy {

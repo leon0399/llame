@@ -22,9 +22,9 @@ import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
 import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';
 import { type ToolResult } from '../tools/types';
-import { type PermissionDecisionMetadata } from '../tools/permissions/decision-record';
 import {
   type PermissionClauseReference,
+  type PermissionDecision,
   type PermissionDecisionReason,
 } from '../tools/permissions/types';
 
@@ -62,7 +62,7 @@ export type ToolActivityPart = {
    * tool-call-permissions D5). Excluded from model replay, public shares,
    * exports, and search; it never contains policy bodies or matched input.
    */
-  permission?: PermissionDecisionMetadata;
+  permission?: PermissionDecision;
 };
 
 /** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
@@ -164,7 +164,7 @@ export type ToolActivityPartInput = {
   readonly toolName: string;
   readonly input: unknown;
   readonly result: ToolResult;
-  readonly permission?: PermissionDecisionMetadata;
+  readonly permission?: PermissionDecision;
 };
 
 /**
@@ -222,7 +222,7 @@ function eventPayloadString(payload: unknown, key: string): string | undefined {
 type OpenToolCall = {
   readonly toolName: string;
   readonly toolInput: unknown;
-  readonly permission?: PermissionDecisionMetadata;
+  readonly permission?: PermissionDecision;
 };
 
 const PERMISSION_REASONS: ReadonlySet<string> = new Set([
@@ -235,6 +235,12 @@ const PERMISSION_REASONS: ReadonlySet<string> = new Set([
 
 function isPermissionReason(value: unknown): value is PermissionDecisionReason {
   return isString(value) && PERMISSION_REASONS.has(value);
+}
+
+function isPermissionRejectionReason(
+  value: unknown,
+): value is Exclude<PermissionDecisionReason, 'matched_allow'> {
+  return isPermissionReason(value) && value !== 'matched_allow';
 }
 
 function permissionClauseFromPayload(
@@ -254,21 +260,23 @@ function permissionClauseFromPayload(
 function permissionFromPayload(
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadField` and the `isRecord`/`isString` guards below parse it before any field is trusted.
   payload: unknown,
-): PermissionDecisionMetadata | undefined {
+): PermissionDecision | undefined {
   const permission = eventPayloadField(payload, 'permission');
   if (!isRecord(permission)) return undefined;
   const policyId = permission['policyId'];
   const decision = permission['decision'];
   const reason = permission['reason'];
   if (!isString(policyId)) return undefined;
-  if (decision !== 'allow' && decision !== 'reject') return undefined;
-  if (!isPermissionReason(reason)) return undefined;
-  return {
-    policyId,
-    decision,
-    reason,
-    clause: permissionClauseFromPayload(permission['clause']),
-  };
+  const reference = permissionClauseFromPayload(permission['reference']);
+  if (decision === 'allow') {
+    return reason === 'matched_allow'
+      ? { policyId, decision: 'allow', reason: 'matched_allow', reference }
+      : undefined;
+  }
+  if (decision !== 'reject' || !isPermissionRejectionReason(reason)) {
+    return undefined;
+  }
+  return { policyId, decision: 'reject', reason, reference };
 }
 
 /**

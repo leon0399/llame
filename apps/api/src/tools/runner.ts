@@ -131,9 +131,17 @@ export function invalidCallResult(toolName: string): ToolResult {
  */
 function mcpDeclaredStringFields(tool: Tool): ReadonlySet<string> | undefined {
   if (!tool.id.startsWith('mcp__')) return undefined;
-  if (!isRecord(tool.inputSchema)) return new Set();
-  return declaredStringProperties(tool.inputSchema);
+  const cached = declaredFieldCache.get(tool);
+  if (cached !== undefined) return cached;
+  const fields = isRecord(tool.inputSchema)
+    ? declaredStringProperties(tool.inputSchema)
+    : new Set<string>();
+  declaredFieldCache.set(tool, fields);
+  return fields;
 }
+
+/** The admitted schema of an MCP tool is static for the process lifetime. */
+const declaredFieldCache = new WeakMap<Tool, ReadonlySet<string>>();
 
 /**
  * Evaluate the trusted process policy for one already-schema-validated call.
@@ -188,6 +196,17 @@ export async function runTool(
   if (onAdmitted !== undefined) await onAdmitted(decision);
   if (decision.decision === 'reject') {
     return permissionDeniedResult(decision.reason);
+  }
+
+  // The awaited admission write can outlive a parent abort. Recheck before
+  // dispatch so an abort that landed during that write settles the call as
+  // cancelled instead of running an executor after terminalization.
+  if (validContext.abortSignal?.aborted) {
+    return {
+      status: 'error',
+      type: 'cancelled',
+      message: `Tool "${tool.id}" was cancelled.`,
+    };
   }
 
   return executeAdmittedTool(tool, validArgs, validContext, callTimeoutSeconds);

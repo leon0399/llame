@@ -14,7 +14,7 @@ import {
  */
 
 const B1_SYSTEM_COMMAND = String.raw`(^|[^A-Za-z0-9_])(sudo|shutdown|reboot|halt|poweroff|mkfs([.][A-Za-z0-9_-]+)?)(\s|$)`;
-const B2_ROOT_RECURSIVE_REMOVE = String.raw`\brm\s+-(rf|fr)\s+['"]?(/\*?|~(\*|/\*?)?|\$HOME(/\*?)?|\$\{HOME\}(/\*?)?)['"]?($|[\s;&|])`;
+const B2_ROOT_RECURSIVE_REMOVE = String.raw`\brm\s+(?:-[A-Za-z]*[rR][A-Za-z]*[fF][A-Za-z]*|-[A-Za-z]*[fF][A-Za-z]*[rR][A-Za-z]*|-[A-Za-z]*[rR][A-Za-z]*\s+-[A-Za-z]*[fF][A-Za-z]*|-[A-Za-z]*[fF][A-Za-z]*\s+-[A-Za-z]*[rR][A-Za-z]*|--recursive\s+(?:--force|-f)|--force\s+(?:--recursive|-r))\s+(?:--\s+)?['"]?(?://?\*?|~(?:\*|//?\*?)?|\$HOME(?:/\*?)?|\$\{HOME\}(?://?\*?)?)['"]?($|[\s;&|])`;
 const B3_DEVICE_WRITE = String.raw`\bdd\s+[^\r\n;&|]*\bof=/dev/`;
 const B8_PIPE_TO_SHELL = String.raw`\b(curl|wget)\s+[^\r\n;|]*\x7c\s*(ba|z|da|k)?sh(\s|$)`;
 const F1_CREDENTIAL_DIRECTORY = String.raw`(^|[/\\])(\.ssh|\.aws|\.azure|\.gnupg|\.kube)([/\\]|$|:)`;

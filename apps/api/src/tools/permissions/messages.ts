@@ -1,6 +1,6 @@
 import { type ToolResult } from '@workspace/runtime-safety';
 
-import { type PermissionDecisionReason } from './types';
+import { type PermissionRejectionReason } from './types';
 
 /**
  * Code-owned model-visible rejection messages (openspec/changes/tool-call-permissions
@@ -21,8 +21,6 @@ const INVALID_FIELD =
 
 const INPUT_LIMIT =
   'Tool call rejected before execution by operator permissions. The submitted input exceeds the permission inspection limit. Do not retry unchanged or evade a reject by splitting, encoding, switching tools, or delegating. A smaller request may be submitted only as independently permitted work. In-run approval is unavailable; explain any blocked required step to the user.';
-
-export type PermissionRejectionReason = PermissionDecisionReason;
 
 /** The non-fatal `permission_denied` observation for a rejected call. */
 export function permissionDeniedResult(

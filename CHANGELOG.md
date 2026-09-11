@@ -5,12 +5,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Add operator `tools.permissions` allow/reject rules evaluated at the shared
   tool-execution gate: a matching reject vetoes every allow, otherwise a
   whole-tool or field allow grants, otherwise the call is rejected as a
-  non-fatal `permission_denied` observation and the Run continues. The closed
-  schema ships a portable seven-tool default map with whole-map replacement
-  (`{}` rejects all), bounded RE2-compatible literal/regex matching, canonical
-  Knowledge locator projection, and private decision provenance on owner-scoped
-  tool activity. Startup-only; no new endpoint or table. **Breaking:** every
-  call must pass the policy, and MCP tools require an explicit group.
+  non-fatal `permission_denied` observation and the Run continues. There is no
+  built-in policy: omitting `tools.permissions` rejects every call, and
+  `llame.config.json.example` provides a recommended seven-tool portable map to
+  copy. Bounded RE2-compatible literal/regex matching, canonical Knowledge
+  locator projection, and private decision provenance on owner-scoped tool
+  activity. Startup-only; no new endpoint or table. **Breaking:** every call
+  must pass the policy, and MCP tools require an explicit group.
 
 - Add the manually configured `openai-codex` provider for one trusted personal
   ChatGPT/Codex subscription. It uses the fixed Codex Responses transport with
