@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
 import { buildToolPermissionPolicy } from './policy-provider';
@@ -26,7 +26,13 @@ export const toolPermissionPolicyProvider = {
  * initialization cannot complete with an uncompiled or invalid policy. An
  * invalid configured pattern or field rejects the factory and aborts bootstrap
  * before the process serves requests or claims jobs.
+ *
+ * `@Global` because the policy is a per-process cross-cutting dependency (like
+ * InstanceConfigModule): the execution service lives in RunWorkerModule, but
+ * the policy is compiled once from instance config in CoreInfraModule so both
+ * entrypoints share one instance.
  */
+@Global()
 @Module({
   providers: [toolPermissionPolicyProvider],
   exports: [TOOL_PERMISSION_POLICY],
