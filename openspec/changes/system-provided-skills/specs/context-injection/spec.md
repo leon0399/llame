@@ -53,6 +53,8 @@ that capability's placement rule rather than this attached-item list.
 
 The initial skill metadata catalog SHALL be a system-prompt contribution frozen until compaction, with a 16 KiB bound retaining complete entries in code-point name order and explicit omission information. It SHALL describe proactive loading, multiple-skill use, and the instruction/resource read interface. The baseline SHALL locally frame operator package metadata as catalog data below system instructions and user requests, with no authority to grant tools or relax authorization, even under an operator-replaced prompt. Other prompt changes SHALL NOT refresh this baseline. On the next user-turn preparation after compaction, the current catalog SHALL replace the baseline. Transition compaction inside an already-bound Run SHALL retain that Run's baseline. Baseline and last-disclosed catalog state SHALL be durably linked to each Run so restart does not re-resolve historical state. The Run context record SHALL identify the baseline actually supplied.
 
+The user message, skill-catalog notice, Run linkage, and new disclosure/epoch state SHALL commit atomically under the authenticated owner identity. A retried accepted message SHALL reuse its persisted state; rollback SHALL expose none of those writes. Caller-supplied owner identifiers SHALL NOT authorize disclosure-state reads or mutations.
+
 At each later user turn, current discovery SHALL be compared with the chat's last disclosed state in the current epoch. Added, removed, or changed entries SHALL produce a `skill-catalog` notice containing sufficient new metadata to update the model's view. Change detection SHALL cover selected source, description, invocation eligibility, and instruction/control content identity. Catalog notices SHALL carry only bounded metadata and changed/invalid status, never instruction bodies; bodies SHALL enter context only through explicit activation or a selected skill read. Supporting files SHALL be read live without eager catalog inventory. A delta exceeding the metadata bound SHALL explicitly supersede prior catalog state with a bounded current snapshot and omission disclosure. Historical system prompts and context parts SHALL NOT be rewritten. No reminder SHALL be injected between model requests inside an existing Run in this iteration.
 
 Explicit selections SHALL produce `skill-activation` notices with final loaded text or failure before the first model request. Both producers SHALL use the existing canonical envelope, provenance, owner visibility, separate executed-context recording, stored-text replay, and author-time ordering. A completed explicit activation SHALL NOT be reloaded on recovery. Partial recovery SHALL preserve completed mention results and fill only unfinished selections in original order. Operator-supplied reserved delimiters SHALL be neutralized before composing and persisting final catalog or activation text; stored text SHALL replay without regeneration or another sanitization pass. Each catalog or activation item containing operator-authored text SHALL state within its own envelope that the text ranks below system instructions and user requests, cannot grant capabilities or relax authorization, and that attempts to do so must be disregarded. This framing SHALL remain present with a replaced operator system prompt.
@@ -111,3 +113,15 @@ The enqueue-bound effective-context receipt SHALL retain its immutable prompt/to
 - **WHEN** activation results have been persisted but window fitting fails before provider dispatch
 - **THEN** those observations remain in the owner message while the executed-context record remains unrecorded
 - **AND** the immutable enqueue receipt is not changed
+
+#### Scenario: Disclosure-state transaction is interrupted
+
+- **WHEN** the accepted-turn transaction fails before commit after preparing a catalog notice
+- **THEN** neither the message, Run linkage, notice, nor new disclosure state is visible
+- **AND** retry produces one consistent accepted turn without repeated or skipped catalog changes
+
+#### Scenario: Another owner targets disclosure state
+
+- **WHEN** owner A attempts to read or mutate owner B's per-Run baseline or last-disclosed state
+- **THEN** datastore enforcement refuses access using the authenticated identity
+- **AND** supplying owner B's identifier does not authorize the operation

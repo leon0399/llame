@@ -6,7 +6,7 @@
 
 The resolver SHALL re-evaluate the current winning package on each call. An explicitly configured source symlink SHALL resolve to its real root. A package symlink SHALL resolve only within configured real roots, and a resource symlink SHALL resolve only within the selected real package. Missing/invalid packages, unsupported operations, and invalid resource paths SHALL return bounded structured errors. The resolver SHALL NOT follow escaping links or read special files.
 
-Results SHALL carry the logical locator, selected source, absolute `resolvedPath`, and absolute `skillDirectory`. These paths and an instruction to resolve package-relative references/script paths into absolute paths using `skillDirectory` SHALL be present in model-facing output as well as owner metadata. That instruction SHALL distinguish task-relative inputs and explicit `cwd` from package-relative paths; the tool SHALL NOT rewrite commands. The result bound SHALL reserve space for this envelope before truncating resource content; if the envelope cannot fit, the read SHALL fail with a bounded error. This publication exception SHALL apply only to operator skill paths, not Knowledge paths. Ordinary permission admission SHALL match the submitted skill locator, never a substituted physical path.
+Results SHALL carry the logical locator, selected source, absolute `resolvedPath`, and absolute `skillDirectory`. These paths and an instruction to resolve package-relative references/script paths into absolute paths using `skillDirectory` SHALL be present in model-facing output as well as owner metadata. That instruction SHALL distinguish task-relative inputs and explicit `cwd` from package-relative paths; the tool SHALL NOT rewrite commands. The result bound SHALL reserve space for this envelope before truncating resource content; if the envelope cannot fit, the read SHALL fail with a bounded error. This publication exception SHALL apply only to operator skill paths, not Knowledge paths. Ordinary permission admission SHALL match a pure canonical projection of the submitted skill locator before any resource open: decode resource segments once, validate and re-encode through the shared locator grammar, and omit read selectors. It SHALL never substitute a physical path. Existing configured/default read rules SHALL apply to that projection, including credential-path rejects; no skill-specific permission bypass or duplicate deny list SHALL be introduced.
 
 #### Scenario: Skill resource exposes the execution base
 
@@ -28,6 +28,16 @@ Results SHALL carry the logical locator, selected source, absolute `resolvedPath
 
 - **WHEN** an edit or write targets `skill://pdf/SKILL.md`
 - **THEN** it returns an unsupported-operation error without a mutation attempt or filesystem effect
+
+### Requirement: Skill permission matching uses canonical resource identity
+
+The same file permission rules SHALL inspect literal and encoded spellings of one skill resource as the same canonical locator before the resource is opened. Operator replacement policies SHALL retain their existing override semantics.
+
+#### Scenario: Default credential rejects cover skill resources
+
+- **WHEN** the built-in read policy is active and a call targets `skill://pdf/.env`, `skill://pdf/%2eenv:raw`, or `skill://pdf/.ssh/id_ed25519`
+- **THEN** permission admission denies the read before any resource open
+- **AND** an ordinary `skill://pdf/references/guide.md` is not rejected by those credential-path clauses
 
 ## MODIFIED Requirements
 

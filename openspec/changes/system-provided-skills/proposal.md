@@ -5,7 +5,7 @@ llame has no reusable operator-provided workflow catalog. Issue [#770](https://g
 ## What Changes
 
 - D1: Configure directories containing skill directories; later sources override earlier sources by name. Only operator-managed sources participate.
-- D2: Advertise bounded skill metadata in a frozen system-prompt baseline. Announce catalog changes on the next user turn through existing system reminders; refresh the baseline at compaction.
+- D2: Advertise bounded skill metadata in a frozen system-prompt baseline. Announce catalog changes on the next user turn through existing system reminders; refresh the baseline while preparing the next user turn after compaction, leaving an already-bound Run unchanged.
 - D3: Load current instructions and references through read-only `skill://` locators. Expose real package/file paths so existing Bash can run bundled scripts without URI rewriting or implicit working-directory changes.
 - D4: Support explicit `$skill-name` references and proactive multi-skill use. Honor existing manual-only invocation controls without granting permissions.
 - D5: Check current availability at invocation; preserve historical observations without pinning future reads. Removal prevents new skill loads, not ordinary permitted access to surviving files.
