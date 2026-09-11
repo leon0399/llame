@@ -635,6 +635,61 @@ describe("native source reads", () => {
         nextOffset: 10,
       });
     });
+    it("fails when the first requested start is just past EOF", async () => {
+      await writeFile(path, "a\nb\nc\nd\ne\n");
+      expect(await readFile({ path: `${path}:6-7,20-25` })).toMatchObject({
+        status: "error",
+        type: "invalid_selector",
+      });
+    });
+
+    it("omits a later range in full when its entry line is oversized", async () => {
+      await writeFile(
+        path,
+        `a\nb\nc\n${"p".repeat(MAX_RESULT_CODE_UNITS + 1)}\n${"\n".repeat(2096)}`,
+      );
+      const result = await readFile({ path: `${path}:1-1,5-2100` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 1, endLine: 1 },
+          { startLine: 5, endLine: 2100 },
+        ],
+        shownRanges: [{ startLine: 1, endLine: 2 }],
+        truncated: true,
+        nextOffset: 3,
+      });
+    });
+
+    it("reads lines 1 through 7 exactly once for touching head ranges", async () => {
+      await writeFile(path, numbered(10));
+      const result = await readFile({ path: `${path}:1-2,5-6` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 1, endLine: 2 },
+          { startLine: 5, endLine: 6 },
+        ],
+        shownRanges: [{ startLine: 1, endLine: 7 }],
+        truncated: false,
+      });
+      expect(result.content).toBe(
+        "1: line 1\n2: line 2\n3: line 3\n4: line 4\n5: line 5\n6: line 6\n7: line 7\n",
+      );
+    });
+
+    it("reads one context-bounded block for unsorted overlapping ranges", async () => {
+      await writeFile(path, numbered(35));
+      const result = await readFile({ path: `${path}:20-30,5-10,10+10` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [{ startLine: 5, endLine: 30 }],
+        shownRanges: [{ startLine: 4, endLine: 31 }],
+        truncated: false,
+      });
+      expect(result.content.startsWith("4: line 4\n")).toBe(true);
+      expect(result.content.endsWith("31: line 31\n")).toBe(true);
+    });
   });
 });
 

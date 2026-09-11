@@ -152,6 +152,12 @@ continuation SHALL remain unchanged.
 - **THEN** requested ranges remain 5..10, 20..30, 40..50 and shown ranges are 4..11 and 19..25
 - **AND** the result is not truncated and has no continuation
 
+#### Scenario: First start past EOF fails despite context
+
+- **WHEN** a 5-line file is read with `:6-7,20-25`
+- **THEN** the tool returns `invalid_selector`
+- **AND** no context line is emitted
+
 #### Scenario: Expansion clips at the first line
 
 - **WHEN** a file read requests `:1-2,5-6`

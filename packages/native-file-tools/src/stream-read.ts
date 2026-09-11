@@ -109,16 +109,17 @@ function activeRangeIndex(
 }
 
 /**
- * Cursor of the single-pass multi-range walk: the expanded selection, the
- * current range, the source line under inspection, and its text. Built only
- * for selected, emittable lines — gaps and oversized lines never reach it.
+ * Position of the single-pass multi-range walk: the expanded selection, the
+ * current range, and the source line under inspection.
  */
-type MultiCursor = {
+type RangePosition = {
   expanded: Array<{ offset: number; limit: number }>;
   rangeIndex: number;
   index: number;
-  text: string;
 };
+
+/** An emittable selected line: its walk position plus its text. */
+type MultiCursor = RangePosition & { text: string };
 
 /** Result state as a later range started, for whole-range rollback. */
 type RangeSnapshot = {
@@ -152,27 +153,27 @@ function entrySnapshot(
  * captures the rollback snapshot at a later range's first line.
  */
 function admitRangeLine(
-  cursor: MultiCursor,
+  position: RangePosition,
   emitted: number,
   result: MultiReadSuccess,
 ): RangeAdmission {
-  const range = cursor.expanded[cursor.rangeIndex];
+  const range = position.expanded[position.rangeIndex];
   if (
-    cursor.rangeIndex > 0 &&
-    cursor.index === range.offset &&
+    position.rangeIndex > 0 &&
+    position.index === range.offset &&
     emitted + range.limit > MAX_READ_LINES
   ) {
     return { admitted: false, nextOffset: range.offset };
   }
-  if (cursor.rangeIndex === 0 && emitted >= MAX_READ_LINES) {
-    return { admitted: false, nextOffset: cursor.index };
+  if (position.rangeIndex === 0 && emitted >= MAX_READ_LINES) {
+    return { admitted: false, nextOffset: position.index };
   }
   return {
     admitted: true,
     snapshot: entrySnapshot(
-      cursor.expanded,
-      cursor.rangeIndex,
-      cursor.index,
+      position.expanded,
+      position.rangeIndex,
+      position.index,
       result,
     ),
   };
@@ -185,22 +186,49 @@ function admitRangeLine(
  * selected remains for a retry.
  */
 function recoverAppendFailure(
-  cursor: MultiCursor,
+  position: RangePosition,
   snapshot: RangeSnapshot | undefined,
   result: MultiReadSuccess,
 ): void {
   if (snapshot !== undefined) {
     result.content = snapshot.content;
     result.shownRanges = snapshot.shownRanges;
-    result.nextOffset = cursor.expanded[cursor.rangeIndex].offset;
+    result.nextOffset = position.expanded[position.rangeIndex].offset;
     return;
   }
   if (
     result.content === "" &&
-    !hasSelectedLineAfter(cursor.expanded, cursor.rangeIndex, cursor.index)
+    !hasSelectedLineAfter(
+      position.expanded,
+      position.rangeIndex,
+      position.index,
+    )
   ) {
     delete result.nextOffset;
   }
+}
+type OversizedOutcome = {
+  halted: boolean;
+  snapshot: RangeSnapshot | undefined;
+};
+
+/**
+ * Omit and skip an oversized line without ending the read. The entry line of
+ * a later range still receives whole-range admission, so a range that cannot
+ * fit whole is omitted in full here instead of streaming past the ceiling.
+ */
+function skipOversizedLine(
+  position: RangePosition,
+  emitted: number,
+  result: MultiReadSuccess,
+): OversizedOutcome {
+  result.truncated = true;
+  const admission = admitRangeLine(position, emitted, result);
+  if (!admission.admitted) {
+    result.nextOffset = admission.nextOffset;
+    return { halted: true, snapshot: undefined };
+  }
+  return { halted: false, snapshot: admission.snapshot };
 }
 
 /**
@@ -225,11 +253,9 @@ function finishMultiWindow(
   target: ReadTarget,
   count: number,
 ): MultiReadSuccess {
-  if (result.shownRanges.length === 0) {
-    if (target.offset >= count && (count > 0 || target.offset !== 0))
-      throw new NativeFileError("invalid_selector");
-    if (count === 0) result.requestedRanges = [];
-  }
+  if (target.offset >= count && (count > 0 || target.offset !== 0))
+    throw new NativeFileError("invalid_selector");
+  if (count === 0) result.requestedRanges = [];
   return result;
 }
 
@@ -250,10 +276,13 @@ async function collectMultiWindow(
     if (rangeIndex >= expanded.length) break;
     if (index < expanded[rangeIndex].offset) continue;
     if (text === undefined) {
-      // An oversized line is omitted and skipped without ending the read.
-      result.truncated = true;
-      const entry = entrySnapshot(expanded, rangeIndex, index, result);
-      if (entry !== undefined) rangeSnapshot = entry;
+      const skipped = skipOversizedLine(
+        { expanded, rangeIndex, index },
+        emitted,
+        result,
+      );
+      if (skipped.snapshot !== undefined) rangeSnapshot = skipped.snapshot;
+      if (skipped.halted) return result;
       continue;
     }
     const cursor: MultiCursor = { expanded, rangeIndex, index, text };
@@ -264,9 +293,7 @@ async function collectMultiWindow(
       return result;
     }
     if (admission.snapshot !== undefined) rangeSnapshot = admission.snapshot;
-    if (haltAfterAppend(cursor, rangeSnapshot, result, target)) {
-      return result;
-    }
+    if (haltAfterAppend(cursor, rangeSnapshot, result, target)) return result;
     emitted += 1;
   }
   return finishMultiWindow(result, target, count);
