@@ -108,6 +108,6 @@ Observed 2026-09-11. Primary-source inspection; upstream tests were read, not ex
 
 ## Revision history
 
-- v3 (2026-09-11): Clarified existing user-text sanitation, framed catalog data inside the frozen prompt baseline, and excluded secret interpolation from intentionally public source paths.
+- v3 (2026-09-11): Clarified existing user-text sanitation, framed catalog data inside the frozen prompt baseline, excluded secret interpolation from intentionally public source paths, and made metadata-only catalog notices explicit.
 - v2 (2026-09-11): Clarified per-item framing, delimiter handling, receipt path publication, persisted baseline state, explicit-activation admission/recovery, skill-only result/candidate branches, and next-user-turn rebaseline after transition compaction following two independent reviews.
 - v1 (2026-09-11): Initial proposal from the completed grilling decisions.
