@@ -134,6 +134,27 @@ describe('projectToolObservations', () => {
     );
   });
 
+  it('drops permission metadata from model replay', () => {
+    const projection = projectToolObservations([
+      toolPart({
+        permission: {
+          policyId: 'policy-secret-id',
+          decision: 'reject',
+          reason: 'explicit_reject',
+          clause: { groupId: 'bash', list: 'reject', clauseIndex: 0 },
+        },
+      }),
+    ]);
+
+    expect(projection).not.toBeNull();
+    const serialized = JSON.stringify({
+      calls: projection?.toolCallParts,
+      results: projection?.toolResultParts,
+    });
+    expect(serialized).not.toContain('policy-secret-id');
+    expect(serialized).not.toContain('permission');
+  });
+
   it('derives cancelled, error, and normalized outcomes from stored parts', () => {
     const projection = projectToolObservations([
       toolPart({

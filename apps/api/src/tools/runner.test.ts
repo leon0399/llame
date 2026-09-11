@@ -455,7 +455,13 @@ describe('runTool permission gate', () => {
     expect(order).toEqual(['admitted:allow', 'execute']);
   });
 
-  it.each([
+  const messageCases: Array<{
+    name: string;
+    message: string;
+    tool: Tool;
+    args: UnknownRecord;
+    map: ToolPermissionMap;
+  }> = [
     {
       name: 'explicit_reject',
       message: EXPLICIT_REJECT,
@@ -466,7 +472,7 @@ describe('runTool permission gate', () => {
           allow: true,
           reject: [{ field: 'value', literal: 'blocked' }],
         },
-      } satisfies ToolPermissionMap,
+      },
     },
     {
       name: 'no_allow',
@@ -475,7 +481,7 @@ describe('runTool permission gate', () => {
       args: { value: 'x' },
       map: {
         echo: { allow: [{ field: 'value', literal: 'never' }] },
-      } satisfies ToolPermissionMap,
+      },
     },
     {
       name: 'invalid_field',
@@ -493,7 +499,7 @@ describe('runTool permission gate', () => {
         mcp__demo__lookup: {
           allow: [{ field: 'url', literal: 'x' }],
         },
-      } satisfies ToolPermissionMap,
+      },
     },
     {
       name: 'input_limit',
@@ -502,9 +508,11 @@ describe('runTool permission gate', () => {
       args: { value: 'y'.repeat(1024 * 1024 + 1) },
       map: {
         echo: { allow: true, reject: [{ allFields: true, literal: 'X' }] },
-      } satisfies ToolPermissionMap,
+      },
     },
-  ] as const)(
+  ];
+
+  it.each(messageCases)(
     'uses the fixed message for $name',
     async ({ message, tool, args, map }) => {
       const result = await runTool(tool, args, contextWith(map), 5);
