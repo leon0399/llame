@@ -16,7 +16,7 @@ This is not command containment. An allowed interpreter retains its executor's a
 
 ### D1: A closed configuration grouped by exact tool identity
 
-Add optional `tools.permissions`. When omitted, no permission groups exist and every call is rejected — there is no built-in fallback policy. The shipped `llame.config.json.example` documents the recommended map in D8 for operators to copy. A supplied map is the complete effective policy; `{}` denies every call. There is no implicit deep merge or append. Keys are exact registered code-owned IDs or exact canonical IDs for configured MCP servers. No new tool-name wildcard language is added; operators may still use namespace wildcards in `tools.allowed`, but each executing tool needs its own permission group. This prevents a newly discovered MCP tool from acquiring call permission merely through namespace membership.
+Add optional `tools.permissions`. When omitted, no permission groups exist and every call is rejected — there is no built-in fallback policy. The shipped `llame.config.json.example` documents the recommended map in D8 for operators to copy. A supplied map is the complete effective policy; `{}` denies every call. There is no implicit deep merge or append. Keys are exact tool IDs, matched at call time; an unknown or no-longer-configured key (for example after an MCP server change) is accepted and simply never matches, so it cannot fail startup or grant authority. No new tool-name wildcard language is added; operators may still use namespace wildcards in `tools.allowed`, but each executing tool needs its own permission group. This prevents a newly discovered MCP tool from acquiring call permission merely through namespace membership.
 
 Each group has optional `allow` and `reject` values, each either `true` (whole-tool match) or an array of clauses. Omitted values and empty arrays do not match; `false` is invalid. A clause contains exactly one of `literal` or `regex`, plus exactly one target: `field` or `allFields: true`:
 
@@ -280,6 +280,8 @@ The doubled opening brace in B2 is intentional config-source escaping: the singl
 5. Roll back by restoring the previous binary and its compatible config together. The old binary cannot accept the new closed-schema key; rolling back also removes this call-policy gate and must be an explicit operator decision.
 
 ## Revision history
+
+- v9 (2026-09-11): Permission keys are matched only at call time; an unknown or no-longer-configured key is accepted and inert, so an MCP server change cannot fail startup.
 
 - v8 (2026-09-11): Removed the runtime built-in policy: omitting `tools.permissions` now rejects every call, and the recommended portable map ships only in the example configuration for operators to copy.
 

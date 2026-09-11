@@ -481,7 +481,7 @@
         },
         "permissions": {
           "type": "object",
-          "description": "Operator-controlled allow/reject rules, keyed by exact registered code-owned tool id or exact canonical configured-MCP id (no wildcards; exact ids only). There is no built-in policy: omitting this key rejects every call, and `llame.config.json.example` ships a recommended portable map to copy. Matching rejects veto; otherwise a whole-tool or field allow grants; otherwise the call is rejected. Values follow the existing single-pass interpolation and doubled-opening-brace escaping (escape an interpolation-looking opening brace by doubling it). Keys, clause shape, and pattern syntax are validated before the process serves requests or claims jobs.",
+          "description": "Operator-controlled allow/reject rules keyed by exact tool id, matched at call time. Unknown or no-longer-configured keys (for example after an MCP server change) are accepted and simply never match; they do not fail startup. There is no built-in policy: omitting this key rejects every call, and `llame.config.json.example` ships a recommended portable map to copy. Matching rejects veto; otherwise a whole-tool or field allow grants; otherwise the call is rejected. Values follow the existing single-pass interpolation and doubled-opening-brace escaping (escape an interpolation-looking opening brace by doubling it). Clause shape and pattern syntax are validated before the process serves requests or claims jobs.",
           "propertyNames": { "type": "string", "minLength": 1 },
           "additionalProperties": { "$ref": "#/$defs/permissionGroup" }
         },

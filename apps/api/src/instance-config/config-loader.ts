@@ -182,7 +182,6 @@ function resolveToolsConfig(
       configPath: 'tools.permissions',
       ...readLeaf(raw, 'tools', 'permissions'),
       env,
-      configuredMcpServerIds: new Set(Object.keys(mcpServers)),
     }),
     maxStepsPerRun: resolveToolNumber(raw, 'maxStepsPerRun', env),
     callTimeoutSeconds: resolveToolNumber(raw, 'callTimeoutSeconds', env),
@@ -680,66 +679,26 @@ function resolveToolAllowlist(opts: {
   return raw;
 }
 
-/** Validate one `tools.permissions` key: an exact registered code-owned id or
- *  an exact canonical configured-MCP id. Wildcards are not a permission
- *  identity and are refused here. */
-function assertValidPermissionToolId(
-  toolId: string,
-  configPath: string,
-  configuredMcpServerIds: ReadonlySet<string>,
-  registered: ReadonlySet<string>,
-): void {
-  if (toolId.includes('*')) {
-    throw new InstanceConfigError(
-      `${configPath}: wildcard tool id "${toolId}" is not a valid permission key (exact ids only)`,
-    );
-  }
-  if (toolId.startsWith('mcp__')) {
-    const parsed = parseMcpToolId(toolId);
-    if (!parsed.success) {
-      throw new InstanceConfigError(
-        `${configPath}: invalid MCP tool id "${toolId}"`,
-      );
-    }
-    if (!configuredMcpServerIds.has(parsed.serverId)) {
-      throw new InstanceConfigError(
-        `${configPath}: MCP tool id "${toolId}" references an undeclared mcpServers entry`,
-      );
-    }
-    return;
-  }
-  if (!registered.has(toolId)) {
-    throw new InstanceConfigError(
-      `${configPath}: unknown tool id "${toolId}" (not registered)`,
-    );
-  }
-}
-
-/** Resolve the operator map: identity-checked, interpolated, still-uncompiled.
- *  There is no built-in policy: an omitted map is empty, so every call is
- *  rejected until the operator supplies rules. A supplied map replaces the
- *  (empty) default wholesale. */
+/** Resolve the operator map: clause/interpolation-checked, still-uncompiled.
+ *  Keys are exact tool identities matched at call time; an unknown or
+ *  no-longer-configured key (for example after an MCP server change) is
+ *  accepted and simply never matches, so it cannot fail startup. There is no
+ *  built-in policy: an omitted map is empty, so every call is rejected until
+ *  the operator supplies rules. A supplied map replaces the (empty) default
+ *  wholesale. */
 function resolveToolPermissions(opts: {
   configPath: string;
   present: boolean;
   raw: unknown;
   env: NodeJS.ProcessEnv;
-  configuredMcpServerIds: ReadonlySet<string>;
 }): ToolPermissionMap {
-  const { configPath, present, raw, env, configuredMcpServerIds } = opts;
+  const { configPath, present, raw, env } = opts;
   if (!present) return BUILT_IN_DEFAULTS.tools.permissions;
   if (!isRecord(raw)) {
     throw new InstanceConfigError(`${configPath}: must be an object`);
   }
-  const registered = new Set(getRegisteredToolIds());
   const resolved: Record<string, PermissionGroup> = {};
   for (const [toolId, group] of Object.entries(raw)) {
-    assertValidPermissionToolId(
-      toolId,
-      configPath,
-      configuredMcpServerIds,
-      registered,
-    );
     resolved[toolId] = resolvePermissionGroup(
       `${configPath}.${toolId}`,
       group,

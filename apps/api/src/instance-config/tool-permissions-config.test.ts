@@ -53,22 +53,22 @@ describe('tools.permissions configuration', () => {
     });
   });
 
-  it('refuses a wildcard permission key', () => {
-    expect(loadError(tools({ 'mcp__docs__*': { allow: true } }))).toMatch(
-      /wildcard/,
-    );
+  it('accepts an unknown permission key as inert (no startup failure)', () => {
+    expect(load(tools({ nope: { allow: true } })).tools.permissions).toEqual({
+      nope: { allow: true },
+    });
   });
 
-  it('refuses an unknown code-owned id', () => {
-    expect(loadError(tools({ nope: { allow: true } }))).toMatch(
-      /unknown tool id/,
-    );
+  it('accepts a permission key for an undeclared MCP server', () => {
+    expect(
+      load(tools({ mcp__docs__fetch: { allow: true } })).tools.permissions,
+    ).toEqual({ mcp__docs__fetch: { allow: true } });
   });
 
-  it('refuses an MCP id for an undeclared server', () => {
-    expect(loadError(tools({ mcp__docs__fetch: { allow: true } }))).toMatch(
-      /undeclared/,
-    );
+  it('accepts a wildcard permission key as inert', () => {
+    expect(
+      load(tools({ 'mcp__docs__*': { allow: true } })).tools.permissions,
+    ).toEqual({ 'mcp__docs__*': { allow: true } });
   });
 
   it('accepts an exact MCP id for a declared server', () => {

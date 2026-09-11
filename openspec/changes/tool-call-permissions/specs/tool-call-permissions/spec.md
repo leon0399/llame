@@ -4,9 +4,9 @@ Gate individual tool calls using startup-loaded operator allow/reject rules whil
 
 ## ADDED Requirements
 
-### Requirement: Permission groups use closed source-aware tool identities
+### Requirement: Permission groups are matched by exact tool identity at call time
 
-The system SHALL accept `tools.permissions` as a map keyed by exact registered code-owned tool IDs or exact canonical tool IDs belonging to configured MCP servers. Unconfigured source IDs, unknown code-owned IDs, wildcard keys, and malformed IDs SHALL fail startup. A syntactically valid configured MCP ID SHALL NOT require the server to be online at startup. Configuration SHALL NOT create a missing tool or change its source identity.
+The system SHALL accept `tools.permissions` as a map keyed by exact tool IDs and SHALL match a call against only the group whose key equals the executing tool's canonical id. Unknown, unconfigured, or no-longer-configured keys — for example a permission group left behind after an MCP server change — SHALL be accepted at startup and SHALL simply never match; they SHALL NOT fail startup and SHALL NOT create a missing tool or change a source identity. A syntactically valid configured MCP ID SHALL NOT require the server to be online at startup. Malformed clause structure, all-fields allow clauses, and invalid or unsupported regex SHALL still fail startup. Configuration SHALL NOT alter catalog admission or source classification.
 
 Each group SHALL contain only optional `allow` and `reject`. Each SHALL be `true` for a whole-tool match or an array of clauses. Omitted lists and empty arrays SHALL match nothing; `false` SHALL be invalid. Each clause SHALL contain exactly one non-empty string property, `literal` or `regex`, and exactly one target: non-empty string `field` or `allFields: true`. A `field` SHALL name one exact top-level input property, not a nested path expression. An allow clause SHALL require `field`; `allFields: true` SHALL be valid only for rejection across all string values. Missing or simultaneous targets and `allFields: false` SHALL be invalid.
 

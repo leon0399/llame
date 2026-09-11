@@ -50,7 +50,13 @@ The schema SHALL cover the shape-stable operator settings and SHALL be extended 
 
 ### Requirement: Operator tool permissions compile before process startup completes
 
-The configuration SHALL accept optional `tools.permissions` under the closed published schema. When omitted, the system SHALL create no permission groups, so every call is rejected; the shipped example documents the recommended portable map. There is no built-in fallback policy. A supplied map SHALL be the complete effective policy without merging; an explicit empty map SHALL reject all calls. It SHALL use the groups, clauses, matching syntax, and bounds defined by `tool-call-permissions`. Unknown keys, invalid tool identities, malformed clauses, all-fields allow clauses, and invalid or unsupported regex SHALL fail startup before serving requests or claiming jobs. Diagnostics SHALL identify configuration locations and static reasons without printing patterns, resolved values, or matched input. Permission strings SHALL follow the existing single-pass interpolation and doubled-opening-brace escaping contract.
+The configuration SHALL accept optional `tools.permissions` under the closed published schema. When omitted, the system SHALL create no permission groups, so every call is rejected; the shipped example documents the recommended portable map. There is no built-in fallback policy. A supplied map SHALL be the complete effective policy without merging; an explicit empty map SHALL reject all calls. It SHALL use the groups, clauses, matching syntax, and bounds defined by `tool-call-permissions`. Unknown or no-longer-configured permission keys SHALL be accepted and simply never match, so an MCP server change does not fail startup; malformed clauses, all-fields allow clauses, and invalid or unsupported regex SHALL fail startup before serving requests or claiming jobs. Diagnostics SHALL identify configuration locations and static reasons without printing patterns, resolved values, or matched input. Permission strings SHALL follow the existing single-pass interpolation and doubled-opening-brace escaping contract.
+
+#### Scenario: A no-longer-configured permission key does not fail startup
+
+- **WHEN** a valid `tools.permissions` map contains a key for a tool that is not currently registered or configured
+- **THEN** startup succeeds and the group simply never matches
+- **AND** malformed clauses or invalid regex still fail startup
 
 #### Scenario: Omitted permissions reject calls
 

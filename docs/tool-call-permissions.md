@@ -8,9 +8,11 @@ or expose a tool. This document is the operator reference for the shipped
 
 ## Configuration
 
-Add permission groups under `tools.permissions`, keyed by an exact registered
-code-owned tool id or an exact canonical `mcp__<server>__<tool>` id. Wildcards
-are **not** valid permission keys.
+Add permission groups under `tools.permissions`, keyed by an exact tool id. A
+group is matched only when its key equals the executing tool's canonical id;
+an unknown or no-longer-configured key (for example one left behind after an
+MCP server change) is accepted at startup and simply never matches, so it does
+not fail boot. Keys are not wildcards.
 
 ```json
 {
