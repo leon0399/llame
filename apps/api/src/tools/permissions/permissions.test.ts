@@ -4,7 +4,10 @@ import { type UnknownRecord } from '@workspace/runtime-safety';
 
 import { isBashCommandField } from './bash-command-field';
 import { compileToolPermissionMap } from './compile-permissions';
-import { declaredStringProperties } from './declared-fields';
+import {
+  declaredStringProperties,
+  schemaPermitsString,
+} from './declared-fields';
 import { evaluatePermission } from './evaluator';
 import { compileLiteralMatcher, compileRegexMatcher } from './matcher';
 import { PermissionCompileError } from './limits';
@@ -239,6 +242,19 @@ describe('evaluatePermission value selection', () => {
     ]).toEqual(['query']);
   });
 
+  it.each([
+    [true, true],
+    [{}, true],
+    [{ enum: ['a', 1] }, true],
+    [{ const: 'a' }, true],
+    [{ allOf: [{ type: 'string' }, { minLength: 1 }] }, true],
+    [{ allOf: [{ type: 'string' }, { type: 'number' }] }, false],
+    [{ anyOf: [{ type: 'number' }, { type: 'string' }] }, true],
+    [{ type: 'object', properties: { a: { type: 'string' } } }, false],
+  ] as const)('schemaPermitsString(%o) is %s', (schema, expected) => {
+    expect(schemaPermitsString(schema)).toBe(expected);
+  });
+
   it('does not match a missing optional field even if a default exists', () => {
     const decision = decide(map, 'write', { path: 'kb://SPACE/notes/a' });
     expect(decision).toMatchObject({ decision: 'allow' });
@@ -319,6 +335,18 @@ describe('portable policy fixture', () => {
     [
       'bash',
       { command: 'rm --recursive --force /' },
+      'reject',
+      'explicit_reject',
+    ],
+    [
+      'bash',
+      { command: 'rm -rf --no-preserve-root /' },
+      'reject',
+      'explicit_reject',
+    ],
+    [
+      'bash',
+      { command: 'rm --no-preserve-root -rf /' },
       'reject',
       'explicit_reject',
     ],
