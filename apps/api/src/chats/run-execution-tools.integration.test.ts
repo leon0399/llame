@@ -74,6 +74,7 @@ import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fi
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
 import {
+  getRegisteredToolIds,
   registerTestOnlyTool,
   TOOL_REGISTRY,
   unregisterTestOnlyTool,
@@ -456,7 +457,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
       overrides?.embedDispatch ?? noopEmbedDispatch(),
       noopQueryEmbedder(),
-      compileTestPermissionPolicy(['mcp__offline__search', 'mcp__web__search']),
+      compileTestPermissionPolicy([
+        ...getRegisteredToolIds(),
+        ...(overrides?.allowed ?? []),
+      ]),
       overrides?.dynamicToolResolver,
     );
   }
