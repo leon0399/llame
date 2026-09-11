@@ -20,9 +20,11 @@ areas, then use the remaining references for targeted alternatives. Adapt their
 behavior to llame's ownership, lifecycle, provenance, and isolation contracts;
 llame's specs remain authoritative.
 
-The 2026-09-10 assessments inspected upstream source and test code without
-executing it. Inclusion identifies a useful mechanism or comparison; adoption
-still requires a llame decision and validation.
+The dated assessments inspect upstream source and, where noted, test code
+without executing upstream programs. Harness extensions and adjacent knowledge
+tooling are included when they offer a distinct mechanism; benchmark claims
+remain upstream reports unless an entry records independent reproduction.
+Adoption requires a separate llame decision and validation.
 
 The `observed` frontmatter extension records the source inspection `date` and
 upstream Git `revision`. It does not record document generation or verification.
@@ -51,23 +53,26 @@ assessment.
 3. [qwen-audio-agent](./qwen-audio-agent.md) — Host-owned sessions with ACP/A2A peer execution
 4. [OpenCode](./opencode.md) — TypeScript coding harness; provider, session, and permission boundaries
 5. [Codex CLI](./codex-cli.md) — Native peer lifecycle protocol and observable compaction
-6. [goose](./goose.md) — ACP peer integration and tool approval boundaries
-7. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
-8. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
-9. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
-10. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
-11. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
-12. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
-13. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
-14. [agent-memory](./agent-memory.md) — Derived memory indexes and federated retrieval
-15. [gbrain](./gbrain.md) — File-backed knowledge and provenance-aware recall
-16. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
-17. [beads](./beads.md) — Dependency-aware work tracking, claims, and trace retention
-18. [Fabric](./fabric.md) — File-based prompt composition and drift checks
-19. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
-20. [OKF (Open Knowledge Format)](./open-knowledge-format.md) — Optional authorship, verification, and freshness metadata
-21. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
-22. [Buzz](./buzz.md) — Formal isolation models to compare with runtime enforcement
-23. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
-24. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
-25. [ELAI](./elai.md) — Archived architecture and measurement discipline
+6. [SoL-Pi](./sol-pi.md) — Evidence-preserving tool-result projections and compaction economics
+7. [goose](./goose.md) — ACP peer integration and tool approval boundaries
+8. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
+9. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
+10. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
+11. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
+12. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
+13. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
+14. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
+15. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
+16. [agent-memory](./agent-memory.md) — Derived memory indexes and federated retrieval
+17. [gbrain](./gbrain.md) — File-backed knowledge and provenance-aware recall
+18. [Graphify](./graphify.md) — Derived graph provenance, extraction caches, and MCP query boundaries
+19. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
+20. [beads](./beads.md) — Dependency-aware work tracking, claims, and trace retention
+21. [Fabric](./fabric.md) — File-based prompt composition and drift checks
+22. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
+23. [OKF (Open Knowledge Format)](./open-knowledge-format.md) — Optional authorship, verification, and freshness metadata
+24. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
+25. [Buzz](./buzz.md) — Formal isolation models to compare with runtime enforcement
+26. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
+27. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
+28. [ELAI](./elai.md) — Archived architecture and measurement discipline
