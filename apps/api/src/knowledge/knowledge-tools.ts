@@ -453,16 +453,16 @@ function buildSearchPage(
   );
   const baseWithCursor =
     nextCursor === undefined ? base : { ...base, nextCursor };
-  let visibleWarnings: Array<KnowledgeSearchWarning> = [];
+  const visibleWarnings: Array<KnowledgeSearchWarning> = [];
   for (const warning of warnings) {
-    const candidate = {
-      ...baseWithCursor,
-      warnings: [...visibleWarnings, warning],
-    };
-    if (serializedLength(candidate) > KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS) {
+    visibleWarnings.push(warning);
+    if (
+      serializedLength({ ...baseWithCursor, warnings: visibleWarnings }) >
+      KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS
+    ) {
+      visibleWarnings.pop();
       break;
     }
-    visibleWarnings = [...visibleWarnings, warning];
   }
   return preflightSuccess({ ...baseWithCursor, warnings: visibleWarnings });
 }

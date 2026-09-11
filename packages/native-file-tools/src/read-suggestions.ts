@@ -72,12 +72,9 @@ function sortedTokens(stem: string): string {
 
 function similarNames(requested: string, names: Array<string>): Array<string> {
   const request = splitName(normalizedName(requested));
-  const entries = names
-    .filter((name) => name !== requested)
-    .map((name) => ({
-      name,
-      ...splitName(normalizedName(name)),
-    }));
+  const entries = names.flatMap((name) =>
+    name === requested ? [] : [{ name, ...splitName(normalizedName(name)) }],
+  );
   // Every eligible first comparison is mandatory. Refuse an over-budget
   // directory before spending cells on results that must be discarded.
   const minimumCells = entries.reduce(

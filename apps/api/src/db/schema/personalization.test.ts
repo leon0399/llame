@@ -49,9 +49,9 @@ describe('personalization schema', () => {
     // path, so no policy may admit the empty (public) identity. Every policy
     // compares against app.current_user_id, which is '' under runAsPublic.
     for (const policy of config.policies) {
-      const clauses = [policy.using, policy.withCheck]
-        .filter((clause) => clause !== undefined)
-        .map((clause) => JSON.stringify(clause));
+      const clauses = [policy.using, policy.withCheck].flatMap((clause) =>
+        clause === undefined ? [] : [JSON.stringify(clause)],
+      );
 
       expect(clauses.length).toBeGreaterThan(0);
       for (const clause of clauses) {

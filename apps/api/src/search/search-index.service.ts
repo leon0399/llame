@@ -42,11 +42,12 @@ function diffChangedChunks(
   chunks: Array<ConversationChunk>,
   ownerUserId: string,
 ): Array<ConversationChunk> {
-  const currentByOrdinal = new Map(
-    existing
-      .filter((row) => row.version === CHUNKER_VERSION)
-      .map((row) => [row.ordinal, row]),
-  );
+  const currentByOrdinal = new Map<number, ExistingChunkRow>();
+  for (const row of existing) {
+    if (row.version === CHUNKER_VERSION) {
+      currentByOrdinal.set(row.ordinal, row);
+    }
+  }
   return chunks.filter((chunk) => {
     const current = currentByOrdinal.get(chunk.chunkOrdinal);
     return (

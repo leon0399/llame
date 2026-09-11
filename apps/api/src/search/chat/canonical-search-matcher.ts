@@ -127,11 +127,14 @@ export async function evaluateCanonicalLinePredicates(
   `);
 
   const candidateIds = new Set(candidates.map((candidate) => candidate.id));
-  return new Set(
-    [...rows]
-      .map((row) => Number(row.line_id))
-      .filter((id) => Number.isSafeInteger(id) && candidateIds.has(id)),
-  );
+  const matchedLineIds = new Set<number>();
+  for (const row of rows) {
+    const lineId = Number(row.line_id);
+    if (Number.isSafeInteger(lineId) && candidateIds.has(lineId)) {
+      matchedLineIds.add(lineId);
+    }
+  }
+  return matchedLineIds;
 }
 
 /**

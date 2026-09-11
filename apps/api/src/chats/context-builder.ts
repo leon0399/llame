@@ -196,20 +196,21 @@ export interface BuiltContext extends ModelRequestContext {
 function readContextItems(
   parts: ReadonlyArray<MessagePart>,
 ): Array<RunContextItem> {
-  return parts
-    .filter((part): part is ContextItemPart => isContextItemPart(part))
-    .map((part) => {
-      const producer = part.data.producer;
-      const form = resolveForm(part);
-      return {
+  return parts.flatMap((part) => {
+    if (!isContextItemPart(part)) return [];
+    const producer = part.data.producer;
+    const form = resolveForm(part);
+    return [
+      {
         producer,
         ...(form !== undefined && { form }),
         residency: 'rail' as const,
         // Historical metadata-only and explicitly empty items remain visible
         // in receipts as inert entries; metadata never manufactures text.
         text: part.data.text ?? '',
-      };
-    });
+      },
+    ];
+  });
 }
 
 function userPartsToModelContent(

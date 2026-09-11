@@ -157,9 +157,9 @@ export function collapsibleUnitIds(
   units: Array<OrgUnitResponse>,
 ): Array<string> {
   const visibleIds = new Set(units.map((u) => u.id));
-  return units
-    .filter((u) => childrenOf(units, visibleIds, u.id).length > 0)
-    .map((u) => u.id);
+  return units.flatMap((u) =>
+    childrenOf(units, visibleIds, u.id).length > 0 ? [u.id] : [],
+  );
 }
 
 /**
