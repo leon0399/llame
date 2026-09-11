@@ -188,6 +188,9 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 5.7.3
+      typescript-language-server:
+        specifier: 6.0.0
+        version: 6.0.0
 
   apps/api:
     dependencies:
@@ -9058,6 +9061,11 @@ packages:
     peerDependencies:
       typescript: 5.0.x || 5.1.x || 5.2.x || 5.3.x || 5.4.x || 5.5.x || 5.6.x || 5.7.x || 5.8.x || 5.9.x || 6.0.x
 
+  typescript-language-server@6.0.0:
+    resolution: {integrity: sha512-LXtzY3UZGfghWA5eRU6/T5j1+YiGRgy14mR3GOKyTKlE1op1TYKQnLVxwBsmnXeDhGLuvzZyIHBAqvrekAITYQ==}
+    engines: {node: '>=22.22.2'}
+    hasBin: true
+
   typescript@2.9.2:
     resolution: {integrity: sha512-Gr4p6nFNaoufRIY4NMdpQRNmgxVIGMs4Fcu/ujdYk3nAZqk7supzBE9idmvfZIlH/Cuj//dvi+019qEue9lV0w==}
     engines: {node: '>=4.2.0'}
@@ -9360,6 +9368,20 @@ packages:
         optional: true
       jsdom:
         optional: true
+
+  vscode-jsonrpc@5.0.1:
+    resolution: {integrity: sha512-JvONPptw3GAQGXlVV2utDcHx0BiY34FupW/kI6mZ5x06ER5DdPG/tXWMVHjTNULF5uKPOUUD0SaXg5QaubJL0A==}
+    engines: {node: '>=8.0.0 || >=10.0.0'}
+
+  vscode-jsonrpc@9.0.2:
+    resolution: {integrity: sha512-SbQSV9yRemARxeXw6LU5sS6Zq0e9/DgCCX5yelH263ZQWukbTk8EF8fjTrr1dziasf4GwlJbvTwFnTrnQFWZXQ==}
+    engines: {node: '>=14.0.0'}
+
+  vscode-languageserver-protocol@3.18.3:
+    resolution: {integrity: sha512-DF49+WeV5py4zO5hhobp60jjsDSK0lAqA0OuKBLBvp423HPWQcCbhZz3JgyfIewsEz2f8U+X75xNIFHdiXZm2w==}
+
+  vscode-languageserver-types@3.18.3:
+    resolution: {integrity: sha512-XIlzJ7Qp/jzSI1ds7/FwPAWrPeTZA7pAtlW4hdJ1J6xXWJL6dR9QYnDhJOdLzdKhUQ5Mm6mvUMw+3DcOQQasPw==}
 
   w3c-xmlserializer@5.0.0:
     resolution: {integrity: sha512-o8qghlI8NZHU1lLPrpi2+Uq7abh4GGPpYANlalzWxyWteJOCsr/P+oPBA49TOLu5FTZO4d3F9MnWJfiMo4BkmA==}
@@ -18031,6 +18053,11 @@ snapshots:
       typescript: 5.7.3
       yaml: 2.9.0
 
+  typescript-language-server@6.0.0:
+    dependencies:
+      vscode-jsonrpc: 5.0.1
+      vscode-languageserver-protocol: 3.18.3
+
   typescript@2.9.2: {}
 
   typescript@5.7.3: {}
@@ -18289,6 +18316,17 @@ snapshots:
       jsdom: 28.1.0(@noble/hashes@1.8.0)(supports-color@8.1.1)
     transitivePeerDependencies:
       - msw
+
+  vscode-jsonrpc@5.0.1: {}
+
+  vscode-jsonrpc@9.0.2: {}
+
+  vscode-languageserver-protocol@3.18.3:
+    dependencies:
+      vscode-jsonrpc: 9.0.2
+      vscode-languageserver-types: 3.18.3
+
+  vscode-languageserver-types@3.18.3: {}
 
   w3c-xmlserializer@5.0.0:
     dependencies:
