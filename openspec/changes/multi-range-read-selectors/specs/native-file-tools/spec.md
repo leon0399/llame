@@ -61,7 +61,7 @@ directory listing requirements and SHALL NOT add context lines.
 
 ## ADDED Requirements
 
-### Requirement: Multi-range reads return exact bounded intervals
+### Requirement: Multi-range reads return context-bounded intervals
 
 A regular-file `read` SHALL accept two or more comma-separated `N-M` or `N+K`
 ranges, or `raw:` followed by two or more comma-separated `N-M` ranges.
@@ -70,29 +70,33 @@ bounds and more than 64 input ranges SHALL fail with `invalid_selector`. Empty
 members, whitespace, or malformed members SHALL fail the whole request under
 existing error precedence: `invalid_selector` for parsed host selectors and
 `invalid_path` for malformed `kb://` locator suffixes.
-The tool SHALL sort ranges by start and merge overlapping or adjacent ranges.
-A comma-separated request SHALL remain exact even if normalization leaves one
-range: no context lines or duplicate source lines SHALL be emitted.
+The tool SHALL sort ranges by start, merge overlapping or adjacent ranges,
+expand each merged interval by one preceding and one following source line
+when available, clip the expansion to the file bounds, and merge expanded
+intervals that overlap or sit adjacent. Raw multi-range requests SHALL NOT
+expand context. A comma-separated request SHALL report plural range fields
+even if normalization and expansion leave one interval.
 Absolute literal-path precedence and scheme-specific authorization SHALL apply
 before reading as for existing selectors. Directory comma selectors SHALL fail
 with `invalid_selector`; ordinary directory selectors SHALL remain unchanged.
 
 Multi-range results SHALL replace singular `requestedRange` and `shownRange`
 with `requestedRanges` and `shownRanges`, arrays of one-based inclusive
-`{startLine, endLine}` intervals. Requested ranges SHALL retain normalized input
-bounds; shown ranges SHALL describe only emitted lines. Content SHALL concatenate
-selected source lines in source order, using existing numbered rendering or
-verbatim raw rendering, without gap markers. `representation`, `path`, and
-`truncated` SHALL retain their existing meanings. On reaching EOF, ends SHALL
-clip to available source and later ranges SHALL emit nothing; EOF alone SHALL
-NOT indicate truncation. A nonempty file whose first requested start exceeds
-EOF SHALL fail with `invalid_selector`. An empty file starting at line 1 SHALL
-return empty content and empty arrays; other starts SHALL fail.
+`{startLine, endLine}` intervals. `requestedRanges` SHALL retain the merged
+pre-expansion request; `shownRanges` SHALL describe only emitted lines,
+including expansion. Content SHALL concatenate selected source lines in source
+order, using existing numbered rendering or verbatim raw rendering, without gap
+markers. `representation`, `path`, and `truncated` SHALL retain their existing
+meanings. On reaching EOF, shown ends SHALL clip to available source and later
+ranges SHALL emit nothing; EOF alone SHALL NOT indicate truncation. A nonempty
+file whose first requested start exceeds EOF SHALL fail with
+`invalid_selector`. An empty file starting at line 1 SHALL return empty content
+and empty arrays; other starts SHALL fail.
 
 The existing serialized-result cap, including metadata and the authority's
 envelope, and shared 2,000-line ceiling SHALL apply once to the entire result.
 If the required metadata cannot fit, the call SHALL fail with `invalid_selector`.
-The tool SHALL return a prefix of normalized ranges, favoring whole ranges:
+The tool SHALL return a prefix of expanded ranges, favoring whole ranges:
 after emitting one complete range, a subsequent range that cannot fit SHALL be
 omitted in full and end the read. If the first range cannot fit, the tool SHALL
 emit the complete source lines from its prefix that fit. An individually
@@ -100,27 +104,35 @@ oversized line SHALL be omitted under the existing forward-progress rule.
 A truncated result's zero-based `nextOffset`, when present, SHALL identify the
 first remaining selected line, skipping gaps and an individually oversized
 line that cannot fit on retry. It SHALL be absent when no selected line remains.
-A caller SHALL resume by trimming `requestedRanges` at `nextOffset + 1`, rather
-than reading a continuous interval through gaps. Single-range result fields and
+A caller SHALL resume by trimming `requestedRanges` at `nextOffset + 1` and
+re-running sort, merge, and expansion on the trimmed request, rather than
+reading a continuous interval through gaps. Context lines MAY reappear across
+retries, as in single-range continuations. Single-range result fields and
 continuation SHALL remain unchanged.
 
-#### Scenario: Unsorted overlapping ranges become one exact interval
+#### Scenario: Touching expansions merge into one block
+
+- **WHEN** a file read requests `:4-5,7-8`
+- **THEN** the expansions 3..6 and 6..9 merge and content contains lines 3 through 9 exactly once
+- **AND** requested ranges remain 4..5 and 7..8
+
+#### Scenario: Unsorted overlapping ranges become one context-bounded block
 
 - **WHEN** a file read requests `:20-30,5-10,10+10`
-- **THEN** it returns lines 5 through 30 exactly once, without lines 4 or 31
-- **AND** requested and shown arrays each contain the interval 5..30 when it fits
+- **THEN** it merges the request to 5..30 and emits lines 4 through 31 exactly once, subject to file bounds
+- **AND** requested ranges contain the interval 5..30 and shown ranges contain 4..31 when they fit
 
-#### Scenario: Disjoint and raw reads preserve selected source
+#### Scenario: Disjoint windows stay separate and raw reads stay verbatim
 
 - **WHEN** a file read requests `:5-10,20-30` or `:raw:5-10,20-30`
-- **THEN** it emits only those two intervals, with two shown ranges
-- **AND** raw content has no generated prefixes or gap markers
+- **THEN** the numbered read emits 4..11 and 19..31 as two shown ranges
+- **AND** raw content has only lines 5..10 and 20..30 verbatim with no generated prefixes, context, or gap markers
 
 #### Scenario: Later range waits for continuation
 
-- **WHEN** `:5-10,20-30` fits the first range but not all of the second
-- **THEN** it emits only lines 5..10, reports truncation and `nextOffset: 19`
-- **AND** an exact numbered retry uses `:20-30,20-30` to preserve comma mode
+- **WHEN** `:5-10,20-30` fits the first expanded range but not all of the second
+- **THEN** it emits only lines 4..11, reports truncation and `nextOffset: 18`
+- **AND** a retry that trims `requestedRanges` at 19 reads `:20-30` with fresh expansion
 
 #### Scenario: First range exceeds the line ceiling
 
@@ -130,15 +142,21 @@ continuation SHALL remain unchanged.
 
 #### Scenario: The line ceiling is shared across ranges
 
-- **WHEN** `:1-1500,3000-4500` targets a sufficiently long file with short lines
-- **THEN** it emits only lines 1..1500 because the second whole range exceeds the remaining 500-line budget
-- **AND** it reports truncation and `nextOffset: 2999`; an exact retry uses `:3000-4500,3000-4500`
+- **WHEN** `:1-1499,3000-4500` targets a sufficiently long file with short lines
+- **THEN** it emits only lines 1..1500 because the second whole expanded range exceeds the remaining 500-line budget
+- **AND** it reports truncation and `nextOffset: 2998`; a retry reads `:3000-4500`
 
 #### Scenario: EOF limits shown ranges only
 
 - **WHEN** a 25-line file is read with `:5-10,20-30,40-50` and output fits
-- **THEN** requested ranges remain 5..10, 20..30, 40..50 and shown ranges are 5..10, 20..25
+- **THEN** requested ranges remain 5..10, 20..30, 40..50 and shown ranges are 4..11 and 19..25
 - **AND** the result is not truncated and has no continuation
+
+#### Scenario: Expansion clips at the first line
+
+- **WHEN** a file read requests `:1-2,5-6`
+- **THEN** the expansions 1..3 and 4..7 merge and content contains lines 1 through 7 exactly once
+- **AND** no line before line 1 is synthesized
 
 #### Scenario: Invalid member rejects the request
 
