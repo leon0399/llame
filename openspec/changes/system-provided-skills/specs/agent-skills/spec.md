@@ -26,7 +26,7 @@ The system SHALL discover immediate skill directories beneath configured operato
 
 ### Requirement: Invocation controls distinguish explicit selection from proactive use
 
-Skills SHALL be eligible for proactive loading by default. `disable-model-invocation: true` or `agents/openai.yaml` `policy.allow_implicit_invocation: false` SHALL make a package manual-only; either disabling value SHALL win. Invalid control types SHALL invalidate the package. Manual-only packages SHALL be absent from proactive model catalog entries and SHALL require explicit selection in the current user turn for skill-locator body/resource reads. Authenticated owner inspection SHALL include manual-only packages. These controls SHALL NOT change ordinary absolute-path permissions or grant tool authority.
+The system SHALL resolve the first present invocation-control value in this order: `agents/llame.yaml` `policy.allow_implicit_invocation`, then `SKILL.md` frontmatter `disable-model-invocation` with inverted boolean meaning, then `agents/openai.yaml` `policy.allow_implicit_invocation`, then proactive loading enabled by default. A configured boolean SHALL end resolution even when it enables proactive loading. Lower-priority invocation settings SHALL NOT be parsed, validated, or allowed to override that value. A sidecar with no control SHALL fall through. A malformed consulted sidecar or wrong-typed consulted control SHALL invalidate the package without fallback. Required `SKILL.md` package metadata SHALL always be parsed and validated independently of invocation-control selection; an ignored lower-priority invocation field SHALL NOT invalidate otherwise valid frontmatter. Manual-only packages SHALL be absent from proactive model catalog entries and SHALL require explicit selection in the current user turn for skill-locator body/resource reads. Authenticated owner inspection SHALL include manual-only packages. These controls SHALL NOT change ordinary absolute-path permissions or grant tool authority.
 
 #### Scenario: Model combines skills
 
@@ -34,10 +34,31 @@ Skills SHALL be eligible for proactive loading by default. `disable-model-invoca
 - **THEN** the model can load both skills and neither activation replaces the other
 - **AND** their unused resources are not eagerly injected
 
-#### Scenario: Either control disables proactive loading
+#### Scenario: llame policy takes precedence over disabling fallbacks
 
-- **WHEN** one supported vendor control disables invocation and the other enables it
-- **THEN** the skill is manual-only and a model-only skill-locator load is refused
+- **WHEN** llame policy sets `allow_implicit_invocation: true`, frontmatter sets `disable-model-invocation: true`, and the OpenAI sidecar is malformed
+- **THEN** proactive invocation is enabled and the ignored fallback controls do not invalidate the package
+
+#### Scenario: Frontmatter takes precedence over the OpenAI sidecar
+
+- **WHEN** no llame control is present and frontmatter sets `disable-model-invocation: false`
+- **THEN** proactive invocation is enabled regardless of a lower OpenAI disabling control
+
+#### Scenario: Absent controls fall through
+
+- **WHEN** neither llame policy nor frontmatter configures an invocation control and OpenAI policy sets `allow_implicit_invocation: false`
+- **THEN** the skill is manual-only
+- **AND** if that final control is also absent proactive invocation is enabled
+
+#### Scenario: Malformed selected control does not fall through
+
+- **WHEN** a consulted llame sidecar is malformed or its invocation control is not boolean
+- **THEN** the package is unavailable even if a lower control is valid
+
+#### Scenario: Required package metadata remains validated
+
+- **WHEN** llame invocation policy is valid but `SKILL.md` has malformed required metadata
+- **THEN** the package remains unavailable
 
 ### Requirement: Explicit mentions load skills before the first model request
 
@@ -83,7 +104,7 @@ Each new skill-locator read SHALL re-evaluate current configured-source availabi
 
 ### Requirement: References and scripts retain ordinary execution authority
 
-Skill loading SHALL publish the selected package's real absolute directory and requested file path in model-visible output and owner-visible results, and SHALL state the base for relative package references. References and scripts SHALL be accessible on demand within the package. Loading SHALL NOT execute scripts, rewrite Bash command text, change Bash working directory, install dependencies, or grant permissions. Scripts SHALL use ordinary available tools and executor checks. Unsupported vendor execution extensions SHALL not execute and SHALL be disclosed as unsupported. Removing a catalog source SHALL NOT delete its files or revoke permitted absolute-path or Bash access to surviving files.
+Skill loading SHALL publish the selected package's real absolute directory and requested file path in model-visible output and owner-visible results, and SHALL instruct the model to resolve package-relative references and script paths against that directory into absolute tool arguments while preserving task-relative inputs and choosing `cwd` explicitly when required. Explicit activation SHALL carry the same instruction. References and scripts SHALL be accessible on demand within the package. Loading SHALL NOT execute scripts, rewrite Bash command text, change Bash working directory, install dependencies, or grant permissions. Scripts SHALL use ordinary available tools and executor checks. Unsupported vendor execution extensions SHALL not execute and SHALL be disclosed as unsupported. Removing a catalog source SHALL NOT delete its files or revoke permitted absolute-path or Bash access to surviving files.
 
 #### Scenario: Relative script invocation becomes a usable command
 

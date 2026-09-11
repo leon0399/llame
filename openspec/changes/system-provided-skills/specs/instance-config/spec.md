@@ -24,3 +24,9 @@ Instance configuration SHALL accept `skills.directories` as an ordered array of 
 
 - **WHEN** a skill source contains `{env:SKILL_ROOT}` or `{path:/run/secrets/value}`
 - **THEN** configuration validation fails before resolving that token, identifies the configuration field, and exposes no resolved value
+
+#### Scenario: Collection root contains the skill directories
+
+- **WHEN** `skills.directories` contains `/opt/skills` and `/opt/skills/pdf/SKILL.md` exists
+- **THEN** the `pdf` package is discovered
+- **AND** the operator does not configure `/opt/skills/pdf` for this layout; a source directory's own `SKILL.md` is not a discovered child package

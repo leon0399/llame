@@ -10,7 +10,7 @@ The proposal layer owns planning artifacts. The catalog layer owns configuration
 ## 2. Catalog layer
 
 - [ ] 2.1 Add `skills.directories` schema/default/path resolution and operator setup documentation; verify empty defaults, explicit home expansion, relative resolution, rejection of secret interpolation before resolution, bounds, and restart behavior with config tests.
-- [ ] 2.2 Implement bounded immediate-child discovery, ordered overrides, format/control validation, and diagnostics; verify malformed winners never reveal a lower-precedence body and unreadable sources cannot produce a partial winning map.
+- [ ] 2.2 Implement bounded immediate-child discovery, ordered overrides, format validation, first-present llame/frontmatter/OpenAI control resolution, and diagnostics; verify collection roots discover child packages, both boolean values stop invocation fallback, ignored malformed fallback sidecars are never parsed, malformed consulted controls fail, and malformed source winners never reveal a lower-precedence body and unreadable sources cannot produce a partial winning map.
 - [ ] 2.3 Add live `skill://` catalog/package/resource reads and read-only dispatch, with model-visible absolute file/package paths; verify root versus trailing-slash forms, range/raw/listing limits, symlink containment, encoded traversal, and special-file refusal.
 - [ ] 2.4 Integrate read eligibility and existing permission checks without enabling host execution or mutation; verify skills-only configuration admits no absolute-path host authority and denied locators never open a file.
 - [ ] 2.5 Add authenticated bounded catalog inspection; verify two owners see the same operator packages, unauthenticated requests fail, and no owner mutation or other-owner data appears.

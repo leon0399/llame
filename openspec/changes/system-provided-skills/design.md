@@ -16,6 +16,23 @@ There is no new script executor, command rewriter, automatic dependency installe
 
 Add `skills.directories: string[]`, default `[]`, to instance configuration. Each entry is a directory containing immediate skill directories, for example `/opt/skills/pdf/SKILL.md`. Do not require individual package enumeration, search ancestors, or implicitly scan the API account's home. Resolve relative entries against the config file directory; expand a leading `~/` against the operator process home only because the operator explicitly configured it. These entries are literal public filesystem paths, not secret-bearing settings: reject `{env:...}` and `{path:...}` interpolation syntax without resolving it. Do not evaluate shell commands or arbitrary variables. This narrow exception follows the separation between public prompt-file inputs and secret interpolation; tilde/config-relative path resolution still applies.
 
+For this package layout:
+
+```text
+/opt/skills/
+  pdf/SKILL.md
+  pdf/scripts/extract.py
+  research/SKILL.md
+```
+
+configure the parent collection directory:
+
+```json
+{ "skills": { "directories": ["/opt/skills"] } }
+```
+
+`/opt/skills/pdf` is the package directory, not the source to configure for this layout. Discovery does not treat a source directory's own `SKILL.md` as a package.
+
 Later configured directories override earlier directories. A package directory's name is its identity and must agree with frontmatter `name`. Reject duplicate YAML keys and malformed metadata. An invalid winning package masks the same name from earlier sources, with an operator diagnostic, rather than silently substituting instructions. Other valid packages survive. An unreadable source makes catalog discovery unavailable rather than pretending its overrides do not exist. Missing configured sources produce the same diagnostic; the application may continue serving other capabilities.
 
 Scan one level, with fixed bounds of 32 configured sources and 10,000 child entries per source. Exceeding a source bound makes discovery unavailable; never resolve precedence from a partial scan. Follow an explicitly configured root symlink to its real directory. A child package symlink is admissible only when its real target is within an explicitly configured real source root. Resource links must remain within the selected real package directory. These rules support deliberate operator placement without admitting arbitrary neighboring files.
@@ -26,7 +43,16 @@ Directory configuration uses existing process-start config loading. Editing pack
 
 Use Agent Skills frontmatter `name`, `description`, optional `license`, `compatibility`, and `metadata`, plus instructions and supporting files. Enforce the published name rules and 1,024-character description bound. Use the repository's existing YAML dependency where available; do not write a YAML parser. Unknown extension fields are inert and preserved in the loaded file, not interpreted as runtime controls.
 
-Recognize `disable-model-invocation: true` and `agents/openai.yaml` `policy.allow_implicit_invocation: false` as manual-only. Either disabling value wins when both are present. Wrong types or malformed invocation metadata invalidate the package. Default is proactive eligibility. `allowed-tools`, hooks, `context: fork`, model settings, command substitutions, and installation metadata cannot change llame authority or execute during loading. Unsupported executable extensions are reported as unsupported in load metadata, with no claimed vendor-runtime compatibility.
+Invocation controls are client extensions, not fields of the core Agent Skills specification. Resolve the first present control value in this order:
+
+1. `agents/llame.yaml`: `policy.allow_implicit_invocation`.
+2. `SKILL.md` frontmatter: `disable-model-invocation` (invert its boolean value).
+3. `agents/openai.yaml`: `policy.allow_implicit_invocation`.
+4. Default: proactive invocation enabled.
+
+A configured boolean, including `true` or `false`, ends resolution; lower-priority controls cannot override it and their invocation settings are not parsed or validated. A sidecar with no control falls through. Parse `SKILL.md` for required package metadata regardless of which control wins, but ignore its lower-priority invocation field when llame policy is present. A malformed consulted sidecar or wrong-typed consulted control invalidates the package rather than falling through. An ignored lower sidecar, even if malformed, cannot invalidate the package. Changes only to ignored fallback settings do not change effective invocation eligibility.
+
+For example, `agents/llame.yaml` with `policy: { allow_implicit_invocation: true }` permits proactive loading even when `SKILL.md` contains `disable-model-invocation: true`. Remove the llame control to let the frontmatter take effect. `allowed-tools`, hooks, `context: fork`, model settings, command substitutions, and installation metadata cannot change llame authority or execute during loading. Unsupported executable extensions are reported as unsupported in load metadata, with no claimed vendor-runtime compatibility.
 
 Manual-only skills stay visible in the owner catalog but are omitted from proactive model metadata. A `skill://` body/resource read for one requires an exact explicit selection in the current user turn. This is an invocation control, not a filesystem security boundary: ordinary permitted absolute-path reads remain governed by their own contract.
 
@@ -46,7 +72,7 @@ No watcher is required: rescan at user-turn preparation and at skill invocation.
 
 `read("skill://pdf")` addresses `SKILL.md`; `read("skill://pdf/references/formats.md")` addresses a resource. `skill://pdf/` lists its package directory; `skill://` lists catalog metadata. Use the Knowledge locator's segment decoding and validation conventions, with a skill name instead of Space ID. Root/catalog forms have their own explicit grammar. Native range, raw, directory, and truncation conventions remain applicable. `edit` and `write` reject this scheme without side effects.
 
-On every package read, resolve the current winning package and validate the target before opening. Read the requested file once and derive observed content metadata from those bytes. Results carry the logical locator, selected source, absolute `resolvedPath`, and absolute `skillDirectory`. Both paths must reach the model-facing output and owner view, not only internal tool metadata. The model-system-prompts delta explicitly permits these published skill paths in receipts while retaining every private-configuration exclusion. The header states that relative package references resolve against `skillDirectory`. Add a skill-specific native result envelope at the skill dispatch branch in `native-files.ts`; reserve its serialized size before truncating file content, as the Knowledge branch reserves its own envelope. If the envelope alone cannot fit, return a bounded error rather than lose the script base. Do not add these paths to the shared Knowledge envelope. These paths are intentionally public for all configured skill packages; no second publication-path setting is required. Existing Knowledge results keep their private backing paths hidden.
+On every package read, resolve the current winning package and validate the target before opening. Read the requested file once and derive observed content metadata from those bytes. Results carry the logical locator, selected source, absolute `resolvedPath`, and absolute `skillDirectory`. Both paths must reach the model-facing output and owner view, not only internal tool metadata. The model-system-prompts delta explicitly permits these published skill paths in receipts while retaining every private-configuration exclusion. The model-visible result header instructs the agent: "Resolve package-relative references and script paths against skillDirectory and use the resulting absolute paths in tool calls. Preserve task-relative input arguments; choose cwd explicitly when the script requires it." Explicit activation carries the same guidance. This is instruction text in the result, not Bash rewriting or a separate injected reminder. Add a skill-specific native result envelope at the skill dispatch branch in `native-files.ts`; reserve its serialized size before truncating file content, as the Knowledge branch reserves its own envelope. If the envelope alone cannot fit, return a bounded error rather than lose the script base. Do not add these paths to the shared Knowledge envelope. These paths are intentionally public for all configured skill packages; no second publication-path setting is required. Existing Knowledge results keep their private backing paths hidden.
 
 The loader does not interpolate shell text or execute a script. For a skill saying `./scripts/extract.py <input>`, the model can submit:
 
@@ -85,7 +111,7 @@ Removing a configured source after restart or deleting a package prevents new sk
 
 - R1: Trusted packages can disclose secrets placed inside them. Operator procedures must treat every published package as shared; existing credential protection remains mandatory.
 - R2: Files can change between instruction reads and script execution. Live behavior is intentional; receipts record observations, not immutable executable packages.
-- R3: Manual-only metadata can conflict across vendors. A disabling flag wins; unsupported execution extensions do not acquire semantics accidentally.
+- R3: Manual-only metadata can conflict across vendors. The first configured control wins in llame/frontmatter/OpenAI order; unsupported execution extensions do not acquire semantics accidentally.
 - R4: Polling adds directory I/O. Bound discovery and catalog output; do not introduce watchers or a cache that weakens invocation-time removal checks.
 - R5: Old bodies may remain in history after an update. Next-user-turn reminders tell the model to reload; deleting past context or steering an active Run is outside scope.
 
@@ -108,6 +134,7 @@ Observed 2026-09-11. Primary-source inspection; upstream tests were read, not ex
 
 ## Revision history
 
+- v4 (2026-09-11): Applied Plannotator decisions: explicit collection-root example, first-present llame/frontmatter/OpenAI invocation precedence, and model-visible relative-path instructions.
 - v3 (2026-09-11): Clarified existing user-text sanitation, framed catalog data inside the frozen prompt baseline, excluded secret interpolation from intentionally public source paths, and made metadata-only catalog notices explicit.
 - v2 (2026-09-11): Clarified per-item framing, delimiter handling, receipt path publication, persisted baseline state, explicit-activation admission/recovery, skill-only result/candidate branches, and next-user-turn rebaseline after transition compaction following two independent reviews.
 - v1 (2026-09-11): Initial proposal from the completed grilling decisions.
