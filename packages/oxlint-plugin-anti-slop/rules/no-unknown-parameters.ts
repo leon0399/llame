@@ -2,28 +2,10 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
 
 import {
-  parameterAnnotation,
+  functionParameterBindingName,
+  functionParameterTypeAnnotation,
   type FunctionLikeNode,
-  type FunctionParameter,
-} from "../shared/function-like.ts";
-
-function parameterName(
-  parameter: FunctionParameter,
-  sourceText: string,
-): string {
-  if (parameter.type === "TSParameterProperty") {
-    return parameterName(parameter.parameter, sourceText);
-  }
-  if (parameter.type === "AssignmentPattern") {
-    return parameterName(parameter.left, sourceText);
-  }
-  if (parameter.type === "RestElement") {
-    return parameterName(parameter.argument, sourceText);
-  }
-  return parameter.type === "Identifier"
-    ? parameter.name
-    : sourceText.replace(/\s*:\s*unknown\s*$/u, "");
-}
+} from "../shared/function-parameters.ts";
 
 /**
  * Local correctness patch (see UPSTREAM.md): a type predicate's subject
@@ -346,11 +328,11 @@ export const noUnknownParametersRule = defineRule({
         option.allowErrorFamilyNames === true;
       const guardedName = predicateSubjectName(node);
       for (const parameter of node.params) {
-        const annotation = parameterAnnotation(parameter);
+        const annotation = functionParameterTypeAnnotation(parameter);
         if (annotation?.typeAnnotation.type !== "TSUnknownKeyword") continue;
-        const name = parameterName(
+        const name = functionParameterBindingName(
           parameter,
-          context.sourceCode.getText(parameter),
+          context.sourceCode,
         );
         if (name === "cause") continue;
         if (name === guardedName) continue;

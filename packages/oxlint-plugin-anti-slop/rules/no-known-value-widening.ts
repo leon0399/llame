@@ -7,7 +7,7 @@ import {
   type TypeEnvironment,
   type WideningTarget,
 } from "../shared/dictionary-types.ts";
-import { resolveVariable } from "../shared/resolve-variable.ts";
+import { resolveVariable } from "../shared/scope.ts";
 
 import type { ESTree, SourceCode, Variable } from "@oxlint/plugins";
 
@@ -185,7 +185,10 @@ export const noKnownValueWideningRule = defineRule({
 
     return {
       Program(node) {
-        environment = createTypeEnvironment(node);
+        environment = createTypeEnvironment(
+          node,
+          context.sourceCode.visitorKeys,
+        );
       },
       VariableDeclarator(node) {
         if (node.init === null || node.id.type !== "Identifier") return;

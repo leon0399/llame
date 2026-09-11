@@ -1,22 +1,13 @@
 import { defineRule } from "@oxlint/plugins";
 
-import type { ESTree, SourceCode } from "@oxlint/plugins";
+import type { ESTree } from "@oxlint/plugins";
 
 import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
 import {
-  parameterAnnotation,
+  functionParameterBindingName,
+  functionParameterTypeAnnotation,
   type FunctionLikeNode,
-  type FunctionParameter,
-} from "../shared/function-like.ts";
-
-function parameterName(
-  parameter: FunctionParameter,
-  sourceCode: SourceCode,
-): string {
-  return parameter.type === "Identifier"
-    ? parameter.name
-    : sourceCode.getText(parameter).replace(/\s*:\s*object\s*$/u, "");
-}
+} from "../shared/function-parameters.ts";
 
 /** Ban the broad object type on function inputs, including local aliases to object. */
 export const noObjectParametersRule = defineRule({
@@ -71,14 +62,19 @@ export const noObjectParametersRule = defineRule({
         context.sourceCode.visitorKeys,
       );
       for (const parameter of node.params) {
-        const annotation = parameterAnnotation(parameter);
+        const annotation = functionParameterTypeAnnotation(parameter);
         if (annotation === null || annotation === undefined) continue;
         if (!resolvesToObject(annotation.typeAnnotation, shadowedAliases))
           continue;
         context.report({
           node: annotation.typeAnnotation,
           messageId: "objectParameter",
-          data: { parameter: parameterName(parameter, context.sourceCode) },
+          data: {
+            parameter: functionParameterBindingName(
+              parameter,
+              context.sourceCode,
+            ),
+          },
         });
       }
     };

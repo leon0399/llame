@@ -3,7 +3,7 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
 
 import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
-import { type FunctionLikeNode } from "../shared/function-like.ts";
+import { type FunctionLikeNode } from "../shared/function-parameters.ts";
 
 function referencedAliasName(type: ESTree.TSType): string | null {
   if (type.type === "TSParenthesizedType")
