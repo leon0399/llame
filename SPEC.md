@@ -70,7 +70,7 @@ Current roles are `owner`, `admin`, `maintainer`, `member`, `viewer`, `guest`, a
 
 ### 7.5 Approvals
 
-No general approval workflow or per-tool allow/ask/deny policy ships. Authentication, RLS, tool classification, and the static `tools.allowed` gate remain mandatory.
+Operator allow/reject tool-call permissions ship: a startup-loaded `tools.permissions` policy is evaluated at the shared execution gate and a rejection is a non-fatal `permission_denied` observation. An interactive approval workflow does not ship (#778). Authentication, RLS, tool classification, the static `tools.allowed` availability gate, and native effect fencing remain mandatory.
 
 ## 9. Chats and durable Runs
 

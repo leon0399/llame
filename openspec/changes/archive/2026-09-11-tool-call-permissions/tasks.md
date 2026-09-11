@@ -27,6 +27,6 @@ Use `$gh-stack` for every stack operation and `$openspec-apply-change` for imple
 
 ## 3. Finalize layer: tool-call-permissions/finalize
 
-- [ ] 3.1 After every implementation task and published-layer review is complete, create the finalize layer and use `$openspec-sync-specs`; verify all capability deltas and update SPEC.md's obsolete no-permission statement plus the tool-calling Purpose without changing implementation.
-- [ ] 3.2 Verify all artifact/task completion, use `$openspec-archive-change`, preserve checked task history, and run strict `--specs` and `--all` OpenSpec validation, Markdown, formatting, and diff checks; verify no placeholder Purpose or stale #763 scope remains.
+- [x] 3.1 After every implementation task and published-layer review is complete, create the finalize layer and use `$openspec-sync-specs`; verify all capability deltas and update SPEC.md's obsolete no-permission statement plus the tool-calling Purpose without changing implementation.
+- [x] 3.2 Verify all artifact/task completion, use `$openspec-archive-change`, preserve checked task history, and run strict `--specs` and `--all` OpenSpec validation, Markdown, formatting, and diff checks; verify no placeholder Purpose or stale #763 scope remains.
 - [ ] 3.3 Publish the finalize layer with authorization and complete its independent CI/review closeout; read back Project state from published PR evidence, keep #778's remaining outcome separate, and merge only with Leo's explicit permission.

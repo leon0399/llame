@@ -6,8 +6,9 @@ The durable tool loop interleaves model output with operator-allowlisted read-on
 tools and the exact configured native file capability. Datastore operations stay
 owner-scoped under RLS; native file operations use explicitly accepted host OS
 authority. Tool activity persists for replay. Native mutations have durable
-pre-effect fencing and an unknown outcome stops the Run. General permission
-policy and write-capable MCP tools remain separate work.
+pre-effect fencing and an unknown outcome stops the Run. A startup-loaded
+operator allow/reject permission policy gates each invocation; an interactive
+approval workflow and write-capable MCP tools remain separate work.
 
 ## Requirements
 
@@ -65,7 +66,7 @@ Every registered tool SHALL declare a safety classification from the SPEC §13.5
 set (`read_only`, `write_low_risk`, `write_high_risk`, `execute_code`,
 `external_send`, `financial_or_sensitive`, `admin`). The loop SHALL execute
 allowlisted `read_only` tools and exact code-owned tools registered by an
-approved alpha-native capability. The initial native set is `read` classified
+approved alpha-native capability only when the executing process's call-permission policy also allows the invocation. The initial native set is `read` classified
 `read_only`, plus `edit` and `write` classified `write_low_risk`; later native
 capabilities such as Knowledge submit or bash must declare their own exact tools
 and retry policy. Classification alone SHALL NOT admit any other write or
@@ -85,19 +86,20 @@ grant authority across source kinds.
 
 #### Scenario: Read-only tool executes
 
-- **WHEN** an allowlisted tool classified `read_only` is called
+- **WHEN** an allowlisted tool classified `read_only` is called and its invocation passes the execution permission policy
 - **THEN** it executes
 
 #### Scenario: Alpha native file tool executes only in its host capability
 
-- **WHEN** an exact code-owned native tool is allowlisted and its trusted alpha native capability is present
+- **WHEN** an exact code-owned native tool is allowlisted, its trusted alpha native capability is present, and the invocation passes execution permission checks
 - **THEN** it executes with the native host authority declared by that capability
 - **AND** it is not substituted with a hosted path or remote MCP operation
 
 #### Scenario: Native tools are admitted by Knowledge root alone
 
 - **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `read`, `edit`, and `write`
-- **THEN** the three tools are advertised and executable for `kb://` locators
+- **THEN** the three tools are advertised for `kb://` locators
+- **AND** each call executes only when its `tools.permissions` policy allows it; without a matching allow the call receives `permission_denied`
 - **AND** an absolute path fails closed with `executor_unavailable`
 
 #### Scenario: Knowledge root does not admit bash
@@ -133,7 +135,7 @@ Tool eligibility SHALL be governed by the operator allowlist in `llame.config.js
 
 Exact and namespace MCP entries SHALL grant eligibility only to exact identities learned from safely admitted declarations for that server. When a live process loses the server transport, the last completely admitted identity set SHALL remain source inventory in an unavailable state; when complete discovery succeeds, its newly admitted identity set SHALL replace the prior set authoritatively. Neither permission form SHALL fabricate identities before first successful discovery or expose refused declarations. An eligible dynamic tool SHALL become advertisable or executable only while the source supplies a currently admitted declaration for that exact id under the operator's read-only attestation.
 
-The restart-applied allowlist decision SHALL be bound into the immutable Run snapshot as filtered exact ids and exact declarations when a turn is accepted; wildcard patterns SHALL NOT enter provider requests, manifests, receipts, persistence, or execution binding. Removing an exact entry or namespace wildcard from later instance configuration SHALL affect newly accepted Runs but SHALL NOT retroactively rebind an already accepted Run or its queue retries. Immediate live revocation is outside this capability and requires the future permission-policy system; this bound authorization is permitted here only because every admitted remote tool is operator-attested read-only. Write-capable MCP tools remain prohibited even when they claim idempotence; durable side-effect checkpointing and permission policy are separate follow-ups.
+The restart-applied allowlist decision SHALL be bound into the immutable Run snapshot as filtered exact ids and exact declarations when a turn is accepted; wildcard patterns SHALL NOT enter provider requests, manifests, receipts, persistence, or execution binding. Removing an exact entry or namespace wildcard from later instance configuration SHALL affect newly accepted Runs but SHALL NOT retroactively rebind an already accepted Run or its queue retries. This snapshot binds availability, not a permanent exemption from execution permission checks. The executing process SHALL additionally apply its startup-loaded `tools.permissions` policy to each new invocation, including calls from older Runs. Hot policy reload remains outside this capability; operator changes require a restart. Remote tools remain restricted to operator-attested read-only operations. Write-capable MCP tools remain prohibited even when they claim idempotence; durable side-effect checkpointing and permission policy are separate follow-ups.
 
 #### Scenario: Default is no tools
 
@@ -191,7 +193,7 @@ The restart-applied allowlist decision SHALL be bound into the immutable Run sna
 #### Scenario: Later allowlist removal does not rebind an accepted Run
 
 - **WHEN** an exact entry or matching namespace wildcard is removed from restart-applied configuration after a Run accepted and snapshotted the filtered exact tool
-- **THEN** that Run and its retries retain the bound authorization and declaration
+- **THEN** that Run and its retries retain the bound availability and declaration, subject to the executing process's call-permission policy
 - **AND** newly accepted Runs no longer advertise or execute the removed permission's unmatched tools
 
 #### Scenario: Queue retry may repeat only a remote read
@@ -199,6 +201,12 @@ The restart-applied allowlist decision SHALL be bound into the immutable Run sna
 - **WHEN** a queue retry restarts a Run before a prior MCP call result was durably settled
 - **THEN** the operator-attested read-only call may execute again
 - **AND** no write-capable MCP operation is eligible under this capability
+
+#### Scenario: Permission reject does not hide a tool
+
+- **WHEN** a tool remains admitted by `tools.allowed` and its execution permission group rejects every call
+- **THEN** permission evaluation does not remove it from the immutable catalog or availability manifest
+- **AND** attempted calls receive a non-fatal `permission_denied` observation
 
 ### Requirement: Tenant-scoped tool execution
 
@@ -251,6 +259,8 @@ MCP tools MAY perform reads outside llame only through the `mcp-tools` capabilit
 
 Tool calls and results SHALL persist as structured parts on the assistant message and stream as run events, with the same durability and replay guarantees as text/reasoning: a client that reconnects or refreshes mid-tool-execution SHALL reconstruct the full tool activity from the event stream/persisted parts. When a run hits the step cap, a structured **cap-marker part** SHALL persist on the assistant message alongside the call/result parts (history loads message parts, not run events — the cap notice must be reconstructable from persistence alone). Public chat sharing SHALL NOT expose tool parts (the existing text-only egress allowlist already excludes them — this requirement pins that it stays true for the new parts).
 
+A newly evaluated call SHALL persist the safe permission-decision metadata defined by `tool-call-permissions` in owner-scoped tool activity and stored tool-part metadata. This metadata SHALL remain outside model replay, public shares, exports, and search; adding it SHALL NOT change the stored tool observation or its ordering. A rejected call SHALL NOT report that an executor started. Required decision-persistence failure SHALL prevent execution rather than allowing an unaudited side effect.
+
 #### Scenario: Tool activity survives refresh
 
 - **WHEN** the user refreshes mid-run while a tool is executing
@@ -265,6 +275,13 @@ Tool calls and results SHALL persist as structured parts on the assistant messag
 
 - **WHEN** a chat containing tool calls/results is shared publicly
 - **THEN** the public payload contains no tool parts
+
+#### Scenario: History preserves a decision without exposing policy content
+
+- **WHEN** the owner reopens a Chat containing a permission-evaluated call after transient Run events have been removed
+- **THEN** its stored tool part retains the policy identity and safe decision metadata
+- **AND** model history contains only the ordinary call/result observation without that metadata
+- **AND** no matched pattern, input fragment, or resolved secret is added to the decision metadata
 
 ### Requirement: Tool failure is an observation, not a crash
 
@@ -346,6 +363,13 @@ A code-owned tool whose trusted executor is missing or incompatible, or whose li
 
 - **WHEN** a structured error result is produced
 - **THEN** it is recorded unchanged regardless of length
+
+#### Scenario: Permission rejection is a non-fatal tool observation
+
+- **WHEN** the execution policy rejects an otherwise valid available tool call
+- **THEN** no tool executor or native effect attempt starts
+- **AND** the model receives `permission_denied` and may continue within existing Run limits
+- **AND** the system neither retries the rejected call automatically nor requests approval
 
 ### Requirement: Tool availability is source-neutral and bound per Run
 
