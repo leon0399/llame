@@ -2,6 +2,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-11
 
+- Read disjoint file passages in one bounded `read` with comma-separated ranges such as `:4-5,7-8` (#705): ranges sort, merge, grow one context line per side, and merge again when the grown windows touch; results report `requestedRanges` and `shownRanges` with `nextOffset` continuation by trimming `requestedRanges`. Raw multi-range reads stay verbatim without context; directory comma selectors fail with `invalid_selector`.
+
 - Add operator `tools.permissions` allow/reject rules evaluated at the shared
   tool-execution gate: a matching reject vetoes every allow, otherwise a
   whole-tool or field allow grants, otherwise the call is rejected as a

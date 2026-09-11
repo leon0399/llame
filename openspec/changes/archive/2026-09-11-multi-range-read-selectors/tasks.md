@@ -24,5 +24,5 @@ Its merge enables the complete feature; this layer uses `Closes #705`.
 `multi-range-read-selectors/finalize` owns canonical spec synchronization,
 archive, and delivery closeout; it references #705 without a closing keyword.
 
-- [ ] 3.1 Sync the native-file-tools delta, reconciling any newly merged requirements without overwriting them; verify strict OpenSpec validation and the canonical diff.
-- [ ] 3.2 Archive the completed change and update shipped documentation; verify archive checks, Markdown lint, and format checks.
+- [x] 3.1 Sync the native-file-tools delta, reconciling any newly merged requirements without overwriting them; verify strict OpenSpec validation and the canonical diff.
+- [x] 3.2 Archive the completed change and update shipped documentation; verify archive checks, Markdown lint, and format checks.
