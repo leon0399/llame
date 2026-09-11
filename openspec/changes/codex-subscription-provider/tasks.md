@@ -22,7 +22,7 @@ This slice serves #753 and the OpenAI part of #752. No layer owns closing either
 - [x] 2.9 [provider] Run the bounded real personal-account proof with one explicitly configured supported model: streaming, authorized tool continuation, cancellation, compaction, and failure followed by operator re-login/restart/manual retry. Record versions, model, outcomes, entitlement/limit observations, and title support without secrets; synthetic fixtures cover quota/revocation cases unavailable live. Stop for proposal revision if required behavior cannot be met.
 - [x] 2.10 [provider] Document file-backed `codex login`, credential references, stable-file startup, stop/re-login/restart, disconnect/revocation limits, manual catalog, unknown pricing, and rollback. Record automatic discovery and deferred per-user/Claude acceptance as follow-ups; verify examples against the published schema and keep #752/#753 open unless their scope is explicitly reconciled.
 - [x] 2.11 [provider] Run affected API lint, typecheck, coverage, integration and build checks plus focused product E2E, Markdown lint, formatting, and diff checks per `CONTRIBUTING.md`; record actual evidence and add the shipped changelog entry, updating only the completed roadmap slice.
-- [ ] 2.12 [provider] Publish the authorized provider layer and complete self-review, CI, and automated-review monitoring per `CONTRIBUTING.md`; verify terminal checks and resolved actionable feedback before creating finalize.
+- [x] 2.12 [provider] Publish the authorized provider layer and complete self-review, CI, and automated-review monitoring per `CONTRIBUTING.md`; verify terminal checks and resolved actionable feedback before creating finalize.
 
 ## 3. Finalize layer
 
