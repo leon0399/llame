@@ -1,0 +1,126 @@
+openspec/changes/tool-call-permissions/tasks.md
+  220497f4ac57f317 10,14,17,18,19,20,21,23,26-27
+apps/api/src/tools/permissions/evaluator.ts
+  220497f4ac57f317 1-15,16,17-29,30-35,36-60,61-62,63-73,75-77,78-80,82-83,85-94,95-102,104-106,108-122,123,124,125-127,128,129-135,136-137,138-142,143-163,164-166,168-173,174-184,185,186-189,190-192,193-194,195,196-201,202-210,212,215,216-218,219,220-221,222-243,244-245,246,247-250,251,252-255
+apps/api/src/tools/permissions/limits.ts
+  220497f4ac57f317 1-30
+apps/api/src/tools/permissions/value-selection.ts
+  220497f4ac57f317 1-82,84-93,96-114
+apps/api/src/tools/permissions/compile-permissions.ts
+  220497f4ac57f317 1-94,95,96-100,101,102-104,105,106-112,113,114-140
+apps/api/src/tools/permissions/permissions.test.ts
+  220497f4ac57f317 1-4,5,6,8,11-14,15-18,19-25,27-103,106-130,133-169,171-193,195-202,204-211,213-216,217-218,220-244,245-257,258-282,287-295,298-307,308,309,311-321,323-332,333-338,340,341-352,353,354-358,360-365,367-372,374-380,382-386,388-395,397-400,402-404,406
+apps/api/src/testing/portable-tool-policy.ts
+  220497f4ac57f317 1-2,4-16,5-6,12,14-16,18-60,18-71,62-70,73
+apps/api/src/tools/permissions/matcher.ts
+  220497f4ac57f317 1-55,57-78
+apps/api/src/knowledge/knowledge-locator.ts
+  220497f4ac57f317 82-101
+apps/api/src/tools/permissions/locator-projection.test.ts
+  220497f4ac57f317 1-78,81-86,88-105
+apps/api/src/tools/permissions/locator-projection.ts
+  220497f4ac57f317 1-41
+apps/api/src/tools/permissions/permission-policy.module.ts
+  220497f4ac57f317 1,2-4,5-8,9-25,26-30,31,32,33-37
+apps/api/llame.config.json.example
+  220497f4ac57f317 271-279,280-289,291-382
+apps/api/src/instance-config/llame-config.ts
+  220497f4ac57f317 11,310,311-314,315-317,392
+apps/api/src/instance-config/tool-permissions-config.test.ts
+  220497f4ac57f317 1,2-4,5-6,7-8,9,10,11,12,13-41,42-43,44-45,46,47-49,50,51-55,56-59,60-61,62,66-67,68,70-71,72-76,78-79,81-86,88-95,98-102,105-111,113-121,123-139,144,160,164,167,174,200
+apps/api/src/chats/run-execution-tools.integration.test.ts
+  220497f4ac57f317 77,442,460-463
+apps/api/src/instance-config/llame.config.schema.json
+  220497f4ac57f317 32-69,482-483,484,485-487
+apps/api/src/instance-config/config-loader.test.ts
+  220497f4ac57f317 447
+apps/api/src/instance-config/config-loader.ts
+  220497f4ac57f317 35-40,181-184,185-187,193-209,682-688,689-693,694,696-699,700-701,702-794,796-832
+apps/api/src/tools/permissions/policy-provider.ts
+  220497f4ac57f317 1-2,3-4,4-7,8,9-15,16-24,26-38,39-43,44-55,56,57-78
+apps/api/src/core-infra.module.ts
+  220497f4ac57f317 9,49
+apps/api/src/tools/permissions/policy-provider.test.ts
+  220497f4ac57f317 1-4,5,6-18,21-27,30-34,37-81,83-91
+apps/api/src/tools/permissions/messages.ts
+  220497f4ac57f317 1-2,3,4-24,25-47
+apps/api/src/tools/types.ts
+  220497f4ac57f317 11,77-82
+apps/api/src/tools/permissions/declared-fields.ts
+  220497f4ac57f317 3,6-8,9-12,13-16,17,18,19-21,23-35,39-40,42-43,44,45,46-48,49-71,72
+apps/api/src/runs/run-execution.service.ts
+  220497f4ac57f317 64,65,179-183,185-192,194-195,239-240,561,585,589-592,599-608,610-611,616-617,627,635,637,642-644,646,649-652,707,713,715-723,728,731,732,881-884,1512,1531,1536-1539,1541,1544-1547
+apps/api/src/tools/bash.test.ts
+  220497f4ac57f317 24,38,459
+apps/api/src/knowledge/knowledge-tools.integration.test.ts
+  220497f4ac57f317 24,86
+apps/api/src/tools/runner.test.ts
+  220497f4ac57f317 11-13,24,458-464,475,484,502,511,513-515
+apps/api/src/tools/native-files.test.ts
+  220497f4ac57f317 26,32,167
+apps/api/src/knowledge/knowledge-tools.test.ts
+  220497f4ac57f317 24,65,104
+apps/api/src/mcp/mcp-operator.integration.test.ts
+  220497f4ac57f317 285
+apps/api/src/testing/tool-permission-policy.ts
+  220497f4ac57f317 1-32
+apps/api/src/tools/native-files.integration.test.ts
+  220497f4ac57f317 24,91,640
+apps/api/src/chats/reasoning-loop.integration.test.ts
+  220497f4ac57f317 190
+apps/api/src/tools/runner.ts
+  220497f4ac57f317 13,14,15-18,127-133,134-140,141-142,143-144,146-168,182-186,188,193-200,201-211,212-222,227,242,245
+apps/api/src/compaction/compaction-context.integration.test.ts
+  220497f4ac57f317 946
+apps/api/src/runs/assistant-transcript.ts
+  220497f4ac57f317 25-26,27,28-29,60-64,162-166,168-169,175,177-178,200-202,224,226-239,240-245,246-262,264-269,270-276,278-279,280,347-348,378,380-384
+apps/api/src/runs/assistant-transcript.test.ts
+  220497f4ac57f317 112-117,143-148,233-237,239-283
+apps/api/src/chats/tool-observation-part.behavior.test.ts
+  220497f4ac57f317 137-157
+apps/api/src/runs/run-execution.service.test.ts
+  220497f4ac57f317 3-4,185-187,233,985-990,992-994,1121,1175,1333,1346,1458,1469,1498,1506-1511,1513-1515,1517-1546,1548-1563,1565-1573,1769,1788,1835,1972,1985,3135
+e2e/support/fixtures/llame.config.e2e.json
+  220497f4ac57f317 86-87,88,89-103
+e2e/support/model-server.ts
+  220497f4ac57f317 124-136,534-535,536,583-585,937-980,1071-1074
+e2e/web/chat/permission-gate.spec.ts
+  220497f4ac57f317 1-62
+CHANGELOG.md
+  220497f4ac57f317 5-7,8-11,15
+docs/tool-call-permissions.md
+  220497f4ac57f317 1-10,11-15,16-91,93-104,105,107-108,111,130-132,134,135-167
+openspec/changes/tool-call-permissions/proposal.md
+  220497f4ac57f317 13-14
+openspec/changes/tool-call-permissions/design.md
+  220497f4ac57f317 19,124,126,128,130,149,284-285,286-287
+openspec/changes/tool-call-permissions/specs/instance-config/spec.md
+  220497f4ac57f317 53-59,61,65-66
+openspec/changes/tool-call-permissions/specs/tool-call-permissions/spec.md
+  220497f4ac57f317 7,9,244,246,248,280,282,285-286,288,291,296
+apps/api/src/tools/permissions/bash-command-field.ts
+  220497f4ac57f317 1-12
+apps/api/src/tools/permissions/types.ts
+  220497f4ac57f317 41-46,54-62,64-71,73
+apps/api/src/runs/worker-harness.ts
+  220497f4ac57f317 40-41,78-87,94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "3650a4799a17c29dec404870d56ebd270cde2d36",
+  "prompts": {
+    "220497f4ac57f317": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f6f455fb3ffexkgcZ2ivxFtlGF",
+        "model": "opencode-go/deepseek-v4.1-flash"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
