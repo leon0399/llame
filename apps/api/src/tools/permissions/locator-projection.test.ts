@@ -35,6 +35,15 @@ describe('projectNativeFilePath', () => {
     );
   });
 
+  it('excludes comma read selectors from the resource identity', () => {
+    expect(projectNativeFilePath('kb://Space/notes/a:10-20,30-40')).toBe(
+      'kb://Space/notes/a',
+    );
+    expect(projectNativeFilePath('kb://Space/notes/a:raw:10-20,30-40')).toBe(
+      'kb://Space/notes/a',
+    );
+  });
+
   it('canonically encodes an equivalent spelling', () => {
     expect(projectNativeFilePath('kb://Space/a b')).toBe('kb://Space/a%20b');
     expect(projectNativeFilePath('kb://Space/a%20b')).toBe('kb://Space/a%20b');

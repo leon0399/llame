@@ -17,7 +17,7 @@ import {
   MAX_RESULT_CODE_UNITS,
   splitSourceLines,
 } from "./read";
-import type { ReadSuccess } from "./source-lines";
+import type { MultiReadSuccess, SingleReadSuccess } from "./source-lines";
 import { measureNativeModelOutput } from "./serialization";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -27,13 +27,25 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 function assertFileSuccess(
   result: Awaited<ReturnType<typeof readFile>>,
-): asserts result is ReadSuccess {
+): asserts result is SingleReadSuccess {
   if (
     result.status !== "success" ||
     !("kind" in result) ||
     result.kind !== "file"
   )
     throw new Error("Expected file success result");
+}
+
+function assertMultiFileSuccess(
+  result: Awaited<ReturnType<typeof readFile>>,
+): asserts result is MultiReadSuccess {
+  if (
+    result.status !== "success" ||
+    !("kind" in result) ||
+    result.kind !== "file" ||
+    !("requestedRanges" in result)
+  )
+    throw new Error("Expected multi-range file success result");
 }
 
 describe("native source reads", () => {
@@ -325,6 +337,380 @@ describe("native source reads", () => {
       requestedRange: { startLine: 1, endLine: 10 },
       shownRange: { startLine: 1, endLine: 1 },
       truncated: false,
+    });
+  });
+
+  describe("multi-range reads", () => {
+    const numbered = (count: number, fill = ""): string =>
+      Array.from({ length: count }, (_, i) => `line ${i + 1}${fill}\n`).join(
+        "",
+      );
+
+    it("merges touching expansions into one block", async () => {
+      await writeFile(path, numbered(12));
+      const result = await readFile({ path: `${path}:4-5,7-8` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 4, endLine: 5 },
+          { startLine: 7, endLine: 8 },
+        ],
+        shownRanges: [{ startLine: 3, endLine: 9 }],
+        truncated: false,
+      });
+      expect(result.content).toBe(
+        "3: line 3\n4: line 4\n5: line 5\n6: line 6\n7: line 7\n8: line 8\n9: line 9\n",
+      );
+      expect(result).not.toHaveProperty("nextOffset");
+    });
+
+    it("keeps disjoint windows separate across the gap", async () => {
+      await writeFile(path, numbered(35));
+      const result = await readFile({ path: `${path}:5-10,20-30` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 5, endLine: 10 },
+          { startLine: 20, endLine: 30 },
+        ],
+        shownRanges: [
+          { startLine: 4, endLine: 11 },
+          { startLine: 19, endLine: 31 },
+        ],
+        truncated: false,
+      });
+      expect(result.content).toContain("11: line 11\n19: line 19\n");
+      expect(result.content).not.toContain("line 12\n");
+    });
+
+    it("reads raw ranges verbatim", async () => {
+      await writeFile(path, numbered(35));
+      const result = await readFile({ path: `${path}:raw:5-10,20-30` });
+      assertMultiFileSuccess(result);
+      expect(result.representation).toBe("raw");
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 5, endLine: 10 },
+          { startLine: 20, endLine: 30 },
+        ],
+        shownRanges: [
+          { startLine: 5, endLine: 10 },
+          { startLine: 20, endLine: 30 },
+        ],
+        truncated: false,
+      });
+      expect(result.content).toBe(
+        Array.from({ length: 6 }, (_, i) => `line ${i + 5}\n`).join("") +
+          Array.from({ length: 11 }, (_, i) => `line ${i + 20}\n`).join(""),
+      );
+    });
+
+    it("omits a later range that cannot fit and continues on retry", async () => {
+      await writeFile(path, numbered(40, "x".repeat(1000)));
+      const result = await readFile({ path: `${path}:5-10,20-30` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 5, endLine: 10 },
+          { startLine: 20, endLine: 30 },
+        ],
+        shownRanges: [{ startLine: 4, endLine: 11 }],
+        truncated: true,
+        nextOffset: 18,
+      });
+      const retry = await readFile({ path: `${path}:20-30` });
+      assertFileSuccess(retry);
+      expect(retry).toMatchObject({
+        requestedRange: { startLine: 20, endLine: 30 },
+        shownRange: { startLine: 19, endLine: 31 },
+        truncated: false,
+      });
+    });
+
+    it("splits only the first range at the shared line ceiling", async () => {
+      await writeFile(path, "\n".repeat(5000));
+      const result = await readFile({ path: `${path}:1-2500,4000-4010` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 1, endLine: 2500 },
+          { startLine: 4000, endLine: 4010 },
+        ],
+        shownRanges: [{ startLine: 1, endLine: 2000 }],
+        truncated: true,
+        nextOffset: 2000,
+      });
+      const retry = await readFile({ path: `${path}:2001-2500,4000-4010` });
+      assertMultiFileSuccess(retry);
+      expect(retry).toMatchObject({
+        shownRanges: [
+          { startLine: 2000, endLine: 2501 },
+          { startLine: 3999, endLine: 4011 },
+        ],
+        truncated: false,
+      });
+      expect(retry).not.toHaveProperty("nextOffset");
+    });
+
+    it("shares the line ceiling across ranges", async () => {
+      await writeFile(path, "\n".repeat(4600));
+      const result = await readFile({ path: `${path}:1-1499,3000-4500` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        shownRanges: [{ startLine: 1, endLine: 1500 }],
+        truncated: true,
+        nextOffset: 2998,
+      });
+      const retry = await readFile({ path: `${path}:3000-4500` });
+      assertFileSuccess(retry);
+      expect(retry).toMatchObject({
+        requestedRange: { startLine: 3000, endLine: 4500 },
+        shownRange: { startLine: 2999, endLine: 4501 },
+        truncated: false,
+      });
+    });
+
+    it("clips shown ranges at EOF", async () => {
+      await writeFile(path, numbered(25, "x"));
+      const result = await readFile({ path: `${path}:5-10,20-30,40-50` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 5, endLine: 10 },
+          { startLine: 20, endLine: 30 },
+          { startLine: 40, endLine: 50 },
+        ],
+        shownRanges: [
+          { startLine: 4, endLine: 11 },
+          { startLine: 19, endLine: 25 },
+        ],
+        truncated: false,
+      });
+      expect(result).not.toHaveProperty("nextOffset");
+    });
+
+    it("fails when the first requested start exceeds EOF", async () => {
+      await writeFile(path, numbered(25, "x"));
+      expect(await readFile({ path: `${path}:40-50,45-55` })).toMatchObject({
+        status: "error",
+        type: "invalid_selector",
+      });
+    });
+
+    it("returns empty arrays for an empty file starting at line 1", async () => {
+      await writeFile(path, "");
+      const result = await readFile({ path: `${path}:1-1,2-3` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        content: "",
+        requestedRanges: [],
+        shownRanges: [],
+        truncated: false,
+      });
+      expect(await readFile({ path: `${path}:2-3,4-5` })).toMatchObject({
+        status: "error",
+        type: "invalid_selector",
+      });
+    });
+
+    it("skips an oversized line and continues past it", async () => {
+      await writeFile(
+        path,
+        `${"x".repeat(MAX_RESULT_CODE_UNITS)}\n${numbered(9, "y")}`,
+      );
+      const result = await readFile({ path: `${path}:2-4,7-8` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 2, endLine: 4 },
+          { startLine: 7, endLine: 8 },
+        ],
+        shownRanges: [{ startLine: 2, endLine: 9 }],
+        truncated: true,
+      });
+      expect(result).not.toHaveProperty("nextOffset");
+    });
+
+    it("reports truncation without continuation past a final poison line", async () => {
+      await writeFile(
+        path,
+        `${numbered(5, "y")}${"x".repeat(MAX_RESULT_CODE_UNITS)}\n`,
+      );
+      const result = await readFile({ path: `${path}:5-6,5-6` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [{ startLine: 5, endLine: 6 }],
+        shownRanges: [{ startLine: 4, endLine: 5 }],
+        truncated: true,
+      });
+      expect(result).not.toHaveProperty("nextOffset");
+    });
+
+    it("rejects comma selectors on directories", async () => {
+      expect(await readFile({ path: `${directory}:5-10,20-30` })).toMatchObject(
+        {
+          status: "error",
+          type: "invalid_selector",
+        },
+      );
+    });
+
+    it("stops a multi-range read when aborted", async () => {
+      await writeFile(path, numbered(100));
+      const abort = new AbortController();
+      abort.abort();
+      const result = await readResolvedFile(path, {
+        displayPath: "kb://space/big.md",
+        selector: "40-50,60-70",
+        signal: abort.signal,
+      });
+      expect(result.status).toBe("error");
+      expect("content" in result).toBe(false);
+    });
+
+    it("withholds the reserved envelope room from the shared cap", async () => {
+      await writeFile(path, numbered(40, "x".repeat(300)));
+      const full = await readResolvedFile(path, {
+        displayPath: "kb://space/a.md",
+        selector: "5-10,20-30",
+      });
+      const reserved = await readResolvedFile(path, {
+        displayPath: "kb://space/a.md",
+        selector: "5-10,20-30",
+        reserveCodeUnits: 10_000,
+      });
+      assertMultiFileSuccess(full);
+      assertMultiFileSuccess(reserved);
+      expect(reserved.content.length).toBeLessThan(full.content.length);
+      expect(measureNativeModelOutput(reserved)).toBeLessThanOrEqual(
+        MAX_RESULT_CODE_UNITS - 10_000,
+      );
+    });
+
+    it("fails invalid_selector when range metadata cannot fit", async () => {
+      await writeFile(path, numbered(10));
+      const members = Array.from(
+        { length: 64 },
+        (_, i) => `${i * 10 + 1}-${i * 10 + 2}`,
+      ).join(",");
+      expect(
+        await readResolvedFile(path, {
+          displayPath: "kb://space/a.md",
+          selector: members,
+          reserveCodeUnits: MAX_RESULT_CODE_UNITS - 100,
+        }),
+      ).toMatchObject({ status: "error", type: "invalid_selector" });
+    });
+
+    it("refuses multi-range targets in the buffered reader", () => {
+      expect(() =>
+        selectSourceLines("a\n", {
+          path,
+          offset: 0,
+          raw: false,
+          ranges: [{ offset: 0, limit: 1 }],
+          expandedRanges: [{ offset: 0, limit: 2 }],
+        }),
+      ).toThrow("invalid_input");
+    });
+
+    it("rolls a later range back whole when its first line is oversized", async () => {
+      await writeFile(
+        path,
+        `${"a\n".repeat(10)}${"x".repeat(MAX_RESULT_CODE_UNITS)}\n${`${"y".repeat(500)}\n`.repeat(10)}`,
+      );
+      const result = await readResolvedFile(path, {
+        displayPath: "kb://space/a.md",
+        selector: "2-3,12-20",
+        reserveCodeUnits: MAX_RESULT_CODE_UNITS - 3000,
+      });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 2, endLine: 3 },
+          { startLine: 12, endLine: 20 },
+        ],
+        shownRanges: [{ startLine: 1, endLine: 4 }],
+        truncated: true,
+        nextOffset: 10,
+      });
+    });
+    it("fails when the first requested start is just past EOF", async () => {
+      await writeFile(path, "a\nb\nc\nd\ne\n");
+      expect(await readFile({ path: `${path}:6-7,20-25` })).toMatchObject({
+        status: "error",
+        type: "invalid_selector",
+      });
+    });
+
+    it("omits a later range in full when its entry line is oversized", async () => {
+      await writeFile(
+        path,
+        `a\nb\nc\n${"p".repeat(MAX_RESULT_CODE_UNITS + 1)}\n${"\n".repeat(2096)}`,
+      );
+      const result = await readFile({ path: `${path}:1-1,5-2100` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 1, endLine: 1 },
+          { startLine: 5, endLine: 2100 },
+        ],
+        shownRanges: [{ startLine: 1, endLine: 2 }],
+        truncated: true,
+        nextOffset: 3,
+      });
+    });
+
+    it("counts only emittable lines against the shared ceiling", async () => {
+      const lines = Array.from({ length: 2010 }, () => "\n");
+      lines[99] = `${"p".repeat(16_001)}\n`;
+      lines[100] = `${"p".repeat(16_001)}\n`;
+      await writeFile(path, lines.join(""));
+      const result = await readFile({ path: `${path}:1-1,7-2004` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 1, endLine: 1 },
+          { startLine: 7, endLine: 2004 },
+        ],
+        shownRanges: [
+          { startLine: 1, endLine: 2 },
+          { startLine: 6, endLine: 99 },
+          { startLine: 102, endLine: 2005 },
+        ],
+        truncated: true,
+      });
+      expect(result).not.toHaveProperty("nextOffset");
+    });
+
+    it("reads lines 1 through 7 exactly once for touching head ranges", async () => {
+      await writeFile(path, numbered(10));
+      const result = await readFile({ path: `${path}:1-2,5-6` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 1, endLine: 2 },
+          { startLine: 5, endLine: 6 },
+        ],
+        shownRanges: [{ startLine: 1, endLine: 7 }],
+        truncated: false,
+      });
+      expect(result.content).toBe(
+        "1: line 1\n2: line 2\n3: line 3\n4: line 4\n5: line 5\n6: line 6\n7: line 7\n",
+      );
+    });
+
+    it("reads one context-bounded block for unsorted overlapping ranges", async () => {
+      await writeFile(path, numbered(35));
+      const result = await readFile({ path: `${path}:20-30,5-10,10+10` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [{ startLine: 5, endLine: 30 }],
+        shownRanges: [{ startLine: 4, endLine: 31 }],
+        truncated: false,
+      });
+      expect(result.content.startsWith("4: line 4\n")).toBe(true);
+      expect(result.content.endsWith("31: line 31\n")).toBe(true);
     });
   });
 });

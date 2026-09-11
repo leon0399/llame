@@ -7,7 +7,7 @@ adds one bounded read for those passages.
 ## What Changes
 
 - Accept comma-separated ranges, sort them, and merge overlaps and adjacency.
-- Return exact selected intervals with per-interval metadata and bounded continuation.
+- Expand each merged interval by one context line and re-merge touching windows; report per-interval metadata with bounded continuation.
 - Preserve literal-path precedence and existing single-range behavior.
 
 ## Capabilities
