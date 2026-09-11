@@ -21,6 +21,7 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { KnowledgeToolCandidateResolver } from './knowledge-tool-candidate-resolver';
 import { nativeReadTool } from '../tools/native-files';
 import { knowledgeSearchTool } from './knowledge-tools';
@@ -82,6 +83,7 @@ describe('Knowledge tools — real Postgres owner binding', () => {
       chatId: 'knowledge-tools-chat',
       tenantDb,
       knowledgeResolver: resolver,
+      permissionPolicy: compileTestPermissionPolicy(),
     };
   }
 

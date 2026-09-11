@@ -1,4 +1,7 @@
 import { bashTool } from '../tools/bash';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
+import { type CompiledPolicy } from '../tools/permissions/types';
 import { nativeEditTool, nativeReadTool } from '../tools/native-files';
 import { resolveJsonSchema } from '../tools/schema-utils';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -179,6 +182,9 @@ function makeExecutionService(
   client: ModelClient = createFakeModelClient(['answer']),
   dynamicToolResolver?: DynamicToolExecutorResolver,
   nativeExecutorId?: string,
+  permissionPolicy: CompiledPolicy = compileTestPermissionPolicy([
+    'mcp__demo__lookup',
+  ]),
 ) {
   const db: Db = drizzle.mock({ schema });
   const tenantDb = new TenantDbService({
@@ -224,6 +230,7 @@ function makeExecutionService(
     knowledgeResolver,
     embedDispatch,
     noopQueryEmbedder(),
+    permissionPolicy,
     dynamicToolResolver,
   );
   return {
@@ -975,6 +982,16 @@ const toolDeclaration: ModelToolDeclaration = {
 
 const maxSteps = BUILT_IN_DEFAULTS.tools.maxStepsPerRun;
 
+/** The safe decision metadata a permissive test policy stamps on an allowed call. */
+function allowDecision(toolId: string) {
+  return {
+    policyId: 'test-policy',
+    decision: 'allow' as const,
+    reason: 'matched_allow' as const,
+    reference: { groupId: toolId, list: 'allow' as const, clauseIndex: null },
+  };
+}
+
 /** Binds `toolDeclaration` to `executor` through the dynamic-resolver seam. */
 function makeDynamicResolver(executor: Tool): DynamicToolExecutorResolver {
   return {
@@ -1101,7 +1118,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         { command: 'printf should-not-run' },
         { toolCallId: 'bash-progress-gate', messages: [] },
       ),
-    ).rejects.toThrow('Native tool activity could not be recorded');
+    ).rejects.toThrow('Tool activity could not be recorded');
     expect(execute).not.toHaveBeenCalled();
     expect(append).not.toHaveBeenCalledWith(
       runId,
@@ -1155,6 +1172,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       toolName: 'bash',
       status: 'error',
       output: knownResult,
+      permission: allowDecision('bash'),
     });
     expect(appended.at(-1)?.type).toBe('run.cancelled');
   });
@@ -1312,6 +1330,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         toolName: 'read',
         status: 'success',
         output: nativeResult,
+        permission: allowDecision('read'),
       },
     });
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
@@ -1324,6 +1343,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             input,
             output: nativeResult,
             outcome: 'success',
+            permission: allowDecision('read'),
           },
           { type: 'text', text: 'answer' },
         ],
@@ -1435,6 +1455,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       toolCallId: 'call-1',
       toolName: toolDeclaration.id,
       input: { q: 'llame' },
+      permission: allowDecision(toolDeclaration.id),
     });
     expect(appended[4]?.payload).toStrictEqual({
       toolCallId: 'call-1',
@@ -1445,6 +1466,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       toolName: toolDeclaration.id,
       status: 'success',
       output: { status: 'success', hits: 2 },
+      permission: allowDecision(toolDeclaration.id),
     });
     expect(execute).toHaveBeenCalledWith(
       expect.objectContaining({ userId, chatId, toolCallId: 'call-1' }),
@@ -1473,11 +1495,80 @@ describe('RunExecutionService executeRun — tool loop', () => {
             input: { q: 'llame' },
             output: { status: 'success', hits: 2 },
             outcome: 'success',
+            permission: allowDecision(toolDeclaration.id),
           },
           { type: 'text', text: 'answer' },
         ],
       }),
     );
+  });
+
+  it('applies a restarted process policy to a queued call and continues the run', async () => {
+    mockNormalExecutionRepositories();
+    withDeclaredTool();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execute = vi.fn(() =>
+      Promise.resolve({ status: 'success' as const }),
+    );
+    const denyPolicy = compileToolPermissionMap(
+      {
+        mcp__demo__lookup: {
+          allow: true,
+          reject: [{ field: 'q', literal: 'llame' }],
+        },
+      },
+      'restarted-policy',
+    );
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'read_only',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      denyPolicy,
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    const result = await executeBoundTool(options, { q: 'llame' }, 'call-1');
+    await options.onFinish?.({
+      text: 'continued',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+    });
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
+    });
+    expect(execute).not.toHaveBeenCalled();
+    const toolTypes = appended
+      .map((entry) => entry.type)
+      .filter((type) => type.startsWith('tool.'));
+    expect(toolTypes).toEqual(['tool.requested', 'tool.completed']);
+    expect(
+      appended.find((entry) => entry.type === 'tool.requested')?.payload,
+    ).toStrictEqual({
+      toolCallId: 'call-1',
+      toolName: toolDeclaration.id,
+      input: { q: 'llame' },
+      permission: {
+        policyId: 'restarted-policy',
+        decision: 'reject',
+        reason: 'explicit_reject',
+        reference: {
+          groupId: 'mcp__demo__lookup',
+          list: 'reject',
+          clauseIndex: 0,
+        },
+      },
+    });
+    expect(appended.map((entry) => entry.type)).toContain('run.completed');
   });
 
   it('records the step cap as an event and a persisted cap notice', async () => {
@@ -1675,6 +1766,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         type: 'cancelled',
         message: 'The run was cancelled before this tool finished.',
       },
+      permission: allowDecision(toolDeclaration.id),
     });
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
@@ -1693,6 +1785,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             errorText: 'The run was cancelled before this tool finished.',
             outcome: 'cancelled',
             resultProviderMetadata: { llame: { cancelled: true } },
+            permission: allowDecision(toolDeclaration.id),
           },
         ],
       }),
@@ -1739,6 +1832,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         type: 'cancelled',
         message: 'The run expired before this tool finished.',
       },
+      permission: allowDecision(toolDeclaration.id),
     });
     expect(appended.at(-1)?.type).toBe('run.expired');
     expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'expired', {
@@ -1875,6 +1969,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         type: 'cancelled',
         message: 'The run failed before this tool finished.',
       },
+      permission: allowDecision(toolDeclaration.id),
     });
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1887,6 +1982,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             errorText: 'The run failed before this tool finished.',
             outcome: 'cancelled',
             resultProviderMetadata: { llame: { cancelled: true } },
+            permission: allowDecision(toolDeclaration.id),
           },
           { type: 'text', text: 'gave up' },
         ],
@@ -3036,6 +3132,7 @@ describe('RunExecutionService executeRun — context window and late tool result
         type: 'cancelled',
         message: 'The run failed before this tool finished.',
       },
+      permission: allowDecision(toolDeclaration.id),
     });
   });
 });

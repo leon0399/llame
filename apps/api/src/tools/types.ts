@@ -8,6 +8,7 @@ import {
   type KnowledgeFilesystemBinding,
 } from '../knowledge/knowledge-filesystem';
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
+import { type CompiledPolicy } from './permissions/types';
 
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
@@ -73,6 +74,12 @@ export interface ToolContext {
   readonly knowledgeResolver?: KnowledgeToolResolver;
   /** Process-wide query embedder for search; undefined when no model is configured. */
   readonly queryEmbedder?: QueryEmbedderPort;
+  /**
+   * Trusted immutable per-process execution policy. Absent (a code error, not
+   * a caller choice) fails every call closed; model arguments can never supply
+   * or replace it.
+   */
+  readonly permissionPolicy?: CompiledPolicy;
 }
 
 /** SPEC §13.5 classification. Non-read-only execution requires an exact,

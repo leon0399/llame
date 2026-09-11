@@ -21,6 +21,7 @@ import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
 import { runTool } from './runner';
 import { type ToolContext } from './types';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { bashTool } from './bash';
 
 describe('native file authority and durable effects', () => {
@@ -87,6 +88,7 @@ describe('native file authority and durable effects', () => {
       nativeExecutorId: 'host-a',
       nativeDeliverySequence: run.startedSequence,
       toolCallId: randomUUID(),
+      permissionPolicy: compileTestPermissionPolicy(),
     };
   });
 
@@ -635,6 +637,7 @@ describe('kb:// mutations under real owner binding', () => {
       nativeDeliverySequence: run.startedSequence,
       toolCallId: randomUUID(),
       knowledgeResolver: resolver,
+      permissionPolicy: compileTestPermissionPolicy(),
     };
   });
 

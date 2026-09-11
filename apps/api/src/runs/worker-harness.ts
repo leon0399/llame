@@ -37,6 +37,8 @@ import {
 } from '../instance-config/llame-config';
 import { ModelsService } from '../models/models.service';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { getRegisteredToolIds } from '../tools/registry';
+import { type PermissionGroup } from '../tools/permissions/types';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
@@ -73,12 +75,23 @@ type HarnessOverrides = {
 
 /** Merges one boot's `bootWorkerHarness` overrides onto the built-in defaults. */
 function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
+  // There is no runtime built-in policy, so the harness grants a permissive
+  // allow-all group for every registered tool plus the seeded tool ids. These
+  // acceptance suites prove execution/recovery, not permission decisions.
+  const permissions: Record<string, PermissionGroup> = {};
+  for (const id of [
+    ...getRegisteredToolIds(),
+    ...(overrides?.allowedTools ?? []),
+  ]) {
+    permissions[id] = { allow: true };
+  }
   return {
     ...BUILT_IN_DEFAULTS,
     tools: {
       ...BUILT_IN_DEFAULTS.tools,
       allowed: [...(overrides?.allowedTools ?? [])],
       nativeExecutorId: overrides?.nativeExecutorId,
+      permissions,
     },
     runs: {
       ...BUILT_IN_DEFAULTS.runs,

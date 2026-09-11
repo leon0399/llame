@@ -83,7 +83,24 @@
       "read",
       "mcp__fixture_search__search",
       "mcp__fixture_local__lookup"
-    ]
+    ],
+    // Explicit whole-map replacement: every allowed tool needs its own group
+    // (MCP tools never receive an implicit one). Bash rejects one literal so the
+    // permission-gate e2e can prove a rejected call continues the Run.
+    "permissions": {
+      "bash": {
+        "allow": true,
+        "reject": [{ "field": "command", "literal": "e2e-permission-denied" }]
+      },
+      "read": { "allow": true },
+      "edit": { "allow": true },
+      "write": { "allow": true },
+      "knowledge_search": { "allow": true },
+      "search_conversations": { "allow": true },
+      "conversation_read": { "allow": true },
+      "mcp__fixture_search__search": { "allow": true },
+      "mcp__fixture_local__lookup": { "allow": true }
+    }
   },
   "knowledge": {
     "root": "{env:E2E_KNOWLEDGE_ROOT:-/tmp/llame-e2e-knowledge}"

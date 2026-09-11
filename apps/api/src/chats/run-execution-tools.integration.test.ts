@@ -27,6 +27,7 @@ import {
   type ToolSet,
 } from 'ai';
 import { createHash } from 'node:crypto';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -73,6 +74,7 @@ import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fi
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
 import {
+  getRegisteredToolIds,
   registerTestOnlyTool,
   TOOL_REGISTRY,
   unregisterTestOnlyTool,
@@ -437,6 +439,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ...BUILT_IN_DEFAULTS,
         tools: {
           allowed: overrides?.allowed ?? ['search_conversations'],
+          permissions: BUILT_IN_DEFAULTS.tools.permissions,
           maxStepsPerRun:
             overrides?.maxStepsPerRun ?? BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
           callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
@@ -454,6 +457,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
       overrides?.embedDispatch ?? noopEmbedDispatch(),
       noopQueryEmbedder(),
+      compileTestPermissionPolicy([
+        ...getRegisteredToolIds(),
+        ...(overrides?.allowed ?? []),
+      ]),
       overrides?.dynamicToolResolver,
     );
   }

@@ -268,6 +268,118 @@
     // coverage a startup gate. Add conversation_read independently for exact
     // line reads; see docs/conversation-recall.md.
     "allowed": ["search_conversations"],
+    // Allow/reject rules per exact tool id. There is NO built-in policy:
+    // omitting this property rejects every call. This block is the recommended
+    // portable map — the seven code-owned tools, each with a whole-tool allow
+    // plus destructive-command and credential-locator rejects — copy it (or
+    // replace it with your own). A supplied map is the complete policy: list
+    // every group you intend to keep, and note that `{}` rejects every call.
+    // MCP tools need an explicit group here; permission rules never change tool
+    // visibility. Regex values are engine input; operator JSON must escape
+    // backslashes and any interpolation-looking opening brace.
+    "permissions": {
+      "bash": {
+        "allow": true,
+        "reject": [
+          {
+            "field": "command",
+            "regex": "(^|[^A-Za-z0-9_])(sudo|shutdown|reboot|halt|poweroff|mkfs([.][A-Za-z0-9_-]+)?)(\\s|$)"
+          },
+          {
+            "field": "command",
+            "regex": "\\brm\\s+(?:(?:-[A-Za-z]*[rR][A-Za-z]*[fF][A-Za-z]*|-[A-Za-z]*[fF][A-Za-z]*[rR][A-Za-z]*|-[A-Za-z]*[rR][A-Za-z]*\\s+-[A-Za-z]*[fF][A-Za-z]*|-[A-Za-z]*[fF][A-Za-z]*\\s+-[A-Za-z]*[rR][A-Za-z]*|--recursive\\s+(?:--force|-f)|--force\\s+(?:--recursive|-r))\\s+(?:--no-preserve-root\\s+)?|--no-preserve-root\\s+(?:-[A-Za-z]*[rR][A-Za-z]*[fF][A-Za-z]*|-[A-Za-z]*[fF][A-Za-z]*[rR][A-Za-z]*|-[A-Za-z]*[rR][A-Za-z]*\\s+-[A-Za-z]*[fF][A-Za-z]*|-[A-Za-z]*[fF][A-Za-z]*\\s+-[A-Za-z]*[rR][A-Za-z]*|--recursive\\s+(?:--force|-f)|--force\\s+(?:--recursive|-r))\\s+)(?:--\\s+)?['\"]?(?://?\\*?|~(?:\\*|//?\\*?)?|\\$HOME(?:/\\*?)?|\\$\\{{HOME\\}(?://?\\*?)?)['\"]?($|[\\s;&|])"
+          },
+          {
+            "field": "command",
+            "regex": "\\bdd\\s+[^\\r\\n;&|]*\\bof=/dev/"
+          },
+          {
+            "field": "command",
+            "literal": "diskutil erase"
+          },
+          {
+            "field": "command",
+            "literal": "diskutil apfs delete"
+          },
+          {
+            "field": "command",
+            "literal": "git reset --hard"
+          },
+          {
+            "field": "command",
+            "literal": "chmod -R 777"
+          },
+          {
+            "field": "command",
+            "regex": "\\b(curl|wget)\\s+[^\\r\\n;|]*\\x7c\\s*(ba|z|da|k)?sh(\\s|$)"
+          }
+        ]
+      },
+      "read": {
+        "allow": true,
+        "reject": [
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.ssh|\\.aws|\\.azure|\\.gnupg|\\.kube)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.git-credentials|\\.npmrc|\\.pypirc)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.docker[/\\\\]config\\.json|\\.gem[/\\\\]credentials|\\.config[/\\\\]gh)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])\\.env($|:|\\.(local|development|production|staging|test)(\\.local)?($|:))"
+          }
+        ]
+      },
+      "edit": {
+        "allow": true,
+        "reject": [
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.ssh|\\.aws|\\.azure|\\.gnupg|\\.kube)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.git-credentials|\\.npmrc|\\.pypirc)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.docker[/\\\\]config\\.json|\\.gem[/\\\\]credentials|\\.config[/\\\\]gh)([/\\\\]|$|:)"
+          }
+        ]
+      },
+      "write": {
+        "allow": true,
+        "reject": [
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.ssh|\\.aws|\\.azure|\\.gnupg|\\.kube)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.git-credentials|\\.npmrc|\\.pypirc)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.docker[/\\\\]config\\.json|\\.gem[/\\\\]credentials|\\.config[/\\\\]gh)([/\\\\]|$|:)"
+          }
+        ]
+      },
+      "knowledge_search": {
+        "allow": true
+      },
+      "search_conversations": {
+        "allow": true
+      },
+      "conversation_read": {
+        "allow": true
+      }
+    },
     // Maximum tool-requesting steps per run.
     "maxStepsPerRun": 20,
     // Per-tool-call timeout in seconds.

@@ -444,6 +444,7 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
     const config = loadInstanceConfig();
     expect(config.tools).toEqual({
       allowed: [],
+      permissions: BUILT_IN_DEFAULTS.tools.permissions,
       maxStepsPerRun: 20,
       callTimeoutSeconds: 120,
     });

@@ -109,7 +109,12 @@ describe('toolActivityPart', () => {
     const result: ToolResult = { status: 'success', value: 'ok' };
 
     expect(
-      toolActivityPart('call-1', 'search', { query: 'q' }, result),
+      toolActivityPart({
+        toolCallId: 'call-1',
+        toolName: 'search',
+        input: { query: 'q' },
+        result,
+      }),
     ).toEqual({
       type: 'tool-search',
       toolCallId: 'call-1',
@@ -135,7 +140,12 @@ describe('toolActivityPart', () => {
   ] as const)(
     'shapes %s errors with the normalized outcome',
     (_name, result, outcome) => {
-      const part = toolActivityPart('call-1', 'search', { query: 'q' }, result);
+      const part = toolActivityPart({
+        toolCallId: 'call-1',
+        toolName: 'search',
+        input: { query: 'q' },
+        result,
+      });
 
       expect(part).toMatchObject({
         type: 'tool-search',
@@ -218,6 +228,57 @@ describe('reconstructDurableAssistant', () => {
       },
     ]);
     expect(result.openToolCalls).toEqual(new Map());
+  });
+
+  it('carries safe permission metadata from request to stored part', () => {
+    const permission = {
+      policyId: 'policy-1',
+      decision: 'reject' as const,
+      reason: 'explicit_reject' as const,
+      reference: { groupId: 'bash', list: 'reject' as const, clauseIndex: 0 },
+    };
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'bash',
+        input: { command: 'git push' },
+        permission,
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: {
+          status: 'error',
+          type: 'permission_denied',
+          message: 'rejected',
+        },
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      {
+        type: 'tool-bash',
+        toolCallId: 'call-1',
+        state: 'output-error',
+        input: { command: 'git push' },
+        errorText: 'rejected',
+        outcome: 'permission_denied',
+        permission,
+      },
+    ]);
+  });
+
+  it('ignores malformed permission metadata', () => {
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'bash',
+        input: {},
+        permission: { policyId: 1, decision: 'maybe' },
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([]);
+    expect([...result.openToolCalls.values()][0]?.permission).toBeUndefined();
   });
 
   it('ignores malformed, duplicate, and orphaned tool events while exposing open calls', () => {

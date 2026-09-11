@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 import path from 'node:path';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { asSchema, streamText } from 'ai';
@@ -942,6 +943,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
       noopEmbedDispatch(),
       noopQueryEmbedder(),
+      compileTestPermissionPolicy(),
     );
   }
 

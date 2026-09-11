@@ -29,6 +29,44 @@
       "type": ["string", "null"],
       "description": "A plain string, or null to explicitly unset (overriding any legacy environment fallback). May embed {env:...}/{path:...} tokens anywhere in the string."
     },
+    "permissionClause": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One operator permission clause: exactly one matcher (`literal` substring or bounded `regex`) and exactly one target (`field`, one top-level string argument property, or `allFields: true`, reject-only). Values selected this way are OR alternatives; there are no conjunctions.",
+      "properties": {
+        "literal": { "type": "string", "minLength": 1 },
+        "regex": { "type": "string", "minLength": 1 },
+        "field": { "type": "string", "minLength": 1 },
+        "allFields": { "const": true }
+      },
+      "allOf": [
+        {
+          "oneOf": [{ "required": ["literal"] }, { "required": ["regex"] }]
+        },
+        {
+          "oneOf": [{ "required": ["field"] }, { "required": ["allFields"] }]
+        }
+      ]
+    },
+    "permissionMatcher": {
+      "description": "`true` for a whole-tool match, or an array of clauses. An omitted matcher and an empty array match nothing; `false` is invalid.",
+      "oneOf": [
+        { "const": true },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/permissionClause" }
+        }
+      ]
+    },
+    "permissionGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional `allow`/`reject` for one exact tool identity. A matching reject vetoes; otherwise a whole-tool allow or any field allow grants; otherwise the call is rejected. `allFields` is reject-only.",
+      "properties": {
+        "allow": { "$ref": "#/$defs/permissionMatcher" },
+        "reject": { "$ref": "#/$defs/permissionMatcher" }
+      }
+    },
     "heartbeatSecondsOrToken": {
       "description": "The job-queue's native worker-liveness window: a positive integer >= 10 (pg-boss's own floor for queue heartbeatSeconds), or a whole-value interpolation token that resolves to one.",
       "oneOf": [
@@ -440,6 +478,12 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "description": "Tool permissions admitted for advertisement/execution. Default: empty array (no tools advertised or executable — fail closed). Code-owned ids must exist in the registry. Exact canonical mcp-tool-id-v1 ids and the single namespace form mcp__<configured-server>__* may name a configured mcpServers entry without requiring successful discovery at boot; the wildcard is a case-sensitive literal id-prefix permission and remains only in restart-applied configuration."
+        },
+        "permissions": {
+          "type": "object",
+          "description": "Operator-controlled allow/reject rules keyed by exact tool id, matched at call time. Unknown or no-longer-configured keys (for example after an MCP server change) are accepted and simply never match; they do not fail startup. There is no built-in policy: omitting this key rejects every call, and `llame.config.json.example` ships a recommended portable map to copy. Matching rejects veto; otherwise a whole-tool or field allow grants; otherwise the call is rejected. Values follow the existing single-pass interpolation and doubled-opening-brace escaping (escape an interpolation-looking opening brace by doubling it). Clause shape and pattern syntax are validated before the process serves requests or claims jobs.",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "$ref": "#/$defs/permissionGroup" }
         },
         "maxStepsPerRun": {
           "$ref": "#/$defs/numberOrToken",

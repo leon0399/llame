@@ -32,6 +32,12 @@ import {
 } from '@workspace/config-interpolation';
 import { createModelPromptLoader } from './prompt-loader';
 import { getRegisteredToolIds } from '../tools/registry';
+import {
+  type PermissionClause,
+  type PermissionGroup,
+  type PermissionMatcher,
+  type ToolPermissionMap,
+} from '../tools/permissions/types';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
 import type {
   EffortLevel,
@@ -172,29 +178,35 @@ function resolveToolsConfig(
       ...readLeaf(raw, 'tools', 'allowed'),
       configuredMcpServerIds: new Set(Object.keys(mcpServers)),
     }),
-    maxStepsPerRun: requireResolvedNumber(
-      resolveNumeric({
-        configPath: 'tools.maxStepsPerRun',
-        ...readLeaf(raw, 'tools', 'maxStepsPerRun'),
-        builtInDefault: BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
-        nullable: false,
-        env,
-      }),
-      'tools.maxStepsPerRun',
-    ),
-    callTimeoutSeconds: requireResolvedNumber(
-      resolveNumeric({
-        configPath: 'tools.callTimeoutSeconds',
-        ...readLeaf(raw, 'tools', 'callTimeoutSeconds'),
-        builtInDefault: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
-        nullable: false,
-        env,
-      }),
-      'tools.callTimeoutSeconds',
-    ),
+    permissions: resolveToolPermissions({
+      configPath: 'tools.permissions',
+      ...readLeaf(raw, 'tools', 'permissions'),
+      env,
+    }),
+    maxStepsPerRun: resolveToolNumber(raw, 'maxStepsPerRun', env),
+    callTimeoutSeconds: resolveToolNumber(raw, 'callTimeoutSeconds', env),
   };
   if (nativeExecutorId) tools.nativeExecutorId = nativeExecutorId;
   return tools;
+}
+
+/** Resolve one numeric `tools.*` setting with the built-in default. */
+function resolveToolNumber(
+  raw: RawInstanceConfig | undefined,
+  key: 'maxStepsPerRun' | 'callTimeoutSeconds',
+  env: NodeJS.ProcessEnv,
+): number {
+  const configPath = `tools.${key}`;
+  return requireResolvedNumber(
+    resolveNumeric({
+      configPath,
+      ...readLeaf(raw, 'tools', key),
+      builtInDefault: BUILT_IN_DEFAULTS.tools[key],
+      nullable: false,
+      env,
+    }),
+    configPath,
+  );
 }
 
 /** Load, validate, interpolate, and apply file > built-in-default precedence (the environment reaches config only via {env:...} tokens in the file). Throws InstanceConfigError on any failure — the only correct response is to abort boot (D6). */
@@ -665,6 +677,157 @@ function resolveToolAllowlist(opts: {
     assertValidAllowlistId(id, configPath, configuredMcpServerIds, registered);
   }
   return raw;
+}
+
+/** Resolve the operator map: clause/interpolation-checked, still-uncompiled.
+ *  Keys are exact tool identities matched at call time; an unknown or
+ *  no-longer-configured key (for example after an MCP server change) is
+ *  accepted and simply never matches, so it cannot fail startup. There is no
+ *  built-in policy: an omitted map is empty, so every call is rejected until
+ *  the operator supplies rules. A supplied map replaces the (empty) default
+ *  wholesale. */
+function resolveToolPermissions(opts: {
+  configPath: string;
+  present: boolean;
+  raw: unknown;
+  env: NodeJS.ProcessEnv;
+}): ToolPermissionMap {
+  const { configPath, present, raw, env } = opts;
+  if (!present) return BUILT_IN_DEFAULTS.tools.permissions;
+  if (!isRecord(raw)) {
+    throw new InstanceConfigError(`${configPath}: must be an object`);
+  }
+  const resolved: Record<string, PermissionGroup> = {};
+  for (const [toolId, group] of Object.entries(raw)) {
+    resolved[toolId] = resolvePermissionGroup(
+      `${configPath}.${toolId}`,
+      group,
+      env,
+    );
+  }
+  return resolved;
+}
+
+function resolvePermissionGroup(
+  path: string,
+  raw: unknown,
+  env: NodeJS.ProcessEnv,
+): PermissionGroup {
+  if (!isRecord(raw)) {
+    throw new InstanceConfigError(`${path}: must be an object`);
+  }
+  const allow = Object.hasOwn(raw, 'allow')
+    ? resolvePermissionMatcher(`${path}.allow`, raw['allow'], env, 'allow')
+    : undefined;
+  const reject = Object.hasOwn(raw, 'reject')
+    ? resolvePermissionMatcher(`${path}.reject`, raw['reject'], env, 'reject')
+    : undefined;
+  const group: MutablePermissionGroup = {};
+  if (allow !== undefined) group.allow = allow;
+  if (reject !== undefined) group.reject = reject;
+  return group;
+}
+
+interface MutablePermissionGroup {
+  allow?: PermissionMatcher;
+  reject?: PermissionMatcher;
+}
+
+function resolvePermissionMatcher(
+  path: string,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- raw JSONC leaf: the closed schema already constrained it to `true` or an array, and this function re-checks both before any use.
+  raw: unknown,
+  env: NodeJS.ProcessEnv,
+  list: 'allow' | 'reject',
+): PermissionMatcher {
+  if (raw === true) return true;
+  if (!Array.isArray(raw)) {
+    throw new InstanceConfigError(
+      `${path}: must be true or an array of clauses`,
+    );
+  }
+  return raw.map((clause, index) =>
+    resolvePermissionClause(`${path}[${index}]`, clause, env, list),
+  );
+}
+
+interface ResolvedClauseMatcher {
+  readonly kind: 'literal' | 'regex';
+  readonly pattern: string;
+}
+
+function resolvePermissionClause(
+  path: string,
+  raw: unknown,
+  env: NodeJS.ProcessEnv,
+  list: 'allow' | 'reject',
+): PermissionClause {
+  if (!isRecord(raw)) {
+    throw new InstanceConfigError(`${path}: must be an object`);
+  }
+  return resolveClauseTarget(
+    path,
+    raw,
+    list,
+    resolveClauseMatcher(path, raw, env),
+  );
+}
+
+function resolveClauseMatcher(
+  path: string,
+  raw: UnknownRecord,
+  env: NodeJS.ProcessEnv,
+): ResolvedClauseMatcher {
+  const literal = raw['literal'];
+  const regex = raw['regex'];
+  const hasLiteral = isString(literal);
+  const hasRegex = isString(regex);
+  if (hasLiteral === hasRegex) {
+    throw new InstanceConfigError(
+      `${path}: must set exactly one of literal or regex`,
+    );
+  }
+  const kind = hasLiteral ? 'literal' : 'regex';
+  const rawPattern = hasLiteral ? literal : regex;
+  if (!isString(rawPattern)) {
+    throw new InstanceConfigError(`${path}: matcher must be a string`);
+  }
+  const pattern = resolveInterpolatedString(rawPattern, `${path}.${kind}`, env);
+  if (pattern.length === 0) {
+    throw new InstanceConfigError(`${path}.${kind}: must not be empty`);
+  }
+  return { kind, pattern };
+}
+
+function resolveClauseTarget(
+  path: string,
+  raw: UnknownRecord,
+  list: 'allow' | 'reject',
+  matcher: ResolvedClauseMatcher,
+): PermissionClause {
+  const field = raw['field'];
+  const allFields = raw['allFields'];
+  if (allFields !== undefined && allFields !== true) {
+    throw new InstanceConfigError(`${path}: allFields must be true when set`);
+  }
+  if (allFields === true) {
+    if (list === 'allow') {
+      throw new InstanceConfigError(
+        `${path}: allFields is valid only for reject`,
+      );
+    }
+    return matcher.kind === 'literal'
+      ? { allFields: true, literal: matcher.pattern }
+      : { allFields: true, regex: matcher.pattern };
+  }
+  if (!isString(field) || field.length === 0) {
+    throw new InstanceConfigError(
+      `${path}: must target exactly one non-empty field or allFields`,
+    );
+  }
+  return matcher.kind === 'literal'
+    ? { field, literal: matcher.pattern }
+    : { field, regex: matcher.pattern };
 }
 
 const TRANSPORT_OWNED_MCP_HEADERS = new Set([

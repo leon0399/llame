@@ -23,11 +23,13 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { type KnowledgeToolResolver, type ToolContext } from './types';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 describe('native tool admission', () => {
   const context: ToolContext = {
     userId: 'owner',
     chatId: 'chat',
+    permissionPolicy: compileTestPermissionPolicy(),
     tenantDb: {
       runAs: () => Promise.reject(new Error('Database unavailable')),
     },
@@ -162,6 +164,7 @@ describe('knowledge locator reads', () => {
       chatId: 'chat',
       runId: 'run',
       toolCallId: 'call',
+      permissionPolicy: compileTestPermissionPolicy(),
       tenantDb: {
         runAs: () => {
           runAsCalls += 1;

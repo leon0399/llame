@@ -10,6 +10,12 @@ import {
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
+import { evaluatePermission } from './permissions/evaluator';
+import { isBashCommandField } from './permissions/bash-command-field';
+import { declaredStringProperties } from './permissions/declared-fields';
+import { nativeFileProjection } from './permissions/locator-projection';
+import { permissionDeniedResult } from './permissions/messages';
+import { type PermissionDecision } from './permissions/types';
 
 const logger = new Logger('ToolRunner');
 
@@ -118,6 +124,49 @@ export function invalidCallResult(toolName: string): ToolResult {
 }
 
 /**
+ * Declared string fields for a dynamic MCP tool, checked against its currently
+ * admitted declaration. A code-owned tool returns `undefined` (its fields were
+ * validated at boot); an MCP tool with an unreadable declaration returns an
+ * empty set so every configured field clause fails closed.
+ */
+function mcpDeclaredStringFields(tool: Tool): ReadonlySet<string> | undefined {
+  if (!tool.id.startsWith('mcp__')) return undefined;
+  const cached = declaredFieldCache.get(tool);
+  if (cached !== undefined) return cached;
+  const fields = isRecord(tool.inputSchema)
+    ? declaredStringProperties(tool.inputSchema)
+    : new Set<string>();
+  declaredFieldCache.set(tool, fields);
+  return fields;
+}
+
+/** The admitted schema of an MCP tool is static for the process lifetime. */
+const declaredFieldCache = new WeakMap<Tool, ReadonlySet<string>>();
+
+/**
+ * Evaluate the trusted process policy for one already-schema-validated call.
+ * `undefined` means no trusted policy was supplied (a code error); the caller
+ * converts it to a fail-closed rejection. The originally submitted `args` are
+ * matched, never the schema-defaulted executor copy.
+ */
+function evaluateToolPermission(
+  tool: Tool,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- originally submitted tool-call input; `admitToolCall` already validated it against the tool's own schema before this is reached.
+  args: unknown,
+  context: ToolContext,
+): PermissionDecision | undefined {
+  const policy = context.permissionPolicy;
+  if (policy === undefined) return undefined;
+  return evaluatePermission(policy, {
+    toolId: tool.id,
+    args,
+    isFlexibleWhitespaceField: (field) => isBashCommandField(tool.id, field),
+    projectFieldValue: nativeFileProjection(tool.id),
+    validFields: mcpDeclaredStringFields(tool),
+  });
+}
+
+/**
  * Execute a tool end-to-end: absent-identity fail-closed (D4), input
  * validation against the tool's own schema (2.2), the timeout wrapper (D6),
  * failure-to-structured-error (never throws), and result truncation. Never
@@ -130,33 +179,52 @@ export async function runTool(
   context: ToolContext | undefined,
   callTimeoutSeconds: number,
   /**
-   * Fired once input validation passes, immediately before `tool.execute`
-   * runs. NOT wired by the run loop's current caller
-   * (`run-execution.service.ts` calls `runTool` with 4 args, no callback):
-   * in practice the AI SDK already validates a call's arguments against the
-   * tool's declared `inputSchema` before ever invoking the toolSet's
-   * `execute` wrapper, so a schema-invalid call is caught upstream by
-   * `experimental_repairToolCall`/`onUnavailableToolCall` and never reaches
-   * `runTool` with bad args — this schema check and the seam below are
-   * defense-in-depth for a caller that skips that upstream validation (e.g.
-   * a test, or a future non-AI-SDK-driven tool invocation path), not
-   * something the shipped loop currently relies on for its
-   * requested/started distinction (that split is emitted around the
-   * `runTool` call site instead — see `run-execution.service.ts`'s toolSet
-   * `execute` wrapper). Available for a future caller that wants a
-   * validated-vs-started split; do not assume it fires today.
+   * Fired after identity/schema checks and the permission decision, before any
+   * executor dispatch. The run wrapper records the trusted decision durably and
+   * only then emits `tool.started` for an allowed call. Direct callers that
+   * omit it still cannot bypass the gate: the decision is evaluated here
+   * regardless, and an absent trusted policy rejects.
    */
-  onValidated?: () => void,
+  onAdmitted?: (decision: PermissionDecision) => void | Promise<void>,
 ): Promise<ToolResult> {
   const admission = admitToolCall(tool, args, context, callTimeoutSeconds);
   if ('result' in admission) return admission.result;
   const { context: validContext, args: validArgs } = admission;
+
+  const decision = evaluateToolPermission(tool, args, validContext);
+  if (decision === undefined) return permissionDeniedResult('no_allow');
+  if (onAdmitted !== undefined) await onAdmitted(decision);
+  if (decision.decision === 'reject') {
+    return permissionDeniedResult(decision.reason);
+  }
+
+  // The awaited admission write can outlive a parent abort. Recheck before
+  // dispatch so an abort that landed during that write settles the call as
+  // cancelled instead of running an executor after terminalization.
+  if (validContext.abortSignal?.aborted) {
+    return {
+      status: 'error',
+      type: 'cancelled',
+      message: `Tool "${tool.id}" was cancelled.`,
+    };
+  }
+
+  return executeAdmittedTool(tool, validArgs, validContext, callTimeoutSeconds);
+}
+
+/** Run an admitted tool under its composed timeout/abort signal and map any
+ *  failure to a structured result. Never throws. */
+async function executeAdmittedTool(
+  tool: Tool,
+  validArgs: UnknownRecord,
+  context: ToolContext,
+  callTimeoutSeconds: number,
+): Promise<ToolResult> {
   const {
     context: executionContext,
     timeoutSignal,
     composedSignal,
-  } = prepareToolExecution(tool, validContext, callTimeoutSeconds);
-  onValidated?.();
+  } = prepareToolExecution(tool, context, callTimeoutSeconds);
   try {
     const execution = Promise.resolve(
       tool.execute(executionContext, validArgs),
@@ -171,10 +239,10 @@ export async function runTool(
       result.status === 'error' &&
       result.type === 'outcome_unknown'
     )
-      validContext.onNativeMutationUnknown?.();
+      context.onNativeMutationUnknown?.();
     return truncateOversizedResult(result);
   } catch (error) {
-    return classifyToolExecutionError(error, validContext, timeoutSignal, tool);
+    return classifyToolExecutionError(error, context, timeoutSignal, tool);
   }
 }
 

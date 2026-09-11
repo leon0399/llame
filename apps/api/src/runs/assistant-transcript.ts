@@ -22,6 +22,11 @@ import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
 import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';
 import { type ToolResult } from '../tools/types';
+import {
+  type PermissionClauseReference,
+  type PermissionDecision,
+  type PermissionDecisionReason,
+} from '../tools/permissions/types';
 
 /**
  * Cap on persisted reasoning text. Reasoning is display-only (stripped from
@@ -52,6 +57,12 @@ export type ToolActivityPart = {
    *  rather than by the tool itself. Persisted so the UI can render
    *  "Cancelled" without parsing error text, and survives the live transport. */
   resultProviderMetadata?: { llame: { cancelled: true } };
+  /**
+   * Safe, owner-visible permission decision metadata (openspec/changes/
+   * tool-call-permissions D5). Excluded from model replay, public shares,
+   * exports, and search; it never contains policy bodies or matched input.
+   */
+  permission?: PermissionDecision;
 };
 
 /** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
@@ -148,39 +159,47 @@ export function createAssistantPartCollector(): AssistantPartCollectorImpl {
   return new AssistantPartCollectorImpl();
 }
 
+export type ToolActivityPartInput = {
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly input: unknown;
+  readonly result: ToolResult;
+  readonly permission?: PermissionDecision;
+};
+
 /**
  * Exported for `RunExecutionService`'s live-stream path, which shapes tool
  * results the same way the durable reconstructor below does.
  */
 export function toolActivityPart(
-  toolCallId: string,
-  toolName: string,
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- persisted verbatim into the tool-observation record's `input` field; each tool's actual argument shape is validated separately at the AI SDK / MCP boundary before this function ever runs (see the `tool({ execute })` callback below) -- this just records what was already admitted.
-  input: unknown,
-  result: ToolResult,
+  call: ToolActivityPartInput,
 ): ToolActivityPart {
-  return result.status === 'success'
-    ? {
-        type: `tool-${toolName}`,
-        toolCallId,
-        state: 'output-available',
-        input,
-        output: result,
-        outcome: 'success',
-      }
-    : {
-        type: `tool-${toolName}`,
-        toolCallId,
-        state: 'output-error',
-        input,
-        errorText: result.message,
-        outcome: normalizeToolObservationOutcome(result.type, 'error'),
-        ...(result.type === 'cancelled' && {
-          resultProviderMetadata: {
-            llame: { cancelled: true as const },
-          },
-        }),
-      };
+  const { toolCallId, toolName, input, result, permission } = call;
+  const part: ToolActivityPart =
+    result.status === 'success'
+      ? {
+          type: `tool-${toolName}`,
+          toolCallId,
+          state: 'output-available',
+          input,
+          output: result,
+          outcome: 'success',
+        }
+      : {
+          type: `tool-${toolName}`,
+          toolCallId,
+          state: 'output-error',
+          input,
+          errorText: result.message,
+          outcome: normalizeToolObservationOutcome(result.type, 'error'),
+          ...(result.type === 'cancelled' && {
+            resultProviderMetadata: {
+              llame: { cancelled: true as const },
+            },
+          }),
+        };
+  if (permission !== undefined) part.permission = permission;
+  return part;
 }
 
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the ternary test `isRecord(payload)` below -- an `isXxx`-named guard call, but as a ternary test rather than an `if`/`return`-of-boolean, a shape the structural exemption doesn't unwrap.
@@ -200,7 +219,65 @@ function eventPayloadString(payload: unknown, key: string): string | undefined {
  * Request-time reservations keep synthetic results in occurrence order even
  * though their completion events are appended at terminalization.
  */
-type OpenToolCall = { readonly toolName: string; readonly toolInput: unknown };
+type OpenToolCall = {
+  readonly toolName: string;
+  readonly toolInput: unknown;
+  readonly permission?: PermissionDecision;
+};
+
+const PERMISSION_REASONS: ReadonlySet<string> = new Set([
+  'explicit_reject',
+  'no_allow',
+  'invalid_field',
+  'input_limit',
+  'matched_allow',
+]);
+
+function isPermissionReason(value: unknown): value is PermissionDecisionReason {
+  return isString(value) && PERMISSION_REASONS.has(value);
+}
+
+function isPermissionRejectionReason(
+  value: unknown,
+): value is Exclude<PermissionDecisionReason, 'matched_allow'> {
+  return isPermissionReason(value) && value !== 'matched_allow';
+}
+
+function permissionClauseFromPayload(
+  value: unknown,
+): PermissionClauseReference | null {
+  if (!isRecord(value)) return null;
+  const groupId = value['groupId'];
+  const list = value['list'];
+  const clauseIndex = value['clauseIndex'];
+  if (!isString(groupId)) return null;
+  if (list !== 'allow' && list !== 'reject') return null;
+  if (clauseIndex !== null && !isNumber(clauseIndex)) return null;
+  return { groupId, list, clauseIndex };
+}
+
+/** Re-read the safe decision metadata from a `tool.requested` payload. */
+function permissionFromPayload(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadField` and the `isRecord`/`isString` guards below parse it before any field is trusted.
+  payload: unknown,
+): PermissionDecision | undefined {
+  const permission = eventPayloadField(payload, 'permission');
+  if (!isRecord(permission)) return undefined;
+  const policyId = permission['policyId'];
+  const decision = permission['decision'];
+  const reason = permission['reason'];
+  if (!isString(policyId)) return undefined;
+  const reference = permissionClauseFromPayload(permission['reference']);
+  if (decision === 'allow') {
+    return reason === 'matched_allow'
+      ? { policyId, decision: 'allow', reason: 'matched_allow', reference }
+      : undefined;
+  }
+  if (decision !== 'reject' || !isPermissionRejectionReason(reason)) {
+    return undefined;
+  }
+  return { policyId, decision: 'reject', reason, reference };
+}
 
 /**
  * Replays the append-only event log into `createAssistantPartCollector`. A
@@ -267,7 +344,8 @@ class DurableAssistantReconstructor {
     }
     this.seenToolCallIds.add(toolCallId);
     const toolInput = eventPayloadField(event.payload, 'input');
-    this.openToolCalls.set(toolCallId, { toolName, toolInput });
+    const permission = permissionFromPayload(event.payload);
+    this.openToolCalls.set(toolCallId, { toolName, toolInput, permission });
     this.collector.toolRequested(toolCallId);
   }
 
@@ -297,7 +375,13 @@ class DurableAssistantReconstructor {
     this.completedToolCallIds.add(toolCallId);
     this.openToolCalls.delete(toolCallId);
     this.collector.tool(
-      toolActivityPart(toolCallId, request.toolName, request.toolInput, result),
+      toolActivityPart({
+        toolCallId,
+        toolName: request.toolName,
+        input: request.toolInput,
+        result,
+        permission: request.permission,
+      }),
     );
   }
 }

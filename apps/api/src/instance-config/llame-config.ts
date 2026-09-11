@@ -8,6 +8,7 @@
  */
 
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import { type ToolPermissionMap } from '../tools/permissions/types';
 
 /**
  * Executable provider client implementations (providers-and-models-as-code,
@@ -306,6 +307,14 @@ export type LlameConfig = {
     nativeExecutorId?: string;
     /** Code-owned ids or exact / canonical configured-MCP namespace permissions admitted for advertisement/execution. Default: empty. */
     allowed: ReadonlyArray<string>;
+    /**
+     * Operator allow/reject rules keyed by exact tool identity. There is no
+     * built-in policy: omitting `tools.permissions` from the file leaves the
+     * map empty, so every call is rejected; `llame.config.json.example` ships
+     * a recommended portable map to copy. Availability is governed separately
+     * by `allowed`; permission rules never change tool visibility.
+     */
+    permissions: ToolPermissionMap;
     /** Hard step cap for the tool-calling loop. */
     maxStepsPerRun: number;
     /** Global per-tool-call timeout, in seconds (a tool may override at registration). */
@@ -380,6 +389,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   },
   tools: {
     allowed: [],
+    permissions: {},
     maxStepsPerRun: 20,
     callTimeoutSeconds: 120,
   },

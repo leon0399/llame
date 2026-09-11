@@ -61,6 +61,11 @@ import {
   runTool,
 } from '../tools/runner';
 import { toFlexibleSchema } from '../tools/schema-utils';
+import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
+import {
+  type CompiledPolicy,
+  type PermissionDecision,
+} from '../tools/permissions/types';
 import {
   type KnowledgeToolResolver,
   type ToolContext,
@@ -171,6 +176,23 @@ type TerminalRunStatus = Extract<
   'completed' | 'failed' | 'cancelled' | 'expired'
 >;
 
+/** A durably recorded tool request, with safe decision metadata once admitted. */
+type ToolRequestedEventPayload = {
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+  permission?: PermissionDecision;
+};
+
+/** A durably recorded tool completion, carrying the decision for history. */
+type ToolCompletedEventPayload = {
+  toolCallId: string;
+  toolName: string;
+  status: ToolResult['status'];
+  output: ToolResult;
+  permission?: PermissionDecision;
+};
+
 /**
  * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
  * assembly, the model call, and every durable side effect (assistant turn,
@@ -214,6 +236,8 @@ export class RunExecutionService {
     private readonly embedDispatch: ChatEmbedDispatcher,
     @Inject(ChatSearchQueryEmbedder)
     private readonly queryEmbedder: QueryEmbedderPort,
+    @Inject(TOOL_PERMISSION_POLICY)
+    private readonly permissionPolicy: CompiledPolicy,
     @Optional()
     @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
     private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
@@ -534,6 +558,7 @@ export class RunExecutionService {
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
       queryEmbedder: this.queryEmbedder,
+      permissionPolicy: this.permissionPolicy,
     };
 
     const { maxStepsPerRun, callTimeoutSeconds } =
@@ -555,24 +580,41 @@ export class RunExecutionService {
     // the durable event and the persisted part can never disagree.
     const openToolCalls = new Map<
       string,
-      { toolName: string; toolInput: unknown }
+      {
+        toolName: string;
+        toolInput: unknown;
+        permission?: PermissionDecision;
+      }
     >();
-    const recordToolRequested = (
+    // Reserve the persisted part and the open-call entry at request time (before
+    // admission), so part order stays correct even if the call is later
+    // rejected and settled by the completion path.
+    const reserveToolRequest = (
       toolCallId: string,
       toolName: string,
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK's own inputSchema validation (`toFlexibleSchema`, wired into `tool({...})` below) already ran before this callback fires; `toolInput` here is that already-admitted, per-tool-schema-shaped value forwarded for durable recording.
       toolInput: unknown,
     ) => {
       openToolCalls.set(toolCallId, { toolName, toolInput });
-      enqueueEvent('tool.requested', {
+      assistantPartCollector.toolRequested(toolCallId);
+    };
+    // Emit `tool.requested` with the trusted decision once admission resolves.
+    // Its durable write is awaited before `tool.started`, so a rejection never
+    // produces a false start and an allowed call cannot dispatch first.
+    const emitToolRequested = (
+      toolCallId: string,
+      toolName: string,
+      // eslint-disable-next-line anti-slop/no-unknown-parameters -- same rationale as `reserveToolRequest` above.
+      toolInput: unknown,
+      permission: PermissionDecision | undefined,
+    ) => {
+      const payload: ToolRequestedEventPayload = {
         toolCallId,
         toolName,
         input: toolInput,
-      });
-      // Reserve the final persisted part at request time. Tool execution can
-      // complete concurrently, so appending on completion would reorder
-      // history relative to the live bridge, which opens the UI part here.
-      assistantPartCollector.toolRequested(toolCallId);
+      };
+      if (permission !== undefined) payload.permission = permission;
+      enqueueEvent('tool.requested', payload);
     };
     // Ids whose outcome has already been durably recorded. At-most-once per
     // call across BOTH the event log and the persisted part — the collector
@@ -582,7 +624,7 @@ export class RunExecutionService {
     const recordToolCompleted = (
       toolCallId: string,
       toolName: string,
-      // eslint-disable-next-line anti-slop/no-unknown-parameters -- same rationale as `recordToolRequested` above: the AI SDK's inputSchema validation already ran before this value ever reaches either function.
+      // eslint-disable-next-line anti-slop/no-unknown-parameters -- same rationale as `reserveToolRequest` above: the AI SDK's inputSchema validation already ran before this value ever reaches either function.
       toolInput: unknown,
       result: ToolResult,
     ) => {
@@ -590,15 +632,24 @@ export class RunExecutionService {
         return;
       }
       settledToolCallIds.add(toolCallId);
+      const permission = openToolCalls.get(toolCallId)?.permission;
       openToolCalls.delete(toolCallId);
-      enqueueEvent('tool.completed', {
+      const payload: ToolCompletedEventPayload = {
         toolCallId,
         toolName,
         status: result.status,
         output: result,
-      });
+      };
+      if (permission !== undefined) payload.permission = permission;
+      enqueueEvent('tool.completed', payload);
       assistantPartCollector.tool(
-        toolActivityPart(toolCallId, toolName, toolInput, result),
+        toolActivityPart({
+          toolCallId,
+          toolName,
+          input: toolInput,
+          result,
+          permission,
+        }),
       );
     };
 
@@ -653,21 +704,32 @@ export class RunExecutionService {
             persistDelta(deltas.flush());
             // toolCallId correlates requested/started/completed into one UI
             // tool part (tool-loop UI visibility).
-            recordToolRequested(toolCallId, declaration.id, args);
-            enqueueEvent('tool.started', {
-              toolCallId,
-              toolName: declaration.id,
-            });
-            if (isHostCapabilityTool(executor)) {
-              await deltaWrites;
-              if (progressWriteFailed)
-                throw new Error('Native tool activity could not be recorded.');
-            }
+            reserveToolRequest(toolCallId, declaration.id, args);
             const result = await runTool(
               executor,
               args,
               { ...toolContext, toolCallId },
               callTimeoutSeconds,
+              async (decision) => {
+                const permission = decision;
+                const open = openToolCalls.get(toolCallId);
+                if (open !== undefined) open.permission = permission;
+                // Enqueue the decision-bearing request, and — only for an
+                // allowed call — `tool.started`, synchronously so a parent
+                // abort cannot settle the call between them. The serialized
+                // write chain keeps requested durably before started; dispatch
+                // waits for both to flush.
+                emitToolRequested(toolCallId, declaration.id, args, permission);
+                if (decision.decision === 'allow') {
+                  enqueueEvent('tool.started', {
+                    toolCallId,
+                    toolName: declaration.id,
+                  });
+                }
+                await deltaWrites;
+                if (progressWriteFailed)
+                  throw new Error('Tool activity could not be recorded.');
+              },
             );
             if (input.abortSignal?.aborted) {
               // Bash gets a bounded chance to report its own proven result after
@@ -816,8 +878,10 @@ export class RunExecutionService {
                 : invalidCallResult(toolName);
             // No 'tool.started': the call never genuinely ran (a refusal
             // is distinguished downstream by requested+completed with no
-            // started in between).
-            recordToolRequested(toolCallId, toolName, callInput);
+            // started in between). No permission decision: an unavailable or
+            // invalid call is not a permission rejection.
+            reserveToolRequest(toolCallId, toolName, callInput);
+            emitToolRequested(toolCallId, toolName, callInput, undefined);
             recordToolCompleted(toolCallId, toolName, callInput, result);
           },
         }),
@@ -1445,7 +1509,7 @@ export class RunExecutionService {
         );
         for (const [
           toolCallId,
-          { toolName, toolInput },
+          { toolName, toolInput, permission },
         ] of durable.openToolCalls) {
           if (input.status === 'completed') {
             throw new Error(
@@ -1464,14 +1528,23 @@ export class RunExecutionService {
           // One transaction owns the run row before reaching here. Appending
           // settlement, projecting its assistant part, and publishing the
           // terminal event therefore form one fail-closed ordering domain.
-          await events.append(input.runId, 'tool.completed', {
+          const completedPayload: ToolCompletedEventPayload = {
             toolCallId,
             toolName,
             status: result.status,
             output: result,
-          });
+          };
+          if (permission !== undefined)
+            completedPayload.permission = permission;
+          await events.append(input.runId, 'tool.completed', completedPayload);
           durable.collector.tool(
-            toolActivityPart(toolCallId, toolName, toolInput, result),
+            toolActivityPart({
+              toolCallId,
+              toolName,
+              input: toolInput,
+              result,
+              permission,
+            }),
           );
         }
         if (input.modelCompleted) {

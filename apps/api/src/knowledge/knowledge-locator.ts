@@ -79,6 +79,26 @@ function decodeKnowledgePath(path: string): string | undefined {
   }
 }
 
+/**
+ * Canonical logical resource identity for a parsed locator: the Space ID and
+ * the relative path encoded exactly once, with any read selector excluded.
+ * This is the shared projection for both the native resolver and permission
+ * matching, so encoded spellings of the same target agree. Direct host paths
+ * are not formatted here.
+ */
+export function formatKnowledgeLocator(parsed: ParsedKnowledgeLocator): string {
+  const base = `${KNOWLEDGE_LOCATOR_SCHEME}://${parsed.knowledgeSpaceId}`;
+  const relativePath = parsed.relativePath;
+  if (relativePath === undefined || relativePath.length === 0) return base;
+  const encoded = relativePath
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+  return parsed.trailingSeparator === true
+    ? `${base}/${encoded}/`
+    : `${base}/${encoded}`;
+}
+
 export type ResolvedKnowledgeTarget = {
   readonly hostPath: string;
   readonly locator: string;
