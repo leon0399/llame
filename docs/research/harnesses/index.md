@@ -54,25 +54,26 @@ assessment.
 4. [OpenCode](./opencode.md) — TypeScript coding harness; provider, session, and permission boundaries
 5. [Codex CLI](./codex-cli.md) — Native peer lifecycle protocol and observable compaction
 6. [SoL-Pi](./sol-pi.md) — Evidence-preserving tool-result projections and compaction economics
-7. [goose](./goose.md) — ACP peer integration and tool approval boundaries
-8. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
-9. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
-10. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
-11. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
-12. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
-13. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
-14. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
-15. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
-16. [agent-memory](./agent-memory.md) — Derived memory indexes and federated retrieval
-17. [gbrain](./gbrain.md) — File-backed knowledge and provenance-aware recall
-18. [Graphify](./graphify.md) — Derived graph provenance, extraction caches, and MCP query boundaries
-19. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
-20. [beads](./beads.md) — Dependency-aware work tracking, claims, and trace retention
-21. [Fabric](./fabric.md) — File-based prompt composition and drift checks
-22. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
-23. [OKF (Open Knowledge Format)](./open-knowledge-format.md) — Optional authorship, verification, and freshness metadata
-24. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
-25. [Buzz](./buzz.md) — Formal isolation models to compare with runtime enforcement
-26. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
-27. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
-28. [ELAI](./elai.md) — Archived architecture and measurement discipline
+7. [Spotify Shunt](./spotify-shunt.md) — Question-focused bulk-read delegation and cost-routing boundaries
+8. [goose](./goose.md) — ACP peer integration and tool approval boundaries
+9. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
+10. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
+11. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
+12. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
+13. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
+14. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
+15. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
+16. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
+17. [agent-memory](./agent-memory.md) — Derived memory indexes and federated retrieval
+18. [gbrain](./gbrain.md) — File-backed knowledge and provenance-aware recall
+19. [Graphify](./graphify.md) — Derived graph provenance, extraction caches, and MCP query boundaries
+20. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
+21. [beads](./beads.md) — Dependency-aware work tracking, claims, and trace retention
+22. [Fabric](./fabric.md) — File-based prompt composition and drift checks
+23. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
+24. [OKF (Open Knowledge Format)](./open-knowledge-format.md) — Optional authorship, verification, and freshness metadata
+25. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
+26. [Buzz](./buzz.md) — Formal isolation models to compare with runtime enforcement
+27. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
+28. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
+29. [ELAI](./elai.md) — Archived architecture and measurement discipline
