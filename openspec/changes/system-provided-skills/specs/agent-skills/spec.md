@@ -41,13 +41,13 @@ Skills SHALL be eligible for proactive loading by default. `disable-model-invoca
 
 ### Requirement: Explicit mentions load skills before the first model request
 
-The system SHALL recognize exact `$skill-name` tokens in user-authored text outside fenced code, inline code, and escaped dollar signs, with valid name boundaries. It SHALL load distinct selected skills in first-mention order before the Run's first model request, deduplicating repeated mentions within that user turn. Ordinary mentions SHALL remain model-selected. Activation SHALL use the same read availability, input validation, permission admission, live resolver, and result bounds as proactive reads. The original user message SHALL remain unchanged; argument substitution SHALL NOT occur. Each activation result SHALL be persisted as an owner-visible context item rather than a fabricated model tool call. An unavailable, invalid, or denied selection SHALL produce a bounded failure item without stopping other selections or the Run.
+The system SHALL recognize exact `$skill-name` tokens in user-authored text outside fenced code, inline code, and escaped dollar signs, with valid name boundaries. It SHALL load distinct selected skills in first-mention order before the Run's first model request, deduplicating repeated mentions within that user turn. Ordinary mentions SHALL remain model-selected. Activation SHALL use the same read availability, input validation, permission admission, live resolver, and result bounds as proactive reads. The user text SHALL be retained subject to existing reserved-delimiter sanitation; activation SHALL NOT remove mention tokens or perform argument substitution. Each activation result SHALL be persisted as an owner-visible context item rather than a fabricated model tool call. An unavailable, invalid, or denied selection SHALL produce a bounded failure item without stopping other selections or the Run.
 
 #### Scenario: User selects two skills
 
 - **WHEN** the user sends `$research $technical-writing compare these APIs`
 - **THEN** both current instruction bodies are loaded in that order before the first model request, subject to read admission
-- **AND** the unchanged user text follows the activation items
+- **AND** the retained user text, with existing delimiter sanitation applied, follows the activation items
 
 #### Scenario: Example text is not an activation
 

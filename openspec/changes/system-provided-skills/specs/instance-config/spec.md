@@ -2,7 +2,7 @@
 
 ### Requirement: Operator config declares skill source directories
 
-Instance configuration SHALL accept `skills.directories` as an ordered array of at most 32 non-empty directory paths, defaulting to an empty array. Each source SHALL contain skill directories rather than require per-skill enumeration. Relative paths SHALL resolve against the configuration file directory; a leading `~/` SHALL resolve against the operator process home. Existing configuration interpolation SHALL apply without shell evaluation. No implicit home or repository scanning SHALL occur. Configuration changes SHALL use the existing restart boundary; changes to package files inside configured sources SHALL be observed live without restart. No per-owner source mutation API SHALL be introduced.
+Instance configuration SHALL accept `skills.directories` as an ordered array of at most 32 non-empty directory paths, defaulting to an empty array. Each source SHALL contain skill directories rather than require per-skill enumeration. Relative paths SHALL resolve against the configuration file directory; a leading `~/` SHALL resolve against the operator process home. These intentionally public path entries SHALL be literal path settings: `{env:...}` and `{path:...}` interpolation syntax SHALL be rejected before resolution, and shell evaluation SHALL NOT occur. Other configuration fields SHALL retain their existing interpolation behavior. No implicit home or repository scanning SHALL occur. Configuration changes SHALL use the existing restart boundary; changes to package files inside configured sources SHALL be observed live without restart. No per-owner source mutation API SHALL be introduced.
 
 #### Scenario: Configuration is omitted
 
@@ -19,3 +19,8 @@ Instance configuration SHALL accept `skills.directories` as an ordered array of 
 
 - **WHEN** a package file changes inside an already configured source
 - **THEN** its next invocation reads current content without restarting the app
+
+#### Scenario: Public source rejects secret interpolation
+
+- **WHEN** a skill source contains `{env:SKILL_ROOT}` or `{path:/run/secrets/value}`
+- **THEN** configuration validation fails before resolving that token, identifies the configuration field, and exposes no resolved value
