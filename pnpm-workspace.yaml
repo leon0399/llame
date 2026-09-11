@@ -50,9 +50,28 @@ minimumReleaseAgeExclude:
   - "@barney-media/crap-typescript-core@0.5.1"
   - fast-xml-parser@5.11.1
   - "@barney-media/crap-typescript@0.5.1"
+  # Audit-fix pins from the first `pnpm audit --fix=update` pass (now
+  # superseded by the overrides block; kept because they are historical
+  # exact pins that no longer correspond to resolutions — removable, see
+  # audit-triage doc).
   - esbuild@0.24.3
   - image-size@2.0.3
   - qs@6.15.4
+  # orval 8.31.0 was released inside the cooldown window while the update
+  # to 8.31.0 landed; these are dated, keep until the version ages past 7d.
+  - "@orval/angular@8.31.0"
+  - "@orval/axios@8.31.0"
+  - "@orval/core@8.31.0"
+  - "@orval/effect@8.31.0"
+  - "@orval/fetch@8.31.0"
+  - "@orval/hono@8.31.0"
+  - "@orval/mcp@8.31.0"
+  - "@orval/mock@8.31.0"
+  - "@orval/query@8.31.0"
+  - "@orval/solid-start@8.31.0"
+  - "@orval/swr@8.31.0"
+  - "@orval/zod@8.31.0"
+  - orval@8.31.0
 
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.
@@ -111,7 +130,7 @@ catalog:
   # Exact, not a range: vitest warns and may misbehave when the
   # coverage provider's version differs from its own, and vitest
   # itself is lockfile-pinned at 4.1.10.
-  "@vitest/coverage-v8": 4.1.10
+  "@vitest/coverage-v8": 4.1.11
   "@barney-media/crap-typescript": 0.5.1
   vitest: ^4.1.11
   zod: ^3.25.76
@@ -144,5 +163,27 @@ allowBuilds:
 # on the identical dependency versions. Revisit when tsgo/TS handle the layout.
 enableGlobalVirtualStore: false
 
+# Audit-triage overrides for transitive vulnerable pins. All dev-tooling
+# transitives; exact selectors so only the vulnerable version moves.
+# Analysis: PR audit/remaining-advisories.
+overrides:
+  # drizzle-kit's abandoned @esbuild-kit/* chain (0.31.x) still demands
+  # esbuild 0.18.20 (moderate: dev-server request smuggling). Redirect to a
+  # maintained 0.25.x.
+  "drizzle-kit>esbuild@0.18.20": ^0.25.0
+  # typed-rest-client (Stryker chain) pins qs 6.15.1 exactly; three moderate
+  # DoS advisories fixed in 6.15.2/6.15.4/6.16.0.
+  "typed-rest-client>qs@6.15.1": ^6.16.0
+  # First-party companion @barney-media/crap-typescript-core pins
+  # @toon-format/toon 2.1.0 (high: prototype pollution). Upstream range bump
+  # tracked separately; clear the advisory here in the interim.
+  "@barney-media/crap-typescript-core>@toon-format/toon@2.1.0": ^2.3.1
+  # markdownlint-cli2@0.23.2 (newest) pins smol-toml 1.7.0 exactly; high:
+  # malformed-TOML parse DoS. Dev-tooling only.
+  "markdownlint-cli2>smol-toml@1.7.0": ^1.8.0
+
+# Retarget of the portable-API-bindings patch (#469) from 8.24.0 to 8.31.0;
+# upstream diff between the two versions does not touch the patched hunks,
+# so the same patch relocated. Verified against the pristine npm tarball.
 patchedDependencies:
-  "@orval/fetch@8.24.0": patches/@orval__fetch@8.24.0.patch
+  "@orval/fetch@8.31.0": patches/@orval__fetch@8.31.0.patch
