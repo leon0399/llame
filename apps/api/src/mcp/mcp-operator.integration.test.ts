@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { type LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import {
@@ -281,6 +282,7 @@ function executionService(
 
     noopEmbedDispatch(),
     noopQueryEmbedder(),
+    compileTestPermissionPolicy(['mcp__web__search']),
     runtime,
   );
 }

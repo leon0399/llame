@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
-import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
-
 import { TOOL_REGISTRY } from '../registry';
 import { resolveJsonSchema } from '../schema-utils';
 import { compileToolPermissionMap } from './compile-permissions';
+import { declaredStringProperties } from './declared-fields';
 import { PermissionCompileError } from './limits';
 import {
   type CompiledPolicy,
@@ -38,7 +37,7 @@ async function validateCodeOwnedFields(
     const tool = TOOL_REGISTRY.get(toolId);
     if (tool === undefined) continue;
     const document = await resolveJsonSchema(tool.inputSchema);
-    const allowedFields = collectStringProperties(document);
+    const allowedFields = declaredStringProperties(document);
     assertMatcherFields(toolId, 'allow', group.allow, allowedFields);
     assertMatcherFields(toolId, 'reject', group.reject, allowedFields);
   }
@@ -60,33 +59,4 @@ function assertMatcherFields(
       );
     }
   });
-}
-
-/**
- * The top-level properties a JSON Schema may present as strings. Code-owned
- * schemas are simple objects; unions are recursed so an `anyOf`/`oneOf`/`allOf`
- * string branch is accepted.
- */
-function collectStringProperties(document: UnknownRecord): ReadonlySet<string> {
-  const properties = document['properties'];
-  if (!isRecord(properties)) return new Set();
-  const fields = new Set<string>();
-  for (const [name, schema] of Object.entries(properties)) {
-    if (schemaPermitsString(schema)) fields.add(name);
-  }
-  return fields;
-}
-
-function schemaPermitsString(schema: unknown): boolean {
-  if (!isRecord(schema)) return false;
-  const type = schema['type'];
-  if (type === 'string') return true;
-  if (Array.isArray(type) && type.includes('string')) return true;
-  for (const keyword of ['anyOf', 'oneOf', 'allOf']) {
-    const branches = schema[keyword];
-    if (Array.isArray(branches) && branches.some(schemaPermitsString)) {
-      return true;
-    }
-  }
-  return false;
 }

@@ -26,6 +26,12 @@ export interface EvaluatePermissionOptions {
   readonly isFlexibleWhitespaceField?: (field: string) => boolean;
   /** Project a submitted field value before matching (native logical locators). */
   readonly projectFieldValue?: (field: string, value: string) => string;
+  /**
+   * Declared string fields for a dynamic tool (MCP). A configured field clause
+   * naming anything else fails closed with `invalid_field` rather than being
+   * silently dropped or granting an allow.
+   */
+  readonly validFields?: ReadonlySet<string>;
 }
 
 /**
@@ -46,6 +52,19 @@ export function evaluatePermission(
 }
 
 function evaluateGroup(
+  policyId: string,
+  toolId: string,
+  group: CompiledPermissionGroup,
+  options: EvaluatePermissionOptions,
+): PermissionDecision {
+  const invalidField = invalidFieldReference(group, options.validFields);
+  if (invalidField !== null) {
+    return reject(policyId, 'invalid_field', invalidField);
+  }
+  return decideGroup(policyId, toolId, group, options);
+}
+
+function decideGroup(
   policyId: string,
   toolId: string,
   group: CompiledPermissionGroup,
@@ -96,6 +115,19 @@ function firstMatch(
     if (selection.matches(clause)) return clause;
   }
   return undefined;
+}
+
+function invalidFieldReference(
+  group: CompiledPermissionGroup,
+  validFields: ReadonlySet<string> | undefined,
+): PermissionClauseReference | null {
+  if (validFields === undefined) return null;
+  for (const clause of [...group.rejectClauses, ...group.allowClauses]) {
+    if ('field' in clause.target && !validFields.has(clause.target.field)) {
+      return clauseReference(clause);
+    }
+  }
+  return null;
 }
 
 /**

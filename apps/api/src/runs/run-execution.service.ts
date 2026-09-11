@@ -61,6 +61,8 @@ import {
   runTool,
 } from '../tools/runner';
 import { toFlexibleSchema } from '../tools/schema-utils';
+import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
+import { type CompiledPolicy } from '../tools/permissions/types';
 import {
   type KnowledgeToolResolver,
   type ToolContext,
@@ -214,6 +216,8 @@ export class RunExecutionService {
     private readonly embedDispatch: ChatEmbedDispatcher,
     @Inject(ChatSearchQueryEmbedder)
     private readonly queryEmbedder: QueryEmbedderPort,
+    @Inject(TOOL_PERMISSION_POLICY)
+    private readonly permissionPolicy: CompiledPolicy,
     @Optional()
     @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
     private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
@@ -534,6 +538,7 @@ export class RunExecutionService {
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
       queryEmbedder: this.queryEmbedder,
+      permissionPolicy: this.permissionPolicy,
     };
 
     const { maxStepsPerRun, callTimeoutSeconds } =
@@ -654,20 +659,28 @@ export class RunExecutionService {
             // toolCallId correlates requested/started/completed into one UI
             // tool part (tool-loop UI visibility).
             recordToolRequested(toolCallId, declaration.id, args);
-            enqueueEvent('tool.started', {
-              toolCallId,
-              toolName: declaration.id,
-            });
-            if (isHostCapabilityTool(executor)) {
-              await deltaWrites;
-              if (progressWriteFailed)
-                throw new Error('Native tool activity could not be recorded.');
-            }
             const result = await runTool(
               executor,
               args,
               { ...toolContext, toolCallId },
               callTimeoutSeconds,
+              async (decision) => {
+                // `tool.started` is emitted only behind an allowed admission:
+                // a rejected call records requested/completed without
+                // pretending an executor started.
+                if (decision.decision !== 'allow') return;
+                enqueueEvent('tool.started', {
+                  toolCallId,
+                  toolName: declaration.id,
+                });
+                if (isHostCapabilityTool(executor)) {
+                  await deltaWrites;
+                  if (progressWriteFailed)
+                    throw new Error(
+                      'Native tool activity could not be recorded.',
+                    );
+                }
+              },
             );
             if (input.abortSignal?.aborted) {
               // Bash gets a bounded chance to report its own proven result after

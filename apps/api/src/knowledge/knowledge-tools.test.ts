@@ -21,6 +21,7 @@ import {
   type ToolResult,
   type ToolContext,
 } from '../tools/types';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 const binding: KnowledgeFilesystemBinding = {
   id: '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
@@ -61,6 +62,7 @@ function context(
   return {
     userId: 'owner-a',
     chatId: 'chat-a',
+    permissionPolicy: compileTestPermissionPolicy(),
     tenantDb: {
       runAs: () => Promise.reject(new Error('not used')),
     },
@@ -99,6 +101,7 @@ function multiSpaceContext(
   return {
     userId: 'owner-a',
     chatId: 'chat-a',
+    permissionPolicy: compileTestPermissionPolicy(),
     tenantDb: { runAs: () => Promise.reject(new Error('not used')) },
     knowledgeResolver: {
       listForOwnerPage: vi.fn(() => Promise.resolve({ spaces })),

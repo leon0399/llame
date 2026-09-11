@@ -8,6 +8,9 @@ import {
 } from '@workspace/runtime-safety';
 import { runTool } from './runner';
 import { type Tool, type ToolContext } from './types';
+import { compileToolPermissionMap } from './permissions/compile-permissions';
+import { type ToolPermissionMap } from './permissions/types';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 function fakeContext(userId = 'user-A'): ToolContext {
   const tenantDb: TenantRunner = {
@@ -18,6 +21,7 @@ function fakeContext(userId = 'user-A'): ToolContext {
     userId,
     chatId: 'chat-1',
     tenantDb,
+    permissionPolicy: compileTestPermissionPolicy(['echo']),
   };
 }
 
@@ -335,4 +339,180 @@ describe('runTool', () => {
     const result = await runTool(tool, { value: 'x' }, fakeContext(), 15);
     expect(result).toMatchObject({ status: 'success', truncated: true });
   });
+});
+
+describe('runTool permission gate', () => {
+  const policyFor = (map: ToolPermissionMap) =>
+    compileToolPermissionMap(map, 'test-policy');
+
+  const contextWith = (map: ToolPermissionMap): ToolContext => ({
+    ...fakeContext(),
+    permissionPolicy: policyFor(map),
+  });
+
+  const contextWithoutPolicy: ToolContext = {
+    userId: 'user-A',
+    chatId: 'chat-1',
+    tenantDb: {
+      runAs: () => Promise.reject(new Error('tenant DB is not used')),
+    },
+  };
+
+  const EXPLICIT_REJECT =
+    'Tool call rejected before execution by operator permissions. A reject rule matched. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.';
+  const NO_ALLOW =
+    'Tool call rejected before execution by operator permissions. No allow rule permits this call. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.';
+  const INVALID_FIELD =
+    'Tool call rejected before execution by operator permissions. The configured permission rule is incompatible with this tool. Do not retry this call or change permission settings yourself. Report the configuration problem to the user and continue with other permitted work. In-run approval is unavailable.';
+  const INPUT_LIMIT =
+    'Tool call rejected before execution by operator permissions. The submitted input exceeds the permission inspection limit. Do not retry unchanged or evade a reject by splitting, encoding, switching tools, or delegating. A smaller request may be submitted only as independently permitted work. In-run approval is unavailable; explain any blocked required step to the user.';
+
+  it('fails closed when no trusted policy is supplied', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const, value: 'x' }));
+    const tool: Tool = { ...echoTool, execute };
+    const result = await runTool(tool, { value: 'x' }, contextWithoutPolicy, 5);
+    expect(result).toEqual({
+      status: 'error',
+      type: 'permission_denied',
+      message: NO_ALLOW,
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('does not invoke the executor for a rejected call', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const, value: 'x' }));
+    const tool: Tool = { ...echoTool, execute };
+    const result = await runTool(
+      tool,
+      { value: 'blocked' },
+      contextWith({
+        echo: { allow: true, reject: [{ field: 'value', literal: 'blocked' }] },
+      }),
+      5,
+    );
+    expect(result).toMatchObject({ type: 'permission_denied' });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('matches submitted values, not schema defaults', async () => {
+    const tool: Tool = {
+      ...echoTool,
+      inputSchema: z.object({ value: z.string().default('default') }).strict(),
+    };
+    const result = await runTool(
+      tool,
+      {},
+      contextWith({
+        echo: { allow: true, reject: [{ field: 'value', literal: 'default' }] },
+      }),
+      5,
+    );
+    expect(result).toMatchObject({ status: 'success' });
+  });
+
+  it('matches submitted values, not transform output', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const tool: Tool = {
+      ...echoTool,
+      inputSchema: z
+        .object({ value: z.string().transform((value) => value.toUpperCase()) })
+        .strict(),
+      execute,
+    };
+    const result = await runTool(
+      tool,
+      { value: 'x' },
+      contextWith({
+        echo: { allow: true, reject: [{ field: 'value', literal: 'x' }] },
+      }),
+      5,
+    );
+    expect(result).toMatchObject({ type: 'permission_denied' });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('fires the admission callback with the decision before dispatch', async () => {
+    const order: Array<string> = [];
+    const tool: Tool = {
+      ...echoTool,
+      execute: () => {
+        order.push('execute');
+        return { status: 'success' as const };
+      },
+    };
+    await runTool(
+      tool,
+      { value: 'x' },
+      {
+        ...fakeContext(),
+        permissionPolicy: compileTestPermissionPolicy(['echo']),
+      },
+      5,
+      (decision) => {
+        order.push(`admitted:${decision.decision}`);
+      },
+    );
+    expect(order).toEqual(['admitted:allow', 'execute']);
+  });
+
+  it.each([
+    {
+      name: 'explicit_reject',
+      message: EXPLICIT_REJECT,
+      tool: echoTool,
+      args: { value: 'blocked' },
+      map: {
+        echo: {
+          allow: true,
+          reject: [{ field: 'value', literal: 'blocked' }],
+        },
+      } satisfies ToolPermissionMap,
+    },
+    {
+      name: 'no_allow',
+      message: NO_ALLOW,
+      tool: echoTool,
+      args: { value: 'x' },
+      map: {
+        echo: { allow: [{ field: 'value', literal: 'never' }] },
+      } satisfies ToolPermissionMap,
+    },
+    {
+      name: 'invalid_field',
+      message: INVALID_FIELD,
+      tool: {
+        ...echoTool,
+        id: 'mcp__demo__lookup',
+        inputSchema: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+        },
+      },
+      args: { query: 'x' },
+      map: {
+        mcp__demo__lookup: {
+          allow: [{ field: 'url', literal: 'x' }],
+        },
+      } satisfies ToolPermissionMap,
+    },
+    {
+      name: 'input_limit',
+      message: INPUT_LIMIT,
+      tool: echoTool,
+      args: { value: 'y'.repeat(1024 * 1024 + 1) },
+      map: {
+        echo: { allow: true, reject: [{ allFields: true, literal: 'X' }] },
+      } satisfies ToolPermissionMap,
+    },
+  ] as const)(
+    'uses the fixed message for $name',
+    async ({ message, tool, args, map }) => {
+      const result = await runTool(tool, args, contextWith(map), 5);
+      expect(result).toEqual({
+        status: 'error',
+        type: 'permission_denied',
+        message,
+      });
+    },
+  );
 });

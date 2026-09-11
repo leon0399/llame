@@ -14,6 +14,7 @@
  */
 
 import { streamText } from 'ai';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -186,6 +187,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
 
       noopEmbedDispatch(),
       noopQueryEmbedder(),
+      compileTestPermissionPolicy(),
     );
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'R', ${`r-${userId}@t.com`})`;

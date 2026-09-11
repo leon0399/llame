@@ -1,4 +1,5 @@
 import { bashTool } from '../tools/bash';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { nativeEditTool, nativeReadTool } from '../tools/native-files';
 import { resolveJsonSchema } from '../tools/schema-utils';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -224,6 +225,7 @@ function makeExecutionService(
     knowledgeResolver,
     embedDispatch,
     noopQueryEmbedder(),
+    compileTestPermissionPolicy(['mcp__demo__lookup']),
     dynamicToolResolver,
   );
   return {

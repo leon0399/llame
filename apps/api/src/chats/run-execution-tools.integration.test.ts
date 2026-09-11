@@ -27,6 +27,7 @@ import {
   type ToolSet,
 } from 'ai';
 import { createHash } from 'node:crypto';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -455,6 +456,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
       overrides?.embedDispatch ?? noopEmbedDispatch(),
       noopQueryEmbedder(),
+      compileTestPermissionPolicy(['mcp__offline__search', 'mcp__web__search']),
       overrides?.dynamicToolResolver,
     );
   }

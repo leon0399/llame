@@ -21,6 +21,7 @@ import {
 import { bashTool, toToolResult } from './bash';
 import { runTool } from './runner';
 import { type ToolContext } from './types';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 function testContext(
   toolCallId = 'call-1',
@@ -34,6 +35,7 @@ function testContext(
     toolCallId,
     nativeExecutorId: 'host',
     nativeDeliverySequence: 1,
+    permissionPolicy: compileTestPermissionPolicy(),
     tenantDb: {
       runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
@@ -454,6 +456,7 @@ describe('bash durable admission', () => {
       toolCallId: 'call',
       nativeExecutorId: 'host',
       nativeDeliverySequence: 1,
+      permissionPolicy: compileTestPermissionPolicy(),
       tenantDb: {
         runAs: () => Promise.reject(new Error('Database unavailable')),
       },
