@@ -2,6 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-12
 
+- Pin the Pullfrog workflow's two action references to full commit SHAs,
+  `actions/checkout` v6.1.0 and `pullfrog/pullfrog` v0.1.77, and set
+  `persist-credentials: false` on the checkout. The workflow-lint gate failed on
+  the floating `@v6` and `@v0` tags the upstream template ships: pinact rejected
+  both pins and zizmor raised `unpinned-uses` for each plus `artipacked` for the
+  persisted credential. pullfrog clears the checkout's credentials during setup
+  and authenticates git through `GIT_ASKPASS` with its own installation token,
+  so disabling persistence changes nothing for the agent run.
+
 - Add an explicit replace mode to the native `write` tool (#796): a boolean
   `replace` argument requires an existing regular file and swaps its entire
   contents atomically while preserving its permission bits. Absent or `false`
