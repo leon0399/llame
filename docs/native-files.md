@@ -128,9 +128,11 @@ is read, created, or modified.
 - `write({ path, content, replace? })` creates a new file, creating missing
   intermediate directories beneath the resolved authority root on every
   scheme, or — with `replace: true` — swaps an existing file's entire contents
-  atomically. Create mode refuses every existing target, including a dangling
-  symlink, with `file_exists` and an intermediate component that exists as a
-  regular file with `not_regular_file`. Replace mode asserts an existing
+  atomically. Create mode refuses every existing target with `file_exists` and
+  an intermediate component that exists as a regular file with
+  `not_regular_file`; on an absolute path "existing" includes a dangling
+  symbolic link, while a `kb://` locator refuses a symbolic-link component as
+  `not_found` before the target is reached. Replace mode asserts an existing
   regular file and fails an absent or dangling target with `not_found`,
   creating nothing. The flag's outcome by target existence:
 

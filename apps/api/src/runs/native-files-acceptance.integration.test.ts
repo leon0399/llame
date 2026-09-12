@@ -515,6 +515,59 @@ describe('native files through the model loop and durable worker', () => {
     expect(JSON.stringify(events)).not.toContain(knowledgeRoot);
   });
 
+  it('refuses another owner Space through the worker and mutates nothing', async () => {
+    const otherUserId = await createUser(harness.db, 'native-acceptance-other');
+    const spaces = new KnowledgeSpaceService(
+      harness.tenantDb,
+      new KnowledgeSpaceLocalResolver(knowledgeRoot),
+    );
+    const otherSpace = await spaces.provisionForOwner(otherUserId);
+    const note = join(knowledgeRoot, otherSpace.id, 'note.md');
+    await writeFile(note, 'not yours\n');
+    const locator = `kb://${otherSpace.id}/note.md`;
+    const modelId = `native-kb-other-owner-${randomUUID()}`;
+    harness.models.register(modelId, {
+      kind: 'tool-script',
+      finalText: 'Another owner Space is closed.',
+      calls: [
+        {
+          id: 'kb-other-owner',
+          name: 'write',
+          input: { path: locator, content: 'mine now\n', replace: true },
+        },
+      ],
+    });
+    const seeded = await seedAndDispatchRun(harness, {
+      userId,
+      modelId,
+      allowedTools: tools,
+    });
+    expect((await terminal(seeded.runId)).status).toBe('completed');
+    expect(await readFile(note, 'utf8')).toBe('not yours\n');
+
+    const events = await harness.tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
+    );
+    // The Space is resolved under the Run owner's own access, so another
+    // owner's identifier is one closed result and the mutation never reaches
+    // the fence: no attempt, no mutation, no host path.
+    expect(
+      events.filter((event) => event.eventType === 'native.attempt'),
+    ).toHaveLength(0);
+    const completed = events
+      .filter((event) => event.eventType === 'tool.completed')
+      .map((event) => event.payload);
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({
+      toolName: 'write',
+      output: {
+        status: 'error',
+        type: 'knowledge_space_not_found',
+      },
+    });
+    expect(JSON.stringify(events)).not.toContain(knowledgeRoot);
+  });
+
   it('does not invoke the model when another worker recovers an open kb:// replace', async () => {
     const spaces = new KnowledgeSpaceService(
       harness.tenantDb,
