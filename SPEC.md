@@ -154,14 +154,16 @@ render as recorded. See
 The scheme of `read`, `edit`, and `write`'s `path` argument selects authority.
 An operator-provided `tools.nativeExecutorId` enables host authority for
 absolute paths: reads stream bounded source windows, edits replace one exact
-unique current match, and writes create only. Host process mutations are
-serialized, including symlink aliases; other processes and external editors
-are outside that guarantee. A `kb://<space-id>/<path>[:selector]` locator
-instead resolves through the trusted Run owner's current Knowledge Space
-access on every call, under RLS, never through `tools.nativeExecutorId`. The
-three tools are advertised when the process has accepted native host authority
-or has a configured `knowledge.root`, and an absolute path on a process
-without accepted native authority fails closed with `executor_unavailable`.
+unique current match, and writes create a new file or, when the caller sets
+`replace: true`, replace an existing one's entire contents. Host process
+mutations are serialized, including symlink aliases; other processes and
+external editors are outside that guarantee. A
+`kb://<space-id>/<path>[:selector]` locator instead resolves through the
+trusted Run owner's current Knowledge Space access on every call, under RLS,
+never through `tools.nativeExecutorId`. The three tools are advertised when
+the process has accepted native host authority or has a configured
+`knowledge.root`, and an absolute path on a process without accepted native
+authority fails closed with `executor_unavailable`.
 
 The first absolute-path native call binds the Run's existing `worker_id` to
 that stable host identity; a `kb://` call never binds or requires one. Native

@@ -24,7 +24,12 @@ export type {
   DirectorySuccess,
   DirectoryFailure,
 } from "./read";
-export { editFile, createFile } from "./mutate";
+export {
+  editFile,
+  createFile,
+  replaceFile,
+  REPLACE_TARGET_MISSING_MESSAGE,
+} from "./mutate";
 export type { NativeMutateOptions } from "./mutate";
 export {
   measureNativeModelOutput,

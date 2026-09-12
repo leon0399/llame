@@ -14,6 +14,8 @@ export function isNodeError(value: unknown): value is NodeJS.ErrnoException {
 }
 
 export class NativeFileError extends Error {
+  /** `message` defaults to the type, which is what a caller that only
+   *  branches on `type` sees; a caller with wording of its own supplies it. */
   constructor(
     readonly type:
       | "invalid_path"
@@ -28,8 +30,9 @@ export class NativeFileError extends Error {
       | "outcome_unknown"
       | "executor_unavailable"
       | "directory_too_large",
+    message?: string,
   ) {
-    super(type);
+    super(message ?? type);
   }
 }
 

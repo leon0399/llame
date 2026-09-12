@@ -1,6 +1,13 @@
 import { lstatSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import postgres, { type Sql } from 'postgres';
@@ -551,6 +558,128 @@ describe('native file authority and durable effects', () => {
     ).toMatchObject({ type: 'file_exists' });
     expect(await readFile(createdPath, 'utf8')).toBe('new');
   });
+
+  it('names replace in the create refusal and rejects a non-boolean flag before dispatch', async () => {
+    // An explicit `false` is create mode, exactly like an absent flag.
+    const refused = await runTool(
+      nativeWriteTool,
+      { path, content: 'new\n', replace: false },
+      { ...context, toolCallId: randomUUID() },
+      5,
+    );
+    expect(refused).toMatchObject({ status: 'error', type: 'file_exists' });
+    expect(refused).toHaveProperty(
+      'message',
+      expect.stringContaining('replace: true'),
+    );
+    expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
+
+    // A non-boolean flag never reaches dispatch: no attempt is recorded and
+    // no file is read, created, or modified.
+    expect(
+      await runTool(
+        nativeWriteTool,
+        { path, content: 'new\n', replace: 'true' },
+        { ...context, toolCallId: randomUUID() },
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'invalid_input' });
+    expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
+    expect(
+      await tenantDb.runAs(owner, (tx) =>
+        new RunEventsRepository(tx)
+          .listByRunId(runId, owner)
+          .then((events) =>
+            events.filter((event) => event.eventType === 'native.attempt'),
+          ),
+      ),
+    ).toHaveLength(1);
+
+    const fresh = join(directory, 'fresh');
+    expect(
+      await runTool(
+        nativeWriteTool,
+        { path: fresh, content: 'new\n', replace: false },
+        { ...context, toolCallId: randomUUID() },
+        5,
+      ),
+    ).toMatchObject({ status: 'success', created: true, path: fresh });
+    expect(await readFile(fresh, 'utf8')).toBe('new\n');
+  });
+
+  it('replaces an existing file and refuses an absent target without creating one', async () => {
+    expect(
+      await runTool(
+        nativeWriteTool,
+        { path, content: 'replaced bytes\n', replace: true },
+        context,
+        5,
+      ),
+    ).toMatchObject({
+      status: 'success',
+      operation: 'write',
+      replaced: true,
+      path,
+    });
+    expect(await readFile(path, 'utf8')).toBe('replaced bytes\n');
+
+    // The mirror guard of create mode: asserting the file exists fails when it
+    // does not, and creates neither the file nor the directories above it.
+    const absent = join(directory, 'nested', 'missing');
+    const refused = await runTool(
+      nativeWriteTool,
+      { path: absent, content: 'new\n', replace: true },
+      { ...context, toolCallId: randomUUID() },
+      5,
+    );
+    expect(refused).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(refused).toHaveProperty(
+      'message',
+      expect.stringContaining('replace requires an existing file'),
+    );
+    await expect(lstat(absent)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(join(directory, 'nested'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('settles a replace before returning and replays its result without executing', async () => {
+    const args = { path, content: 'replaced\n', replace: true };
+    const result = await runTool(nativeWriteTool, args, context, 5);
+    expect(result).toMatchObject({ status: 'success', replaced: true });
+    const events = await tenantDb.runAs(owner, (tx) =>
+      new RunEventsRepository(tx).listByRunId(runId, owner),
+    );
+    expect(events.map((event) => event.eventType)).toEqual([
+      'run.started',
+      'native.attempt',
+      'native.result',
+    ]);
+    expect(events[2].payload).toEqual({
+      toolCallId: context.toolCallId,
+      result,
+    });
+    await writeFile(path, 'independently restored');
+    expect(await runTool(nativeWriteTool, args, context, 5)).toEqual(result);
+    expect(await readFile(path, 'utf8')).toBe('independently restored');
+  });
+
+  it('never executes an open replace attempt after recovery', async () => {
+    await begin({
+      deliverySequence: context.nativeDeliverySequence,
+      toolCallId: context.toolCallId!,
+      operation: 'write',
+    });
+    expect(
+      await runTool(
+        nativeWriteTool,
+        { path, content: 'replaced\n', replace: true },
+        context,
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'outcome_unknown' });
+    expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
+  });
 });
 
 describe('kb:// mutations under real owner binding', () => {
@@ -780,6 +909,124 @@ describe('kb:// mutations under real owner binding', () => {
       ),
     ).toMatchObject({ status: 'error', type: 'executor_unavailable' });
     expect(() => lstatSync(notePath(spaceId, 'stale'))).toThrow(/ENOENT/);
+  });
+
+  it('replaces an existing note under the locator envelope', async () => {
+    const target = locator(spaceId, 'note.md');
+    const result = await runTool(
+      nativeWriteTool,
+      { path: target, content: 'delta\n', replace: true },
+      context,
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      operation: 'write',
+      replaced: true,
+      path: target,
+      knowledgeSpaceId: spaceId,
+    });
+    expect(result).not.toHaveProperty('created');
+    expect(JSON.stringify(result)).not.toContain(root);
+    expect(await readFile(notePath(spaceId, 'note.md'), 'utf8')).toBe(
+      'delta\n',
+    );
+  });
+
+  it('refuses a replace whose locator leaf or parent is missing, creating nothing', async () => {
+    const missingLeaf = await runTool(
+      nativeWriteTool,
+      { path: locator(spaceId, 'missing.md'), content: 'new\n', replace: true },
+      context,
+      5,
+    );
+    expect(missingLeaf).toMatchObject({
+      status: 'error',
+      type: 'not_found',
+    });
+    expect(missingLeaf).toHaveProperty(
+      'message',
+      expect.stringContaining('replace requires an existing file'),
+    );
+    expect(() => lstatSync(notePath(spaceId, 'missing.md'))).toThrow(/ENOENT/);
+
+    expect(
+      await runTool(
+        nativeWriteTool,
+        {
+          path: locator(spaceId, 'absent/deep/note.md'),
+          content: 'new\n',
+          replace: true,
+        },
+        { ...context, toolCallId: randomUUID() },
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(() => lstatSync(notePath(spaceId, 'absent'))).toThrow(/ENOENT/);
+  });
+
+  it('keeps the selector rejection and the untouched bytes for a replace', async () => {
+    expect(
+      await runTool(
+        nativeWriteTool,
+        {
+          path: `${locator(spaceId, 'note.md')}:1-2`,
+          content: 'delta\n',
+          replace: true,
+        },
+        context,
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'invalid_selector' });
+    expect(await readFile(notePath(spaceId, 'note.md'), 'utf8')).toBe(
+      'alpha\nbeta\ngamma\n',
+    );
+  });
+
+  it('settles a replace and replays its stored result on a retry', async () => {
+    const args = {
+      path: locator(spaceId, 'note.md'),
+      content: 'delta\n',
+      replace: true,
+    };
+    const result = await runTool(nativeWriteTool, args, context, 5);
+    expect(result).toMatchObject({ status: 'success', replaced: true });
+    await writeFile(notePath(spaceId, 'note.md'), 'independently restored\n');
+    expect(await runTool(nativeWriteTool, args, context, 5)).toEqual(result);
+    expect(await readFile(notePath(spaceId, 'note.md'), 'utf8')).toBe(
+      'independently restored\n',
+    );
+  });
+
+  it('recovers an open replace attempt on another worker as outcome_unknown', async () => {
+    await tenantDb.runAs(owner, (tx) =>
+      new NativeFilesRepository(tx).begin({
+        runId,
+        userId: owner,
+        fence: { bound: false },
+        deliverySequence: context.nativeDeliverySequence,
+        toolCallId: context.toolCallId!,
+        operation: 'write',
+        path: locator(spaceId, 'note.md'),
+      }),
+    );
+    // A different runs worker picks the Run up. It never had, and never needs,
+    // an executor identity for a kb:// target.
+    expect(
+      await runTool(
+        nativeWriteTool,
+        {
+          path: locator(spaceId, 'note.md'),
+          content: 'delta\n',
+          replace: true,
+        },
+        { ...context, nativeExecutorId: undefined },
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'outcome_unknown' });
+    expect(await readFile(notePath(spaceId, 'note.md'), 'utf8')).toBe(
+      'alpha\nbeta\ngamma\n',
+    );
   });
 
   it('reports an intermediate regular file as not_regular_file', async () => {
