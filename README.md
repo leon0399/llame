@@ -18,8 +18,8 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 - Bounded tool loop: `search_conversations`, optional line-ranged
   `conversation_read`, and operator-configured Streamable HTTP MCP tools.
 - Optional native host file tools: selector-based `read`, exact `edit`, and
-  create-only `write`, with durable mutation fencing, plus host `bash` with
-  per-call literal `cwd` and additive `env`, fresh processes, and bounded
+  create-or-replace `write`, with durable mutation fencing, plus host `bash`
+  with per-call literal `cwd` and additive `env`, fresh processes, and bounded
   output. See [native file setup](docs/native-files.md).
 - Owner-scoped Markdown Knowledge Spaces: `knowledge_search` over live files
   (including uncommitted changes), plus `kb://` reads through the native

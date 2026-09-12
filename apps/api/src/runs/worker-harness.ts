@@ -66,6 +66,10 @@ type DrizzleWithClient = Db & { $client: Sql };
 
 type HarnessOverrides = {
   nativeExecutorId?: string;
+  /** Operator-configured Knowledge root, so `kb://` locators resolve in the
+   *  worker exactly as they do in production. Absent leaves the capability
+   *  unconfigured, and an absolute path fails closed as before. */
+  knowledgeRoot?: string;
   runsConcurrency?: number;
   timeoutSeconds?: number;
   heartbeatSeconds?: number;
@@ -92,6 +96,12 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
       allowed: [...(overrides?.allowedTools ?? [])],
       nativeExecutorId: overrides?.nativeExecutorId,
       permissions,
+    },
+    knowledge: {
+      ...BUILT_IN_DEFAULTS.knowledge,
+      ...(overrides?.knowledgeRoot !== undefined && {
+        root: overrides.knowledgeRoot,
+      }),
     },
     runs: {
       ...BUILT_IN_DEFAULTS.runs,

@@ -5,6 +5,8 @@ import {
   parsePathScheme,
   readFile,
   readResolvedFile,
+  replaceFile,
+  REPLACE_TARGET_MISSING_MESSAGE,
   serializeNativeModelOutput,
   type NativeReadOptions,
 } from '@workspace/native-file-tools';
@@ -24,9 +26,18 @@ type NativeCall =
       operation: 'edit';
       input: { path: string; oldText: string; newText: string };
     }
-  | { operation: 'write'; input: { path: string; content: string } };
+  | {
+      operation: 'write';
+      input: { path: string; content: string; replace?: boolean };
+    };
 
 type NativeMutationCall = Exclude<NativeCall, { operation: 'read' }>;
+
+/** Replace asserts its target exists; create mode may create one. The flag is
+ *  absent or false for every create, so only an explicit `true` replaces. */
+function replacing(call: NativeCall): boolean {
+  return call.operation === 'write' && call.input.replace === true;
+}
 
 let nativeMutations: Promise<void> = Promise.resolve();
 
@@ -68,15 +79,19 @@ async function executeKnowledge(
   rest: string,
 ): Promise<ToolResult> {
   context.abortSignal?.throwIfAborted();
-  // Reads reach the native miss handler for sibling suggestions; writes may
-  // create a missing leaf or parent. Both still prove ancestor containment.
+  // Reads reach the native miss handler for sibling suggestions; a create may
+  // create a missing leaf or parent, while a replace asserts the leaf exists.
+  // All still prove ancestor containment.
   const target = await resolveKnowledgeLocator(
     context,
     call.input.path,
     rest,
-    call.operation !== 'edit',
+    call.operation !== 'edit' && !replacing(call),
   );
-  if ('status' in target) return target;
+  if ('status' in target)
+    return replacing(call) && target.type === 'not_found'
+      ? { ...target, message: REPLACE_TARGET_MISSING_MESSAGE }
+      : target;
   if (call.operation === 'read') return readKnowledge(context, target);
   // A `const` keeps the narrowing across the closure the queue runs later.
   const mutation = call;
@@ -144,14 +159,18 @@ async function mutateKnowledge(
 }
 
 /** Runs after the attempt is durably recorded, so a refused selector or a
- *  stale delivery leaves no directories behind. */
+ *  stale delivery leaves no directories behind. A replace never creates one:
+ *  its target exists by precondition, and creating a missing parent would
+ *  contradict the assertion that failed. */
 async function settleKnowledgeMutation(
   context: ToolContext,
   call: NativeMutationCall,
   target: ResolvedKnowledgeTarget,
 ): Promise<ToolResult> {
   const blocked =
-    call.operation === 'write' ? await target.createDirectories() : undefined;
+    call.operation === 'write' && !replacing(call)
+      ? await target.createDirectories()
+      : undefined;
   if (blocked) return blocked;
   const escaped = await target.assertInsideSpace();
   if (escaped) return escaped;
@@ -230,10 +249,14 @@ function performMutation(
       reserveCodeUnits: runtime.reserveCodeUnits,
     });
   }
-  return createFile({ ...call.input, path: hostPath }, runtime.signal, {
+  const input = { path: hostPath, content: call.input.content };
+  const options = {
     displayPath: runtime.displayPath,
     reserveCodeUnits: runtime.reserveCodeUnits,
-  });
+  };
+  return replacing(call)
+    ? replaceFile(input, runtime.signal, options)
+    : createFile(input, runtime.signal, options);
 }
 
 function unknownSchemeResult(): ToolResult {
@@ -298,12 +321,20 @@ export const nativeEditTool: Tool<{
     executeNative(context, { operation: 'edit', input }),
 };
 
-export const nativeWriteTool: Tool<{ path: string; content: string }> = {
+export const nativeWriteTool: Tool<{
+  path: string;
+  content: string;
+  replace?: boolean;
+}> = {
   id: 'write',
   classification: 'write_low_risk',
-  description: `Create a new local UTF-8 file. ${MUTATE_PATH_GUIDANCE} Existing targets fail with file_exists. Use edit for changes to existing files.`,
+  description: `Create a new local UTF-8 file, or replace an existing file's entire contents with replace: true. ${MUTATE_PATH_GUIDANCE} Creating fails with file_exists when the target already exists; replacing requires an existing file and fails with not_found when there is none. Use edit for a partial change.`,
   inputSchema: z
-    .object({ path: z.string().min(1), content: z.string() })
+    .object({
+      path: z.string().min(1),
+      content: z.string(),
+      replace: z.boolean().optional(),
+    })
     .strict(),
   execute: (context, input) =>
     executeNative(context, { operation: 'write', input }),

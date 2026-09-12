@@ -13,12 +13,15 @@ import {
 } from './worker-harness';
 import { RunsRepository, RunEventsRepository } from './runs-repository';
 import { NativeFilesRepository } from './native-files-repository';
+import { KnowledgeSpaceLocalResolver } from '../knowledge/knowledge-space.local-resolver';
+import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { waitFor } from '../testing/support';
 
 describe('native files through the model loop and durable worker', () => {
   let harness: WorkerHarness;
   let userId: string;
   let directory: string;
+  let knowledgeRoot: string;
   let path: string;
   let created: string;
   const tools = ['read', 'edit', 'write', 'bash'];
@@ -26,9 +29,11 @@ describe('native files through the model loop and durable worker', () => {
   beforeAll(async () => {
     if (!process.env.TEST_DATABASE_URL)
       throw new Error('Integration database was not provisioned.');
+    knowledgeRoot = await mkdtemp(join(tmpdir(), 'native-acceptance-kb-'));
     harness = await bootWorkerHarness({
       allowedTools: tools,
       nativeExecutorId: 'native-acceptance-host',
+      knowledgeRoot,
     });
     userId = await createUser(harness.db, 'native-acceptance');
   });
@@ -45,6 +50,7 @@ describe('native files through the model loop and durable worker', () => {
   });
   afterAll(async () => {
     if (harness) await harness.close();
+    await rm(knowledgeRoot, { recursive: true, force: true });
   });
 
   function terminal(runId: string) {
@@ -135,6 +141,118 @@ describe('native files through the model loop and durable worker', () => {
     }
   });
 
+  it('replaces an existing file through the actual model tool loop', async () => {
+    const modelId = `native-replace-${randomUUID()}`;
+    harness.models.register(modelId, {
+      kind: 'tool-script',
+      finalText: 'Native replace sequence finished.',
+      calls: [
+        {
+          id: 'native-replace',
+          name: 'write',
+          input: { path, content: 'replaced bytes\n', replace: true },
+        },
+      ],
+    });
+    const seeded = await seedAndDispatchRun(harness, {
+      userId,
+      modelId,
+      allowedTools: tools,
+    });
+    expect((await terminal(seeded.runId)).status).toBe('completed');
+    expect(await readFile(path, 'utf8')).toBe('replaced bytes\n');
+
+    const events = await harness.tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
+    );
+    const matching = events.filter(
+      (event) =>
+        isRecord(event.payload) &&
+        event.payload.toolCallId === 'native-replace',
+    );
+    const types = matching.map((event) => event.eventType);
+    expect(
+      types.filter((type) =>
+        ['native.attempt', 'native.result', 'tool.completed'].includes(type),
+      ),
+    ).toEqual(['native.attempt', 'native.result', 'tool.completed']);
+    const completed = matching.find(
+      (event) => event.eventType === 'tool.completed',
+    )?.payload;
+    expect(completed).toMatchObject({
+      toolName: 'write',
+      output: {
+        status: 'success',
+        operation: 'write',
+        replaced: true,
+        path,
+      },
+    });
+    expect(
+      isRecord(completed) &&
+        isRecord(completed.output) &&
+        'created' in completed.output,
+    ).toBe(false);
+  });
+
+  it('replaces a Knowledge note through the worker without binding an executor', async () => {
+    const spaces = new KnowledgeSpaceService(
+      harness.tenantDb,
+      new KnowledgeSpaceLocalResolver(knowledgeRoot),
+    );
+    const spaceId = (await spaces.provisionForOwner(userId)).id;
+    const note = join(knowledgeRoot, spaceId, 'note.md');
+    await writeFile(note, 'alpha\nbeta\n');
+    const locator = `kb://${spaceId}/note.md`;
+    const modelId = `native-kb-replace-${randomUUID()}`;
+    harness.models.register(modelId, {
+      kind: 'tool-script',
+      finalText: 'Knowledge replace finished.',
+      calls: [
+        {
+          id: 'kb-replace',
+          name: 'write',
+          input: { path: locator, content: 'replaced\n', replace: true },
+        },
+      ],
+    });
+    const seeded = await seedAndDispatchRun(harness, {
+      userId,
+      modelId,
+      allowedTools: tools,
+    });
+    expect((await terminal(seeded.runId)).status).toBe('completed');
+    expect(await readFile(note, 'utf8')).toBe('replaced\n');
+
+    const events = await harness.tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
+    );
+    const attempt = events.find(
+      (event) => event.eventType === 'native.attempt',
+    );
+    expect(attempt?.payload).toMatchObject({
+      operation: 'write',
+      path: locator,
+    });
+    // The locator is the recorded target and the result's identity; the
+    // resolved host path never reaches the model or the event log.
+    expect(JSON.stringify(events)).not.toContain(knowledgeRoot);
+    const completed = events
+      .filter((event) => event.eventType === 'tool.completed')
+      .map((event) => event.payload);
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({
+      toolName: 'write',
+      output: {
+        status: 'success',
+        operation: 'write',
+        replaced: true,
+        path: locator,
+        knowledgeSpaceId: spaceId,
+      },
+    });
+  });
+
   it('stops the SDK loop after an unknown mutation instead of reaching the next write', async () => {
     const modelId = `native-unknown-${randomUUID()}`;
     registerScript(modelId);
@@ -164,7 +282,9 @@ describe('native files through the model loop and durable worker', () => {
     expect(names).toEqual(['read', 'edit']);
   });
 
-  it.each(['edit', 'bash'] as const)(
+  // A replace is a `write` attempt like any other: the recorded operation
+  // carries the mode-agnostic fence, so recovery must not replay it either.
+  it.each(['edit', 'write', 'bash'] as const)(
     'does not invoke the model when another host recovers an open %s attempt',
     async (operation) => {
       const modelId = `native-retry-${randomUUID()}`;

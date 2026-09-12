@@ -29,8 +29,8 @@ rather than executing a substitute.
 process validates its mount when used. Missing allowlist IDs disable the tools.
 
 `kb://` locators also serve `edit` and `write`: an exact-match edit and a
-create-only write, each fenced by the durable pre-effect attempt log and
-neither binding the Run to a worker. A write may name directories that do not
+create-or-replace write, each fenced by the durable pre-effect attempt log and
+neither binding the Run to a worker. A create may name directories that do not
 exist yet.
 
 Two Knowledge tool ids exist: `knowledge_search` scans Markdown across a Space,

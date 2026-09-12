@@ -2,6 +2,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-12
 
+- Add an explicit replace mode to the native `write` tool (#796): a boolean
+  `replace` argument requires an existing regular file and swaps its entire
+  contents atomically while preserving its permission bits. Absent or `false`
+  keeps create-only behavior byte-for-byte, so the two modes guard each other —
+  creating refuses an existing target with `file_exists`, and replacing refuses
+  an absent or dangling one with `not_found` instead of silently creating a new
+  file. Both refusal messages name the other mode. Replacement resolves an
+  absolute target through symbolic links exactly as `edit` does, requires an
+  existing leaf under a `kb://` locator without creating directories, and rides
+  the existing publication path, `kb://` resolution, and durable pre-effect
+  fence, so it grants no authority `edit` lacks and adds no classification
+  change. `edit` remains the path for a partial change. See
+  [docs/native-files.md](docs/native-files.md).
+
 - Reconcile the vendored anti-slop Oxlint plugin with upstream `dmmulroy/anti-slop`
   `c44ef22` (23 commits past the previous base). Adds `no-array-filter-map`,
   `no-reduce-accumulator-copy`, `oxc/no-accumulating-spread`, and upstream's

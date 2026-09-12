@@ -135,7 +135,7 @@ describe('native tool admission', () => {
   });
 });
 
-describe('knowledge locator reads', () => {
+describe('knowledge locator resolution', () => {
   const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
   const OTHER = '11111111-2222-4333-8444-555555555555';
   let root: string;
@@ -410,6 +410,30 @@ describe('knowledge locator reads', () => {
     );
     expect(runAsCalls).toBe(1);
   });
+
+  it('answers a replace on a missing locator leaf with the replace contract', async () => {
+    const result = await runTool(
+      nativeWriteTool,
+      {
+        path: `kb://${SPACE}/research/note.md`,
+        content: 'new\n',
+        replace: true,
+      },
+      knowledgeContext(),
+      5,
+    );
+    expect(result).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(result).toHaveProperty(
+      'message',
+      expect.stringContaining('replace requires an existing file'),
+    );
+    // Resolution ran first, so the refusal never reached the mutation fence
+    // and created no directory on the way to failing.
+    expect(runAsCalls).toBe(0);
+    await expect(
+      readFile(join(directory, 'research', 'note.md')),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
 });
 
 describe('native tool descriptions', () => {
@@ -432,5 +456,10 @@ describe('native tool descriptions', () => {
       expect(tool.description).toMatch(/kb:\/\//u);
       expect(tool.description).toMatch(/without its :range suffix/u);
     }
+    // The schema teaches the contract: the model must learn that replacing is
+    // opt-in and that a replace asserts the target exists.
+    expect(nativeWriteTool.description).toContain('replace: true');
+    expect(nativeWriteTool.description).toContain('file_exists');
+    expect(nativeWriteTool.description).toContain('not_found');
   });
 });

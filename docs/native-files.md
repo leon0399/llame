@@ -81,9 +81,10 @@ cannot rest on the model being unable to create one.
 is a directory of arbitrary files. Beyond the rules above, `kb://` targets
 follow the same regular-file, directory, selector, context, truncation, and
 mutation behavior as absolute paths, and never bind or require the Run's
-`tools.nativeExecutorId`. A `write` may name directories that do not exist
-yet; a component that exists and is not a directory fails `not_regular_file`
-and creates nothing.
+`tools.nativeExecutorId`. A create-mode `write` may name directories that do
+not exist yet; a component that exists and is not a directory fails
+`not_regular_file` and creates nothing. A replace creates no directory: its
+target must already resolve.
 
 Every successful `kb://` read, listing, or mutation carries the closed
 untrusted-content `notice`, the Space identifier, and the Space display name.
@@ -124,11 +125,29 @@ is read, created, or modified.
 - `edit({ path, oldText, newText })` replaces exactly one current match.
   Empty `newText` deletes the match. Missing or ambiguous matches fail without
   changing the file. No previous-read requirement is enforced yet.
-- `write({ path, content })` creates a new file, creating missing intermediate
-  directories beneath the resolved authority root on every scheme. Every
-  existing target, including a dangling symlink, returns `file_exists`; an
-  intermediate component that exists as a regular file returns
-  `not_regular_file` and creates nothing.
+- `write({ path, content, replace? })` creates a new file, creating missing
+  intermediate directories beneath the resolved authority root on every
+  scheme, or — with `replace: true` — swaps an existing file's entire contents
+  atomically. Create mode refuses every existing target, including a dangling
+  symlink, with `file_exists` and an intermediate component that exists as a
+  regular file with `not_regular_file`. Replace mode asserts an existing
+  regular file and fails an absent or dangling target with `not_found`,
+  creating nothing. The flag's outcome by target existence:
+
+  | Target | `replace`    | Result                                      |
+  | ------ | ------------ | ------------------------------------------- |
+  | absent | absent/false | file created, result marked `created`       |
+  | exists | absent/false | `file_exists`, bytes untouched              |
+  | exists | `true`       | contents replaced, result marked `replaced` |
+  | absent | `true`       | `not_found`, nothing created                |
+
+  Replacing an absolute path resolves a symbolic link to its target entry
+  exactly as `edit` does, preserving that file's permission bits; a `kb://`
+  target must have an existing regular-file leaf and creates no directory.
+  Empty content truncates the file to zero bytes. Each mode's refusal message
+  names the other: `file_exists` points at `replace: true`, and the replace
+  `not_found` states that omitting the flag creates a new file. Use `edit` for
+  a partial change.
 
 Knowledge identifier failures — `knowledge_space_not_found` and
 `knowledge_space_unavailable` — are specific to `kb://`. Every other path and

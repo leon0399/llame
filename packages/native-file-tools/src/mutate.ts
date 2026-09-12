@@ -42,11 +42,25 @@ type MutationSuccess = {
   path: string;
   replacements?: 1;
   created?: true;
+  replaced?: true;
   diff: string;
   content: string;
   shownRange: LineRange | null;
   truncated: boolean;
 };
+
+/** An existing target is the create mode's refusal, and the message names the
+ *  two ways forward so the caller that wanted an existing file is not left
+ *  re-deriving them from the flag it passed. */
+const FILE_EXISTS_MESSAGE =
+  "The target already exists. Pass replace: true to replace its contents, or use edit for a partial change.";
+
+/** The replace mode's refusal: the caller asserted the target exists, so the
+ *  message says what replace requires and what creating it takes. Exported
+ *  because a scheme resolver can refuse the same target before the mutation
+ *  runs, and the wording must not differ by scheme. */
+export const REPLACE_TARGET_MISSING_MESSAGE =
+  "The replace target does not exist. replace requires an existing file; omit replace to create a new file.";
 
 // A single host mutation queue also orders aliases of the same file. Reads stay independent.
 let mutations: Promise<void> = Promise.resolve();
@@ -77,7 +91,10 @@ function mutate(
     return {
       status: "error",
       type,
-      message: "The native file operation could not complete.",
+      message:
+        type === "file_exists"
+          ? FILE_EXISTS_MESSAGE
+          : "The native file operation could not complete.",
     };
   });
 }
@@ -118,7 +135,7 @@ async function publishFile(
 function describeMutation(
   input: WriteInput,
   region: { offset: number; limit: number; diff: string },
-  operation: "edit" | "write",
+  kind: "edit" | "create" | "replace",
   options: NativeMutateOptions = {},
 ): MutationSuccess {
   const displayPath = options.displayPath ?? input.path;
@@ -132,11 +149,13 @@ function describeMutation(
   });
   const result: MutationSuccess = {
     status: "success",
-    operation,
+    operation: kind === "edit" ? "edit" : "write",
     path: displayPath,
-    ...(operation === "edit"
+    ...(kind === "edit"
       ? { replacements: 1 as const }
-      : { created: true as const }),
+      : kind === "replace"
+        ? { replaced: true as const }
+        : { created: true as const }),
     diff: region.diff,
     content: read.content,
     shownRange: read.shownRange,
@@ -254,7 +273,7 @@ export function createFile(
     const result = describeMutation(
       input,
       { offset: 0, limit: 2000, diff: "" },
-      "write",
+      "create",
       { displayPath, reserveCodeUnits: options.reserveCodeUnits },
     );
     // A resolved target's directories were created by its scheme owner, one
@@ -262,6 +281,59 @@ export function createFile(
     // here would resolve through a link the owner just refused.
     if (displayPath === undefined) await createParentDirectories(input.path);
     await publishFile(input, { create: true, signal });
+    return result;
+  });
+}
+
+/**
+ * Replace publishes over a target the caller asserted exists. An absent one is
+ * the intended signal rather than an incidental filesystem failure, so it
+ * reports the replace contract instead of the generic message. An absolute
+ * path resolves through symbolic links exactly as `edit` does, so a link is
+ * replaced at the entry it points to and survives the rewrite; a resolved
+ * target was authorized as one exact entry, and following a link from it would
+ * replace another.
+ */
+async function resolveReplaceTarget(
+  path: string,
+  followSymlinks: boolean,
+): Promise<{ path: string; mode: number }> {
+  try {
+    const resolved = followSymlinks ? await realpath(path) : path;
+    const stats = await lstat(resolved);
+    if (!stats.isFile()) throw new NativeFileError("not_regular_file");
+    return { path: resolved, mode: stats.mode & 0o777 };
+  } catch (error) {
+    if (error instanceof NativeFileError) throw error;
+    if (isNodeError(error) && error.code === "ENOENT")
+      throw new NativeFileError("not_found", REPLACE_TARGET_MISSING_MESSAGE);
+    throw error;
+  }
+}
+
+export function replaceFile(
+  input: WriteInput,
+  signal?: AbortSignal,
+  options: NativeMutateOptions = {},
+): Promise<MutationSuccess | FileFailure> {
+  return mutate(async () => {
+    const displayPath = options.displayPath;
+    validateContent(input.path, "", signal);
+    const target = await resolveReplaceTarget(
+      input.path,
+      displayPath === undefined,
+    );
+    validateContent(input.path, input.content, signal);
+    const result = describeMutation(
+      input,
+      { offset: 0, limit: 2000, diff: "" },
+      "replace",
+      { displayPath, reserveCodeUnits: options.reserveCodeUnits },
+    );
+    await publishFile(
+      { path: target.path, content: input.content },
+      { create: false, mode: target.mode, signal },
+    );
     return result;
   });
 }
@@ -290,5 +362,5 @@ async function requireAbsent(path: string): Promise<void> {
     if (isNodeError(error) && error.code === "ENOENT") return;
     throw error;
   }
-  throw new NativeFileError("file_exists");
+  throw new NativeFileError("file_exists", FILE_EXISTS_MESSAGE);
 }

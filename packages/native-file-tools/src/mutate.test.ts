@@ -1,7 +1,21 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { editFile, createFile } from "./mutate";
+import {
+  createFile,
+  editFile,
+  replaceFile,
+  REPLACE_TARGET_MISSING_MESSAGE,
+} from "./mutate";
 import { readFile as readNativeFile } from "./read";
 import { measureNativeModelOutput } from "./serialization";
 
@@ -239,6 +253,176 @@ describe("native mutations resolved by a scheme owner", () => {
         { displayPath: "kb://space/link.md" },
       ),
     ).toMatchObject({ status: "error", type: "not_found" });
+    expect(await readFile(outside, "utf8")).toBe("secret\n");
+  });
+});
+
+describe("native write replace mode", () => {
+  let directory: string;
+  let path: string;
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "native-replace-"));
+    path = join(directory, "note.md");
+  });
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("replaces the whole contents of an existing file", async () => {
+    await writeFile(path, "before\nFoo\nafter\n");
+    const result = await replaceFile({ path, content: "new\n" });
+    expect(result).toMatchObject({
+      status: "success",
+      operation: "write",
+      path,
+      replaced: true,
+      diff: "",
+      content: "1: new\n",
+    });
+    expect(result).not.toHaveProperty("created");
+    expect(await readFile(path, "utf8")).toBe("new\n");
+  });
+
+  it("truncates the target with empty content", async () => {
+    await writeFile(path, "before\n");
+    expect(await replaceFile({ path, content: "" })).toMatchObject({
+      status: "success",
+      replaced: true,
+      content: "",
+      shownRange: null,
+    });
+    expect(await readFile(path, "utf8")).toBe("");
+  });
+
+  it("names the flag when creation is refused", async () => {
+    await writeFile(path, "original\n");
+    const refused = await createFile({ path, content: "other\n" });
+    expect(refused).toMatchObject({ status: "error", type: "file_exists" });
+    expect(refused).toHaveProperty(
+      "message",
+      expect.stringContaining("replace: true"),
+    );
+    expect(await readFile(path, "utf8")).toBe("original\n");
+  });
+
+  it("fails an absent target and creates neither it nor its parent", async () => {
+    const nested = join(directory, "research", "note.md");
+    const result = await replaceFile({ path: nested, content: "new\n" });
+    expect(result).toMatchObject({
+      status: "error",
+      type: "not_found",
+      message: REPLACE_TARGET_MISSING_MESSAGE,
+    });
+    await expect(lstat(nested)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(directory, "research"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("fails a dangling symbolic link and leaves it in place", async () => {
+    const dangling = join(directory, "dangling");
+    const missing = join(directory, "missing");
+    await symlink(missing, dangling);
+    expect(
+      await replaceFile({ path: dangling, content: "new\n" }),
+    ).toMatchObject({
+      status: "error",
+      type: "not_found",
+      message: REPLACE_TARGET_MISSING_MESSAGE,
+    });
+    expect((await lstat(dangling)).isSymbolicLink()).toBe(true);
+    await expect(lstat(missing)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("refuses a directory and changes no entry", async () => {
+    const target = join(directory, "folder");
+    await mkdir(target);
+    expect(await replaceFile({ path: target, content: "x" })).toMatchObject({
+      status: "error",
+      type: "not_regular_file",
+    });
+    expect((await lstat(target)).isDirectory()).toBe(true);
+  });
+
+  it("replaces the entry a symbolic link points at and keeps the link", async () => {
+    await writeFile(path, "before\n");
+    const alias = join(directory, "alias");
+    await symlink(path, alias);
+    expect(
+      await replaceFile({ path: alias, content: "after\n" }),
+    ).toMatchObject({ status: "success", replaced: true, path: alias });
+    expect((await lstat(alias)).isSymbolicLink()).toBe(true);
+    expect(await readFile(path, "utf8")).toBe("after\n");
+  });
+
+  it("preserves the target's permission bits", async () => {
+    await writeFile(path, "before\n");
+    await chmod(path, 0o640);
+    expect(await replaceFile({ path, content: "after\n" })).toMatchObject({
+      status: "success",
+    });
+    expect((await lstat(path)).mode & 0o777).toBe(0o640);
+  });
+
+  it("validates before any byte changes", async () => {
+    await writeFile(path, "original\n");
+    expect(await replaceFile({ path, content: "\ud800" })).toMatchObject({
+      type: "invalid_utf8",
+    });
+    expect(
+      await replaceFile({ path: "relative/note.md", content: "x" }),
+    ).toMatchObject({ type: "invalid_path" });
+    expect(await readFile(path, "utf8")).toBe("original\n");
+  });
+
+  it("orders a replace after a create of the same path", async () => {
+    const results = await Promise.all([
+      createFile({ path, content: "first\n" }),
+      replaceFile({ path, content: "second\n" }),
+    ]);
+    expect(results[0]).toMatchObject({ status: "success", created: true });
+    expect(results[1]).toMatchObject({ status: "success", replaced: true });
+    expect(await readFile(path, "utf8")).toBe("second\n");
+  });
+
+  it("bounds a large replace preview without truncating file bytes", async () => {
+    await writeFile(path, "before\n");
+    const content = "x\n".repeat(20_000);
+    const result = await replaceFile({ path, content });
+    expect(result).toMatchObject({
+      status: "success",
+      replaced: true,
+      truncated: true,
+    });
+    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(16_000);
+    expect(await readFile(path, "utf8")).toBe(content);
+  });
+
+  it("replaces a resolved target in place and never follows a link from it", async () => {
+    await writeFile(path, "before\n");
+    expect(
+      await replaceFile({ path, content: "after\n" }, undefined, {
+        displayPath: "kb://space/note.md",
+      }),
+    ).toMatchObject({
+      status: "success",
+      replaced: true,
+      path: "kb://space/note.md",
+    });
+    expect(await readFile(path, "utf8")).toBe("after\n");
+
+    // The owner authorized one exact entry, so a link swapped in at it must
+    // not be resolved: following it would replace the entry it points at.
+    const outside = join(directory, "outside.md");
+    await writeFile(outside, "secret\n");
+    const linked = join(directory, "linked.md");
+    await symlink(outside, linked);
+    expect(
+      await replaceFile({ path: linked, content: "leaked\n" }, undefined, {
+        displayPath: "kb://space/linked.md",
+      }),
+    ).toMatchObject({ status: "error", type: "not_regular_file" });
+    expect((await lstat(linked)).isSymbolicLink()).toBe(true);
     expect(await readFile(outside, "utf8")).toBe("secret\n");
   });
 });
