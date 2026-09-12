@@ -51,7 +51,7 @@ that capability's placement rule rather than this attached-item list.
 
 ### Requirement: The skill catalog is a frozen prefix baseline stored on the chat
 
-The proactively eligible skill catalog SHALL be classified as a frozen prefix-resident baseline with rail-resident deltas. The baseline SHALL be the `skills` prompt projection defined by `model-system-prompts`: admitted entries in code-point name order, each with name and description, plus the count of proactively eligible entries omitted. Admission SHALL retain whole entries while the cumulative UTF-8 length of name and description stays within 16 KiB; omission SHALL be disclosed through that count and remain inspectable through `read("skill://")`.
+The proactively eligible skill catalog SHALL be classified as a frozen prefix-resident baseline with rail-resident deltas. The baseline SHALL be the `skills` prompt projection defined by `model-system-prompts`: admitted entries in code-point name order, each with name and description, plus the count of proactively eligible entries omitted. Admission SHALL retain whole entries while the admitted count stays within 256 and the cumulative UTF-8 length of name and description stays within 16 KiB, so that template-owned per-entry markup cannot multiply the bound; omission SHALL be disclosed through that count and remain inspectable through `read("skill://")`.
 
 The baseline and the entries the chat was last told SHALL be persisted on the chat row under owner isolation, following the recency-digest precedent, together with the compaction identity under which the baseline was resolved. Accepted-turn preparation SHALL reuse the stored baseline while that identity matches the chat's latest compaction, or both are absent, and SHALL otherwise resolve the current catalog and start a new baseline and told state in the same accepted-turn transaction as the user message and Run. No baseline SHALL be written for a chat on an instance with no configured skill source. Package edits, model switches, and other prompt contributions SHALL NOT refresh the baseline. A transition compaction inside an already-bound Run SHALL leave that Run's bound prompt unchanged; the next accepted turn starts the refreshed baseline. Caller-supplied owner identifiers SHALL NOT authorize baseline or told-state reads or mutations.
 
@@ -112,7 +112,7 @@ Activation items SHALL use the existing canonical envelope, provenance, owner vi
 
 ### Requirement: Catalog notices announce added and removed skills on the next user turn
 
-At each accepted user turn that continues a compaction epoch, the current proactively eligible catalog, bounded as for the baseline, SHALL be compared with the chat's told state. When entries were added or removed, one `skill-catalog` item with form `notice` SHALL be persisted listing added entries with name and description and removed entries by name, telling the model to read an added skill before applying it and not to apply a removed skill's earlier instructions, and carrying a precedence statement whenever a description is present. An eligibility flip or a promotion from the omitted portion SHALL render as an add or a remove. A changed description or changed instruction content of an entry that stays advertised SHALL NOT produce a notice in this change. Notices SHALL carry only bounded metadata, never instruction bodies. The told state SHALL be updated in the same accepted-turn transaction; a retried accepted message SHALL reuse its persisted state and a rollback SHALL expose none of those writes.
+At each accepted user turn that continues a compaction epoch and whose bound model's template references the `skills` namespace, the current proactively eligible catalog, bounded as for the baseline, SHALL be compared with the chat's told state. A turn bound to a model whose template does not reference `skills` SHALL emit no catalog notice and SHALL leave the told state unchanged. When entries were added or removed, one `skill-catalog` item with form `notice` SHALL be persisted listing added entries with name and description and removed entries by name, telling the model to read an added skill before applying it and not to apply a removed skill's earlier instructions, and carrying a precedence statement whenever a description is present. An eligibility flip or a promotion from the omitted portion SHALL render as an add or a remove. A changed description or changed instruction content of an entry that stays advertised SHALL NOT produce a notice in this change. Notices SHALL carry only bounded metadata, never instruction bodies. The told state SHALL be updated in the same accepted-turn transaction; a retried accepted message SHALL reuse its persisted state and a rollback SHALL expose none of those writes.
 
 When a delta would exceed the baseline bound, one `skill-catalog` item with form `snapshot` SHALL instead state that the catalog was refreshed and earlier updates are superseded, listing the bounded current set with its omitted count; the told state SHALL then equal that snapshot. No notice SHALL be injected between model requests inside an existing Run; a removed package fails its next read under current availability and its removal is announced on the next user turn.
 
@@ -121,6 +121,12 @@ When a delta would exceed the baseline bound, one `skill-catalog` item with form
 - **WHEN** one skill is added and another removed after a user turn in the same epoch
 - **THEN** the next user turn carries one notice naming the addition with its description and the removal by name
 - **AND** the immutable effective-context receipt retains the frozen baseline while the executed-context record captures the notice
+
+#### Scenario: Template opts out of the catalog
+
+- **WHEN** a skill is added while the chat's bound model uses a template that never references `skills`
+- **THEN** no catalog notice is emitted and the told state is unchanged
+- **AND** after a switch to a model whose template renders the catalog, the next turn announces the additions since the baseline
 
 #### Scenario: Description changes without membership change
 
