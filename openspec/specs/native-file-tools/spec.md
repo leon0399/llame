@@ -3,8 +3,8 @@
 ## Purpose
 
 Provides one bounded native file interface for local coding and file-backed
-Knowledge work, with exact edits, create-only writes, selector-based reads, and
-future source/type extensions behind one result shape.
+Knowledge work, with exact edits, create-or-replace writes, selector-based
+reads, and future source/type extensions behind one result shape.
 
 ## Requirements
 
@@ -413,15 +413,52 @@ is required in this iteration.
 - **THEN** the first call applies
 - **AND** the second call observes the changed bytes and fails without overwriting the first result
 
-### Requirement: Write creates only
+### Requirement: Write creates or explicitly replaces
 
-`write` SHALL create a new regular file when the target is absent, creating
-missing intermediate directories beneath the resolved authority root on every
-scheme. It SHALL fail with `file_exists` when the target already exists,
-regardless of the provided content, and with `not_regular_file` when an
-intermediate path component exists and is not a directory. It SHALL validate UTF-8 content and enforce shared output limits. Native file size
-SHALL NOT be restricted by the legacy Knowledge byte limit. It SHALL leave the
-existing file unchanged on every failure.
+`write` SHALL accept `path`, `content`, and a boolean `replace` argument;
+absent or `false` SHALL select create-only, `true` SHALL select replace mode,
+and every other type SHALL be rejected by the input schema before dispatch and
+in production before any mutation. In create mode it SHALL create a new regular
+file when the target is absent, creating missing intermediate directories
+beneath the resolved authority root on every scheme. It SHALL fail with
+`file_exists` when the target already exists, regardless of the provided
+content, and with `not_regular_file` when an intermediate path component
+exists and is not a directory. Create mode SHALL otherwise behave exactly as
+before this change.
+
+In replace mode (`replace: true`) `write` SHALL require the target to exist as
+a regular file at validation time and SHALL replace its entire contents
+atomically. A target that is absent, or that is deleted by an uncoordinated
+external process after validation and before publication, SHALL fail with
+`not_found` under the host-ordering guarantee and SHALL create no file under
+it; no guarantee beyond that boundary is made, and a widening race is the
+specified behavior, identical in kind to `edit` today. A replace target that
+is a directory SHALL fail with `not_regular_file` and change nothing. On an
+absolute path, a symbolic link at
+the target SHALL resolve to and replace its target entry exactly as `edit`
+does, and a dangling symbolic link SHALL fail with `not_found`; on a `kb://`
+locator, the target SHALL resolve with the leaf required to exist, and a
+symbolic-link component SHALL fail as it does today. A successful replace
+SHALL preserve the target's existing permission bits and SHALL be marked
+`replaced`, distinct from the `created` marker of a create-mode success.
+
+Both modes SHALL validate UTF-8 content and enforce shared output limits
+before any byte changes, and SHALL leave the target unchanged on every
+failure. Non-boolean `replace` values SHALL fail schema validation before
+dispatch. Native file size SHALL NOT be restricted by the legacy Knowledge
+byte limit. Every result SHALL identify the target as the caller named it: the
+absolute path for an absolute path, the locator for a `kb://` write, never the
+resolved host path. The create-mode `file_exists` message SHALL name `replace`
+as the explicit path for replacing the file's contents, and the replace-mode
+`not_found` message SHALL state that `replace` requires an existing target and
+that omitting it creates a new file. Write SHALL NOT produce sibling-name
+suggestions on either failure.
+
+#### Scenario: Non-boolean replace value is rejected
+
+- **WHEN** write receives `replace` as a non-boolean value such as `"true"` or `1`
+- **THEN** the input schema rejects the call before dispatch
+- **AND** no file is read, created, or modified
 
 #### Scenario: New file is created
 
@@ -431,15 +468,67 @@ existing file unchanged on every failure.
 
 #### Scenario: Missing intermediate directories are created
 
-- **WHEN** write targets `research/2026/note.md` beneath a root where `research/` does not exist
+- **WHEN** write in create mode targets `research/2026/note.md` beneath a root where `research/` does not exist
 - **THEN** the intermediate directories and the file are created
 - **AND** an intermediate component that exists as a regular file fails with `not_regular_file` and creates nothing
 
 #### Scenario: Existing file is protected
 
-- **WHEN** write targets an existing file
+- **WHEN** write without `replace`, or with `replace: false`, targets an existing file
 - **THEN** the tool returns `file_exists`
 - **AND** it does not overwrite or truncate that file
+
+#### Scenario: Existing file is replaced by explicit replace
+
+- **WHEN** write with `replace: true` targets an existing regular file with valid bounded content
+- **THEN** the file's entire contents are the new content
+- **AND** the result is marked `replaced`, carries no `created` marker, and names the target as the caller named it
+
+#### Scenario: Replace preserves permission bits
+
+- **WHEN** write with `replace: true` targets an existing regular file with a permission mode other than the create default
+- **THEN** after the replace the file's permission bits are unchanged from before it
+
+#### Scenario: Replace on a missing target fails and creates nothing
+
+- **WHEN** write with `replace: true` targets an absent path
+- **THEN** the tool returns `not_found`
+- **AND** it creates no file and no intermediate directory, and the message states that `replace` requires an existing target and that omitting it creates a new file
+
+#### Scenario: Replace on a dangling symbolic link fails
+
+- **WHEN** write with `replace: true` targets a dangling symbolic link on an absolute path
+- **THEN** the tool returns `not_found`
+- **AND** the link is left unchanged and nothing is created
+
+#### Scenario: Replace resolves a symbolic link like edit
+
+- **WHEN** write with `replace: true` targets an absolute symbolic link to an existing regular file
+- **THEN** the link's target file's contents are replaced
+- **AND** the link remains a link to that file
+
+#### Scenario: Replace on a directory fails
+
+- **WHEN** write with `replace: true` targets an existing directory
+- **THEN** the tool returns `not_regular_file`
+- **AND** it does not create, rename, or modify any entry
+
+#### Scenario: Replace validates content before any byte changes
+
+- **WHEN** write with `replace: true` supplies content that is not valid UTF-8 or exceeds the shared output limits
+- **THEN** the tool returns the corresponding validation error
+- **AND** the existing file's bytes are unchanged
+
+#### Scenario: Replace with empty content truncates
+
+- **WHEN** write with `replace: true` supplies empty content for an existing regular file
+- **THEN** the file exists with zero bytes and the result is marked `replaced`
+
+#### Scenario: Knowledge replace follows locator authority
+
+- **WHEN** write with `replace: true` uses a `kb://` locator whose leaf file exists
+- **THEN** the file is replaced under the locator-named target with the Knowledge envelope and never the resolved host path
+- **AND** a locator whose leaf or any parent directory is missing returns `not_found` and creates nothing
 
 ### Requirement: Native mutations have a durable pre-effect fence
 

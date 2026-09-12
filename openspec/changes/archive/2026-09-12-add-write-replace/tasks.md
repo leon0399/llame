@@ -26,5 +26,5 @@ master
 
 ## 2. finalize
 
-- [ ] 2.1 Sync the `native-file-tools` delta with `$openspec-sync-specs`, including the capability Purpose wording ("create-only writes" → create-or-replace); verify strict `openspec validate --specs --strict` and `openspec validate --all --strict` pass with `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
-- [ ] 2.2 Confirm every task above is checked and `openspec status --change add-write-replace --json` reports completion, then archive with `$openspec-archive-change`; verify the archived change preserves the checked task history.
+- [x] 2.1 Sync the `native-file-tools` delta with `$openspec-sync-specs`, including the capability Purpose wording ("create-only writes" → create-or-replace); verify strict `openspec validate --specs --strict` and `openspec validate --all --strict` pass with `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [x] 2.2 Confirm every task above is checked and `openspec status --change add-write-replace --json` reports completion, then archive with `$openspec-archive-change`; verify the archived change preserves the checked task history.
