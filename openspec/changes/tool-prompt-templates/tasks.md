@@ -1,48 +1,53 @@
-## 1. Proposal and delivery prerequisites
+## 1. Proposal prerequisites
 
 Delivery uses `$gh-stack` and, after proposal approval,
-`$openspec-apply-change`. The exact stack is:
+`$openspec-apply-change`. The intended stack is:
 
 ```text
 master
   <- tool-prompt-templates/proposal
-  <- tool-prompt-templates/source-bindings
+  <- tool-prompt-templates/runtime-context
   <- tool-prompt-templates/templates
   <- tool-prompt-templates/finalize
 ```
 
-The proposal layer owns only these OpenSpec artifacts. Source-bindings owns
-immutable source-contract metadata and worker verification. Templates owns the
-complete configuration/rendering feature and closes the eventual tracking issue.
-Finalize owns canonical spec sync, completion records, and archive. Create
-implementation branches only after approval of the reviewed proposal revision.
+The proposal layer owns only these OpenSpec artifacts. Runtime-context owns
+worker resolution, attempt lifecycle, system-only receipts, minimal committed
+availability state, and coordinated storage cutover. Templates owns file
+configuration, shared rendering, and conditional guidance. Finalize owns
+canonical spec sync and archive. Implementation branches require approval of
+the reviewed proposal; publication and merging require separate authority.
 
-- [ ] 1.1 On the proposal layer, link a tracking issue before publication and implementation; verify its acceptance matches D1-D6 and identify the templates layer as the issue-closing owner.
-- [ ] 1.2 On the proposal layer, review the complete draft independently, validate it with `openspec validate tool-prompt-templates --strict`, Markdown lint, formatting, and diff checks; obtain approval of the reviewed revision before application.
-- [ ] 1.3 Before source-bindings, reconcile any newly landed tool-search or skill-context changes with D3-D4 and confirm native blockers; verify the checked-out branch/base with `gh stack view --json`.
+- [ ] 1.1 Link this change to the worker-binding decisions in #319 and establish the feature's tracking linkage before publication; verify the acceptance criteria reflect D1-D6 without persisted executable catalogs.
+- [ ] 1.2 Review the complete draft with at least two independent reviewers and resolve verified substantive findings; run strict OpenSpec validation, Markdown lint, formatting, and diff checks, then obtain Leo's approval of the reviewed revision.
+- [ ] 1.3 Before implementation, inspect the current stack/base and reconcile newly landed tool-search or skill-context work; verify neither can reintroduce stored tool definitions or failed-attempt context.
 
-## 2. Source-bindings layer
+## 2. Runtime-context layer
 
-- [ ] 2.1 Add private canonical source-declaration hashes to snapshot input, persistence, equality, and content identity, including an explicit empty map for new Runs; verify equal rendered content with different source contracts does not reuse a snapshot.
-- [ ] 2.2 Generate an additive migration preserving nullable metadata on historical rows and existing forced RLS/owner binding; verify fresh and upgraded test databases, historical receipt reads, and negative cross-owner snapshot access.
-- [ ] 2.3 Bind code-owned executors using their exact id, schema, source hash, classification, and existing native gates while sending stored descriptions; verify queued/retried Runs preserve rendered text and missing/extra/malformed source bindings or schema/source drift fail before provider I/O.
-- [ ] 2.4 Preserve MCP full-declaration matching and unavailable-executor behavior; verify server description/schema drift and disconnects do not gain the code-owned wording exception.
-- [ ] 2.5 Verify the source-bindings layer with API lint, typecheck, coverage, integration tests, build, migration checks, Markdown lint, formatting, and diff checks; use publication authority and the ready-PR monitoring contract before advancing its delivery state.
+- [ ] 2.1 Move effective prompt/catalog preparation from API acceptance into the executing worker; preserve accepted user/model/effort identity and single-flight. Test delayed execution, changed owner settings, a removed selected model, API-only operation without prompt mounts, and equivalent co-located/dedicated workers.
+- [ ] 2.2 Add a fresh claim/reclaim attempt identity and tenant-scoped fencing for receipts, invocation admission, and final publication. Test stale workers after reclaim, competing completion, owner isolation, and existing native uncertain-effect recovery; fresh rendering must not authorize replay of a possibly executed mutation.
+- [ ] 2.3 Replace combined snapshots with immutable system-only receipts per prepared attempt and minimal successful-turn id/state records. Generate a migration with forced RLS that preserves chats/system text, converts only observed successful historical availability, and removes catalog/schema/description/combined-hash storage. Test fresh/upgraded databases, empty versus unobserved state, tenant denial, and absence of catalog payloads in tables, events, metadata, and queue messages.
+- [ ] 2.4 Bind native tools to trusted runtime id/schema/classification/executor authority and MCP tools to admitted in-memory source declarations. Test native identity rejection, MCP disconnect/schema/description drift within an attempt, and fresh discovery on retry without reconstructing tools from receipts.
+- [ ] 2.5 Stage attempt-generated reminders and compare current availability with the preceding successful turn. Atomically publish only the winning assistant/context parts, injected-item record, id/state baseline, and Run completion. Test failure after preparation, cancellation, terminal failure, worker handoff, unchanged ids/states with changed descriptions, and the failed-unavailable/retried-available example.
+- [ ] 2.6 Keep failed-attempt output for operational/UI purposes only and exclude it from retry input, later model history, recall, and compaction. Test mixed successful/failed tool calls inside a successful attempt separately from whole-attempt failure, preserving original user parts and committed order.
+- [ ] 2.7 Stage digest baseline/told-set/appends and compaction-derived context state with the winning attempt; recheck sharing before provider I/O and account for actual disclosure through either prompt surface. Test failed initialization, stale epoch publication, consent changes before/after preparation, tool-only digest rendering, and unchanged temporal-anchor semantics.
+- [ ] 2.8 Preserve same-attempt compaction's in-memory prompt/declarations. For later transition compaction, use the successful source model/effort and system receipt without tool declarations; test actual request-size budgeting, tool execution disabled, failed-history exclusion, and no historical-catalog reconstruction.
+- [ ] 2.9 Adapt receipt API, generated clients, and the existing receipt UI to owner-scoped system-only attempt receipts, including pending/not-produced states. Test queued owned Run versus non-owner 404, immutable failed/successful receipts, no tool payloads/private paths, and existing UI inspection flows.
+- [ ] 2.10 Verify this layer with relevant API/web lint, typecheck, unit/coverage, database integration, built-runtime, and receipt UI tests; run migration and OpenAPI consistency checks. Document backup, acceptance pause/drain, coordinated API/worker cutover, and backup-required rollback without resetting live chats.
 
 ## 3. Templates layer
 
-- [ ] 3.1 Move all seven llame-owned descriptions to packaged Markdown assets and remove their inline source strings; verify production build output contains every file and baseline descriptions preserve their content before intentional conditional guidance edits.
-- [ ] 3.2 Add `tools.promptFiles` and `models[].toolPromptFiles` configuration/schema/loading using the existing prompt loader; verify per-key precedence, null/empty maps, shared relative paths, restart behavior, disabled/shadowed validation, and rejection of missing files, unknown ids, MCP ids, and wildcard keys.
-- [ ] 3.3 Extend the shared validator and projection with conditional-only exact tool predicates and reuse every existing variable/sanitizer; verify all current projection kinds in both prompt surfaces, configured-offline MCP predicates, unknown native ids, traversal, direct emission, iteration restrictions, and non-recursive owner values.
-- [ ] 3.4 Admit candidates before rendering, then construct final declarations and availability hashes from one per-Run context; verify system/description predicates agree and two concurrent owners cannot share rendered text through the registry or caches.
-- [ ] 3.5 Add startup probes and atomic runtime empty-render rejection; verify a mixed-tool case that passes startup diagnostics commits no user message, snapshot binding, or Run and makes no provider call.
-- [ ] 3.6 Gate existing cross-tool description advice, including Bash-to-edit and search-to-conversation-read; verify present/absent branches preserve independent safety and bounded-result statements without changing tool-result producers.
-- [ ] 3.7 Exercise API acceptance through worker execution and receipt retrieval with owner/model/catalog changes, delayed execution, permitted retry, and operator-file reload; verify exact rendered text, matching final hashes, no private path/source-map disclosure, and negative owner isolation.
-- [ ] 3.8 Update configuration examples, schema authoring documentation, operator cutover/restart instructions, and changelog; verify examples load with real prompt files and document the source-bindings drain/rollback procedure without resetting user data.
-- [ ] 3.9 Verify the complete feature with API lint, typecheck, coverage, integration tests, build, migration checks, OpenAPI regeneration consistency, Markdown lint, formatting, and diff checks; publish only with authority, then self-review and complete ready-PR monitoring. This layer closes the tracking issue after its full acceptance is satisfied.
+- [ ] 3.1 Move all seven llame-owned descriptions to Markdown and remove their inline strings. Change the Nest asset glob to `prompts/**/*.md` and extend `prompt-built-runtime.contract.ts` to render all seven from built output; compare default text before intentional guidance changes.
+- [ ] 3.2 Add `tools.promptFiles` and `models[].toolPromptFiles` using the existing prompt loader. Test per-tool precedence, null/absent entries, empty maps, shared relative paths, shadowed/disabled-file validation, restart-only reload, and invalid/missing/MCP/wildcard override targets.
+- [ ] 3.3 Extend the shared validator/projection with conditional-only `tools.<exact-id>`; retain all existing safe model/owner/chat/temporal variables. Test known/unknown/disabled/offline targets including unconfigured MCP servers, exact provider-safe ids, traversal/prototype rejection, forbidden direct output/iteration, and non-recursive owner values.
+- [ ] 3.4 Admit the attempt catalog before rendering both surfaces from one context; keep rendered declarations only in memory. Test membership independent of permissions, shared variable sanitization, two-owner isolation, settings changed between retries, and fixed context across steps of one attempt.
+- [ ] 3.5 Separate boot syntax validation from actual nonempty-render validation. Test a valid unknown-tool conditional that does not crash worker startup and a mixed-membership empty render that fails the accepted attempt before provider I/O, without dropping a tool or deleting the accepted Run/message.
+- [ ] 3.6 Gate Bash-to-edit and search-to-conversation-read guidance and audit other migrated cross-tool advice. Test both branches and preserved safety/result bounds; do not modify tool-result producers, argument schemas, or opaque MCP descriptions.
+- [ ] 3.7 Update config schema/examples, template variable documentation, operator restart/cutover procedures, receipt limitations, and changelog. Load examples against real files and verify no new feature-check namespace or historical tool-description inspection claim.
+- [ ] 3.8 Verify the integrated feature with focused tests plus repository lint, typecheck, coverage/integration checks, sequential API and affected web builds, OpenAPI consistency, strict OpenSpec validation, Markdown lint, formatting, and diff checks. Publish only with authority, then complete self-review and the repository's ready-PR monitoring contract.
 
 ## 4. Finalize layer
 
-- [ ] 4.1 After implemented layers pass their checks and delivery gates, run `$openspec-sync-specs` for the four capability deltas; verify no existing scenarios were lost and strict spec/all validation passes.
-- [ ] 4.2 Confirm all implementation tasks are complete and recorded, then run `$openspec-archive-change`; verify the archived proposal, design, specs, and checked tasks exist and the active change is absent.
-- [ ] 4.3 Run strict spec/all validation, Markdown lint, formatting, and diff checks on the finalize layer; verify stack bases, publication/review state, and tracking updates before handoff. Merge remains subject to Leo's explicit permission.
+- [ ] 4.1 After implementation and delivery gates pass, run `$openspec-sync-specs` for every capability present in this change; verify intended renamed/removed requirements and preservation of unrelated canonical scenarios, then run strict spec/all validation.
+- [ ] 4.2 Record completed implementation/verification tasks and run `$openspec-archive-change`; verify archived artifacts exist and the active change is absent.
+- [ ] 4.3 Run strict spec/all validation, Markdown lint, formatting, and diff checks on the finalize layer; verify stack bases and tracking/publication state before handoff. Merge remains subject to Leo's explicit permission.

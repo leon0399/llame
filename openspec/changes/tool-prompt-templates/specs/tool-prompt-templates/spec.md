@@ -1,155 +1,146 @@
 ## Purpose
 
-Provide operator-customizable file-based descriptions for llame-owned tools,
-rendered from the same safe context as the system prompt and frozen per Run.
+Provide operator-customizable file descriptions for llame-owned tools, rendered
+with the system prompt from each worker execution attempt's safe current context.
 
 ## ADDED Requirements
 
-### Requirement: llame-owned tool descriptions are complete file templates
+### Requirement: llame-owned descriptions are complete file templates
 
-Every registered llame-owned tool SHALL have one packaged complete Markdown
-description template. The selected description SHALL use the same template
-language, context projection, escaping, omission, bounded-iteration, and
-single-pass rendering rules as system prompts. Template selection SHALL follow
-the `instance-config` tool prompt file precedence. Templates SHALL change only
-the model-facing tool description, never its id, input schema, parameter
-descriptions, classification, execution policy, or output contract. MCP-provided
-descriptions SHALL remain opaque text and SHALL NOT be evaluated as templates.
+Every registered llame-owned tool SHALL have a packaged complete Markdown
+description. System and description templates SHALL share the existing template
+language, allowed variables, neutralization, omission, bounded-iteration, and
+single-pass rendering rules. Selection SHALL follow `instance-config`
+precedence. Templates SHALL change only description text, never tool identity,
+input schemas, parameter descriptions, classification, permissions, or results.
+MCP descriptions SHALL remain opaque source-authored text.
 
-#### Scenario: Packaged descriptions cover the current registry
+#### Scenario: Packaged descriptions cover the registry
 
-- **WHEN** an instance starts without tool prompt overrides
-- **THEN** each registered llame-owned tool resolves its packaged description
-- **AND** disabling a tool does not require deleting its template
+- **WHEN** a worker starts without overrides
+- **THEN** it loads a complete packaged description for every llame-owned tool
+- **AND** its compiled runtime can load those files independently of the source tree
 
-#### Scenario: System and description share owner context
+#### Scenario: Both prompt surfaces share variables
 
-- **WHEN** both templates reference the same allowed model, owner, chat, or temporal path
-- **THEN** they receive the same resolved value and neutralization rules for that Run
-- **AND** owner text containing template syntax is emitted literally without another evaluation
+- **WHEN** the system prompt and an admitted description reference the same allowed path
+- **THEN** they receive the same resolved value and neutralization for that attempt
+- **AND** substituted template-looking owner text is never evaluated again
 
-#### Scenario: Raw settings are not exposed
+#### Scenario: MCP text is not a template
 
-- **WHEN** an operator template attempts to access a configuration record, credential, private host path, or undeclared setting
-- **THEN** startup fails with a safe configuration error
-- **AND** neither prompt kind gains access through arbitrary property traversal
+- **WHEN** an MCP description contains `{{user.email}}`
+- **THEN** it remains literal text
+- **AND** the worker does not substitute owner data into it
 
-#### Scenario: MCP description contains template syntax
+### Requirement: Tool predicates are absent-safe membership checks
 
-- **WHEN** an admitted MCP description contains `{{user.email}}`
-- **THEN** the model-facing description preserves those characters literally
-- **AND** no owner value is substituted into the server-provided text
+Both template kinds SHALL permit `tools.<exact-id>` as an `if`/`unless`
+subject. It SHALL be true exactly for an admitted declaration in the current
+attempt's worker catalog, after existing allowlist, classification, capability,
+collision, timeout, and schema admission. Every absent id SHALL be false,
+including an unknown native tool or unconfigured/undiscovered MCP tool.
+Absence SHALL NOT fail boot or initiate discovery.
 
-### Requirement: Tool predicates describe the accepted catalog
+Validate exact-id syntax and parsed path structure, not registry membership.
+Direct value emission, wildcard identity, iteration, bare `tools`, deeper
+properties, parent traversal, and prototype traversal SHALL remain invalid.
+Predicates SHALL use explicit own boolean values. No additional feature-check
+namespace SHALL be introduced. Per-call permission policy SHALL remain separate.
 
-Both system and tool templates SHALL support `tools.<exact-tool-id>` as a
-boolean subject of `if` and `unless`. A predicate SHALL be true exactly when
-that canonical id has an admitted declaration in the accepted Run catalog,
-after existing availability/admission filtering. Registered-but-disabled,
-unavailable, collision-refused, and schema-refused tools SHALL be false.
-Call-permission policy SHALL NOT affect the predicate. Execution SHALL continue
-to enforce current invocation permissions and source availability independently.
+#### Scenario: A shared template mentions an uninstalled tool
 
-Code-owned predicate names SHALL identify registered tools. MCP predicate names
-SHALL satisfy the canonical exact-id grammar and name a configured server,
-without requiring live discovery at boot. A valid but undiscovered MCP id SHALL
-be false. Wildcards, unknown code-owned names, direct value emission, iteration
-over tool predicates, the bare `tools` namespace, deeper traversal, and parent or
-prototype traversal SHALL fail template validation. Tool predicates SHALL be
-resolved from explicit own boolean properties, never source or configuration
-objects.
+- **WHEN** a valid template checks `tools.grep` and no grep tool is registered
+- **THEN** worker startup succeeds and the predicate evaluates false
+- **AND** no tool is created or enabled by the reference
 
-#### Scenario: Another admitted tool changes guidance
+#### Scenario: An MCP server is not configured
 
-- **WHEN** a Bash description guards its edit recommendation with `tools.edit`
-- **THEN** the recommendation appears exactly when `edit` is admitted to the Run
-- **AND** the system template observes the same predicate value
+- **WHEN** a predicate names a syntactically valid exact MCP id with no configured server
+- **THEN** validation succeeds and the predicate evaluates false
+- **AND** no network lookup is performed
 
-#### Scenario: Visible tool has no matching permission
+#### Scenario: Tool visibility does not grant invocation permission
 
-- **WHEN** a tool is admitted but its call-permission policy rejects every call
-- **THEN** its template predicate remains true
-- **AND** an invocation receives the existing `permission_denied` result without an effect
+- **WHEN** a tool is admitted but every call is rejected by its permission policy
+- **THEN** its predicate is true
+- **AND** invoking it still produces the existing non-fatal permission rejection
 
-#### Scenario: Remote state changes after acceptance
+#### Scenario: Predicate cannot expose source objects
 
-- **WHEN** an MCP tool disconnects after a Run is accepted with its predicate true
-- **THEN** that Run retains its prompt, descriptions, and predicate-derived wording
-- **AND** a failed invocation follows existing unavailable-tool handling
-- **AND** the next accepted Run resolves the changed catalog
+- **WHEN** a template emits `{{tools.read}}` or traverses `tools.read.description`
+- **THEN** startup fails naming the unsupported construct without prompt contents
 
-#### Scenario: Configured MCP tool is offline at startup
+### Requirement: Workers load templates at boot and render each attempt
 
-- **WHEN** a predicate names a canonical exact id for a configured offline MCP server
-- **THEN** template validation does not require a network lookup
-- **AND** the predicate is false until that id is admitted in a subsequent Run
+Run-capable processes SHALL load, validate, and compile templates at boot.
+API-only acceptance SHALL require no resolved prompt or catalog. File edits
+SHALL require restarting the executing process. Each allowed execution attempt
+SHALL freshly resolve owner variables and its worker's current admitted catalog,
+then render both prompt surfaces from one safe context. It SHALL hold the
+result in memory for that attempt's steps; another attempt SHALL resolve again.
 
-#### Scenario: Predicate cannot become an inventory or object lookup
+No tool catalog, schema, template, or rendered description SHALL be persisted
+as execution context in the database, queue, receipts, events, or context
+metadata. System-only receipts and the minimal committed-turn availability
+record defined by the related capabilities SHALL be the permitted persistence.
+Ordinary tool calls/results and authored system/reminder text SHALL retain their
+existing history/operational roles.
 
-- **WHEN** a template emits `{{tools.read}}`, iterates `tools`, or traverses `tools.read.description`
-- **THEN** startup fails naming the offending construct without prompt contents
+Syntax and structural validation SHALL occur at boot. Templates without tool
+predicates SHALL retain existing empty-render probes. For tool-aware templates,
+probe emptiness caused by absent tools SHALL NOT reject startup; actual attempt
+rendering SHALL require a non-empty system prompt and every admitted
+description. A failed render SHALL fail preparation before provider I/O without
+silently falling back, removing a tool, or rerendering a smaller catalog.
+Diagnostics SHALL contain only safe field/model/tool identifiers and static
+reasons, never prompt contents, owner values, or private host paths.
 
-### Requirement: Rendered descriptions bind atomically with the system prompt
+#### Scenario: Queue delay changes owner inputs
 
-The system SHALL determine admitted membership before rendering either prompt
-surface and SHALL render both from one owner-scoped context. It SHALL compute
-declaration hashes, available-entry hashes, and effective-context hashes from
-the final rendered descriptions. It SHALL persist those descriptions with the
-system prompt in the accepted Run's immutable snapshot, before provider I/O.
-Retries and delayed execution SHALL reuse those strings without rereading files,
-owner settings, digest state, or catalogs. Rendering SHALL NOT mutate a shared
-registry or reuse another owner's rendered text.
+- **WHEN** an owner changes personalization after scheduling but before execution
+- **THEN** the worker renders that attempt using the current owner projection
+- **AND** both prompt surfaces agree on it
 
-Startup SHALL validate syntax, paths, file contents, and the existing
-owner/digest render probes with both absent and present referenced tools. A
-description's own predicate SHALL be true in its boot probes. Actual Run
-acceptance SHALL independently reject an empty system prompt or admitted tool
-description. A render failure SHALL reject the entire acceptance atomically,
-with no partial user message, Run, snapshot binding, or provider request. It
-SHALL NOT remove a tool and rerender remaining descriptions. Errors SHALL reveal
-only the model/tool id, configuration field, and a safe static reason; they
-SHALL NOT reveal source or rendered prompt contents, owner values, or host paths.
+#### Scenario: Retry uses a different worker
 
-#### Scenario: Two owners share template files
+- **WHEN** an infrastructure retry starts on a worker with newer boot-loaded templates or a different current catalog
+- **THEN** it freshly resolves and renders its own attempt context
+- **AND** it neither reads a persisted tool catalog nor reuses failed-attempt model context
 
-- **WHEN** two owners concurrently accept Runs using one model and the same files
-- **THEN** each snapshot contains only its owner's projected values
-- **AND** neither owner can retrieve the other's snapshot or rendered descriptions
+#### Scenario: File edit without restart
 
-#### Scenario: Override changes after acceptance
+- **WHEN** an operator edits a template while its worker remains running
+- **THEN** that worker retains its boot-loaded source
+- **AND** a restarted worker uses the new valid source on its next attempt
 
-- **WHEN** an operator edits a description file and restarts processes after a Run is accepted
-- **THEN** that Run and any permitted retry use its stored description
-- **AND** newly accepted Runs use the reloaded template
+#### Scenario: Empty real render fails the attempt
 
-#### Scenario: A mixed tool combination renders empty
+- **WHEN** a syntactically valid tool-aware template renders empty for the actual membership
+- **THEN** preparation fails before provider I/O
+- **AND** the scheduled user message and Run remain recorded
+- **AND** no availability baseline or canonical attempt context is published
 
-- **WHEN** a template passes the none/all boot probes but renders empty for the actual admitted tool combination
-- **THEN** acceptance fails before any user message or Run is committed
-- **AND** the system neither falls back to another file nor advertises a partial catalog
+#### Scenario: Two owners share one template
 
-#### Scenario: Rendered description hashes are consistent
+- **WHEN** two owners execute concurrently with the same model and files
+- **THEN** each attempt uses only its own projected values
+- **AND** neither rendered descriptions nor runtime catalogs are shared through a mutable registry/cache
 
-- **WHEN** owner values or tool predicates change the description for a new Run
-- **THEN** the declaration, tool hash, content hash, and available-entry declaration hash describe the rendered text
-- **AND** declaration-only drift does not create an availability transition reminder
+### Requirement: Packaged cross-tool guidance follows membership
 
-### Requirement: Packaged cross-tool advice follows tool predicates
-
-Packaged description guidance that recommends invoking another tool SHALL be
-conditional on that tool's predicate. Omitting a recommendation SHALL preserve
-the description's independent safety and result-limit statements. This rule
-SHALL cover Bash's preference for native edit and conversation search's
-recommendation to inspect a result with `conversation_read`.
+Packaged descriptions recommending another tool SHALL gate that recommendation
+on its predicate while preserving independent safety and result-limit text.
+This SHALL include Bash-to-edit and search-to-conversation-read advice.
 
 #### Scenario: Reader is absent
 
-- **WHEN** conversation search is admitted and `conversation_read` is not
-- **THEN** the search description does not recommend invoking the absent reader
-- **AND** it still identifies search excerpts as bounded, untrusted context
+- **WHEN** search is admitted and `conversation_read` is absent
+- **THEN** its description omits the reader invocation recommendation
+- **AND** it still identifies search excerpts as bounded and untrusted
 
-#### Scenario: Edit is available again
+#### Scenario: Edit is available in a retry
 
-- **WHEN** a later accepted Run admits both Bash and edit
-- **THEN** the Bash description includes its native-edit recommendation
-- **AND** the earlier Run's description stays unchanged
+- **WHEN** a fresh retry admits edit alongside Bash
+- **THEN** that retry's Bash description includes the edit recommendation
+- **AND** the failed attempt supplies no earlier description or reminder to its model context
