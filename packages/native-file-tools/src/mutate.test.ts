@@ -353,11 +353,35 @@ describe("native write replace mode", () => {
   it("refuses a directory and changes no entry", async () => {
     const target = join(directory, "folder");
     await mkdir(target);
-    expect(await replaceFile({ path: target, content: "x" })).toMatchObject({
+    const refused = await replaceFile({ path: target, content: "x" });
+    expect(refused).toMatchObject({
       status: "error",
       type: "not_regular_file",
     });
+    // The replace contract answers a missing target only; another refusal must
+    // not claim the target is absent.
+    expect(refused).not.toHaveProperty(
+      "message",
+      expect.stringContaining("replace requires"),
+    );
     expect((await lstat(target)).isDirectory()).toBe(true);
+  });
+
+  it("leaves the generic wording on a create that cannot resolve", async () => {
+    await symlink(join(directory, "missing"), join(directory, "linked"));
+    expect(
+      await createFile({
+        path: join(directory, "linked", "note.md"),
+        content: "x\n",
+      }),
+    ).toMatchObject({
+      status: "error",
+      type: "not_found",
+      message: "The native file operation could not complete.",
+    });
+    await expect(lstat(join(directory, "missing"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("replaces the entry a symbolic link points at and keeps the link", async () => {
