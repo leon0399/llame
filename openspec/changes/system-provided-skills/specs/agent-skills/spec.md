@@ -74,7 +74,7 @@ The system SHALL recognize exact `$skill-name` tokens in user-authored text outs
 
 - **WHEN** the user sends `$review` and `review` is manual-only
 - **THEN** its instructions are loaded through the same read admission with `review` in the turn's selection set
-- **AND** a model-initiated `skill://review` read on a later turn without that selection is refused
+- **AND** a model-initiated `skill://review/references/checklist.md` read during that Run succeeds with the same selection set, while the same read on a later turn without the mention is refused
 
 #### Scenario: Example text is not an activation
 
