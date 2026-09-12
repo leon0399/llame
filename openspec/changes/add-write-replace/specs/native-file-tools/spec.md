@@ -7,8 +7,10 @@
 
 ### Requirement: Write creates or explicitly replaces
 
-`write` SHALL accept `path`, `content`, and a boolean `replace` argument; absent
-or `false` SHALL mean create-only. In create mode it SHALL create a new regular
+`write` SHALL accept `path`, `content`, and a boolean `replace` argument;
+absent or `false` SHALL select create-only, `true` SHALL select replace mode,
+and every other type SHALL be rejected by the input schema before dispatch and
+in production before any mutation. In create mode it SHALL create a new regular
 file when the target is absent, creating missing intermediate directories
 beneath the resolved authority root on every scheme. It SHALL fail with
 `file_exists` when the target already exists, regardless of the provided
@@ -17,10 +19,14 @@ exists and is not a directory. Create mode SHALL otherwise behave exactly as
 before this change.
 
 In replace mode (`replace: true`) `write` SHALL require the target to exist as
-a regular file and SHALL replace its entire contents atomically. A missing
-target SHALL fail with `not_found` and SHALL create no file and no intermediate
-directory. A replace target that is a directory SHALL fail with
-`not_regular_file` and change nothing. On an absolute path, a symbolic link at
+a regular file at validation time and SHALL replace its entire contents
+atomically. A target that is absent, or that is deleted by an uncoordinated
+external process after validation and before publication, SHALL fail with
+`not_found` under the host-ordering guarantee and SHALL create no file under
+it; no guarantee beyond that boundary is made, and a widening race is the
+specified behavior, identical in kind to `edit` today. A replace target that
+is a directory SHALL fail with `not_regular_file` and change nothing. On an
+absolute path, a symbolic link at
 the target SHALL resolve to and replace its target entry exactly as `edit`
 does, and a dangling symbolic link SHALL fail with `not_found`; on a `kb://`
 locator, the target SHALL resolve with the leaf required to exist, and a
@@ -30,14 +36,21 @@ SHALL preserve the target's existing permission bits and SHALL be marked
 
 Both modes SHALL validate UTF-8 content and enforce shared output limits
 before any byte changes, and SHALL leave the target unchanged on every
-failure. Native file size SHALL NOT be restricted by the legacy Knowledge byte
-limit. Every result SHALL identify the target as the caller named it: the
+failure. Non-boolean `replace` values SHALL fail schema validation before
+dispatch. Native file size SHALL NOT be restricted by the legacy Knowledge
+byte limit. Every result SHALL identify the target as the caller named it: the
 absolute path for an absolute path, the locator for a `kb://` write, never the
 resolved host path. The create-mode `file_exists` message SHALL name `replace`
 as the explicit path for replacing the file's contents, and the replace-mode
 `not_found` message SHALL state that `replace` requires an existing target and
 that omitting it creates a new file. Write SHALL NOT produce sibling-name
 suggestions on either failure.
+
+#### Scenario: Non-boolean replace value is rejected
+
+- **WHEN** write receives `replace` as a non-boolean value such as `"true"` or `1`
+- **THEN** the input schema rejects the call before dispatch
+- **AND** no file is read, created, or modified
 
 #### Scenario: New file is created
 

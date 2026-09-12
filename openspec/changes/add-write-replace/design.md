@@ -37,8 +37,9 @@ machinery; it adds no new publication, resolution, or fencing path.
 ### D1: One boolean named `replace`; absent ≡ false
 
 `replace: true` asserts the target exists and authorizes replacing its
-contents; every other spelling of the argument (absent, `false`, non-boolean)
-is create-only, and non-boolean values fail schema validation. The two modes
+contents. The strict boolean schema rejects every other type before dispatch,
+so only absent, `false` (both create-only), and `true` (replace) reach a
+filesystem check. The two modes
 are each other's inverse guard, mirroring `open(2)`'s `O_CREAT|O_EXCL` versus
 `O_TRUNC`: create mode fails when the target exists, replace mode fails when
 it does not. The second failure is the point — a write aimed at a
@@ -106,10 +107,13 @@ the schema itself teaches the contract.
   authority (`edit`/`bash` already reach it); the explicit flag makes the
   intent auditable in the recorded attempt and result, and both guards fail
   closed on intent mismatch.
-- [External process deletes the target between the existence check and the
-  rename] → the rename recreates the file, the same documented boundary `edit`
-  has today: mutations are ordered in the host process only. Not widened;
-  restated in the docs.
+- [External process deletes or replaces the target between validation and the
+  rename] → accepted and specified: the rename recreates the file, the same
+  documented boundary `edit` has today, since mutations are ordered in the host
+  process only and no guarantee extends past that boundary. No atomic
+  identity-verifying publication primitive is built: `RENAME_EXCHANGE` is
+  Linux-only, needs a native binding, and defends only a race that is already
+  outside the shipped spec guarantee.
 - [Models may set `replace: true` reflexively, making `file_exists`→replace the
   common path] → the `file_exists` message and description keep `edit` as the
   default for partial changes; the flag is for whole-file regeneration.
