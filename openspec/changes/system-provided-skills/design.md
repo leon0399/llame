@@ -101,7 +101,7 @@ Projection contract, added to the model-system-prompts allowlist:
 
 - `skills` is gate-only. It is absent when no proactively eligible entry is admitted, so `{{#if skills}}` gates the whole section including its framing prose.
 - `skills.entries` is a collection with exactly the item fields `name` and `description`. `name` is grammar-constrained and escaped as a model-class value; `description` is operator-authored and passes the tag sanitizer like a digest item value. Entries are ordered by name in code-point order. The collection is gate-only in value position, like the digest collections.
-- `skills.omitted` is one non-iterable scalar, the count of proactively eligible entries the bound left out, escaped as a model-class value like `chats.pinnedShown`. It is a plain number, so `{{#if skills.omitted}}` is false at zero and an overflow line renders only when something was omitted.
+- `skills.omitted` is one non-iterable scalar, the count of proactively eligible entries the bound left out, projected as a raw integer like `chats.pinnedShown` rather than a wrapped string: a wrapped `"0"` is an object and therefore truthy, while the raw number makes `{{#if skills.omitted}}` false at zero, so an overflow line renders only when something was omitted.
 - The boot probe covers the cross product of the independent `user`, `chats`, and `skills` gates.
 
 The packaged default prompt gains this block after the digest section, ahead of the system-reminder explanation:
@@ -247,6 +247,7 @@ Observed 2026-09-11 unless noted. Primary-source inspection; upstream tests were
 
 ## Revision history
 
+- v10 (2026-09-12): Indent review on #803: `skills.omitted` is a raw integer, not an escaped value, so the false-at-zero gate holds.
 - v9 (2026-09-12): Codex review on #803: catalog notices and told-state updates gated on the bound model's template referencing `skills`; entry-count cap of 256 added beside the 16 KiB byte bound.
 - v8 (2026-09-12): Plannotator round 1: per-entry `<skill name>` elements, overflow-only omission line through `skills.omitted` replacing shown/total, frontmatter removed from activation bodies, and the #802 cross-reference for Bash `skill://` expansion.
 - v7 (2026-09-12): Split delivery into catalog, read, prompt, activation, and notices layers. Specified the `skills` Handlebars namespace against the shipped projection contract, moved the frozen baseline and told state onto the chat row after the digest precedent, dropped the mandatory server-rendered framing in favor of the template precedent, gave the activation and catalog notice shapes, required `:raw` activation reads, and deferred changed-entry notices.
