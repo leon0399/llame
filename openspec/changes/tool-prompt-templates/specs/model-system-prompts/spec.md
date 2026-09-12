@@ -186,7 +186,7 @@ A run's rendered prompt MAY therefore derive from **stored per-chat state** as w
 - **THEN** every probe combination supplies a representative anchor value
 - **AND** no probe exercises an absent anchor, because no run can produce one
 
-For templates with tool predicates, boot SHALL validate syntax and structure without failing merely because a referenced tool is absent. Every actual attempt SHALL reject empty effective system/description text before provider I/O under `tool-prompt-templates`. API-only acceptance SHALL not resolve prompt files or values. Frozen digest and temporal-anchor semantics SHALL remain owned by their capabilities; rendering on a new attempt does not redefine those values.
+For templates with tool predicates, boot SHALL validate syntax and structure without failing merely because a referenced tool is absent. Every actual attempt SHALL reject empty effective system/description text before target-model I/O under `tool-prompt-templates`. API-only acceptance SHALL not resolve prompt files or values. Frozen digest and temporal-anchor semantics SHALL remain owned by their capabilities; rendering on a new attempt does not redefine those values.
 
 ### Requirement: A model switch replaces the top-level prompt and preserves portable history
 
@@ -643,7 +643,7 @@ using its predecessor's receipt, catalog, or model context.
 #### Scenario: Selected model is no longer executable
 
 - **WHEN** the worker cannot resolve the queued Run's selected model or effort
-- **THEN** preparation fails before provider I/O
+- **THEN** preparation fails before target-model I/O
 - **AND** another model is not substituted
 
 #### Scenario: Render fails after scheduling

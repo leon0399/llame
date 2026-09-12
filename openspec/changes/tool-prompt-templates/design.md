@@ -176,8 +176,10 @@ persists it into canonical model history nor updates the comparison record.
 Every retry therefore compares with the same preceding committed turn, not the
 attempt it superseded. No additional cross-Run catalog cache is needed.
 
-For a fresh worker whose configured MCP source is not ready, union current
-unavailable candidates with matching ids from the previous successful record.
+For a fresh worker whose configured MCP source is not ready, supplement the
+availability-comparison input with matching ids from the previous successful
+record. This is a separate non-admissible comparison input, never a
+`TurnToolCandidate` or an input to catalog/schema/classification admission.
 An id still permitted by the current allowlist and configured source is
 unavailable, not removed; use the source's current closed reason. These ids
 never supply a schema, classification, executor, or callable declaration.
@@ -209,7 +211,7 @@ failure/partial-output UI retention is not permission to promote it as context.
 
 Attempt-owned digest initialization, appends, and pre-request transition
 refreshes follow the same successful-publication boundary. Recheck owner consent and the digest epoch
-after candidate resolution, before provider I/O. Discard new digest production
+after candidate resolution, before target-model I/O. Discard new digest production
 if that check observes withdrawal; retain existing baseline withdrawal semantics.
 Later setting changes affect later attempts and cannot undo an already prepared
 disclosure. The existing renderer returns private metadata for digest entry values actually
@@ -325,6 +327,9 @@ receipt immutability, and cross-owner denial.
 
 ## Revision history
 
+- v5 (2026-09-12): Separated historical-id availability comparison from tool
+  candidate admission and qualified target-request ordering after transition
+  summarization throughout the deltas.
 - v4 (2026-09-12): Clarified pre-request versus post-success compaction
   publication, absent-value versus empty-output validation, offline MCP
   identity comparison after worker handoff, distinct attempt receipt keys, and

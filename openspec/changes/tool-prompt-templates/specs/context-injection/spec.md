@@ -38,7 +38,7 @@ Each item SHALL occupy its **own text content block** within that message rather
   `checkpoint`, while the stored record is not a `data-context` part and replays
   without metadata reconstruction
 
-Worker-attempt contributions intended for conversation history SHALL be staged in memory before provider I/O and published in the triggering message only with successful turn completion. Failed or superseded attempts SHALL not append such parts. Legitimate accepted-message facts remain persisted-literal; accepting a user message is not publishing a failed attempt's context. Committed parts retain the exact prepared text and existing envelope/order.
+Worker-attempt contributions intended for conversation history SHALL be staged in memory before target-model I/O and published in the triggering message only with successful turn completion. Failed or superseded attempts SHALL not append such parts. Legitimate accepted-message facts remain persisted-literal; accepting a user message is not publishing a failed attempt's context. Committed parts retain the exact prepared text and existing envelope/order.
 
 ### Requirement: Co-occurring items have a total author-time order
 
