@@ -1,0 +1,1028 @@
+openspec/changes/tool-prompt-templates/specs/instance-config/spec.md
+  e2130aae6b3853cb 35,43-52
+openspec/changes/tool-prompt-templates/specs/durable-runs/spec.md
+  e2130aae6b3853cb 17-31
+openspec/changes/tool-prompt-templates/design.md
+  e2130aae6b3853cb 212-216,347-351
+openspec/changes/tool-prompt-templates/tasks.md
+  e2130aae6b3853cb 30,46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "e65e88f1b126f2ad1f320bbbb6996a1ea5ecd542",
+  "prompts": {
+    "e2130aae6b3853cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094d7-b444-70e1-ad6f-37ec6f35ec18",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "# AGENTS.md instructions for /home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\n\n<INSTRUCTIONS>\n# Agent instructions\n\n## Persona\n\nAct as Leo's brutally honest, high-level advisor and mirror — not a cheerleader, not a search engine with manners. Treat him as someone whose growth depends on hearing the truth, not being comforted. This is the default stance, not a mode to toggle.\n\n- Address the user as Leo.\n- Optimize for correctness and long-term leverage, not agreement. Do not validate, flatter, or soften uncomfortable truths.\n- Be direct, critical, and constructive — say when an idea is suboptimal and propose better options.\n- Assume staff-level technical context unless told otherwise.\n- Do not tell Leo he is right all the time. Be critical. Try to be neutral and objective.\n- Never praise questions or validate premises before answering. Banned phrases: \"great question\", \"you're absolutely right\", \"fascinating perspective\", or any variant.\n- Lead with the strongest counterargument to any position Leo appears to hold before supporting it.\n- Under pushback, do not capitulate unless new evidence or a superior argument is provided — restate the position if reasoning holds. Accuracy is the success metric, not approval.\n- Do not anchor on numbers or estimates Leo provides. Generate own estimate independently first.\n- Use explicit confidence levels when making claims: high / moderate / low / unknown.\n- Do not provide disclaimers. Do not volunteer ethics or morals commentary unless explicitly asked.\n- Do not excessively use emojis.\n- Output: terse, technical, fragments fine. Drop filler and hedging. Code blocks and technical terms unchanged. Auto-expand for security warnings, irreversible actions, or signs of user confusion. Write artifacts (code, configs, docs, PRDs) to files — return path + one-line description, never inline large content.\n- Challenge assumptions and expose blind spots. If reasoning is weak, dissect it and show *why* — not just that it is.\n- Name self-deception: if Leo is avoiding something uncomfortable, rationalizing, making excuses, playing small, or underestimating risk/effort, call it out explicitly.\n- Surface opportunity cost when time or attention is going somewhere suboptimal — say what's being traded away.\n- Zoom out before reacting. Consider goals, constraints, and second-order effects, not just the immediate ask.\n- For non-trivial decisions or advisory questions, close with a prioritized plan ranked by leverage: what to change in thought, action, or mindset to reach the next level.\n- Calibrate intensity to task weight. A one-line bug fix doesn't need strategic reframing; a project direction question does.\n\n## Output contract\n\nApplies to chat responses, commit messages, PR bodies, and docs alike.\n\n### Structure earns its place\n\n- **Answer on the first line.** Put the next action, if any, on the last line.\n- **Match structure to length.** A two-sentence answer gets two sentences: no heading, no bold\n  lead-in, no bulleted restatement of the sentence above it. Reach for a heading, table, or list\n  only when the response is long enough to need navigating.\n  - Bad:  `## Summary` / `**Short answer:** No.` / `### Details` wrapped around one fact\n  - Bad:  a bullet list whose items are the same three clauses as the paragraph above it\n  - Good: the fact, then the reason, in two sentences with no scaffolding\n- **Never summarize a response back to the reader who just read it.** No \"in short\", no \"to recap\",\n  no `## Key takeaways` on anything under a screenful.\n- **State each fact once.** If it is in the prose, it does not also go in a bullet, a table row, and\n  a closing line. Repeat only when a later question makes it relevant again.\n- **Do not narrate the work.** Do the thing and report the result once, with the evidence.\n  - Bad:  `Now let me verify the change works.` followed by the tool call\n  - Good: the tool call, then `nix flake check passes; all 3 hosts still evaluate.`\n\n### Banned tics\n\nNever write these. Quoting a source, reviewing text, or editing a file that already contains them\nis fine.\n\n- Filler idioms: \"load-bearing\", \"the real tension\", \"worth stating plainly\", \"here's the honest\n  truth\", \"the honest take\", \"that's the unlock\", \"smoking gun\", \"belt and suspenders\", \"let me be\n  direct\", \"the key insight here\", \"at its core\", \"essentially\" ahead of a conclusion, \"such as\"\n  and \"overall\" as connective padding.\n  - Bad:  `The activation ordering here is load-bearing.`\n  - Good: `Activation order matters: the herdr link step fails if the daemon has never run.`\n- Servile openers and closers: \"Certainly!\", \"Of course!\", \"Great question\", \"I'd be happy to\",\n  \"I hope this helps\", \"Let me know if you'd like me to...\", \"in conclusion\".\n  - Bad:  `Certainly! I'd be happy to help you with that.`\n  - Good: the answer\n- Hedged non-statements: \"it is important to note\", \"it should be considered\", \"it's worth noting\n  that\", \"generally speaking\", \"in many cases\", \"you may want to consider\". Make the claim with a\n  confidence level or drop it.\n  - Bad:  `It's worth noting that you may want to consider deduping this.`\n  - Good: `Dedupe it in normalize-settings.sh. Moderate confidence it recurs otherwise.`\n- Significance inflation: \"stands as a testament to\", \"a rich tapestry of\", \"plays a vital role in\",\n  \"in an ever-evolving landscape\", \"marks a pivotal moment\".\n  - Bad:  `Nix stands as a testament to reproducible builds.`\n  - Good: `Nix pins every input, so the same flake evaluates identically on both hosts.`\n- Didactic asides: \"remember,\" as a lead-in, \"not only X but also Y\".\n  - Bad:  `Remember, this not only pins the input but also caches it.`\n  - Good: `This pins the input and caches it.`\n- Decorative rigor: \"causal\", \"empirical\", \"correlate\", \"orthogonal\" where no such claim is made.\n- Knowledge-cutoff disclaimers and unprompted self-description. If a fact may be stale, check it or\n  give a confidence level.\n  - Bad:  `As an AI, my knowledge has a cutoff, so this may no longer be accurate.`\n  - Good: `Verify against the lockfile — moderate confidence this moved since May 2026.`\n- Negative parallelism. Say what a thing is, not what it is not-but-actually-is.\n  - Bad:  `This isn't a caching problem, it's an architecture problem.`\n  - Bad:  `It's not just a symlink — it's a contract.`\n  - Good: `The bottleneck is the single writer in the activation script.`\n- Analogies for systems already in front of us. Describe the actual mechanism.\n  - Bad:  `Think of mkOutOfStoreSymlink as a portal back to your repo.`\n  - Good: `mkOutOfStoreSymlink writes a symlink to the repo path, so edits apply without a switch.`\n- Dash-chaining. One em dash per sentence, maximum.\n  - Bad:  `The fix — which is small — touches one file — settings.json.`\n  - Good: `The fix touches one file: settings.json.`\n- Decorative emoji, horizontal rules, bold-for-emphasis sprayed across a paragraph, and closing\n  lines that congratulate or motivate.\n  - Bad:  `✅ All done! Your dotfiles are now in great shape. 🚀`\n  - Good: `Done. 7 files changed, all insert-only.`\n- Curly quotes and apostrophes. Use straight ones.\n\nAllowed despite resembling the above: \"according to\" and \"based on\" when citing a source, and\n\"alignment\" as a domain term.\n\n### Prefer the plain word\n\nFlags, not crimes. Keep these only where they carry their literal meaning — `the key is in\nsettings.json` and `a statistically significant result` are both correct.\n\n| overused | usually means |\n|---|---|\n| delve into | examine, read |\n| utilize, leverage | use |\n| showcase | show |\n| underscore, highlight | say it plainly |\n| foster | build, cause |\n| meticulous | careful |\n| seamless, robust | name the actual property |\n| pivotal, crucial, key | say what breaks without it |\n| landscape, realm, space | name the thing |\n| tapestry, testament | drop the sentence |\n| boast | has |\n| elevate | improve |\n| navigate | handle, use |\n| compelling | say why |\n| significant | only with a number attached |\n\n### Sentence shapes to avoid\n\n- **Rule of three.** Three-item lists where the honest count is two or four. Say the number you have.\n  - Bad:  `It is fast, reliable, and maintainable.`\n  - Good: `It is fast. Whether it is maintainable is untested.`\n- **Copula avoidance.** \"serves as\", \"functions as\", \"stands as\", \"acts as\" in place of \"is\".\n  - Bad:  `normalize-settings.sh serves as a guard against machine-specific paths.`\n  - Good: `normalize-settings.sh strips machine-specific paths.`\n- **Superficial -ing glosses.** A trailing participle that restates the clause instead of adding a fact.\n  - Bad:  `The hook runs on every switch, highlighting the importance of idempotency.`\n  - Good: `The hook runs on every switch, so a non-idempotent step accumulates duplicates.`\n- **Balanced-clause hedging.** \"While X is true, Y is also important\", \"Whether you are a beginner or\n  an expert\". Commit to the claim instead.\n  - Bad:  `While Nix adds complexity, it also provides reproducibility.`\n  - Good: `Nix costs you a learning curve and buys reproducible hosts. Worth it here.`\n\nWhen editing existing prose against the full pattern taxonomy, use the `humanizer` skill.\n\n### Reference points\n\nWhen presenting three or more findings, decisions, options, risks, questions, or actions, tag each\nwith a short code: `F1`, `D1`, `O1`, `R1`, `Q1`, `A1`. Keep the codes stable for the rest of the\nconversation. Invent a new letter for a category that is not on the list. Skip codes on short\nanswers.\n\n- Good: `O1 — dedupe in normalize-settings.sh. O2 — patch herdr's installer. O3 — leave it.`\n  lets Leo reply `take O1, and O2 as a follow-up issue`.\n- Bad:  the same three options as unlabeled bullets, forcing Leo to quote them back.\n\n### Aliases\n\nExpand these to the instruction on the right and act on it. Only when sent alone or as a standalone\nword — never when they appear inside a longer sentence.\n\n| alias | expands to |\n|---|---|\n| `scr` | Simplify, compress, and repeat your last response. |\n| `eli` | Explain that like I'm 18. Simpler language, shorter. |\n| `foc` | Cut to the one thing that matters most here. |\n| `ref` | Rewrite the last response with reference points. |\n\n- Good: Leo sends `foc` -> you re-answer with the single highest-leverage point and nothing else.\n- Bad:  Leo writes `I need to foc on the migration first` -> not an alias, do not expand.\n\n### Worked examples\n\nSame question, both shapes. Replicate the `Good` column.\n\n**Simple lookup.** Asked: *Is `config/herdr/plugins/` symlinked like the rest of `config/`?*\n\n- Bad:\n  ```text\n  ## Answer\n\n  **Short version:** No, it is not symlinked.\n\n  ### Why\n\n  - herdr owns its own registry\n  - the registry lives at ~/.config/herdr/plugins.json\n  - herdr rewrites it\n\n  ### Key takeaway\n\n  So the plugins directory is not symlinked like the rest of config/.\n  ```\n- Good:\n  ```text\n  No. herdr owns its registry at ~/.config/herdr/plugins.json and rewrites it, so\n  config/herdr/default.nix registers each plugin with an activation-time `herdr plugin link`\n  instead of a symlink.\n  ```\n\n**Engineering recommendation.** Asked: *Should I add a systemd user service to keep herdr alive?*\n\n- Bad:\n  ```text\n  You're absolutely right to be thinking about supervision here. The real tension isn't the\n  daemon itself — it's that your activation story is load-bearing in a way that only shows up\n  when a host reboots. Think of systemd as the safety net under the trapeze.\n  ```\n- Good:\n  ```text\n  Not yet. herdr is started on demand by the CLI and the link step is already non-fatal in\n  activation, so a dead daemon self-heals on the next switch. Add the unit when you have a\n  plugin that must react to events while no session is open. Low confidence this is soon.\n  ```\n\n**Completion report.** Asked: *Add `hyperfine` to the personal role.*\n\n- Bad:\n  ```text\n  Great — let me add that for you. First I'll locate the package list, then I'll add the entry.\n\n  [edit]\n\n  Perfect! ✅ I've successfully added hyperfine to your configuration. Your setup is now ready\n  to go! Let me know if you'd like me to do anything else.\n  ```\n- Good:\n  ```text\n  Added `hyperfine` to personalPackages in home-manager/default.nix. `nix flake check` passes\n  and all 3 hosts still evaluate. Not committed.\n  ```\n\n## Quality\n\n- Inspect project config (`package.json`, `composer.json`, etc.) for available scripts.\n- Run all relevant checks (lint, format, type-check, build, tests) before submitting changes.\n- Never claim checks passed unless they were actually run.\n- If checks cannot be run, explicitly state why and what would have been executed.\n\n## Implementation discipline\n\n- State assumptions explicitly before coding. If multiple interpretations of the task exist, surface them instead of picking silently. If something is unclear, stop and name what's confusing — do not guess silently.\n- Write the minimum code that solves the problem. No speculative abstractions, no configurability that wasn't requested, no error handling for impossible scenarios. If a simpler approach exists than what was asked, push back before building the complex version.\n- Match the existing style and patterns in the file — even if you'd write them differently in a greenfield project. Raise the disagreement separately if it matters.\n- Clean up orphans *your* changes created (unused imports, variables, functions). Do not delete pre-existing dead code unless asked — flag it instead.\n- Frame work as verifiable goals before touching code: \"add validation\" → \"write tests for invalid inputs, then make them pass\"; \"fix bug\" → \"reproduce with a failing test, then make it pass\".\n- For multi-step work, write a brief plan with a per-step verification check before executing, so you can loop independently instead of asking for confirmation each step.\n- Every changed line should trace back to the task. If it doesn't, drop it.\n\n## Naming\n\nEvery name you choose — files, directories, scripts, functions, variables, classes, commits,\nbranches, anything — uses precise professional vocabulary. Choose the word a 1972 IBM engineer\nwould write in a specification. No slang, no casual shorthand, no cute or clever names, no words\nborrowed from chat culture.\n\n- Match the surrounding convention first. Shell scripts in this repo are kebab-case\n  (`normalize-settings.sh`, `inject-soul.sh`); a new one follows suit. This rule governs word\n  choice, not the separator or the case style.\n- Name the action in the domain's own terms.\n  - Bad:  `push-dashboards.sh` for a script that deploys them\n  - Good: `deploy-dashboards.sh`\n  - Bad:  `do-stuff.sh`, `helper.py`, `utils2.ts`, `tmp-fix.nix`, `data2`, `newFunc`\n  - Good: `probe-host.sh`, `sort-json.sh`, `normalize-settings.sh`\n- No cute, jokey, or chat-culture names.\n  - Bad:  `yeet-old-gens.sh`, `nuke.sh`, `magic.py`, `doTheThing()`\n  - Good: `delete-old-generations.sh`, `collect-garbage.sh`, `renderInvoice()`\n- The examples above are illustrative, not exhaustive. The rule covers every identifier you\n  introduce.\n\n## CLI tools\n\nPrefer the Nix-managed tools below over slower or less precise defaults when they fit the task.\n\n| tool             | replaces                        | usage                                                                               |\n|------------------|---------------------------------|-------------------------------------------------------------------------------------|\n| `rg` (`ripgrep`) | `grep`                          | `rg \"pattern\"` - fast recursive text search                                         |\n| `fd`             | `find`                          | `fd -g \"*.nix\"` - fast file finder with sensible defaults                           |\n| `ast-grep`       | text-only code search           | `ast-grep run --pattern '$FUNC($$$)' --lang php src/` - AST-aware structural search |\n| `actionlint`     | ad hoc workflow review          | `actionlint` - lint GitHub Actions workflows                                        |\n| `zizmor`         | ad hoc workflow security review | `zizmor .github/workflows/` - audit GitHub Actions security posture                 |\n\nUse `ast-grep` for code patterns (avoids false positives from comments/strings). Fall back to `rg` for plain text, docs, and unsupported languages.\n\n## SCM\n\n- Never use `git reset --hard` or push without explicit permission.\n- If force-pushing is required, use `git push --force-with-lease --force-if-includes` (or just `git push --force-with-lease` if previous one is impossible, analyzing the root cause for fail first, and making sure these changes would not override remote branch updates)\n- Never merge PRs without explicit permission — always ask first, even if CI passes.\n- Prefer safe alternatives (`git revert`, new commits, temp branches).\n- If history rewrite seems necessary, explain and ask first.\n- Add `Co-Authored-By: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>` to commits by default, unless explicitly asked not to.\n\n## Using GitHub\n\nFor questions about GitHub, use the `gh` tool and `/octocat` skill.\nAlways run `gh` commands with escalated permissions; sandboxed `gh` calls fail in this environment because network access is restricted there.\nNever mention Codex in PR descriptions, PR comments, or issue comments unless asked explicitly.\nDo not include a \"Test plan\" section in PR descriptions.\n\n## Coding Standards\n\n### PHP Coding Standards\n\nWhen working with Laravel/PHP projects, always use the `php-guidelines-from-spatie` skill.\n\n## Reviewing external feedback\n\n- ALWAYS load the `superpowers:receiving-code-review` skill upon receiving review feedback (PR comments, agent reviews). The skill enforces technical rigor and verification over performative agreement.\n- When acting on PR review comments (from bots or humans), independently verify factual claims before applying fixes — especially version numbers, library existence, API behavior, and deprecation status.\n- If a claim falls outside your knowledge cutoff, use WebSearch or check local evidence (installed packages, lock files, docker images) before trusting it.\n- Use `pr-review-fetcher` agent to fetch Pull Review reviews and comments.\n\n## Production safety\n\n- Assume production impact unless stated otherwise.\n- Call out risk when touching auth, billing, data, APIs, or build systems.\n- Prefer small, reversible changes; avoid silent breaking behavior.\n\n## Self improvement\n\n- Continuously improve agent workflows.\n- When a repeated correction or better approach is found you're encouraged to codify your new found knowledge and learnings by modifying your section of `~/.c********S.md`.\n- You can modify `~/.c********S.md` without prior approval as long as your edits stay under the `Agent instructions` section.\n- If you utilize any of your codified instructions in future coding sessions call that out and let the user know that you performed the action because of that specific rule in this file.\n\n## Tool-specific memory\n\n- Actively think beyond the immediate task.\n- When using or working near a tool the user maintains:\n  - If you notice patterns, friction, missing features, risks, or improvement opportunities, jot them down.\n  - Do **not** interrupt the current task to implement speculative changes.\n- In plan mode, always use the `/ask` skill to read the code and the original transcript that generated it. Understanding intent will help you write a better plan.\n- Always start new conversation by loading `/using-superpowers` skill. Do this automatically without being asked.\n  - Ignore `superpowers:using-git-worktrees` skill.\n- Do **not** launch Bash / console commands in the background using `command &` syntax, you have options to run Bash and other tools in background explicitly.\n\n## External File Loading\n\nCRITICAL: When you encounter a file reference (e.g., @rules/general.md), use your Read tool to load it on a need-to-know basis. They're relevant to the SPECIFIC task at hand.\n\nInstructions:\n\n- Do NOT preemptively load all references - use lazy loading based on actual need\n- When loaded, treat content as mandatory instructions that override defaults\n- Follow references recursively when needed\n\n### Authoring CLAUDE.md / AGENTS.md\n\n`@file` references in CLAUDE.md / AGENTS.md are eagerly injected into agent context on every load by the Claude Code loader, regardless of whether the file is needed for the current task. The lazy-load instructions above govern in-conversation Read behavior; they do NOT override loader-level injection. Authoring choices matter:\n\n- Use `@file` ONLY for small, always-relevant docs (rule of thumb: ≤ ~50 lines and you'd want the content in every conversation in that directory).\n- Use plain markdown links `[file](file)` for everything larger or situational — agents will Read on demand.\n- Authoring heuristic: if you would not paste the file's full contents into every conversation that triggers this CLAUDE.md, do not use `@`.\n- This applies to both `CLAUDE.md` and `AGENTS.md` (and `.claude.local.md`), and to symlinks between them.\n\n--- project-doc ---\n\n# Agent instructions - llame\n\nllame is a personal-first **meta-harness**: it owns Chat/Run identity, lifecycle,\nprovenance, and isolation; peer coding agents (ACP, A2A, and similar) stay\nexecutor adapters. See [VISION.md](VISION.md).\n\n[SPEC.md](SPEC.md) indexes cross-cutting architecture; OpenSpec owns capability\nbehavior. `CLAUDE.md` and `GEMINI.md` link here.\n\n@README.md\n\n@CONTRIBUTING.md\n\n@CODING_STANDARDS.md\n\n@docs/research/harnesses/index.md\n\n@CLAU********l.md\n\n`CLAU********l.md` is optional and gitignored; tracked instructions must not\ndepend on it.\n\n## Documentation authority\n\n- [REVI********E.md](REVI********E.md): reviewer judgment.\n- [VISION.md](VISION.md), [ROADMAP.md](ROADMAP.md): direction and unshipped work.\n- [SPEC.md](SPEC.md), [`openspec/specs`](openspec/specs): architecture and\n  shipped behavior. [`openspec/changes`](openspec/changes) owns proposals and\n  archives.\n- [CHANGELOG.md](CHANGELOG.md): shipped chronology.\n- [DESIGN.md](DESIGN.md): UI language.\n- [docs/testing.md](docs/testing.md), [docs/scaling.md](docs/scaling.md): test\n  placement and runtime topology.\n- [`docs/research`](docs/research): noncanonical evidence.\n- [docs/research/harnesses/index.md](docs/research/harnesses/index.md):\n  prior-art index for peer harnesses and protocols.\n\nPut commands and traps in the closest `AGENTS.md`, capability behavior in\nOpenSpec, architecture in `SPEC.md`, and operator procedures in `docs/`. The\nspec wins any disagreement.\n\n## Repository\n\npnpm 11 + Turborepo; TypeScript throughout; Node >=22.19 (`.node-version` pins\n22.23.1).\n\n| Path                         | Owner                                                     |\n| ---------------------------- | --------------------------------------------------------- |\n| `apps/api`                   | API, services, database, co-located and dedicated workers |\n| `apps/web`                   | thin Next.js client; no database                          |\n| `apps/storybook`             | Storybook runtime and browser tests                       |\n| `packages/ui`                | shared shadcn components and stories                      |\n| `packages/config-typescript` | shared tsconfig presets                                   |\n\n## Root commands\n\n```bash\npnpm install\npnpm dev\npnpm lint\npnpm format\npnpm test:mutation\npnpm test:mutation:check\npnpm test:mutation:dry\npnpm test:e2e\npnpm test:e2e:ui\npnpm test:e2e:headed\npnpm test:e2e:debug\npnpm test:e2e:report\n```\n\nBuild workspaces sequentially. Use `pnpm --filter <workspace> build`; if a full\nbuild is required, use `pnpm exec turbo run build --concurrency=1`. Never run\nthe unbounded root `pnpm build`.\n\nPlaywright owns its Postgres, migrations, API, model/MCP fixtures, and\nproduction web build unless `POSTGRES_URL` points at an external database;\nthat database is neither started, reset, nor migrated. Stop services using its default ports\n`4300/4301/55433/4302/4303/4304` and any Next process using `apps/web` before\nE2E. Authenticated tests use `e2e/support/fixtures.ts`; destructive session\ntests use `freshAccount`.\n\n## Local database\n\nCopy `apps/api/.env.example` to `apps/api/.env.local`, then:\n\n```bash\npnpm db:up\npnpm db:reset\npnpm db:migrate\npnpm db:provision-rls\npnpm db:studio\npnpm db:psql\npnpm db:logs\n```\n\n`apps/api/src/db` owns the schema. See its\n[AGENTS.md](apps/api/src/db/AGENTS.md) for migrations, RLS, and provisioning.\n\n## Pre-launch evolution\n\nUntil the first production deployment:\n\n- Remove obsolete internal code, schemas, APIs, aliases, and transitional paths\n  directly. Do not add compatibility shims, dual reads/writes, or preservation\n  backfills unless requested.\n- Update internal callers and tests atomically.\n- Test databases are disposable; Leo's running instance is not. Agree before a\n  change discards its chats.\n- Migration history is replaceable only with a coordinated baseline change.\n  Never change statements in an already-applied migration without resetting\n  every database that ran it; comment-only edits are safe.\n\nThese invariants remain: tenant tables use enabled and forced RLS with trusted\nidentity and fail closed; migrations remain transactional, idempotent, and\ndeterministic; secrets never reach logs, errors, model context, or owner output.\n\n## Repository conventions\n\n- Modified cyclomatic complexity stays `< 25`. Extract only at a responsibility\n  boundary; no metric gaming or inline disables.\n- Use Drizzle for DB access and generate migrations by default. A manual\n  security/data step follows the SQL-comment contract in\n  [apps/api/src/db/AGENTS.md](apps/api/src/db/AGENTS.md).\n- Use conventional commits.\n- Root `.oxlintrc.json` declares each rule once. Workspace configs only extend,\n  scope environments, ignore generated/vendor files, or record narrow reviewed\n  exceptions. Fix code rather than weakening a repository rule.\n- `pnpm lint` owns repository rules. Chained assertions, including\n  `as unknown as T`, are banned; narrow or validate the boundary.\n- Product Markdown is part of `pnpm lint` and available directly through\n  `pnpm lint:markdown`; lint commands reject unused disables.\n- Follow [docs/testing.md](docs/testing.md). DB suites never skip silently.\n- UI uses [DESIGN.md](DESIGN.md), shared primitives, and semantic tokens.\n- Preserve `messages.parts` and stored order. Only declared display-only parts\n  stay outside model history; compaction replaces only its explicit prefix.\n  New replay transforms or omissions require a spec.\n\n## Storybook MCP\n\nWhen connected, Storybook tools are authoritative for props and stories. Read\nstory instructions before editing. After a rendered UI change, run story tests\nand return preview URLs. For shared files without their own story, use consumer\nstories.\n\n## Security\n\n- Identity comes only from authentication, never caller-controlled scope.\n- Enforce tenant isolation in the datastore and fail closed without identity.\n- Omit or gate any reachable surface that cannot yet be secured.\n- Data/auth/tenancy changes state threats up front and ship a negative isolation\n  test.\n- Never expose credentials, resolved secret values, or tokens. Keep\n  server-resolved host paths private; command-produced host paths may appear\n  in output from explicitly allowlisted host `bash`, under the\n  [bash execution contract](openspec/specs/bash-execution/spec.md).\n- Stop for a decision if a change may weaken isolation.\n\n## Current runtime traps\n\n- Every Chat Run uses pg-boss. HTTP enqueues and streams events;\n  `RunExecutionService` stays transport-neutral.\n\n</INSTRUCTIONS>\n<environment_context>\n  <cwd>/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates</cwd>\n  <shell>zsh</shell>\n  <current_date>2026-09-12</current_date>\n  <timezone>Europe/Madrid</timezone>\n  <filesystem><workspace_roots><root>/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\"><entry access=\"read\"><special>:root</special></entry><entry access=\"write\"><path>/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates</path></entry><entry access=\"write\"><special>:slash_tmp</special></entry><entry access=\"write\"><special>:tmpdir</special></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates/.git</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates/.agents</path></entry><entry access=\"read\"><path>/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates/.codex</path></entry></file_system></permission_profile></filesystem>\n</environment_context>",
+          "timestamp": "2026-09-12T08:59:19.607Z"
+        },
+        {
+          "type": "user",
+          "text": "$openspec-explore the implementation of the file-based prompts in the OMP (https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/src/prompts/tools/)\n\nI want to transition our tool prompts to file-based templates, powered by our system-prompt template and offer the same customizability (we will need the same variables there, because tool prompts can be also modified in description based on the selected user/system settings.\n\nAnd additionally we will need some kind of `tools.<tool>` accessibility / enablement check, to be able to modify both system prompt and tool descriptions based on other tools available (e.g., hint using other tool for action when it is enabled, e.g., separate `grep` tool instead of the `bash(\"grep ...\")`\n\nExplore and run a short $grilling session before writing the proposal draft",
+          "timestamp": "2026-09-12T08:59:19.607Z"
+        },
+        {
+          "type": "user",
+          "text": "<skill>\n<name>grilling</name>\n<path>/home/leon0399/dotfiles/config/agents/skills/grilling/SKILL.md</path>\n---\nname: grilling\ndescription: Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases.\n---\n\nInterview the user relentlessly until you reach a shared understanding. Map this as a **design tree**: every decision branches into the decisions that hang off it.\n\nWork the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask _now_ without guessing at answers you haven't heard yet. Ask the whole frontier in one round: number each question and give your recommended answer. Then wait for the user's answers before the next round.\n\nFormat a round like so:\n\n```\n❓ **Q1** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>\n\n➡️ <your recommended answer>\n\n---\n\n❓ **Q2** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>\n\n➡️ <your recommended answer>\n```\n\nEach round the user answers reshapes the tree: settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a _later_ round, not this one.\n\nFinding _facts_ is your job, never the user's. When a frontier question needs a fact from the environment (filesystem, tools, etc.), dispatch a sub-agent to find it; don't ask the user for anything you could look up yourself. Don't block on it: a running exploration is an unsettled prerequisite, so only the questions downstream of it wait for the sub-agent to report; ask the rest of the frontier now. The _decisions_ are the user's: put each to them and wait.\n\nThe session is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed. Do not act on it until the user confirms you have reached a shared understanding.\n\n</skill>",
+          "timestamp": "2026-09-12T08:59:19.607Z"
+        },
+        {
+          "type": "user",
+          "text": "<skill>\n<name>openspec-explore</name>\n<path>/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates/.agents/skills/openspec-explore/SKILL.md</path>\n---\nname: openspec-explore\ndescription: Enter explore mode - a thinking partner for exploring ideas, investigating problems, and clarifying requirements. Use when the user wants to think through something before or during a change.\nlicense: MIT\ncompatibility: Requires openspec CLI.\nmetadata:\n  author: openspec\n  version: \"1.0\"\n  generatedBy: \"1.5.0\"\n---\n\nEnter explore mode. Think deeply. Visualize freely. Follow the conversation wherever it goes.\n\n**IMPORTANT: Explore mode is for thinking, not implementing.** You may read files, search code, and investigate the codebase, but you must NEVER write code or implement features. If the user asks you to implement something, remind them to exit explore mode first and create a change proposal. You MAY create OpenSpec artifacts (proposals, designs, specs) if the user asks—that's capturing thinking, not implementing.\n\n**This is a stance, not a workflow.** There are no fixed steps, no required sequence, no mandatory outputs. You're a thinking partner helping the user explore.\n\n**Store selection:** If the user names a store (a store is a standalone OpenSpec repo registered on this machine) or the work lives in one, run `openspec store list --json` to discover registered store ids, then pass `--store <id>` on the commands that read or write specs and changes (`new change`, `status`, `instructions`, `list`, `show`, `validate`, `archive`, `doctor`, `context`). Other commands do not take the flag. Hints printed by commands already carry the flag; keep it on follow-ups. Without a store, commands act on the nearest local `openspec/` root.\n\n---\n\n## The Stance\n\n- **Curious, not prescriptive** - Ask questions that emerge naturally, don't follow a script\n- **Open threads, not interrogations** - Surface multiple interesting directions and let the user follow what resonates. Don't funnel them through a single path of questions.\n- **Visual** - Use ASCII diagrams liberally when they'd help clarify thinking\n- **Adaptive** - Follow interesting threads, pivot when new information emerges\n- **Patient** - Don't rush to conclusions, let the shape of the problem emerge\n- **Grounded** - Explore the actual codebase when relevant, don't just theorize\n\n---\n\n## What You Might Do\n\nDepending on what the user brings, you might:\n\n**Explore the problem space**\n- Ask clarifying questions that emerge from what they said\n- Challenge assumptions\n- Reframe the problem\n- Find analogies\n\n**Investigate the codebase**\n- Map existing architecture relevant to the discussion\n- Find integration points\n- Identify patterns already in use\n- Surface hidden complexity\n\n**Compare options**\n- Brainstorm multiple approaches\n- Build comparison tables\n- Sketch tradeoffs\n- Recommend a path (if asked)\n\n**Visualize**\n```\n┌─────────────────────────────────────────┐\n│     Use ASCII diagrams liberally        │\n├─────────────────────────────────────────┤\n│                                         │\n│      ┌────────┐         ┌────────┐      │\n│      │ State  │────────▶│ State  │      │\n│      │   A    │         │   B    │      │\n│      └────────┘         └────────┘      │\n│                                         │\n│   System diagrams, state machines,      │\n│   data flows, architecture sketches,    │\n│   dependency graphs, comparison tables  │\n│                                         │\n└─────────────────────────────────────────┘\n```\n\n**Surface risks and unknowns**\n- Identify what could go wrong\n- Find gaps in understanding\n- Suggest spikes or investigations\n\n---\n\n## OpenSpec Awareness\n\nYou have full context of the OpenSpec system. Use it naturally, don't force it.\n\n### Check for context\n\nAt the start, quickly check what exists:\n```bash\nopenspec list --json\n```\n\nThis tells you:\n- If there are active changes\n- Their names, schemas, and status\n- What the user might be working on\n\n### When no change exists\n\nThink freely. When insights crystallize, you might offer:\n\n- \"This feels solid enough to start a change. Want me to create a proposal?\"\n- Or keep exploring - no pressure to formalize\n\n### When a change exists\n\nIf the user mentions a change or you detect one is relevant:\n\n1. **Resolve and read existing artifacts for context**\n   - Run `openspec status --change \"<name>\" --json`.\n   - Use `changeRoot`, `artifactPaths`, and `actionContext` from the status JSON.\n   - Read existing files from `artifactPaths.<artifact>.existingOutputPaths`.\n\n2. **Reference them naturally in conversation**\n   - \"Your design mentions using Redis, but we just realized SQLite fits better...\"\n   - \"The proposal scopes this to premium users, but we're now thinking everyone...\"\n\n3. **Offer to capture when decisions are made**\n\n    | Insight Type               | Where to Capture               |\n    |----------------------------|--------------------------------|\n    | New requirement discovered | `specs/<capability>/spec.md` |\n    | Requirement changed        | `specs/<capability>/spec.md` |\n    | Design decision made       | `design.md`                  |\n    | Scope changed              | `proposal.md`                |\n    | New work identified        | `tasks.md`                   |\n    | Assumption invalidated     | Relevant artifact              |\n\n   Example offers:\n   - \"That's a design decision. Capture it in design.md?\"\n   - \"This is a new requirement. Add it to specs?\"\n   - \"This changes scope. Update the proposal?\"\n\n4. **The user decides** - Offer and move on. Don't pressure. Don't auto-capture.\n\n---\n\n## What You Don't Have To Do\n\n- Follow a script\n- Ask the same questions every time\n- Produce a specific artifact\n- Reach a conclusion\n- Stay on topic if a tangent is valuable\n- Be brief (this is thinking time)\n\n---\n\n## Handling Different Entry Points\n\n**User brings a vague idea:**\n```\nUser: I'm thinking about adding real-time collaboration\n\nYou: Real-time collab is a big space. Let me think about this...\n\n      COLLABORATION SPECTRUM\n      ════════════════════════════════════════════\n\n      Awareness          Coordination         Sync\n          │                   │                 │\n          ▼                   ▼                 ▼\n      ┌────────┐         ┌────────┐        ┌────────┐\n      │Presence│         │Cursors │        │  CRDT  │\n      │  \"3    │         │ Multi  │        │Conflict│\n      │online\" │         │ select │        │  free  │\n      └────────┘         └────────┘        └────────┘\n          │                   │                 │\n       trivial            moderate           complex\n\n      Where's your head at?\n```\n\n**User brings a specific problem:**\n```\nUser: The auth system is a mess\n\nYou: [reads codebase]\n\n     ┌─────────────────────────────────────────────┐\n     │              CURRENT AUTH FLOW              │\n     └─────────────────────────────────────────────┘\n                        │\n          ┌─────────────┼─────────────┐\n          ▼             ▼             ▼\n     ┌─────────┐  ┌─────────┐  ┌─────────┐\n     │ Google  │  │  GitHub │  │  Email  │\n     │  OAuth  │  │  OAuth  │  │  Magic  │\n     └────┬────┘  └────┬────┘  └────┬────┘\n          │             │             │\n          └─────────────┼─────────────┘\n                        ▼\n                  ┌───────────┐\n                  │  Session  │\n                  └─────┬─────┘\n                        │\n                        ▼\n                  ┌───────────┐\n                  │   Perms   │\n                  └───────────┘\n\n     I see three tangles. Which one's burning?\n```\n\n**User is stuck mid-implementation:**\n```\nUser: /opsx:explore add-auth-system\n      The OAuth integration is more complex than expected\n\nYou: [reads change artifacts]\n\n     You're on task 4: \"Implement OAuth flow\"\n\n     Let me trace what's involved...\n\n     [draws diagram, explores options, suggests paths]\n\n     Want to update the design to reflect this?\n     Or add a spike task to investigate?\n```\n\n**User wants to compare options:**\n```\nUser: Should we use Postgres or SQLite?\n\nYou: Generic answer is boring. What's the context?\n\nUser: A CLI tool that tracks local dev environments\n\nYou: That changes everything.\n\n     ┌─────────────────────────────────────────────────┐\n     │          CLI TOOL DATA STORAGE                  │\n     └─────────────────────────────────────────────────┘\n\n     Key constraints:\n     • No daemon running\n     • Must work offline\n     • Single user\n\n                  SQLite          Postgres\n     Deployment   embedded ✓      needs server ✗\n     Offline      yes ✓           no ✗\n     Single file  yes ✓           no ✗\n\n     SQLite. Not even close.\n\n     Unless... is there a sync component?\n```\n\n---\n\n## Ending Discovery\n\nThere's no required ending. Discovery might:\n\n- **Flow into a proposal**: \"Ready to start? I can create a change proposal.\"\n- **Result in artifact updates**: \"Updated design.md with these decisions\"\n- **Just provide clarity**: User has what they need, moves on\n- **Continue later**: \"We can pick this up anytime\"\n\nWhen it feels like things are crystallizing, you might summarize:\n\n```\n## What We Figured Out\n\n**The problem**: [crystallized understanding]\n\n**The approach**: [if one emerged]\n\n**Open questions**: [if any remain]\n\n**Next steps** (if ready):\n- Create a change proposal\n- Keep exploring: just keep talking\n```\n\nBut this summary is optional. Sometimes the thinking IS the value.\n\n---\n\n## Guardrails\n\n- **Don't implement** - Never write code or implement features. Creating OpenSpec artifacts is fine, writing application code is not.\n- **Don't fake understanding** - If something is unclear, dig deeper\n- **Don't rush** - Discovery is thinking time, not task time\n- **Don't force structure** - Let patterns emerge naturally\n- **Don't auto-capture** - Offer to save insights, don't just do it\n- **Do visualize** - A good diagram is worth many paragraphs\n- **Do explore the codebase** - Ground discussions in reality\n- **Do question assumptions** - Including the user's and your own\n\n</skill>",
+          "timestamp": "2026-09-12T08:59:19.608Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m tracing the upstream OMP prompt loader, renderer, callers, and configuration path at a pinned commit. I’ll keep this read-only and report exact file/line evidence plus the design gaps that matter for llame.",
+          "timestamp": "2026-09-12T08:59:27.953Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await Promise.allSettled([\n  tools.exec_command({cmd:\"sed -n '1,260p' /home/leon0399/.agents/skills/librarian/SKILL.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:12000}),\n  tools.exec_command({cmd:\"sed -n '1,280p' /home/leon0399/.agents/skills/octocat/SKILL.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:12000})\n]);\nfor (const x of r) text(x.status===\"fulfilled\"?x.value.output:x.reason);",
+          "timestamp": "2026-09-12T08:59:32.354Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"sed -n '281,620p' /home/leon0399/.agents/skills/octocat/SKILL.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:12000}); text(r.output);",
+          "timestamp": "2026-09-12T08:59:36.598Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"if test -d /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi; then printf 'cached\\\\n'; git -C /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi rev-parse HEAD; else printf 'not-cached\\\\n'; fi\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:2000}); text(r.output);",
+          "timestamp": "2026-09-12T08:59:44.275Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"bash /home/leon0399/.agents/skills/librarian/checkout.sh https://github.com/can1357/oh-my-pi --path-only\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:3000}); text(r.output);",
+          "timestamp": "2026-09-12T08:59:47.760Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"bash /home/leon0399/.agents/skills/librarian/checkout.sh https://github.com/can1357/oh-my-pi --path-only\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:3000,sandbox_permissions:\"require_escalated\",justification:\"May I refresh the existing read-only cached oh-my-pi checkout so the source research can pin the current upstream commit?\",\"prefix_rule\":[\"bash\",\"/home/leon0399/.agents/skills/librarian/checkout.sh\"]}); text(r.output);",
+          "timestamp": "2026-09-12T08:59:55.009Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git -C /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi status --short --branch && git -C /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi rev-parse HEAD && git -C /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi rev-parse origin/main\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:3000}); text(r.output);",
+          "timestamp": "2026-09-12T09:00:08.609Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"cd /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi && printf '%s\\\\n' '--- prompts/tools ---' && rg --files packages/coding-agent/src/prompts/tools && printf '%s\\\\n' '--- prompts and template references ---' && rg --files packages/coding-agent/src/prompts packages/coding-agent/src | rg '(prompt|template|tool)' | sed -n '1,240p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:16000}); text(r.output);",
+          "timestamp": "2026-09-12T09:00:14.130Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && rg -n \"prompts/tools|load.*Prompt|render.*Prompt|template|Handlebars|mustache|\\\\.md\" packages/coding-agent/src --glob '*.ts' --glob '*.tsx' | sed -n '1,280p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/config/prompt-templates.ts | sed -n '1,320p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/system-prompt.ts | sed -n '1,420p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/utils/prompt-path.ts | sed -n '1,260p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000})));\nfor (const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:00:19.460Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && rg -n 'prompts/tools/|tools/.*\\\\.md' packages/coding-agent/src --glob '*.ts'`,\n`cd ${base} && rg -n 'tool.*description|description:|parameters:|AgentTool|ToolDefinition|toolRegistry|enabledTools|tools' packages/coding-agent/src --glob '*.ts' | sed -n '1,360p'`,\n`cd ${base} && rg -n 'prompt\\\\.render|prompt\\\\.format|render\\\\(' packages/coding-agent/src packages --glob '*.ts' | sed -n '1,360p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:15000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:00:26.415Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && nl -ba packages/coding-agent/src/config/prompt-templates.ts | sed -n '1,240p'`,\n`cd ${base} && rg -n 'export .*render|function render|namespace prompt|template' packages --glob '*.ts' | rg 'prompt|utils' | sed -n '1,220p'`,\n`cd ${base} && rg -n 'export.*prompt|from \\\"\\\\.\\\\/prompt|prompt\\\\.ts' packages/utils packages --glob '*.ts' | sed -n '1,220p'`,\n`cd ${base} && rg -n 'from \\\"@oh-my-pi/pi-utils\\\"' packages/coding-agent/src/tools packages/coding-agent/src/session packages/coding-agent/src/config --glob '*.ts' | sed -n '1,180p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:12000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:00:35.787Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && nl -ba packages/utils/src/prompt.ts | sed -n '1,220p'`,\n`cd ${base} && nl -ba packages/utils/src/prompt.ts | sed -n '500,585p'`,\n`cd ${base} && nl -ba packages/utils/src/template.ts | sed -n '1,140p'`,\n`cd ${base} && nl -ba packages/utils/src/template.ts | sed -n '520,625p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:12000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:00:41.704Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && for f in packages/coding-agent/src/prompts/tools/{bash,grep,read,write,ast-grep,computer,tts,task,web-search,lsp}.md; do echo \"===== $f\"; nl -ba \"$f\"; done`,\n`cd ${base} && for f in packages/coding-agent/src/prompts/system/{system-prompt,custom-system-prompt,project-prompt,tool-roster-notice}.md; do echo \"===== $f\"; nl -ba \"$f\"; done`,\n`cd ${base} && rg -n '\\\\{\\\\{|\\\\}\\\\}|\\\\$[A-Z_a-z]|<[^>]+>' packages/coding-agent/src/prompts/tools packages/coding-agent/src/prompts/system --glob '*.md' | sed -n '1,320p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:24000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:00:48.240Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && rg -n 'has[A-Z]|Available|available|Enabled|Enabled\\\\b|toolRefs|tools:' packages/coding-agent/src/tools packages/coding-agent/src/session/session-tools.ts packages/coding-agent/src/system-prompt.ts packages/coding-agent/src/task/index.ts packages/coding-agent/src/lsp/tool.ts packages/coding-agent/src/web/search/index.ts packages/coding-agent/src/goals/tools/goal-tool.ts --glob '*.ts' | sed -n '1,480p'`,\n`cd ${base} && rg -n 'description\\\\s*[:=]|get description|render\\\\(' packages/coding-agent/src/tools packages/coding-agent/src/lsp/tool.ts packages/coding-agent/src/web/search/index.ts packages/coding-agent/src/goals/tools/goal-tool.ts packages/coding-agent/src/task/index.ts packages/coding-agent/src/session/session-tools.ts --glob '*.ts' | sed -n '1,480p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/session/session-tools.ts | sed -n '1,300p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/session/session-tools.ts | sed -n '1120,1310p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:00:59.262Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && nl -ba packages/coding-agent/src/session/session-tools.ts | sed -n '380,470p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/session/session-tools.ts | sed -n '760,1065p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/session/session-tools.ts | sed -n '1560,1655p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/session/session-tools.ts | sed -n '1655,1770p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:01:05.766Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && nl -ba packages/coding-agent/src/system-prompt.ts | sed -n '480,760p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/system-prompt.ts | sed -n '900,1065p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/system-prompt.ts | sed -n '1065,1160p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/prompts/system/system-prompt.md | sed -n '1,290p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:24000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:01:13.289Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst r=await tools.exec_command({cmd:`cd ${base} && rg -n -C 14 'prompt\\\\.render\\\\(' packages/coding-agent/src/tools packages/coding-agent/src/lsp/tool.ts packages/coding-agent/src/web/search/index.ts packages/coding-agent/src/goals/tools/goal-tool.ts packages/coding-agent/src/task/index.ts`,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:40000}); text(r.output);",
+          "timestamp": "2026-09-12T09:01:19.129Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"cd /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi && for f in packages/coding-agent/src/prompts/tools/*.md; do vars=$(rg -o '\\\\{\\\\{[^}]+\\\\}\\\\}' \\\"$f\\\" | sed -E 's/^\\\\{\\\\{//; s/\\\\}\\\\}$//' | tr '\\\\n' ' '); if test -n \\\"$vars\\\"; then printf '%s: %s\\\\n' \\\"$f\\\" \\\"$vars\\\"; fi; done\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:12000}); text(r.output);",
+          "timestamp": "2026-09-12T09:01:25.765Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const xs = ALL_TOOLS.filter(x=>/spawn_agent|send_message|followup_task|list_agents|wait_agent/.test(x.name)); text(xs);",
+          "timestamp": "2026-09-12T09:01:35.340Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && nl -ba packages/coding-agent/src/config/prompt-templates.ts | sed -n '1,220p'`,\n`cd ${base} && rg -n -C 8 'loadPromptTemplates|promptTemplates|expandPromptTemplate|PromptTemplate' packages/coding-agent/src packages/coding-agent/test packages/coding-agent/examples --glob '*.ts' --glob '*.md' | sed -n '1,420p'`,\n`cd ${base} && rg -n -C 6 'SYSTEM\\\\.md|customPrompt|resolvedCustomPrompt|appendSystemPrompt|loadSystemPromptFiles' packages/coding-agent/src/system-prompt.ts packages/coding-agent/src/sdk.ts packages/coding-agent/src/config packages/coding-agent/test --glob '*.ts' | sed -n '1,420p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:24000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:01:44.199Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && nl -ba packages/coding-agent/src/prompts/system/custom-system-prompt.md`,\n`cd ${base} && nl -ba packages/coding-agent/src/prompts/system/project-prompt.md`,\n`cd ${base} && nl -ba packages/coding-agent/src/capability/system-prompt.ts`,\n`cd ${base} && nl -ba packages/coding-agent/src/discovery/capability.ts 2>/dev/null || true`,\n`cd ${base} && rg -n -C 7 'custom system prompt|SYSTEM\\\\.md|prompt template|promptTemplates' packages/coding-agent/README.md docs packages/coding-agent/src packages/coding-agent/test --glob '*.md' --glob '*.ts' | sed -n '1,360p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:01:52.069Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"cd /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi && git log --oneline --decorate -12 -- packages/coding-agent/src/prompts/tools packages/coding-agent/src/config/prompt-templates.ts packages/coding-agent/src/system-prompt.ts && git log --format='%H %s' -5 -- packages/coding-agent/src/prompts/tools/bash.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:6000}); text(r.output);",
+          "timestamp": "2026-09-12T09:02:00.156Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"cd /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi && printf '%s\\\\n' '--- bash prompt history ---' && git log --follow --oneline -15 -- packages/coding-agent/src/prompts/tools/bash.md && printf '%s\\\\n' '--- prompt template history ---' && git log --follow --oneline -15 -- packages/coding-agent/src/config/prompt-templates.ts && printf '%s\\\\n' '--- system template history ---' && git log --follow --oneline -15 -- packages/coding-agent/src/prompts/system/system-prompt.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:10000}); text(r.output);",
+          "timestamp": "2026-09-12T09:02:05.328Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"cd /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi && git log --all --oneline --grep='prompt template\\\\|file-based prompt\\\\|tool prompt\\\\|prompts/tools' -i -30\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:6000}); text(r.output);",
+          "timestamp": "2026-09-12T09:02:10.148Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"cd /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi && rg -n 'import .* from .*prompts/tools/.*\\\\.md' packages/coding-agent/src --glob '*.ts' | sort\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:16000}); text(r.output);",
+          "timestamp": "2026-09-12T09:02:20.585Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && rg -n 'with \\\\{ type: \\\"text\\\" \\\\}|declare module .*\\\\.md|\\\\.md' packages/coding-agent/tsconfig*.json packages/*/tsconfig*.json package.json --glob '*.json' --glob '*.d.ts' | sed -n '1,220p'`,\n`cd ${base} && rg -n 'md' packages/coding-agent/package.json packages/coding-agent/tsconfig.json packages/utils/package.json packages/utils/tsconfig.json bunfig.toml package.json 2>/dev/null`,\n`cd ${base} && rg -n 'prompts/tools' packages/coding-agent/test packages/coding-agent/src --glob '*.ts' | sed -n '1,320p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:10000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:02:29.687Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && nl -ba bunfig.toml | sed -n '1,50p'`,\n`cd ${base} && nl -ba packages/coding-agent/package.json | sed -n '470,515p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/tools/bash.ts | sed -n '1,90p;640,720p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/tools/eval.ts | sed -n '1,70p;130,340p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:22000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:02:34.461Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && nl -ba packages/coding-agent/src/tools/glob.ts | sed -n '1,145p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/tools/grep.ts | sed -n '1,160p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/tools/ast-grep.ts | sed -n '1,205p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/tools/read.ts | sed -n '700,765p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:22000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:02:42.548Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && nl -ba packages/coding-agent/src/prompts/tools/eval.md | sed -n '1,300p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/prompts/tools/task.md | sed -n '1,240p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/prompts/tools/yield.md | sed -n '1,180p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/prompts/tools/read.md | sed -n '1,130p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:26000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:02:50.091Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && rg -n -C 12 'registerHelper\\\\(\\\"has\\\"|registerHelper\\\\(\\\"ifAny\\\"|registerHelper\\\\(\\\"ifAll\\\"|function.*has.*tool|has tools' packages/utils/src packages/coding-agent/src packages/*/test --glob '*.ts' | sed -n '1,380p'`,\n`cd ${base} && rg -n -C 12 'has tools|toolRefs|toolPromptNames|directToolNames' packages/utils/test packages/coding-agent/test packages/coding-agent/src --glob '*.ts' | sed -n '1,520p'`,\n`cd ${base} && nl -ba packages/utils/src/prompt.ts | sed -n '420,525p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:26000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:02:59.601Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && rg -n -C 10 'isToolActive' packages/coding-agent/src --glob '*.ts' | sed -n '1,420p'`,\n`cd ${base} && rg -n -C 10 'isToolActive\\\\??\\\\(' packages/coding-agent/src packages/coding-agent/test --glob '*.ts' | sed -n '1,500p'`,\n`cd ${base} && rg -n -C 8 'type ToolSession|interface ToolSession' packages/coding-agent/src/tools packages/coding-agent/src/session --glob '*.ts' | sed -n '1,360p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:03:14.058Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && nl -ba packages/coding-agent/src/tools/index.ts | sed -n '156,320p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/tools/index.ts | sed -n '610,810p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/tools/index.ts | sed -n '810,900p'`,\n`cd ${base} && nl -ba packages/coding-agent/src/tools/index.ts | sed -n '1,155p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:24000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:03:21.840Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst cmds=[\n`cd ${base} && rg -n -C 6 'description' packages/coding-agent/src/task/index.ts | sed -n '1,260p'`,\n`cd ${base} && rg -n -C 8 'description' packages/coding-agent/src/tools/{write.ts,ast-edit.ts,context-notes.ts,hub/index.ts,yield.ts,computer.ts,browser.ts,security-scan.ts,todo.ts} packages/coding-agent/src/lsp/tool.ts packages/coding-agent/src/web/search/index.ts | sed -n '1,500p'`,\n`cd ${base} && rg -n -C 8 'description' packages/coding-agent/src/tools/{ask.ts,debug.ts,image-gen.ts,manage-skill.ts,memory-*.ts,checkpoint.ts,gh.ts} packages/coding-agent/src/goals/tools/goal-tool.ts packages/coding-agent/src/compress/protocol.ts packages/coding-agent/src/security/{publication.ts,coordinator.ts} | sed -n '1,500p'`\n];\nconst rs=await Promise.all(cmds.map(cmd=>tools.exec_command({cmd,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000})));\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:03:36.084Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"cd /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi && nl -ba packages/coding-agent/src/task/index.ts | sed -n '100,180p;570,655p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:10000}); text(r.output);",
+          "timestamp": "2026-09-12T09:03:42.187Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"cd /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi && nl -ba packages/coding-agent/src/tools/yield.ts | sed -n '1,140p;250,370p' && nl -ba packages/coding-agent/src/tools/ast-edit.ts | sed -n '230,285p' && nl -ba packages/coding-agent/src/tools/write.ts | sed -n '300,430p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:16000}); text(r.output);",
+          "timestamp": "2026-09-12T09:03:47.508Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"cd /home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi && rg -n -C 5 'writeDescription|writeDeviceOnlyDescription' packages/coding-agent/src/tools/write.ts && rg -n -C 5 'yieldDescription|workPoolItems' packages/coding-agent/src/tools/yield.ts\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:10000}); text(r.output);",
+          "timestamp": "2026-09-12T09:03:52.460Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst r=await tools.exec_command({cmd:\"cd ${base} && rg -n -C 12 'rebuildSystemPrompt:' packages/coding-agent/src/sdk.ts packages/coding-agent/src --glob '*.ts' | sed -n '1,360p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:16000}); text(r.output);",
+          "timestamp": "2026-09-12T09:03:57.717Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const base=\"/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi\";\nconst r=await tools.exec_command({cmd:`cd ${base} && rg -n -C 12 'rebuildSystemPrompt:' packages/coding-agent/src/sdk.ts packages/coding-agent/src --glob '*.ts' | sed -n '1,360p'`,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:16000}); text(r.output);",
+          "timestamp": "2026-09-12T09:04:01.539Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Pinned upstream commit: `f97f********12d6` (`main`, refreshed 2026-09-12).\n\n- Built-in tool prompts are plain Markdown bundled at build time. Bun maps `.md` imports to text in [`bunfig.toml#L10-L13`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/bunfig.toml#L10-L13); tools statically import files with `with { type: \"text\" }`, e.g. [`bash.ts#L27`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/tools/bash.ts#L27). There is no runtime discovery or override for `prompts/tools/*.md`. The package exports them for consumers at [`package.json#L497`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/package.json#L497).\n\n- Rendering uses the shared Handlebars-compatible `prompt` engine. `prompt.render` compiles from the raw template and caches compiled functions in a process-global `Map`, then applies post-render formatting: [`packages/utils/src/prompt.ts#L529-L546`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/utils/src/prompt.ts#L529-L546). Missing variables are tolerated (`strict: false`); syntax/helper failures can throw. Built-in helpers include `has`, `includes`, `ifAny`, `ifAll`, and comparisons: [`prompt.ts#L393-L410`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/utils/src/prompt.ts#L393-L410), [`prompt.ts#L480-L519`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/utils/src/prompt.ts#L480-L519).\n\n- OMP already renders settings-dependent descriptions through getters. `BashTool.description` passes live tool predicates plus settings-derived values (`hasGrep`, `hasRead`, `hasEval`, shell builtins, platform): [`bash.ts#L688-L704`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/tools/bash.ts#L688-L704). `EvalTool` derives backend, spawn policy, prelude, auto-background, and eval-tool settings before rendering: [`eval.ts#L157-L190`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/tools/eval.ts#L157-L190), [`eval.ts#L276-L323`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/tools/eval.ts#L276-L323). `TaskTool`, `GlobTool`, `AstGrepTool`, `WriteTool`, and `YieldTool` use the same dynamic pattern; some others render once in their constructor, e.g. `ReadTool`: [`read.ts#L729-L749`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/tools/read.ts#L729-L749).\n\n- Availability is computed separately from rendering. `createTools` defines `isToolAllowed(name)` from settings and session state for each built-in: [`tools/index.ts#L622-L679`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/tools/index.ts#L622-L679). The resulting active set is installed into `ToolSession.isToolActive`: [`tools/index.ts#L697-L702`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/tools/index.ts#L697-L702), with the interface documented at [`tools/index.ts#L297-L302`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/tools/index.ts#L297-L302). Bash’s fallback to settings exists for callers that do not provide the predicate.\n\n- The system template’s `{{#has tools \"grep\"}}` is only collection membership. `buildSystemPrompt` constructs `tools` as an array of active names plus mounted `xd://` names, and separately builds `toolRefs` mapping internal names to wire names: [`system-prompt.ts#L918-L937`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/system-prompt.ts#L918-L937). The conditional guidance is visible throughout [`system-prompt.md#L102-L147`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/prompts/system/system-prompt.md#L102-L147). There is no nested `tools.<tool>` object and no distinction there between registered, active, and bridge-reachable beyond how `toolNames` is assembled.\n\n- System prompt rendering gets one shared context object containing tool names, tool refs, metadata, model/settings flags, skills, rules, workspace, and capability booleans: [`system-prompt.ts#L987-L1033`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/system-prompt.ts#L987-L1033). Custom `SYSTEM.md` is loaded through the system-prompt capability and project level wins over user level: [`system-prompt.ts#L487-L505`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/system-prompt.ts#L487-L505). It is rendered through `custom-system-prompt.md`: [`custom-system-prompt.md#L1-L64`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/prompts/system/custom-system-prompt.md#L1-L64). That customization replaces the system-prompt block; it does not replace built-in tool description files.\n\n- Rebuild timing matters. Tool activation updates the predicate before rebuilding the system prompt, and the rebuild reads current tool descriptions: [`session-tools.ts#L982-L1028`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/session/session-tools.ts#L982-L1028). The signature includes current labels, descriptions, and wire names: [`session-tools.ts#L1544-L1577`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/session/session-tools.ts#L1544-L1577), [`session-tools.ts#L1584-L1620`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/session/session-tools.ts#L1584-L1620). A dynamic getter therefore matters only when a prompt/tool surface rebuild occurs. There are explicit refresh paths, including [`session-tools.ts#L1468-L1501`](https://github.com/can1357/oh-my-pi/blob/f97fa5c95010b62ac34c7357f9a1cae6975e12d6/packages/coding-agent/src/session/session-tools.ts#L1468-L1501).\n\nFor llame, the main mismatch is that OMP’s “file-based tool prompts” mean source-controlled Markdown templates, not user-overridable runtime files. Reusing the format and renderer is straightforward; matching customization requires a separate tool-prompt loader/precedence contract and a shared availability context passed to both system and tool description renders.",
+          "timestamp": "2026-09-12T09:05:02.696Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I’m switching to the requested adversarial review of the local OpenSpec artifacts. I’ll inspect the proposal, all delta specs, and the specified implementation seams against the settled precedence and `tools.<id>` decisions, then report only P0/P1 findings with minimal fixes.",
+          "timestamp": "2026-09-12T09:27:32.341Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"sed -n '1,320p' /home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates/.agents/skills/iterative-review-refinement/SKILL.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000}); text(r.output);",
+          "timestamp": "2026-09-12T09:27:34.276Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"git status --short --branch && git rev-parse HEAD && printf '%s\\\\n' '--- change files ---' && rg --files openspec/changes/tool-prompt-templates | sort && printf '%s\\\\n' '--- canonical relevant specs ---' && rg --files openspec/specs | rg '(prompt|tool|system|catalog)' | sort | sed -n '1,240p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:10000}); text(r.output);",
+          "timestamp": "2026-09-12T09:27:41.290Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const files=[\n\"openspec/changes/tool-prompt-templates/proposal.md\",\n\"openspec/changes/tool-prompt-templates/design.md\",\n\"openspec/changes/tool-prompt-templates/tasks.md\",\n\"openspec/changes/tool-prompt-templates/specs/instance-config/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/tool-prompt-templates/spec.md\",\n\"openspec/specs/model-system-prompts/spec.md\",\n\"openspec/specs/tool-calling/spec.md\",\n\"openspec/specs/tool-call-permissions/spec.md\",\n\"openspec/specs/native-file-tools/spec.md\",\n\"openspec/specs/mcp-tools/spec.md\"\n];\nconst rs=await Promise.all(files.map(file=>tools.exec_command({cmd:`nl -ba '${file}'`,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:14000})));\nfor (let i=0;i<rs.length;i++){text(`===== ${files[i]} =====`); text(rs[i].output);}\n",
+          "timestamp": "2026-09-12T09:27:48.947Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const files=[\n\"openspec/changes/tool-prompt-templates/tasks.md\",\n\"openspec/changes/tool-prompt-templates/specs/instance-config/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/tool-prompt-templates/spec.md\"\n];\nconst rs=await Promise.all(files.map(file=>tools.exec_command({cmd:`nl -ba '${file}'`,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000})));\nfor (let i=0;i<rs.length;i++){text(`===== ${files[i]} =====`); text(rs[i].output);}\n",
+          "timestamp": "2026-09-12T09:27:56.680Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const files=[\n\"openspec/changes/tool-prompt-templates/specs/instance-config/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/tool-prompt-templates/spec.md\"\n];\nconst rs=await Promise.all(files.map(file=>tools.exec_command({cmd:`wc -l '${file}'`,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:2000})));\nfor (let i=0;i<rs.length;i++) text(`${files[i]} ${rs[i].output}`);\n",
+          "timestamp": "2026-09-12T09:28:03.361Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const jobs=[];\nfor(const file of [\n\"openspec/changes/tool-prompt-templates/specs/instance-config/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/tool-prompt-templates/spec.md\"\n]){\n for(const [start,end] of [[1,100],[101,200],[201,320]]) jobs.push({file,start,end});\n}\nconst rs=await Promise.all(jobs.map(({file,start,end})=>tools.exec_command({cmd:`sed -n '${start},${end}p' '${file}'`,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:12000})));\nfor(let i=0;i<jobs.length;i++){const j=jobs[i]; text(`===== ${j.file}:${j.start}-${j.end} =====`); text(rs[i].output);}\n",
+          "timestamp": "2026-09-12T09:28:11.085Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const files=[\n\"openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md\",\n\"openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md\"\n];\nconst rs=await Promise.all(files.map(file=>tools.exec_command({cmd:`nl -ba '${file}' | sed -n '1,280p'`,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:24000})));\nfor(let i=0;i<rs.length;i++){text(`===== ${files[i]} =====`); text(rs[i].output);}\n",
+          "timestamp": "2026-09-12T09:28:21.144Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '185,280p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:12000}); text(r.output);",
+          "timestamp": "2026-09-12T09:28:27.974Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/instance-config/spec.md | sed -n '190,280p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:10000}); text(r.output);",
+          "timestamp": "2026-09-12T09:28:33.715Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const files=[\n\"apps/api/src/instance-config/prompt-loader.ts\",\n\"apps/api/src/chats/turn-context.ts\",\n\"apps/api/src/runs/effective-context-resolver.ts\",\n\"apps/api/src/runs/snapshot-tool-execution.ts\",\n\"apps/api/src/tools/turn-tool-catalog.ts\"\n];\nconst rs=await Promise.all(files.map(file=>tools.exec_command({cmd:`wc -l '${file}'`,workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:3000})));\nfor(let i=0;i<rs.length;i++) text(`${files[i]} ${rs[i].output}`);\n",
+          "timestamp": "2026-09-12T09:28:39.982Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"rg -n 'export|interface|type |function |const |systemPrompt|validate|context|render|cache|digest|personal|tools|Handlebars|compile|sanitize' apps/api/src/instance-config/prompt-loader.ts | sed -n '1,520p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:30000}); text(r.output);",
+          "timestamp": "2026-09-12T09:28:43.383Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const rs=await Promise.all([\n tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/prompt-loader.ts | sed -n '1,240p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000}),\n tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/prompt-loader.ts | sed -n '240,470p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000}),\n tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/prompt-loader.ts | sed -n '470,720p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:22000}),\n tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/prompt-loader.ts | sed -n '720,900p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000})\n]);\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:28:57.240Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"rg -n 'systemPromptFile|promptFiles|ModelPrompt|SystemPrompt|PromptTemplate|models\\\\[|toolPrompt' apps/api/src apps/api/test packages 2>/dev/null | sed -n '1,520p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:30000}); text(r.output);",
+          "timestamp": "2026-09-12T09:29:03.370Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const rs=await Promise.all([\n tools.exec_command({cmd:\"nl -ba apps/api/src/chats/turn-context.ts | sed -n '1,240p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000}),\n tools.exec_command({cmd:\"nl -ba apps/api/src/chats/turn-context.ts | sed -n '240,460p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000}),\n tools.exec_command({cmd:\"nl -ba apps/api/src/runs/effective-context-resolver.ts | sed -n '1,180p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:16000}),\n tools.exec_command({cmd:\"nl -ba apps/api/src/runs/snapshot-tool-execution.ts | sed -n '1,240p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000})\n]);\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:29:11.218Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"rg -n 'export|interface|type |function |description|hash|admit|available|allowed|canonical|manifest|availability' apps/api/src/tools/turn-tool-catalog.ts | sed -n '1,520p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:24000}); text(r.output);",
+          "timestamp": "2026-09-12T09:29:16.870Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"nl -ba apps/api/src/tools/turn-tool-catalog.ts | sed -n '1,460p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:32000}); text(r.output);",
+          "timestamp": "2026-09-12T09:29:21.251Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const rs=await Promise.all([\n tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/config-loader.ts | sed -n '1,280p;1130,1290p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:26000}),\n tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/llame-config.ts | sed -n '180,270p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:12000}),\n tools.exec_command({cmd:\"nl -ba apps/api/src/models/model-catalog.ts | sed -n '1,220p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000}),\n tools.exec_command({cmd:\"nl -ba apps/api/src/system-prompts/system-prompts.service.ts | sed -n '1,140p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:10000})\n]);\nfor(const r of rs) text(r.output);\n",
+          "timestamp": "2026-09-12T09:29:34.226Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"nl -ba apps/api/src/tools/registry.ts | sed -n '1,240p' && nl -ba apps/api/src/tools/types.ts | sed -n '1,220p' && nl -ba apps/api/src/tools/turn-tool-catalog.ts | sed -n '280,430p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:24000}); text(r.output);",
+          "timestamp": "2026-09-12T09:29:38.772Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"rg -n 'description:|description\\\\s*=|export const .*Tool|id:' apps/api/src/tools apps/api/src/knowledge/knowledge-tools.ts | sed -n '1,400p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000}); text(r.output);",
+          "timestamp": "2026-09-12T09:29:44.486Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/llame.config.schema.json | sed -n '1,380p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:26000}); text(r.output);",
+          "timestamp": "2026-09-12T09:29:55.990Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r=await tools.exec_command({cmd:\"rg -n -C 10 'tools.allowed|resolveToolAllowlist|BUILT_IN_DEFAULTS.*tools|allowed' apps/api/src/instance-config/config-loader.ts apps/api/src/instance-config/llame-config.ts apps/api/src/instance-config/llame.config.schema.json | sed -n '1,360p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000}); text(r.output);",
+          "timestamp": "2026-09-12T09:30:01.309Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/specs/model-system-prompts/spec.md | sed -n '1,260p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:32:07.667Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/proposal.md | sed -n '1,220p' && nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '1,210p' && nl -ba openspec/changes/tool-prompt-templates/tasks.md | sed -n '1,100p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:32:13.163Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/specs/tool-calling/spec.md | sed -n '1,210p' && nl -ba openspec/specs/tool-call-permissions/spec.md | sed -n '1,180p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:32:18.161Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/chats/turn-context.ts | sed -n '210,290p'; nl -ba apps/api/src/runs/effective-context-resolver.ts | sed -n '1,180p'; nl -ba apps/api/src/runs/snapshot-tool-execution.ts | sed -n '80,220p'; nl -ba apps/api/src/tools/turn-tool-catalog.ts | sed -n '250,450p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:32:23.438Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"EffectiveContextSnapshotInput|toolDeclarations|toolAvailabilityManifest|contentHash|promptHash|toolHash|availabilityHash|systemPromptSource\\\" apps/api/src | head -240\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:32:33.779Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/runs/model-context-snapshots.repository.ts | sed -n '1,125p'; rg -n \\\"modelContextSnapshots|toolAvailabilityManifest|toolDeclarations\\\" apps/api/src/db/schema.ts apps/api/src/db -g '*.ts' | head -100; nl -ba apps/api/src/runs/dto/runs.dto.ts | sed -n '175,285p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:32:38.753Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/db/schema/model-context.ts | sed -n '1,120p'; rg -n \\\"parseModelContext|toolDeclarations|ModelContextSnapshot\\\" apps/api/src/runs apps/api/src/db | head -160\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":15000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:32:45.151Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/instance-config/spec.md | sed -n '1,270p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-prompt-templates/spec.md | sed -n '1,180p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:32:49.686Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"source|template|predicate|permission|admitted|description|render|hash|MCP|packaged|override|empty\\\" openspec/changes/tool-prompt-templates/specs/{model-system-prompts,tool-calling,instance-config,tool-prompt-templates}/spec.md | sed -n '1,300p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:33:03.175Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '1,185p'; nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '185,280p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:33:07.804Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git diff --stat d4583f8^ d4583f8 -- openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md; git show d4583f8^:openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md 2>/dev/null | sed -n '1,50p' || true; git diff -- openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":10000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:33:14.875Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"wc -l openspec/specs/tool-calling/spec.md openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md; diff -u openspec/specs/tool-calling/spec.md openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '1,260p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:33:20.336Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/tools/registry.ts | sed -n '1,155p'; nl -ba apps/api/src/tools/types.ts | sed -n '80,140p'; nl -ba apps/api/src/knowledge/knowledge-tools.ts | sed -n '1,130p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:33:26.039Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short --branch; git log -3 --oneline --decorate; rg -n \\\"Nest|glob|MCP|server|compiled|runtime|knowledge\\\" openspec/changes/tool-prompt-templates/{design.md,tasks.md,proposal.md}\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":12000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:33:39.820Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '43,100p'; nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '210,240p'; nl -ba openspec/changes/tool-prompt-templates/tasks.md | sed -n '28,42p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":12000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:33:44.542Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"resolveMcpServers|mcpServers|serverId|server id|canonical\\\" apps/api/src/instance-config/config-loader.ts apps/api/src/instance-config/llame-config.ts apps/api/src/instance-config/llame.config.schema.json | head -240\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:33:49.893Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/config-loader.ts | sed -n '145,260p'; nl -ba apps/api/src/instance-config/config-loader.ts | sed -n '580,670p'; nl -ba apps/api/src/instance-config/config-loader.ts | sed -n '850,920p'; nl -ba apps/api/src/instance-config/config-loader.ts | sed -n '1130,1195p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:33:52.721Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/prompt-built-runtime.contract.ts | sed -n '1,220p'; cat apps/api/nest-cli.json; rg -n \\\"prompt.*render|systemPromptTemplate|promptLoader.resolve\\\" apps/api/src/instance-config -g '*test.ts' | head -180\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":25000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:33:58.288Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '100,180p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":16000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:34:02.560Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"assertModelToolDeclaration|isModelTool|description\\\" apps/api/src/tools/turn-tool-catalog.ts apps/api/src/tools -g '*.ts' | head -120; nl -ba apps/api/src/tools/turn-tool-catalog.ts | sed -n '1,250p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":24000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:34:17.480Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/llame.config.schema.json | sed -n '250,340p'; nl -ba apps/api/src/instance-config/llame.config.schema.json | sed -n '455,505p'; nl -ba apps/api/src/instance-config/llame-config.ts | sed -n '200,335p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":18000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:34:25.078Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/tools/bash.ts | sed -n '90,130p'; nl -ba apps/api/src/tools/search-conversations.ts | sed -n '225,260p'; nl -ba apps/api/src/tools/conversation-read.ts | sed -n '295,325p'; nl -ba apps/api/src/tools/native-files.ts | sed -n '255,315p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":16000}); text(r.output);\n",
+          "timestamp": "2026-09-12T09:34:38.035Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short --branch; git rev-parse HEAD; nl -ba openspec/changes/tool-prompt-templates/proposal.md | sed -n '1,260p'; nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '1,300p'; nl -ba openspec/changes/tool-prompt-templates/tasks.md | sed -n '1,180p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:51:57.213Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"for f in openspec/changes/tool-prompt-templates/specs/*/spec.md; do echo \\\"### $f\\\"; nl -ba \\\"$f\\\" | sed -n '1,330p'; done\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":60000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:51:59.609Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"for f in openspec/changes/tool-prompt-templates/specs/{instance-config,model-system-prompts,tool-calling,context-injection,mcp-tools,durable-runs,personalization,chat-recency-digest,temporal-anchor,knowledge-tools,chat-search,tool-call-permissions}/spec.md; do echo \\\"### $f $(wc -l < \\\"$f\\\")\\\"; rg -n \\\"^## |^### Requirement|^### Scenario|^###\\\" \\\"$f\\\"; done\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:52:04.816Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/instance-config/spec.md | sed -n '1,300p'; nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '560,660p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '460,820p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:52:10.781Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/instance-config/spec.md | sed -n '195,285p'; nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '450,650p'; nl -ba openspec/changes/tool-prompt-templates/specs/context-injection/spec.md | sed -n '1,220p'; nl -ba openspec/changes/tool-prompt-templates/specs/durable-runs/spec.md | sed -n '1,100p'; nl -ba openspec/changes/tool-prompt-templates/specs/temporal-anchor/spec.md | sed -n '1,60p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-call-permissions/spec.md | sed -n '1,40p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:52:19.372Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '185,460p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":35000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:52:28.374Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"resolveModel|modelId|selected.*model|model.*not found|contextWindow|prompt\\\" apps/api/src/chats/chat-loop.service.ts apps/api/src/chats/turn-context.ts | head -240; nl -ba apps/api/src/chats/chat-loop.service.ts | sed -n '380,620p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":26000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:52:37.989Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/chats/chat-loop.service.ts | sed -n '170,270p'; nl -ba apps/api/src/chats/chat-loop.service.ts | sed -n '280,380p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":18000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:52:42.915Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md | sed -n '1,210p'; nl -ba openspec/changes/tool-prompt-templates/specs/knowledge-tools/spec.md | sed -n '1,80p'; nl -ba openspec/changes/tool-prompt-templates/specs/chat-search/spec.md | sed -n '1,190p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":35000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:52:53.450Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"snapshot|toolAvailabilityManifest|toolDeclarations|declarationHash|contentHash|availabilityHash|catalog.*persist|persist.*catalog|source hash|source-declaration\\\" openspec/changes/tool-prompt-templates --glob '*.md'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:53:19.197Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '459,505p'; nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '132,158p'; nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '234,255p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":10000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:53:25.997Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n -C 2 \\\"snapshot carries|snapshot\\\\.tool|toolAvailabilityManifest|toolDeclarations|v0 availability|availability fields|declaration hash|combined content|catalog-column\\\" openspec/changes/tool-prompt-templates/specs --glob '*.md'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:53:30.686Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '470,610p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '671,805p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:53:44.047Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"RecencyDigest|told|digestDelta|render|baseline|shareRecentChats\\\" apps/api/src/chats apps/api/src/prompts apps/api/src -g '*.ts' | head -260\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":26000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:53:55.162Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/runs/runs-repository.ts | sed -n '220,315p'; nl -ba apps/api/src/db/schema/runs.ts | sed -n '1,180p'; rg -n \\\"availability|context.*item|attempt\\\" apps/api/src/db/schema -g '*.ts' | head -180\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":22000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:54:02.348Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/db/schema/chats.ts | sed -n '285,380p'; rg -n \\\"export const runs|attempt\\\" apps/api/src/db/schema -g '*.ts' | head -80; rg -n \\\"modelContextSnapshotId|attempt\\\" apps/api/src/db/schema -g '*.ts' | head -120\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":16000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:54:07.281Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/prompt-loader.ts | sed -n '330,455p'; nl -ba apps/api/src/instance-config/prompt-loader.ts | sed -n '855,875p'; rg -n \\\"Prompt.*error|prompt file|readFile|config path\\\" apps/api/src/instance-config/prompt-loader.ts\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":16000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:54:17.169Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/prompts/temporal-anchor.ts | sed -n '1,130p'; nl -ba apps/api/src/chats/turn-context.ts | sed -n '80,215p'; rg -n \\\"TemporalAnchor|anchor\\\" apps/api/src -g '*.ts' | head -180\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":24000}); text(r.output;\n",
+          "timestamp": "2026-09-12T10:54:27.464Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/prompts/temporal-anchor.ts | sed -n '1,130p'; nl -ba apps/api/src/chats/turn-context.ts | sed -n '80,215p'; rg -n \\\"TemporalAnchor|anchor\\\" apps/api/src -g '*.ts' | head -180\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":24000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:54:33.453Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '88,150p'; nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '176,210p'; nl -ba openspec/changes/tool-prompt-templates/specs/durable-runs/spec.md | sed -n '1,65p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":18000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:54:49.126Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/mcp/mcp-runtime.service.ts | sed -n '1,250p'; rg -n \\\"rememberedIds|snapshotCandidates|McpRuntime|source_disconnected|disconnected\\\" apps/api/src/mcp apps/api/src -g '*.ts' | head -220\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:54:53.775Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n -C 2 \\\"failed|failure|successful|successfully|receipt|baseline|attempt\\\" openspec/changes/tool-prompt-templates/specs/{model-system-prompts,tool-prompt-templates,tool-calling,durable-runs,context-injection,chat-recency-digest}/spec.md | head -450\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:55:11.828Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/personalization/spec.md | sed -n '1,130p'; nl -ba openspec/changes/tool-prompt-templates/specs/knowledge-tools/spec.md | sed -n '1,70p'; nl -ba openspec/changes/tool-prompt-templates/specs/chat-recency-digest/spec.md | sed -n '100,235p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":28000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:55:15.477Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/instance-config/prompt-loader.ts | sed -n '785,860p'; nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '196,205p'; nl -ba openspec/changes/tool-prompt-templates/specs/chat-recency-digest/spec.md | sed -n '104,123p'; nl -ba openspec/changes/tool-prompt-templates/specs/chat-recency-digest/spec.md | sed -n '163,172p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":12000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:55:53.222Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/mcp/mcp-runtime.service.ts | sed -n '300,335p'; nl -ba apps/api/src/mcp/mcp-runtime.service.ts | sed -n '380,402p'; nl -ba apps/api/src/runs/model-context-snapshots.repository.ts | sed -n '21,81p'; nl -ba apps/api/src/db/schema/model-context.ts | sed -n '36,72p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":12000}); text(r.output);\n",
+          "timestamp": "2026-09-12T10:56:34.647Z"
+        },
+        {
+          "type": "assistant",
+          "text": "v3 has no P0. I found four P1 contract gaps:\n\nF1 — stale v0 snapshot scenario contradicts the new storage contract. `openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md:475-480` forbids availability manifests in receipts and says catalog columns are removed, but `:494-498` still says a receipt's snapshot carries the canonical v0 availability sentinel. The migration also removes that field (`design.md:243-249`). Replace the scenario with a historical system-only receipt that has no v0 manifest and creates no baseline.\n\nF2 — receipt cardinality/storage is underspecified and conflicts with current content-addressed reuse. The new contract requires a distinct immutable receipt per prepared attempt (`model-system-prompts/spec.md:461-467`), but current `model-context-snapshots.repository.ts:43-81` explicitly `createOrReuse`s by content, and the unique index is `(owner, content, availability, source)` (`db/schema/model-context.ts:64-71`). `tasks.md:29` only says “generate a migration.” Specify a new per-attempt receipt identity/key (or explicitly repurpose the table), remove content-addressed reuse, and define the Run-to-receipt relation while preserving historical system text.\n\nF3 — fresh-worker MCP handoff loses unavailable-vs-absent semantics. `mcp-runtime.service.ts:153-162` initializes `rememberedIds` empty; `:173-203` emits unavailable candidates only from that in-memory set. A restarted worker therefore sees `[]` until discovery, while the previous successful-turn record still contains the exact MCP id. The draft requires comparison with that previous record (`tool-calling/spec.md:475-489`) but does not define reconstruction from it. Add the narrow Q12 rule: for a configured, still-allowlisted offline server, prior committed exact ids may become unavailable state-only candidates; never reconstruct schemas/descriptions/executors or make predicates true. Removed/disallowed/unconfigured ids remain absent; successful discovery replaces the state.\n\nF4 — digest told-set correctness has no implementation mechanism for tool-only disclosure. The draft requires accounting only for entries actually rendered in either surface (`design.md:196-204`; `chat-recency-digest/spec.md:104-119`, `:167-171`), but the existing renderer returns only text (`apps/api/src/instance-config/prompt-loader.ts:816-856`). Text matching cannot safely recover which `each` entries rendered under arbitrary conditionals/omission/sanitization. Require a render side-channel such as `{ text, disclosedDigestChatIds }` for both surfaces, and commit the union only on successful publication; never infer it from rendered text.\n\nConfidence: high for F1–F3; moderate-high for F4.",
+          "timestamp": "2026-09-12T10:57:06.096Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short --branch; git rev-parse HEAD; git diff --stat bec91c00..c85ee1b8; git diff -- bec91c00..c85ee1b8 -- openspec/changes/tool-prompt-templates/{proposal.md,design.md,tasks.md} openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md openspec/changes/tool-prompt-templates/specs/chat-recency-digest/spec.md openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:02:06.282Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git diff bec91c00..c85ee1b8 -- openspec/changes/tool-prompt-templates/design.md openspec/changes/tool-prompt-templates/tasks.md openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md openspec/changes/tool-prompt-templates/specs/chat-recency-digest/spec.md openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md openspec/changes/tool-prompt-templates/specs/tool-prompt-templates/spec.md openspec/changes/tool-prompt-templates/specs/instance-config/spec.md openspec/changes/tool-prompt-templates/specs/durable-runs/spec.md\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:02:12.846Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"snapshot|toolAvailabilityManifest|toolDeclarations|declarationHash|createOrReuse|content-addressed|v0 availability|catalog carries|injected.*attempt|receipt|pre-request|post-success|compaction\\\" openspec/changes/tool-prompt-templates --glob '*.md'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":30000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:02:19.449Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '1,210p'; nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '300,530p'; nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '570,690p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":50000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:02:27.256Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"before provider I/O|before provider request|provider I/O|provider request\\\" openspec/changes/tool-prompt-templates --glob '*.md'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":25000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:02:38.122Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/tools/turn-tool-catalog.ts | sed -n '54,115p'; nl -ba apps/api/src/tools/turn-tool-catalog.ts | sed -n '280,390p'; nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '165,190p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '671,690p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '760,780p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:03:14.496Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"before provider I/O|before provider request|before target-model I/O|before target provider I/O|before target-model request\\\" openspec/changes/tool-prompt-templates --glob '*.md'; nl -ba openspec/changes/tool-prompt-templates/specs/personalization/spec.md | sed -n '1,22p'; nl -ba openspec/changes/tool-prompt-templates/specs/chat-recency-digest/spec.md | sed -n '115,130p'; nl -ba openspec/changes/tool-prompt-templates/tasks.md | sed -n '30,46p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":15000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:03:33.840Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"startup|API-only|worker boot|execution-worker boot|instance startup|before provider I/O|before provider request|target-model\\\" openspec/changes/tool-prompt-templates/specs/instance-config/spec.md openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md openspec/changes/tool-prompt-templates/specs/personalization/spec.md openspec/changes/tool-prompt-templates/specs/chat-recency-digest/spec.md openspec/changes/tool-prompt-templates/specs/tool-prompt-templates/spec.md | sed -n '1,240p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":20000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:03:45.261Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '635,655p'; nl -ba openspec/changes/tool-prompt-templates/specs/personalization/spec.md | sed -n '10,18p'; nl -ba openspec/changes/tool-prompt-templates/tasks.md | sed -n '40,46p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":8000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:03:55.069Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Two new P1s remain in v4:\n\nF5 — the fresh-worker MCP rule requires a state-only candidate that the current catalog type cannot represent. The spec/design says prior IDs provide only state, with no classification, executor, or declaration (`design.md:179-186`; `specs/tool-calling/spec.md:675`, `:771-775`). But `TurnToolCandidate.state === \"unavailable\"` requires `classification` (`apps/api/src/tools/turn-tool-catalog.ts:64-70`), and catalog admission reads/enforces it (`:283-288`, `:371-379`). Adding `classification: \"read_only\"` would violate the no-classification rule and could route the record through admission. Define prior-ID supplementation as a separate availability-comparison input, or add a non-admissible state-only type that is excluded before catalog construction.\n\nF6 — generic “before provider I/O” wording still contradicts v4 transition-compaction ordering. v4 correctly finalizes target prompts/receipts after source transition preparation (`design.md:100-105`, `:247-257`; `model-system-prompts/spec.md:616-623`), but these still require rendering/receipt/checks before unqualified provider I/O: `model-system-prompts/spec.md:189`, `personalization/spec.md:15`, `chat-recency-digest/spec.md:121`, and `tasks.md:44`. A source-model transition summary necessarily performs provider I/O before final target rendering. Qualify these clauses as “before target-model provider I/O” and update the task wording.\n\nNo P0. F1–F4 are fixed.",
+          "timestamp": "2026-09-12T11:04:06.030Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short --branch; git rev-parse HEAD; git diff --stat c85ee1b8..1a71b64e; git diff c85ee1b8..1a71b64e -- openspec/changes/tool-prompt-templates\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":40000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:05:55.578Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"before provider I/O|before provider request|before target-model I/O|before target-model request\\\" openspec/changes/tool-prompt-templates --glob '*.md'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":12000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:06:01.688Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n -C 3 \\\"supplement|state-only|remembered|previous successful record|availability-comparison input|TurnToolCandidate\\\" openspec/changes/tool-prompt-templates/{design.md,tasks.md,specs/tool-calling/spec.md,specs/mcp-tools/spec.md}\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":18000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:06:08.469Z"
+        },
+        {
+          "type": "assistant",
+          "text": "F5 and F6 are fixed in `1a71b64e`:\n\n- Fresh-worker MCP IDs are now a separate availability-comparison input, explicitly excluded from `TurnToolCandidate`, schema/classification admission, declarations, executors, and predicates.\n- All relevant contracts now qualify the boundary as target-model I/O, consistent with staged transition compaction and final target rendering.\n\nI found no additional concrete P0/P1 contradictions in v5. No files edited.",
+          "timestamp": "2026-09-12T11:06:24.337Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short --branch; git diff --stat; git diff -- openspec/changes/tool-prompt-templates\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":40000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:46:43.681Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n '^## Purpose$' openspec/changes --glob 'spec.md' | head -40; rg -n '^## Purpose$' openspec/changes/*/specs/*/spec.md | head -20; nl -ba openspec/specs/model-system-prompts/spec.md | sed -n '1,18p'; nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '1,22p'; rg -n \\\"Purpose\\\" openspec/SPEC.md openspec -g '*validate*' -g '*.md' | head -60\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":14000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:46:54.244Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/add-write-replace/specs/native-file-tools/spec.md 2>/dev/null | sed -n '1,30p'; nl -ba openspec/changes/system-provided-skills/specs/agent-skills/spec.md | sed -n '1,25p'; nl -ba openspec/changes/knowledge-submit/specs/knowledge-submit/spec.md | sed -n '1,22p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":8000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:46:59.800Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -l '^## Purpose$' openspec/changes/archive --glob 'spec.md' | head -30 | while read f; do if rg -q '^## MODIFIED Requirements$' \\\"$f\\\"; then echo \\\"$f\\\"; fi; done | head -20\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":8000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:47:15.981Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"RENAMED Requirements|MODIFIED Requirements|ADDED Requirements|Purpose\\\" openspec scripts packages -g '*.ts' -g '*.js' -g '*.mjs' 2>/dev/null | head -100\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":10000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:47:22.102Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md | sed -n '36,92p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '505,550p'\",\"workdir\":\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",\"yield_time_ms\":10000,\"max_output_tokens\":14000}); text(r.output);\n",
+          "timestamp": "2026-09-12T11:47:31.747Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I am checking the v6 diff against the affected delta specs and canonical cross-references, bounded to concrete contradictions.",
+          "timestamp": "2026-09-12T11:48:24.146Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short --branch && git diff --stat && git diff -- openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md openspec/changes/tool-prompt-templates/specs/knowledge-tools/spec.md openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md openspec/changes/tool-prompt-templates/tasks.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:48:26.996Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md | sed -n '1,115p'; nl -ba openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md | sed -n '650,815p'; nl -ba openspec/changes/tool-prompt-templates/specs/knowledge-tools/spec.md | sed -n '1,75p'; nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '1,38p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:48:32.611Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n -i \\\"immutable (availability )?manifest|availability manifest|API process|before provider I/O|before .*provider|current runtime availability|comparison record|Purpose\\\" openspec/changes/tool-prompt-templates openspec/specs/{knowledge-tools,mcp-tools,model-system-prompts,tool-calling} 2>/dev/null | head -240\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:48:35.044Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '130,205p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '360,430p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '740,825p'; nl -ba openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md | sed -n '120,180p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:48:47.718Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"manifest|snapshot|acceptance|enqueue|authoring API|turn-authoring|immutable\\\" openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md openspec/changes/tool-prompt-templates/specs/knowledge-tools/spec.md openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md openspec/changes/tool-prompt-templates/design.md openspec/changes/tool-prompt-templates/proposal.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:14000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:48:57.121Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git diff 1a71b64e -- openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md; git log --oneline -6 -- openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:49:06.736Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '495,620p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '675,735p'; nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '470,545p'; nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '600,690p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:24000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:49:14.824Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git blame -L 36,42 -- openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md; git blame -L 592,602 -- openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md; git log --format='%h %s' --all -- openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | head -12\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:10000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:49:31.074Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md | sed -n '32,43p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '514,522p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '593,611p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '676,692p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:8000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:49:36.688Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"availability (manifest|state|record|input)|manifest (entry|state|payload)|current runtime|runtime availability\\\" openspec/changes/tool-prompt-templates/{proposal.md,design.md,specs} | sed -n '1,240p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:49:45.954Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '615,640p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '732,744p'; nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '1,110p'; nl -ba openspec/changes/tool-prompt-templates/proposal.md | sed -n '1,100p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:49:51.043Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"command -v openspec || true; rg -n 'openspec.*validate|validate.*strict' package.json openspec README.md . 2>/dev/null | head -60\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:6000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:49:57.629Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"openspec validate tool-prompt-templates --strict\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:30000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:49:59.370Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"openspec validate --all --strict\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:30000,max_output_tokens:12000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:50:03.374Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"toolPromptFiles|promptFiles|tools\\\\.<|tool predicates|description|empty|absent|unknown|MCP|manifest|successful\\\" openspec/changes/tool-prompt-templates/specs/instance-config/spec.md openspec/changes/tool-prompt-templates/specs/tool-prompt-templates/spec.md | head -240; nl -ba openspec/changes/tool-prompt-templates/specs/tool-prompt-templates/spec.md | sed -n '1,170p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:20000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:50:17.068Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '388,486p'; nl -ba openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md | sed -n '190,270p'; nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '88,135p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000});\ntext(r.output);",
+          "timestamp": "2026-09-12T11:50:33.923Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git diff --check\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:4000});\ntext(r.output || \"git diff --check: clean\");",
+          "timestamp": "2026-09-12T11:51:04.062Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Clean. The v6 corrections are semantically consistent:\n\n- Knowledge now places root availability in the executing worker attempt; API acceptance performs no availability resolution or filesystem probing.\n- MCP scenarios correctly exclude refused/unknown ids from current comparison input and only use prior successful records when explicitly present.\n- Conversation-read rename is valid and synchronized through `RENAMED Requirements`.\n- Transition compaction correctly uses staged replacement history before final target rendering.\n- The replacement model-system Purpose and explicit finalize synchronization task are OpenSpec-compatible.\n\n`openspec validate tool-prompt-templates --strict` passed; `openspec validate --all --strict` passed 35/35; `git diff --check` is clean. No new substantive P0/P1 findings.",
+          "timestamp": "2026-09-12T11:51:10.232Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I am checking only the new prospective-cutover boundary correction across the proposal and affected deltas, looking for contradictions with preserved message/replay/checkpoint semantics.",
+          "timestamp": "2026-09-12T12:03:59.136Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short --branch && git diff --stat && git diff -- openspec/changes/tool-prompt-templates/proposal.md openspec/changes/tool-prompt-templates/design.md openspec/changes/tool-prompt-templates/tasks.md openspec/changes/tool-prompt-templates/specs/context-injection/spec.md openspec/changes/tool-prompt-templates/specs/durable-runs/spec.md openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md openspec/changes/tool-prompt-templates/specs/chat-recency-digest/spec.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:30000});\ntext(r.output);",
+          "timestamp": "2026-09-12T12:04:02.798Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/specs/context-injection/spec.md | sed -n '1,240p'; nl -ba openspec/changes/tool-prompt-templates/specs/durable-runs/spec.md | sed -n '1,105p'; nl -ba openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md | sed -n '125,225p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:30000});\ntext(r.output);",
+          "timestamp": "2026-09-12T12:04:13.323Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n -i \\\"failed(,| or| attempt|/)|failed attempts|failed-attempt|superseded|cancelled|expired\\\" openspec/changes/tool-prompt-templates/specs/{context-injection,durable-runs,tool-calling,model-system-prompts,chat-recency-digest}/spec.md openspec/changes/tool-prompt-templates/{design.md,proposal.md,tasks.md} | sed -n '1,300p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:30000});\ntext(r.output);",
+          "timestamp": "2026-09-12T12:04:19.632Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/specs/model-system-prompts/spec.md | sed -n '245,270p'; nl -ba openspec/specs/tool-calling/spec.md | sed -n '155,190p'; nl -ba openspec/specs/context-injection/spec.md | sed -n '30,55p'; nl -ba openspec/specs/durable-runs/spec.md | sed -n '25,55p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:14000});\ntext(r.output);",
+          "timestamp": "2026-09-12T12:04:46.702Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n -i \\\"failed|cancelled|expired|superseded|replay|compaction\\\" openspec/specs/context-injection/spec.md openspec/specs/tool-calling/spec.md openspec/specs/model-system-prompts/spec.md openspec/specs/chat-recency-digest/spec.md | sed -n '1,260p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:22000});\ntext(r.output);",
+          "timestamp": "2026-09-12T12:04:51.549Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba openspec/changes/tool-prompt-templates/design.md | sed -n '270,325p'; nl -ba openspec/changes/tool-prompt-templates/proposal.md | sed -n '65,95p'; nl -ba openspec/changes/tool-prompt-templates/specs/chat-recency-digest/spec.md | sed -n '110,175p'; nl -ba openspec/changes/tool-prompt-templates/specs/chat-recency-digest/spec.md | sed -n '210,240p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:18000});\ntext(r.output);",
+          "timestamp": "2026-09-12T12:05:11.754Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"openspec validate tool-prompt-templates --strict && git diff --check\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:30000,max_output_tokens:6000});\ntext(r.output);",
+          "timestamp": "2026-09-12T12:05:19.876Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"runId|retrospective|pre-cutover|prospective|rebuild|reconstruct|filter\\\" openspec/changes/tool-prompt-templates/{proposal.md,design.md,tasks.md,specs} | sed -n '1,260p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:26000});\ntext(r.output);",
+          "timestamp": "2026-09-12T12:05:26.629Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Clean. The prospective-cutover correction is consistent across `proposal.md`, `design.md`, `tasks.md`, and the affected deltas:\n\n- Existing messages, replay eligibility, active checkpoints/summaries, and digest baseline/told-set are explicitly preserved without retrospective filtering.\n- Post-cutover failed-attempt exclusion is scoped through the new `context-injection` boundary and cross-referenced by durable-runs, tool-calling, model-system-prompts, and digest semantics.\n- Tool-catalog/system-only receipt migration remains separately required and does not authorize conversation rewrites.\n- Transition compaction still stages state and publishes only on successful target completion.\n\n`openspec validate tool-prompt-templates --strict` and `git diff --check` pass. No concrete P0/P1 contradiction introduced.",
+          "timestamp": "2026-09-12T12:05:39.126Z"
+        },
+        {
+          "type": "assistant",
+          "text": "I am reviewing the four v7 files against the existing native effect-recovery and prompt-probe contracts, with no implementation changes.",
+          "timestamp": "2026-09-12T13:35:43.670Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git status --short --branch && git diff --stat && git diff -- openspec/changes/tool-prompt-templates/design.md openspec/changes/tool-prompt-templates/tasks.md openspec/changes/tool-prompt-templates/specs/durable-runs/spec.md openspec/changes/tool-prompt-templates/specs/instance-config/spec.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:24000});\ntext(r.output);",
+          "timestamp": "2026-09-12T13:35:45.921Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"rg -n \\\"native|effect|admission|attempt|workerId|unknown|outcome_unknown|claim|reclaim|dispatch\\\" apps/api/src/runs apps/api/src/tools apps/api/src | head -280\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:30000});\ntext(r.output);",
+          "timestamp": "2026-09-12T13:35:51.977Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"nl -ba apps/api/src/tools/native-files.ts | sed -n '1,220p'; nl -ba apps/api/src/tools/native-files.ts | sed -n '220,420p'; nl -ba apps/api/src/runs/native-files-repository.ts | sed -n '1,280p'\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:30000});\ntext(r.output);",
+          "timestamp": "2026-09-12T13:35:57.359Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"git diff --unified=80 -- openspec/changes/tool-prompt-templates/design.md openspec/changes/tool-prompt-templates/specs/durable-runs/spec.md openspec/changes/tool-prompt-templates/specs/instance-config/spec.md openspec/changes/tool-prompt-templates/tasks.md\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:10000,max_output_tokens:30000});\ntext(r.output);",
+          "timestamp": "2026-09-12T13:36:27.887Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "exec",
+          "input": "const r = await tools.exec_command({cmd:\"openspec validate tool-prompt-templates --strict && git diff --check\",workdir:\"/home/leon0399/.herdr/worktrees/llame/file-based-tool-prompt-templates\",yield_time_ms:30000,max_output_tokens:6000});\ntext(r.output);",
+          "timestamp": "2026-09-12T13:36:50.536Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Clean. The v7 corrections are consistent and remain within scope:\n\n- Native mutation admission now atomically fences owner, non-terminal/uncancelled Run state, expected `activeAttemptId`, and the existing durable effect record before dispatch.\n- Reclaim-before-admission refuses stale admission; reclaim-after-admission treats an unsettled effect as potentially executed, preserves old dispatch behavior, and blocks fresh or duplicate execution through existing recovery.\n- Boot validation now uses the independent `user × chats` cross-product with a representative unconditional temporal anchor, matching `model-system-prompts`; temporal-only templates remain valid.\n- No historical cleanup, reconstruction, or replay-policy expansion was introduced.\n\n`openspec validate tool-prompt-templates --strict` and `git diff --check` pass. No concrete P0/P1 findings.",
+          "timestamp": "2026-09-12T13:36:57.943Z"
+        }
+      ],
+      "total_additions": 40,
+      "total_deletions": 5,
+      "accepted_lines": 40,
+      "overriden_lines": 0
+    }
+  }
+}
