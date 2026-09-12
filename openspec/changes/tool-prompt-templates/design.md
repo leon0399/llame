@@ -209,7 +209,11 @@ Attempt identity must fence receipt/context publication, new invocation
 admission, and finalization. A worker superseded by queue recovery cannot publish
 a competing answer, append its reminder, or advance the baseline. Compare
 against the active attempt in tenant-scoped writes, alongside existing Run state
-and native effect checks. Keep operational events/effect records and partial
+and native effect checks. Native effect admission must check that identity and
+non-terminal uncancelled Run state atomically with its existing durable effect
+record, before dispatch. Reclaim treats an admitted but unsettled effect as
+potentially executed even if dispatch was not observed; the existing recovery
+fence still blocks a fresh model loop or duplicate execution. Keep operational events/effect records and partial
 output for diagnostic/UI replay; tag or scope them by attempt so they cannot
 enter a retry, compaction input, or a later model-history projection. Existing
 failure/partial-output UI retention is not permission to promote it as context.
@@ -339,6 +343,12 @@ prove atomic successful publication, pending versus unauthorized receipts,
 receipt immutability, and cross-owner denial.
 
 ## Revision history
+
+- v7 (2026-09-12): Made native effect admission atomic with the owner/Run/attempt
+  check and covered reclaim before admission or before observed dispatch.
+  Aligned configuration boot probes with the existing independent user/chat
+  cross-product and unconditional anchor. MCP result redaction remains governed
+  by its unchanged canonical requirement and existing executor sanitization.
 
 - v6 (2026-09-12): Corrected residual API-time Knowledge wording, clarified
   MCP availability-comparison terminology, renamed the conversation-reader

@@ -14,7 +14,21 @@ A worker SHALL claim a run only if it is non-terminal; a run already marked runn
 - **WHEN** a late writer (a lagging worker, a deadman check) tries to mutate a run that has already reached a terminal state
 - **THEN** the write is rejected and the recorded terminal outcome stands
 
-Every queue-authorized claim or reclaim SHALL atomically assign a fresh trusted `activeAttemptId` persisted on the Run. Successful completion SHALL record `completedAttemptId`. These identifiers SHALL not reuse or overwrite `workerId`, which remains native executor authority. Attempt-owned events SHALL carry their attempt id so projections can select the winner; Run-level queue/cancellation events need no fabricated attempt. Context preparation, receipt publication, new invocation admission, and successful finalization SHALL verify their expected attempt id against the Run's current attempt. A superseded worker SHALL not start new admitted effects or publish an answer, attempt context, or availability baseline. Already dispatched operations retain their existing settlement/unknown-outcome rules. The native executor identity and durable native effect-recovery fence SHALL remain authoritative before starting a fresh model loop.
+Every queue-authorized claim or reclaim SHALL atomically assign a fresh trusted `activeAttemptId` persisted on the Run. Successful completion SHALL record `completedAttemptId`. These identifiers SHALL not reuse or overwrite `workerId`, which remains native executor authority. Attempt-owned events SHALL carry their attempt id so projections can select the winner; Run-level queue/cancellation events need no fabricated attempt. Context preparation, receipt publication, new invocation admission, and successful finalization SHALL verify their expected attempt id against the Run's current attempt. A superseded worker SHALL not start new admitted effects or publish an answer, attempt context, or availability baseline. Already admitted native effects retain their existing settlement/unknown-outcome rules, including when dispatch has not yet been observed. The native executor identity and durable native effect-recovery fence SHALL remain authoritative before starting a fresh model loop.
+
+Native effect admission SHALL check the trusted owner, non-terminal uncancelled Run state, and expected `activeAttemptId` atomically with recording the existing durable native effect fence, before dispatch. An earlier preparation-time identity check SHALL not authorize that admission. After admission, an effect without a recorded result SHALL be treated as potentially executed during reclaim, even if the old worker paused before dispatch. Recovery SHALL apply the existing native unknown-outcome rules before any fresh model loop and SHALL NOT authorize duplicate execution; recording a new attempt id does not clear the effect fence.
+
+#### Scenario: Reclaim precedes native effect admission
+
+- **WHEN** attempt A pauses after preparation and attempt B reclaims the Run before A admits a native mutation
+- **THEN** A's conditional admission is refused and it dispatches no mutation
+- **AND** no stale effect record is admitted
+
+#### Scenario: Reclaim follows admission but precedes observed dispatch
+
+- **WHEN** A records native effect admission and pauses before dispatch, then B reclaims the Run without a recorded effect result
+- **THEN** B treats the admitted operation as potentially executed and applies the existing unknown-outcome recovery rules
+- **AND** B starts no fresh model loop or duplicate mutation while that effect is unsettled, even if A later resumes dispatch
 
 #### Scenario: Superseded worker attempts late publication
 

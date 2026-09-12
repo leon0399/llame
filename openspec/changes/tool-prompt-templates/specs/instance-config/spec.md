@@ -32,13 +32,24 @@ Everything else — self-contained markup under a non-reserved name, unmatched o
 
 The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record — including when the context is extended with per-user values. The renderable set SHALL be the complete explicit projection defined by `model-system-prompts`, including its chat collections and temporal paths, plus absent-safe conditional-only `tools.<exact-id>` predicates. Both template kinds SHALL use that same projection. Neither records nor unrequested capability flags become renderable.
 
-Per-user paths SHALL be validated at execution-worker boot exactly like any other identifier, while their **values** resolve per execution attempt because no owner is in scope at worker startup. The loader SHALL therefore expose a template that the worker attempt path renders, rather than returning a string rendered at execution-worker boot. For templates without tool predicates, worker boot SHALL render each template with BOTH an absent and a populated per-user context, and SHALL fail if either renders empty. One probe is not sufficient: `unless` is a permitted helper over the per-user gates, so a template whose only content sits inside `{{#unless user}}` renders non-empty with no owner and empty for precisely the owners who personalized. The earlier claim that an absent per-user context yields the minimum possible output is therefore false, and probing one gate state would pass such a template at execution-worker boot and ship an empty prompt in production. A template that references no per-user path SHALL remain valid and MUST NOT fail worker startup; that model simply forgoes per-user context.
+Per-user and per-chat paths SHALL be validated at execution-worker boot, while their values resolve per execution attempt because no owner or Chat is in scope at startup. The loader SHALL expose a template for the worker attempt path to render. For templates without tool predicates, boot SHALL probe the independent absent/populated `user` × `chats` cross-product defined by `model-system-prompts` and SHALL fail if any combination renders empty. Every probe SHALL supply a representative unconditional temporal anchor; varying the optional gates together or probing an absent anchor is invalid. A template SHALL NOT fail startup merely because it references no per-user path; that model simply forgoes per-user context.
 
 A missing, unreadable, non-file, or empty configured prompt SHALL fail worker startup naming the model id and field; it MUST NOT silently use the project default. An allowlisted path whose value is simply absent SHALL NOT fail worker startup — it renders empty, so that a conditional over a possibly-absent value is expressible; this SHALL apply to per-user paths at execution-worker boot, where no value can exist by construction. The built-in project prompt SHALL be validated at worker startup as a packaged application asset.
 
 The **packaged project-default prompt** SHALL reference the per-user paths, each inside a conditional, so that a stock installation applies an owner's personalization with no operator action and an owner's `shareAccountIdentity` toggle governs their account identity directly. An operator who replaces the default with a prompt referencing no per-user path SHALL silently forgo personalization for that model; this consequence SHALL be documented, and it is accepted rather than reported, because per-model activation reporting is out of scope.
 
 The resolved public model catalog and all user-facing APIs MUST omit `systemPromptFile` and every resolved host path. The resolved prompt contents and a source label MAY be exposed only through the owner-authorized run context receipt defined by the `model-system-prompts` capability. Config errors and operator logs MUST NOT print prompt contents.
+
+#### Scenario: A mixed optional-context state renders empty
+
+- **WHEN** a template without tool predicates renders non-empty for both lockstep gate states but empty when `user` is absent and `chats` is populated
+- **THEN** the independent gate probes reject it at worker boot
+
+#### Scenario: A template uses only temporal context
+
+- **WHEN** an otherwise-valid template renders non-empty text using only `context.systemTime` and `context.systemTimezone`
+- **THEN** every boot probe supplies the anchor and succeeds
+- **AND** absence of per-user or per-chat values does not invalidate it
 
 #### Scenario: Relative model prompt path resolves
 
