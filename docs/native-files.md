@@ -68,14 +68,14 @@ a link swapped in after validation also reads back as `not_found`.
 depth-2 listing as an absolute directory path; a bare `kb://` or a locator
 with no identifier is `invalid_path`.
 
-A `write` may name directories that do not exist yet. They are created one
-component at a time, each checked after creation, because a recursive create
-adopts an existing symbolic link without complaint and would build the rest of
-the chain through it — placing the file outside the Space while the result
-still named a locator inside it. A component that exists and is not a directory
-fails `not_regular_file`. This matters most on a host that allowlists `bash`
-alongside `write`: the shell can plant such a link itself, so the boundary
-cannot rest on the model being unable to create one.
+In create mode a `write` may name directories that do not exist yet. They are
+created one component at a time, each checked after creation, because a
+recursive create adopts an existing symbolic link without complaint and would
+build the rest of the chain through it — placing the file outside the Space
+while the result still named a locator inside it. A component that exists and
+is not a directory fails `not_regular_file`. This matters most on a host that
+allowlists `bash` alongside `write`: the shell can plant such a link itself, so
+the boundary cannot rest on the model being unable to create one.
 
 `kb://` carries no Markdown-only suffix rule and no 1 MiB size cap — a Space
 is a directory of arbitrary files. Beyond the rules above, `kb://` targets

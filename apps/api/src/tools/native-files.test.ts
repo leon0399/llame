@@ -425,7 +425,9 @@ describe('knowledge locator resolution', () => {
     expect(result).toMatchObject({ status: 'error', type: 'not_found' });
     expect(result).toHaveProperty(
       'message',
-      expect.stringContaining('replace requires an existing file'),
+      expect.stringContaining(
+        'replace requires an existing file; omit replace to create a new file',
+      ),
     );
     // Resolution ran first, so the refusal never reached the mutation fence
     // and created no directory on the way to failing.

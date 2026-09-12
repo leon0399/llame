@@ -334,4 +334,149 @@ describe('native files through the model loop and durable worker', () => {
       expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
     },
   );
+
+  it('replays a settled replace into the terminal run instead of executing it again', async () => {
+    const modelId = `native-replace-replay-${randomUUID()}`;
+    registerScript(modelId);
+    const seeded = await seedRun({
+      tenantDb: harness.tenantDb,
+      userId,
+      modelId,
+      allowedTools: tools,
+    });
+    const settled = {
+      status: 'success',
+      operation: 'write',
+      path,
+      replaced: true,
+      diff: '',
+      content: '1: settled bytes\n',
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+    };
+    // A redelivery of a Run that already settled a replace: the attempt and
+    // its result are recorded, and one tool activity was left open.
+    const deliverySequence = await harness.tenantDb.runAs(
+      userId,
+      async (tx) => {
+        const started = await new RunsRepository(tx).markStarted(
+          seeded.runId,
+          userId,
+          { workerId: 'lost-host' },
+        );
+        if (!started) throw new Error('Native replay Run did not start.');
+        const events = new RunEventsRepository(tx);
+        const sequence = (await events.append(seeded.runId, 'run.started'))
+          .sequence;
+        await events.append(seeded.runId, 'tool.requested', {
+          toolCallId: 'native-replay',
+          toolName: 'write',
+          input: { path, content: 'settled bytes\n', replace: true },
+        });
+        await events.append(seeded.runId, 'native.attempt', {
+          toolCallId: 'native-replay',
+          operation: 'write',
+          path,
+        });
+        await events.append(seeded.runId, 'native.result', {
+          toolCallId: 'native-replay',
+          result: settled,
+        });
+        return sequence;
+      },
+    );
+    expect(deliverySequence).toBeGreaterThan(0);
+
+    await dispatchRun({ queue: harness.queue, ...seeded, userId, modelId });
+
+    expect(await terminal(seeded.runId)).toMatchObject({
+      status: 'failed',
+      error: { code: 'outcome_unknown' },
+    });
+    expect(
+      harness.models.streamCalls.filter((call) => call.modelId === modelId),
+    ).toHaveLength(0);
+    // The replace ran once, in the lost attempt; the redelivery neither
+    // repeated it nor replaced the bytes it published.
+    expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
+    const events = await harness.tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
+    );
+    expect(
+      events.filter((event) => event.eventType === 'native.attempt'),
+    ).toHaveLength(1);
+    const completed = events.find(
+      (event) => event.eventType === 'tool.completed',
+    );
+    expect(completed?.payload).toMatchObject({
+      toolCallId: 'native-replay',
+      toolName: 'write',
+      status: 'success',
+      output: settled,
+    });
+  });
+
+  it('does not invoke the model when another worker recovers an open kb:// replace', async () => {
+    const spaces = new KnowledgeSpaceService(
+      harness.tenantDb,
+      new KnowledgeSpaceLocalResolver(knowledgeRoot),
+    );
+    const spaceId = (await spaces.provisionForOwner(userId)).id;
+    const note = join(knowledgeRoot, spaceId, 'note.md');
+    await writeFile(note, 'alpha\nbeta\n');
+    const locator = `kb://${spaceId}/note.md`;
+    const modelId = `native-kb-retry-${randomUUID()}`;
+    harness.models.register(modelId, {
+      kind: 'tool-script',
+      finalText: 'Knowledge recovery never reaches the model.',
+      calls: [
+        {
+          id: 'kb-retry',
+          name: 'write',
+          input: { path: locator, content: 'replaced\n', replace: true },
+        },
+      ],
+    });
+    const seeded = await seedRun({
+      tenantDb: harness.tenantDb,
+      userId,
+      modelId,
+      allowedTools: tools,
+    });
+    const deliverySequence = await harness.tenantDb.runAs(
+      userId,
+      async (tx) => {
+        const started = await new RunsRepository(tx).markStarted(
+          seeded.runId,
+          userId,
+          { workerId: 'lost-host' },
+        );
+        if (!started) throw new Error('Knowledge recovery Run did not start.');
+        return (
+          await new RunEventsRepository(tx).append(seeded.runId, 'run.started')
+        ).sequence;
+      },
+    );
+    // No executor binding: a locator was never bound to the lost worker.
+    await harness.tenantDb.runAs(userId, (tx) =>
+      new NativeFilesRepository(tx).begin({
+        runId: seeded.runId,
+        userId,
+        fence: { bound: false },
+        deliverySequence,
+        toolCallId: 'kb-retry',
+        operation: 'write',
+        path: locator,
+      }),
+    );
+    await dispatchRun({ queue: harness.queue, ...seeded, userId, modelId });
+    expect(await terminal(seeded.runId)).toMatchObject({
+      status: 'failed',
+      error: { code: 'outcome_unknown' },
+    });
+    expect(
+      harness.models.streamCalls.filter((call) => call.modelId === modelId),
+    ).toHaveLength(0);
+    expect(await readFile(note, 'utf8')).toBe('alpha\nbeta\n');
+  });
 });

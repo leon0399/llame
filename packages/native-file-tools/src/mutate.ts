@@ -65,8 +65,14 @@ export const REPLACE_TARGET_MISSING_MESSAGE =
 // A single host mutation queue also orders aliases of the same file. Reads stay independent.
 let mutations: Promise<void> = Promise.resolve();
 
+/**
+ * `notFoundMessage` names what the caller can do about a `not_found` the
+ * filesystem reported rather than the operation; an operation that asserts the
+ * target exists supplies it, and every other operation keeps the generic one.
+ */
 function mutate(
   operation: () => Promise<MutationSuccess>,
+  notFoundMessage?: string,
 ): Promise<MutationSuccess | FileFailure> {
   const pending = mutations.then(operation);
   mutations = pending.then(
@@ -94,7 +100,9 @@ function mutate(
       message:
         type === "file_exists"
           ? FILE_EXISTS_MESSAGE
-          : "The native file operation could not complete.",
+          : type === "not_found" && notFoundMessage !== undefined
+            ? notFoundMessage
+            : "The native file operation could not complete.",
     };
   });
 }
@@ -286,29 +294,27 @@ export function createFile(
 }
 
 /**
- * Replace publishes over a target the caller asserted exists. An absent one is
- * the intended signal rather than an incidental filesystem failure, so it
- * reports the replace contract instead of the generic message. An absolute
- * path resolves through symbolic links exactly as `edit` does, so a link is
- * replaced at the entry it points to and survives the rewrite; a resolved
- * target was authorized as one exact entry, and following a link from it would
- * replace another.
+ * An absolute path resolves through symbolic links exactly as `edit` does, so
+ * a link is replaced at the entry it points to and survives the rewrite. A
+ * resolved target was authorized as one exact entry, and following a link from
+ * it would replace another, so a link swapped in at it is refused as the
+ * reader refuses one: `not_found`, with the bare type, because an entry does
+ * occupy the path and the replace contract's advice would be wrong there.
+ *
+ * A target that does not resolve is the assertion failing rather than an
+ * incidental filesystem failure, so `replaceFile` answers the mutation's
+ * `not_found` with the replace contract.
  */
 async function resolveReplaceTarget(
   path: string,
   followSymlinks: boolean,
 ): Promise<{ path: string; mode: number }> {
-  try {
-    const resolved = followSymlinks ? await realpath(path) : path;
-    const stats = await lstat(resolved);
-    if (!stats.isFile()) throw new NativeFileError("not_regular_file");
-    return { path: resolved, mode: stats.mode & 0o777 };
-  } catch (error) {
-    if (error instanceof NativeFileError) throw error;
-    if (isNodeError(error) && error.code === "ENOENT")
-      throw new NativeFileError("not_found", REPLACE_TARGET_MISSING_MESSAGE);
-    throw error;
-  }
+  const resolved = followSymlinks ? await realpath(path) : path;
+  const stats = await lstat(resolved);
+  if (stats.isSymbolicLink() && !followSymlinks)
+    throw new NativeFileError("not_found");
+  if (!stats.isFile()) throw new NativeFileError("not_regular_file");
+  return { path: resolved, mode: stats.mode & 0o777 };
 }
 
 export function replaceFile(
@@ -335,7 +341,7 @@ export function replaceFile(
       { create: false, mode: target.mode, signal },
     );
     return result;
-  });
+  }, REPLACE_TARGET_MISSING_MESSAGE);
 }
 
 /**

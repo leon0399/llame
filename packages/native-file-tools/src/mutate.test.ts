@@ -311,7 +311,10 @@ describe("native write replace mode", () => {
     expect(result).toMatchObject({
       status: "error",
       type: "not_found",
-      message: REPLACE_TARGET_MISSING_MESSAGE,
+      // Both clauses are the affordance: what replace requires and what
+      // creating the file instead takes.
+      message:
+        "The replace target does not exist. replace requires an existing file; omit replace to create a new file.",
     });
     await expect(lstat(nested)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(lstat(join(directory, "research"))).rejects.toMatchObject({
@@ -332,6 +335,19 @@ describe("native write replace mode", () => {
     });
     expect((await lstat(dangling)).isSymbolicLink()).toBe(true);
     await expect(lstat(missing)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("reports a path that cannot resolve with the replace contract", async () => {
+    const first = join(directory, "loop-a");
+    const second = join(directory, "loop-b");
+    await symlink(second, first);
+    await symlink(first, second);
+    expect(await replaceFile({ path: first, content: "new\n" })).toMatchObject({
+      status: "error",
+      type: "not_found",
+      message: REPLACE_TARGET_MISSING_MESSAGE,
+    });
+    expect((await lstat(first)).isSymbolicLink()).toBe(true);
   });
 
   it("refuses a directory and changes no entry", async () => {
@@ -412,7 +428,9 @@ describe("native write replace mode", () => {
     expect(await readFile(path, "utf8")).toBe("after\n");
 
     // The owner authorized one exact entry, so a link swapped in at it must
-    // not be resolved: following it would replace the entry it points at.
+    // not be resolved: following it would replace the entry it points at. The
+    // refusal is the reader's `not_found`, not a non-file report, because the
+    // authorized entry is no longer the one on disk.
     const outside = join(directory, "outside.md");
     await writeFile(outside, "secret\n");
     const linked = join(directory, "linked.md");
@@ -421,7 +439,7 @@ describe("native write replace mode", () => {
       await replaceFile({ path: linked, content: "leaked\n" }, undefined, {
         displayPath: "kb://space/linked.md",
       }),
-    ).toMatchObject({ status: "error", type: "not_regular_file" });
+    ).toMatchObject({ status: "error", type: "not_found" });
     expect((await lstat(linked)).isSymbolicLink()).toBe(true);
     expect(await readFile(outside, "utf8")).toBe("secret\n");
   });
