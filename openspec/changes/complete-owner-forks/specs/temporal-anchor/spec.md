@@ -4,7 +4,7 @@
 
 The system SHALL resolve, for every chat, an anchor instant marking when that chat's current context began. The anchor SHALL be the time of the chat's most recent applicable compaction, or its context origin when it has no compaction.
 
-An ordinary new chat's context origin SHALL be its creation time. An owner fork SHALL inherit the source prefix's context origin, independently of the fork's own creation time. A fork of a fork SHALL retain that inherited origin. Copied compactions SHALL retain their original timestamps; copying a checkpoint SHALL NOT assert that compaction occurred at fork creation.
+An ordinary new chat's context origin SHALL be its creation time. A non-empty owner fork SHALL inherit the source prefix's context origin, independently of the fork's own creation time. A fork of a fork SHALL retain that inherited origin. An empty whole-chat fork SHALL use its own creation time because it inherits no context. Copied compactions SHALL retain their original timestamps; copying a checkpoint SHALL NOT assert that compaction occurred at fork creation.
 
 The anchor SHALL be derived from the applicable compaction or recorded context origin, not from an independently editable anchor setting. The fork's creation timestamp SHALL continue to record when the new Chat was created.
 
@@ -21,9 +21,15 @@ The anchor SHALL be derived from the applicable compaction or recorded context o
 
 #### Scenario: Owner forks uncompacted history
 
-- **WHEN** an owner forks a prefix with no applicable compaction
+- **WHEN** an owner forks a non-empty prefix with no applicable compaction
 - **THEN** the fork inherits the prefix's context origin
 - **AND** its new creation timestamp does not change the rendered anchor
+
+#### Scenario: Owner forks an empty completed prefix
+
+- **WHEN** a whole-chat fork has no completed turn to inherit
+- **THEN** its context origin is the new Chat's own creation time
+- **AND** it inherits no temporal anchor from unfinished source history
 
 #### Scenario: Owner forks compacted history
 

@@ -10,7 +10,11 @@ The owner SHALL be able to fork their own Chat as a whole or through an inclusiv
 
 A whole-chat fork SHALL end at the last durably completed assistant turn visible in that snapshot. It SHALL exclude later user input, partial assistant output, tool observations, and continuation state belonging to an unfinished Run. A terminal status without its durable completed answer SHALL NOT establish a completed boundary. If no completed turn exists, a whole-chat fork SHALL create an empty private Chat.
 
+An empty whole-chat fork SHALL inherit no context origin, digest, compaction, comparison baseline, or receipt state. It SHALL initialize as an ordinary new Chat and SHALL NOT fail for unavailable historical continuation state. Its first local turn SHALL begin the normal new-chat disclosure epoch; the non-empty inheritance rules do not apply to this empty prefix.
+
 An explicit anchor SHALL remain the requested message rather than be moved silently. A message belonging to an unfinished or retryable partial turn SHALL fail with `409 fork_boundary_unsettled` and create nothing. An absent source, foreign-owner source, or anchor outside the owned source Chat SHALL retain not-found behavior.
+
+Both named conflicts SHALL use the existing domain-error body `{ statusCode: 409, error: "Conflict", code, message }`. OpenAPI SHALL declare the two stable code values so clients can distinguish them without matching human-readable wording.
 
 #### Scenario: Whole-chat fork races an active Run
 
@@ -40,6 +44,7 @@ An explicit anchor SHALL remain the requested message rather than be moved silen
 - **WHEN** a whole-chat fork is requested before the source has any completed turn
 - **THEN** the destination is an empty private Chat
 - **AND** no unfinished input or model execution is inherited
+- **AND** the first local turn uses the destination's creation time and normal new-chat context initialization
 
 #### Scenario: A large prefix spans several insertion batches
 
@@ -89,6 +94,12 @@ The fork's replay SHALL use the copied replacement history followed by the retai
 - **THEN** the fork fails without committing a destination
 - **AND** it does not regenerate the checkpoint or silently discard compaction
 
+#### Scenario: An ancestor carries excluded continuation state
+
+- **WHEN** an otherwise selected lineage contains a recorded ancestor companion whose message horizon exceeds the requested boundary or whose revision exceeds the selected state
+- **THEN** the operation fails atomically rather than importing that companion's excluded state
+- **AND** it neither drops the required ancestor nor substitutes a different checkpoint
+
 ### Requirement: Pinned boundary state survives later source changes
 
 The fork SHALL inherit the selected boundary's recorded context origin, digest baseline and told-set, re-bake state, model/tool comparison baseline, and immutable effective-context evidence. These values SHALL be selected together with the applicable compaction state. A later source update SHALL NOT replace them.
@@ -112,6 +123,12 @@ Stale but intact pinned state SHALL remain valid. The system SHALL NOT refresh i
 - **WHEN** a selected old boundary lacks required structured continuation evidence and no recorded facts establish it
 - **THEN** the operation returns `409 fork_context_unavailable` and creates nothing
 - **AND** no current baseline or guessed empty state is substituted
+
+#### Scenario: Adoption observes an unfinished later turn
+
+- **WHEN** adoption captures current state from `U1 A1 U2` at sequences 1/2/3 with unfinished U2
+- **THEN** the adoption state has message horizon 3, even if the active checkpoint only covers sequence 1
+- **AND** a fork at A1 returns `fork_context_unavailable` if no earlier recorded facts establish its required state
 
 ### Requirement: Ordinary continuation defines model-facing fidelity
 
@@ -170,15 +187,21 @@ Fork creation SHALL make no chat-model or compaction inference call and enqueue 
 
 ### Requirement: Historical evidence remains inspectable without double-counting spend
 
-Owners SHALL be able to inspect copied timestamps, model/effort, usage, immutable effective-context receipts, and applicable checkpoint summaries using destination Chat/message identity. Receipt contents SHALL use the existing safe allowlist and load on demand. An assistant message's receipt SHALL identify the governing copied user turn, not a later unrelated Run.
+Owners SHALL be able to inspect copied timestamps, model/effort, usage, immutable effective-context receipts, and applicable checkpoint summaries using destination Chat/message identity. Receipt contents SHALL use the existing safe allowlist and load on demand. A stored receipt reference SHALL resolve the accepted context for that owned message's turn. Inconsistent origin references SHALL NOT authorize a different message's context or global Run lookup. The existing one-accepted-Run-per-user-message admission contract SHALL remain unchanged.
 
-Copied usage SHALL retain its original execution identity and time, with an explicit distinction between inherited evidence and local execution. Fork creation SHALL create no spend event. Aggregation across originals and forks SHALL count one originating execution once, including fork-of-fork and compaction usage. A historical fork ending at a user message SHALL expose its accepted context but SHALL NOT attach the excluded assistant's usage or later execution-only evidence.
+Copied usage SHALL retain its original execution identity and time, with an explicit distinction between inherited evidence and local execution. Owner message and compaction responses SHALL expose `usageProvenance` as `local`, `inherited`, or null for absent usage; the additional namespaced origin keys SHALL remain server-side. Fork creation SHALL create no spend event. Aggregation of retained evidence across originals and forks SHALL count one originating execution once, including fork-of-fork and compaction usage; local-only totals SHALL exclude inherited usage. This change SHALL NOT introduce an analytics endpoint or recover unrecorded provider costs. A historical fork ending at a user message SHALL expose its accepted context but SHALL NOT attach the excluded assistant's usage or later execution-only evidence.
 
 #### Scenario: Owner opens a receipt after deleting the source
 
 - **WHEN** the owner opens a copied message's context action after source deletion
 - **THEN** its original safe prompt/tool receipt is available through the destination message
 - **AND** the receipt does not contain host paths, credentials, or invented execution metadata
+
+#### Scenario: A reused message ID is submitted again
+
+- **WHEN** a caller submits an already accepted user message ID, including after cancellation
+- **THEN** the existing admission conflict remains in force
+- **AND** the request creates no new acceptance evidence or replacement receipt for that message
 
 #### Scenario: Several copies share one original execution
 
@@ -203,6 +226,12 @@ The shared/public fork path SHALL continue to copy only what its existing public
 - **WHEN** a write tries to associate copied history with another owner's effective-context snapshot
 - **THEN** datastore ownership enforcement rejects it
 - **AND** no receipt or prompt data is disclosed
+
+#### Scenario: Another Chat's checkpoint is referenced
+
+- **WHEN** a write assigns a different Chat's compaction to an initial, accepted-turn, or checkpoint continuation state, even within the same owner
+- **THEN** datastore reference constraints reject it
+- **AND** neither replay nor receipt inspection can follow that foreign checkpoint
 
 #### Scenario: A visitor forks a public compacted Chat
 
