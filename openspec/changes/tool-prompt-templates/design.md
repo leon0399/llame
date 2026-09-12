@@ -35,6 +35,11 @@ received-time anchor does not become the retry's wall-clock time merely because
 rendering moves. Current owner sharing/personalization settings are reread for
 each attempt under those capabilities' existing retention rules.
 
+Historical chat reconstruction is outside this change. The new failed-attempt
+exclusion and successful-publication rules apply to attempts executed after the
+coordinated runtime cutover. They do not retroactively reclassify existing chat
+history, summaries, or digest state.
+
 ## Decisions
 
 ### D1. Packaged descriptions and one renderer
@@ -303,6 +308,14 @@ observation from the old unobserved sentinel or a failed Run. Then remove the
 stored tool declarations, schema/description payloads, and obsolete combined
 hash/binding columns. Keep messages, effect records, and system receipts intact.
 
+Preserve existing messages and reminders, active summaries/checkpoints, and
+digest baseline/told-set state. Do not rebuild, clear, or retrospectively filter
+them to enforce the new attempt-publication rules. Existing aggregates can
+contain context produced by failed pre-cutover Runs; this change makes no claim
+to remove it. Normal future compaction, digest lifecycle, and existing owner
+access controls continue to apply. The receipt/catalog migration above does not
+authorize rewriting conversation history or its aggregate state.
+
 The removal of historical tool-catalog receipts is an intentional data-contract
 change. Take a database backup before this migration. Rollback of the old
 binaries requires the matching pre-migration database backup because removed
@@ -327,6 +340,13 @@ receipt immutability, and cross-owner denial.
 
 ## Revision history
 
+- v6 (2026-09-12): Corrected residual API-time Knowledge wording, clarified
+  MCP availability-comparison terminology, renamed the conversation-reader
+  requirement, and made canonical Purpose synchronization explicit after PR
+  review. Clarified staged transition input. Per Leo's scope decision, preserved
+  existing history, summaries, and digest state without retrospective cleanup;
+  new attempt-publication rules apply prospectively. The receipt's prohibition
+  on availability manifests remains intact.
 - v5 (2026-09-12): Separated historical-id availability comparison from tool
   candidate admission and qualified target-request ordering after transition
   summarization throughout the deltas.

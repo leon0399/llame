@@ -42,6 +42,8 @@ The final assistant message written for a run SHALL be an ordered projection of 
 - **WHEN** a run emits reasoning and text before a model error
 - **THEN** its partial assistant message retains the observed reasoning-before-text order
 
+The prospective cutover boundary in `context-injection` SHALL govern these publication rules; existing conversation state SHALL not be retrospectively filtered or rebuilt.
+
 Operational and UI replay SHALL remain distinct from model-context publication. Only the successfully committed attempt's assistant output and context SHALL become model history. Failed/cancelled/expired or superseded attempt projections may remain displayable in their original part order but SHALL be excluded from retry input, later model history, model-facing recall, and compaction. Within a successful attempt, an individually failed tool call remains a normal paired observation.
 
 #### Scenario: Failed attempt output is visible but not model history

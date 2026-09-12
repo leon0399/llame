@@ -57,12 +57,12 @@ For disconnect and reconnect disclosure, a process SHALL retain the exact identi
 #### Scenario: Refused declaration remains invisible
 
 - **WHEN** a declaration from an allowlisted namespace fails schema, collision, secret, or other admission checks
-- **THEN** its id and declaration enter neither the executable catalog nor an availability manifest
+- **THEN** its id and declaration enter neither the executable catalog nor the current runtime availability state used for successful-turn comparison
 
 #### Scenario: Exact permission does not manufacture identity
 
-- **WHEN** an exact MCP permission names an id absent from the fresh process's admitted or remembered source inventory
-- **THEN** that id enters neither the effective context nor an availability manifest
+- **WHEN** an exact MCP permission names an id absent from both the fresh process's admitted or remembered source inventory and the previous successful turn's comparison record
+- **THEN** that id enters neither the executable catalog nor the current runtime availability comparison input
 
 #### Scenario: Disconnect retains identity but not authority to call
 

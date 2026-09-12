@@ -1,3 +1,8 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: Conversation read uses the existing immutable read-only tool loop`
+- TO: `### Requirement: Conversation read uses the attempt-local read-only tool loop`
+
 ## MODIFIED Requirements
 
 ### Requirement: Tool failure is an observation, not a crash
@@ -169,7 +174,7 @@ Comparing an attempt-local MCP source declaration against its current source SHA
 
 ### Requirement: Tool observations survive into later turns as stored UI parts
 
-These model-history rules apply only to observations from successfully committed attempts. Failed, cancelled, expired, or superseded attempts may retain operational/UI records, but their output and context SHALL not enter a retry, later model turn, recall projection, or compaction. An individual failed tool call within a successfully committed attempt SHALL still retain its normal paired failure observation.
+The prospective cutover boundary in `context-injection` SHALL govern failed-attempt exclusion; existing conversation state SHALL not be retrospectively filtered or rebuilt. For post-cutover attempts, these model-history rules apply only to observations from successfully committed attempts. Failed, cancelled, expired, or superseded attempts may retain operational/UI records, but their output and context SHALL not enter a retry, later model turn, recall projection, or compaction. An individual failed tool call within a successfully committed attempt SHALL still retain its normal paired failure observation.
 
 A round's tool activity SHALL remain available to the model in later turns
 within the bounded replay contract below. What a tool was asked and what it
@@ -411,7 +416,7 @@ behavior; it is outside this change.
 - **THEN** the existing read-only retry behavior remains available
 - **AND** no native mutation is inferred from the read-only result
 
-### Requirement: Conversation read uses the existing immutable read-only tool loop
+### Requirement: Conversation read uses the attempt-local read-only tool loop
 
 The code-owned tool inventory SHALL include `conversation_read` in addition to `search_conversations` and `knowledge_search`. It SHALL declare `read_only`, require its own exact `tools.allowed` entry, and participate in the existing declaration admission, attempt-local runtime catalog, trusted executor binding, timeout, cooperative cancellation, settlement, persistence, replay, compaction, neutralization, and generic browser-rendering lifecycle. Owner authority SHALL come only from trusted Run context, never from model arguments or a message locator.
 

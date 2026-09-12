@@ -6,7 +6,7 @@ The system SHALL register `knowledge_search` as a code-owned `read_only` tool; K
 
 Changing a tool path, query, guessed identifier, or persisted argument SHALL NOT widen current owner access. A guessed, absent, removed, or other-owner explicit identifier SHALL return the same closed `knowledge_space_not_found` result even when the owner has no current spaces. An unscoped search by an owner with no current spaces SHALL receive `knowledge_space_not_configured`. Neither result SHALL reveal whether another owner, row, or directory exists.
 
-At worker attempt preparation, `knowledge_search` eligibility SHALL depend on its trusted code-owned declaration, `read_only` classification, exact operator allowlist entry, and process configuration—not on owner inventory. With a configured `knowledge.root`, an otherwise-eligible `knowledge_search` SHALL remain advertised when the owner currently has zero spaces; a later call SHALL signal `knowledge_space_not_configured` to the model. When `knowledge.root` is absent from the executing worker process, the existing closed `knowledge_space_unavailable` runtime availability state SHALL apply without probing the filesystem during API acceptance. The same configured root SHALL make the native `read`, `edit`, and `write` tools eligible for `kb://` locators as defined by `native-file-tools`.
+At worker attempt preparation, `knowledge_search` eligibility SHALL depend on its trusted code-owned declaration, `read_only` classification, exact operator allowlist entry, and process configuration—not on owner inventory. With a configured `knowledge.root`, an otherwise-eligible `knowledge_search` SHALL remain advertised when the owner currently has zero spaces; a later call SHALL signal `knowledge_space_not_configured` to the model. When `knowledge.root` is absent from the executing worker process, the existing closed `knowledge_space_unavailable` runtime availability state SHALL apply without filesystem probes during attempt admission. API acceptance SHALL neither resolve Knowledge availability nor probe the filesystem. The same configured root SHALL make the native `read`, `edit`, and `write` tools eligible for `kb://` locators as defined by `native-file-tools`.
 
 At worker execution, the static tool executor SHALL receive the Knowledge filesystem resolver and process-local configuration only through trusted dependency injection or trusted tool context. It SHALL resolve current authority through the Run owner inside a tenant transaction and SHALL never accept owner identity, roots, or local binding data from model arguments or the availability comparison record.
 
@@ -24,9 +24,9 @@ At worker execution, the static tool executor SHALL receive the Knowledge filesy
 
 #### Scenario: Executing worker has no Knowledge root
 
-- **WHEN** the turn-authoring API process has no configured Knowledge root
-- **THEN** the immutable availability manifest marks each otherwise-eligible Knowledge tool unavailable with `knowledge_space_unavailable`
-- **AND** no filesystem probe or private path enters the request path
+- **WHEN** the executing worker process has no configured Knowledge root
+- **THEN** the attempt's runtime availability marks each otherwise-eligible Knowledge tool unavailable with `knowledge_space_unavailable`
+- **AND** admission performs no filesystem probe, and no private host path is disclosed in model-facing or owner-visible output
 
 #### Scenario: A new resource is visible within an existing Run
 

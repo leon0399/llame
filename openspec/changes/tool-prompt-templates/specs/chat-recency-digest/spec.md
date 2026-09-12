@@ -226,7 +226,7 @@ Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rul
 
 **Reason**: Replaced by `Digest baseline and disclosure state publish with the successful attempt`; acceptance-time or failed-attempt publication semantics are retired.
 
-**Migration**: Apply the replacement requirement with the worker-attempt cutover. Preserve unrelated scenarios and existing owner isolation; remove the obsolete binding/publication behavior.
+**Migration**: Apply the replacement requirement prospectively with the worker-attempt cutover. Preserve existing digest baselines and told-sets under the `context-injection` cutover boundary; do not rebuild or clear them to remove pre-cutover failed-Run contributions. Preserve unrelated scenarios and existing owner isolation; remove the obsolete binding/publication behavior.
 
 ### Requirement: The digest is resolved at most once per chat and re-resolved only at compaction
 

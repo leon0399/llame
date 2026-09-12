@@ -23,7 +23,7 @@ using the current execution attempt's owner context and admitted tool catalog.
   available/unavailable states.
 - D5: Compare each attempt against the previous successfully committed turn's
   availability. Publish its reminder and advance that baseline only with a
-  successful turn. Failed attempts contribute no model context or baseline;
+  successful turn. New failed attempts contribute no model context or baseline;
   retries resolve fresh and compare against the same preceding committed turn.
 - D6: Gate existing cross-tool advice, including Bash's preference for edit and
   conversation search's suggestion to call `conversation_read`.
@@ -35,6 +35,11 @@ using the current execution attempt's owner context and admitted tool catalog.
 MCP descriptions, parameter schemas, and tool-result contracts retain their own
 authors. There is no new grep executor, prompt editor, file watcher, or raw
 configuration exposure.
+
+Historical chat cleanup is outside this change. Preserve existing messages,
+summaries/checkpoints, and digest baseline/told-set state without reconstruction
+or new retrospective replay filtering. The attempt-publication rules apply from
+the coordinated runtime cutover; existing state keeps its normal lifecycle.
 
 ## Capabilities
 

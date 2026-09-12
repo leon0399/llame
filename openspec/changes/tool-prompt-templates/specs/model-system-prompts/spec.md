@@ -1,3 +1,15 @@
+## Purpose
+
+Per-model system prompts use operator-managed whole-file templates loaded by
+execution workers at boot. Each execution attempt renders its system prompt
+and llame-owned tool descriptions from one current safe context and admitted
+runtime catalog. System-only attempt receipts preserve prepared prompt text;
+only successful turns publish attempt-owned conversation context and minimal
+tool-availability comparison state. Model switches preserve portable committed
+history, with source-model transition compaction when necessary. Owner-only
+inspection exposes system receipts without tool catalogs, host paths, or
+credentials.
+
 ## MODIFIED Requirements
 
 ### Requirement: Each model resolves one complete effective system prompt
@@ -444,7 +456,7 @@ than silently discard or regenerate history.
 
 - **WHEN** a model switch requires source-model transition compaction
 - **THEN** the source model uses the last successful source system-prompt receipt and source effort to summarize only eligible committed history without tool declarations
-- **AND** the target request uses the resulting stored replacement history
+- **AND** the target request uses the resulting staged replacement history
   before the retained triggering turn
 
 #### Scenario: A target attempt fails after transition preparation
@@ -468,7 +480,7 @@ than silently discard or regenerate history.
 
 Transition compaction SHALL stage replacement history, digest/anchor refresh, context epoch, and supersession items in memory during target request preparation. It SHALL finalize the target prompts and receipt after that preparation and publish staged state only with target-turn success. Failure or supersession SHALL discard the staged state. Ordinary full-current compaction occurs after a successful turn and SHALL instead publish checkpoint and refreshed context state in its own atomic transaction, fenced by that successful source Run, covered message range, and expected epoch; stale work SHALL not alter a prepared live attempt's context.
 
-Later model-switch transition compaction SHALL use the successful source Run's system-prompt receipt and model/effort, SHALL omit tool declarations, and SHALL estimate the request actually sent. It SHALL NOT load, reconstruct, or persist a historical tool catalog. Tool execution remains disabled in both modes. Failed-attempt output and context SHALL not enter ordinary or transition compaction input.
+Later model-switch transition compaction SHALL use the successful source Run's system-prompt receipt and model/effort, SHALL omit tool declarations, and SHALL estimate the request actually sent. It SHALL NOT load, reconstruct, or persist a historical tool catalog. Tool execution remains disabled in both modes. Post-cutover failed-attempt output and context SHALL not enter ordinary or transition compaction input. Existing history and checkpoints SHALL retain the preservation boundary defined by `context-injection`.
 
 ### Requirement: Owners can inspect the exact effective context without seeing host paths
 

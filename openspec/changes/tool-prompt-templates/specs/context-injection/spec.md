@@ -146,6 +146,30 @@ An attempt-generated item intended for later conversation history SHALL be stage
 
 ## ADDED Requirements
 
+### Requirement: Worker-attempt cutover preserves existing conversation state
+
+The new successful-attempt publication and failed-attempt exclusion rules SHALL
+apply to attempts executed after the coordinated runtime cutover. Cutover SHALL
+preserve existing messages and reminders, active summaries/checkpoints, and
+digest baseline/told-set state without rebuilding, clearing, or adding
+retrospective replay filters. Existing state SHALL retain its ordinary
+compaction, digest, and owner-access rules. These prospective rules SHALL NOT
+claim to remove failed pre-cutover Run contributions from existing history or
+aggregates. The separate system-receipt and tool-catalog storage migration
+remains required and SHALL NOT authorize rewriting conversation state.
+
+#### Scenario: An existing Chat crosses the worker-attempt cutover
+
+- **WHEN** an existing Chat has stored reminders, an active checkpoint, and digest disclosure state
+- **THEN** cutover preserves their contents and existing replay eligibility without reconstruction
+- **AND** later compaction and digest updates follow their ordinary lifecycle
+
+#### Scenario: A post-cutover attempt fails in an existing Chat
+
+- **WHEN** a newly prepared attempt fails after cutover
+- **THEN** its pending output, context, and digest updates do not publish to model history or advance the comparison baseline
+- **AND** pre-existing conversation state is not retrospectively filtered or reset
+
 ### Requirement: Successful Runs record the winning attempt's injected items
 
 Each successfully completed Run SHALL record the winning attempt's context items injected into the final request it executed, as
