@@ -416,6 +416,105 @@ describe('native files through the model loop and durable worker', () => {
     });
   });
 
+  it('replays a settled Knowledge replace into the terminal run instead of executing it again', async () => {
+    const spaces = new KnowledgeSpaceService(
+      harness.tenantDb,
+      new KnowledgeSpaceLocalResolver(knowledgeRoot),
+    );
+    const space = await spaces.provisionForOwner(userId);
+    const note = join(knowledgeRoot, space.id, 'note.md');
+    await writeFile(note, 'alpha\nbeta\n');
+    const locator = `kb://${space.id}/note.md`;
+    const modelId = `native-kb-replay-${randomUUID()}`;
+    harness.models.register(modelId, {
+      kind: 'tool-script',
+      finalText: 'Knowledge replay never reaches the model.',
+      calls: [
+        {
+          id: 'kb-replay',
+          name: 'write',
+          input: { path: locator, content: 'settled bytes\n', replace: true },
+        },
+      ],
+    });
+    const seeded = await seedRun({
+      tenantDb: harness.tenantDb,
+      userId,
+      modelId,
+      allowedTools: tools,
+    });
+    // The stored result already carries the Knowledge envelope, so the replay
+    // returns it without re-resolving the Space or touching the filesystem.
+    const settled = {
+      status: 'success',
+      operation: 'write',
+      path: locator,
+      replaced: true,
+      diff: '',
+      content: '1: settled bytes\n',
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+      knowledgeSpaceId: space.id,
+    };
+    const deliverySequence = await harness.tenantDb.runAs(
+      userId,
+      async (tx) => {
+        const started = await new RunsRepository(tx).markStarted(
+          seeded.runId,
+          userId,
+          { workerId: 'lost-host' },
+        );
+        if (!started) throw new Error('Knowledge replay Run did not start.');
+        const events = new RunEventsRepository(tx);
+        const sequence = (await events.append(seeded.runId, 'run.started'))
+          .sequence;
+        await events.append(seeded.runId, 'tool.requested', {
+          toolCallId: 'kb-replay',
+          toolName: 'write',
+          input: { path: locator, content: 'settled bytes\n', replace: true },
+        });
+        await events.append(seeded.runId, 'native.attempt', {
+          toolCallId: 'kb-replay',
+          operation: 'write',
+          path: locator,
+        });
+        await events.append(seeded.runId, 'native.result', {
+          toolCallId: 'kb-replay',
+          result: settled,
+        });
+        return sequence;
+      },
+    );
+    expect(deliverySequence).toBeGreaterThan(0);
+
+    await dispatchRun({ queue: harness.queue, ...seeded, userId, modelId });
+
+    expect(await terminal(seeded.runId)).toMatchObject({
+      status: 'failed',
+      error: { code: 'outcome_unknown' },
+    });
+    expect(
+      harness.models.streamCalls.filter((call) => call.modelId === modelId),
+    ).toHaveLength(0);
+    expect(await readFile(note, 'utf8')).toBe('alpha\nbeta\n');
+    const events = await harness.tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
+    );
+    expect(
+      events.filter((event) => event.eventType === 'native.attempt'),
+    ).toHaveLength(1);
+    const completed = events.find(
+      (event) => event.eventType === 'tool.completed',
+    );
+    expect(completed?.payload).toMatchObject({
+      toolCallId: 'kb-replay',
+      toolName: 'write',
+      status: 'success',
+      output: settled,
+    });
+    expect(JSON.stringify(events)).not.toContain(knowledgeRoot);
+  });
+
   it('does not invoke the model when another worker recovers an open kb:// replace', async () => {
     const spaces = new KnowledgeSpaceService(
       harness.tenantDb,
