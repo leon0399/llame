@@ -12,6 +12,10 @@ A whole-chat fork SHALL end at the last durably completed assistant turn visible
 
 An empty whole-chat fork SHALL inherit no context origin, digest, compaction, comparison baseline, or receipt state. It SHALL initialize as an ordinary new Chat and SHALL NOT fail for unavailable historical continuation state. Its first local turn SHALL begin the normal new-chat disclosure epoch; the non-empty inheritance rules do not apply to this empty prefix.
 
+Assistant completion SHALL use the existing usage-based completion contract, including legacy absent usage, with no governing nonterminal Run. Completed answers salvaged under failed or expired terminal Runs SHALL remain eligible. A completed legacy assistant without a Run or reply link SHALL establish a non-empty assistant boundary; unavailable continuation evidence SHALL cause an explicit failure, never an empty-success substitution.
+
+User-anchor completion SHALL be established by a proven completed reply or a retained source-independent completion fact. An unlinked assistant SHALL NOT establish completion for an arbitrary user. Unprovable legacy user-anchor completion SHALL return `409 fork_context_unavailable`; a copied completed user anchor SHALL remain eligible after its original answer and Run are absent.
+
 An explicit anchor SHALL remain the requested message rather than be moved silently. A message belonging to an unfinished or retryable partial turn SHALL fail with `409 fork_boundary_unsettled` and create nothing. An absent source, foreign-owner source, or anchor outside the owned source Chat SHALL retain not-found behavior.
 
 Both named conflicts SHALL use the existing domain-error body `{ statusCode: 409, error: "Conflict", code, message }`. OpenAPI SHALL declare the two stable code values so clients can distinguish them without matching human-readable wording.
@@ -45,6 +49,24 @@ Both named conflicts SHALL use the existing domain-error body `{ statusCode: 409
 - **THEN** the destination is an empty private Chat
 - **AND** no unfinished input or model execution is inherited
 - **AND** the first local turn uses the destination's creation time and normal new-chat context initialization
+
+#### Scenario: A terminal failure retained a completed answer
+
+- **WHEN** a failed or expired Run has a durable assistant projection classified as completed by the existing predicate
+- **THEN** that answer remains eligible as a whole-chat cutoff or explicit assistant anchor
+- **AND** its terminal status alone cannot cause an older cutoff
+
+#### Scenario: A legacy assistant has no execution or reply link
+
+- **WHEN** a legacy assistant with absent usage is the last completed message and has no retained Run or `inReplyTo`
+- **THEN** it establishes a non-empty selected prefix without an invented user link or execution record
+- **AND** unavailable continuation state fails explicitly rather than silently creating an empty Chat
+
+#### Scenario: A legacy user has no provable completed reply
+
+- **WHEN** an explicit legacy user anchor has unknown completion, no governing nonterminal Run, and neither a proven completed reply nor a retained completion fact
+- **THEN** unavailable legacy completion evidence returns `409 fork_context_unavailable`
+- **AND** a nearby unlinked assistant is not guessed to be its reply
 
 #### Scenario: A large prefix spans several insertion batches
 
@@ -187,7 +209,7 @@ Fork creation SHALL make no chat-model or compaction inference call and enqueue 
 
 ### Requirement: Historical evidence remains inspectable without double-counting spend
 
-Owners SHALL be able to inspect copied timestamps, model/effort, usage, immutable effective-context receipts, and applicable checkpoint summaries using destination Chat/message identity. Receipt contents SHALL use the existing safe allowlist and load on demand. A stored receipt reference SHALL resolve the accepted context for that owned message's turn. Inconsistent origin references SHALL NOT authorize a different message's context or global Run lookup. The existing one-accepted-Run-per-user-message admission contract SHALL remain unchanged.
+Owners SHALL be able to inspect copied timestamps, model/effort, usage, immutable effective-context receipts, and applicable checkpoint summaries using destination Chat/message identity. Receipt contents SHALL use the existing safe allowlist and load on demand. A receipt reference SHALL identify its recorded original Run within that owned message's history, preserving distinct retained historical receipts. An assistant receipt SHALL match its proven originating Run; ambiguous or inconsistent origin SHALL NOT resolve to another receipt. Ordinary continuation SHALL retain the existing message-sequence, acceptance-time, and original-Run-ID ordering, independently of explicit receipt inspection. Today's one-accepted-Run-per-user-message admission contract SHALL remain unchanged.
 
 Copied usage SHALL retain its original execution identity and time, with an explicit distinction between inherited evidence and local execution. Owner message and compaction responses SHALL expose `usageProvenance` as `local`, `inherited`, or null for absent usage; the additional namespaced origin keys SHALL remain server-side. Fork creation SHALL create no spend event. Aggregation of retained evidence across originals and forks SHALL count one originating execution once, including fork-of-fork and compaction usage; local-only totals SHALL exclude inherited usage. This change SHALL NOT introduce an analytics endpoint or recover unrecorded provider costs. A historical fork ending at a user message SHALL expose its accepted context but SHALL NOT attach the excluded assistant's usage or later execution-only evidence.
 
@@ -202,6 +224,13 @@ Copied usage SHALL retain its original execution identity and time, with an expl
 - **WHEN** a caller submits an already accepted user message ID, including after cancellation
 - **THEN** the existing admission conflict remains in force
 - **AND** the request creates no new acceptance evidence or replacement receipt for that message
+
+#### Scenario: Retained history contains several Runs for a message
+
+- **WHEN** existing history retains distinct Run receipts for one user message
+- **THEN** copying preserves each recorded origin and every control resolves the receipt it actually references
+- **AND** an assistant cannot select a different Run's receipt, and continuation retains the existing deterministic tie-break
+- **AND** retaining that history does not admit new same-message retries
 
 #### Scenario: Several copies share one original execution
 
