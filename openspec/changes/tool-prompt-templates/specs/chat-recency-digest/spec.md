@@ -108,15 +108,19 @@ Each chat SHALL carry two distinct pieces of digest state, and they SHALL NOT be
 - The **rendered baseline** — the capped, ordered entries available to both prompt surfaces. It is written once, with the chat's first successful turn whose attempt prepared it with the setting enabled, and is **immutable until re-resolution**, which keeps the digest contribution stable across the chat's turns.
 - The **told-set** — every chat this conversation has been told about in successful model context, whether through a rendered baseline in either prompt surface or a later append, with the pin state last communicated for each. It **grows** with every append.
 
-Both SHALL be reset together when the baseline is re-resolved at compaction, so a new epoch begins with the told-set matching exactly what the fresh baseline states.
+Both SHALL be reset together when the baseline is re-resolved at compaction. The new epoch's told-set SHALL include only entries actually disclosed by a successful target request; a post-success refresh awaiting its first request starts with no newly disclosed entries.
 
 The told-set SHALL record only chats the model actually received. Initialization SHALL therefore derive it from the baseline actually **rendered** in the winning attempt's system prompt or admitted tool descriptions, not merely from the fact that baseline state was written: operator templates that omit the digest from both surfaces leave the baseline unrendered, and marking those chats told would suppress their later appends and disclose them never. A chat whose baseline entry was never rendered SHALL remain untold, so it enters through the ordinary append path when the ordinary append rules make it eligible.
+
+Both prompt renders SHALL return private disclosure metadata alongside text, keyed to the trusted digest candidates. Record entry ids only when their entry values are actually emitted along the executed template branch, not when a collection is tested/iterated or only aggregate counts are emitted. Use the existing validated renderer's emission path, not string matching, reparsing rendered text, or a second template engine. These ids SHALL not become new template variables or stored tool-description metadata. Use the union of prior told state and the current render's actual baseline disclosure when deriving this attempt's appends; commit that union plus successful digest appends only with the winning turn.
+
+A post-success compaction refresh SHALL reset the new epoch's told-set without pre-marking unrendered entries; the next successful attempt accounts for actual baseline disclosure. Unrendered entries remain eligible under the ordinary append rules.
 
 The told-set SHALL identify chats by their chat id. Storing an identifier for bookkeeping is not in tension with omitting identifiers from the rendered output: the two serve different purposes, and no stored id is ever rendered.
 
 The worker SHALL recheck the owner setting and chat digest epoch under tenant scope immediately before preparing the final request and system-only receipt, after candidate resolution. If sharing was disabled during resolution, discard the new baseline/append candidate and proceed without newly produced digest content. This check SHALL occur before provider I/O, not after disclosure. Existing baseline retention on withdrawal remains unchanged.
 
-Baseline/told-set initialization, append advancement, and attempt-owned compaction refreshes SHALL be staged for the attempt and committed atomically with its successful turn and persisted context text. Failed, cancelled, or superseded attempts SHALL leave the committed digest state unchanged. At most one baseline epoch SHALL exist per chat; existing single-flight and attempt/epoch fencing SHALL prevent competing initialization or a stale compaction candidate from overwriting current state.
+Baseline/told-set initialization, append advancement, and pre-request transition-compaction refreshes SHALL be staged for the attempt and committed atomically with its successful turn and persisted context text. Post-success full-current compaction SHALL publish its checkpoint and refreshed baseline in its own fenced atomic transaction under `model-system-prompts`; it SHALL not pretend the new baseline was already disclosed by the source turn. Failed, cancelled, or superseded attempts SHALL leave the committed digest state unchanged. At most one baseline epoch SHALL exist per chat; existing single-flight and attempt/epoch fencing SHALL prevent competing initialization or a stale compaction candidate from overwriting current state.
 
 A setting change after request preparation applies to later attempts; it cannot undo content already sent. Successful publication SHALL record the actual prepared disclosure rather than pretending a later withdrawal prevented it. Receipts and committed content retain the existing non-erasure contract.
 
@@ -131,8 +135,8 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 #### Scenario: Re-resolution resets both
 
 - **WHEN** the baseline is re-resolved at compaction
-- **THEN** the told-set is reset to exactly the chats the fresh baseline states
-- **AND** a chat announced before the re-bake that is still eligible is not re-announced immediately afterwards
+- **THEN** the new epoch replaces the old told-set and records only actual successful disclosure of the fresh baseline
+- **AND** the next preparation accounts for entries rendered in either prompt surface before deriving appends, so that same request does not re-announce them
 
 #### Scenario: Concurrent initializing sends produce one baseline
 

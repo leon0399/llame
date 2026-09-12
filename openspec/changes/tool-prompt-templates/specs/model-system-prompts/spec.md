@@ -335,7 +335,7 @@ in the trailing summarization instruction so cached prefix content is not
 rewritten. Title generation SHALL continue to use its dedicated task-specific
 system prompt rather than the chat model's effective prompt.
 
-Every ordinary or transition compaction SHALL atomically persist:
+Every committed ordinary or transition compaction SHALL atomically persist:
 
 - the non-empty raw summary used by owner UI and recursive summarization; and
 - a non-empty, message-shaped `replacementHistory` that is the complete
@@ -447,12 +447,26 @@ than silently discard or regenerate history.
 - **AND** the target request uses the resulting stored replacement history
   before the retained triggering turn
 
+#### Scenario: A target attempt fails after transition preparation
+
+- **WHEN** transition compaction produced staged replacement history but the target attempt fails
+- **THEN** no staged checkpoint, digest/anchor refresh, or supersession marker becomes active
+- **AND** a retry starts from committed context and prepares anew
+
+#### Scenario: A completed turn starts ordinary compaction
+
+- **WHEN** the source turn has committed successfully and full-current compaction finishes
+- **THEN** its own transaction publishes the checkpoint and refreshed context state together
+- **AND** source/range/epoch fencing rejects stale publication under a newer prepared context
+
 #### Scenario: Partial rewind is requested
 
 - **WHEN** future functionality needs to summarize only a prefix or suffix
   around a retained historical boundary
 - **THEN** it does not reuse full-current or transition compaction
 - **AND** it requires a separately specified summary contract
+
+Transition compaction SHALL stage replacement history, digest/anchor refresh, context epoch, and supersession items in memory during target request preparation. It SHALL finalize the target prompts and receipt after that preparation and publish staged state only with target-turn success. Failure or supersession SHALL discard the staged state. Ordinary full-current compaction occurs after a successful turn and SHALL instead publish checkpoint and refreshed context state in its own atomic transaction, fenced by that successful source Run, covered message range, and expected epoch; stale work SHALL not alter a prepared live attempt's context.
 
 Later model-switch transition compaction SHALL use the successful source Run's system-prompt receipt and model/effort, SHALL omit tool declarations, and SHALL estimate the request actually sent. It SHALL NOT load, reconstruct, or persist a historical tool catalog. Tool execution remains disabled in both modes. Failed-attempt output and context SHALL not enter ordinary or transition compaction input.
 
@@ -465,12 +479,20 @@ label, exact rendered system prompt including projected owner values, prompt
 hash, and resolution timestamp. A new attempt SHALL append its own receipt and
 SHALL NOT overwrite or execute from a previous attempt's receipt. Failed-attempt
 receipts remain owner inspection data and SHALL NOT become model history.
+Receipt identity SHALL be unique per owner/Run/attempt, with an owner-matching
+Run relationship and zero or more receipts per Run. Identical text/hash SHALL
+not reuse another attempt's receipt. Completion SHALL identify its successful
+attempt. A receipt proves preparation, not dispatch; correlated request events
+SHALL distinguish those states.
 
 The receipt API SHALL distinguish an owned queued/preparing Run with no receipt
 from an unknown or non-owned Run: the former SHALL report not-yet-resolved
 status, the latter SHALL return not found. An attempt that fails before prompt
-preparation SHALL not fabricate a receipt. The UI SHALL show attempt identity
-and resolution state and SHALL fetch contents on demand.
+preparation SHALL not fabricate a receipt. The existing owner-only context-receipt endpoint SHALL return resolution state,
+active/completed attempt identifiers, and an ordered list of system-only
+receipts keyed by attempt id. An owned Run with no prepared receipt SHALL have
+an empty list and its actual unresolved/not-produced state. The UI SHALL expose
+each prepared attempt and fetch this response on demand.
 
 Receipts SHALL contain no tool catalog, schemas, descriptions, availability
 manifest, declaration hashes, or combined prompt/tool content hash. Private
@@ -493,7 +515,7 @@ fields SHALL be removed rather than rebuilt from current configuration.
 
 #### Scenario: Owner inspects migrated historical availability
 
-- **WHEN** the owner opens a receipt whose snapshot carries the canonical v0 availability sentinel
+- **WHEN** the owner opens a migrated historical system-only receipt whose former snapshot had no observed availability
 - **THEN** the migrated receipt retains its original system prompt without tool availability fields
 - **AND** migration does not fabricate an observed comparison baseline from historical non-observation
 
@@ -573,6 +595,10 @@ Persisted context-item parts of every producer, generated item prose, the per-Ru
 
 API acceptance SHALL persist the user message, selected public model/effort, and
 Run identity without resolving or persisting an effective prompt/tool catalog.
+Remove the old `modelContextSnapshotId` Run FK and required create input after
+historical system receipts have been migrated; no placeholder snapshot SHALL
+be created for acceptance. Source-context lookup SHALL follow the successful
+Run's system-only receipt.
 Each queue-authorized attempt SHALL resolve those fixed model choices through
 its executing worker's configuration, reread the owner's safe variable
 projection, and admit its worker-local current tool inventory. It SHALL render
@@ -581,14 +607,16 @@ that one context. Existing digest and temporal lifecycles SHALL retain their
 meaning. A missing selected model SHALL fail explicitly without fallback.
 
 The system prompt and admitted declarations SHALL stay fixed in memory for
-that attempt. The trusted executors and source declarations SHALL stay bound
+that attempt's target-model loop after transition preparation and final rendering. The trusted executors and source declarations SHALL stay bound
 together in that memory; current invocation permissions, tenant/resource
 authority, and native recovery fences SHALL still apply. Source loss or drift
 during an MCP attempt SHALL use the existing unavailable-call behavior without
 substituting newer definitions.
 
-Before provider I/O, the worker SHALL persist its system-only prompt receipt
-under a still-current attempt identity. Full tool catalogs, templates, schemas,
+Before target-model I/O, the worker SHALL persist its finalized system-only prompt receipt
+under a still-current attempt identity. Source-model transition summarization
+uses the successful source system receipt and separately identified operational
+events; a preliminary target sizing render SHALL not become a receipt. Full tool catalogs, templates, schemas,
 descriptions, and source/declaration hashes SHALL NOT be persisted as execution
 context. Minimal successful-turn id/state comparison records SHALL follow
 `tool-calling`. Any permitted retry SHALL resolve and render again rather than
@@ -621,7 +649,7 @@ using its predecessor's receipt, catalog, or model context.
 #### Scenario: Render fails after scheduling
 
 - **WHEN** current attempt inputs produce an invalid or empty effective prompt
-- **THEN** that attempt fails preparation with a safe error and no provider request
+- **THEN** that attempt fails final preparation with a safe error and no target-model request
 - **AND** the scheduled message/Run remains recorded without a new comparison baseline
 
 #### Scenario: Superseded attempt tries to publish context

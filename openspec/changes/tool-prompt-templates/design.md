@@ -97,11 +97,15 @@ On every allowed execution attempt:
 3. Apply existing allowlist, classification, native/Knowledge capability,
    collision, timeout, and input-schema admission. Retain each trusted executor
    with its admitted source declaration in memory.
-4. Build one safe render context from those inputs. Render the system prompt and
-   all admitted llame-owned descriptions. MCP descriptions remain opaque text.
-5. Persist the system-prompt-only receipt for this attempt before provider I/O,
-   conditional on still owning the attempt. Keep the complete tool context only
-   in memory for that attempt's model steps and permitted calls.
+4. Build one safe render context and a candidate target request. If transition
+   compaction is needed, stage its replacement history and digest/anchor refresh
+   in memory, then finalize both prompt surfaces against that staged context.
+   Recheck target request size. MCP descriptions remain opaque text.
+5. Persist the final target system-prompt-only receipt before target model I/O,
+   conditional on still owning the attempt. A source-model transition summary
+   uses its existing successful source receipt and is separately identified in
+   operational events. Keep the finalized tool context in memory for the
+   attempt's target-model steps and permitted calls.
 
 `tools.<exact-id>` is a conditional-only boolean: true for an admitted id,
 false otherwise, including an unknown native id or an id for an unconfigured
@@ -120,7 +124,7 @@ templates, representative none/all membership probes are diagnostics only;
 their emptiness cannot reject a syntactically valid template solely because a
 tool is absent. A description's own predicate is true in its probes. Actual
 rendering must reject an empty system prompt or admitted description before
-provider I/O, with safe static diagnostics. Fail the attempt, rather than
+target-model I/O, with safe static diagnostics. Fail the attempt, rather than
 dropping a tool and rendering again. The accepted user message/Run still exists.
 
 Within an attempt, both prompt surfaces and the advertised catalog remain fixed.
@@ -136,7 +140,8 @@ per execution attempt: Run/attempt identity, public model/effort, prompt source,
 rendered system text, prompt hash, and time of resolution. It records the
 attempt's text and is never used as a tool catalog or a retry input. Retain
 receipts for attempts that reached prompt preparation even if they later failed;
-inspection is separate from model-history replay. Before a receipt exists, the
+inspection is separate from model-history replay. A receipt proves preparation;
+correlated request events, not its mere existence, indicate dispatch. Before a receipt exists, the
 owner API/UI reports pending or not produced, rather than disguising an owned
 queued Run as not found. Non-owners still receive not found.
 
@@ -169,7 +174,16 @@ schema change with the same ids/states produces no availability reminder.
 The prepared reminder is attempt-local model input. A failed attempt neither
 persists it into canonical model history nor updates the comparison record.
 Every retry therefore compares with the same preceding committed turn, not the
-attempt it superseded. No in-memory cross-Run catalog cache is needed.
+attempt it superseded. No additional cross-Run catalog cache is needed.
+
+For a fresh worker whose configured MCP source is not ready, union current
+unavailable candidates with matching ids from the previous successful record.
+An id still permitted by the current allowlist and configured source is
+unavailable, not removed; use the source's current closed reason. These ids
+never supply a schema, classification, executor, or callable declaration.
+Disallowed/unconfigured ids are absent; a ready source's fresh discovery is
+authoritative about removal. This rule survives worker handoff without
+restoring catalogs or inferring ids that have never been observed.
 
 Example: M1 committed with grep available. M2 attempt A sees grep unavailable
 and emits that transition, but fails. Attempt B sees grep available again and
@@ -193,13 +207,17 @@ output for diagnostic/UI replay; tag or scope them by attempt so they cannot
 enter a retry, compaction input, or a later model-history projection. Existing
 failure/partial-output UI retention is not permission to promote it as context.
 
-Digest baseline/told-set changes and compaction refreshes follow the same
-successful-publication boundary. Recheck owner consent and the digest epoch
+Attempt-owned digest initialization, appends, and pre-request transition
+refreshes follow the same successful-publication boundary. Recheck owner consent and the digest epoch
 after candidate resolution, before provider I/O. Discard new digest production
 if that check observes withdrawal; retain existing baseline withdrawal semantics.
 Later setting changes affect later attempts and cannot undo an already prepared
-disclosure. The winning told-set accounts for entries actually rendered in
-either the system prompt or admitted descriptions, without storing descriptions.
+disclosure. The existing renderer returns private metadata for digest entry values actually
+emitted along executed branches. Combine that metadata from both surfaces with
+prior told state before deriving appends; commit the union only on success.
+Do not recover identities by matching rendered strings or add template-visible
+ids. A post-success compaction refresh starts an undisclosed epoch; its next
+successful request accounts for the new baseline without storing descriptions.
 The receipt can show exact digest text only where it appeared in the system
 prompt; tool-only historical wording is intentionally unavailable.
 
@@ -215,14 +233,28 @@ recommendation with `tools.conversation_read`. Preserve independent safety and
 bounded-result statements. Audit the remaining migrated descriptions for the
 same cross-tool pattern.
 
-Same-attempt compaction may use the attempt's in-memory system/declarations,
-with tool execution disabled as today. Later model-switch compaction retains
+Post-success full-current compaction may use the winning attempt's in-memory
+system/declarations, with tool execution disabled as today. It runs after the
+turn's terminal commit and publishes its checkpoint and digest/anchor refresh
+in a separate atomic compaction transaction. Fence that transaction by its
+successful source Run, covered message range, and expected chat context epoch;
+reject stale work rather than changing context beneath a prepared live attempt.
+Later model-switch compaction retains
 the source model/effort and successful source system-prompt receipt, but must
 not reconstruct tool definitions from the database or claim an exact old tool
 prefix. Send that transition-compaction request without tool declarations and
 budget the actual request. The historical conversation includes the committed
 tool calls/results it needs to summarize. This deliberately gives up exact
 tool-prefix cache reproduction across worker lifetimes.
+
+Transition compaction is preparation work: its checkpoint, context epoch,
+digest/anchor refresh, and supersession marker remain staged until target-turn
+success. Failure discards them. Finish the target prompt/description render and
+write its receipt after transition preparation; fixed-within-attempt means the
+finalized target-model context, not a preliminary size-estimation render.
+A successful transition publishes its staged checkpoint and context state in
+the same transaction as the winning turn. Ordinary post-success compaction
+uses its own transaction because the source turn has already committed.
 
 The pending `tool-search` proposal assumes persisted catalogs. Reconcile it with
 attempt-local discovery and the no-catalog-storage rule before combining the
@@ -233,12 +265,33 @@ producer; no additional feature checks are introduced here.
 
 ## Storage and Cutover
 
-Use a fresh trusted attempt id on each claim/reclaim and correlate its receipt
-and emitted events with that id. A system receipt is append-only per attempt;
+Persist `activeAttemptId` on the Run, assigned atomically by each
+queue-authorized claim/reclaim; keep it distinct from `workerId`, which remains
+trusted native executor authority. Successful finalization records
+`completedAttemptId`. Correlate attempt-owned events and receipts with the
+attempt id; compare the expected id in tenant-scoped invocation/publication
+writes. Run-level queue/cancellation events may have no execution attempt. A system receipt is append-only per attempt;
 the Run's active attempt changes only through the claim protocol. Availability
 records are written only in successful-turn finalization, not during claim or
 receipt preparation. Keep forced RLS and trusted owner identity on all new or
 reworked tables and composite ownership relationships.
+
+Use a system-only receipt table with a unique owner/Run/attempt key and an
+owner-matching Run reference. A Run has zero or more attempt receipts; the
+successful attempt is identified explicitly at completion. Delete content-based
+`createOrReuse` receipt identity and its uniqueness index: identical text/hash
+in different attempts still produces distinct receipts. During migration,
+retain one historical system receipt per linked Run with an explicit historical
+identity, without inventing retry counts or dispatch times. Remove the old
+`runs.modelContextSnapshotId` FK and required Run-create input after that copy;
+acceptance must not create a placeholder snapshot. Source-model lookup follows
+the successful Run's receipt instead.
+
+Keep the existing owner-only `GET /api/v1/runs/:id/context-receipt` surface,
+returning resolution state, active/completed attempt identifiers, and an ordered
+list of system-only receipts keyed by attempt id. It loads on demand and permits
+inspection of every prepared attempt, not merely the latest. Before preparation
+the list is empty with an honest state. No new tool-inspection endpoint exists.
 
 Quiesce acceptance and drain old active Runs before switching API/worker
 protocols. Migrate existing combined snapshots to retain their system prompt
@@ -272,6 +325,12 @@ receipt immutability, and cross-owner denial.
 
 ## Revision history
 
+- v4 (2026-09-12): Clarified pre-request versus post-success compaction
+  publication, absent-value versus empty-output validation, offline MCP
+  identity comparison after worker handoff, distinct attempt receipt keys, and
+  private render-time digest disclosure tracking. Specified the durable attempt
+  columns, Run-to-receipt relation, old snapshot-FK removal, and multi-attempt
+  inspection response.
 - v3 (2026-09-12): Rewritten after the completed grilling: fresh context per
   execution attempt, runtime-only tool definitions, system-only receipts,
   absent-safe predicates, and committed-turn availability comparison.

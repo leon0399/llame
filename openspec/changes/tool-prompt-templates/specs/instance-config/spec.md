@@ -21,7 +21,7 @@ Fragments stay rejected because `model-system-prompts` forbids prompt compositio
 
 A template SHALL be rejected at execution-worker boot as empty when it contains no literal text at all. Literal text SHALL count wherever it appears, **including inside a conditional body** — a prompt may legitimately consist of nothing but an `if` block wrapping its only prose, and rejecting that would defeat the conditional idiom this capability exists to enable.
 
-Template **rendering** SHALL be lenient where validation is strict: a context path that is allowlisted but has no value at render time SHALL render as empty rather than raising, so that data absent at request time can never fail a run. Boot-time validation SHALL be performed against the template rather than against any rendered output.
+Template **rendering** SHALL be lenient where validation is strict: a context path that is allowlisted but has no value at render time SHALL render as empty rather than raising, so absence is not an expression-resolution error. The complete rendered system prompt and each admitted description SHALL still satisfy the nonempty-attempt requirement; an empty final result fails preparation. Boot structural validation and the supported probe rules SHALL not require an absent tool to exist.
 
 Rendered values SHALL be neutralized in two regimes, by field kind. **Model and account-identity values** (`model.*`, `user.name`, `user.email`) SHALL be escaped by replacing exactly `&`, `<`, and `>` with character references — short single-line strings with no legitimate markup. **Owner-authored values** (the `user.personalization.*` text fields) SHALL instead pass through a tag sanitizer enforcing exactly two rules:
 
@@ -135,9 +135,9 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 
 #### Scenario: Allowlisted value is missing at render time
 
-- **WHEN** an allowlisted context path has no value when a prompt is rendered
+- **WHEN** an allowlisted context path has no value and the surrounding template produces nonempty final text
 - **THEN** the expression renders as empty and rendering succeeds
-- **AND** neither startup nor the run fails
+- **AND** the missing value itself causes no startup or attempt failure
 
 #### Scenario: Escaping alters exactly three characters
 

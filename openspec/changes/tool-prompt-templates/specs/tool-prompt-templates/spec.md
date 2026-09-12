@@ -78,7 +78,7 @@ API-only acceptance SHALL require no resolved prompt or catalog. File edits
 SHALL require restarting the executing process. Each allowed execution attempt
 SHALL freshly resolve owner variables and its worker's current admitted catalog,
 then render both prompt surfaces from one safe context. It SHALL hold the
-result in memory for that attempt's steps; another attempt SHALL resolve again.
+finalized result in memory for that attempt's target-model steps; another attempt SHALL resolve again. Any transition compaction and its staged digest/anchor refresh SHALL finish before this final rendering, under `model-system-prompts`.
 
 No tool catalog, schema, template, or rendered description SHALL be persisted
 as execution context in the database, queue, receipts, events, or context
@@ -91,7 +91,7 @@ Syntax and structural validation SHALL occur at boot. Templates without tool
 predicates SHALL retain existing empty-render probes. For tool-aware templates,
 probe emptiness caused by absent tools SHALL NOT reject startup; actual attempt
 rendering SHALL require a non-empty system prompt and every admitted
-description. A failed render SHALL fail preparation before provider I/O without
+description. A failed final render SHALL fail preparation before target-model I/O without
 silently falling back, removing a tool, or rerendering a smaller catalog.
 Diagnostics SHALL contain only safe field/model/tool identifiers and static
 reasons, never prompt contents, owner values, or private host paths.
@@ -117,7 +117,7 @@ reasons, never prompt contents, owner values, or private host paths.
 #### Scenario: Empty real render fails the attempt
 
 - **WHEN** a syntactically valid tool-aware template renders empty for the actual membership
-- **THEN** preparation fails before provider I/O
+- **THEN** final preparation fails before target-model I/O
 - **AND** the scheduled user message and Run remain recorded
 - **AND** no availability baseline or canonical attempt context is published
 
