@@ -14,11 +14,13 @@ master
 The proposal layer owns only these OpenSpec artifacts. Runtime-context owns
 worker resolution, attempt lifecycle, system-only receipts, minimal committed
 availability state, and coordinated storage cutover. Templates owns file
-configuration, shared rendering, and conditional guidance. Finalize owns
+configuration, shared rendering, and conditional guidance. Its PR closes #804
+after the complete feature satisfies acceptance; earlier layers reference #804
+and #319 without closing the feature issue. Finalize owns
 canonical spec sync and archive. Implementation branches require approval of
 the reviewed proposal; publication and merging require separate authority.
 
-- [ ] 1.1 Link this change to the worker-binding decisions in #319 and establish the feature's tracking linkage before publication; verify the acceptance criteria reflect D1-D6 without persisted executable catalogs.
+- [x] 1.1 Link this change to the worker-binding decisions in #319 and feature tracker #804; verify the acceptance criteria reflect D1-D6 without persisted executable catalogs.
 - [ ] 1.2 Review the complete draft with at least two independent reviewers and resolve verified substantive findings; run strict OpenSpec validation, Markdown lint, formatting, and diff checks, then obtain Leo's approval of the reviewed revision.
 - [ ] 1.3 Before implementation, inspect the current stack/base and reconcile newly landed tool-search or skill-context work; verify neither can reintroduce stored tool definitions or failed-attempt context.
 

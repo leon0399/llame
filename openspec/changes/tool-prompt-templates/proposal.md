@@ -81,8 +81,8 @@ API/client/UI, and database migrations. UI changes are limited to system-only
 attempt receipts and an honest not-yet-resolved state. No new template dependency
 is required.
 
-This design addresses the worker-binding questions in
-[#319](https://github.com/leon0399/llame/issues/319). It is a local draft; tracking
-and publication remain separate delivery steps. The pending `tool-search` and
+The feature is tracked in [#804](https://github.com/leon0399/llame/issues/804).
+This design also addresses the worker-binding questions in
+[#319](https://github.com/leon0399/llame/issues/319). The pending `tool-search` and
 `system-provided-skills` proposals require reconciliation with this lifecycle
 before their implementations are combined.
