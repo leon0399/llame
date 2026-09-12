@@ -68,7 +68,7 @@ A configured boolean, including `true` or `false`, ends resolution; lower-priori
 
 For example, `agents/llame.yaml` with `policy: { allow_implicit_invocation: true }` permits proactive loading even when `SKILL.md` contains `disable-model-invocation: true`. Remove the llame control to let the frontmatter take effect. `allowed-tools`, hooks, `context: fork`, model settings, command substitutions, and installation metadata cannot change llame authority or execute during loading. Unsupported executable extensions are reported as unsupported in load metadata, with no claimed vendor-runtime compatibility.
 
-Manual-only skills stay visible in the owner catalog but are omitted from the proactive prompt namespace and from `skill://` listings. A `skill://` body/resource read for one requires an exact explicit selection in the current user turn (D5). This is an invocation control, not a filesystem security boundary: ordinary permitted absolute-path reads remain governed by their own contract.
+Manual-only skills stay visible in the owner catalog but are omitted from the proactive prompt namespace, and are filtered from `skill://` listings unless selected in the current user turn. A `skill://` body/resource read for one requires that exact explicit selection (D5). This is an invocation control, not a filesystem security boundary: ordinary permitted absolute-path reads remain governed by their own contract.
 
 ### D3: One read surface with usable paths
 
