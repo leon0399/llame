@@ -18,7 +18,10 @@ import { timestamptz } from '../columns';
 import { sql } from 'drizzle-orm';
 import { users } from './auth';
 import { projects } from './projects';
-import { modelContextSnapshots } from './model-context';
+import {
+  modelContextSnapshots,
+  type TurnToolAvailabilityEntry,
+} from './model-context';
 
 export type RecencyDigestEntry = {
   title: string;
@@ -419,6 +422,13 @@ export const runs = pgTable(
     activeAttemptId: uuid('active_attempt_id'),
     // Recorded on successful finalization to identify the winning attempt.
     completedAttemptId: uuid('completed_attempt_id'),
+    // Minimal availability record for this successfully committed turn:
+    // sorted tool ids and their available/unavailable state. Written only
+    // in successful-turn finalization. Empty `[]` means observed-all-absent;
+    // null means no committed observation (pre-cutover or failed run).
+    turnToolAvailability: jsonb('turn_tool_availability').$type<
+      Array<TurnToolAvailabilityEntry>
+    >(),
   },
   (t) => [
     index('runs_chat_created_idx').on(t.chatId, t.createdAt),

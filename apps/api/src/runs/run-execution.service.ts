@@ -98,6 +98,7 @@ import {
   type TurnTelemetry,
 } from '../chats/turn-telemetry';
 import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
+import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import {
   ContextIncompatibleError,
   DYNAMIC_TOOL_EXECUTOR_RESOLVER,
@@ -504,6 +505,18 @@ export class RunExecutionService {
             `Run ${input.runId} was reclaimed before snapshot binding.`,
           );
         }
+
+        // System-prompt receipt: immutable per-attempt record of the rendered
+        // system text. Created before target-model I/O, conditional on still
+        // owning the attempt (the snapshot binding above already verified).
+        await new SystemPromptReceiptsRepository(tx).create({
+          ownerUserId: input.userId,
+          runId: input.runId,
+          attemptId,
+          source: effectiveContext.source,
+          systemPrompt,
+          promptHash: effectiveContext.promptHash,
+        });
 
         // Build the message context using the freshly rendered prompt.
         const built = await this.rebuildContextForChat(tx, input, systemPrompt);
