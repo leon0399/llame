@@ -487,7 +487,7 @@ describe('the frozen skill-catalog baseline', () => {
     });
   });
 
-  it('renders no skills key at all when the catalog admits nothing', async () => {
+  it('passes an empty baseline through when the catalog admits nothing', async () => {
     const rendered = vi.fn(
       (_input: SystemPromptRenderInput) => 'Rendered test prompt',
     );
@@ -498,7 +498,11 @@ describe('the frozen skill-catalog baseline', () => {
 
     await build({ deps: context });
 
-    // An absent key is what makes `{{#if skills}}` gate the whole section.
+    // The KEY is present here as an empty-but-defined object: `skillBaseline` is
+    // defined, so this layer forwards it. The gate is decided one layer deeper,
+    // in the prompt loader's `skillsContext`, where zero entries makes `skills`
+    // absent from the Handlebars context — which is what makes the default
+    // template's `{{#if skills}}` omit the whole section.
     expect(rendered.mock.calls[0][0].skills).toEqual({
       entries: [],
       omitted: 0,

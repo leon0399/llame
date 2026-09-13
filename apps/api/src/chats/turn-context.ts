@@ -315,6 +315,7 @@ async function resolveTurnSkillBaseline(
   }
 
   const baseline = resolveSkillCatalogBaseline(catalog);
+  if (baseline === undefined) return reportCatalogUnavailable(deps, catalog);
   // Written in the accepted-turn transaction the caller owns, so it commits
   // with the message and Run or not at all.
   await new ChatsRepository(tx).setSkillCatalogBaseline({
@@ -324,6 +325,23 @@ async function resolveTurnSkillBaseline(
     rebakedFrom: latestCompactionId,
   });
   return baseline;
+}
+
+/**
+ * Discovery could not run — an unreadable, missing, or oversized source.
+ *
+ * Freezing an empty advertisement here would bind it to the chat for the whole
+ * epoch and never self-heal, so the turn renders no skill section and the next
+ * one retries. The operator gets the diagnostic in the log.
+ */
+function reportCatalogUnavailable(
+  deps: TurnContextDeps,
+  catalog: SkillCatalogPort,
+): undefined {
+  deps.logger.warn(
+    `skill_catalog_unavailable: ${catalog.getSnapshot().diagnostics.join(' ')}`,
+  );
+  return undefined;
 }
 
 /**

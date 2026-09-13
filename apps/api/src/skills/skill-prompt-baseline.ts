@@ -31,15 +31,21 @@ export const SKILL_BASELINE_MAX_BYTES = 16 * 1024;
 /**
  * The advertised set: a package is eligible when its invocation control permits
  * proactive use AND it is currently readable. An invalid package has no
- * instructions to advertise, and counting one as eligible-but-omitted would
- * make the `skills.omitted` line claim that unreadable skills are "available".
+ * instructions to advertise, and counting one as eligible-but-omitted would make
+ * the `skills.omitted` line claim that unreadable skills are "available".
+ *
+ * `undefined` means discovery itself could not run — an unreadable, missing, or
+ * oversized source. That is NOT the same as an empty catalog, and the caller
+ * must not freeze it: freezing would bind an empty advertisement to the chat for
+ * the whole compaction epoch and never self-heal, turning a transient `readdir`
+ * failure into a silently absent skill section.
  */
 export function proactivelyEligible(
   catalog: SkillCatalogPort,
-): ReadonlyArray<SkillCatalogEntry> {
-  return catalog
-    .getSnapshot()
-    .entries.filter((entry) => entry.proactive && entry.available);
+): ReadonlyArray<SkillCatalogEntry> | undefined {
+  const snapshot = catalog.getSnapshot();
+  if (!snapshot.available) return undefined;
+  return snapshot.entries.filter((entry) => entry.proactive && entry.available);
 }
 
 /**
@@ -72,11 +78,17 @@ export function boundSkillCatalog(
   return { entries, omitted: ordered.length - entries.length };
 }
 
-/** Resolve the current catalog into a fresh baseline. */
+/**
+ * Resolve the current catalog into a fresh baseline, or `undefined` when
+ * discovery could not run. A caller that sees `undefined` must leave the chat's
+ * existing state alone and retry on the next turn rather than freezing an
+ * outage into the prompt.
+ */
 export function resolveSkillCatalogBaseline(
   catalog: SkillCatalogPort,
-): SkillCatalogBaseline {
-  return boundSkillCatalog(proactivelyEligible(catalog));
+): SkillCatalogBaseline | undefined {
+  const eligible = proactivelyEligible(catalog);
+  return eligible === undefined ? undefined : boundSkillCatalog(eligible);
 }
 
 /**

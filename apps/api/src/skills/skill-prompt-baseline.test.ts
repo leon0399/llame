@@ -1,3 +1,6 @@
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import { SkillCatalog } from './skill-catalog';
 import {
   SKILL_BASELINE_MAX_BYTES,
@@ -8,6 +11,7 @@ import {
   resolveSkillCatalogBaseline,
 } from './skill-prompt-baseline';
 import { type SkillCatalogEntry, type SkillCatalogPort } from './skill-catalog';
+import { type SkillCatalogBaseline } from '../db/schema/chats';
 
 function entry(
   name: string,
@@ -39,6 +43,14 @@ function catalogOf(
   };
 }
 
+/** Assert a resolution produced a baseline, and narrow it for the assertions. */
+function defined(
+  value: SkillCatalogBaseline | undefined,
+): SkillCatalogBaseline {
+  if (value === undefined) throw new Error('expected a resolved baseline');
+  return value;
+}
+
 describe('proactivelyEligible', () => {
   it('excludes manual-only and invalid packages', () => {
     const catalog = catalogOf([
@@ -47,11 +59,32 @@ describe('proactivelyEligible', () => {
       entry('broken', null, { available: false }),
     ]);
 
-    expect(proactivelyEligible(catalog).map((e) => e.name)).toEqual(['pdf']);
+    expect(proactivelyEligible(catalog)?.map((e) => e.name)).toEqual(['pdf']);
   });
 
   it('returns nothing for an empty catalog', () => {
     expect(proactivelyEligible(new SkillCatalog([]))).toEqual([]);
+  });
+
+  it('reports unavailability rather than an empty eligible set', () => {
+    // A source that cannot be read is NOT a catalog with zero eligible skills.
+    // Conflating them would freeze an empty advertisement onto the chat for a
+    // whole epoch, so this distinction is the one that matters.
+    const missing = new SkillCatalog([
+      path.join(tmpdir(), 'no-such-skills-dir'),
+    ]);
+
+    expect(proactivelyEligible(missing)).toBeUndefined();
+    expect(resolveSkillCatalogBaseline(missing)).toBeUndefined();
+  });
+
+  it('still resolves a genuinely empty catalog', () => {
+    // No configured source at all is an authoritative empty catalog, not an
+    // outage: there is nothing to retry.
+    expect(resolveSkillCatalogBaseline(new SkillCatalog([]))).toEqual({
+      entries: [],
+      omitted: 0,
+    });
   });
 });
 
@@ -147,11 +180,13 @@ describe('boundSkillCatalog', () => {
 
 describe('resolveSkillCatalogBaseline', () => {
   it('resolves the eligible set through the catalog', () => {
-    const baseline = resolveSkillCatalogBaseline(
-      catalogOf([
-        entry('pdf', 'Extract'),
-        entry('review', 'Review', { proactive: false }),
-      ]),
+    const baseline = defined(
+      resolveSkillCatalogBaseline(
+        catalogOf([
+          entry('pdf', 'Extract'),
+          entry('review', 'Review', { proactive: false }),
+        ]),
+      ),
     );
 
     expect(baseline.entries.map((e) => e.name)).toEqual(['pdf']);
