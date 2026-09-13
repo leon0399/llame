@@ -9,6 +9,7 @@ import type { ChatMessageResponseAttachmentsItem } from "./chatMessageResponseAt
 import type { ChatMessageResponsePartsItem } from "./chatMessageResponsePartsItem";
 import type { ChatMessageResponseRole } from "./chatMessageResponseRole";
 import type { ChatMessageResponseUsage } from "./chatMessageResponseUsage";
+import type { ChatMessageResponseUsageProvenance } from "./chatMessageResponseUsageProvenance";
 
 export interface ChatMessageResponse {
   id: string;
@@ -24,4 +25,9 @@ export interface ChatMessageResponse {
   /** @nullable */
   inReplyTo: string | null;
   createdAt: string;
+  /**
+   * null = no recorded usage; local = executed here; inherited = copied from a fork source
+   * @nullable
+   */
+  usageProvenance: ChatMessageResponseUsageProvenance;
 }

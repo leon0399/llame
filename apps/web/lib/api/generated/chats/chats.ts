@@ -10,8 +10,10 @@ import type {
   ChatMessagesResponse,
   ChatResponse,
   ChatSearchResponse,
+  ContextReceiptResponse,
   ForkChatDto,
   GetChatMessagesParams,
+  GetMessageContextReceiptParams,
   GetSharedChatParams,
   ListChatsParams,
   SearchChatsParams,
@@ -284,7 +286,7 @@ export const getChatMessages = async (
   return data;
 };
 
-export type forkChatError = void | void;
+export type forkChatError = void | void | void;
 
 export const getForkChatUrl = (id: string) => {
   return `/api/v1/chats/${id}/forks`;
@@ -319,6 +321,66 @@ export const forkChat = async (
     throw err;
   }
   const data: ChatResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type getMessageContextReceiptError = void | void;
+
+export const getGetMessageContextReceiptUrl = (
+  chatId: string,
+  messageId: string,
+  params: GetMessageContextReceiptParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/chats/${chatId}/messages/${messageId}/context-receipt?${stringifiedParams}`
+    : `/api/v1/chats/${chatId}/messages/${messageId}/context-receipt`;
+};
+
+export const getMessageContextReceipt = async (
+  chatId: string,
+  messageId: string,
+  params: GetMessageContextReceiptParams,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<ContextReceiptResponse> => {
+  const res = await fetchFn(
+    getGetMessageContextReceiptUrl(chatId, messageId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: getMessageContextReceiptError;
+      status?: number;
+    } = new globalThis.Error(
+      `GET ${getGetMessageContextReceiptUrl(chatId, messageId, params)} failed (${res.status})`,
+    );
+    const data: getMessageContextReceiptError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: ContextReceiptResponse = body ? JSON.parse(body) : {};
   return data;
 };
 
