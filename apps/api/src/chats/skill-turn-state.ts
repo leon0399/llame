@@ -31,6 +31,8 @@ export type SkillTurnStateDeps = {
   /** Absent on an instance with no configured skill source. */
   readonly skillCatalog: SkillCatalogPort | undefined;
   readonly skillDirectories: ReadonlyArray<string>;
+  /** Operator-facing reporting for an unreadable catalog; never model-facing. */
+  readonly reportUnavailable?: (diagnostics: ReadonlyArray<string>) => void;
 };
 
 export type SkillCatalogNotice = {
@@ -114,6 +116,15 @@ async function startSkillEpoch(
   }
 
   const baseline = resolveSkillCatalogBaseline(catalog);
+  if (baseline === undefined) {
+    // Configured but unreadable, missing, or oversized: discovery could not run.
+    // Freezing an empty advertisement would bind it to the chat for the epoch,
+    // and `toldFromBaseline` would throw on the missing entries — during
+    // accepted-turn preparation, failing the user's turn. Render no section and
+    // let the next turn retry.
+    deps.reportUnavailable?.(catalog.getSnapshot().diagnostics);
+    return { baseline: undefined, notice: undefined };
+  }
   // Both writes ride the accepted-turn transaction the caller owns, so they
   // commit with the message and Run or not at all.
   const chats = new ChatsRepository(input.tx);

@@ -342,6 +342,11 @@ async function resolveTurnSkillBaseline(
     {
       skillCatalog: deps.skillCatalog,
       skillDirectories: deps.instanceConfig.config.skills.directories,
+      // Operator-only: an unreadable catalog is logged, never shown to the
+      // model. This is the same marker the prompt layer used before the skill
+      // turn state moved here.
+      reportUnavailable: (diagnostics) =>
+        deps.logger.warn(`skill_catalog_unavailable: ${diagnostics.join(' ')}`),
     },
     {
       tx: input.tx,

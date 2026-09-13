@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { Logger } from '@nestjs/common';
 import { z } from 'zod';
 import type {
@@ -862,6 +865,49 @@ describe('the skill-catalog notice', () => {
     });
 
     expect(catalogForms((await run).messageParts)).toEqual([]);
+  });
+
+  it('renders no section and does not fail the turn when a source is unreadable', async () => {
+    // A configured source that cannot be read is not an empty catalog. Without
+    // the guard, `toldFromBaseline` would read `entries` off an undefined
+    // baseline and throw during accepted-turn preparation, failing the user's
+    // turn outright.
+    const unreadable = path.join(
+      mkdtempSync(path.join(tmpdir(), 'unreadable-root-')),
+      'does-not-exist',
+    );
+    const rendered = vi.fn((_input: SystemPromptRenderInput) => 'prompt');
+    const depsWithBadSource: TurnContextDeps = {
+      ...deps(),
+      systemPrompts: { render: rendered },
+      instanceConfig: {
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          skills: { directories: [unreadable] },
+        },
+      },
+      skillCatalog: new SkillCatalog([unreadable]),
+    };
+    const warned = vi.spyOn(depsWithBadSource.logger, 'warn');
+    repositories.findLatest.mockResolvedValue(undefined);
+
+    const result = await buildTurnContextAndParts(depsWithBadSource, {
+      tx,
+      chat: chat(),
+      turnInput: turnInput(),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+
+    // No section, no baseline written, and the operator gets the diagnostic.
+    expect(result.skillCatalogTold).toBeUndefined();
+    expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
+    expect(warned).toHaveBeenCalledWith(
+      expect.stringContaining('skill_catalog_unavailable'),
+    );
+    // The key is ABSENT, which is what leaves the default template's
+    // `{{#if skills}}` section unrendered.
+    expect(rendered.mock.calls[0][0].skills).toBeUndefined();
   });
 
   it('announces the removals when the source list is emptied mid-epoch', async () => {
