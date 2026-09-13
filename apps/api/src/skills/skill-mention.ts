@@ -16,6 +16,19 @@ import { isValidSkillName } from './skill-name';
 /** The name characters the grammar admits, for boundary scanning. */
 const NAME_CHARACTER = /[a-z0-9-]/u;
 
+/**
+ * A character that GLUES a `$…` token to its neighbours: any letter, digit, or
+ * underscore, plus the name characters themselves.
+ *
+ * Wider than `NAME_CHARACTER` on purpose. `USD$pdf` and `$pdf_tools` both
+ * contain a complete valid name, but neither is a standalone mention — the
+ * first is glued to a currency word, the second to a longer identifier. An
+ * uppercase letter or an underscore is exactly what distinguishes "this is one
+ * token" from "the dollar expression ended here", so both sides of the run are
+ * checked against this set rather than the name grammar.
+ */
+const WORD_CHARACTER = /[\p{L}\p{N}_-]/u;
+
 export type SkillMention = {
   readonly name: string;
   /** Zero-based index of the `$` in the source text. */
@@ -89,15 +102,16 @@ function isEscaped(text: string, index: number): boolean {
  * therefore yields no mention rather than a shorter valid one.
  */
 function matchedName(text: string, index: number): string | undefined {
-  if (index > 0 && isNameBoundary(text[index - 1])) return undefined;
+  if (index > 0 && WORD_CHARACTER.test(text[index - 1])) return undefined;
   let end = index + 1;
   while (end < text.length && NAME_CHARACTER.test(text[end])) end += 1;
   if (end === index + 1) return undefined;
+  // The name run stops at the first non-name character, which may still be a
+  // word character (`$pdf_tools`): the token continues, so the mention does not.
+  if (end < text.length && WORD_CHARACTER.test(text[end])) return undefined;
   const name = text.slice(index + 1, end);
   if (!isValidSkillName(name)) return undefined;
   if (!isMentionableName(name)) return undefined;
-  // The run already consumed every name character, so the following character
-  // is a boundary by construction.
   return name;
 }
 
@@ -115,11 +129,6 @@ function matchedName(text: string, index: number): string | undefined {
  */
 function isMentionableName(name: string): boolean {
   return /[a-z]/u.test(name);
-}
-
-/** A preceding name character or `$` glues the token to its context. */
-function isNameBoundary(character: string): boolean {
-  return NAME_CHARACTER.test(character) || character === '$';
 }
 
 /**

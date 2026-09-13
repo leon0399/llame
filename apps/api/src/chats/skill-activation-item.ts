@@ -136,6 +136,12 @@ export function createSkillActivationItem(input: {
   readonly skillDirectory: string;
   readonly instructionsPath: string;
   readonly instructions: string;
+  /**
+   * The reader's own truncation indicator, when it shortened the body. Carried
+   * into the model-visible text so a partial instruction body is never presented
+   * as the complete skill.
+   */
+  readonly truncationNotice?: string;
 }): AuthoredContextItemPart {
   const payload: SkillActivationPayload = {
     kind: 'activation',
@@ -152,7 +158,7 @@ export function createSkillActivationItem(input: {
     form: 'notice',
     runId: input.runId,
     payload,
-    body: renderActivation(payload, input.instructions),
+    body: renderActivation(payload, input.instructions, input.truncationNotice),
   });
 }
 
@@ -221,6 +227,7 @@ export function createSkillActivationOmissionItem(input: {
 function renderActivation(
   payload: SkillActivationPayload,
   instructions: string,
+  truncationNotice: string | undefined,
 ): string {
   // Operator-authored, and it sits inside an element of its own: the sanitizer
   // is what keeps the body from closing that element or opening another
@@ -234,6 +241,7 @@ function renderActivation(
     `${PATH_GUIDANCE} Supporting files are readable at \`skill://${payload.skill}/<path>\`.`,
     PRECEDENCE_LINE,
     '',
+    ...(truncationNotice !== undefined ? [truncationNotice] : []),
     `<skill_instructions name="${payload.skill}">`,
     body,
     '</skill_instructions>',

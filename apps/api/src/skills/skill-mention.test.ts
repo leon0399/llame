@@ -60,6 +60,27 @@ describe('parseSkillMentions', () => {
     expect(names(String.raw`path \\$pdf`)).toEqual(['pdf']);
   });
 
+  it.each([
+    ['a currency word', 'costs USD$pdf today'],
+    ['a longer identifier', '$pdf_tools'],
+    ['an uppercase continuation', '$pdfX'],
+  ])('ignores a mention glued into %s', (_label, text) => {
+    // The name run may be valid while the TOKEN is not: a letter, digit, or
+    // underscore on either side means this is one word, not a mention.
+    expect(names(text)).toEqual([]);
+  });
+
+  it('reads a digit continuation as part of the same name', () => {
+    // `$pdf2x` is one valid token, so the name is `pdf2x` — not `pdf`.
+    expect(names('$pdf2x')).toEqual(['pdf2x']);
+  });
+
+  it('still recognizes a mention beside punctuation', () => {
+    expect(names('($pdf)')).toEqual(['pdf']);
+    expect(names('[use $pdf]')).toEqual(['pdf']);
+    expect(names('$pdf:')).toEqual(['pdf']);
+  });
+
   it('reports the source index of each mention', () => {
     const mentions = parseSkillMentions('hi $pdf there');
     expect(mentions).toEqual([{ name: 'pdf', index: 3 }]);

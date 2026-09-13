@@ -61,6 +61,30 @@ function createPackage(
   }
 }
 
+/** The native read tool with a truncated result, for the truncation test. */
+function truncatedReadTool(): typeof nativeReadTool {
+  // SAFETY: the object below is a complete native read success — every field
+  // `readSkillReadOutput` reads plus the envelope — and the cast only widens it
+  // to the tool's declared `ToolResult` return type.
+  return {
+    ...nativeReadTool,
+    execute: () =>
+      Promise.resolve({
+        status: 'success',
+        kind: 'file',
+        path: 'skill://pdf:raw',
+        representation: 'raw',
+        content: '# PDF\n\ntruncated body',
+        truncated: true,
+        truncationNotice: 'Result truncated to fit the cap.',
+        locator: 'skill://pdf',
+        sourceDirectory: source,
+        resolvedPath: path.join(source, 'pdf', 'SKILL.md'),
+        skillDirectory: path.join(source, 'pdf'),
+      }),
+  };
+}
+
 type AuditRecord = {
   readonly toolCallId: string;
   readonly phase: 'requested' | 'completed';
@@ -273,6 +297,81 @@ describe('activateSkills', () => {
 
     expect(outcome.items).toHaveLength(1);
     expect(audit.filter((r) => r.phase === 'requested')).toHaveLength(1);
+  });
+
+  it('does not re-read a skill a prior attempt already resolved', async () => {
+    createPackage('pdf');
+    createPackage('research');
+
+    const h = harness();
+    const outcome = await activateSkills({
+      mentions: parseSkillMentions('$pdf $research'),
+      runId: RUN_ID,
+      readTool: nativeReadTool,
+      toolContext: h.context,
+      callTimeoutSeconds: 5,
+      activity: h.activity,
+      // `pdf` was resolved on a prior attempt of this Run.
+      resolved: new Set(['pdf']),
+    });
+
+    // Only the unfinished selection is read, and it takes the second ordinal —
+    // the completed one keeps the identity it already consumed.
+    const requested = h.audit.filter((r) => r.phase === 'requested');
+    expect(requested).toHaveLength(1);
+    expect(requested[0].toolCallId).toBe(`skill-activation-${RUN_ID}-1`);
+    expect(outcome.items).toHaveLength(1);
+    expect(outcome.items[0].data.payload).toMatchObject({ skill: 'research' });
+    // Both remain selectable for this Run's later reads.
+    expect([...outcome.selection].sort()).toEqual(['pdf', 'research']);
+  });
+
+  it('carries the reader truncation notice into the instructions', async () => {
+    createPackage('pdf');
+    const h = harness();
+    // A long body trips the shared result cap, so the read reports truncation.
+    const truncated = await activateSkills({
+      mentions: parseSkillMentions('$pdf'),
+      runId: RUN_ID,
+      readTool: truncatedReadTool(),
+      toolContext: h.context,
+      callTimeoutSeconds: 5,
+      activity: h.activity,
+    });
+
+    // The indicator is model-visible, so a partial body is never presented as
+    // the complete skill.
+    expect(texts(truncated.items)).toContain(
+      'Result truncated to fit the cap.',
+    );
+  });
+
+  it('bounds the read itself, not just the loop between reads', async () => {
+    createPackage('pdf');
+    const h = harness();
+    let sawDeadline = false;
+    await activateSkills({
+      mentions: parseSkillMentions('$pdf'),
+      runId: RUN_ID,
+      readTool: {
+        ...nativeReadTool,
+        execute: (context) => {
+          // The runner overwrites `timeoutMs`, so the bound must ride the abort
+          // signal the read actually receives.
+          sawDeadline = context.abortSignal !== undefined;
+          return Promise.resolve({
+            status: 'error',
+            type: 'cancelled',
+            message: 'aborted',
+          });
+        },
+      },
+      toolContext: h.context,
+      callTimeoutSeconds: 5,
+      activity: h.activity,
+    });
+
+    expect(sawDeadline).toBe(true);
   });
 
   it('wraps every item in the rail envelope with provenance', async () => {

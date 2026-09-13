@@ -1289,8 +1289,19 @@ export class RunExecutionService {
       input,
       nativeDeliverySequence,
     );
+    // What a prior attempt of this Run already resolved. Reading it first is
+    // what makes recovery replay stored observations rather than re-reading a
+    // package that may have changed.
+    const resolved = await this.tenantDb.runAs(input.userId, (tx) =>
+      new ActivationPartsRepository(tx).resolvedSkillsForRun({
+        id: input.userMessage.id,
+        chatId: input.chatId,
+        runId: input.runId,
+      }),
+    );
     const outcome = await activateSkills({
       mentions,
+      resolved,
       runId: input.runId,
       readTool: nativeReadTool,
       toolContext: baseContext,
