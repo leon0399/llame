@@ -283,3 +283,106 @@ describe('recordAcceptanceEvidence', () => {
     expect(create.mock.calls[0][0].effort).toBeNull();
   });
 });
+
+type EvidenceInsert = typeof schema.messageTurnContexts.$inferInsert;
+type EvidenceUpdate = Partial<EvidenceInsert>;
+
+/**
+ * Minimal Drizzle chain stand-in. The repository exercises only
+ * `.values(...)`/`.set(...)` then `.returning()`, so the fake resolves
+ * those to a terminal promise and hands the payload to `onPayload`.
+ */
+function queryResult<T>(
+  rows: ReadonlyArray<T>,
+  onPayload?: (value: EvidenceInsert | EvidenceUpdate) => void,
+) {
+  const terminal = Promise.resolve(rows);
+  const returning = () => terminal;
+  return Object.assign(terminal, {
+    values: (value: EvidenceInsert) => {
+      onPayload?.(value);
+      return Object.assign(terminal, { returning });
+    },
+    set: (value: EvidenceUpdate) => {
+      onPayload?.(value);
+      return Object.assign(terminal, {
+        where: () => Object.assign(terminal, { returning }),
+      });
+    },
+  });
+}
+
+function asQuery(value: ReturnType<typeof queryResult<unknown>>): never {
+  // SAFETY: the repository tests replace Drizzle's fluent terminal with a
+  // Promise carrying exactly the chain methods exercised by these methods.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as never;
+}
+
+describe('MessageTurnContextsRepository writes', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('inserts every acceptance-evidence field from the input', async () => {
+    const captured: Array<EvidenceInsert | EvidenceUpdate> = [];
+    const db: Db = drizzle.mock({ schema });
+    vi.spyOn(db, 'insert').mockImplementation(() =>
+      asQuery(queryResult([], (value) => captured.push(value))),
+    );
+    const repo = new MessageTurnContextsRepository(db);
+    const acceptedAt = new Date('2026-08-01T00:00:00.000Z');
+
+    await repo.create({
+      chatId,
+      originRunId: 'run-1',
+      messageId: 'message-1',
+      ownerUserId,
+      modelId: 'model-1',
+      effort: 'high',
+      acceptedAt,
+      snapshotId: 'snapshot-1',
+      contextRevision: 3,
+      sourceMaxSeq: 9,
+      activeCompactionId: 'comp-1',
+      digestBaseline: null,
+      digestTold: [{ chatId: 'other', pinned: false }],
+      digestRebakedFrom: 'comp-9',
+    });
+
+    expect(captured).toEqual([
+      {
+        chatId,
+        originRunId: 'run-1',
+        messageId: 'message-1',
+        ownerUserId,
+        modelId: 'model-1',
+        effort: 'high',
+        acceptedAt,
+        snapshotId: 'snapshot-1',
+        contextRevision: 3,
+        sourceMaxSeq: 9,
+        activeCompactionId: 'comp-1',
+        digestBaseline: null,
+        digestTold: [{ chatId: 'other', pinned: false }],
+        digestRebakedFrom: 'comp-9',
+      },
+    ]);
+  });
+
+  it('writes the executed items onto the NULL-fenced contextItems column', async () => {
+    const captured: Array<EvidenceUpdate> = [];
+    const db: Db = drizzle.mock({ schema });
+    vi.spyOn(db, 'update').mockImplementation(() =>
+      asQuery(queryResult([], (value) => captured.push(value))),
+    );
+    const repo = new MessageTurnContextsRepository(db);
+    const items = [
+      { producer: 'temporal', residency: 'prefix' as const, text: 'when' },
+    ];
+
+    await repo.recordContextItems(chatId, 'run-1', ownerUserId, items);
+
+    expect(captured).toEqual([{ contextItems: items }]);
+  });
+});
