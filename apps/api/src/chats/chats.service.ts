@@ -388,8 +388,8 @@ export class ChatsService {
   }
 
   /**
-   * Owner-fork copy (#154): copy the selected prefix with preserved
-   * timestamps, usage (inherited provenance), and the completion fact.
+   * Owner-fork copy (#154): copy the selected message prefix, applicable
+   * compaction lineage, and set the initial continuation state.
    */
   private async copyOwnerPrefix(
     tx: Db,
@@ -397,7 +397,8 @@ export class ChatsService {
     source: Chat,
     toCopy: Array<Message>,
   ): Promise<Chat> {
-    const created = await new ChatsRepository(tx).create({
+    const chatsRepo = new ChatsRepository(tx);
+    const created = await chatsRepo.create({
       ownerUserId,
       ...(source.title !== null && { title: forkTitle(source.title) }),
       ...(toCopy.length > 0 && {
@@ -405,12 +406,24 @@ export class ChatsService {
           source.inheritedContextOriginAt ?? source.createdAt,
       }),
     });
-    const idMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
+    // Copy messages with provenance.
+    const msgIdMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
     await new MessagesRepository(tx).createMany(
       toCopy.map((m, i) =>
-        mapOwnerCopiedMessage(m, i, created.id, idMap, toCopy),
+        mapOwnerCopiedMessage(m, i, created.id, msgIdMap, toCopy),
       ),
     );
+    // Copy applicable compactions (uptoSeq within the prefix boundary).
+    if (toCopy.length > 0) {
+      const maxSeq = toCopy.at(-1)!.seq;
+      await copyCompactionLineage(
+        tx,
+        source.id,
+        ownerUserId,
+        created.id,
+        maxSeq,
+      );
+    }
     return created;
   }
 
@@ -603,4 +616,40 @@ function mapOwnerCopiedMessage(
       usageProvenanceCol: 'inherited' as const,
     }),
   };
+}
+
+/** Copy applicable compaction lineage from source to destination. */
+async function copyCompactionLineage(
+  tx: Db,
+  sourceChatId: string,
+  ownerUserId: string,
+  destChatId: string,
+  maxSeq: number,
+): Promise<void> {
+  const compactionsRepo = new CompactionsRepository(tx);
+  const allCompactions = await compactionsRepo.findByCoverage(
+    sourceChatId,
+    ownerUserId,
+    maxSeq,
+  );
+  if (allCompactions.length === 0) return;
+  const compIdMap = new Map(
+    allCompactions.map((c) => [c.id, crypto.randomUUID()]),
+  );
+  for (const comp of allCompactions) {
+    await compactionsRepo.create({
+      id: compIdMap.get(comp.id),
+      chatId: destChatId,
+      uptoSeq: comp.uptoSeq,
+      parentId: comp.parentId ? (compIdMap.get(comp.parentId) ?? null) : null,
+      summary: comp.summary,
+      replacementHistory: comp.replacementHistory,
+      usage: comp.usage,
+      ...(comp.usage != null && {
+        usageOriginKind: comp.usageOriginKind ?? ('compaction' as const),
+        usageOriginId: comp.usageOriginId ?? comp.id,
+        usageProvenanceCol: 'inherited' as const,
+      }),
+    });
+  }
 }

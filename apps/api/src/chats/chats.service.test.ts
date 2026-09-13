@@ -528,6 +528,10 @@ describe('ChatsService message windows, updates and forks', () => {
         RunsRepository.prototype,
         'findActiveByChatId',
       ).mockResolvedValue(undefined);
+      vi.spyOn(
+        CompactionsRepository.prototype,
+        'findByCoverage',
+      ).mockResolvedValue([]);
     });
     it('copies the whole chat, renumbering seq from 1 and remapping in-reply-to edges', async () => {
       const first = message(5);

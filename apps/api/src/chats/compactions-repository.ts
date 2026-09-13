@@ -116,6 +116,27 @@ export class CompactionsRepository {
       })
       .where(eq(compactions.id, compactionId));
   }
+
+  /** All compactions for a chat whose uptoSeq fits within maxSeq, ordered. */
+  async findByCoverage(
+    chatId: string,
+    ownerUserId: string,
+    maxSeq: number,
+  ): Promise<Array<Compaction>> {
+    return this.db
+      .select()
+      .from(compactions)
+      .innerJoin(chats, eq(chats.id, compactions.chatId))
+      .where(
+        and(
+          eq(compactions.chatId, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+          lte(compactions.uptoSeq, maxSeq),
+        ),
+      )
+      .orderBy(compactions.uptoSeq)
+      .then((rows) => rows.map((r) => r.compactions));
+  }
 }
 
 /** Shared companion state columns for compaction inserts. */
@@ -128,23 +149,37 @@ export type CompactionCompanionState = {
 };
 
 type CompactionInsertInput = {
+  id?: string;
   chatId: string;
   uptoSeq: number;
   parentId?: string | null;
   summary: string;
   replacementHistory: Array<CompactionReplacementMessage>;
   usage?: unknown;
+  usageOriginKind?: 'run' | 'message' | 'compaction' | null;
+  usageOriginId?: string | null;
+  usageProvenanceCol?: 'local' | 'inherited' | null;
   companion?: CompactionCompanionState;
 };
 
 function compactionInsertValues(input: CompactionInsertInput) {
   return {
+    ...(input.id !== undefined && { id: input.id }),
     chatId: input.chatId,
     uptoSeq: input.uptoSeq,
     parentId: input.parentId ?? null,
     summary: input.summary,
     replacementHistory: input.replacementHistory,
     usage: input.usage,
+    ...(input.usageOriginKind !== undefined && {
+      usageOriginKind: input.usageOriginKind,
+    }),
+    ...(input.usageOriginId !== undefined && {
+      usageOriginId: input.usageOriginId,
+    }),
+    ...(input.usageProvenanceCol !== undefined && {
+      usageProvenanceCol: input.usageProvenanceCol,
+    }),
     ...(input.companion && {
       contextRevision: input.companion.contextRevision,
       sourceMaxSeq: input.companion.sourceMaxSeq,

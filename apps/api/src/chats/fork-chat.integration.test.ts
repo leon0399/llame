@@ -398,14 +398,17 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       new MessagesRepository(tx).findByChatId(forked.id, a),
     );
     const sourceParts = source.messages.map((message) => message.parts);
-
     expect(copied.map((message) => message.parts)).toEqual(sourceParts);
+
     const forkReplay = await tenantDb.runAs(a, (tx) =>
       findLiveWindow(tx, forked.id, a),
     );
-    expect(forkReplay.compaction).toBeUndefined();
-    expect(forkReplay.history.map((message) => message.parts)).toEqual(
-      sourceParts,
-    );
+    // Owner fork NOW copies compactions (#154).
+    expect(forkReplay.compaction?.summary).toBe('source summary');
+    // Live window after compaction = post-compaction messages.
+    expect(forkReplay.history.map((message) => message.parts)).toEqual([
+      source.messages[2].parts,
+      source.messages[3].parts,
+    ]);
   });
 });
