@@ -124,7 +124,11 @@ export async function recordAcceptanceEvidence(
     input.userId,
     nextRevision,
   );
-  const postAcceptTold = digestDelta?.told ?? chat.recencyDigestTold;
+  // Re-read the chat row to capture post-binding digest state: the
+  // resolveDigestBindingAndDelta step may have initialized the baseline
+  // after the caller's `chat` snapshot was taken.
+  const freshChat = await chatsRepo.findById(input.chatId, input.userId);
+  const postAcceptTold = digestDelta?.told ?? freshChat?.recencyDigestTold;
   await new MessageTurnContextsRepository(tx).create({
     chatId: input.chatId,
     originRunId: run.id,
@@ -137,8 +141,8 @@ export async function recordAcceptanceEvidence(
     contextRevision: nextRevision,
     sourceMaxSeq: userMessage.seq,
     activeCompactionId: latestCompaction?.id ?? null,
-    digestBaseline: chat.recencyDigestBaseline ?? null,
+    digestBaseline: freshChat?.recencyDigestBaseline ?? null,
     digestTold: postAcceptTold ?? null,
-    digestRebakedFrom: chat.recencyDigestRebakedFrom ?? null,
+    digestRebakedFrom: freshChat?.recencyDigestRebakedFrom ?? null,
   });
 }

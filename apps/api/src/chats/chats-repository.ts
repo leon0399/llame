@@ -469,9 +469,16 @@ export class ChatsRepository {
         ownerUserId: input.ownerUserId,
         title: input.title ?? null,
         visibility: input.visibility ?? DEFAULT_CHAT_VISIBILITY,
+        // Known-empty initial state: distinguishes an ordinary new chat
+        // from genuinely unrecorded pre-migration history (#154 D8).
+        initialContinuationState: {
+          contextRevision: 0,
+          sourceMaxSeq: 0,
+          digestBaseline: null,
+          digestTold: null,
+        },
       })
       .returning();
-
     return created;
   }
 
@@ -502,10 +509,15 @@ export class ChatsRepository {
         ownerUserId: input.ownerUserId,
         title: input.title ?? null,
         visibility: DEFAULT_CHAT_VISIBILITY,
+        initialContinuationState: {
+          contextRevision: 0,
+          sourceMaxSeq: 0,
+          digestBaseline: null,
+          digestTold: null,
+        },
       })
       .onConflictDoNothing({ target: chats.id })
       .returning();
-
     return created;
   }
 
