@@ -804,6 +804,70 @@
           },
           "404": {
             "description": "Chat not found, not owned, or the fork-point message (when given) is absent"
+          },
+          "409": {
+            "description": "Fork boundary unsettled (code: fork_boundary_unsettled) or required context unavailable (code: fork_context_unavailable)"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats"]
+      }
+    },
+    "/api/v1/chats/{chatId}/messages/{messageId}/context-receipt": {
+      "get": {
+        "operationId": "getMessageContextReceipt",
+        "parameters": [
+          {
+            "name": "chatId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "messageId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "originRunId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextReceiptResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat, message, or receipt not found or not owned"
           }
         },
         "security": [
@@ -2958,6 +3022,12 @@
           "createdAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "usageProvenance": {
+            "type": "string",
+            "enum": ["local", "inherited"],
+            "nullable": true,
+            "description": "null = no recorded usage; local = executed here; inherited = copied from a fork source"
           }
         },
         "required": [
@@ -2970,7 +3040,8 @@
           "attachments",
           "usage",
           "inReplyTo",
-          "createdAt"
+          "createdAt",
+          "usageProvenance"
         ]
       },
       "CompactionStatsResponse": {
@@ -3151,6 +3222,166 @@
             "description": "Copy up to (and including) this message. Omit to fork the whole conversation."
           }
         }
+      },
+      "ContextReceiptAvailableToolResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["available"]
+          },
+          "declarationHash": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "enum": ["available"]
+          }
+        },
+        "required": ["id", "state", "declarationHash", "label"]
+      },
+      "ContextReceiptUnavailableToolResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["unavailable"]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "source_connecting",
+              "source_disconnected",
+              "protocol_unsupported",
+              "discovery_failed",
+              "tool_missing",
+              "declaration_refused",
+              "name_collision",
+              "knowledge_space_not_configured",
+              "knowledge_space_unavailable"
+            ]
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "state", "reason", "label"]
+      },
+      "ContextReceiptUnobservedAvailabilityResponse": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "enum": [0]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["unobserved"]
+          }
+        },
+        "required": ["version", "state"]
+      },
+      "ContextReceiptObservedAvailabilityResponse": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "enum": [1]
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ContextReceiptAvailableToolResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/ContextReceiptUnavailableToolResponse"
+                }
+              ]
+            }
+          }
+        },
+        "required": ["version", "entries"]
+      },
+      "ContextReceiptToolResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "inputSchema": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": ["id", "description", "inputSchema"]
+      },
+      "ContextReceiptResponse": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "Public llame model id selected for this run."
+          },
+          "effort": {
+            "type": "string",
+            "description": "Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. An opaque provider token — a receipt of what ran, never recomputed from current configuration."
+          },
+          "promptSource": {
+            "type": "string",
+            "enum": ["project_default", "model_override"]
+          },
+          "systemPrompt": {
+            "type": "string",
+            "description": "Complete effective system prompt bound to this run."
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContextReceiptToolResponse"
+            }
+          },
+          "availabilityHash": {
+            "type": "string"
+          },
+          "toolAvailability": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ContextReceiptUnobservedAvailabilityResponse"
+              },
+              {
+                "$ref": "#/components/schemas/ContextReceiptObservedAvailabilityResponse"
+              }
+            ]
+          },
+          "contentHash": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "modelId",
+          "promptSource",
+          "systemPrompt",
+          "tools",
+          "availabilityHash",
+          "toolAvailability",
+          "contentHash",
+          "createdAt"
+        ]
       },
       "ActiveRunResponse": {
         "type": "object",
@@ -3499,166 +3730,6 @@
           "createdAt",
           "startedAt",
           "finishedAt"
-        ]
-      },
-      "ContextReceiptAvailableToolResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string",
-            "enum": ["available"]
-          },
-          "declarationHash": {
-            "type": "string"
-          },
-          "label": {
-            "type": "string",
-            "enum": ["available"]
-          }
-        },
-        "required": ["id", "state", "declarationHash", "label"]
-      },
-      "ContextReceiptUnavailableToolResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string",
-            "enum": ["unavailable"]
-          },
-          "reason": {
-            "type": "string",
-            "enum": [
-              "source_connecting",
-              "source_disconnected",
-              "protocol_unsupported",
-              "discovery_failed",
-              "tool_missing",
-              "declaration_refused",
-              "name_collision",
-              "knowledge_space_not_configured",
-              "knowledge_space_unavailable"
-            ]
-          },
-          "label": {
-            "type": "string"
-          }
-        },
-        "required": ["id", "state", "reason", "label"]
-      },
-      "ContextReceiptUnobservedAvailabilityResponse": {
-        "type": "object",
-        "properties": {
-          "version": {
-            "type": "number",
-            "enum": [0]
-          },
-          "state": {
-            "type": "string",
-            "enum": ["unobserved"]
-          }
-        },
-        "required": ["version", "state"]
-      },
-      "ContextReceiptObservedAvailabilityResponse": {
-        "type": "object",
-        "properties": {
-          "version": {
-            "type": "number",
-            "enum": [1]
-          },
-          "entries": {
-            "type": "array",
-            "items": {
-              "oneOf": [
-                {
-                  "$ref": "#/components/schemas/ContextReceiptAvailableToolResponse"
-                },
-                {
-                  "$ref": "#/components/schemas/ContextReceiptUnavailableToolResponse"
-                }
-              ]
-            }
-          }
-        },
-        "required": ["version", "entries"]
-      },
-      "ContextReceiptToolResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "inputSchema": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "required": ["id", "description", "inputSchema"]
-      },
-      "ContextReceiptResponse": {
-        "type": "object",
-        "properties": {
-          "modelId": {
-            "type": "string",
-            "description": "Public llame model id selected for this run."
-          },
-          "effort": {
-            "type": "string",
-            "description": "Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. An opaque provider token — a receipt of what ran, never recomputed from current configuration."
-          },
-          "promptSource": {
-            "type": "string",
-            "enum": ["project_default", "model_override"]
-          },
-          "systemPrompt": {
-            "type": "string",
-            "description": "Complete effective system prompt bound to this run."
-          },
-          "tools": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ContextReceiptToolResponse"
-            }
-          },
-          "availabilityHash": {
-            "type": "string"
-          },
-          "toolAvailability": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ContextReceiptUnobservedAvailabilityResponse"
-              },
-              {
-                "$ref": "#/components/schemas/ContextReceiptObservedAvailabilityResponse"
-              }
-            ]
-          },
-          "contentHash": {
-            "type": "string"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "modelId",
-          "promptSource",
-          "systemPrompt",
-          "tools",
-          "availabilityHash",
-          "toolAvailability",
-          "contentHash",
-          "createdAt"
         ]
       },
       "UpdateRunDto": {

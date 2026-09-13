@@ -95,6 +95,7 @@ const EXPECTED_OPERATION_IDS = [
   'getHealth',
   'getKnowledgeSpace',
   'getMemory',
+  'getMessageContextReceipt',
   'getMyOrgUnitEffectiveRole',
   'getOrgUnit',
   'getPersonalization',

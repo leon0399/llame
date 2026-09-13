@@ -242,6 +242,10 @@ describe('ChatLoopService effective-context transaction binding', () => {
       'create',
     ).mockResolvedValue(undefined);
     vi.spyOn(
+      MessageTurnContextsRepository.prototype,
+      'findLatestByChatId',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
       ModelContextSnapshotsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue(

@@ -208,6 +208,10 @@ function makeService(options?: {
   vi.spyOn(MessageTurnContextsRepository.prototype, 'create').mockResolvedValue(
     undefined,
   );
+  vi.spyOn(
+    MessageTurnContextsRepository.prototype,
+    'findLatestByChatId',
+  ).mockResolvedValue(undefined);
   vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
     userMessage: undefined,
     assistantMessage: undefined,
