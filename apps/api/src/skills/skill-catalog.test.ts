@@ -285,6 +285,22 @@ describe('SkillCatalog discovery', () => {
     expect(snapshot.entries).toEqual([]);
   });
 
+  it(
+    'refuses an oversized source through the real filesystem seam',
+    { timeout: 15_000 },
+    () => {
+      const source = temporaryDirectory('real-oversized');
+      for (let i = 0; i <= MAX_SOURCE_CHILDREN; i += 1) {
+        mkdirSync(path.join(source, String(i)));
+      }
+
+      const snapshot = snapshotOf(source);
+
+      expect(snapshot.available).toBe(false);
+      expect(snapshot.diagnostics.join(' ')).toContain('exceeds');
+    },
+  );
+
   it('follows a configured source root symlink to its real directory', () => {
     const real = temporaryDirectory('real');
     createPackage(real, 'pdf');
