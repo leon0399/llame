@@ -69,6 +69,12 @@ The copied told-set SHALL continue to identify the same external chats; allocati
 - **THEN** the fork inherits the baseline applicable at its selected boundary
 - **AND** it does not copy the source's later baseline merely because it is currently stored on the Chat
 
+#### Scenario: Transition re-bake follows a selected user's acceptance
+
+- **WHEN** `U2` was accepted with Monday's baseline and a subsequent transition compaction refreshed it before `A2` completed
+- **THEN** a fork at `U2` inherits its recorded acceptance baseline, told-set, and re-bake state
+- **AND** the later transition's digest state is excluded even though its message horizon ends at `U2`
+
 #### Scenario: Monday's pinned state is stale by Wednesday
 
 - **WHEN** the owner forks Monday's retained boundary after the source refreshed its digest on Tuesday

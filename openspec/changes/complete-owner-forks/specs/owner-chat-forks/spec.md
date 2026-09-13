@@ -96,6 +96,8 @@ Model-visible text, tool-call identifiers, provider-visible identifiers, stored 
 
 The fork SHALL preserve the compaction state applicable to the selected boundary, including its complete parent lineage, raw summaries, materialized replacement histories, original timestamps, and historical usage. Its coverage and lineage references SHALL address the copied history. A checkpoint whose authoring state depended on excluded messages SHALL NOT become applicable merely because its covered prefix ends before the selected message.
 
+For an explicit user-message anchor, the recorded acceptance state SHALL bound inherited continuation evidence. Later checkpoints, their usage, and digest changes SHALL NOT be inherited, even when they observe no message beyond that user. An unrecorded acceptance boundary SHALL return `409 fork_context_unavailable`, not be inferred from a later observation at the same message horizon. This bound SHALL remain provable through a user-only fork-of-fork after source deletion.
+
 The fork's replay SHALL use the copied replacement history followed by the retained messages after its coverage boundary. It SHALL NOT rebuild a checkpoint from raw summary, repeat compaction during copying, or substitute uncompacted history when the required checkpoint is malformed. A malformed or unprovable required lineage SHALL fail atomically without a partial copy.
 
 #### Scenario: The source has multiple compaction generations
@@ -109,6 +111,25 @@ The fork's replay SHALL use the copied replacement history followed by the retai
 - **WHEN** a checkpoint covers messages through 10 but was authored from state after message 18, and the owner selects message 15
 - **THEN** the checkpoint is not inherited as the fork's active state
 - **AND** the earlier boundary's recorded context remains authoritative
+
+#### Scenario: Transition compaction follows the selected user's acceptance
+
+- **WHEN** `U2` was accepted at revision 3 with checkpoint `C1`, transition compaction subsequently committed `C2` at revision 4 with `sourceMaxSeq = U2`, and `A2` completed
+- **THEN** a fork at `U2` retains revision 3 and `C1`
+- **AND** it copies neither `C2`, its usage, nor its changed digest state
+- **AND** a later user-only fork-of-fork at the copied `U2` preserves that same acceptance bound
+
+#### Scenario: The completed assistant follows transition compaction
+
+- **WHEN** the owner instead selects completed `A2` from that history and `C2` remains the latest applicable checkpoint
+- **THEN** the assistant-anchored fork retains `C2` and its recorded inherited usage
+- **AND** the user-anchor acceptance ceiling does not discard applicable assistant-boundary state
+
+#### Scenario: A later observation cannot establish user acceptance
+
+- **WHEN** a completed user's acceptance revision or state is unrecorded but a later adoption or compaction state has the same message horizon
+- **THEN** a fork at that user returns `409 fork_context_unavailable`
+- **AND** it does not substitute the later state or infer ordering from timestamps
 
 #### Scenario: Replacement history is malformed
 
