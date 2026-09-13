@@ -479,6 +479,19 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(queryContains(queries, chatId)).toBe(true);
   });
 
+  it('updateSkillCatalogTold writes only the told names for the owner chat', async () => {
+    // Mirrors the digest's own guard: the WHERE must carry BOTH the chat and the
+    // caller's identity, so a caller naming another owner's chat updates nothing
+    // rather than crossing the tenant boundary.
+    const { db, queries } = makeMockDb();
+    await new ChatsRepository(db)
+      .updateSkillCatalogTold(chatId, ownerUserId, ['pdf', 'research'])
+      .catch(() => null);
+    expect(updateSetSql(queries)).toContain('"skill_catalog_told"');
+    expect(queryContains(queries, ownerUserId)).toBe(true);
+    expect(queryContains(queries, chatId)).toBe(true);
+  });
+
   it('findPinnedChatIds returns an empty set without querying for an empty id list', async () => {
     const { db, queries } = makeMockDb();
     await expect(

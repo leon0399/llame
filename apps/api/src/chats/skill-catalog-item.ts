@@ -119,9 +119,21 @@ function renderDelta(payload: SkillCatalogNoticePayload): string {
 function renderSnapshot(payload: SkillCatalogSnapshotPayload): string {
   const lines = [
     'The skill catalog was refreshed. Earlier skill catalog updates in this conversation are superseded.',
-    '',
-    'Current skills:',
   ];
+  if (payload.skills.length === 0) {
+    // A supersession snapshot with nothing in it is reachable: a told state
+    // larger than the bound, then a source emptied mid-epoch. It must SAY the
+    // catalog is empty — "Current skills:" followed by nothing is
+    // indistinguishable from a truncated render — and it carries no operator
+    // text, so the precedence line would disclaim content that is not there.
+    lines.push(
+      '',
+      'No skills are currently available. Do not apply a skill from earlier in this conversation.',
+    );
+    return lines.join('\n');
+  }
+
+  lines.push('', 'Current skills:');
   for (const entry of payload.skills) {
     lines.push(
       `- \`${entry.name}\`: ${sanitizeAuthoredText(entry.description)}`,

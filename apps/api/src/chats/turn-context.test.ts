@@ -864,6 +864,33 @@ describe('the skill-catalog notice', () => {
     expect(catalogForms((await run).messageParts)).toEqual([]);
   });
 
+  it('announces the removals when the source list is emptied mid-epoch', async () => {
+    // The operator disables skills by emptying `skills.directories` after this
+    // chat froze a baseline. The stored baseline stays in the prompt for the
+    // rest of the epoch, so the removals MUST be announced — suppressing the
+    // delta would leave the model attempting stale reads with no notice.
+    const { run } = buildWith([], {
+      skillCatalogBaseline: {
+        entries: [
+          { name: 'pdf', description: 'Extract' },
+          { name: 'research', description: 'Plan' },
+        ],
+        omitted: 0,
+      },
+      skillCatalogRebakedFrom: null,
+      skillCatalogTold: ['pdf', 'research'],
+    });
+
+    const result = await run;
+    const [item] = catalogItems(result.messageParts);
+    expect(item.data.payload).toMatchObject({
+      kind: 'delta',
+      added: [],
+      removed: ['pdf', 'research'],
+    });
+    expect(result.skillCatalogTold).toEqual([]);
+  });
+
   it('supersedes with a snapshot when the delta cannot fit the bound', async () => {
     // 300 removals plus one addition is past the 256-entry bound, so the delta
     // cannot be rendered honestly and the bounded current set replaces it.
