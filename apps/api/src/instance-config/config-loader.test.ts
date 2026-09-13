@@ -447,6 +447,7 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
       permissions: BUILT_IN_DEFAULTS.tools.permissions,
       maxStepsPerRun: 20,
       callTimeoutSeconds: 120,
+      promptFiles: {},
     });
   });
 

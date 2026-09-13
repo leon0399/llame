@@ -158,6 +158,12 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
    * omitted section from one that rendered empty.
    */
   referencesSkills: boolean;
+  /**
+   * This model's per-tool description file overrides, keyed by registered
+   * llame-owned tool id. Literal host paths, read and validated by the
+   * executing worker at boot. Never exposed in the public catalog.
+   */
+  toolPromptFiles?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -176,10 +182,10 @@ export type TokenPrice = {
 /**
  * Strip the internal execution-only fields (`provider`, `providerModelId`,
  * `compactionThresholdTokens`, `systemPromptTemplate`, `systemPromptSource`,
- * `referencesSkills`)
- * from a catalog entry — what's left IS the public shape, so a straight
- * destructure-and-spread stays correct as `PublicModelCatalogEntry` grows
- * without needing a matching field-by-field copy here.
+ * `referencesSkills`, `toolPromptFiles`) from a catalog entry — what's left IS
+ * the public shape, so a straight destructure-and-spread stays correct as
+ * `PublicModelCatalogEntry` grows without needing a matching field-by-field copy
+ * here.
  */
 export function toPublicModel(
   model: SystemModelCatalogEntry,
@@ -191,6 +197,7 @@ export function toPublicModel(
     systemPromptTemplate: _systemPromptTemplate,
     systemPromptSource: _systemPromptSource,
     referencesSkills: _referencesSkills,
+    toolPromptFiles: _toolPromptFiles,
     ...pub
   } = model;
   return pub;

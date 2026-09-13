@@ -465,7 +465,8 @@ describe('project-default prompt packaging contract', () => {
       );
     }
 
-    expect(nestConfig.compilerOptions.assets).toContain('prompts/*.md');
+    // Nested so the packaged tool descriptions under prompts/tools/ ship too.
+    expect(nestConfig.compilerOptions.assets).toContain('prompts/**/*.md');
     const model = { id: 'model-id' };
     expect(
       renderResolved(

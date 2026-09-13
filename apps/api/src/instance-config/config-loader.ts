@@ -187,9 +187,44 @@ function resolveToolsConfig(
     }),
     maxStepsPerRun: resolveToolNumber(raw, 'maxStepsPerRun', env),
     callTimeoutSeconds: resolveToolNumber(raw, 'callTimeoutSeconds', env),
+    promptFiles: resolveToolPromptFiles(raw),
   };
   if (nativeExecutorId) tools.nativeExecutorId = nativeExecutorId;
   return tools;
+}
+
+/**
+ * Resolve `tools.promptFiles` into an id -> path map. These are literal host
+ * paths, deliberately NOT `{env:...}`/`{path:...}` interpolated: the resolved
+ * file contents are visible to the chat owner, so the existing system-prompt
+ * visible-content path rule applies, and relative paths resolve at worker boot
+ * against the active config directory.
+ */
+function resolveToolPromptFiles(
+  raw: RawInstanceConfig | undefined,
+): Readonly<Record<string, string>> {
+  const { present, raw: leaf } = readLeaf(raw, 'tools', 'promptFiles');
+  if (!present) return {};
+  if (!isRecord(leaf)) {
+    throw new InstanceConfigError(
+      'tools.promptFiles: must be an object of tool id -> file path',
+    );
+  }
+  const files: Record<string, string> = {};
+  for (const [toolId, value] of Object.entries(leaf)) {
+    if (toolId.length === 0) {
+      throw new InstanceConfigError(
+        'tools.promptFiles: tool ids must be non-empty',
+      );
+    }
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new InstanceConfigError(
+        `tools.promptFiles.${toolId}: must be a non-empty file path`,
+      );
+    }
+    files[toolId] = value;
+  }
+  return files;
 }
 
 /** Resolve one numeric `tools.*` setting with the built-in default. */
@@ -1302,6 +1337,7 @@ function resolveModelEntry(
     compactionThresholdTokens: rawCompactionThresholdTokens,
     systemPromptFile,
     reasoning: rawReasoning,
+    toolPromptFiles,
     ...display
   } = entry;
 
@@ -1332,6 +1368,7 @@ function resolveModelEntry(
       compactionThresholdTokens,
     }),
     ...(reasoning !== undefined && { reasoning }),
+    ...(toolPromptFiles !== undefined && { toolPromptFiles }),
   };
 }
 
