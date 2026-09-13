@@ -1,0 +1,63 @@
+openspec/changes/tool-prompt-templates/design.md
+  fa813bf5a5022dc3 3-7,13-21,25-28,30-36,45-59,61-66,68-72,74-104,114-131,132,133-139,141-147,148-149,150-181,194-211,217-220,226-231,240-246,254-260,270-278,285-289,290-295,306,307-314,323-343,365,369-374
+  e2130aae6b3853cb 38-42,105-113,182-183,188-193,212-216,221,247-253,261-269,315-321,347-351,353-359,363-364
+  29cfaa62a304d91b 322
+openspec/changes/tool-prompt-templates/specs/model-system-prompts/spec.md
+  fa813bf5a5022dc3 494-498,530,664
+  e2130aae6b3853cb 1-12,350,459,462-473,481,483,622,628-631
+openspec/changes/tool-prompt-templates/specs/instance-config/spec.md
+  e2130aae6b3853cb 24,35,43-52,149,151
+openspec/changes/tool-prompt-templates/specs/knowledge-tools/spec.md
+  e2130aae6b3853cb 9,27-29
+openspec/changes/tool-prompt-templates/specs/mcp-tools/spec.md
+  e2130aae6b3853cb 60,64-65
+openspec/changes/tool-prompt-templates/specs/tool-calling/spec.md
+  e2130aae6b3853cb 1-5,177,419
+openspec/changes/tool-prompt-templates/tasks.md
+  e2130aae6b3853cb 30,34,46,53
+openspec/changes/tool-prompt-templates/specs/durable-runs/spec.md
+  e2130aae6b3853cb 17-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "6dabccb8a7b7cb9b7103e684a7b273ec7b6d1a1b",
+  "prompts": {
+    "29cfaa62a304d91b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094d6-06c7-7623-8871-b74d44a046e3",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 19,
+      "total_deletions": 3,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "e2130aae6b3853cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094d7-b444-70e1-ad6f-37ec6f35ec18",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 62,
+      "total_deletions": 17,
+      "accepted_lines": 61,
+      "overriden_lines": 1
+    },
+    "fa813bf5a5022dc3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a094d7-d83a-7a03-bb86-056164458443",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 251,
+      "total_deletions": 214,
+      "accepted_lines": 245,
+      "overriden_lines": 0
+    }
+  }
+}
