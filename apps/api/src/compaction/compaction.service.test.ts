@@ -361,6 +361,47 @@ describe('CompactionService maybeCompact', () => {
     expect(staleCreate).not.toHaveBeenCalled();
   });
 
+  it('discards compaction when contextRevision advanced between read and write', async () => {
+    const client = createFakeModelClient(['summary text']);
+    Object.assign(client, { compactionThresholdTokens: 10 });
+    const { service } = makeService(client);
+    mockLiveWindow();
+    // Read phase captures revision 0 (from the chat fixture).
+    // Write phase sees revision 1 (a concurrent turn was accepted).
+    const advancedChat = { ...chat, contextRevision: 1 };
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(
+      advancedChat,
+    );
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
+    const create = vi
+      .spyOn(CompactionsRepository.prototype, 'create')
+      .mockResolvedValue(compaction);
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    await service.maybeCompact({
+      chatId,
+      userId: ownerId,
+      client,
+      system: 'system',
+      toolDeclarations: [],
+      lastTurnTotalTokens: 100,
+    });
+    // The compaction should be discarded — create never called.
+    expect(create).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('Continuation revision stale'),
+    );
+  });
+
   it('does not write an empty summary and survives digest resolution failure', async () => {
     const emptyClient = createFakeModelClient(['']);
     Object.assign(emptyClient, { compactionThresholdTokens: 10 });

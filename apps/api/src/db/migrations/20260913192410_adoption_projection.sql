@@ -115,11 +115,9 @@ UPDATE "chats" SET
 FROM chat_state cs
 WHERE "chats"."id" = cs."chat_id";--> statement-breakpoint
 
--- Handle chats with no messages (empty chats): set known-empty initial state.
-UPDATE "chats" SET
-  "initial_continuation_state" = '{"contextRevision": 1, "sourceMaxSeq": 0, "digestBaseline": null, "digestTold": null}'::jsonb,
-  "context_revision" = 1
-WHERE "initial_continuation_state" IS NULL;--> statement-breakpoint
+-- NOTE: the CTE above uses FROM chats with LEFT JOINs, so every chat
+-- (including those with zero messages) receives its initial state. No
+-- separate empty-chat fallback is needed.
 
 -- Step 4: Re-enable FORCE RLS.
 ALTER TABLE "message_turn_contexts" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
