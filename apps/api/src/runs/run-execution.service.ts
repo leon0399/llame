@@ -396,6 +396,7 @@ export class RunExecutionService {
       const startedEvent = await events.append(input.runId, 'run.started');
       return {
         effort: started.effort ?? undefined,
+        attemptId: started.activeAttemptId!,
         nativeDeliverySequence: startedEvent.sequence,
       };
     });
@@ -414,7 +415,7 @@ export class RunExecutionService {
       });
       throw new RunNotRunnableError(input.runId);
     }
-    const { effort } = claim;
+    const { effort, attemptId } = claim;
     if (input.abortSignal?.aborted) {
       await this.settleAbortedRun(input);
     }
@@ -488,14 +489,21 @@ export class RunExecutionService {
 
         // Create/bind snapshot so the receipt endpoint and compaction can
         // read it. Content-addressed: identical inputs reuse the same row.
+        // Fenced by activeAttemptId: a superseded worker cannot bind.
         const snapshot = await new ModelContextSnapshotsRepository(
           tx,
         ).createOrReuse(input.userId, effectiveContext);
-        await new RunsRepository(tx).bindSnapshot(
+        const bound = await new RunsRepository(tx).updateForAttempt(
           input.runId,
           input.userId,
-          snapshot.id,
+          attemptId,
+          { modelContextSnapshotId: snapshot.id },
         );
+        if (!bound) {
+          throw new ModelContextExecutionError(
+            `Run ${input.runId} was reclaimed before snapshot binding.`,
+          );
+        }
 
         // Build the message context using the freshly rendered prompt.
         const built = await this.rebuildContextForChat(tx, input, systemPrompt);
@@ -530,12 +538,13 @@ export class RunExecutionService {
       // Recorded only once the request is final: before this point a
       // transition compaction can still replace it, and a preparation failure
       // means no request was ever made. Recording earlier would durably assert
-      // a request the model never received.
+      // a request the model never received. Fenced by activeAttemptId.
       const recorded = await this.tenantDb.runAs(input.userId, (tx) =>
-        new RunsRepository(tx).recordContextItems(
+        new RunsRepository(tx).updateForAttempt(
           input.runId,
           input.userId,
-          contextItems,
+          attemptId,
+          { contextItems },
         ),
       );
       // A miss means the owner-scoped row is gone — the chat was deleted out
@@ -1100,6 +1109,7 @@ export class RunExecutionService {
             userId: input.userId,
             runId: input.runId,
             status,
+            attemptId,
             runPayload: {
               status,
               message,
@@ -1203,6 +1213,7 @@ export class RunExecutionService {
             userId: input.userId,
             runId: input.runId,
             status,
+            attemptId,
             modelCompleted: {
               usage,
               finishReason,
@@ -1687,6 +1698,7 @@ export class RunExecutionService {
     userId: string;
     runId: string;
     status: TerminalRunStatus;
+    attemptId?: string;
     modelCompleted?: {
       usage: unknown;
       finishReason: unknown;
@@ -1734,6 +1746,7 @@ export class RunExecutionService {
           input.userId,
           input.status,
           input.error,
+          { attemptId: input.attemptId },
         );
         if (!finished) {
           const current = await runsRepo.findById(input.runId, input.userId);

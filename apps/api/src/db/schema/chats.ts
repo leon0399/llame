@@ -413,6 +413,12 @@ export const runs = pgTable(
     // `model_id`, which execution cannot proceed without): a run that predates
     // the feature genuinely had no effort.
     effort: text('effort'),
+    // Fresh UUID assigned atomically by each queue-authorized claim/reclaim.
+    // Distinct from workerId (native executor trust) — this is the attempt
+    // identity for fencing receipts, invocation admission, and publication.
+    activeAttemptId: uuid('active_attempt_id'),
+    // Recorded on successful finalization to identify the winning attempt.
+    completedAttemptId: uuid('completed_attempt_id'),
   },
   (t) => [
     index('runs_chat_created_idx').on(t.chatId, t.createdAt),

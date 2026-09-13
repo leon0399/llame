@@ -7,6 +7,7 @@
  * policies). run_events is append-only — there are deliberately no
  * update/delete methods.
  */
+import { randomUUID } from 'node:crypto';
 
 import { and, asc, desc, eq, gt, isNull, lt, notInArray } from 'drizzle-orm';
 import {
@@ -221,12 +222,14 @@ export class RunsRepository {
     options?: { workerId?: string },
   ): Promise<Run | undefined> {
     const workerId = options?.workerId;
+    const attemptId = randomUUID();
 
     const [updated] = await this.db
       .update(runs)
       .set({
         status: 'running_model' satisfies RunStatus,
         startedAt: new Date(),
+        activeAttemptId: attemptId,
         ...(workerId !== undefined && { workerId }),
       })
       .where(
@@ -342,6 +345,7 @@ export class RunsRepository {
       'completed' | 'failed' | 'cancelled' | 'expired'
     >,
     error?: unknown,
+    options?: { attemptId?: string },
   ): Promise<Run | undefined> {
     const [updated] = await this.db
       .update(runs)
@@ -349,6 +353,11 @@ export class RunsRepository {
         status,
         finishedAt: new Date(),
         ...(error !== undefined && { error }),
+        // Record the winning attempt on successful completion.
+        ...(status === 'completed' &&
+          options?.attemptId !== undefined && {
+            completedAttemptId: options.attemptId,
+          }),
       })
       .where(
         and(
@@ -365,6 +374,37 @@ export class RunsRepository {
       )
       .returning();
 
+    return updated;
+  }
+
+  /**
+   * Conditionally update a non-terminal run only when the caller's attempt
+   * is still the active one. Returns the updated row, or undefined when the
+   * run was reclaimed, terminal, or not owned.
+   */
+  async updateForAttempt(
+    runId: string,
+    userId: string,
+    attemptId: string,
+    set: Partial<typeof runs.$inferInsert>,
+  ): Promise<Run | undefined> {
+    const [updated] = await this.db
+      .update(runs)
+      .set(set)
+      .where(
+        and(
+          eq(runs.id, runId),
+          eq(runs.userId, userId),
+          eq(runs.activeAttemptId, attemptId),
+          notInArray(runs.status, [
+            'completed',
+            'failed',
+            'cancelled',
+            'expired',
+          ]),
+        ),
+      )
+      .returning();
     return updated;
   }
 }
