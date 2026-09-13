@@ -11,6 +11,8 @@
  * (load → plan → model call → insert); everything decidable is decided here.
  */
 
+import { tool, type ToolSet } from 'ai';
+import { toFlexibleSchema } from '../tools/schema-utils';
 import {
   buildContext,
   renderConversationCheckpoint,
@@ -20,9 +22,16 @@ import {
 } from '../chats/context-builder';
 import { buildCompactionToolReplacementRecords } from '../chats/tool-observation-part';
 import { isString } from '@workspace/runtime-safety';
-import type { CompactionReplacementMessage } from '../db/schema';
+import type {
+  Chat,
+  CompactionReplacementMessage,
+  ModelToolDeclaration,
+  RecencyDigestBaseline,
+  RecencyDigestToldEntry,
+} from '../db/schema';
+import { type CompactionCompanionState } from '../chats/compactions-repository';
+import { type ModelClient } from '../models/model-client';
 import { isCompletedAssistantTurn } from '../chats/chats-repository';
-import { type ModelToolDeclaration } from '../db/schema';
 
 type CompactionReplacementHistory = Array<CompactionReplacementMessage>;
 
@@ -370,4 +379,93 @@ export function buildCompactionReplacementHistory(input: {
       absorb: input.absorb,
     }),
   ];
+}
+
+export function buildCompanion(
+  contextRevision: number,
+  sourceMaxSeq: number,
+  chat: Chat | undefined,
+  rebakedDigest?: {
+    baseline: RecencyDigestBaseline;
+    told: Array<RecencyDigestToldEntry>;
+  },
+): CompactionCompanionState {
+  return {
+    contextRevision,
+    sourceMaxSeq,
+    companionActiveCompactionId: null,
+    companionDigestRebakedFrom: null,
+    companionState: {
+      contextRevision,
+      sourceMaxSeq,
+      digestBaseline:
+        rebakedDigest?.baseline ?? chat?.recencyDigestBaseline ?? null,
+      digestTold: rebakedDigest?.told ?? chat?.recencyDigestTold ?? null,
+    },
+  };
+}
+
+export type SummarizeResult = {
+  summary: string | null;
+  usage: Awaited<ReturnType<ModelClient['streamText']>['usage']> | null;
+  finishReason: Awaited<
+    ReturnType<ModelClient['streamText']>['finishReason']
+  > | null;
+  latencyMs: number;
+};
+
+export async function summarize(input: {
+  client: ModelClient;
+  system: string;
+  messages: Array<ModelMessage>;
+  toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
+  effort?: string;
+  abortSignal?: AbortSignal;
+}): Promise<SummarizeResult> {
+  const tools = schemaOnlyTools(input.toolDeclarations);
+  const startedAt = Date.now();
+  if (tools === null) {
+    return { summary: null, usage: null, finishReason: null, latencyMs: 0 };
+  }
+  const result = input.client.streamText({
+    system: input.system,
+    messages: input.messages,
+    abortSignal: input.abortSignal,
+    ...(input.effort !== undefined && { effort: input.effort }),
+    ...(input.toolDeclarations.length > 0 && { tools }),
+    toolChoice: 'none',
+  });
+  const [text, toolCalls, usage, finishReason] = await Promise.all([
+    Promise.resolve(result.text),
+    Promise.resolve(result.toolCalls).catch(() => []),
+    Promise.resolve(result.usage).catch(() => null),
+    Promise.resolve(result.finishReason).catch(() => null),
+  ]);
+  const providerReturnedToolCall =
+    (Array.isArray(toolCalls) && toolCalls.length > 0) ||
+    finishReason === 'tool-calls';
+  return {
+    summary: providerReturnedToolCall ? null : normalizeCompactionSummary(text),
+    usage,
+    finishReason,
+    latencyMs: Date.now() - startedAt,
+  };
+}
+
+function schemaOnlyTools(
+  declarations: ReadonlyArray<ModelToolDeclaration>,
+): ToolSet | null {
+  const entries: Array<[string, ToolSet[string]]> = [];
+  for (const decl of declarations) {
+    const parsed = toFlexibleSchema(decl.inputSchema);
+    if (!parsed) return null;
+    entries.push([
+      decl.id,
+      tool({
+        description: decl.description,
+        parameters: parsed,
+      }),
+    ]);
+  }
+  return Object.fromEntries(entries);
 }

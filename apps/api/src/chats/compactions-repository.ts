@@ -14,6 +14,7 @@ import { and, desc, eq, lt, lte } from 'drizzle-orm';
 import {
   type Compaction,
   type CompactionReplacementMessage,
+  type ContinuationStatePayload,
   type Message,
   chats,
   compactions,
@@ -66,14 +67,7 @@ export class CompactionsRepository {
    * `compactions_owner` policy's implicit WITH CHECK rejects an insert whose
    * chat_id is not owned by the current app.current_user_id.
    */
-  async create(input: {
-    chatId: string;
-    uptoSeq: number;
-    parentId?: string | null;
-    summary: string;
-    replacementHistory: Array<CompactionReplacementMessage>;
-    usage?: unknown;
-  }): Promise<Compaction> {
+  async create(input: CompactionInsertInput): Promise<Compaction> {
     assertCompactionWrite(input.summary, input.replacementHistory);
 
     const [created] = await this.db
@@ -89,14 +83,9 @@ export class CompactionsRepository {
    * Used by transition compaction after its model call, where duplicate job
    * delivery may legitimately race on the unique cutoff.
    */
-  async createIfCutoffAbsent(input: {
-    chatId: string;
-    uptoSeq: number;
-    parentId?: string | null;
-    summary: string;
-    replacementHistory: Array<CompactionReplacementMessage>;
-    usage?: unknown;
-  }): Promise<Compaction | undefined> {
+  async createIfCutoffAbsent(
+    input: CompactionInsertInput,
+  ): Promise<Compaction | undefined> {
     assertCompactionWrite(input.summary, input.replacementHistory);
 
     const [created] = await this.db
@@ -109,16 +98,46 @@ export class CompactionsRepository {
 
     return created;
   }
+
+  /**
+   * Set the companion's active-compaction reference to the compaction's own
+   * ID (self-reference). Called after insert because the row must exist
+   * before it can reference itself.
+   */
+  async setSelfReferenceCompanion(
+    compactionId: string,
+    rebaked: boolean,
+  ): Promise<void> {
+    await this.db
+      .update(compactions)
+      .set({
+        companionActiveCompactionId: compactionId,
+        ...(rebaked && { companionDigestRebakedFrom: compactionId }),
+      })
+      .where(eq(compactions.id, compactionId));
+  }
 }
 
-function compactionInsertValues(input: {
+/** Shared companion state columns for compaction inserts. */
+export type CompactionCompanionState = {
+  contextRevision: number;
+  sourceMaxSeq: number;
+  companionActiveCompactionId: string | null;
+  companionDigestRebakedFrom: string | null;
+  companionState: ContinuationStatePayload | null;
+};
+
+type CompactionInsertInput = {
   chatId: string;
   uptoSeq: number;
   parentId?: string | null;
   summary: string;
   replacementHistory: Array<CompactionReplacementMessage>;
   usage?: unknown;
-}) {
+  companion?: CompactionCompanionState;
+};
+
+function compactionInsertValues(input: CompactionInsertInput) {
   return {
     chatId: input.chatId,
     uptoSeq: input.uptoSeq,
@@ -126,6 +145,13 @@ function compactionInsertValues(input: {
     summary: input.summary,
     replacementHistory: input.replacementHistory,
     usage: input.usage,
+    ...(input.companion && {
+      contextRevision: input.companion.contextRevision,
+      sourceMaxSeq: input.companion.sourceMaxSeq,
+      companionActiveCompactionId: input.companion.companionActiveCompactionId,
+      companionDigestRebakedFrom: input.companion.companionDigestRebakedFrom,
+      companionState: input.companion.companionState,
+    }),
   };
 }
 

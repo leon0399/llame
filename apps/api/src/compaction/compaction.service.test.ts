@@ -48,6 +48,11 @@ const chat: Chat = {
   recencyDigestBaseline: null,
   recencyDigestTold: null,
   recencyDigestRebakedFrom: null,
+  inheritedContextOriginAt: null,
+  contextRevision: 0,
+  initialContinuationState: null,
+  initialActiveCompactionId: null,
+  initialDigestRebakedFrom: null,
 };
 
 function message(seq: number, role: Message['role'] = 'user'): Message {
@@ -62,6 +67,10 @@ function message(seq: number, role: Message['role'] = 'user'): Message {
     usage: null,
     inReplyTo: null,
     createdAt: now,
+    inheritedTurnComplete: false,
+    usageOriginKind: null,
+    usageOriginId: null,
+    usageProvenanceCol: null,
   };
 }
 
@@ -71,12 +80,20 @@ const compaction: Compaction = {
   chatId,
   uptoSeq: 1,
   parentId: null,
-  summary: 'Objective\nKeep the work moving.',
+  summary: 'User asked about recursion.',
   replacementHistory: [
-    { role: 'user', parts: [{ type: 'text', text: 'previous' }] },
+    { role: 'user', parts: [{ type: 'text', text: 'What is recursion?' }] },
   ],
   usage: null,
   createdAt: now,
+  usageOriginKind: null,
+  usageOriginId: null,
+  usageProvenanceCol: null,
+  contextRevision: null,
+  sourceMaxSeq: null,
+  companionActiveCompactionId: null,
+  companionDigestRebakedFrom: null,
+  companionState: null,
 };
 
 const sourceRun: Run = {
@@ -212,6 +229,16 @@ function mockTransitionRead(options?: {
   const commit = vi
     .spyOn(CompactionsRepository.prototype, 'createIfCutoffAbsent')
     .mockResolvedValue(compaction);
+  vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+  vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+  vi.spyOn(
+    ChatsRepository.prototype,
+    'advanceContextRevision',
+  ).mockResolvedValue(undefined);
+  vi.spyOn(
+    CompactionsRepository.prototype,
+    'setSelfReferenceCompanion',
+  ).mockResolvedValue(undefined);
   return { findLatest, findMessages, findRun, commit };
 }
 
@@ -223,6 +250,7 @@ function mockLiveWindow(previous?: Compaction) {
   vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
     history,
   );
+  vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
 }
 
 describe('CompactionService pure message boundary', () => {
@@ -264,6 +292,15 @@ describe('CompactionService maybeCompact', () => {
       .spyOn(CompactionsRepository.prototype, 'create')
       .mockResolvedValue(compaction);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
 
     await expect(
       service.maybeCompact({
@@ -304,6 +341,15 @@ describe('CompactionService maybeCompact', () => {
       .spyOn(CompactionsRepository.prototype, 'create')
       .mockResolvedValue(compaction);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
     await stale.service.maybeCompact({
       chatId,
       userId: ownerId,
@@ -345,6 +391,15 @@ describe('CompactionService maybeCompact', () => {
       .spyOn(CompactionsRepository.prototype, 'create')
       .mockResolvedValue(compaction);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
     await digestFailure.service.maybeCompact({
       chatId,
       userId: ownerId,
@@ -372,6 +427,17 @@ describe('CompactionService maybeCompact', () => {
       .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
       .mockResolvedValue(undefined);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(currentChat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
+      currentChat,
+    );
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
     await setup.service.maybeCompact({
       chatId,
       userId: ownerId,
@@ -394,6 +460,15 @@ describe('CompactionService maybeCompact', () => {
       .spyOn(CompactionsRepository.prototype, 'create')
       .mockResolvedValue(compaction);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
 
     await setup.service.maybeCompact({
       chatId,
@@ -424,6 +499,15 @@ describe('CompactionService maybeCompact', () => {
       .spyOn(CompactionsRepository.prototype, 'create')
       .mockResolvedValue(compaction);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
 
     await setup.service.maybeCompact({
       chatId,
@@ -448,6 +532,15 @@ describe('CompactionService maybeCompact', () => {
       .spyOn(CompactionsRepository.prototype, 'create')
       .mockResolvedValue(compaction);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
 
     await setup.service.maybeCompact({
       chatId,
@@ -531,6 +624,15 @@ describe('CompactionService maybeCompact', () => {
       compaction,
     );
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
 
     await setup.service.maybeCompact({
       chatId,
@@ -565,6 +667,15 @@ describe('CompactionService maybeCompact', () => {
     const touch = vi
       .spyOn(ChatsRepository.prototype, 'touch')
       .mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
 
     await setup.service.maybeCompact({
       chatId,
@@ -593,6 +704,15 @@ describe('CompactionService maybeCompact', () => {
       compaction,
     );
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
 
     await setup.service.maybeCompact({
       chatId,
@@ -622,6 +742,15 @@ describe('CompactionService maybeCompact', () => {
       .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
       .mockResolvedValue(undefined);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
 
     await setup.service.maybeCompact({
       chatId,
@@ -652,6 +781,15 @@ describe('CompactionService maybeCompact', () => {
       .spyOn(CompactionsRepository.prototype, 'create')
       .mockResolvedValue(compaction);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
 
     await setup.service.maybeCompact({
       chatId,
@@ -678,6 +816,15 @@ describe('CompactionService maybeCompact', () => {
       .spyOn(CompactionsRepository.prototype, 'create')
       .mockResolvedValue(compaction);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
 
     await setup.service.maybeCompact({
       chatId,
@@ -705,6 +852,15 @@ describe('CompactionService maybeCompact', () => {
       .spyOn(CompactionsRepository.prototype, 'create')
       .mockResolvedValue(compaction);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
 
     await setup.service.maybeCompact({
       chatId,
@@ -737,6 +893,7 @@ describe('CompactionService compactForTransition', () => {
       RunsRepository.prototype,
       'findMostRecentByChatMessageSequence',
     ).mockResolvedValue(undefined);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
     await expect(
       noPlan.service.compactForTransition({
         chatId,
@@ -755,6 +912,7 @@ describe('CompactionService compactForTransition', () => {
     vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
       message(1, 'assistant'),
     ]);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
     vi.spyOn(
       RunsRepository.prototype,
       'findMostRecentByChatMessageSequence',
@@ -785,6 +943,7 @@ describe('CompactionService compactForTransition', () => {
       ModelContextSnapshotsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue(sourceSnapshot);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
     const failingModels = makeService();
     failingModels.models.createClient.mockImplementation(() => {
       throw new Error('model unavailable');
@@ -816,6 +975,7 @@ describe('CompactionService compactForTransition', () => {
       ModelContextSnapshotsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue(sourceSnapshot);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
     await expect(
       empty.service.compactForTransition({
         chatId,
@@ -841,6 +1001,16 @@ describe('CompactionService compactForTransition', () => {
       ModelContextSnapshotsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue(sourceSnapshot);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
     await expect(
       superseded.service.compactForTransition({
         chatId,
@@ -864,6 +1034,7 @@ describe('CompactionService compactForTransition', () => {
       RunsRepository.prototype,
       'findMostRecentByChatMessageSequence',
     ).mockResolvedValue(undefined);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
     await expect(
       noPlan.service.compactForTransition({
         chatId,
@@ -890,6 +1061,7 @@ describe('CompactionService compactForTransition', () => {
       RunsRepository.prototype,
       'findMostRecentByChatMessageSequence',
     ).mockResolvedValue(undefined);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
     await expect(
       noSource.service.compactForTransition({
         chatId,

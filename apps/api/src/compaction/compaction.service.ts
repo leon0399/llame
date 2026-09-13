@@ -1,8 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { toFlexibleSchema } from '../tools/schema-utils';
 import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,
@@ -17,18 +15,16 @@ import {
 import {
   buildCompactionRequest,
   buildCompactionReplacementHistory,
+  buildCompanion,
   DEFAULT_KEEP_RECENT_MESSAGES,
   isPositiveFinite,
-  normalizeCompactionSummary,
   planCompaction,
   planTransitionCompaction,
   requestFitsContextWindow,
   resolveCompactionThreshold,
+  summarize,
 } from './compaction';
-import {
-  type ModelMessage,
-  type StoredMessage,
-} from '../chats/context-builder';
+import { type StoredMessage } from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
 import { type Message, type ModelToolDeclaration } from '../db/schema';
 import { isRecord } from '@workspace/runtime-safety';
@@ -49,26 +45,6 @@ export class TransitionCompactionError extends Error {
     super(message, options);
     this.name = 'TransitionCompactionError';
   }
-}
-
-function schemaOnlyTools(
-  declarations: ReadonlyArray<ModelToolDeclaration>,
-): ToolSet | null {
-  const entries: Array<[string, ToolSet[string]]> = [];
-  for (const declaration of declarations) {
-    const inputSchema = toFlexibleSchema(declaration.inputSchema);
-    if (inputSchema === null) {
-      return null;
-    }
-    entries.push([
-      declaration.id,
-      tool({
-        description: declaration.description,
-        inputSchema,
-      }),
-    ]);
-  }
-  return Object.fromEntries(entries);
 }
 
 /**
@@ -190,11 +166,21 @@ export class CompactionService {
       return;
     }
 
-    // Read phase: latest compaction + the live window after it.
-    const { compaction: previous, history } = await this.tenantDb.runAs(
-      input.userId,
-      (tx) => findLiveWindow(tx, input.chatId, input.userId),
-    );
+    // Read phase: latest compaction + the live window after it, plus the
+    // chat's current contextRevision for the continuation staleness guard.
+    const {
+      compaction: previous,
+      history,
+      chatContextRevision,
+    } = await this.tenantDb.runAs(input.userId, async (tx) => {
+      const window = await findLiveWindow(tx, input.chatId, input.userId);
+      const chat = await new ChatsRepository(tx).findById(
+        input.chatId,
+        input.userId,
+      );
+      return { ...window, chatContextRevision: chat?.contextRevision ?? 0 };
+    });
+    const sourceMaxSeq = history.at(-1)?.seq ?? 0;
 
     const plan = planCompaction({
       history: toStoredMessages(history),
@@ -221,7 +207,7 @@ export class CompactionService {
       absorb: plan.absorb,
     });
     const startedAt = Date.now();
-    const inference = await this.summarize({
+    const inference = await summarize({
       client: input.client,
       system: request.system,
       messages: request.messages,
@@ -262,7 +248,8 @@ export class CompactionService {
     }
 
     // Write phase, with staleness guard: if another compaction landed while the
-    // model ran, ours is based on a stale window — drop it, theirs stands.
+    // model ran OR a new turn advanced the continuation revision, ours is based
+    // on a stale window — drop it, theirs stands.
     await this.tenantDb.runAs(input.userId, async (tx) => {
       const compactionsRepo = new CompactionsRepository(tx);
       const chatsRepo = new ChatsRepository(tx);
@@ -278,19 +265,37 @@ export class CompactionService {
         return;
       }
 
-      // Lock order is chats-then-memory, matching the chat loop. That loop
-      // locks the chats row in `touch` and only then takes `FOR SHARE` on
-      // memory settings; taking them the other way round here would close an
-      // ABBA cycle — chat turn holds chats and wants memory, compaction holds
-      // memory and wants chats, with a consent update queued between them —
-      // and Postgres would resolve it by aborting one, failing a user turn or
-      // dropping a compaction. `touch` returns the locked row, so this both
-      // establishes the order and gives us the post-lock chat to read.
+      // Lock order is chats-then-memory, matching the chat loop.
       const chat = await chatsRepo.touch(input.chatId, input.userId);
+
+      // Continuation-revision staleness (#154): a new turn accepted while
+      // inference ran would make our captured digest obsolete.
+      if (chat && chat.contextRevision !== chatContextRevision) {
+        this.logger.warn(
+          `Continuation revision stale for chat ${input.chatId}; discarding compaction`,
+        );
+        return;
+      }
+
       const shareRecentChats = await this.memory.getForOwnerForBinding(
         tx,
         input.userId,
       );
+
+      // Advance the chat's contextRevision for the companion state.
+      const nextRevision = (chat?.contextRevision ?? 0) + 1;
+      await chatsRepo.advanceContextRevision(
+        input.chatId,
+        input.userId,
+        nextRevision,
+      );
+
+      // Determine whether this compaction triggers a digest re-bake.
+      const rebakes =
+        chat?.recencyDigestBaseline != null &&
+        digestCandidate !== null &&
+        shareRecentChats.shareRecentChats;
+
       const compaction = await compactionsRepo.create({
         chatId: input.chatId,
         uptoSeq: plan.uptoSeq,
@@ -298,12 +303,21 @@ export class CompactionService {
         summary,
         replacementHistory,
         usage,
+        companion: buildCompanion(
+          nextRevision,
+          sourceMaxSeq,
+          chat,
+          rebakes
+            ? { baseline: digestCandidate.baseline, told: digestCandidate.told }
+            : undefined,
+        ),
       });
-      if (
-        chat?.recencyDigestBaseline != null &&
-        digestCandidate !== null &&
-        shareRecentChats.shareRecentChats
-      ) {
+
+      // Self-referencing companion: this compaction IS the new active
+      // checkpoint. Update after insert to satisfy the self-FK.
+      await compactionsRepo.setSelfReferenceCompanion(compaction.id, rebakes);
+
+      if (rebakes) {
         await chatsRepo.setRecencyDigest({
           chatId: input.chatId,
           ownerUserId: input.userId,
@@ -390,9 +404,9 @@ export class CompactionService {
       );
     }
 
-    let inference: Awaited<ReturnType<CompactionService['summarize']>>;
+    let inference: Awaited<ReturnType<typeof summarize>>;
     try {
-      inference = await this.summarize({
+      inference = await summarize({
         client: sourceClient,
         system: request.system,
         messages: request.messages,
@@ -430,6 +444,8 @@ export class CompactionService {
       abortSignal: input.abortSignal,
       previousId: state.previous?.id ?? null,
       uptoSeq: plan.uptoSeq,
+      sourceMaxSeq: input.triggeringUserSeq,
+      chatContextRevision: state.chatContextRevision,
       summary,
       replacementHistory,
       usage: buildTurnTelemetry({
@@ -437,7 +453,6 @@ export class CompactionService {
         finishReason: inference.finishReason,
         status: 'completed',
         modelId: sourceClient.model,
-        // Matches what `summarize` actually sent.
         ...(sourceEffort !== undefined && { effort: sourceEffort }),
         latencyMs: inference.latencyMs,
         price: sourceClient.pricing,
@@ -483,25 +498,38 @@ export class CompactionService {
             input.userId,
           )
         : undefined;
-
-      return { previous, plan, sourceRun, sourceSnapshot };
+      const chat = await new ChatsRepository(tx).findById(
+        input.chatId,
+        input.userId,
+      );
+      return {
+        previous,
+        plan,
+        sourceRun,
+        sourceSnapshot,
+        chatContextRevision: chat?.contextRevision ?? 0,
+      };
     });
   }
 
-  /** Write phase of `compactForTransition`: the staleness-guarded insert. */
+  /** Write phase of `compactForTransition`: the staleness-guarded insert
+   * with continuation state companion recording. */
   private async commitTransitionCompaction(params: {
     chatId: string;
     userId: string;
     abortSignal?: AbortSignal;
     previousId: string | null;
     uptoSeq: number;
+    sourceMaxSeq: number;
+    chatContextRevision: number;
     summary: string;
     replacementHistory: ReturnType<typeof buildCompactionReplacementHistory>;
     usage: ReturnType<typeof buildTurnTelemetry>;
   }): Promise<'created' | 'superseded'> {
     return this.tenantDb.runAs(params.userId, async (tx) => {
-      const compactions = new CompactionsRepository(tx);
-      const latest = await compactions.findLatestByChatId(
+      const compactionsRepo = new CompactionsRepository(tx);
+      const chatsRepo = new ChatsRepository(tx);
+      const latest = await compactionsRepo.findLatestByChatId(
         params.chatId,
         params.userId,
       );
@@ -513,74 +541,31 @@ export class CompactionService {
       ) {
         return 'superseded' as const;
       }
-      const created = await compactions.createIfCutoffAbsent({
+      // Continuation-revision staleness (#154).
+      const chat = await chatsRepo.touch(params.chatId, params.userId);
+      if (chat && chat.contextRevision !== params.chatContextRevision) {
+        return 'superseded' as const;
+      }
+      const nextRevision = (chat?.contextRevision ?? 0) + 1;
+      await chatsRepo.advanceContextRevision(
+        params.chatId,
+        params.userId,
+        nextRevision,
+      );
+      const created = await compactionsRepo.createIfCutoffAbsent({
         chatId: params.chatId,
         uptoSeq: params.uptoSeq,
         parentId: params.previousId,
         summary: params.summary,
         replacementHistory: params.replacementHistory,
         usage: params.usage,
+        companion: buildCompanion(nextRevision, params.sourceMaxSeq, chat),
       });
+      if (created) {
+        await compactionsRepo.setSelfReferenceCompanion(created.id, false);
+      }
       return created ? ('created' as const) : ('superseded' as const);
     });
-  }
-
-  private async summarize(input: {
-    client: ModelClient;
-    system: string;
-    messages: Array<ModelMessage>;
-    toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
-    /**
-     * The effort of the run whose prompt prefix this request reuses. Sent as
-     * persisted, never re-resolved: the whole point of reproducing that run's
-     * system prompt and message prefix is to land on the provider's still-warm
-     * prompt cache, and a differing effort invalidates exactly that.
-     */
-    effort?: string;
-    abortSignal?: AbortSignal;
-  }): Promise<{
-    summary: string | null;
-    usage: Awaited<ReturnType<ModelClient['streamText']>['usage']> | null;
-    finishReason: Awaited<
-      ReturnType<ModelClient['streamText']>['finishReason']
-    > | null;
-    latencyMs: number;
-  }> {
-    const tools = schemaOnlyTools(input.toolDeclarations);
-    const startedAt = Date.now();
-    if (tools === null) {
-      return {
-        summary: null,
-        usage: null,
-        finishReason: null,
-        latencyMs: Date.now() - startedAt,
-      };
-    }
-    const result = input.client.streamText({
-      system: input.system,
-      messages: input.messages,
-      abortSignal: input.abortSignal,
-      ...(input.effort !== undefined && { effort: input.effort }),
-      ...(input.toolDeclarations.length > 0 && { tools }),
-      toolChoice: 'none',
-    });
-    const [text, toolCalls, usage, finishReason] = await Promise.all([
-      Promise.resolve(result.text),
-      Promise.resolve(result.toolCalls).catch(() => []),
-      Promise.resolve(result.usage).catch(() => null),
-      Promise.resolve(result.finishReason).catch(() => null),
-    ]);
-    const providerReturnedToolCall =
-      (Array.isArray(toolCalls) && toolCalls.length > 0) ||
-      finishReason === 'tool-calls';
-    return {
-      summary: providerReturnedToolCall
-        ? null
-        : normalizeCompactionSummary(text),
-      usage,
-      finishReason,
-      latencyMs: Date.now() - startedAt,
-    };
   }
 }
 
