@@ -7,7 +7,7 @@
  */
 
 /**
- * null = no recorded usage; local = executed here; inherited = copied from a fork source
+ * null = no provenance recorded (legacy usage may still be present); local = executed in this chat; inherited = copied from a fork source
  * @nullable
  */
 export type ChatMessageResponseUsageProvenance =

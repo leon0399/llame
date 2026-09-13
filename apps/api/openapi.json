@@ -847,7 +847,9 @@
             "name": "originRunId",
             "required": true,
             "in": "query",
+            "description": "Recorded origin Run id",
             "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -3027,7 +3029,7 @@
             "type": "string",
             "enum": ["local", "inherited"],
             "nullable": true,
-            "description": "null = no recorded usage; local = executed here; inherited = copied from a fork source"
+            "description": "null = no provenance recorded (legacy usage may still be present); local = executed in this chat; inherited = copied from a fork source"
           }
         },
         "required": [

@@ -7,5 +7,8 @@
  */
 
 export type GetMessageContextReceiptParams = {
+  /**
+   * Recorded origin Run id
+   */
   originRunId: string;
 };
