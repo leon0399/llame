@@ -104,6 +104,20 @@ export type KnowledgeConfig = {
 };
 
 /**
+ * Unresolved operator-owned skill source settings (system-provided-skills D1).
+ * `directories` stays `unknown` until its own resolver narrows the leaf:
+ * these are literal public filesystem paths, not interpolated strings.
+ */
+export type RawSkillsConfig = {
+  directories?: unknown;
+};
+
+/** Resolved operator-owned skill source settings: ordered, absolute directory paths. */
+export type SkillsConfig = {
+  directories: ReadonlyArray<string>;
+};
+
+/**
  * The still-uninterpolated `mcpServers` entry shape once the published JSON
  * Schema has validated it (config-loader.ts's `assertValidRaw`) — scalar
  * fields still need `{env:}`/`{path:}` resolution before they become a
@@ -257,6 +271,7 @@ export type RawModelEntry = {
 export interface RawInstanceConfig extends Record<string, unknown> {
   mcpServers?: Record<string, RawMcpServerEntry>;
   knowledge?: RawKnowledgeConfig;
+  skills?: RawSkillsConfig;
   workers?: Record<string, WorkerProfile>;
   providers?: Array<RawProviderEntry>;
   models?: Array<RawModelEntry>;
@@ -324,6 +339,13 @@ export type LlameConfig = {
   mcpServers: Readonly<Record<string, McpServerConfig>>;
   /** Optional process-local root for trusted Knowledge Space directories. */
   knowledge: KnowledgeConfig;
+  /**
+   * Operator-managed skill source directories (system-provided-skills D1):
+   * ordered collection directories whose immediate child directories are skill
+   * packages. Later sources override earlier sources by package name. These are
+   * literal public filesystem paths — no interpolation is applied or allowed.
+   */
+  skills: SkillsConfig;
   /**
    * Worker profiles (durable-run-workers D2/D4): profile name → the groups it
    * consumes and each one's concurrency. Selected at boot by
@@ -395,6 +417,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   },
   mcpServers: {},
   knowledge: {},
+  skills: { directories: [] },
   workers: {
     all: {
       runs: 1,

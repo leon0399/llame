@@ -2557,6 +2557,58 @@
         "summary": "",
         "tags": ["org-units"]
       }
+    },
+    "/api/v1/skills": {
+      "get": {
+        "operationId": "listSkills",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "after",
+            "required": false,
+            "in": "query",
+            "description": "Name of the last entry from the preceding page; the response resumes after it.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillCatalogCollectionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Inspect the operator skill catalog",
+        "tags": ["skills"]
+      }
     }
   },
   "info": {
@@ -4116,6 +4168,90 @@
           }
         },
         "required": ["role", "viaOrgUnitId", "inherited"]
+      },
+      "SkillCatalogEntryResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "proactive": {
+            "type": "boolean",
+            "description": "Whether the package may be selected proactively rather than only by explicit mention."
+          },
+          "sourceDirectory": {
+            "type": "string",
+            "nullable": true
+          },
+          "skillDirectory": {
+            "type": "string",
+            "nullable": true
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "proactive",
+          "sourceDirectory",
+          "skillDirectory",
+          "available",
+          "diagnostics"
+        ]
+      },
+      "SkillCatalogCollectionResponse": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "False when discovery could not run to completion; items is then empty and diagnostics explains why."
+          },
+          "directories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "total": {
+            "type": "number"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillCatalogEntryResponse"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "available",
+          "directories",
+          "diagnostics",
+          "total",
+          "items",
+          "nextCursor"
+        ]
       }
     }
   }

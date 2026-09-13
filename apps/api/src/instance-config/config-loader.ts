@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import {
   getNodeValue,
@@ -14,6 +15,7 @@ import {
   type EmbeddingModelCatalogEntry,
   type LlameConfig,
   type KnowledgeConfig,
+  type SkillsConfig,
   type McpRemoteServerConfig,
   type McpServerConfig,
   type McpStdioServerConfig,
@@ -241,6 +243,7 @@ export function loadInstanceConfig(
     tools: resolveToolsConfig(raw, env, mcpServers),
     mcpServers,
     knowledge: resolveKnowledge(raw, env),
+    skills: resolveSkillsConfig(raw, configPath),
     workers: resolveWorkerProfiles(raw),
     providers,
     models,
@@ -272,6 +275,69 @@ function resolveKnowledge(
     );
   }
   return { root: resolved };
+}
+
+/**
+ * Resolve the ordered operator skill sources (system-provided-skills D1).
+ *
+ * These entries are intentionally public, literal filesystem paths: no
+ * `{env:...}`/`{path:...}` interpolation is applied, and any token syntax is
+ * rejected before resolution so a secret-bearing token cannot be smuggled in.
+ * Relative entries resolve against the configuration file's directory; a
+ * leading `~/` expands against the operator process home only because the
+ * operator explicitly wrote it. No other home or repository scanning occurs.
+ */
+function resolveSkillsConfig(
+  raw: RawInstanceConfig | undefined,
+  configPath: string,
+): SkillsConfig {
+  const directories = raw?.skills?.directories;
+  if (directories === undefined) {
+    return BUILT_IN_DEFAULTS.skills;
+  }
+  if (!Array.isArray(directories)) {
+    throw new InstanceConfigError(
+      'skills.directories: must be an array of directory paths',
+    );
+  }
+
+  const configDirectory = path.dirname(configPath);
+  return {
+    directories: directories.map((entry, index) =>
+      resolveSkillDirectory(entry, index, configDirectory),
+    ),
+  };
+}
+
+const INTERPOLATION_TOKEN_SYNTAX = /\{(?:env|path):/u;
+
+function resolveSkillDirectory(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- raw JSONC array element: the closed schema constrains each entry to a non-empty string, and this function re-checks that with `isString` before any use.
+  entry: unknown,
+  index: number,
+  configDirectory: string,
+): string {
+  const configPath = `skills.directories[${index}]`;
+  if (!isString(entry) || entry.length === 0) {
+    throw new InstanceConfigError(
+      `${configPath}: must be a non-empty directory path`,
+    );
+  }
+  if (INTERPOLATION_TOKEN_SYNTAX.test(entry)) {
+    throw new InstanceConfigError(
+      `${configPath}: skill source directories are literal paths and do not support interpolation`,
+    );
+  }
+  if (entry.includes('\0')) {
+    throw new InstanceConfigError(
+      `${configPath}: must not contain a NUL character`,
+    );
+  }
+
+  const expanded = entry.startsWith('~/')
+    ? path.join(homedir(), entry.slice(2))
+    : entry;
+  return path.resolve(configDirectory, expanded);
 }
 
 // ---- File read + parse -----------------------------------------------

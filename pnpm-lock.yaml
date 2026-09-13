@@ -287,6 +287,9 @@ importers:
       rxjs:
         specifier: ^7.8.1
         version: 7.8.1
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
       zod:
         specifier: 'catalog:'
         version: 3.25.76
