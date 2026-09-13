@@ -685,8 +685,11 @@ export class ChatsRepository {
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 
-  /** Set the immutable initial continuation state on a fork. */
-  async setInitialContinuationState(
+  /**
+   * Set a fork's continuation state: the live digest columns (read by
+   * ordinary turn preparation) and the immutable initial state.
+   */
+  async setForkContinuationState(
     chatId: string,
     ownerUserId: string,
     state: ContinuationStatePayload,
@@ -696,6 +699,8 @@ export class ChatsRepository {
       .set({
         initialContinuationState: state,
         contextRevision: state.contextRevision,
+        recencyDigestBaseline: state.digestBaseline,
+        recencyDigestTold: state.digestTold,
       })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }

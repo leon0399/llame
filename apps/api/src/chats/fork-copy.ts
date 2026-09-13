@@ -3,7 +3,11 @@
  * compaction lineage, turn evidence, and initial continuation state.
  */
 
-import { type Chat, type Message } from '../db/schema';
+import {
+  type Chat,
+  type ContinuationStatePayload,
+  type Message,
+} from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   ChatsRepository,
@@ -13,6 +17,7 @@ import {
 } from './chats-repository';
 import { MessageTurnContextsRepository } from './message-turn-contexts-repository';
 import { forkTitle } from './chats.service';
+import { throwContextUnavailable } from './fork-conflict';
 
 type CopyScope = {
   tx: Db;
@@ -105,6 +110,21 @@ function mapCopiedMessage(
   };
 }
 
+/**
+ * A compaction's data may be copied when its coverage fits the prefix,
+ * but its CONTINUATION companion is eligible only when the state it
+ * observed (sourceMaxSeq) also fits. A checkpoint authored from state
+ * after the boundary must not import that excluded state merely because
+ * its covered prefix ends earlier. Legacy nulls carry no companion.
+ */
+function isCompanionEligible(
+  comp: { companionState: unknown; sourceMaxSeq: number | null },
+  maxSeq: number,
+): boolean {
+  if (!comp.companionState) return false;
+  return comp.sourceMaxSeq === null || comp.sourceMaxSeq <= maxSeq;
+}
+
 async function copyCompactions(scope: CopyScope): Promise<void> {
   const repo = new CompactionsRepository(scope.tx);
   const all = await repo.findByCoverage(
@@ -129,7 +149,7 @@ async function copyCompactions(scope: CopyScope): Promise<void> {
         usageOriginId: comp.usageOriginId ?? comp.id,
         usageProvenanceCol: 'inherited' as const,
       }),
-      ...(comp.companionState && {
+      ...(isCompanionEligible(comp, scope.maxSeq) && {
         companion: {
           contextRevision: comp.contextRevision ?? 0,
           sourceMaxSeq: comp.sourceMaxSeq ?? 0,
@@ -182,15 +202,56 @@ async function setForkInitialState(
   const latest = await new MessageTurnContextsRepository(
     scope.tx,
   ).findLatestByChatId(scope.destChatId, scope.ownerUserId);
-  if (!latest) return;
-  await chatsRepo.setInitialContinuationState(
+  // Select the boundary's continuation state from the highest available
+  // recorded evidence; fall back to the source chat's immutable adoption
+  // state when the copied prefix retained no per-turn evidence.
+  const selected = latest
+    ? {
+        contextRevision: latest.contextRevision,
+        digestBaseline: latest.digestBaseline ?? null,
+        digestTold: latest.digestTold ?? null,
+      }
+    : selectAdoptionState(scope.source, scope.maxSeq);
+  if (!selected) {
+    throwContextUnavailable(
+      'No retained continuation evidence is available at the selected boundary.',
+    );
+  }
+  // The Chat's live digest columns ARE the current continuation state
+  // (design D3); without them the fork's first turn renders no inherited
+  // digest and initializes a fresh baseline.
+  await chatsRepo.setForkContinuationState(
     scope.destChatId,
     scope.ownerUserId,
     {
-      contextRevision: latest.contextRevision,
+      contextRevision: selected.contextRevision,
       sourceMaxSeq: scope.maxSeq,
-      digestBaseline: latest.digestBaseline ?? null,
-      digestTold: latest.digestTold ?? null,
+      digestBaseline: selected.digestBaseline,
+      digestTold: selected.digestTold,
     },
   );
+}
+
+/**
+ * The source chat's adoption state, usable only when it was observed at
+ * or before the selected boundary. An adoption horizon past the boundary
+ * (e.g. an unfinished later turn advanced it) cannot describe this prefix.
+ * A chat with no recorded adoption state has genuinely unrecorded history.
+ */
+function selectAdoptionState(
+  source: Chat,
+  maxSeq: number,
+): {
+  contextRevision: number;
+  digestBaseline: ContinuationStatePayload['digestBaseline'];
+  digestTold: ContinuationStatePayload['digestTold'];
+} | null {
+  const state = source.initialContinuationState;
+  if (!state) return null;
+  if (state.sourceMaxSeq > maxSeq) return null;
+  return {
+    contextRevision: state.contextRevision,
+    digestBaseline: state.digestBaseline,
+    digestTold: state.digestTold,
+  };
 }

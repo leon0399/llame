@@ -76,7 +76,12 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     recencyDigestRebakedFrom: null,
     inheritedContextOriginAt: null,
     contextRevision: 0,
-    initialContinuationState: null,
+    initialContinuationState: {
+      contextRevision: 0,
+      sourceMaxSeq: 0,
+      digestBaseline: null,
+      digestTold: null,
+    },
     initialActiveCompactionId: null,
     initialDigestRebakedFrom: null,
   };
@@ -257,7 +262,12 @@ describe('ChatsService message windows, updates and forks', () => {
     recencyDigestRebakedFrom: null,
     inheritedContextOriginAt: null,
     contextRevision: 0,
-    initialContinuationState: null,
+    initialContinuationState: {
+      contextRevision: 0,
+      sourceMaxSeq: 0,
+      digestBaseline: null,
+      digestTold: null,
+    },
     initialActiveCompactionId: null,
     initialDigestRebakedFrom: null,
   };
@@ -547,7 +557,7 @@ describe('ChatsService message windows, updates and forks', () => {
       ).mockResolvedValue(undefined);
       vi.spyOn(
         ChatsRepository.prototype,
-        'setInitialContinuationState',
+        'setForkContinuationState',
       ).mockResolvedValue(undefined);
     });
     it('copies the whole chat, renumbering seq from 1 and remapping in-reply-to edges', async () => {
@@ -676,6 +686,217 @@ describe('ChatsService message windows, updates and forks', () => {
         'Fork-point message not found in this chat',
       );
       expect(create).not.toHaveBeenCalled();
+    });
+
+    it('copies compaction lineage with inherited provenance and remapped parent', async () => {
+      const first = message(1);
+      const second = message(2, {
+        role: 'assistant',
+        senderUserId: null,
+        usage: { status: 'completed' },
+        inReplyTo: first.id,
+      });
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+      vi.spyOn(ChatsRepository.prototype, 'create').mockResolvedValue({
+        ...chat,
+        id: 'chat-fork',
+      });
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        first,
+        second,
+      ]);
+      vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
+        undefined,
+      );
+      const parent: Compaction = {
+        id: 'comp-parent',
+        chatId: chat.id,
+        uptoSeq: 1,
+        parentId: null,
+        summary: 'parent summary',
+        replacementHistory: [{ role: 'user', parts: [] }],
+        usage: null,
+        createdAt: new Date('2026-08-01T00:00:00.000Z'),
+        usageOriginKind: null,
+        usageOriginId: null,
+        usageProvenanceCol: null,
+        contextRevision: null,
+        sourceMaxSeq: null,
+        companionActiveCompactionId: null,
+        companionDigestRebakedFrom: null,
+        companionState: null,
+      };
+      const child: Compaction = {
+        ...parent,
+        id: 'comp-child',
+        uptoSeq: 2,
+        parentId: 'comp-parent',
+        usage: { costUsd: 0.25, model: 'gpt-x' },
+        contextRevision: 3,
+        sourceMaxSeq: 2,
+        companionState: {
+          contextRevision: 3,
+          sourceMaxSeq: 2,
+          digestBaseline: null,
+          digestTold: null,
+        },
+      };
+      vi.spyOn(
+        CompactionsRepository.prototype,
+        'findByCoverage',
+      ).mockResolvedValue([parent, child]);
+      const createCompaction = vi
+        .spyOn(CompactionsRepository.prototype, 'create')
+        .mockResolvedValue(child);
+
+      await makeService().service.forkChat(chat.id, ownerUserId);
+
+      expect(createCompaction).toHaveBeenCalledTimes(2);
+      const childInput = createCompaction.mock.calls[1][0];
+      // Inherited usage provenance with the original compaction id.
+      expect(childInput).toMatchObject({
+        chatId: 'chat-fork',
+        uptoSeq: 2,
+        usageOriginKind: 'compaction',
+        usageOriginId: 'comp-child',
+        usageProvenanceCol: 'inherited',
+        createdAt: child.createdAt,
+      });
+      // Parent lineage remapped to the copied parent's new id.
+      const parentInput = createCompaction.mock.calls[0][0];
+      expect(childInput.parentId).toBe(parentInput.id);
+      expect(childInput.parentId).not.toBe('comp-parent');
+    });
+
+    it('omits companion state from a checkpoint authored after the boundary', async () => {
+      const first = message(1);
+      const second = message(2, {
+        role: 'assistant',
+        senderUserId: null,
+        usage: { status: 'completed' },
+        inReplyTo: first.id,
+      });
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+      vi.spyOn(ChatsRepository.prototype, 'create').mockResolvedValue({
+        ...chat,
+        id: 'chat-fork',
+      });
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        first,
+        second,
+      ]);
+      vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
+        undefined,
+      );
+      // Coverage fits the prefix (uptoSeq 1 <= 2) but the state observed a
+      // later message (sourceMaxSeq 18 > 2) — ineligible companion.
+      const stale: Compaction = {
+        id: 'comp-stale',
+        chatId: chat.id,
+        uptoSeq: 1,
+        parentId: null,
+        summary: 'stale summary',
+        replacementHistory: [{ role: 'user', parts: [] }],
+        usage: null,
+        createdAt: new Date('2026-08-01T00:00:00.000Z'),
+        usageOriginKind: null,
+        usageOriginId: null,
+        usageProvenanceCol: null,
+        contextRevision: 9,
+        sourceMaxSeq: 18,
+        companionActiveCompactionId: null,
+        companionDigestRebakedFrom: null,
+        companionState: {
+          contextRevision: 9,
+          sourceMaxSeq: 18,
+          digestBaseline: null,
+          digestTold: null,
+        },
+      };
+      vi.spyOn(
+        CompactionsRepository.prototype,
+        'findByCoverage',
+      ).mockResolvedValue([stale]);
+      const createCompaction = vi
+        .spyOn(CompactionsRepository.prototype, 'create')
+        .mockResolvedValue(stale);
+
+      await makeService().service.forkChat(chat.id, ownerUserId);
+
+      expect(createCompaction).toHaveBeenCalledTimes(1);
+      expect(createCompaction.mock.calls[0][0]).not.toHaveProperty('companion');
+    });
+
+    it('copies turn evidence with remapped message ids and sets fork state', async () => {
+      const first = message(1);
+      const second = message(2, {
+        role: 'assistant',
+        senderUserId: null,
+        usage: { status: 'completed' },
+        inReplyTo: first.id,
+      });
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+      vi.spyOn(ChatsRepository.prototype, 'create').mockResolvedValue({
+        ...chat,
+        id: 'chat-fork',
+      });
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        first,
+        second,
+      ]);
+      const createMany = vi
+        .spyOn(MessagesRepository.prototype, 'createMany')
+        .mockResolvedValue(undefined);
+      const evidence = {
+        chatId: chat.id,
+        originRunId: 'run-1',
+        messageId: first.id,
+        ownerUserId,
+        modelId: 'model-1',
+        effort: null,
+        acceptedAt: new Date('2026-08-01T00:00:00.000Z'),
+        snapshotId: null,
+        contextRevision: 2,
+        sourceMaxSeq: 1,
+        activeCompactionId: null,
+        digestRebakedFrom: null,
+        digestBaseline: null,
+        digestTold: null,
+        contextItems: null,
+        createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      };
+      vi.spyOn(
+        MessageTurnContextsRepository.prototype,
+        'findByCoverage',
+      ).mockResolvedValue([evidence]);
+      const createEvidence = vi
+        .spyOn(MessageTurnContextsRepository.prototype, 'create')
+        .mockResolvedValue(undefined);
+      vi.spyOn(
+        MessageTurnContextsRepository.prototype,
+        'findLatestByChatId',
+      ).mockResolvedValue(evidence);
+      const setState = vi
+        .spyOn(ChatsRepository.prototype, 'setForkContinuationState')
+        .mockResolvedValue(undefined);
+
+      await makeService().service.forkChat(chat.id, ownerUserId);
+
+      // Evidence copied with the DESTINATION message id, not the source id.
+      const copiedUser = createMany.mock.calls[0][0][0];
+      expect(createEvidence).toHaveBeenCalledTimes(1);
+      expect(createEvidence.mock.calls[0][0]).toMatchObject({
+        chatId: 'chat-fork',
+        originRunId: 'run-1',
+        messageId: copiedUser.id,
+        contextRevision: 2,
+      });
+      expect(createEvidence.mock.calls[0][0].messageId).not.toBe(first.id);
+      expect(setState).toHaveBeenCalledWith(
+        'chat-fork',
+        ownerUserId,
+        expect.objectContaining({ contextRevision: 2 }),
+      );
     });
   });
 
