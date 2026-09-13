@@ -39,7 +39,7 @@ the reviewed proposal; publication and merging require separate authority.
 
 ## 3. Templates layer
 
-- [ ] 3.1 Move all seven llame-owned descriptions to Markdown and remove their inline strings. Change the Nest asset glob to `prompts/**/*.md` and extend `prompt-built-runtime.contract.ts` to render all seven from built output; compare default text before intentional guidance changes.
+- [x] 3.1 Move all seven llame-owned descriptions to Markdown and remove their inline strings. Change the Nest asset glob to `prompts/**/*.md` and extend `prompt-built-runtime.contract.ts` to render all seven from built output; compare default text before intentional guidance changes.
 - [ ] 3.2 Add `tools.promptFiles` and `models[].toolPromptFiles` using the existing prompt loader. Test per-tool precedence, null/absent entries, empty maps, shared relative paths, shadowed/disabled-file validation, restart-only reload, and invalid/missing/MCP/wildcard override targets.
 - [ ] 3.3 Extend the shared validator/projection with conditional-only `tools.<exact-id>`; retain all existing safe model/owner/chat/temporal variables. Test known/unknown/disabled/offline targets including unconfigured MCP servers, exact provider-safe ids, traversal/prototype rejection, forbidden direct output/iteration, and non-recursive owner values.
 - [ ] 3.4 Admit the attempt catalog before rendering both surfaces from one context; keep rendered declarations only in memory. Test membership independent of permissions, shared variable sanitization, two-owner isolation, settings changed between retries, and fixed context across steps of one attempt.
