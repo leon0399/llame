@@ -14,7 +14,6 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import postgres from 'postgres';
 
 import { RunAbortRegistry } from './run-abort-registry';
@@ -22,14 +21,8 @@ import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { type RunStreamResponder } from './run-stream-bridge';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { isInflightUniqueViolation } from '../chats/inflight-unique-violation';
-import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { MessagesRepository } from '../chats/chats-repository';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { PersonalizationService } from '../personalization/personalization.service';
-import { MemoryService } from '../memory/memory.service';
-import { RecencyDigestService } from '../chats/recency-digest.service';
-import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
-import { TOOL_REGISTRY } from '../tools/registry';
 import { searchChatDocuments } from '../db/schema/search';
 import { waitFor } from '../testing/support';
 import {
@@ -65,17 +58,6 @@ const testClient = (max: number) =>
     max,
     ssl: /sslmode=require/.test(TEST_DB_URL ?? '') ? 'require' : false,
   });
-
-const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
-  resolve: () =>
-    Promise.resolve(
-      [...TOOL_REGISTRY.values()].map((tool) => ({
-        source: { type: 'code_owned' as const },
-        state: 'available' as const,
-        tool,
-      })),
-    ),
-};
 
 /**
  * Run `fn` in a transaction carrying the tenant identity — without it FORCE RLS
@@ -382,13 +364,6 @@ describeIfDb(
           bridge,
           aborts,
           harness.dispatch,
-          new PersonalizationService(harness.tenantDb),
-          new SystemPromptsService(),
-          { snapshotCandidates: () => [] },
-          new MemoryService(harness.tenantDb),
-          new RecencyDigestService(harness.tenantDb),
-          knowledgeCandidates,
-          noopSkillCatalog(),
         );
 
         await expect(

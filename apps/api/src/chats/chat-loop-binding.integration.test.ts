@@ -8,7 +8,6 @@
  */
 
 import { expectMessageParts, expectTemporalRow } from '../testing/support';
-import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql as drizzleSql } from 'drizzle-orm';
 import postgres from 'postgres';
@@ -21,7 +20,6 @@ import {
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { type RunAborter } from '../runs/run-abort-registry';
-import { type PromptUserResolver } from '../personalization/personalization.service';
 import {
   type MemorySettingsBindingResolver,
   type MemorySettingsResolver,
@@ -31,17 +29,6 @@ import { isContextItemPart } from './context-item';
 import { isRecencyDigestItem } from './context-item-producers';
 import { renderConversationCheckpoint } from './context-builder';
 
-/** Fully typed, no cast: ChatLoopService depends on the method, not the class. */
-const personalization: PromptUserResolver = {
-  resolvePromptUser: () => Promise.resolve(undefined),
-};
-const memory: MemorySettingsResolver & MemorySettingsBindingResolver = {
-  getForOwner: () => Promise.resolve({ shareRecentChats: false }),
-  getForOwnerForBinding: () => Promise.resolve({ shareRecentChats: false }),
-};
-const recencyDigest: RecencyDigestResolver = {
-  resolveCandidate: () => Promise.reject(new Error('unexpected digest read')),
-};
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { ChatLoopService } from './chat-loop.service';
@@ -71,6 +58,7 @@ import {
   type KnowledgeToolCandidateResolverPort,
 } from '../knowledge/knowledge-tool-candidate-resolver';
 import { TOOL_REGISTRY } from '../tools/registry';
+
 import { type RunJob } from '../runs/run-queues';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -82,17 +70,6 @@ if (!TEST_DB_URL) {
 
 type RuntimeCatalogSnapshotter = {
   snapshotCandidates(): ReadonlyArray<TurnToolCandidate>;
-};
-
-const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
-  resolve: () =>
-    Promise.resolve(
-      [...TOOL_REGISTRY.values()].map((tool) => ({
-        source: { type: 'code_owned' as const },
-        state: 'available' as const,
-        tool,
-      })),
-    ),
 };
 
 function fakeInstanceConfig(
@@ -268,7 +245,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
           messageId: runInput.messageId,
           userId: runInput.userId,
           modelId: runInput.modelId,
-          modelContextSnapshotId: runInput.modelContextSnapshotId,
+          modelContextSnapshotId: runInput.modelContextSnapshotId ?? null,
           effort: null,
           status: 'queued',
           workerId: null,
@@ -307,9 +284,6 @@ describe('ChatLoopService effective-context transaction binding', () => {
     };
     const aborts: RunAborter = { abort: vi.fn() };
     const dispatcher: RunDispatcher = { dispatch };
-    const runtime: RuntimeCatalogSnapshotter = options?.runtime ?? {
-      snapshotCandidates: () => [],
-    };
 
     const service = new ChatLoopService(
       tenantDb,
@@ -318,13 +292,6 @@ describe('ChatLoopService effective-context transaction binding', () => {
       bridge,
       aborts,
       dispatcher,
-      personalization,
-      options?.systemPrompts ?? new SystemPromptsService(),
-      runtime,
-      options?.memory ?? memory,
-      options?.recencyDigest ?? recencyDigest,
-      options?.knowledgeCandidates ?? knowledgeCandidates,
-      noopSkillCatalog(),
     );
 
     return {

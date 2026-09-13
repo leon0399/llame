@@ -31,7 +31,11 @@ import {
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
-import { type ModelClientFactory } from '../models/models.service';
+import {
+  type ModelClientFactory,
+  type ModelSelectionValidator,
+} from '../models/models.service';
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { MemoryService } from '../memory/memory.service';
 import { SearchIndexService } from '../search/search-index.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
@@ -67,11 +71,14 @@ import {
   COMPACTION_INSTRUCTION,
   TRANSITION_COMPACTION_INSTRUCTION,
 } from './compaction';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import {
   CompactionService,
   TransitionCompactionError,
 } from './compaction.service';
 import { type KnowledgeToolResolver } from '../tools/types';
+import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { TOOL_REGISTRY } from '../tools/registry';
 import {
   isRecord,
   isString,
@@ -99,6 +106,31 @@ const knowledgeResolver: KnowledgeToolResolver = {
       Promise.reject(new Error('Knowledge adapter is not exercised')),
     isInsideSpace: () => Promise.resolve(true),
   }),
+};
+
+const executionModels: ModelSelectionValidator = {
+  validateModelSelection: (modelId: string): SystemModelCatalogEntry => ({
+    id: modelId,
+    source: 'system',
+    contextWindowTokens: 128_000,
+    provider: 'fake',
+    providerModelId: modelId,
+    systemPromptTemplate: 'Test prompt: default',
+    systemPromptSource: 'project_default',
+    referencesSkills: false,
+  }),
+  resolveEffortSelection: () => undefined,
+};
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
 };
 
 function replacementHistoryFor(
@@ -942,10 +974,14 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       noopReindexDispatch(),
       knowledgeResolver,
       noopSkillCatalog(),
-
       noopEmbedDispatch(),
       noopQueryEmbedder(),
       compileTestPermissionPolicy(),
+      executionModels,
+      new SystemPromptsService(),
+      { resolvePromptUser: () => Promise.resolve(undefined) },
+      knowledgeCandidates,
+      { snapshotCandidates: () => [] },
     );
   }
 

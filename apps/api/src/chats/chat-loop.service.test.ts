@@ -13,15 +13,12 @@ import {
 } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { noopSkillCatalog } from '../skills/skill-catalog.stub';
-import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import {
   type MemorySettingsBindingResolver,
   type MemorySettingsResolver,
 } from '../memory/memory.service';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { type ModelSelectionValidator } from '../models/models.service';
-import { type PromptUserResolver } from '../personalization/personalization.service';
 import { type RunAborter } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { stuckRunThresholdMs } from '../runs/run-queues';
@@ -29,7 +26,6 @@ import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
-import { TOOL_REGISTRY } from '../tools/registry';
 import { ChatLoopService } from './chat-loop.service';
 import { isInflightUniqueViolation } from './inflight-unique-violation';
 import {
@@ -100,17 +96,6 @@ const run: Run = {
   effort: null,
 };
 
-const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
-  resolve: () =>
-    Promise.resolve(
-      [...TOOL_REGISTRY.values()].map((tool) => ({
-        source: { type: 'code_owned' as const },
-        state: 'available' as const,
-        tool,
-      })),
-    ),
-};
-
 const input = {
   chatId: chat.id,
   userId: chat.ownerUserId,
@@ -164,14 +149,6 @@ function makeService(options?: {
   const aborts: RunAborter = { abort };
   const dispatchRun = vi.fn(async () => {});
   const dispatch: RunDispatcher = { dispatch: dispatchRun };
-  const personalization: PromptUserResolver = {
-    resolvePromptUser: () => Promise.resolve(undefined),
-  };
-  const memory: MemorySettingsResolver & MemorySettingsBindingResolver =
-    options?.memory ?? {
-      getForOwner: () => Promise.resolve({ shareRecentChats: false }),
-      getForOwnerForBinding: () => Promise.resolve({ shareRecentChats: false }),
-    };
   const recencyDigest: RecencyDigestResolver = options?.recencyDigest ?? {
     resolveCandidate: () => Promise.reject(new Error('unexpected digest read')),
   };
@@ -233,7 +210,7 @@ function makeService(options?: {
         messageId: runInput.messageId,
         userId: runInput.userId,
         modelId: runInput.modelId,
-        modelContextSnapshotId: runInput.modelContextSnapshotId,
+        modelContextSnapshotId: runInput.modelContextSnapshotId ?? null,
         effort: runInput.effort ?? null,
       }),
     );
@@ -274,13 +251,6 @@ function makeService(options?: {
     bridge,
     aborts,
     dispatch,
-    personalization,
-    new SystemPromptsService(),
-    { snapshotCandidates },
-    memory,
-    recencyDigest,
-    knowledgeCandidates,
-    noopSkillCatalog(),
   );
 
   return {

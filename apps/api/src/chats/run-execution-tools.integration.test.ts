@@ -61,7 +61,10 @@ import {
 } from './context-builder';
 import { toChatMessageResponse } from './dto/chats.dto';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import type { ModelSelectionValidator } from '../models/models.service';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { CompactionCapability } from '../compaction/compaction.service';
 import type { TitleCapability } from '../titles/title.service';
 import {
@@ -85,6 +88,7 @@ import {
   type Tool,
   type ToolContext,
 } from '../tools/types';
+import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import { executeConversationRead } from '../tools/conversation-read';
 import { KnowledgeSpaceLocalResolver } from '../knowledge/knowledge-space.local-resolver';
 import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
@@ -108,6 +112,28 @@ const knowledgeResolver: KnowledgeToolResolver = {
       Promise.reject(new Error('Knowledge adapter is not exercised')),
     isInsideSpace: () => Promise.resolve(true),
   }),
+};
+
+const testModelEntry: SystemModelCatalogEntry = {
+  id: 'mock',
+  source: 'system',
+  contextWindowTokens: 100_000,
+  provider: 'mock',
+  providerModelId: 'mock',
+  systemPromptTemplate: 'Test prompt',
+  systemPromptSource: 'project_default',
+  referencesSkills: false,
+};
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
 };
 
 /**
@@ -447,6 +473,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
         },
       },
     };
+    const models: ModelSelectionValidator = {
+      validateModelSelection: vi.fn().mockReturnValue(testModelEntry),
+      resolveEffortSelection: vi.fn().mockReturnValue(undefined),
+    };
     return new RunExecutionService(
       tenantDb,
       noopCompaction,
@@ -463,6 +493,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ...getRegisteredToolIds(),
         ...(overrides?.allowed ?? []),
       ]),
+      models,
+      new SystemPromptsService(),
+      { resolvePromptUser: vi.fn().mockResolvedValue(undefined) },
+      knowledgeCandidates,
+      { snapshotCandidates: () => [] },
       overrides?.dynamicToolResolver,
     );
   }

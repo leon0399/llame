@@ -23,6 +23,8 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
+import type { ModelSelectionValidator } from '../models/models.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -54,6 +56,8 @@ import {
 import { McpRuntimeService } from './mcp-runtime.service';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 import { type KnowledgeToolResolver } from '../tools/types';
+import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { TOOL_REGISTRY } from '../tools/registry';
 import {
   createMcpTestFixture,
   mcpStreamableHttpInitialize,
@@ -75,6 +79,31 @@ const knowledgeResolver: KnowledgeToolResolver = {
       Promise.reject(new Error('Knowledge adapter is not exercised')),
     isInsideSpace: () => Promise.resolve(true),
   }),
+};
+
+const executionModels: ModelSelectionValidator = {
+  validateModelSelection: (modelId: string): SystemModelCatalogEntry => ({
+    id: modelId,
+    source: 'system',
+    contextWindowTokens: 100_000,
+    provider: 'fixture',
+    providerModelId: modelId,
+    systemPromptTemplate: 'Use the configured fixture search tool.',
+    systemPromptSource: 'project_default',
+    referencesSkills: false,
+  }),
+  resolveEffortSelection: () => undefined,
+};
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
 };
 
 type SqlClient = ReturnType<typeof postgres>;
@@ -281,10 +310,13 @@ function executionService(
     noopReindexDispatch(),
     knowledgeResolver,
     noopSkillCatalog(),
-
     noopEmbedDispatch(),
     noopQueryEmbedder(),
     compileTestPermissionPolicy(['mcp__web__search']),
+    executionModels,
+    new SystemPromptsService(),
+    { resolvePromptUser: () => Promise.resolve(undefined) },
+    knowledgeCandidates,
     runtime,
   );
 }

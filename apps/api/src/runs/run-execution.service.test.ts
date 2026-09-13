@@ -20,6 +20,8 @@ import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import type { ModelSelectionValidator } from '../models/models.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
 import type { KnowledgeToolResolver, Tool, ToolResult } from '../tools/types';
@@ -44,6 +46,9 @@ import {
   RunExecutionService,
   RunNotRunnableError,
 } from './run-execution.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { TOOL_REGISTRY } from '../tools/registry';
 
 /**
  * classifyAbortedRun unit tests (durable-run-workers D7): the in-process
@@ -182,6 +187,28 @@ const knowledgeResolver: KnowledgeToolResolver = {
   }),
 };
 
+const testModelEntry: SystemModelCatalogEntry = {
+  id: 'fake-model',
+  source: 'system',
+  contextWindowTokens: 128_000,
+  provider: 'fake',
+  providerModelId: 'fake-model',
+  systemPromptTemplate: 'Stable system prompt',
+  systemPromptSource: 'project_default',
+  referencesSkills: false,
+};
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
+};
+
 function makeExecutionService(
   client: ModelClient = createFakeModelClient(['answer']),
   dynamicToolResolver?: DynamicToolExecutorResolver,
@@ -224,6 +251,10 @@ function makeExecutionService(
   const embedDispatch: ChatEmbedDispatcher = {
     enqueueChatEmbed: vi.fn(() => Promise.resolve()),
   };
+  const models: ModelSelectionValidator = {
+    validateModelSelection: vi.fn().mockReturnValue(testModelEntry),
+    resolveEffortSelection: vi.fn().mockReturnValue(undefined),
+  };
   const service = new RunExecutionService(
     tenantDb,
     compaction,
@@ -236,6 +267,11 @@ function makeExecutionService(
     embedDispatch,
     noopQueryEmbedder(),
     permissionPolicy,
+    models,
+    new SystemPromptsService(),
+    { resolvePromptUser: vi.fn().mockResolvedValue(undefined) },
+    knowledgeCandidates,
+    { snapshotCandidates: () => [] },
     dynamicToolResolver,
   );
   return {

@@ -105,6 +105,26 @@ import {
   ModelContextExecutionError,
   resolveBoundExecutableTools,
 } from './snapshot-tool-execution';
+import { resolveEffectiveContext } from './effective-context-resolver';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import {
+  PersonalizationService,
+  type PromptUserResolver,
+} from '../personalization/personalization.service';
+import {
+  ModelsService,
+  type ModelSelectionValidator,
+} from '../models/models.service';
+import {
+  KnowledgeToolCandidateResolver,
+  type KnowledgeToolCandidateResolverPort,
+} from '../knowledge/knowledge-tool-candidate-resolver';
+import { McpRuntimeService } from '../mcp/mcp-runtime.service';
+import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
+import {
+  formatTemporalAnchor,
+  resolveInstanceTimezone,
+} from '../prompts/temporal-anchor';
 
 type AssistantTurnTelemetry = TurnTelemetry & { runId: string };
 
@@ -246,13 +266,22 @@ export class RunExecutionService {
     private readonly knowledgeResolver: KnowledgeToolResolver,
     @Inject(SkillCatalog)
     private readonly skillCatalog: SkillCatalogPort,
-
     @Inject(SearchEmbedDispatchService)
     private readonly embedDispatch: ChatEmbedDispatcher,
     @Inject(ChatSearchQueryEmbedder)
     private readonly queryEmbedder: QueryEmbedderPort,
     @Inject(TOOL_PERMISSION_POLICY)
     private readonly permissionPolicy: CompiledPolicy,
+    // --- Worker-owned prompt/catalog resolution dependencies ---
+    @Inject(ModelsService)
+    private readonly models: ModelSelectionValidator,
+    private readonly systemPrompts: SystemPromptsService,
+    @Inject(PersonalizationService)
+    private readonly personalization: PromptUserResolver,
+    @Inject(KnowledgeToolCandidateResolver)
+    private readonly knowledgeCandidates: KnowledgeToolCandidateResolverPort,
+    @Inject(McpRuntimeService)
+    private readonly mcpRuntime: Pick<McpRuntimeService, 'snapshotCandidates'>,
     @Optional()
     @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
     private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
@@ -400,38 +429,80 @@ export class RunExecutionService {
       claim.nativeDeliverySequence,
     );
 
-    // Context assembly happens at execution time (not enqueue time): the run
-    // reads the chat as it exists when it starts — compaction summary + live
-    // window up to the triggering message (SPEC §9.5 puts this worker-side).
+    // Prompt/catalog resolution: the worker resolves both prompt surfaces
+    // from the current owner state, admitted catalog, and boot-loaded
+    // templates. This replaces the accept-time snapshot binding.
     let prepared: PreparedExecutionContext;
     try {
       const context = await this.tenantDb.runAs(input.userId, async (tx) => {
-        // Titling gate (#78): read the title as of execution start — the
-        // common already-titled turn must not pay a post-turn title model
-        // call. The atomic \`title IS NULL\` write guard still decides races.
         const chat = await new ChatsRepository(tx).findById(
           input.chatId,
           input.userId,
         );
 
+        // Resolve the selected model entry for its prompt template.
+        // A model removed from config after accept fails here explicitly.
+        const model = this.models.validateModelSelection(input.client.model);
+
+        // Current owner personalization, outside the binding transaction
+        // (an edit after accept applies to this attempt — specified).
+        const user = await this.personalization.resolvePromptUser(input.userId);
+
+        // Temporal anchor derives from the latest compaction (or chat creation).
+        const compaction = await new CompactionsRepository(
+          tx,
+        ).findLatestByChatId(input.chatId, input.userId);
+        const instanceTimezone = resolveInstanceTimezone(this.logger);
+        const anchor = formatTemporalAnchor(
+          compaction?.createdAt ?? chat!.createdAt,
+          instanceTimezone,
+        );
+
+        // Render the system prompt with current owner context.
+        const systemPrompt = this.systemPrompts.render({
+          model,
+          anchor,
+          user,
+          chats: chat?.recencyDigestBaseline ?? undefined,
+        });
+
+        // Compose the tool catalog from current config and runtime state.
+        const allowedToolRules = this.instanceConfig.config.tools.allowed;
+        const callTimeoutSeconds =
+          this.instanceConfig.config.tools.callTimeoutSeconds;
+        const codeOwnedCandidates = await this.knowledgeCandidates.resolve({
+          tx,
+          ownerUserId: input.userId,
+          allowedToolRules,
+        });
+        const dynamicCandidates: ReadonlyArray<TurnToolCandidate> =
+          this.mcpRuntime.snapshotCandidates();
+        const effectiveContext = await resolveEffectiveContext({
+          model,
+          systemPrompt,
+          allowedToolRules,
+          callTimeoutSeconds,
+          codeOwnedCandidates,
+          dynamicCandidates,
+        });
+
+        // Create/bind snapshot so the receipt endpoint and compaction can
+        // read it. Content-addressed: identical inputs reuse the same row.
         const snapshot = await new ModelContextSnapshotsRepository(
           tx,
-        ).findByOwnedRun(input.runId, input.userId);
-        if (!snapshot) {
-          throw new ModelContextExecutionError(
-            `Run ${input.runId} has no owned model-context snapshot.`,
-          );
-        }
-
-        const built = await this.rebuildContextForChat(
-          tx,
-          input,
-          snapshot.systemPrompt,
+        ).createOrReuse(input.userId, effectiveContext);
+        await new RunsRepository(tx).bindSnapshot(
+          input.runId,
+          input.userId,
+          snapshot.id,
         );
+
+        // Build the message context using the freshly rendered prompt.
+        const built = await this.rebuildContextForChat(tx, input, systemPrompt);
 
         return {
           ...built,
-          snapshot,
+          effectiveContext,
           untitled: chat?.title === null,
         };
       });
@@ -440,9 +511,9 @@ export class RunExecutionService {
         system: context.system,
         messages: context.messages,
         untitled: context.untitled,
-        toolDeclarations: context.snapshot.toolDeclarations,
+        toolDeclarations: context.effectiveContext.toolDeclarations,
         tools: await resolveBoundExecutableTools(
-          context.snapshot.toolDeclarations,
+          context.effectiveContext.toolDeclarations,
           undefined,
           this.dynamicToolResolver,
         ),

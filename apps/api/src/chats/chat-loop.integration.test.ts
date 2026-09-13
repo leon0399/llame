@@ -21,7 +21,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 import { expectMessageParts } from '../testing/support';
-import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -44,8 +43,6 @@ import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { ChatLoopService } from './chat-loop.service';
-import { SystemPromptsService } from '../system-prompts/system-prompts.service';
-import { PersonalizationService } from '../personalization/personalization.service';
 import { MemoryService } from '../memory/memory.service';
 import { RecencyDigestService } from './recency-digest.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -68,8 +65,6 @@ import {
   type ToolAvailabilityManifestV1,
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
-import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
-import { TOOL_REGISTRY } from '../tools/registry';
 import { type ContextItemPart } from './context-item';
 import { createToolAvailabilityItem } from './context-item-producers';
 import { renderConversationCheckpoint } from './context-builder';
@@ -88,17 +83,6 @@ function compactionReplacementHistory(
     },
   ];
 }
-
-const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
-  resolve: () =>
-    Promise.resolve(
-      [...TOOL_REGISTRY.values()].map((tool) => ({
-        source: { type: 'code_owned' as const },
-        state: 'available' as const,
-        tool,
-      })),
-    ),
-};
 
 describeIfDb(
   'ChatLoopService — single-flight regression (design D3/D7)',
@@ -319,13 +303,6 @@ describeIfDb(
         bridge,
         aborts,
         dispatch,
-        new PersonalizationService(tenantDb),
-        new SystemPromptsService(),
-        { snapshotCandidates: () => [] },
-        new MemoryService(tenantDb),
-        new RecencyDigestService(tenantDb),
-        knowledgeCandidates,
-        noopSkillCatalog(),
       );
     });
 
@@ -837,13 +814,6 @@ describeIfDb(
         { createUiMessageStreamResponse: vi.fn() },
         new RunAbortRegistry(),
         dispatch,
-        new PersonalizationService(tenantDb),
-        new SystemPromptsService(),
-        { snapshotCandidates: () => [] },
-        new MemoryService(tenantDb),
-        new RecencyDigestService(tenantDb),
-        knowledgeCandidates,
-        noopSkillCatalog(),
       );
       const before = await tenantDb.runAs(userId, async (tx) => ({
         chats: (await tx.select().from(schema.chats)).length,

@@ -24,7 +24,10 @@ import { type Db, type TenantRunner } from '../db/tenant-db.service';
 export class RunsRepository {
   constructor(private readonly db: Db) {}
 
-  /** Create a queued run for a user message. */
+  /**
+   * Create a queued run for a user message. The worker resolves
+   * prompt/catalog context at execution time, so no snapshot is required.
+   */
   async create(input: {
     id?: string;
     chatId: string;
@@ -33,21 +36,43 @@ export class RunsRepository {
     modelId: string;
     /** Resolved at accept time. Absent stores NULL: the run sends no effort. */
     effort?: string | undefined;
-    modelContextSnapshotId: string;
+    /**
+     * Legacy: bound at accept time; now resolved by the executing worker.
+     * New runs omit this; the worker binds its own snapshot post-preparation.
+     */
+    modelContextSnapshotId?: string;
   }): Promise<Run> {
     const values: typeof runs.$inferInsert = {
       chatId: input.chatId,
       messageId: input.messageId,
       userId: input.userId,
       modelId: input.modelId,
-      modelContextSnapshotId: input.modelContextSnapshotId,
     };
+    if (input.modelContextSnapshotId !== undefined)
+      values.modelContextSnapshotId = input.modelContextSnapshotId;
     if (input.effort !== undefined) values.effort = input.effort;
     if (input.id !== undefined) values.id = input.id;
 
     const [created] = await this.db.insert(runs).values(values).returning();
 
     return created;
+  }
+
+  /**
+   * Bind an execution-time model-context snapshot to the run. Used by the
+   * worker after resolving prompt/catalog at execution time.
+   */
+  async bindSnapshot(
+    runId: string,
+    userId: string,
+    snapshotId: string,
+  ): Promise<Run | undefined> {
+    const [updated] = await this.db
+      .update(runs)
+      .set({ modelContextSnapshotId: snapshotId })
+      .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
+      .returning();
+    return updated;
   }
 
   /**

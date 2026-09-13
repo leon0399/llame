@@ -348,7 +348,7 @@ describe('seedRun', () => {
           chatId: input.chatId,
           messageId: input.messageId,
           effort: input.effort ?? null,
-          modelContextSnapshotId: input.modelContextSnapshotId,
+          modelContextSnapshotId: input.modelContextSnapshotId ?? null,
         }),
       );
     return { createIfAbsent, createMessage, createOrReuse, createRun };

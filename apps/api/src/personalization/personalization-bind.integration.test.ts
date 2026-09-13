@@ -9,7 +9,6 @@
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
@@ -22,24 +21,8 @@ import { RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { PersonalizationRepository } from './personalization-repository';
 import { PersonalizationService } from './personalization.service';
-import { SystemPromptsService } from '../system-prompts/system-prompts.service';
-import { MemoryService } from '../memory/memory.service';
-import { RecencyDigestService } from '../chats/recency-digest.service';
-import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
-import { TOOL_REGISTRY } from '../tools/registry';
 
 export {};
-
-const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
-  resolve: () =>
-    Promise.resolve(
-      [...TOOL_REGISTRY.values()].map((tool) => ({
-        source: { type: 'code_owned' as const },
-        state: 'available' as const,
-        tool,
-      })),
-    ),
-};
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -114,21 +97,10 @@ describeIfDb('personalization binds per run', () => {
     chatLoop = new ChatLoopService(
       tenantDb,
       models,
-      // Every value this test needs IS the built-in default, so use them
-      // rather than restating a config that would silently drift from them.
       { config: BUILT_IN_DEFAULTS },
-      // Typed, no cast: ChatLoopService depends on the method, not the class.
-      // This test never consumes the response — it asserts on what was BOUND.
       { createUiMessageStreamResponse: () => new Response(null) },
       new RunAbortRegistry(),
       { dispatch: () => Promise.resolve() },
-      personalization,
-      new SystemPromptsService(),
-      { snapshotCandidates: () => [] },
-      new MemoryService(tenantDb),
-      new RecencyDigestService(tenantDb),
-      knowledgeCandidates,
-      noopSkillCatalog(),
     );
   });
 

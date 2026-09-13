@@ -29,6 +29,11 @@ import {
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import type { ModelSelectionValidator } from '../models/models.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { TOOL_REGISTRY } from '../tools/registry';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { isTextPart, type TextPart } from './context-builder';
 import { isRecord } from '@workspace/runtime-safety';
@@ -56,6 +61,33 @@ const knowledgeResolver: KnowledgeToolResolver = {
       Promise.reject(new Error('Knowledge adapter is not exercised')),
     isInsideSpace: () => Promise.resolve(true),
   }),
+};
+
+const testModelEntry: SystemModelCatalogEntry = {
+  id: 'mock',
+  source: 'system',
+  contextWindowTokens: 128_000,
+  provider: 'mock',
+  providerModelId: 'mock',
+  systemPromptTemplate: 'Test prompt: default',
+  systemPromptSource: 'project_default',
+  referencesSkills: false,
+};
+
+const models: ModelSelectionValidator = {
+  validateModelSelection: () => testModelEntry,
+  resolveEffortSelection: () => undefined,
+};
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
 };
 
 /** Asserts a run-event payload carries a string `text` field. */
@@ -186,10 +218,14 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       noopReindexDispatch(),
       knowledgeResolver,
       noopSkillCatalog(),
-
       noopEmbedDispatch(),
       noopQueryEmbedder(),
       compileTestPermissionPolicy(),
+      models,
+      new SystemPromptsService(),
+      { resolvePromptUser: () => Promise.resolve(undefined) },
+      knowledgeCandidates,
+      { snapshotCandidates: () => [] },
     );
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'R', ${`r-${userId}@t.com`})`;

@@ -21,7 +21,7 @@ import {
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import type { MessagePart } from './context-builder';
-import type { PersistUserMessageAndRunInput } from './chat-loop.service';
+import type { WorkerTurnInput } from './turn-context';
 import type {
   RecencyDigestDelta,
   RecencyDigestResolution,
@@ -149,8 +149,8 @@ const compaction = (overrides: Partial<Compaction> = {}): Compaction => ({
 });
 
 const turnInput = (
-  overrides: Partial<PersistUserMessageAndRunInput> = {},
-): PersistUserMessageAndRunInput => ({
+  overrides: Partial<WorkerTurnInput> = {},
+): WorkerTurnInput => ({
   chatId: CHAT_ID,
   userId: USER_ID,
   modelId: MODEL_ID,

@@ -50,8 +50,32 @@ import {
 import {
   deriveRecencyDigestDelta,
   type RecencyDigestDelta,
+  type RecencyDigestResolution,
 } from './recency-digest.service';
-import { type PersistUserMessageAndRunInput } from './chat-loop.service';
+import { type ChatMessageInput } from './chat-loop.service';
+import { type SystemPromptRenderInput } from '../system-prompts/system-prompts.service';
+import { type SystemModelCatalogEntry } from '../models/model-catalog';
+import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
+
+/**
+ * Worker-side turn input: the full set of resolved inputs the context
+ * assembly functions need. Separate from the accept-path type (which now
+ * carries only identity/effort/message) because prompt rendering, tool
+ * catalog composition, and context-item derivation happen in the worker.
+ */
+export type WorkerTurnInput = {
+  chatId: string;
+  userId: string;
+  modelId: string;
+  effort: string | undefined;
+  message: ChatMessageInput;
+  targetRunId: string;
+  model: SystemModelCatalogEntry;
+  user: SystemPromptRenderInput['user'];
+  allowedToolRules: ReadonlyArray<string>;
+  dynamicCandidates: ReadonlyArray<TurnToolCandidate>;
+  digestCandidate?: RecencyDigestResolution;
+};
 
 import {
   resolveTurnSkillState,
@@ -80,7 +104,7 @@ type DisclosureEpoch = {
 export type BuildTurnContextInput = {
   tx: Db;
   chat: Chat;
-  turnInput: PersistUserMessageAndRunInput;
+  turnInput: WorkerTurnInput;
   shareRecentChats: ResolvedMemorySettings;
   digestDelta: RecencyDigestDelta | null;
 };
@@ -118,7 +142,7 @@ export type ResolveTurnContextResult = BuildTurnContextResult & {
 export async function resolveTurnContext(
   deps: TurnContextDeps,
   scope: TurnScope,
-  input: PersistUserMessageAndRunInput,
+  input: WorkerTurnInput,
 ): Promise<ResolveTurnContextResult> {
   const {
     chat: boundChat,
@@ -143,7 +167,7 @@ export async function resolveTurnContext(
 async function resolveDigestBindingAndDelta(
   deps: TurnContextDeps,
   scope: TurnScope,
-  input: PersistUserMessageAndRunInput,
+  input: WorkerTurnInput,
 ): Promise<DigestBindingResult> {
   const { tx, chatsRepo } = scope;
   let chat = scope.chat;
@@ -250,7 +274,7 @@ async function assembleTurnParts(
     shareRecentChats: ResolvedMemorySettings;
     digestDelta: RecencyDigestDelta | null;
     instanceTimezone: string;
-    turnInput: PersistUserMessageAndRunInput;
+    turnInput: WorkerTurnInput;
   },
 ): Promise<Array<MessagePart>> {
   const { frozen, effectiveContext, turnInput, chat } = input;
@@ -289,7 +313,7 @@ async function resolveFrozenState(
   input: {
     tx: Db;
     chat: Chat;
-    turnInput: PersistUserMessageAndRunInput;
+    turnInput: WorkerTurnInput;
     instanceTimezone: string;
   },
 ): Promise<{
@@ -334,7 +358,7 @@ async function resolveTurnSkillBaseline(
   input: {
     tx: Db;
     chat: Chat;
-    turnInput: PersistUserMessageAndRunInput;
+    turnInput: WorkerTurnInput;
     latestCompactionId: string | null;
   },
 ): Promise<SkillTurnState> {
@@ -369,7 +393,7 @@ async function resolveTurnEffectiveContext(
   input: {
     tx: Db;
     chat: Chat;
-    turnInput: PersistUserMessageAndRunInput;
+    turnInput: WorkerTurnInput;
     anchor: TemporalAnchor;
     skillBaseline: SkillCatalogBaseline | undefined;
   },
@@ -427,7 +451,7 @@ async function resolveTurnEffectiveContext(
 async function resolveDisclosureEpoch(
   tx: Db,
   chat: Chat,
-  turnInput: PersistUserMessageAndRunInput,
+  turnInput: WorkerTurnInput,
   activeCompaction: Compaction | undefined,
 ): Promise<DisclosureEpoch> {
   const previousRun = await new RunsRepository(
@@ -463,7 +487,7 @@ async function resolveDisclosureEpoch(
  * availability delta (no `previous` to diff against once a new epoch starts).
  */
 function deriveEpochDisclosureParts(
-  turnInput: PersistUserMessageAndRunInput,
+  turnInput: WorkerTurnInput,
   effectiveContext: EffectiveContextSnapshotInput,
   epoch: DisclosureEpoch,
 ): Array<MessagePart> {
@@ -539,7 +563,7 @@ function deriveDigestDisclosureParts(
  */
 function deriveTurnContextParts(input: {
   chat: Chat;
-  turnInput: PersistUserMessageAndRunInput;
+  turnInput: WorkerTurnInput;
   shareRecentChats: ResolvedMemorySettings;
   digestDelta: RecencyDigestDelta | null;
   instanceTimezone: string;
