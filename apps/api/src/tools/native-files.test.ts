@@ -23,7 +23,12 @@ import { resolveAdvertisedTools } from './registry';
 import { composeTurnToolCatalog } from './turn-tool-catalog';
 import { resolveBoundExecutableTools } from '../runs/snapshot-tool-execution';
 import { runTool } from './runner';
-import { isRecord, isString } from '@workspace/runtime-safety';
+import {
+  RESULT_TRUNCATE_CHARS,
+  isNumber,
+  isRecord,
+  isString,
+} from '@workspace/runtime-safety';
 import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
@@ -444,6 +449,27 @@ describe('knowledge locator resolution', () => {
   });
 });
 
+/** How many entries a catalog listing returned. */
+function entriesIn(result: ToolResult): number {
+  if (result.status !== 'success') throw new Error('expected a listing');
+  const skills = result['skills'];
+  if (!Array.isArray(skills)) throw new Error('expected skills');
+  return skills.length;
+}
+
+/** The `name` of each entry in a catalog listing result, in order. */
+function entryNames(result: ToolResult): Array<string> {
+  if (result.status !== 'success') throw new Error('expected a listing');
+  const skills = result['skills'];
+  if (!Array.isArray(skills)) throw new Error('expected skills');
+  return skills.map((entry) => {
+    if (!isRecord(entry) || !isString(entry['name'])) {
+      throw new Error('expected a named entry');
+    }
+    return entry['name'];
+  });
+}
+
 /** The catalog listing is a success result carrying a `skills` array. */
 function hasEntryCount(result: ToolResult, count: number): boolean {
   if (result.status !== 'success') return false;
@@ -479,13 +505,13 @@ describe('skill locator resolution', () => {
 
   async function writePackage(
     name: string,
-    options: { readonly sidecar?: string } = {},
+    options: { readonly sidecar?: string; readonly description?: string } = {},
   ): Promise<void> {
     packageDirectory = join(source, name);
     await mkdir(packageDirectory, { recursive: true });
     await writeFile(
       join(packageDirectory, 'SKILL.md'),
-      `---\nname: ${name}\ndescription: The ${name} skill.\n---\n# ${name} instructions\n`,
+      `---\nname: ${name}\ndescription: ${options.description ?? `The ${name} skill.`}\n---\n# ${name} instructions\n`,
     );
     if (options.sidecar !== undefined) {
       await mkdir(join(packageDirectory, 'agents'), { recursive: true });
@@ -582,6 +608,81 @@ describe('skill locator resolution', () => {
         },
       ],
     });
+  });
+
+  it('pages the catalog with native range semantics', async () => {
+    await writePackage('research');
+    await writePackage('analysis');
+
+    // `N-M` is inclusive of M, exactly as it is for a file read.
+    const inclusive = await runTool(
+      nativeReadTool,
+      { path: 'skill://:2-3' },
+      skillContext(),
+      5,
+    );
+    // Entries are name-ordered: analysis, pdf, research.
+    expect(JSON.stringify(inclusive)).toContain('"skillCount":3');
+    expect(entryNames(inclusive)).toEqual(['pdf', 'research']);
+    // Entries 2 and 3 exhaust the catalog, so no continuation is reported.
+    expect(inclusive).not.toHaveProperty('nextOffset');
+
+    // `N+K` is N plus K entries, so `:1+2` is the first two.
+    const plus = await runTool(
+      nativeReadTool,
+      { path: 'skill://:1+2' },
+      skillContext(),
+      5,
+    );
+    expect(entryNames(plus)).toEqual(['analysis', 'pdf']);
+    expect(plus).toMatchObject({ nextOffset: 2 });
+  });
+
+  it('keeps a catalog page inside the result cap and pages honestly', async () => {
+    // Long valid descriptions would blow the shared cap if the listing were
+    // cut generically after nextOffset was computed; the page must shrink
+    // instead, so the continuation never skips an unshown entry.
+    for (let index = 0; index < 40; index += 1) {
+      await writePackage(`bulk-${String(index).padStart(2, '0')}`, {
+        description: 'x'.repeat(1000),
+      });
+    }
+
+    const first = await runTool(
+      nativeReadTool,
+      { path: 'skill://' },
+      skillContext(),
+      5,
+    );
+    if (first.status !== 'success') throw new Error('expected a listing');
+    const skills = first['skills'];
+    if (!Array.isArray(skills)) throw new Error('expected skills');
+    expect(skills.length).toBeGreaterThan(0);
+    expect(measureNativeModelOutput(first)).toBeLessThanOrEqual(
+      RESULT_TRUNCATE_CHARS,
+    );
+
+    const nextOffset = first['nextOffset'];
+    if (!isNumber(nextOffset)) throw new Error('expected a continuation');
+    expect(nextOffset).toBeGreaterThan(0);
+    // Resuming at the reported offset continues with a distinct entry.
+    const second = await runTool(
+      nativeReadTool,
+      {
+        path: `skill://:${Number(nextOffset) + 1}-${entriesIn(first) + Number(nextOffset) + 1}`,
+      },
+      skillContext(),
+      5,
+    );
+    expect(entryNames(second)[0]).not.toBe(entryNames(first)[0]);
+  });
+
+  it('rejects out-of-range catalog operands', async () => {
+    for (const path of ['skill://:0-0', 'skill://:5-2', 'skill://:0+1']) {
+      expect(
+        await runTool(nativeReadTool, { path }, skillContext(), 5),
+      ).toMatchObject({ status: 'error', type: 'invalid_selector' });
+    }
   });
 
   it('pages the catalog with a line selector', async () => {

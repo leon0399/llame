@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { type ToolResult } from '@workspace/runtime-safety';
@@ -155,24 +155,50 @@ const SKILL_DOCUMENT_FILENAME = 'SKILL.md';
 
 /**
  * Resolve a target to its real path and refuse anything landing outside the
- * selected real package, so no link can redirect a read elsewhere. A target
- * that cannot be resolved is handed back unresolved: the reader's own
- * `not_found` path (including sibling suggestions) owns that answer, and the
- * native reader opens it with symlinks refused.
+ * selected real package, so no link can redirect a read elsewhere. A resource
+ * symlink that stays inside the package resolves; one that leaves it does not.
+ *
+ * A missing target still has to be contained: its *existing* ancestor is what
+ * the reader would list for sibling suggestions, and an escaping intermediate
+ * symlink would put that ancestor outside the package. The unresolved path is
+ * handed back there so the reader's own `not_found` (with sibling suggestions)
+ * stays authoritative; it opens with symlinks refused either way.
  */
 async function containIntoPackage(
   packageDirectory: string,
   targetPath: string,
 ): Promise<{ readonly hostPath: string } | ToolResult> {
+  const existing = await nearestExistingAncestor(targetPath);
+  if (existing === undefined) return notFoundResult();
   let real: string;
   try {
-    real = await realpath(targetPath);
+    real = await realpath(existing);
   } catch {
-    return { hostPath: targetPath };
+    return notFoundResult();
   }
-  return isInside(packageDirectory, real)
-    ? { hostPath: real }
-    : notFoundResult();
+  if (!isInside(packageDirectory, real)) return notFoundResult();
+  // An existing target resolves to its real path, so a contained link is
+  // followed; a missing one keeps its literal spelling for the reader's own
+  // miss handling.
+  return { hostPath: existing === targetPath ? real : targetPath };
+}
+
+/** The deepest ancestor of `targetPath`, inclusive, that exists; `undefined`
+ *  when even the filesystem root cannot be resolved. */
+async function nearestExistingAncestor(
+  targetPath: string,
+): Promise<string | undefined> {
+  let candidate = targetPath;
+  for (;;) {
+    try {
+      await lstat(candidate);
+      return candidate;
+    } catch {
+      const parent = path.dirname(candidate);
+      if (parent === candidate) return undefined;
+      candidate = parent;
+    }
+  }
 }
 
 function isInside(root: string, candidate: string): boolean {

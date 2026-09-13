@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  applySelectorSuffix,
   createFile,
   editFile,
   parsePathScheme,
@@ -9,6 +10,7 @@ import {
   REPLACE_TARGET_MISSING_MESSAGE,
   serializeNativeModelOutput,
   type NativeReadOptions,
+  type ReadTarget,
 } from '@workspace/native-file-tools';
 import {
   KNOWLEDGE_LOCATOR_SCHEME,
@@ -136,10 +138,7 @@ async function executeSkill(
   if (isSkillCatalogResult(resolved)) {
     const window = catalogWindow(resolved.selector);
     if ('status' in window) return window;
-    return {
-      status: 'success',
-      ...skillCatalogEnvelope(resolved.entries, window),
-    };
+    return skillCatalogEnvelope(resolved.entries, window);
   }
   const envelope = skillResultEnvelope(resolved);
   const options: NativeReadOptions = {
@@ -157,40 +156,39 @@ async function executeSkill(
 }
 
 /**
- * The catalog listing pages with the native single-range selector. Anything
- * else the grammar accepts — `:raw`, `:raw:N-M`, comma multi-range — has no
- * listing meaning, and falling back to the first page would answer a different
- * question than the caller asked.
+ * The catalog listing pages with the native single-range selector, so it
+ * accepts exactly the ranges a file read accepts — including the inclusive
+ * `N-M` end and the `N+K` length — and rejects anything else. Anything the
+ * grammar accepts but a listing cannot express (`:raw`, comma multi-range)
+ * fails rather than silently answering with the first page. `N-` and `+`
+ * operands are validated by the shared parser, so `:0-0` and `:5-2` fail.
  */
 function catalogWindow(
   selector: string | undefined,
 ): { readonly offset: number; readonly limit?: number } | ToolResult {
   if (selector === undefined) return { offset: 0 };
-  if (selector === 'raw') {
-    return {
-      status: 'error',
-      type: 'invalid_selector',
-      message: 'The :raw selector is not supported for the skill catalog.',
-    };
+  let target: ReadTarget;
+  try {
+    target = applySelectorSuffix(SKILL_CATALOG_LOCATOR, selector);
+  } catch {
+    return invalidCatalogSelectorResult(
+      'The skill catalog selector is invalid.',
+    );
   }
-  const ranged = /^(\d+)[-+](\d+)$/u.exec(selector);
-  if (ranged === null) {
-    return {
-      status: 'error',
-      type: 'invalid_selector',
-      message:
-        'The skill catalog accepts a single :N-M or :N+K range; comma ranges and :raw are not supported.',
-    };
+  if (target.raw || target.ranges !== undefined) {
+    return invalidCatalogSelectorResult(
+      'The skill catalog accepts a single :N-M or :N+K range; comma ranges and :raw are not supported.',
+    );
   }
-  const offset = Number(ranged[1]) - 1;
-  const length = Number(ranged[2]);
-  return Number.isSafeInteger(offset) && Number.isSafeInteger(length)
-    ? { offset, limit: length }
-    : {
-        status: 'error',
-        type: 'invalid_selector',
-        message: 'The skill catalog selector is invalid.',
-      };
+  return target.limit === undefined
+    ? { offset: target.offset }
+    : { offset: target.offset, limit: target.limit };
+}
+
+const SKILL_CATALOG_LOCATOR = 'skill://';
+
+function invalidCatalogSelectorResult(message: string): ToolResult {
+  return { status: 'error', type: 'invalid_selector', message };
 }
 
 function skillMutationUnsupportedResult(): ToolResult {

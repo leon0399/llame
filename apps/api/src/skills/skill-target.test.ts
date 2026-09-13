@@ -6,7 +6,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import path from 'node:path';
+import path, { join } from 'node:path';
 
 import { SkillCatalog } from './skill-catalog';
 import {
@@ -221,6 +221,23 @@ describe('resolveSkillLocator', () => {
     expect(resolved).toMatchObject({
       hostPath: path.join(packageDirectory, 'real.md'),
     });
+  });
+
+  it('refuses a missing leaf beneath an escaping intermediate symlink', async () => {
+    const source = temporaryDirectory('escape-dir');
+    const outside = temporaryDirectory('outside-dir');
+    createPackage(source, 'pdf');
+    mkdirSync(join(outside, 'nested'), { recursive: true });
+    writeFileSync(join(outside, 'nested', 'present.md'), '# Outside\n');
+    symlinkSync(join(outside, 'nested'), join(source, 'pdf', 'link'), 'dir');
+
+    // The leaf is missing, so `realpath` fails on it — but the ancestor the
+    // reader would list for sibling suggestions resolves outside the package.
+    const missing = await resolverResult(source, 'pdf/link/absent.md');
+    expect(missing).toMatchObject({ status: 'error', type: 'not_found' });
+
+    const present = await resolverResult(source, 'pdf/link/present.md');
+    expect(present).toMatchObject({ status: 'error', type: 'not_found' });
   });
 
   it('refuses a resource path that escapes the package', async () => {
