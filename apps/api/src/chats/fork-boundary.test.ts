@@ -13,6 +13,7 @@ import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { resolveForkBoundary } from './fork-boundary';
 import { MessagesRepository } from './messages-repository';
+import { MessageTurnContextsRepository } from './message-turn-contexts-repository';
 import { RunsRepository } from '../runs/runs-repository';
 
 const chatId = 'chat-1';
@@ -70,10 +71,40 @@ function makeScope(options: {
   messages: Array<Message>;
   activeRun?: Run;
   target?: Message;
+  /** Recorded acceptance revision for a user anchor; null = unrecorded. */
+  acceptanceRevision?: number | null;
 }) {
   const db: Db = drizzle.mock({ schema });
   const messagesRepo = new MessagesRepository(db);
   const runsRepo = new RunsRepository(db);
+  const revision = options.acceptanceRevision ?? 3;
+  vi.spyOn(
+    MessageTurnContextsRepository.prototype,
+    'findByMessageId',
+  ).mockImplementation((_chatId: string, messageId: string) =>
+    Promise.resolve(
+      revision === null
+        ? undefined
+        : {
+            chatId,
+            originRunId: 'run-1',
+            messageId,
+            ownerUserId,
+            modelId: 'model-1',
+            effort: null,
+            acceptedAt: new Date('2026-08-01T00:00:00.000Z'),
+            snapshotId: null,
+            contextRevision: revision,
+            sourceMaxSeq: 1,
+            activeCompactionId: null,
+            digestRebakedFrom: null,
+            digestBaseline: null,
+            digestTold: null,
+            contextItems: null,
+            createdAt: new Date('2026-08-01T00:00:00.000Z'),
+          },
+    ),
+  );
   vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
     options.messages,
   );
@@ -83,7 +114,7 @@ function makeScope(options: {
   vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
     options.activeRun,
   );
-  return { messagesRepo, runsRepo, chatId, ownerUserId };
+  return { tx: db, messagesRepo, runsRepo, chatId, ownerUserId };
 }
 
 describe('resolveForkBoundary', () => {
@@ -111,7 +142,10 @@ describe('resolveForkBoundary', () => {
     const scope = makeScope({
       messages: [message(1), completedAssistant(2), message(3)],
     });
-    await expect(resolveForkBoundary(scope, undefined)).resolves.toBe(2);
+    await expect(resolveForkBoundary(scope, undefined)).resolves.toMatchObject({
+      maxSeq: 2,
+      acceptanceCeiling: null,
+    });
   });
 
   it('excludes turns at or after a governing nonterminal Run', async () => {
@@ -121,7 +155,10 @@ describe('resolveForkBoundary', () => {
       activeRun: run,
     });
     // The active Run's trigger (seq 3) and anything after is excluded.
-    await expect(resolveForkBoundary(scope, undefined)).resolves.toBe(2);
+    await expect(resolveForkBoundary(scope, undefined)).resolves.toMatchObject({
+      maxSeq: 2,
+      acceptanceCeiling: null,
+    });
   });
 
   it('ignores an active Run whose message is absent from the prefix', async () => {
@@ -130,7 +167,10 @@ describe('resolveForkBoundary', () => {
       messages: [message(1), completedAssistant(2)],
       activeRun: run,
     });
-    await expect(resolveForkBoundary(scope, undefined)).resolves.toBe(2);
+    await expect(resolveForkBoundary(scope, undefined)).resolves.toMatchObject({
+      maxSeq: 2,
+      acceptanceCeiling: null,
+    });
   });
 
   it('404s an unknown anchor message', async () => {
@@ -143,7 +183,10 @@ describe('resolveForkBoundary', () => {
   it('accepts a completed assistant anchor inclusively', async () => {
     const anchor = completedAssistant(2);
     const scope = makeScope({ messages: [anchor], target: anchor });
-    await expect(resolveForkBoundary(scope, anchor.id)).resolves.toBe(2);
+    await expect(resolveForkBoundary(scope, anchor.id)).resolves.toMatchObject({
+      maxSeq: 2,
+      acceptanceCeiling: null,
+    });
   });
 
   it('409s an unfinished assistant anchor', async () => {
@@ -178,13 +221,32 @@ describe('resolveForkBoundary', () => {
       messages: [user, completedAssistant(2, user.id)],
       target: user,
     });
-    await expect(resolveForkBoundary(scope, user.id)).resolves.toBe(1);
+    await expect(resolveForkBoundary(scope, user.id)).resolves.toMatchObject({
+      maxSeq: 1,
+      acceptanceCeiling: 3,
+    });
   });
 
   it('accepts a user anchor carrying the inherited completion fact', async () => {
     const user = message(1, { inheritedTurnComplete: true });
     const scope = makeScope({ messages: [user], target: user });
-    await expect(resolveForkBoundary(scope, user.id)).resolves.toBe(1);
+    await expect(resolveForkBoundary(scope, user.id)).resolves.toMatchObject({
+      maxSeq: 1,
+      acceptanceCeiling: 3,
+    });
+  });
+
+  it('409s a user anchor whose acceptance revision is unrecorded', async () => {
+    const user = message(1);
+    const scope = makeScope({
+      messages: [user],
+      target: user,
+      acceptanceRevision: null,
+    });
+    const rejected = resolveForkBoundary(scope, user.id);
+    await expect(rejected).rejects.toMatchObject({
+      response: { code: 'fork_context_unavailable' },
+    });
   });
 
   it('409s a user anchor with no provable completion', async () => {
@@ -237,7 +299,10 @@ describe('resolveForkBoundary', () => {
     // Legacy assistant rows with no usage count as complete.
     const legacy = message(4, { role: 'assistant', senderUserId: null });
     const scope = makeScope({ messages: [message(1), legacy] });
-    await expect(resolveForkBoundary(scope, undefined)).resolves.toBe(4);
+    await expect(resolveForkBoundary(scope, undefined)).resolves.toMatchObject({
+      maxSeq: 4,
+      acceptanceCeiling: null,
+    });
   });
 
   it('skips a non-assistant tail when finding the boundary', async () => {
@@ -249,6 +314,9 @@ describe('resolveForkBoundary', () => {
         message(4, { role: 'tool', senderUserId: null }),
       ],
     });
-    await expect(resolveForkBoundary(scope, undefined)).resolves.toBe(2);
+    await expect(resolveForkBoundary(scope, undefined)).resolves.toMatchObject({
+      maxSeq: 2,
+      acceptanceCeiling: null,
+    });
   });
 });

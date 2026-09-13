@@ -518,22 +518,29 @@ export class ChatsService {
         const source = await chatsRepo.findById(chatId, ownerUserId);
         if (!source) throw new NotFoundException('Chat not found');
         const scope = {
+          tx,
           messagesRepo,
           runsRepo: new RunsRepository(tx),
           chatId,
           ownerUserId,
         };
-        const maxSeq = await resolveForkBoundary(scope, fromMessageId);
-        if (maxSeq === null) {
+        const boundary = await resolveForkBoundary(scope, fromMessageId);
+        if (boundary === null) {
           return chatsRepo.create({
             ownerUserId,
             ...(source.title !== null && { title: forkTitle(source.title) }),
           });
         }
         const toCopy = await messagesRepo.findByChatId(chatId, ownerUserId, {
-          maxSeq,
+          maxSeq: boundary.maxSeq,
         });
-        return copyOwnerPrefix(tx, ownerUserId, source, toCopy);
+        return copyOwnerPrefix({
+          tx,
+          ownerUserId,
+          source,
+          toCopy,
+          acceptanceCeiling: boundary.acceptanceCeiling,
+        });
       },
       { isolationLevel: 'repeatable read' },
     );

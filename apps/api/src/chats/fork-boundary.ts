@@ -6,10 +6,12 @@
 import { NotFoundException } from '@nestjs/common';
 
 import { type Message } from '../db/schema';
+import { type Db } from '../db/tenant-db.service';
 import {
   isCompletedAssistantTurn,
   MessagesRepository,
 } from './chats-repository';
+import { MessageTurnContextsRepository } from './message-turn-contexts-repository';
 import { RunsRepository } from '../runs/runs-repository';
 import {
   throwBoundaryUnsettled,
@@ -17,21 +19,37 @@ import {
 } from './fork-conflict';
 
 type ForkScope = {
+  tx: Db;
   messagesRepo: MessagesRepository;
   runsRepo: RunsRepository;
   chatId: string;
   ownerUserId: string;
 };
 
-/** Returns the inclusive maxSeq, or null for an empty fork. */
+/**
+ * The resolved fork boundary.
+ *
+ * `acceptanceCeiling` is set only for an explicit USER anchor: the
+ * acceptance revision recorded for that message. State copied into the
+ * fork must not exceed it, or a later transition compaction that merely
+ * shares the anchor's message horizon would leak state authored after
+ * the anchor was accepted (design D4).
+ */
+export type ForkBoundary = {
+  maxSeq: number;
+  acceptanceCeiling: number | null;
+};
+
+/** Returns the boundary, or null for an empty fork. */
 export async function resolveForkBoundary(
   scope: ForkScope,
   fromMessageId: string | undefined,
-): Promise<number | null> {
+): Promise<ForkBoundary | null> {
   if (fromMessageId !== undefined) {
     return resolveExplicitAnchor(scope, fromMessageId);
   }
-  return resolveWholeChatBoundary(scope);
+  const maxSeq = await resolveWholeChatBoundary(scope);
+  return maxSeq === null ? null : { maxSeq, acceptanceCeiling: null };
 }
 
 /**
@@ -65,7 +83,7 @@ async function resolveWholeChatBoundary(
 async function resolveExplicitAnchor(
   scope: ForkScope,
   fromMessageId: string,
-): Promise<number> {
+): Promise<ForkBoundary> {
   const { messagesRepo, chatId, ownerUserId } = scope;
   const target = await messagesRepo.findById(
     chatId,
@@ -82,13 +100,39 @@ async function resolveExplicitAnchor(
         'The selected assistant message is not a completed turn.',
       );
     }
-    return target.seq;
+    // A completed assistant boundary admits later applicable state.
+    return { maxSeq: target.seq, acceptanceCeiling: null };
   }
   if (target.role === 'user') {
     await validateUserAnchorCompletion(scope, target);
-    return target.seq;
+    return {
+      maxSeq: target.seq,
+      acceptanceCeiling: await resolveAcceptanceCeiling(scope, target),
+    };
   }
   throw new NotFoundException('Fork-point message not found in this chat');
+}
+
+/**
+ * The acceptance revision recorded for a user anchor. This bounds the
+ * state the fork may inherit: a later transition compaction carrying the
+ * same message horizon but a higher revision belongs after the anchor.
+ * An unrecorded acceptance revision cannot bound anything, so the fork
+ * fails closed rather than guessing.
+ */
+async function resolveAcceptanceCeiling(
+  scope: ForkScope,
+  target: Message,
+): Promise<number> {
+  const evidence = await new MessageTurnContextsRepository(
+    scope.tx,
+  ).findByMessageId(scope.chatId, target.id, scope.ownerUserId);
+  if (!evidence) {
+    throwContextUnavailable(
+      'The selected user anchor has no recorded acceptance revision.',
+    );
+  }
+  return evidence.contextRevision;
 }
 
 async function rejectIfGoverningNonterminalRun(

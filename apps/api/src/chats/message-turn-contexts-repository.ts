@@ -133,6 +133,27 @@ export class MessageTurnContextsRepository {
     return row;
   }
 
+  /** Find the evidence record for a specific accepted user message. */
+  async findByMessageId(
+    chatId: string,
+    messageId: string,
+    ownerUserId: string,
+  ): Promise<MessageTurnContext | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(messageTurnContexts)
+      .where(
+        and(
+          eq(messageTurnContexts.chatId, chatId),
+          eq(messageTurnContexts.messageId, messageId),
+          eq(messageTurnContexts.ownerUserId, ownerUserId),
+        ),
+      )
+      .orderBy(desc(messageTurnContexts.contextRevision))
+      .limit(1);
+    return row;
+  }
+
   /** All evidence records whose sourceMaxSeq fits within maxSeq. */
   async findByCoverage(
     chatId: string,

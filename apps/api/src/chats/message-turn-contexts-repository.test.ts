@@ -6,6 +6,7 @@
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type SQL } from 'drizzle-orm';
 
 import {
   type Chat,
@@ -295,6 +296,7 @@ type EvidenceUpdate = Partial<EvidenceInsert>;
 function queryResult<T>(
   rows: ReadonlyArray<T>,
   onPayload?: (value: EvidenceInsert | EvidenceUpdate) => void,
+  onWhere?: (predicate: SQL) => void,
 ) {
   const terminal = Promise.resolve(rows);
   const returning = () => terminal;
@@ -306,7 +308,10 @@ function queryResult<T>(
     set: (value: EvidenceUpdate) => {
       onPayload?.(value);
       return Object.assign(terminal, {
-        where: () => Object.assign(terminal, { returning }),
+        where: (predicate: SQL) => {
+          onWhere?.(predicate);
+          return Object.assign(terminal, { returning });
+        },
       });
     },
   });
@@ -370,11 +375,18 @@ describe('MessageTurnContextsRepository writes', () => {
     ]);
   });
 
-  it('writes the executed items onto the NULL-fenced contextItems column', async () => {
+  it('sets contextItems through a fenced update', async () => {
     const captured: Array<EvidenceUpdate> = [];
+    const predicates: Array<SQL> = [];
     const db: Db = drizzle.mock({ schema });
     vi.spyOn(db, 'update').mockImplementation(() =>
-      asQuery(queryResult([], (value) => captured.push(value))),
+      asQuery(
+        queryResult(
+          [],
+          (value) => captured.push(value),
+          (predicate) => predicates.push(predicate),
+        ),
+      ),
     );
     const repo = new MessageTurnContextsRepository(db);
     const items = [
@@ -384,5 +396,9 @@ describe('MessageTurnContextsRepository writes', () => {
     await repo.recordContextItems(chatId, 'run-1', ownerUserId, items);
 
     expect(captured).toEqual([{ contextItems: items }]);
+    // The update is row-scoped: deleting the `.where(...)` clause must
+    // fail this, or a redelivered worker could rewrite every row.
+    expect(predicates).toHaveLength(1);
+    expect(predicates[0]).toBeDefined();
   });
 });

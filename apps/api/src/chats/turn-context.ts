@@ -293,48 +293,63 @@ async function resolveDisclosureEpoch(
   const previousRun = await new RunsRepository(
     tx,
   ).findMostRecentByChatMessageSequence(turnInput.chatId, turnInput.userId);
-  const previousSnapshot = await resolvePreviousSnapshot(
+  const prior = await resolvePriorTurn(
     tx,
     turnInput.chatId,
     turnInput.userId,
     previousRun,
   );
+  // A compaction opens a new disclosure epoch when it post-dates the
+  // prior turn. In a fork there is no local Run, so the inherited
+  // evidence's acceptance time is the reference — otherwise a copied
+  // checkpoint that post-dates the boundary would be replayed inside the
+  // old epoch and its disclosure would be suppressed.
   const compactionSincePreviousRun =
     activeCompaction !== undefined &&
-    previousRun !== undefined &&
-    activeCompaction.createdAt > previousRun.createdAt;
+    prior.at !== undefined &&
+    activeCompaction.createdAt > prior.at;
   return {
     previousRun,
-    previousSnapshot,
+    previousSnapshot: prior.snapshot,
     continuesDisclosureEpoch:
-      previousSnapshot !== undefined && !compactionSincePreviousRun,
+      prior.snapshot !== undefined && !compactionSincePreviousRun,
     digestRebaked:
       compactionSincePreviousRun &&
       chat.recencyDigestRebakedFrom === activeCompaction?.id,
   };
 }
 
-/** Resolve the prior turn's snapshot from the Run or inherited evidence. */
-async function resolvePreviousSnapshot(
+/**
+ * The prior turn's snapshot and the instant it was recorded. A local Run
+ * supplies both; a fork's inherited evidence supplies its acceptance
+ * time instead, so boundary comparisons stay meaningful without a Run.
+ */
+async function resolvePriorTurn(
   tx: Db,
   chatId: string,
   ownerUserId: string,
   previousRun: Run | undefined,
-): Promise<ModelContextSnapshot | undefined> {
+): Promise<{
+  snapshot: ModelContextSnapshot | undefined;
+  at: Date | undefined;
+}> {
+  const snapshots = new ModelContextSnapshotsRepository(tx);
   if (previousRun) {
-    return new ModelContextSnapshotsRepository(tx).findByOwnedRun(
-      previousRun.id,
-      ownerUserId,
-    );
+    return {
+      snapshot: await snapshots.findByOwnedRun(previousRun.id, ownerUserId),
+      at: previousRun.createdAt,
+    };
   }
   const evidence = await new MessageTurnContextsRepository(
     tx,
   ).findLatestByChatId(chatId, ownerUserId);
-  if (!evidence?.snapshotId) return undefined;
-  return new ModelContextSnapshotsRepository(tx).findById(
-    evidence.snapshotId,
-    ownerUserId,
-  );
+  if (!evidence) return { snapshot: undefined, at: undefined };
+  return {
+    snapshot: evidence.snapshotId
+      ? await snapshots.findById(evidence.snapshotId, ownerUserId)
+      : undefined,
+    at: evidence.acceptedAt,
+  };
 }
 
 /**

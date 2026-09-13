@@ -26,6 +26,12 @@ type CopyScope = {
   destChatId: string;
   msgIdMap: Map<string, string>;
   maxSeq: number;
+  /**
+   * Acceptance-revision ceiling for an explicit user anchor: inherited
+   * state must not exceed it, or a later transition compaction sharing
+   * the anchor's message horizon would leak post-acceptance state.
+   */
+  acceptanceCeiling: number | null;
 };
 
 /**
@@ -33,12 +39,14 @@ type CopyScope = {
  * inherited provenance, applicable compactions, turn evidence, and
  * initial continuation state.
  */
-export async function copyOwnerPrefix(
-  tx: Db,
-  ownerUserId: string,
-  source: Chat,
-  toCopy: Array<Message>,
-): Promise<Chat> {
+export async function copyOwnerPrefix(input: {
+  tx: Db;
+  ownerUserId: string;
+  source: Chat;
+  toCopy: Array<Message>;
+  acceptanceCeiling: number | null;
+}): Promise<Chat> {
+  const { tx, ownerUserId, source, toCopy, acceptanceCeiling } = input;
   const chatsRepo = new ChatsRepository(tx);
   const created = await chatsRepo.create({
     ownerUserId,
@@ -48,31 +56,42 @@ export async function copyOwnerPrefix(
         source.inheritedContextOriginAt ?? source.createdAt,
     }),
   });
+  if (toCopy.length > 0) {
+    await copyBoundaryState(
+      {
+        tx,
+        ownerUserId,
+        source,
+        destChatId: created.id,
+        maxSeq: toCopy.at(-1)!.seq,
+        acceptanceCeiling,
+      },
+      toCopy,
+      chatsRepo,
+    );
+  }
+  return created;
+}
+
+/** Copy messages, then the boundary's inherited compaction/evidence state. */
+async function copyBoundaryState(
+  base: Omit<CopyScope, 'msgIdMap'>,
+  toCopy: Array<Message>,
+  chatsRepo: ChatsRepository,
+): Promise<void> {
   const msgIdMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
-  await new MessagesRepository(tx).createMany(
+  await new MessagesRepository(base.tx).createMany(
     toCopy.map((m, i) =>
-      mapCopiedMessage(m, i, created.id, {
+      mapCopiedMessage(m, i, base.destChatId, {
         idMap: msgIdMap,
         allCopied: toCopy,
       }),
     ),
   );
-  if (toCopy.length > 0) {
-    const scope: CopyScope = {
-      tx,
-      ownerUserId,
-      source,
-      destChatId: created.id,
-      msgIdMap,
-      maxSeq: toCopy.at(-1)!.seq,
-    };
-    // Compactions first: the copied evidence remaps its checkpoint
-    // references through the same ID map.
-    const compIdMap = await copyCompactions(scope);
-    await copyEvidence(scope, compIdMap);
-    await setForkInitialState(scope, compIdMap, chatsRepo);
-  }
-  return created;
+  const scope: CopyScope = { ...base, msgIdMap };
+  const compIdMap = await copyCompactions(scope);
+  await copyEvidence(scope, compIdMap);
+  await setForkInitialState(scope, compIdMap, chatsRepo);
 }
 
 function mapCopiedMessage(
@@ -168,6 +187,21 @@ async function copyCompactions(scope: CopyScope): Promise<Map<string, string>> {
   return idMap;
 }
 
+/**
+ * Evidence is copied when its message is in the prefix and its recorded
+ * revision does not exceed a user anchor's acceptance ceiling.
+ */
+function isEvidenceEligible(
+  ev: { messageId: string; contextRevision: number },
+  scope: CopyScope,
+): boolean {
+  if (!scope.msgIdMap.has(ev.messageId)) return false;
+  return (
+    scope.acceptanceCeiling === null ||
+    ev.contextRevision <= scope.acceptanceCeiling
+  );
+}
+
 async function copyEvidence(
   scope: CopyScope,
   compIdMap: Map<string, string>,
@@ -179,6 +213,7 @@ async function copyEvidence(
     scope.maxSeq,
   );
   for (const ev of all) {
+    if (!isEvidenceEligible(ev, scope)) continue;
     const destMessageId = scope.msgIdMap.get(ev.messageId);
     if (!destMessageId) continue;
     await repo.create({
@@ -225,11 +260,15 @@ async function setForkInitialState(
         digestTold: latest.digestTold ?? null,
       }
     : null;
-  // Fall back to the source chat's immutable adoption state when the
-  // copied prefix retained no per-turn evidence.
-  const selected =
-    selectHighestRevision([evidenceState, compactionState]) ??
-    selectAdoptionState(scope.source, scope.maxSeq);
+  // Design D4: the highest eligible revision wins across the turn
+  // records, the copied compaction companions, AND the source chat's
+  // adoption state — the adoption snapshot is a peer candidate, not
+  // merely a last resort.
+  const selected = selectHighestRevision([
+    evidenceState,
+    compactionState,
+    selectAdoptionState(scope.source, scope.maxSeq),
+  ]);
   if (!selected) {
     throwContextUnavailable(
       'No retained continuation evidence is available at the selected boundary.',
@@ -283,6 +322,8 @@ async function latestCompanionState(
   const eligible = all.filter(
     (c) =>
       isCompanionEligible(c, scope.maxSeq) &&
+      (scope.acceptanceCeiling === null ||
+        (c.contextRevision ?? 0) <= scope.acceptanceCeiling) &&
       compIdMap.has(c.id) &&
       c.companionState !== null,
   );
