@@ -337,6 +337,17 @@ describe('SkillCatalog discovery', () => {
       realpathSync(path.join(shared, 'shared-skill')),
     );
   });
+
+  it('reports a dangling SKILL.md symlink as an unavailable entry', () => {
+    const source = temporaryDirectory('dangling-skill');
+    const packageDir = path.join(source, 'broken');
+    mkdirSync(packageDir);
+    symlinkSync('/nonexistent/target', path.join(packageDir, 'SKILL.md'));
+
+    const entry = entryNamed(snapshotOf(source), 'broken');
+    expect(entry.available).toBe(false);
+    expect(entry.diagnostics.join(' ')).toContain('readable');
+  });
 });
 
 describe('SkillCatalog invocation controls', () => {
@@ -452,5 +463,19 @@ describe('SkillCatalog invocation controls', () => {
     );
 
     expect(entryNamed(snapshotOf(source), 'pdf').available).toBe(false);
+  });
+
+  it('invalidates a package with a dangling consulted sidecar symlink', () => {
+    const source = temporaryDirectory('dangling-sidecar');
+    createPackage(source, 'pdf');
+    const agentsDir = path.join(source, 'pdf', 'agents');
+    mkdirSync(agentsDir, { recursive: true });
+    symlinkSync(
+      '/nonexistent/openai.yaml',
+      path.join(agentsDir, 'openai.yaml'),
+    );
+
+    const entry = entryNamed(snapshotOf(source), 'pdf');
+    expect(entry.available).toBe(false);
   });
 });
