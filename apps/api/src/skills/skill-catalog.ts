@@ -1,6 +1,6 @@
 import {
   lstatSync,
-  readdirSync,
+  opendirSync,
   readFileSync,
   realpathSync,
   statSync,
@@ -51,8 +51,21 @@ export type SkillCatalogFileSystem = {
  * override only the operation it needs to fail.
  */
 export const NODE_SKILL_FILE_SYSTEM: SkillCatalogFileSystem = {
-  readDirectory: (directoryPath) =>
-    readdirSync(directoryPath, { withFileTypes: true }),
+  readDirectory: (directoryPath) => {
+    const dir = opendirSync(directoryPath);
+    const entries: Array<CatalogDirent> = [];
+    try {
+      let dirent = dir.readSync();
+      while (dirent !== null) {
+        entries.push(dirent);
+        if (entries.length > MAX_SOURCE_CHILDREN) break;
+        dirent = dir.readSync();
+      }
+    } finally {
+      dir.closeSync();
+    }
+    return entries;
+  },
   readTextFile: (filePath) => readFileSync(filePath, 'utf8'),
   fileKind: (filePath) => {
     try {
