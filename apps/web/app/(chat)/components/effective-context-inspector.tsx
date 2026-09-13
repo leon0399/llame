@@ -2,6 +2,7 @@
 
 import { FileSearchIcon, LoaderCircleIcon } from "lucide-react";
 
+import { Button } from "@workspace/ui/components/button";
 import {
   Sheet,
   SheetContent,
@@ -9,12 +10,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@workspace/ui/components/sheet";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
-import { Button } from "@workspace/ui/components/button";
+
 import {
   useRunContextReceipt,
   type RunContextReceipt,
@@ -22,24 +18,17 @@ import {
 
 export function EffectiveContextAction({ onClick }: { onClick: () => void }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground"
-          onClick={onClick}
-        >
-          <FileSearchIcon className="size-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>System prompt receipt</TooltipContent>
-    </Tooltip>
+    <Button type="button" variant="ghost" size="xs" onClick={onClick}>
+      <FileSearchIcon data-icon="inline-start" aria-hidden="true" />
+      System prompt
+    </Button>
   );
 }
 
 function promptSourceLabel(source: "project_default" | "model_override") {
-  return source === "model_override" ? "Model override" : "Project default";
+  return source === "model_override"
+    ? "Model-specific override"
+    : "Project default";
 }
 
 function EffectiveContextLoading() {

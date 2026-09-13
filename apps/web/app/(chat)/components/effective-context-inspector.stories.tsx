@@ -15,19 +15,19 @@ const useRunContextReceipt = vi.mocked(runs.useRunContextReceipt, {
 
 const RECEIPT = {
   modelId: "custom:anthropic:sonnet",
-  promptSource: "model_override" as const,
-  systemPrompt: "You are the complete model-specific prompt.",
-  tools: [
+  effort: undefined,
+  activeAttemptId: "a1b2c3d4-0000-0000-0000-000000000001",
+  completedAttemptId: "a1b2c3d4-0000-0000-0000-000000000001",
+  state: "prepared" as const,
+  receipts: [
     {
-      id: "search_conversations",
-      description: "Search the owner's conversations.",
-      inputSchema: {
-        type: "object",
-        properties: { query: { type: "string" } },
-      },
+      attemptId: "a1b2c3d4-0000-0000-0000-000000000001",
+      promptSource: "model_override" as const,
+      systemPrompt: "You are the complete model-specific prompt.",
+      promptHash: "7f07b813",
+      createdAt: "2026-07-18T12:34:56.000Z",
     },
   ],
-  contentHash: "7f07b813",
   createdAt: "2026-07-18T12:34:56.000Z",
 };
 
