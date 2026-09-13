@@ -156,6 +156,7 @@ type CompactionInsertInput = {
   summary: string;
   replacementHistory: Array<CompactionReplacementMessage>;
   usage?: unknown;
+  createdAt?: Date;
   usageOriginKind?: 'run' | 'message' | 'compaction' | null;
   usageOriginId?: string | null;
   usageProvenanceCol?: 'local' | 'inherited' | null;
@@ -171,6 +172,7 @@ function compactionInsertValues(input: CompactionInsertInput) {
     summary: input.summary,
     replacementHistory: input.replacementHistory,
     usage: input.usage,
+    ...(input.createdAt !== undefined && { createdAt: input.createdAt }),
     ...(input.usageOriginKind !== undefined && {
       usageOriginKind: input.usageOriginKind,
     }),

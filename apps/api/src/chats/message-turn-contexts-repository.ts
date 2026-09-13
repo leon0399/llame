@@ -4,7 +4,7 @@
  * evidence and fences one-time execution-item recording.
  */
 
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, lte } from 'drizzle-orm';
 
 import {
   type Chat,
@@ -131,6 +131,25 @@ export class MessageTurnContextsRepository {
         ),
       );
     return row;
+  }
+
+  /** All evidence records whose sourceMaxSeq fits within maxSeq. */
+  async findByCoverage(
+    chatId: string,
+    ownerUserId: string,
+    maxSeq: number,
+  ): Promise<Array<MessageTurnContext>> {
+    return this.db
+      .select()
+      .from(messageTurnContexts)
+      .where(
+        and(
+          eq(messageTurnContexts.chatId, chatId),
+          eq(messageTurnContexts.ownerUserId, ownerUserId),
+          lte(messageTurnContexts.sourceMaxSeq, maxSeq),
+        ),
+      )
+      .orderBy(messageTurnContexts.contextRevision);
   }
 }
 

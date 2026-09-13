@@ -26,7 +26,6 @@ import {
 import {
   ChatsRepository,
   CompactionsRepository,
-  isCompletedAssistantTurn,
   MessagesRepository,
 } from './chats-repository';
 import { RunsRepository } from '../runs/runs-repository';
@@ -34,6 +33,7 @@ import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { pgErrorCode } from '../db/pg-error';
 import { toSharedChatResponse } from './dto/chats.dto';
 import { resolveForkBoundary } from './fork-boundary';
+import { copyOwnerPrefix } from './fork-copy';
 
 /** Title for a forked chat. */
 export function forkTitle(title: string): string {
@@ -388,46 +388,6 @@ export class ChatsService {
   }
 
   /**
-   * Owner-fork copy (#154): copy the selected message prefix, applicable
-   * compaction lineage, and set the initial continuation state.
-   */
-  private async copyOwnerPrefix(
-    tx: Db,
-    ownerUserId: string,
-    source: Chat,
-    toCopy: Array<Message>,
-  ): Promise<Chat> {
-    const chatsRepo = new ChatsRepository(tx);
-    const created = await chatsRepo.create({
-      ownerUserId,
-      ...(source.title !== null && { title: forkTitle(source.title) }),
-      ...(toCopy.length > 0 && {
-        inheritedContextOriginAt:
-          source.inheritedContextOriginAt ?? source.createdAt,
-      }),
-    });
-    // Copy messages with provenance.
-    const msgIdMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
-    await new MessagesRepository(tx).createMany(
-      toCopy.map((m, i) =>
-        mapOwnerCopiedMessage(m, i, created.id, msgIdMap, toCopy),
-      ),
-    );
-    // Copy applicable compactions (uptoSeq within the prefix boundary).
-    if (toCopy.length > 0) {
-      const maxSeq = toCopy.at(-1)!.seq;
-      await copyCompactionLineage(
-        tx,
-        source.id,
-        ownerUserId,
-        created.id,
-        maxSeq,
-      );
-    }
-    return created;
-  }
-
-  /**
    * Fork a PUBLIC chat into a NEW chat owned by `callerId`, so an
    * authenticated visitor can continue a shared conversation in their own
    * account. Read side goes through the exact same public read model as
@@ -573,83 +533,9 @@ export class ChatsService {
         const toCopy = await messagesRepo.findByChatId(chatId, ownerUserId, {
           maxSeq,
         });
-        return this.copyOwnerPrefix(tx, ownerUserId, source, toCopy);
+        return copyOwnerPrefix(tx, ownerUserId, source, toCopy);
       },
       { isolationLevel: 'repeatable read' },
     );
-  }
-}
-
-/** Map a source message to its owner-fork destination shape. */
-function mapOwnerCopiedMessage(
-  message: Message,
-  index: number,
-  destChatId: string,
-  idMap: Map<string, string>,
-  allCopied: Array<Message>,
-) {
-  return {
-    id: idMap.get(message.id)!,
-    chatId: destChatId,
-    seq: index + 1,
-    role: message.role,
-    senderUserId: message.senderUserId,
-    parts: message.parts,
-    attachments: message.attachments,
-    usage: message.usage,
-    createdAt: message.createdAt,
-    inReplyTo: message.inReplyTo
-      ? (idMap.get(message.inReplyTo) ?? null)
-      : null,
-    inheritedTurnComplete:
-      message.inheritedTurnComplete ||
-      (message.role === 'user' &&
-        allCopied.some(
-          (m) =>
-            m.role === 'assistant' &&
-            m.inReplyTo === message.id &&
-            isCompletedAssistantTurn(m),
-        )),
-    ...(message.usage != null && {
-      usageOriginKind: message.usageOriginKind ?? ('message' as const),
-      usageOriginId: message.usageOriginId ?? message.id,
-      usageProvenanceCol: 'inherited' as const,
-    }),
-  };
-}
-
-/** Copy applicable compaction lineage from source to destination. */
-async function copyCompactionLineage(
-  tx: Db,
-  sourceChatId: string,
-  ownerUserId: string,
-  destChatId: string,
-  maxSeq: number,
-): Promise<void> {
-  const compactionsRepo = new CompactionsRepository(tx);
-  const allCompactions = await compactionsRepo.findByCoverage(
-    sourceChatId,
-    ownerUserId,
-    maxSeq,
-  );
-  if (allCompactions.length === 0) return;
-  const compIdMap = new Map(
-    allCompactions.map((c) => [c.id, crypto.randomUUID()]),
-  );
-  for (const comp of allCompactions) {
-    await compactionsRepo.create({
-      id: compIdMap.get(comp.id),
-      chatId: destChatId,
-      uptoSeq: comp.uptoSeq,
-      parentId: comp.parentId ? (compIdMap.get(comp.parentId) ?? null) : null,
-      summary: comp.summary,
-      replacementHistory: comp.replacementHistory,
-      usage: comp.usage,
-      ...(comp.usage != null && {
-        usageOriginKind: comp.usageOriginKind ?? ('compaction' as const),
-        usageOriginId: comp.usageOriginId ?? comp.id,
-        usageProvenanceCol: 'inherited' as const,
-      }),
-    });
   }
 }

@@ -29,7 +29,13 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
-import { type Chat, chats, pins, type PinItemType } from '../db/schema';
+import {
+  type Chat,
+  type ContinuationStatePayload,
+  chats,
+  pins,
+  type PinItemType,
+} from '../db/schema';
 
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
@@ -676,6 +682,21 @@ export class ChatsRepository {
     await this.db
       .update(chats)
       .set({ contextRevision: nextRevision })
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
+  }
+
+  /** Set the immutable initial continuation state on a fork. */
+  async setInitialContinuationState(
+    chatId: string,
+    ownerUserId: string,
+    state: ContinuationStatePayload,
+  ): Promise<void> {
+    await this.db
+      .update(chats)
+      .set({
+        initialContinuationState: state,
+        contextRevision: state.contextRevision,
+      })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 }

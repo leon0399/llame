@@ -488,7 +488,10 @@ export class ChatsController {
         originRunId,
         userId,
       );
-      if (!evidence?.snapshotId) return undefined;
+      // Bind to the routed message: reject if the evidence belongs to a
+      // different message than the one in the URL path.
+      if (!evidence || evidence.messageId !== messageId) return undefined;
+      if (!evidence.snapshotId) return undefined;
       const snapshot = await new ModelContextSnapshotsRepository(tx).findById(
         evidence.snapshotId,
         userId,

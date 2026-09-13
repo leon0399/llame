@@ -14,6 +14,7 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from './chats-repository';
+import { MessageTurnContextsRepository } from './message-turn-contexts-repository';
 import { ChatsService } from './chats.service';
 
 describe('ChatsService.searchChats', () => {
@@ -532,6 +533,22 @@ describe('ChatsService message windows, updates and forks', () => {
         CompactionsRepository.prototype,
         'findByCoverage',
       ).mockResolvedValue([]);
+      vi.spyOn(
+        MessageTurnContextsRepository.prototype,
+        'findByCoverage',
+      ).mockResolvedValue([]);
+      vi.spyOn(
+        MessageTurnContextsRepository.prototype,
+        'create',
+      ).mockResolvedValue(undefined);
+      vi.spyOn(
+        MessageTurnContextsRepository.prototype,
+        'findLatestByChatId',
+      ).mockResolvedValue(undefined);
+      vi.spyOn(
+        ChatsRepository.prototype,
+        'setInitialContinuationState',
+      ).mockResolvedValue(undefined);
     });
     it('copies the whole chat, renumbering seq from 1 and remapping in-reply-to edges', async () => {
       const first = message(5);
