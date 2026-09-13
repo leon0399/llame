@@ -808,6 +808,27 @@ describe('skill locator resolution', () => {
     await rm(outside, { recursive: true, force: true });
   });
 
+  it('never lists an outside directory through an escaping symlink', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'skill-suggest-'));
+    await mkdir(join(outside, 'D'));
+    await writeFile(join(outside, 'D', 'leaked-secret.txt'), 'secret');
+    await symlink(join(outside), join(packageDirectory, 'notes'), 'dir');
+
+    // The leaf is missing, so the reader would normally suggest sibling names
+    // from its parent — which an escaping intermediate link points outside.
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://pdf/notes/D/leaked-secret.tx' },
+      skillContext(),
+      5,
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(JSON.stringify(result)).not.toContain('leaked-secret');
+
+    await rm(outside, { recursive: true, force: true });
+  });
+
   it('refuses encoded traversal and special files', async () => {
     expect(
       await runTool(
