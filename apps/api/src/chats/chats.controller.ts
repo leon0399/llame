@@ -51,6 +51,12 @@ import {
   type RunStreamResponder,
 } from '../runs/run-stream-bridge';
 import { RunsRepository } from '../runs/runs-repository';
+import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
+import {
+  ContextReceiptResponse,
+  toContextReceiptResponse,
+} from '../runs/dto/runs.dto';
+import { MessageTurnContextsRepository } from './message-turn-contexts-repository';
 import {
   ChatListItemResponse,
   OwnerChatMessagesQueryDto,
@@ -459,6 +465,48 @@ export class ChatsController {
       input.fromMessageId,
     );
     return toChatResponse(forked);
+  }
+
+  @Get(':chatId/messages/:messageId/context-receipt')
+  @ApiOperation({ operationId: 'getMessageContextReceipt' })
+  @ApiParam({ name: 'chatId', format: 'uuid' })
+  @ApiParam({ name: 'messageId', format: 'uuid' })
+  @ApiOkResponse({ type: ContextReceiptResponse })
+  @ApiNotFoundResponse({
+    description: 'Chat, message, or receipt not found or not owned',
+  })
+  @ApiUnauthorizedResponse()
+  async getMessageContextReceipt(
+    @CurrentUser() userId: string,
+    @Param('chatId', ParseUUIDPipe) chatId: string,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @Query('originRunId', ParseUUIDPipe) originRunId: string,
+  ): Promise<ContextReceiptResponse> {
+    const receipt = await this.tenantDb.runAs(userId, async (tx) => {
+      const evidence = await new MessageTurnContextsRepository(tx).findByOrigin(
+        chatId,
+        originRunId,
+        userId,
+      );
+      if (!evidence?.snapshotId) return undefined;
+      const snapshot = await new ModelContextSnapshotsRepository(tx).findById(
+        evidence.snapshotId,
+        userId,
+      );
+      if (!snapshot) return undefined;
+      return toContextReceiptResponse(
+        {
+          modelId: evidence.modelId,
+          effort: evidence.effort,
+          contextItems: evidence.contextItems,
+        },
+        snapshot,
+      );
+    });
+    if (!receipt) {
+      throw new NotFoundException('Context receipt not found');
+    }
+    return receipt;
   }
 }
 

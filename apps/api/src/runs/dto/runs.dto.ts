@@ -249,7 +249,7 @@ function toToolAvailabilityResponse(
 
 /** Explicit owner receipt allowlist: never serialize the raw run/snapshot. */
 export function toContextReceiptResponse(
-  run: Run,
+  run: { modelId: string; effort: string | null; contextItems?: unknown },
   snapshot: ModelContextSnapshot,
 ): ContextReceiptResponse {
   const availability = parseToolAvailabilityManifest(

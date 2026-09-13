@@ -113,6 +113,25 @@ export class MessageTurnContextsRepository {
       .limit(1);
     return row;
   }
+
+  /** Find evidence by chatId + originRunId + owner. */
+  async findByOrigin(
+    chatId: string,
+    originRunId: string,
+    ownerUserId: string,
+  ): Promise<MessageTurnContext | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(messageTurnContexts)
+      .where(
+        and(
+          eq(messageTurnContexts.chatId, chatId),
+          eq(messageTurnContexts.originRunId, originRunId),
+          eq(messageTurnContexts.ownerUserId, ownerUserId),
+        ),
+      );
+    return row;
+  }
 }
 
 type AcceptanceEvidenceInput = {
