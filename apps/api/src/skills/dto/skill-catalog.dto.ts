@@ -37,6 +37,7 @@ export class ListSkillsQueryDto {
   @ApiPropertyOptional({
     description:
       'Name of the last entry from the preceding page; the response resumes after it.',
+    maxLength: 255,
   })
   @IsOptional()
   @IsString()
@@ -83,7 +84,7 @@ export class SkillCatalogCollectionResponse {
   @ApiProperty({ type: [String] })
   diagnostics!: Array<string>;
 
-  @ApiProperty()
+  @ApiProperty({ type: 'integer' })
   total!: number;
 
   @ApiProperty({ type: () => [SkillCatalogEntryResponse] })

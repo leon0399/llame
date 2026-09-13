@@ -56,12 +56,16 @@ export const NODE_SKILL_FILE_SYSTEM: SkillCatalogFileSystem = {
   readTextFile: (filePath) => readFileSync(filePath, 'utf8'),
   fileKind: (filePath) => {
     try {
-      if (lstatSync(filePath).isSymbolicLink()) {
-        return statSync(filePath).isFile() ? 'file' : 'unavailable';
+      const link = lstatSync(filePath);
+      if (link.isSymbolicLink()) {
+        try {
+          return statSync(filePath).isFile() ? 'file' : 'unavailable';
+        } catch {
+          return 'unavailable';
+        }
       }
-      const stats = statSync(filePath);
-      if (stats.isFile()) return 'file';
-      return stats.isDirectory() ? 'directory' : 'unavailable';
+      if (link.isFile()) return 'file';
+      return link.isDirectory() ? 'directory' : 'unavailable';
     } catch (error) {
       return isNotFound(error) ? 'missing' : 'unavailable';
     }
@@ -316,6 +320,8 @@ export class SkillCatalog {
           'The package symlink resolves outside every configured skill source.',
       };
     }
+    const targetKind = this.fileSystem.fileKind(real);
+    if (targetKind !== 'directory') return { status: 'not-a-package' };
     return { status: 'package', directory: real };
   }
 

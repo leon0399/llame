@@ -2579,6 +2579,7 @@
             "in": "query",
             "description": "Name of the last entry from the preceding page; the response resumes after it.",
             "schema": {
+              "maxLength": 255,
               "type": "string"
             }
           }
@@ -4231,7 +4232,7 @@
             }
           },
           "total": {
-            "type": "number"
+            "type": "integer"
           },
           "items": {
             "type": "array",

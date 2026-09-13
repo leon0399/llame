@@ -14,6 +14,7 @@ export type ListSkillsParams = {
   limit?: number;
   /**
    * Name of the last entry from the preceding page; the response resumes after it.
+   * @maxLength 255
    */
   after?: string;
 };
