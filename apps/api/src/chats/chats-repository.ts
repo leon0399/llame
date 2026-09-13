@@ -35,6 +35,7 @@ import {
   pins,
   type PinItemType,
   type SkillCatalogBaseline,
+  type SkillCatalogTold,
 } from '../db/schema';
 
 import { type Db } from '../db/tenant-db.service';
@@ -327,6 +328,25 @@ export class ChatsRepository {
     await this.db
       .update(chats)
       .set({ recencyDigestTold: told })
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
+  }
+
+  /**
+   * Record the catalog names this chat has now been told about (D6).
+   *
+   * Owner-scoped in the `WHERE` like every other chat write, so an identity
+   * that does not own the chat updates nothing rather than crossing the tenant
+   * boundary. Callers run this inside the accepted-turn transaction, so the
+   * told state advances with the message and Run or not at all.
+   */
+  async updateSkillCatalogTold(
+    chatId: string,
+    ownerUserId: string,
+    told: SkillCatalogTold,
+  ): Promise<void> {
+    await this.db
+      .update(chats)
+      .set({ skillCatalogTold: told })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 

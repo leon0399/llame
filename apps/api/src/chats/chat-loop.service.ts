@@ -484,6 +484,7 @@ export class ChatLoopService {
     turnContext: {
       messageParts: Array<MessagePart>;
       digestDelta: RecencyDigestDelta | null;
+      skillCatalogTold?: ReadonlyArray<string>;
     },
   ): Promise<Message> {
     const userMessage = await this.persistUserMessageIfAbsent(
@@ -498,6 +499,14 @@ export class ChatLoopService {
         input.userId,
         turnContext.digestDelta.told,
       );
+    }
+    // Advanced only when a notice actually disclosed something, and only after
+    // the message carrying that notice exists — so a retry cannot record a
+    // told state for a notice the chat never received.
+    if (turnContext.skillCatalogTold !== undefined) {
+      await repos.chatsRepo.updateSkillCatalogTold(input.chatId, input.userId, [
+        ...turnContext.skillCatalogTold,
+      ]);
     }
     return userMessage;
   }

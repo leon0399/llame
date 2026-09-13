@@ -183,6 +183,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       recencyDigestRebakedFrom: options?.rebakedFrom ?? null,
       skillCatalogBaseline: null,
       skillCatalogRebakedFrom: null,
+      skillCatalogTold: null,
     });
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
     vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(

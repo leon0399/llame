@@ -66,6 +66,7 @@ const chat: Chat = {
   recencyDigestRebakedFrom: null,
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
+  skillCatalogTold: null,
 };
 
 const userMessage: Message = {

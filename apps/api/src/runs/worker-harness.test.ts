@@ -313,6 +313,7 @@ describe('seedRun', () => {
         recencyDigestRebakedFrom: null,
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
+        skillCatalogTold: null,
       });
     const createMessage = vi
       .spyOn(MessagesRepository.prototype, 'create')
@@ -436,6 +437,7 @@ describe('dispatchRun and seedAndDispatchRun', () => {
       recencyDigestRebakedFrom: null,
       skillCatalogBaseline: null,
       skillCatalogRebakedFrom: null,
+      skillCatalogTold: null,
     });
     vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(message);
     vi.spyOn(

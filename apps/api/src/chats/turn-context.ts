@@ -52,10 +52,12 @@ import {
   type RecencyDigestDelta,
 } from './recency-digest.service';
 import { type PersistUserMessageAndRunInput } from './chat-loop.service';
+
 import {
-  baselineMatchesEpoch,
-  resolveSkillCatalogBaseline,
-} from '../skills/skill-prompt-baseline';
+  resolveTurnSkillState,
+  type SkillCatalogNotice,
+  type SkillTurnState,
+} from './skill-turn-state';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 
 export type TurnContextDeps = {
@@ -86,6 +88,13 @@ export type BuildTurnContextInput = {
 export type BuildTurnContextResult = {
   effectiveContext: EffectiveContextSnapshotInput;
   messageParts: Array<MessagePart>;
+  /**
+   * The catalog names this turn leaves the chat told about, when a notice
+   * advanced that state. Undefined when nothing changed — either no notice was
+   * due, or the model's template opts out, in which case the told state must
+   * stay exactly where it was.
+   */
+  skillCatalogTold?: ReadonlyArray<string>;
 };
 
 type DigestBindingResult = {
@@ -116,17 +125,14 @@ export async function resolveTurnContext(
     shareRecentChats,
     digestDelta,
   } = await resolveDigestBindingAndDelta(deps, scope, input);
-  const { effectiveContext, messageParts } = await buildTurnContextAndParts(
-    deps,
-    {
-      tx: scope.tx,
-      chat: boundChat,
-      turnInput: input,
-      shareRecentChats,
-      digestDelta,
-    },
-  );
-  return { effectiveContext, messageParts, digestDelta };
+  const built = await buildTurnContextAndParts(deps, {
+    tx: scope.tx,
+    chat: boundChat,
+    turnInput: input,
+    shareRecentChats,
+    digestDelta,
+  });
+  return { ...built, digestDelta };
 }
 
 /**
@@ -190,40 +196,83 @@ export async function buildTurnContextAndParts(
 ): Promise<BuildTurnContextResult> {
   const { tx, chat, turnInput, shareRecentChats, digestDelta } = input;
   const instanceTimezone = resolveInstanceTimezone(deps.logger);
-  // The per-chat frozen state this turn renders from: the latest compaction
-  // (which also dates the anchor) and this epoch's skill baseline.
-  const { latestCompaction, anchor, skillBaseline } = await resolveFrozenState(
-    deps,
-    { tx, chat, turnInput, instanceTimezone },
-  );
+  const frozen = await resolveFrozenState(deps, {
+    tx,
+    chat,
+    turnInput,
+    instanceTimezone,
+  });
+  const { anchor, skillState } = frozen;
 
   const effectiveContext = await resolveTurnEffectiveContext(deps, {
     tx,
     chat,
     turnInput,
     anchor,
-    skillBaseline,
+    skillBaseline: skillState.baseline,
   });
-  const epoch = await resolveDisclosureEpoch(
+  const messageParts = await assembleTurnParts(deps, {
     tx,
     chat,
-    turnInput,
-    latestCompaction,
-  );
-  const contextParts = deriveTurnContextParts({
-    chat,
-    turnInput,
+    frozen,
+    effectiveContext,
     shareRecentChats,
     digestDelta,
     instanceTimezone,
-    effectiveContext,
-    epoch,
+    turnInput,
   });
 
   return {
     effectiveContext,
-    messageParts: [...contextParts, ...turnInput.message.parts],
+    messageParts,
+    // Present only when a notice actually advanced the told state, so an
+    // opted-out turn or an unchanged catalog leaves it exactly where it was.
+    ...(skillState.notice !== undefined && {
+      skillCatalogTold: skillState.notice.told,
+    }),
   };
+}
+
+/**
+ * This turn's rail items, ahead of the caller's own message parts.
+ *
+ * Split out so `buildTurnContextAndParts` stays a readable sequence — read the
+ * frozen state, resolve the prompt and tool catalog, assemble the parts that
+ * disclose what changed — rather than one long function.
+ */
+async function assembleTurnParts(
+  deps: TurnContextDeps,
+  input: {
+    tx: Db;
+    chat: Chat;
+    frozen: Awaited<ReturnType<typeof resolveFrozenState>>;
+    effectiveContext: EffectiveContextSnapshotInput;
+    shareRecentChats: ResolvedMemorySettings;
+    digestDelta: RecencyDigestDelta | null;
+    instanceTimezone: string;
+    turnInput: PersistUserMessageAndRunInput;
+  },
+): Promise<Array<MessagePart>> {
+  const { frozen, effectiveContext, turnInput, chat } = input;
+  const epoch = await resolveDisclosureEpoch(
+    input.tx,
+    chat,
+    turnInput,
+    frozen.latestCompaction,
+  );
+  return [
+    ...deriveTurnContextParts({
+      chat,
+      turnInput,
+      shareRecentChats: input.shareRecentChats,
+      digestDelta: input.digestDelta,
+      instanceTimezone: input.instanceTimezone,
+      effectiveContext,
+      epoch,
+      skillNotice: frozen.skillState.notice,
+    }),
+    ...turnInput.message.parts,
+  ];
 }
 
 /**
@@ -246,7 +295,7 @@ async function resolveFrozenState(
 ): Promise<{
   latestCompaction: Compaction | undefined;
   anchor: TemporalAnchor;
-  skillBaseline: SkillCatalogBaseline | undefined;
+  skillState: SkillTurnState;
 }> {
   const { tx, chat, turnInput, instanceTimezone } = input;
   const latestCompaction = await new CompactionsRepository(
@@ -258,7 +307,7 @@ async function resolveFrozenState(
       latestCompaction?.createdAt ?? chat.createdAt,
       instanceTimezone,
     ),
-    skillBaseline: await resolveTurnSkillBaseline(deps, {
+    skillState: await resolveTurnSkillBaseline(deps, {
       tx,
       chat,
       turnInput,
@@ -288,60 +337,22 @@ async function resolveTurnSkillBaseline(
     turnInput: PersistUserMessageAndRunInput;
     latestCompactionId: string | null;
   },
-): Promise<SkillCatalogBaseline | undefined> {
-  const { tx, chat, turnInput, latestCompactionId } = input;
-  const catalog = deps.skillCatalog;
-  const stored = chat.skillCatalogBaseline;
-  // Reuse is checked FIRST, before the configured list: a stored baseline is
-  // this epoch's frozen advertisement, and emptying the source list must not
-  // silently unadvertise a catalog the chat is still told about. Removals reach
-  // the model as notices against the told state, not by dropping the section,
-  // and the frozen prompt stays byte-identical for the epoch either way.
-  if (
-    stored !== null &&
-    baselineMatchesEpoch(
-      stored,
-      chat.skillCatalogRebakedFrom,
-      latestCompactionId,
-    )
-  ) {
-    return stored;
-  }
-  // Nothing NEW is resolved or written without a configured source, so an
-  // unconfigured instance carries no catalog state at all.
-  if (catalog === undefined) return undefined;
-  if (deps.instanceConfig.config.skills.directories.length === 0) {
-    return undefined;
-  }
-
-  const baseline = resolveSkillCatalogBaseline(catalog);
-  if (baseline === undefined) return reportCatalogUnavailable(deps, catalog);
-  // Written in the accepted-turn transaction the caller owns, so it commits
-  // with the message and Run or not at all.
-  await new ChatsRepository(tx).setSkillCatalogBaseline({
-    chatId: turnInput.chatId,
-    ownerUserId: turnInput.userId,
-    baseline,
-    rebakedFrom: latestCompactionId,
-  });
-  return baseline;
-}
-
-/**
- * Discovery could not run — an unreadable, missing, or oversized source.
- *
- * Freezing an empty advertisement here would bind it to the chat for the whole
- * epoch and never self-heal, so the turn renders no skill section and the next
- * one retries. The operator gets the diagnostic in the log.
- */
-function reportCatalogUnavailable(
-  deps: TurnContextDeps,
-  catalog: SkillCatalogPort,
-): undefined {
-  deps.logger.warn(
-    `skill_catalog_unavailable: ${catalog.getSnapshot().diagnostics.join(' ')}`,
+): Promise<SkillTurnState> {
+  return resolveTurnSkillState(
+    {
+      skillCatalog: deps.skillCatalog,
+      skillDirectories: deps.instanceConfig.config.skills.directories,
+    },
+    {
+      tx: input.tx,
+      chat: input.chat,
+      chatId: input.turnInput.chatId,
+      ownerUserId: input.turnInput.userId,
+      runId: input.turnInput.targetRunId,
+      latestCompactionId: input.latestCompactionId,
+      modelReferencesSkills: input.turnInput.model.referencesSkills,
+    },
   );
-  return undefined;
 }
 
 /**
@@ -529,6 +540,7 @@ function deriveTurnContextParts(input: {
   instanceTimezone: string;
   effectiveContext: EffectiveContextSnapshotInput;
   epoch: DisclosureEpoch;
+  skillNotice: SkillCatalogNotice | undefined;
 }): Array<MessagePart> {
   const { chat, turnInput, shareRecentChats, digestDelta, epoch } = input;
   const runId = turnInput.targetRunId;
@@ -545,6 +557,9 @@ function deriveTurnContextParts(input: {
 
   return [
     ...deriveEpochDisclosureParts(turnInput, input.effectiveContext, epoch),
+    // Between tool availability and the catalog's activation items, which is
+    // where the rail's producer precedence places it.
+    ...(input.skillNotice ? [input.skillNotice.item] : []),
     ...deriveDigestDisclosureParts(
       { chat, shareRecentChats, digestDelta, epoch },
       runId,

@@ -1,0 +1,1 @@
+ALTER TABLE "chats" ADD COLUMN "skill_catalog_told" jsonb;
