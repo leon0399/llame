@@ -254,8 +254,18 @@ describe('skills cannot escalate authority through the Run boundary', () => {
     const completed = events.find(
       (event) => event.eventType === 'tool.completed',
     );
-    // The read genuinely ran: skills-only configuration is sufficient admissibility.
-    expect(completed?.payload).toMatchObject({ toolName: 'read' });
+    // The read must SUCCEED, not merely occur: a `tool.completed` carrying
+    // `toolName: 'read'` also fires when the read settles as unavailable, which
+    // is what the sibling test below asserts for an absolute path in this same
+    // harness. Asserting only the name would stay green if skill sources stopped
+    // making `read` eligible.
+    expect(completed?.payload).toMatchObject({
+      toolName: 'read',
+      output: { status: 'success' },
+    });
+    expect(JSON.stringify(completed?.payload ?? {})).toContain(
+      'Escalation attempt',
+    );
   });
 
   it('still refuses absolute host authority when only skills are configured', async () => {
