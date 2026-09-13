@@ -223,6 +223,33 @@ describe('resolveSkillLocator', () => {
     });
   });
 
+  it('reads a package whose configured source root is a symlink', async () => {
+    const real = temporaryDirectory('real-root');
+    createPackage(real, 'pdf');
+    mkdirSync(join(real, 'pdf', 'references'), { recursive: true });
+    writeFileSync(join(real, 'pdf', 'references', 'guide.md'), '# Guide\n');
+    const link = join(temporaryDirectory('link-root'), 'source');
+    symlinkSync(real, link, 'dir');
+
+    // The catalog resolves the configured root, so containment compares real
+    // paths on both sides and a mounted/symlinked source still reads.
+    const root = await resolverResult(link, 'pdf');
+    expect(root).toMatchObject({
+      hostPath: join(real, 'pdf', 'SKILL.md'),
+      skillDirectory: join(real, 'pdf'),
+    });
+
+    const resource = await resolverResult(link, 'pdf/references/guide.md');
+    expect(resource).toMatchObject({
+      hostPath: join(real, 'pdf', 'references', 'guide.md'),
+    });
+
+    const listing = await resolverResult(link, 'pdf/');
+    expect(listing).toMatchObject({
+      hostPath: `${join(real, 'pdf')}${path.sep}`,
+    });
+  });
+
   it('refuses a missing leaf beneath an escaping intermediate symlink', async () => {
     const source = temporaryDirectory('escape-dir');
     const outside = temporaryDirectory('outside-dir');
