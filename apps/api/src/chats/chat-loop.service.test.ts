@@ -27,6 +27,8 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from './chats-repository';
+
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
 const model: SystemModelCatalogEntry = {
   id: 'system:openai:gpt-5.4-mini',
   source: 'system',

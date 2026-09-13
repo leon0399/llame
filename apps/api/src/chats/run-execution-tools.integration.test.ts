@@ -500,9 +500,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
       { resolvePromptUser: vi.fn().mockResolvedValue(undefined) },
       knowledgeCandidates,
       { snapshotCandidates: () => [] },
-      overrides?.dynamicToolResolver,
       new MemoryService(tenantDb),
       new RecencyDigestService(tenantDb),
+      overrides?.dynamicToolResolver,
     );
   }
 

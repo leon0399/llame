@@ -4,7 +4,6 @@ import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import { type CompiledPolicy } from '../tools/permissions/types';
 import { nativeEditTool, nativeReadTool } from '../tools/native-files';
-import { resolveJsonSchema } from '../tools/schema-utils';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { NativeFilesRepository } from './native-files-repository';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -224,19 +223,19 @@ const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
     ),
 };
 
+type ExecutionServiceOptions = {
+  permissionPolicy?: CompiledPolicy;
+  allowed?: ReadonlyArray<string>;
+  dynamicCandidates?: ReadonlyArray<TurnToolCandidate>;
+  memory?: MemorySettingsBindingResolver;
+  recencyDigest?: RecencyDigestResolver;
+};
+
 function makeExecutionService(
   client: ModelClient = createFakeModelClient(['answer']),
   dynamicToolResolver?: DynamicToolExecutorResolver,
   nativeExecutorId?: string,
-  permissionPolicy: CompiledPolicy = compileTestPermissionPolicy([
-    'mcp__demo__lookup',
-  ]),
-  options?: {
-    allowed?: ReadonlyArray<string>;
-    dynamicCandidates?: ReadonlyArray<TurnToolCandidate>;
-    memory?: MemorySettingsBindingResolver;
-    recencyDigest?: RecencyDigestResolver;
-  },
+  options: ExecutionServiceOptions = {},
 ) {
   const db: Db = drizzle.mock({ schema });
   const tenantDb = new TenantDbService({
@@ -248,12 +247,15 @@ function makeExecutionService(
       async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
     );
+  const permissionPolicy =
+    options.permissionPolicy ??
+    compileTestPermissionPolicy(['mcp__demo__lookup']);
   const instanceConfig: InstanceConfigReader = {
     config: {
       ...BUILT_IN_DEFAULTS,
       tools: {
         ...BUILT_IN_DEFAULTS.tools,
-        allowed: options?.allowed ?? [],
+        allowed: options.allowed ?? [],
         nativeExecutorId,
       },
     },
@@ -280,12 +282,12 @@ function makeExecutionService(
     validateModelSelection: vi.fn().mockReturnValue(testModelEntry),
     resolveEffortSelection: vi.fn().mockReturnValue(undefined),
   };
-  const memory: MemorySettingsBindingResolver = options?.memory ?? {
+  const memory: MemorySettingsBindingResolver = options.memory ?? {
     getForOwnerForBinding: vi.fn().mockResolvedValue({
       shareRecentChats: false,
     }),
   };
-  const recencyDigest: RecencyDigestResolver = options?.recencyDigest ?? {
+  const recencyDigest: RecencyDigestResolver = options.recencyDigest ?? {
     resolveCandidate: vi
       .fn()
       .mockRejectedValue(new Error('unexpected digest read')),
@@ -306,10 +308,10 @@ function makeExecutionService(
     new SystemPromptsService(),
     { resolvePromptUser: vi.fn().mockResolvedValue(undefined) },
     knowledgeCandidates,
-    { snapshotCandidates: () => options?.dynamicCandidates ?? [] },
-    dynamicToolResolver,
+    { snapshotCandidates: () => options.dynamicCandidates ?? [] },
     memory,
     recencyDigest,
+    dynamicToolResolver,
   );
   return {
     service,
@@ -411,12 +413,15 @@ describe('RunExecutionService executeRun', () => {
       execution.service.executeRun(executionInput(execution.client)),
     ).rejects.toBeInstanceOf(RunNotRunnableError);
     expect(model).not.toHaveBeenCalled();
+    const outcomeUnknownError: unknown = expect.objectContaining({
+      code: 'outcome_unknown',
+    });
     expect(repositories.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
       'failed',
       expect.objectContaining({
-        error: expect.objectContaining({ code: 'outcome_unknown' }),
+        error: outcomeUnknownError,
       }),
     );
     expect(appended.map((entry) => entry.type)).toEqual(['run.failed']);
@@ -518,13 +523,16 @@ describe('RunExecutionService executeRun', () => {
         turnToolAvailability: [],
       }),
     );
+    const temporalContextData: unknown = expect.objectContaining({
+      producer: 'temporal',
+    });
     expect(repositorySpies.updateUserMessageParts).toHaveBeenCalledWith({
       id: messageId,
       chatId,
       parts: [
         expect.objectContaining({
           type: 'data-context',
-          data: expect.objectContaining({ producer: 'temporal' }),
+          data: temporalContextData,
         }),
         { type: 'text', text: 'hello' },
       ],
@@ -584,7 +592,6 @@ describe('RunExecutionService executeRun', () => {
       createFakeModelClient(['answer']),
       undefined,
       undefined,
-      undefined,
       {
         memory: { getForOwnerForBinding },
         recencyDigest: { resolveCandidate },
@@ -610,7 +617,6 @@ describe('RunExecutionService executeRun', () => {
     mockNormalExecutionRepositories();
     const execution = makeExecutionService(
       createFakeModelClient(['answer']),
-      undefined,
       undefined,
       undefined,
       {
@@ -698,7 +704,6 @@ describe('RunExecutionService executeRun', () => {
       createFakeModelClient(['answer']),
       undefined,
       undefined,
-      undefined,
       {
         memory: { getForOwnerForBinding },
         recencyDigest: { resolveCandidate },
@@ -715,17 +720,23 @@ describe('RunExecutionService executeRun', () => {
     expect(render).toHaveBeenCalledWith(
       expect.objectContaining({ chats: baseline }),
     );
+    const recencyDigestContextData: unknown = expect.objectContaining({
+      producer: 'recency-digest',
+    });
+    const temporalDigestContextData: unknown = expect.objectContaining({
+      producer: 'temporal',
+    });
     expect(repositories.updateUserMessageParts).toHaveBeenCalledWith({
       id: messageId,
       chatId,
       parts: [
         expect.objectContaining({
           type: 'data-context',
-          data: expect.objectContaining({ producer: 'recency-digest' }),
+          data: recencyDigestContextData,
         }),
         expect.objectContaining({
           type: 'data-context',
-          data: expect.objectContaining({ producer: 'temporal' }),
+          data: temporalDigestContextData,
         }),
         { type: 'text', text: 'hello' },
       ],
@@ -1350,10 +1361,7 @@ function makeDynamicResolver(executor: Tool): DynamicToolExecutorResolver {
 }
 
 /** Advertises `toolDeclaration` through the worker's dynamic catalog. */
-function withDeclaredTool(): {
-  allowed: ReadonlyArray<string>;
-  dynamicCandidates: ReadonlyArray<TurnToolCandidate>;
-} {
+function withDeclaredTool() {
   return {
     allowed: [toolDeclaration.id],
     dynamicCandidates: [
@@ -1446,7 +1454,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
-      undefined,
       { allowed: ['bash'] },
     );
 
@@ -1493,7 +1500,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
-      undefined,
       toolOptions,
     );
 
@@ -1536,7 +1542,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
-      undefined,
       toolOptions,
     );
 
@@ -1580,7 +1585,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
-      undefined,
       { allowed: ['edit'] },
     );
     await execution.service.executeRun(executionInput(capturing.client));
@@ -1621,7 +1625,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
-      undefined,
       { allowed: ['read'] },
     );
 
@@ -1696,7 +1699,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
-      undefined,
       toolOptions,
     );
 
@@ -1763,7 +1765,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         inputSchema: toolDeclaration.inputSchema,
         execute,
       }),
-      undefined,
       undefined,
       toolOptions,
     );
@@ -1868,8 +1869,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
         execute,
       }),
       undefined,
-      denyPolicy,
-      toolOptions,
+      { ...toolOptions, permissionPolicy: denyPolicy },
     );
 
     await execution.service.executeRun(executionInput(capturing.client));
@@ -1925,7 +1925,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         execute: () => ({ status: 'success' as const }),
       }),
       undefined,
-      undefined,
       toolOptions,
     );
 
@@ -1966,7 +1965,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         inputSchema: toolDeclaration.inputSchema,
         execute: () => ({ status: 'success' as const }),
       }),
-      undefined,
       undefined,
       toolOptions,
     );
@@ -2023,7 +2021,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
   it('records a schema-invalid tool call as invalid_input rather than a refusal', async () => {
     mockNormalExecutionRepositories();
     const toolOptions = withDeclaredTool();
-    const appended = recordAppendedEvents();
+
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(
       capturing.client,
@@ -2034,7 +2032,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         inputSchema: toolDeclaration.inputSchema,
         execute: () => ({ status: 'success' as const }),
       }),
-      undefined,
       undefined,
       toolOptions,
     );
@@ -2073,7 +2070,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
             releaseTool = resolve;
           }),
       }),
-      undefined,
       undefined,
       toolOptions,
     );
@@ -2154,7 +2150,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
           }),
       }),
       undefined,
-      undefined,
       toolOptions,
     );
 
@@ -2212,7 +2207,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
           }),
       }),
       undefined,
-      undefined,
       toolOptions,
     );
 
@@ -2261,7 +2255,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         execute: () => new Promise<{ status: 'success' }>(() => {}),
       }),
       undefined,
-      undefined,
       toolOptions,
     );
 
@@ -2305,7 +2298,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         inputSchema: toolDeclaration.inputSchema,
         execute: () => new Promise<{ status: 'success' }>(() => {}),
       }),
-      undefined,
       undefined,
       toolOptions,
     );
@@ -2549,14 +2541,15 @@ describe('RunExecutionService executeRun — context preparation', () => {
     expect(JSON.stringify(captured.options?.messages)).toContain(
       'rebuilt turn',
     );
+    const effectiveContextItems: unknown = expect.arrayContaining([
+      expect.objectContaining({ producer: 'effective-context-change' }),
+    ]);
     expect(updateForAttempt).toHaveBeenCalledWith(
       runId,
       userId,
       testAttemptId,
       {
-        contextItems: expect.arrayContaining([
-          expect.objectContaining({ producer: 'effective-context-change' }),
-        ]),
+        contextItems: effectiveContextItems,
       },
     );
   });
@@ -3462,12 +3455,13 @@ describe('RunExecutionService executeRun — context window and late tool result
     });
     // The compacted prefix is replayed from replacement_history, so the
     // superseded turns are represented without re-reading them.
+    const summarizedPrefixContent: unknown = expect.arrayContaining([
+      { type: 'text', text: 'Summarized prefix request' },
+    ]);
     expect(capturing.streamOptions().messages).toEqual([
       {
         role: 'user',
-        content: expect.arrayContaining([
-          { type: 'text', text: 'Summarized prefix request' },
-        ]),
+        content: summarizedPrefixContent,
       },
     ]);
   });
@@ -3511,7 +3505,6 @@ describe('RunExecutionService executeRun — context window and late tool result
             releaseTool = resolve;
           }),
       }),
-      undefined,
       undefined,
       toolOptions,
     );

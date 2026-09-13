@@ -982,9 +982,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       { resolvePromptUser: () => Promise.resolve(undefined) },
       knowledgeCandidates,
       { snapshotCandidates: () => [] },
-      undefined,
       new MemoryService(tenantDb),
       new RecencyDigestService(tenantDb),
+      undefined,
     );
   }
 

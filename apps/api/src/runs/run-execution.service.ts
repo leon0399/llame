@@ -9,12 +9,24 @@ import { compareCodePoints } from '../canonical-json';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type Chat,
+  type Compaction,
   type Message,
   type ModelToolDeclaration,
+  type Run,
   type RunContextItem,
   type RunStatus,
   type TurnToolAvailabilityEntry,
 } from '../db/schema';
+import {
+  buildContext,
+  partsToText,
+  type BuiltContext,
+  type MessagePart,
+} from '../chats/context-builder';
+import {
+  type PromptUserInput,
+  type SystemModelCatalogEntry,
+} from '../models/model-catalog';
 import { type ModelClient } from '../models/model-client';
 import {
   ChatsRepository,
@@ -41,11 +53,6 @@ import {
   SearchReindexDispatchService,
   type ChatReindexDispatcher,
 } from '../search/search-reindex-dispatch.service';
-import {
-  buildContext,
-  partsToText,
-  type MessagePart,
-} from '../chats/context-builder';
 import {
   isModelChangeItem,
   createModelChangeItem,
@@ -115,6 +122,7 @@ import { SystemPromptReceiptsRepository } from './system-prompt-receipts.reposit
 import {
   ContextIncompatibleError,
   DYNAMIC_TOOL_EXECUTOR_RESOLVER,
+  type BoundExecutableTool,
   type DynamicToolExecutorResolver,
   ModelContextExecutionError,
   resolveBoundExecutableTools,
@@ -123,7 +131,10 @@ import {
   resolveEffectiveContext,
   type EffectiveContextSnapshotInput,
 } from './effective-context-resolver';
-import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import {
+  SystemPromptsService,
+  type SystemPromptRenderInput,
+} from '../system-prompts/system-prompts.service';
 import {
   PersonalizationService,
   type PromptUserResolver,
@@ -141,6 +152,7 @@ import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
 import {
   MemoryService,
   type MemorySettingsBindingResolver,
+  type ResolvedMemorySettings,
 } from '../memory/memory.service';
 import {
   RecencyDigestService,
@@ -152,11 +164,10 @@ import {
 import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
+  type TemporalAnchor,
 } from '../prompts/temporal-anchor';
-
 type AssistantTurnTelemetry = TurnTelemetry & { runId: string };
 
-/** One turn's assistant reply, as handed to the terminal write and its post-work. */
 type AssistantTurnPersistence = {
   chatId: string;
   inReplyTo: string;
@@ -168,13 +179,67 @@ type AssistantTurnWrite = AssistantTurnPersistence & {
   telemetry: AssistantTurnTelemetry;
 };
 
+/** Context resolved inside the worker transaction before the model request. */
+type PreparedAttemptContext = BuiltContext & {
+  effectiveContext: EffectiveContextSnapshotInput;
+  stagedParts: Array<MessagePart>;
+  recencyDigestInitialization?: RecencyDigestInitialization;
+  recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
+  untitled: boolean;
+};
+
+type AttemptDigestContext = {
+  shareRecentChats: ResolvedMemorySettings;
+  promptDigestBaseline: Chat['recencyDigestBaseline'];
+  recencyDigestInitialization?: RecencyDigestInitialization;
+  digestDelta: RecencyDigestDelta | null;
+};
+
+type AttemptPromptContext = AttemptDigestContext & {
+  chat: Chat;
+  model: SystemModelCatalogEntry;
+  user: PromptUserInput | undefined;
+  compaction: Compaction | undefined;
+  instanceTimezone: string;
+  systemPrompt: string;
+};
+
+type AttemptStagedContext = {
+  stagedParts: Array<MessagePart>;
+  recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
+};
+
+type FinishRunInput = {
+  userId: string;
+  runId: string;
+  status: TerminalRunStatus;
+  attemptId?: string;
+  modelCompleted?: {
+    usage: unknown;
+    finishReason: unknown;
+    telemetry?: TurnTelemetry;
+  };
+  runPayload?: unknown;
+  error?: unknown;
+  assistantTurn?: AssistantTurnWrite;
+  synthesizedTurnTelemetry?: AssistantTurnTelemetry;
+  attemptContextParts?: ReadonlyArray<MessagePart>;
+  recencyDigestInitialization?: RecencyDigestInitialization;
+  recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
+  turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
+};
+
+type FinishRunResult =
+  | { outcome: 'won' | 'errored'; assistantMessage?: Message }
+  | { outcome: 'lost'; finalStatus?: string; assistantMessage?: Message };
+
 /** The assembled context+tools an execution attempt runs against. */
 type PreparedExecutionContext = {
   system: string;
-  messages: ReturnType<typeof buildContext>['messages'];
+  messages: BuiltContext['messages'];
   untitled: boolean;
   toolDeclarations: Array<ModelToolDeclaration>;
-  tools: Awaited<ReturnType<typeof resolveBoundExecutableTools>>;
+  tools: Array<BoundExecutableTool>;
 };
 
 type ExecuteRunInput = {
@@ -339,13 +404,13 @@ export class RunExecutionService {
     private readonly knowledgeCandidates: KnowledgeToolCandidateResolverPort,
     @Inject(McpRuntimeService)
     private readonly mcpRuntime: Pick<McpRuntimeService, 'snapshotCandidates'>,
-    @Optional()
-    @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
-    private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
     @Inject(MemoryService)
     private readonly memory: MemorySettingsBindingResolver,
     @Inject(RecencyDigestService)
     private readonly recencyDigest: RecencyDigestResolver,
+    @Optional()
+    @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
+    private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
   ) {}
 
   /**
@@ -1725,226 +1790,11 @@ export class RunExecutionService {
    * the accepted cost. What it replaces is worse: a run reporting an answer it
    * never stored, equally unrecoverable and, unlike this, on the normal path.
    */
-  private async finishRun(input: {
-    userId: string;
-    runId: string;
-    status: TerminalRunStatus;
-    attemptId?: string;
-    modelCompleted?: {
-      usage: unknown;
-      finishReason: unknown;
-      telemetry?: TurnTelemetry;
-    };
-    runPayload?: unknown;
-    error?: unknown;
-    assistantTurn?: AssistantTurnWrite;
-    synthesizedTurnTelemetry?: AssistantTurnTelemetry;
-    attemptContextParts?: ReadonlyArray<MessagePart>;
-    recencyDigestInitialization?: RecencyDigestInitialization;
-    recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
-    turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
-  }): Promise<
-    | { outcome: 'won' | 'errored'; assistantMessage?: Message }
-    | { outcome: 'lost'; finalStatus?: string; assistantMessage?: Message }
-  > {
+  private async finishRun(input: FinishRunInput): Promise<FinishRunResult> {
     try {
-      return await this.tenantDb.runAs(input.userId, async (tx) => {
-        // LOCK ORDER — the run row first, then the message row, and no
-        // EXCLUSIVE lock on the chat row (its activity bump moved to
-        // afterAssistantTurn for exactly this reason). The chat is the one row
-        // other writers contend on from both directions:
-        // `chat-loop.service.ts` takes it BEFORE this chat's run (send),
-        // `chats.service.ts#deleteChat` takes it AFTER (cancel, then delete) —
-        // so holding it for update here would close a cycle with one of them
-        // whichever order this transaction picked.
-        //
-        // Inserting the assistant message DOES take a FOR KEY SHARE lock on the
-        // chat row, through the messages.chat_id foreign key, and that is safe
-        // for one specific reason: FOR KEY SHARE conflicts ONLY with FOR
-        // UPDATE. The send path holds that chat row for its whole transaction —
-        // from its activity touch through the run insert that waits on us — but
-        // an UPDATE of a non-key column takes FOR NO KEY UPDATE, which a KEY
-        // SHARE request does not wait on, so the cycle never closes. That rule
-        // is the entire premise here, so it is pinned by a test rather than
-        // asserted ("a concurrent chat touch does not block the finalizer's
-        // message write" in worker-concurrency.integration.test.ts).
-        //
-        // deleteChat is the other direction (runs, then chats): its first act
-        // (requestCancel) blocks on the run row below, so it never reaches its
-        // chat DELETE — the one lock that WOULD block us — while this
-        // message row of ours, and per-turn message rows are disjoint, so this
-        // order waits on no one who waits on us.
-        const runsRepo = new RunsRepository(tx);
-        const finished = await runsRepo.markFinished(
-          input.runId,
-          input.userId,
-          input.status,
-          {
-            error: input.error,
-            attemptId: input.attemptId,
-            ...(input.status === 'completed' &&
-              input.turnToolAvailability !== undefined && {
-                turnToolAvailability: input.turnToolAvailability,
-              }),
-          },
-        );
-        if (!finished) {
-          const current = await runsRepo.findById(input.runId, input.userId);
-          // Message persistence is independent of who won the bookkeeping race,
-          // EXCEPT when another writer finished the run with intent: cancelled
-          // (user stop / supersede — the newer attempt owns the turn, and a
-          // completed reply here would make its own persist a no-op) or a
-          // dual-fire that already recorded it. An 'expired' loss still keeps
-          // what streamed — expiry is a liveness misjudgment, not user intent.
-          //
-          // This branch is SALVAGE, and deliberately outside the atomicity
-          // guarantee above: the terminal event was published by someone else
-          // (dead-letter expiry) before this worker knew, so no transaction
-          // here can be atomic with a commit that already happened. Making it
-          // so would mean the expiry writer holding the streamed parts, which
-          // live only in this process's memory. What this recovers is a partial
-          // answer for a run already declared dead; the run this worker itself
-          // finishes — every normal turn — is atomic.
-          const assistantMessage =
-            current?.status === 'expired'
-              ? await this.persistAssistantMessage(
-                  tx,
-                  input.userId,
-                  input.assistantTurn,
-                )
-              : undefined;
-          return {
-            outcome: 'lost' as const,
-            finalStatus: current?.status,
-            assistantMessage,
-          };
-        }
-
-        const events = new RunEventsRepository(tx);
-        const durable = reconstructDurableAssistant(
-          await events.listByRunId(input.runId, input.userId),
-        );
-        for (const [
-          toolCallId,
-          { toolName, toolInput, permission },
-        ] of durable.openToolCalls) {
-          if (input.status === 'completed') {
-            throw new Error(
-              `Run ${input.runId} cannot complete with durable tool calls still open.`,
-            );
-          }
-          const nativeResult =
-            toolName === 'edit' || toolName === 'write' || toolName === 'bash'
-              ? await new NativeFilesRepository(tx).priorOutcome(
-                  input.runId,
-                  toolCallId,
-                )
-              : undefined;
-          const result =
-            nativeResult ?? toolTerminationResult(input.status, toolName);
-          // One transaction owns the run row before reaching here. Appending
-          // settlement, projecting its assistant part, and publishing the
-          // terminal event therefore form one fail-closed ordering domain.
-          const completedPayload: ToolCompletedEventPayload = {
-            toolCallId,
-            toolName,
-            status: result.status,
-            output: result,
-          };
-          if (permission !== undefined)
-            completedPayload.permission = permission;
-          await events.append(input.runId, 'tool.completed', completedPayload);
-          durable.collector.tool(
-            toolActivityPart({
-              toolCallId,
-              toolName,
-              input: toolInput,
-              result,
-              permission,
-            }),
-          );
-        }
-        if (input.modelCompleted) {
-          await events.append(
-            input.runId,
-            'model.completed',
-            input.modelCompleted,
-          );
-        }
-        const chatsRepo = new ChatsRepository(tx);
-        if (
-          input.status === 'completed' &&
-          input.recencyDigestInitialization !== undefined
-        ) {
-          await chatsRepo.setRecencyDigestIfAbsent(
-            finished.chatId,
-            input.userId,
-            input.recencyDigestInitialization.baseline,
-            input.recencyDigestInitialization.told,
-          );
-        }
-        if (
-          input.status === 'completed' &&
-          input.attemptContextParts?.length &&
-          finished.messageId
-        ) {
-          const messagesRepo = new MessagesRepository(tx);
-          const turn = await messagesRepo.findTurnState(
-            finished.chatId,
-            input.userId,
-            finished.messageId,
-          );
-          if (turn.userMessage) {
-            await messagesRepo.updateUserMessageParts({
-              id: turn.userMessage.id,
-              chatId: finished.chatId,
-              parts: [...input.attemptContextParts, ...turn.userMessage.parts],
-            });
-          }
-        }
-        if (
-          input.status === 'completed' &&
-          input.recencyDigestTold !== undefined
-        ) {
-          await chatsRepo.updateRecencyDigestTold(
-            finished.chatId,
-            input.userId,
-            input.recencyDigestTold,
-          );
-        }
-        const durableParts = durable.collector.parts();
-        let assistantTurn: AssistantTurnPersistence | undefined =
-          input.assistantTurn;
-        if (!assistantTurn && durableParts.length > 0) {
-          if (!finished.messageId) {
-            throw new Error(
-              `Run ${input.runId} has durable assistant parts but no triggering message.`,
-            );
-          }
-          assistantTurn = {
-            chatId: finished.chatId,
-            inReplyTo: finished.messageId,
-            parts: durableParts,
-            ...(input.synthesizedTurnTelemetry && {
-              telemetry: input.synthesizedTurnTelemetry,
-            }),
-          };
-        }
-        const assistantMessage = await this.persistAssistantMessage(
-          tx,
-          input.userId,
-          assistantTurn,
-        );
-        await events.append(
-          input.runId,
-          `run.${input.status}`,
-          input.runPayload,
-        );
-        return {
-          outcome: 'won' as const,
-          assistantMessage,
-        };
-      });
+      return await this.tenantDb.runAs(input.userId, (tx) =>
+        this.finishRunInTransaction(tx, input),
+      );
     } catch (error) {
       this.logger.error(
         `Failed to finish run ${input.runId}`,
@@ -1963,6 +1813,193 @@ export class RunExecutionService {
         assistantMessage: await this.salvageAssistantMessage(input),
       };
     }
+  }
+
+  /** Execute terminal bookkeeping within the caller's tenant transaction. */
+  private async finishRunInTransaction(
+    tx: Db,
+    input: FinishRunInput,
+  ): Promise<FinishRunResult> {
+    const runsRepo = new RunsRepository(tx);
+    const finished = await runsRepo.markFinished(
+      input.runId,
+      input.userId,
+      input.status,
+      {
+        error: input.error,
+        attemptId: input.attemptId,
+        ...(input.status === 'completed' &&
+          input.turnToolAvailability !== undefined && {
+            turnToolAvailability: input.turnToolAvailability,
+          }),
+      },
+    );
+    if (!finished) {
+      return this.handleLostFinish(tx, input, runsRepo);
+    }
+
+    const events = new RunEventsRepository(tx);
+    const durable = reconstructDurableAssistant(
+      await events.listByRunId(input.runId, input.userId),
+    );
+    await this.settleDurableOpenTools(tx, input, durable, events);
+    if (input.modelCompleted) {
+      await events.append(input.runId, 'model.completed', input.modelCompleted);
+    }
+    await this.persistFinishedContext(tx, input, finished);
+
+    const assistantTurn = this.buildAssistantTurnForFinish(
+      input,
+      finished,
+      durable.collector.parts(),
+    );
+    const assistantMessage = await this.persistAssistantMessage(
+      tx,
+      input.userId,
+      assistantTurn,
+    );
+    await events.append(input.runId, `run.${input.status}`, input.runPayload);
+    return {
+      outcome: 'won',
+      assistantMessage,
+    };
+  }
+
+  /**
+   * A terminal race can still salvage streamed content after an expiry. A
+   * cancellation or an already-recorded answer intentionally does not.
+   */
+  private async handleLostFinish(
+    tx: Db,
+    input: FinishRunInput,
+    runsRepo: RunsRepository,
+  ): Promise<FinishRunResult> {
+    const current = await runsRepo.findById(input.runId, input.userId);
+    const assistantMessage =
+      current?.status === 'expired'
+        ? await this.persistAssistantMessage(
+            tx,
+            input.userId,
+            input.assistantTurn,
+          )
+        : undefined;
+    return {
+      outcome: 'lost',
+      finalStatus: current?.status,
+      assistantMessage,
+    };
+  }
+
+  private async settleDurableOpenTools(
+    tx: Db,
+    input: FinishRunInput,
+    durable: ReturnType<typeof reconstructDurableAssistant>,
+    events: RunEventsRepository,
+  ): Promise<void> {
+    for (const [
+      toolCallId,
+      { toolName, toolInput, permission },
+    ] of durable.openToolCalls) {
+      if (input.status === 'completed') {
+        throw new Error(
+          `Run ${input.runId} cannot complete with durable tool calls still open.`,
+        );
+      }
+      const nativeResult =
+        toolName === 'edit' || toolName === 'write' || toolName === 'bash'
+          ? await new NativeFilesRepository(tx).priorOutcome(
+              input.runId,
+              toolCallId,
+            )
+          : undefined;
+      const result =
+        nativeResult ?? toolTerminationResult(input.status, toolName);
+      const completedPayload: ToolCompletedEventPayload = {
+        toolCallId,
+        toolName,
+        status: result.status,
+        output: result,
+      };
+      if (permission !== undefined) completedPayload.permission = permission;
+      await events.append(input.runId, 'tool.completed', completedPayload);
+      durable.collector.tool(
+        toolActivityPart({
+          toolCallId,
+          toolName,
+          input: toolInput,
+          result,
+          permission,
+        }),
+      );
+    }
+  }
+
+  private async persistFinishedContext(
+    tx: Db,
+    input: FinishRunInput,
+    finished: Run,
+  ): Promise<void> {
+    const chatsRepo = new ChatsRepository(tx);
+    if (
+      input.status === 'completed' &&
+      input.recencyDigestInitialization !== undefined
+    ) {
+      await chatsRepo.setRecencyDigestIfAbsent(
+        finished.chatId,
+        input.userId,
+        input.recencyDigestInitialization.baseline,
+        input.recencyDigestInitialization.told,
+      );
+    }
+    if (
+      input.status === 'completed' &&
+      input.attemptContextParts?.length &&
+      finished.messageId
+    ) {
+      const messagesRepo = new MessagesRepository(tx);
+      const turn = await messagesRepo.findTurnState(
+        finished.chatId,
+        input.userId,
+        finished.messageId,
+      );
+      if (turn.userMessage) {
+        await messagesRepo.updateUserMessageParts({
+          id: turn.userMessage.id,
+          chatId: finished.chatId,
+          parts: [...input.attemptContextParts, ...turn.userMessage.parts],
+        });
+      }
+    }
+    if (input.status === 'completed' && input.recencyDigestTold !== undefined) {
+      await chatsRepo.updateRecencyDigestTold(
+        finished.chatId,
+        input.userId,
+        input.recencyDigestTold,
+      );
+    }
+  }
+
+  private buildAssistantTurnForFinish(
+    input: FinishRunInput,
+    finished: Run,
+    durableParts: Array<MessagePart>,
+  ): AssistantTurnPersistence | undefined {
+    if (input.assistantTurn || durableParts.length === 0) {
+      return input.assistantTurn;
+    }
+    if (!finished.messageId) {
+      throw new Error(
+        `Run ${input.runId} has durable assistant parts but no triggering message.`,
+      );
+    }
+    return {
+      chatId: finished.chatId,
+      inReplyTo: finished.messageId,
+      parts: durableParts,
+      ...(input.synthesizedTurnTelemetry && {
+        telemetry: input.synthesizedTurnTelemetry,
+      }),
+    };
   }
 
   /** Best-effort standalone persist after the terminal transaction rolled back. */
@@ -2130,239 +2167,341 @@ export class RunExecutionService {
   private async prepareAttemptContext(
     input: ExecuteRunInput,
     attemptId: string,
-  ) {
-    return this.tenantDb.runAs(input.userId, async (tx) => {
-      const chatsRepo = new ChatsRepository(tx);
-      let chat = await chatsRepo.findById(input.chatId, input.userId);
-      if (!chat) {
-        throw new ModelContextExecutionError(
-          `Chat ${input.chatId} was deleted before context preparation.`,
-        );
-      }
+  ): Promise<PreparedAttemptContext> {
+    return this.tenantDb.runAs(input.userId, (tx) =>
+      this.prepareAttemptContextInTransaction(tx, input, attemptId),
+    );
+  }
+  /** Resolve and bind the complete attempt context inside one transaction. */
+  private async prepareAttemptContextInTransaction(
+    tx: Db,
+    input: ExecuteRunInput,
+    attemptId: string,
+  ): Promise<PreparedAttemptContext> {
+    const prompt = await this.resolveAttemptPrompt(tx, input);
+    const effectiveContext = await this.resolveAttemptEffectiveContext(
+      tx,
+      input,
+      prompt,
+    );
+    await this.bindAttemptContextSnapshot(
+      tx,
+      input,
+      attemptId,
+      effectiveContext,
+    );
+    const staged = await this.deriveAttemptStagedContext({
+      tx,
+      input,
+      prompt,
+      effectiveContext,
+    });
+    const built = await this.rebuildContextForChat(
+      tx,
+      input,
+      prompt.systemPrompt,
+    );
+    return {
+      ...built,
+      effectiveContext,
+      stagedParts: staged.stagedParts,
+      recencyDigestInitialization: prompt.recencyDigestInitialization,
+      recencyDigestTold: staged.recencyDigestTold,
+      untitled: prompt.chat.title === null,
+    };
+  }
 
-      const model = this.models.validateModelSelection(input.client.model);
-      const user = await this.personalization.resolvePromptUser(input.userId);
-
-      const compaction = await new CompactionsRepository(tx).findLatestByChatId(
-        input.chatId,
-        input.userId,
+  private async resolveAttemptPrompt(
+    tx: Db,
+    input: ExecuteRunInput,
+  ): Promise<AttemptPromptContext> {
+    const chatsRepo = new ChatsRepository(tx);
+    const chat = await chatsRepo.findById(input.chatId, input.userId);
+    if (!chat) {
+      throw new ModelContextExecutionError(
+        `Chat ${input.chatId} was deleted before context preparation.`,
       );
+    }
+    const model = this.models.validateModelSelection(input.client.model);
+    const user = await this.personalization.resolvePromptUser(input.userId);
+    const compaction = await new CompactionsRepository(tx).findLatestByChatId(
+      input.chatId,
+      input.userId,
+    );
+    const digest = await this.resolveAttemptDigest({
+      tx,
+      input,
+      chatsRepo,
+      chat,
+    });
+    const instanceTimezone = resolveInstanceTimezone(this.logger);
+    const anchor = formatTemporalAnchor(
+      compaction?.createdAt ?? chat.createdAt,
+      instanceTimezone,
+    );
+    const systemPrompt = this.renderAttemptSystemPrompt({
+      model,
+      anchor,
+      user,
+      chats: digest.promptDigestBaseline,
+    });
+    return {
+      ...digest,
+      chat,
+      model,
+      user,
+      compaction,
+      instanceTimezone,
+      systemPrompt,
+    };
+  }
 
-      let shareRecentChats = await this.memory.getForOwnerForBinding(
-        tx,
-        input.userId,
-      );
-      let digestCandidate: RecencyDigestResolution | undefined;
-      if (shareRecentChats.shareRecentChats) {
-        try {
-          digestCandidate = await this.recencyDigest.resolveCandidate(
-            input.userId,
-            input.chatId,
-          );
-        } catch {
-          // Candidate titles and excerpts are owner content; do not attach the
-          // caught error to a log entry or execution error.
-          this.logger.error('recency_digest_resolution_failed');
-        }
-        // Consent is checked again after candidate resolution and before the
-        // prompt, receipt, and snapshot are prepared.
-        shareRecentChats = await this.memory.getForOwnerForBinding(
-          tx,
-          input.userId,
-        );
-        if (!shareRecentChats.shareRecentChats) {
-          digestCandidate = undefined;
-        }
-      }
-
-      const hadDigestBaseline = chat.recencyDigestBaseline !== null;
-      let promptDigestBaseline = chat.recencyDigestBaseline;
-      let recencyDigestInitialization: RecencyDigestInitialization | undefined;
-      if (
-        chat.recencyDigestBaseline === null &&
-        digestCandidate !== undefined &&
-        shareRecentChats.shareRecentChats
-      ) {
-        promptDigestBaseline = digestCandidate.baseline;
-        recencyDigestInitialization = {
-          baseline: digestCandidate.baseline,
-          told: digestCandidate.told,
-        };
-      }
-
-      let digestDelta: RecencyDigestDelta | null = null;
-      if (
-        hadDigestBaseline &&
-        digestCandidate !== undefined &&
-        chat.recencyDigestTold !== null &&
-        shareRecentChats.shareRecentChats
-      ) {
-        digestDelta = deriveRecencyDigestDelta({
-          candidate: digestCandidate,
-          told: chat.recencyDigestTold,
-          pinnedChatIds: await chatsRepo.findPinnedChatIds(
-            input.userId,
-            chat.recencyDigestTold.map(({ chatId }) => chatId),
-          ),
-        });
-      }
-
-      const instanceTimezone = resolveInstanceTimezone(this.logger);
-      const anchor = formatTemporalAnchor(
-        compaction?.createdAt ?? chat.createdAt,
-        instanceTimezone,
-      );
-
-      let systemPrompt: string;
+  private async resolveAttemptDigest(input: {
+    tx: Db;
+    input: ExecuteRunInput;
+    chatsRepo: ChatsRepository;
+    chat: Chat;
+  }): Promise<AttemptDigestContext> {
+    let shareRecentChats = await this.memory.getForOwnerForBinding(
+      input.tx,
+      input.input.userId,
+    );
+    let digestCandidate: RecencyDigestResolution | undefined;
+    if (shareRecentChats.shareRecentChats) {
       try {
-        systemPrompt = this.systemPrompts.render({
-          model,
-          anchor,
-          user,
-          chats: promptDigestBaseline ?? undefined,
-        });
-      } catch (error) {
-        if (promptDigestBaseline === null) throw error;
-        this.logger.error('recency_digest_render_failed');
-        // Do not let a renderer error carry the owner's digest text out of
-        // this boundary.
-        throw new Error('Failed to render system prompt');
+        digestCandidate = await this.recencyDigest.resolveCandidate(
+          input.input.userId,
+          input.input.chatId,
+        );
+      } catch {
+        // Candidate titles and excerpts are owner content; do not attach the
+        // caught error to a log entry or execution error.
+        this.logger.error('recency_digest_resolution_failed');
       }
-
-      const allowedToolRules = this.instanceConfig.config.tools.allowed;
-      const callTimeoutSeconds =
-        this.instanceConfig.config.tools.callTimeoutSeconds;
-      const codeOwnedCandidates = await this.knowledgeCandidates.resolve({
-        tx,
-        ownerUserId: input.userId,
-        allowedToolRules,
-      });
-      const dynamicCandidates: ReadonlyArray<TurnToolCandidate> =
-        this.mcpRuntime.snapshotCandidates();
-      const effectiveContext = await resolveEffectiveContext({
-        model,
-        systemPrompt,
-        allowedToolRules,
-        callTimeoutSeconds,
-        codeOwnedCandidates,
-        dynamicCandidates,
-      });
-
-      const snapshot = await new ModelContextSnapshotsRepository(
-        tx,
-      ).createOrReuse(input.userId, effectiveContext);
-      const bound = await new RunsRepository(tx).updateForAttempt(
-        input.runId,
-        input.userId,
-        attemptId,
-        { modelContextSnapshotId: snapshot.id },
+      // Consent is checked again after candidate resolution and before the
+      // prompt, receipt, and snapshot are prepared.
+      shareRecentChats = await this.memory.getForOwnerForBinding(
+        input.tx,
+        input.input.userId,
       );
-      if (!bound) {
-        throw new ModelContextExecutionError(
-          `Run ${input.runId} was reclaimed before snapshot binding.`,
-        );
+      if (!shareRecentChats.shareRecentChats) {
+        digestCandidate = undefined;
       }
+    }
 
-      await new SystemPromptReceiptsRepository(tx).create({
-        ownerUserId: input.userId,
-        runId: input.runId,
-        attemptId,
-        source: effectiveContext.source,
-        systemPrompt,
-        promptHash: effectiveContext.promptHash,
-      });
-
-      const previousRun = await new RunsRepository(
-        tx,
-      ).findMostRecentByChatMessageSequence(input.chatId, input.userId, {
-        beforeSeq: input.userMessage.seq,
-      });
-      const previousSnapshot = previousRun
-        ? await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
-            previousRun.id,
-            input.userId,
-          )
-        : undefined;
-
-      const compactionSincePrevious =
-        compaction !== undefined &&
-        previousRun !== undefined &&
-        compaction.createdAt > previousRun.createdAt;
-      const startsEpoch = !previousSnapshot || compactionSincePrevious;
-      const digestRebaked =
-        compactionSincePrevious &&
-        chat.recencyDigestRebakedFrom === compaction?.id;
-
-      const stagedParts: Array<MessagePart> = [];
-      if (previousRun && previousRun.modelId !== input.client.model) {
-        stagedParts.push(
-          createModelChangeItem({
-            fromModelId: previousRun.modelId,
-            toModelId: input.client.model,
-            runId: input.runId,
-          }),
-        );
-      }
-      const availabilityPayload = deriveToolAvailabilityPayload({
-        current: effectiveContext.toolAvailabilityManifest,
-        ...(!startsEpoch && {
-          previous: previousSnapshot?.toolAvailabilityManifest,
-        }),
-      });
-      if (availabilityPayload) {
-        stagedParts.push(
-          createToolAvailabilityItem({
-            runId: input.runId,
-            payload: availabilityPayload,
-          }),
-        );
-      }
-      if (
-        digestRebaked &&
-        chat.recencyDigestBaseline !== null &&
-        shareRecentChats.shareRecentChats
-      ) {
-        stagedParts.push(
-          createRecencyDigestSupersessionItem({ runId: input.runId }),
-        );
-      }
-      if (digestDelta) {
-        stagedParts.push(
-          createRecencyDigestDeltaItem({
-            runId: input.runId,
-            payload: {
-              entries: digestDelta.entries,
-              pinChanges: digestDelta.pinChanges,
-            },
-          }),
-        );
-      }
-      stagedParts.push(
-        createTemporalItem({
-          runId: input.runId,
-          instant: new Date(),
-          timeZone: instanceTimezone,
-        }),
-      );
-
-      const built = await this.rebuildContextForChat(tx, input, systemPrompt);
-
-      return {
-        ...built,
-        effectiveContext,
-        stagedParts,
-        recencyDigestInitialization,
-        recencyDigestTold: digestDelta?.told,
-        untitled: chat.title === null,
+    const hadDigestBaseline = input.chat.recencyDigestBaseline !== null;
+    let promptDigestBaseline = input.chat.recencyDigestBaseline;
+    let recencyDigestInitialization: RecencyDigestInitialization | undefined;
+    if (
+      input.chat.recencyDigestBaseline === null &&
+      digestCandidate !== undefined &&
+      shareRecentChats.shareRecentChats
+    ) {
+      promptDigestBaseline = digestCandidate.baseline;
+      recencyDigestInitialization = {
+        baseline: digestCandidate.baseline,
+        told: digestCandidate.told,
       };
+    }
+
+    let digestDelta: RecencyDigestDelta | null = null;
+    if (
+      hadDigestBaseline &&
+      digestCandidate !== undefined &&
+      input.chat.recencyDigestTold !== null &&
+      shareRecentChats.shareRecentChats
+    ) {
+      digestDelta = deriveRecencyDigestDelta({
+        candidate: digestCandidate,
+        told: input.chat.recencyDigestTold,
+        pinnedChatIds: await input.chatsRepo.findPinnedChatIds(
+          input.input.userId,
+          input.chat.recencyDigestTold.map(({ chatId }) => chatId),
+        ),
+      });
+    }
+    return {
+      shareRecentChats,
+      promptDigestBaseline,
+      recencyDigestInitialization,
+      digestDelta,
+    };
+  }
+
+  private renderAttemptSystemPrompt(input: {
+    model: SystemModelCatalogEntry;
+    anchor: TemporalAnchor;
+    user: PromptUserInput | undefined;
+    chats: Chat['recencyDigestBaseline'];
+  }): string {
+    const renderInput: SystemPromptRenderInput = {
+      model: input.model,
+      anchor: input.anchor,
+      user: input.user,
+      chats: input.chats ?? undefined,
+    };
+    if (input.chats === null) {
+      return this.systemPrompts.render(renderInput);
+    }
+    try {
+      return this.systemPrompts.render(renderInput);
+    } catch {
+      this.logger.error('recency_digest_render_failed');
+      // Do not let a renderer error carry the owner's digest text out of
+      // this boundary.
+      throw new Error('Failed to render system prompt');
+    }
+  }
+
+  private async resolveAttemptEffectiveContext(
+    tx: Db,
+    input: ExecuteRunInput,
+    prompt: AttemptPromptContext,
+  ): Promise<EffectiveContextSnapshotInput> {
+    const allowedToolRules = this.instanceConfig.config.tools.allowed;
+    const callTimeoutSeconds =
+      this.instanceConfig.config.tools.callTimeoutSeconds;
+    const codeOwnedCandidates = await this.knowledgeCandidates.resolve({
+      tx,
+      ownerUserId: input.userId,
+      allowedToolRules,
+    });
+    const dynamicCandidates: ReadonlyArray<TurnToolCandidate> =
+      this.mcpRuntime.snapshotCandidates();
+    return resolveEffectiveContext({
+      model: prompt.model,
+      systemPrompt: prompt.systemPrompt,
+      allowedToolRules,
+      callTimeoutSeconds,
+      codeOwnedCandidates,
+      dynamicCandidates,
     });
   }
 
+  private async bindAttemptContextSnapshot(
+    tx: Db,
+    input: ExecuteRunInput,
+    attemptId: string,
+    effectiveContext: EffectiveContextSnapshotInput,
+  ): Promise<void> {
+    const snapshot = await new ModelContextSnapshotsRepository(
+      tx,
+    ).createOrReuse(input.userId, effectiveContext);
+    const bound = await new RunsRepository(tx).updateForAttempt(
+      input.runId,
+      input.userId,
+      attemptId,
+      { modelContextSnapshotId: snapshot.id },
+    );
+    if (!bound) {
+      throw new ModelContextExecutionError(
+        `Run ${input.runId} was reclaimed before snapshot binding.`,
+      );
+    }
+    await new SystemPromptReceiptsRepository(tx).create({
+      ownerUserId: input.userId,
+      runId: input.runId,
+      attemptId,
+      source: effectiveContext.source,
+      systemPrompt: effectiveContext.systemPrompt,
+      promptHash: effectiveContext.promptHash,
+    });
+  }
+
+  private async deriveAttemptStagedContext(input: {
+    tx: Db;
+    input: ExecuteRunInput;
+    prompt: AttemptPromptContext;
+    effectiveContext: EffectiveContextSnapshotInput;
+  }): Promise<AttemptStagedContext> {
+    const previousRun = await new RunsRepository(
+      input.tx,
+    ).findMostRecentByChatMessageSequence(
+      input.input.chatId,
+      input.input.userId,
+      {
+        beforeSeq: input.input.userMessage.seq,
+      },
+    );
+    const previousSnapshot = previousRun
+      ? await new ModelContextSnapshotsRepository(input.tx).findByOwnedRun(
+          previousRun.id,
+          input.input.userId,
+        )
+      : undefined;
+
+    const compactionSincePrevious =
+      input.prompt.compaction !== undefined &&
+      previousRun !== undefined &&
+      input.prompt.compaction.createdAt > previousRun.createdAt;
+    const startsEpoch = !previousSnapshot || compactionSincePrevious;
+    const digestRebaked =
+      compactionSincePrevious &&
+      input.prompt.chat.recencyDigestRebakedFrom ===
+        input.prompt.compaction?.id;
+
+    const stagedParts: Array<MessagePart> = [];
+    if (previousRun && previousRun.modelId !== input.input.client.model) {
+      stagedParts.push(
+        createModelChangeItem({
+          fromModelId: previousRun.modelId,
+          toModelId: input.input.client.model,
+          runId: input.input.runId,
+        }),
+      );
+    }
+    const availabilityPayload = deriveToolAvailabilityPayload({
+      current: input.effectiveContext.toolAvailabilityManifest,
+      ...(!startsEpoch && {
+        previous: previousSnapshot?.toolAvailabilityManifest,
+      }),
+    });
+    if (availabilityPayload) {
+      stagedParts.push(
+        createToolAvailabilityItem({
+          runId: input.input.runId,
+          payload: availabilityPayload,
+        }),
+      );
+    }
+    if (
+      digestRebaked &&
+      input.prompt.chat.recencyDigestBaseline !== null &&
+      input.prompt.shareRecentChats.shareRecentChats
+    ) {
+      stagedParts.push(
+        createRecencyDigestSupersessionItem({ runId: input.input.runId }),
+      );
+    }
+    if (input.prompt.digestDelta) {
+      stagedParts.push(
+        createRecencyDigestDeltaItem({
+          runId: input.input.runId,
+          payload: {
+            entries: input.prompt.digestDelta.entries,
+            pinChanges: input.prompt.digestDelta.pinChanges,
+          },
+        }),
+      );
+    }
+    stagedParts.push(
+      createTemporalItem({
+        runId: input.input.runId,
+        instant: new Date(),
+        timeZone: input.prompt.instanceTimezone,
+      }),
+    );
+    return {
+      stagedParts,
+      recencyDigestTold: input.prompt.digestDelta?.told,
+    };
+  }
   /**
    * Prepend staged context-item text to the triggering user message in the
    * model request. Extracts `data.text` from each `AuthoredContextItemPart`
    * and unshifts it into the last user message's content array.
    */
+
   private prependStagedContextItems(
     messages: ReturnType<typeof buildContext>['messages'],
     stagedParts: ReadonlyArray<MessagePart>,

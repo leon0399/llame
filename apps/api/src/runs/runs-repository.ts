@@ -23,6 +23,60 @@ import {
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 
+type TerminalRunStatus = Extract<
+  RunStatus,
+  'completed' | 'failed' | 'cancelled' | 'expired'
+>;
+
+type MarkFinishedOptions = {
+  error?: unknown;
+  attemptId?: string;
+  turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
+};
+
+type MarkFinishedUpdate = {
+  status: TerminalRunStatus;
+  finishedAt: Date;
+  error?: unknown;
+  completedAttemptId?: string;
+  turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
+};
+
+function markFinishedUpdate(
+  status: TerminalRunStatus,
+  options: MarkFinishedOptions | undefined,
+): MarkFinishedUpdate {
+  const update: MarkFinishedUpdate = {
+    status,
+    finishedAt: new Date(),
+  };
+  if (options?.error !== undefined) update.error = options.error;
+  if (status === 'completed' && options?.attemptId !== undefined) {
+    update.completedAttemptId = options.attemptId;
+  }
+  if (status === 'completed' && options?.turnToolAvailability !== undefined) {
+    update.turnToolAvailability = options.turnToolAvailability;
+  }
+  return update;
+}
+
+/**
+ * Keep first-writer-wins and attempt fencing in one owner-scoped predicate.
+ */
+function markFinishedPredicate(
+  runId: string,
+  userId: string,
+  attemptId: string | undefined,
+) {
+  return and(
+    eq(runs.id, runId),
+    eq(runs.userId, userId),
+    isNull(runs.finishedAt),
+    notInArray(runs.status, ['completed', 'failed', 'cancelled', 'expired']),
+    ...(attemptId === undefined ? [] : [eq(runs.activeAttemptId, attemptId)]),
+  );
+}
+
 export class RunsRepository {
   constructor(private readonly db: Db) {}
 
@@ -341,51 +395,14 @@ export class RunsRepository {
   async markFinished(
     runId: string,
     userId: string,
-    status: Extract<
-      RunStatus,
-      'completed' | 'failed' | 'cancelled' | 'expired'
-    >,
-    options?: {
-      error?: unknown;
-      attemptId?: string;
-      turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
-    },
+    status: TerminalRunStatus,
+    options?: MarkFinishedOptions,
   ): Promise<Run | undefined> {
     const [updated] = await this.db
       .update(runs)
-      .set({
-        status,
-        finishedAt: new Date(),
-        ...(options?.error !== undefined && { error: options.error }),
-        ...(status === 'completed' &&
-          options?.attemptId !== undefined && {
-            completedAttemptId: options.attemptId,
-          }),
-        ...(status === 'completed' &&
-          options?.turnToolAvailability !== undefined && {
-            turnToolAvailability: options.turnToolAvailability,
-          }),
-      })
-      .where(
-        and(
-          eq(runs.id, runId),
-          eq(runs.userId, userId),
-          isNull(runs.finishedAt),
-          notInArray(runs.status, [
-            'completed',
-            'failed',
-            'cancelled',
-            'expired',
-          ]),
-          // When an attemptId is provided, fence the write: a superseded
-          // worker whose attempt was replaced by a reclaim cannot finish.
-          ...(options?.attemptId !== undefined
-            ? [eq(runs.activeAttemptId, options.attemptId)]
-            : []),
-        ),
-      )
+      .set(markFinishedUpdate(status, options))
+      .where(markFinishedPredicate(runId, userId, options?.attemptId))
       .returning();
-
     return updated;
   }
 

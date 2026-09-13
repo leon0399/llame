@@ -225,10 +225,12 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       compileTestPermissionPolicy(),
       models,
       new SystemPromptsService(),
+      { resolvePromptUser: () => Promise.resolve(undefined) },
+      knowledgeCandidates,
       { snapshotCandidates: () => [] },
-      undefined,
       new MemoryService(tenantDb),
       new RecencyDigestService(tenantDb),
+      undefined,
     );
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'R', ${`r-${userId}@t.com`})`;

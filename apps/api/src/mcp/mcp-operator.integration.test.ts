@@ -320,9 +320,9 @@ function executionService(
     { resolvePromptUser: () => Promise.resolve(undefined) },
     knowledgeCandidates,
     runtime,
-    undefined,
     new MemoryService(tenantDb),
     new RecencyDigestService(tenantDb),
+    undefined,
   );
 }
 
