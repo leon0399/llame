@@ -103,6 +103,11 @@ const chat: Chat = {
   recencyDigestBaseline: null,
   recencyDigestTold: null,
   recencyDigestRebakedFrom: null,
+  inheritedContextOriginAt: null,
+  contextRevision: 0,
+  initialContinuationState: null,
+  initialActiveCompactionId: null,
+  initialDigestRebakedFrom: null,
 };
 
 const userMessage: Message = {
@@ -116,6 +121,10 @@ const userMessage: Message = {
   usage: null,
   inReplyTo: null,
   createdAt: now,
+  inheritedTurnComplete: false,
+  usageOriginKind: null,
+  usageOriginId: null,
+  usageProvenanceCol: null,
 };
 
 const run: Run = {
@@ -3041,6 +3050,14 @@ describe('RunExecutionService executeRun — context window and late tool result
       ],
       usage: null,
       createdAt: now,
+      usageOriginKind: null,
+      usageOriginId: null,
+      usageProvenanceCol: null,
+      contextRevision: null,
+      sourceMaxSeq: null,
+      companionActiveCompactionId: null,
+      companionDigestRebakedFrom: null,
+      companionState: null,
     });
     const findByChatId = vi
       .spyOn(MessagesRepository.prototype, 'findByChatId')

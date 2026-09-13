@@ -84,6 +84,11 @@ const chat = (overrides: Partial<Chat> = {}): Chat => ({
   recencyDigestBaseline: null,
   recencyDigestTold: null,
   recencyDigestRebakedFrom: null,
+  inheritedContextOriginAt: null,
+  contextRevision: 0,
+  initialContinuationState: null,
+  initialActiveCompactionId: null,
+  initialDigestRebakedFrom: null,
   ...overrides,
 });
 
@@ -132,6 +137,14 @@ const compaction = (overrides: Partial<Compaction> = {}): Compaction => ({
   replacementHistory: [],
   usage: null,
   createdAt: new Date('2026-08-25T04:12:00.000Z'),
+  usageOriginKind: null,
+  usageOriginId: null,
+  usageProvenanceCol: null,
+  contextRevision: null,
+  sourceMaxSeq: null,
+  companionActiveCompactionId: null,
+  companionDigestRebakedFrom: null,
+  companionState: null,
   ...overrides,
 });
 

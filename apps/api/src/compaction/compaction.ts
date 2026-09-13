@@ -457,13 +457,13 @@ function schemaOnlyTools(
 ): ToolSet | null {
   const entries: Array<[string, ToolSet[string]]> = [];
   for (const decl of declarations) {
-    const parsed = toFlexibleSchema(decl.inputSchema);
-    if (!parsed) return null;
+    const inputSchema = toFlexibleSchema(decl.inputSchema);
+    if (!inputSchema) return null;
     entries.push([
       decl.id,
       tool({
         description: decl.description,
-        parameters: parsed,
+        inputSchema,
       }),
     ]);
   }

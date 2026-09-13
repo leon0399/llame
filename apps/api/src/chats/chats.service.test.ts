@@ -73,6 +73,11 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     recencyDigestBaseline: null,
     recencyDigestTold: null,
     recencyDigestRebakedFrom: null,
+    inheritedContextOriginAt: null,
+    contextRevision: 0,
+    initialContinuationState: null,
+    initialActiveCompactionId: null,
+    initialDigestRebakedFrom: null,
   };
 
   function message(seq: number): Message {
@@ -87,6 +92,10 @@ describe('ChatsService.getChatMessages targetSeq', () => {
       usage: null,
       inReplyTo: null,
       createdAt: new Date('2026-08-28T00:00:00.000Z'),
+      inheritedTurnComplete: false,
+      usageOriginKind: null,
+      usageOriginId: null,
+      usageProvenanceCol: null,
     };
   }
 
@@ -180,6 +189,14 @@ describe('ChatsService.getChatMessages targetSeq', () => {
       ],
       usage: null,
       createdAt: new Date('2026-08-28T00:00:00.000Z'),
+      usageOriginKind: null,
+      usageOriginId: null,
+      usageProvenanceCol: null,
+      contextRevision: null,
+      sourceMaxSeq: null,
+      companionActiveCompactionId: null,
+      companionDigestRebakedFrom: null,
+      companionState: null,
     };
     const second: Compaction = {
       ...first,
@@ -237,6 +254,11 @@ describe('ChatsService message windows, updates and forks', () => {
     recencyDigestBaseline: null,
     recencyDigestTold: null,
     recencyDigestRebakedFrom: null,
+    inheritedContextOriginAt: null,
+    contextRevision: 0,
+    initialContinuationState: null,
+    initialActiveCompactionId: null,
+    initialDigestRebakedFrom: null,
   };
 
   function message(seq: number, overrides: Partial<Message> = {}): Message {
@@ -251,6 +273,10 @@ describe('ChatsService message windows, updates and forks', () => {
       usage: null,
       inReplyTo: null,
       createdAt: new Date('2026-08-28T00:00:00.000Z'),
+      inheritedTurnComplete: false,
+      usageOriginKind: null,
+      usageOriginId: null,
+      usageProvenanceCol: null,
       ...overrides,
     };
   }

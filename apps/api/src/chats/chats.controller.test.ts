@@ -31,6 +31,11 @@ const chat: Chat = {
   recencyDigestBaseline: null,
   recencyDigestTold: null,
   recencyDigestRebakedFrom: null,
+  inheritedContextOriginAt: null,
+  contextRevision: 0,
+  initialContinuationState: null,
+  initialActiveCompactionId: null,
+  initialDigestRebakedFrom: null,
 };
 
 const chatMessages: Array<Message> = [
@@ -45,6 +50,10 @@ const chatMessages: Array<Message> = [
     usage: null,
     inReplyTo: null,
     createdAt: new Date('2026-06-29T00:01:00.000Z'),
+    inheritedTurnComplete: false,
+    usageOriginKind: null,
+    usageOriginId: null,
+    usageProvenanceCol: null,
   },
   {
     id: 'cc5ce18b-2f3a-4f6b-8c95-f9c6240a8f02',
@@ -57,6 +66,10 @@ const chatMessages: Array<Message> = [
     usage: { status: 'completed', finishReason: 'stop' },
     inReplyTo: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
     createdAt: new Date('2026-06-29T00:01:01.000Z'),
+    inheritedTurnComplete: false,
+    usageOriginKind: null,
+    usageOriginId: null,
+    usageProvenanceCol: null,
   },
 ];
 
@@ -252,6 +265,14 @@ describe('ChatsController', () => {
       ],
       usage: null,
       createdAt: new Date('2026-07-06T00:00:00.000Z'),
+      usageOriginKind: null,
+      usageOriginId: null,
+      usageProvenanceCol: null,
+      contextRevision: null,
+      sourceMaxSeq: null,
+      companionActiveCompactionId: null,
+      companionDigestRebakedFrom: null,
+      companionState: null,
     };
     const { controller } = makeController({
       getChatMessages: vi.fn().mockResolvedValue({
@@ -309,6 +330,14 @@ describe('ChatsController', () => {
         costUsd: null,
       },
       createdAt: new Date('2026-07-06T00:00:00.000Z'),
+      usageOriginKind: null,
+      usageOriginId: null,
+      usageProvenanceCol: null,
+      contextRevision: null,
+      sourceMaxSeq: null,
+      companionActiveCompactionId: null,
+      companionDigestRebakedFrom: null,
+      companionState: null,
     };
     const { controller } = makeController({
       getChatMessages: vi.fn().mockResolvedValue({

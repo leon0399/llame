@@ -178,6 +178,11 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
           recencyDigestBaseline: null;
           recencyDigestTold: null;
           recencyDigestRebakedFrom: null;
+          inheritedContextOriginAt: Date | null;
+          contextRevision: number;
+          initialContinuationState: null;
+          initialActiveCompactionId: string | null;
+          initialDigestRebakedFrom: string | null;
         }
       | undefined
     >,
@@ -202,6 +207,11 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        inheritedContextOriginAt: null,
+        contextRevision: 0,
+        initialContinuationState: null,
+        initialActiveCompactionId: null,
+        initialDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -227,6 +237,11 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        inheritedContextOriginAt: null,
+        contextRevision: 0,
+        initialContinuationState: null,
+        initialActiveCompactionId: null,
+        initialDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -252,6 +267,11 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        inheritedContextOriginAt: null,
+        contextRevision: 0,
+        initialContinuationState: null,
+        initialActiveCompactionId: null,
+        initialDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -281,6 +301,11 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        inheritedContextOriginAt: null,
+        contextRevision: 0,
+        initialContinuationState: null,
+        initialActiveCompactionId: null,
+        initialDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -305,6 +330,11 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        inheritedContextOriginAt: null,
+        contextRevision: 0,
+        initialContinuationState: null,
+        initialActiveCompactionId: null,
+        initialDigestRebakedFrom: null,
       }),
     );
     await expect(
@@ -327,6 +357,11 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        inheritedContextOriginAt: null,
+        contextRevision: 0,
+        initialContinuationState: null,
+        initialActiveCompactionId: null,
+        initialDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -351,6 +386,11 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        inheritedContextOriginAt: null,
+        contextRevision: 0,
+        initialContinuationState: null,
+        initialActiveCompactionId: null,
+        initialDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -627,6 +667,11 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       recencyDigestBaseline: null,
       recencyDigestTold: null,
       recencyDigestRebakedFrom: null,
+      inheritedContextOriginAt: null,
+      contextRevision: 0,
+      initialContinuationState: null,
+      initialActiveCompactionId: null,
+      initialDigestRebakedFrom: null,
     };
     const { db, queries } = makeMockDb();
     stubFindById(() => Promise.resolve(archived));
@@ -658,6 +703,11 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        inheritedContextOriginAt: null,
+        contextRevision: 0,
+        initialContinuationState: null,
+        initialActiveCompactionId: null,
+        initialDigestRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)

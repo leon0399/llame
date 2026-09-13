@@ -57,6 +57,10 @@ const message: Message = {
   usage: null,
   inReplyTo: null,
   createdAt: now,
+  inheritedTurnComplete: false,
+  usageOriginKind: null,
+  usageOriginId: null,
+  usageProvenanceCol: null,
 };
 
 const run: Run = {
@@ -311,6 +315,11 @@ describe('seedRun', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        inheritedContextOriginAt: null,
+        contextRevision: 0,
+        initialContinuationState: null,
+        initialActiveCompactionId: null,
+        initialDigestRebakedFrom: null,
       });
     const createMessage = vi
       .spyOn(MessagesRepository.prototype, 'create')
@@ -432,6 +441,11 @@ describe('dispatchRun and seedAndDispatchRun', () => {
       recencyDigestBaseline: null,
       recencyDigestTold: null,
       recencyDigestRebakedFrom: null,
+      inheritedContextOriginAt: null,
+      contextRevision: 0,
+      initialContinuationState: null,
+      initialActiveCompactionId: null,
+      initialDigestRebakedFrom: null,
     });
     vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(message);
     vi.spyOn(

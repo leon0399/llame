@@ -307,7 +307,7 @@ export class CompactionService {
           nextRevision,
           sourceMaxSeq,
           chat,
-          rebakes
+          rebakes && digestCandidate
             ? { baseline: digestCandidate.baseline, told: digestCandidate.told }
             : undefined,
         ),
@@ -317,7 +317,7 @@ export class CompactionService {
       // checkpoint. Update after insert to satisfy the self-FK.
       await compactionsRepo.setSelfReferenceCompanion(compaction.id, rebakes);
 
-      if (rebakes) {
+      if (rebakes && digestCandidate) {
         await chatsRepo.setRecencyDigest({
           chatId: input.chatId,
           ownerUserId: input.userId,

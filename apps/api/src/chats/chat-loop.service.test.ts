@@ -63,6 +63,11 @@ const chat: Chat = {
   recencyDigestBaseline: null,
   recencyDigestTold: null,
   recencyDigestRebakedFrom: null,
+  inheritedContextOriginAt: null,
+  contextRevision: 0,
+  initialContinuationState: null,
+  initialActiveCompactionId: null,
+  initialDigestRebakedFrom: null,
 };
 
 const userMessage: Message = {
@@ -76,6 +81,10 @@ const userMessage: Message = {
   usage: null,
   inReplyTo: null,
   createdAt: now,
+  inheritedTurnComplete: false,
+  usageOriginKind: null,
+  usageOriginId: null,
+  usageProvenanceCol: null,
 };
 
 const run: Run = {

@@ -23,6 +23,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   can never be indexed at any revision. A missing index, or one that measured
   no mutants, remains a failed evidence check instead of a free pass.
 
+# 2026-09-13
+
+- Add durable boundary evidence for owner chat forks (#154): a new
+  `message_turn_contexts` table records immutable per-turn acceptance evidence
+  (model, effort, snapshot, continuation state, context items) keyed by
+  `(chatId, originRunId)`. Chats gain `inheritedContextOriginAt`,
+  `contextRevision`, `initialContinuationState`, and typed compaction
+  references for the immutable initial state. Messages gain
+  `inheritedTurnComplete` and usage provenance columns. Compactions gain
+  continuation state companions (revision, boundary, digest) and usage
+  provenance. Continuation-revision staleness guards extend both ordinary and
+  transition compaction paths. A one-time adoption migration projects existing
+  Run evidence and captures current Chat state. Owner-scoped FORCE RLS,
+  same-Chat FK constraints, and negative datastore tests enforce tenant
+  isolation.
+
 # 2026-09-12
 
 - Pin the Pullfrog workflow's two action references to full commit SHAs,

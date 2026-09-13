@@ -54,6 +54,7 @@ import {
 } from './chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
+import { MessageTurnContextsRepository } from './message-turn-contexts-repository';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import {
   type Chat,
@@ -179,6 +180,11 @@ describe('ChatLoopService effective-context transaction binding', () => {
       recencyDigestBaseline: options?.baseline ?? null,
       recencyDigestTold: options?.told ?? null,
       recencyDigestRebakedFrom: options?.rebakedFrom ?? null,
+      inheritedContextOriginAt: null,
+      contextRevision: 0,
+      initialContinuationState: null,
+      initialActiveCompactionId: null,
+      initialDigestRebakedFrom: null,
     });
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
     vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
@@ -204,6 +210,10 @@ describe('ChatLoopService effective-context transaction binding', () => {
         usage: null,
         inReplyTo: null,
         createdAt: new Date(),
+        inheritedTurnComplete: false,
+        usageOriginKind: null,
+        usageOriginId: null,
+        usageProvenanceCol: null,
       });
     vi.spyOn(
       RunsRepository.prototype,
@@ -219,6 +229,18 @@ describe('ChatLoopService effective-context transaction binding', () => {
       CompactionsRepository.prototype,
       'findLatestByChatId',
     ).mockResolvedValue(options?.activeCompaction);
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'advanceContextRevision',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'setSelfReferenceCompanion',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      MessageTurnContextsRepository.prototype,
+      'create',
+    ).mockResolvedValue(undefined);
     vi.spyOn(
       ModelContextSnapshotsRepository.prototype,
       'findByOwnedRun',
@@ -1059,6 +1081,14 @@ describe('ChatLoopService effective-context transaction binding', () => {
       ),
       usage: null,
       createdAt: new Date('2026-08-11T08:00:03.000Z'),
+      usageOriginKind: null,
+      usageOriginId: null,
+      usageProvenanceCol: null,
+      contextRevision: null,
+      sourceMaxSeq: null,
+      companionActiveCompactionId: null,
+      companionDigestRebakedFrom: null,
+      companionState: null,
     };
     const { service, createRun } = setup({
       previousRun,
@@ -1144,6 +1174,14 @@ describe('ChatLoopService effective-context transaction binding', () => {
       ),
       usage: null,
       createdAt: new Date('2026-08-11T08:00:03.000Z'),
+      usageOriginKind: null,
+      usageOriginId: null,
+      usageProvenanceCol: null,
+      contextRevision: null,
+      sourceMaxSeq: null,
+      companionActiveCompactionId: null,
+      companionDigestRebakedFrom: null,
+      companionState: null,
     };
     const baseline: RecencyDigestBaseline = {
       pinned: [],
@@ -1232,6 +1270,14 @@ describe('ChatLoopService effective-context transaction binding', () => {
       ),
       usage: null,
       createdAt: new Date('2026-08-11T08:00:03.000Z'),
+      usageOriginKind: null,
+      usageOriginId: null,
+      usageProvenanceCol: null,
+      contextRevision: null,
+      sourceMaxSeq: null,
+      companionActiveCompactionId: null,
+      companionDigestRebakedFrom: null,
+      companionState: null,
     };
     const baseline: RecencyDigestBaseline = {
       pinned: [],
@@ -1321,6 +1367,14 @@ describe('ChatLoopService effective-context transaction binding', () => {
       ),
       usage: null,
       createdAt: new Date('2026-08-11T08:00:03.000Z'),
+      usageOriginKind: null,
+      usageOriginId: null,
+      usageProvenanceCol: null,
+      contextRevision: null,
+      sourceMaxSeq: null,
+      companionActiveCompactionId: null,
+      companionDigestRebakedFrom: null,
+      companionState: null,
     };
     const baseline: RecencyDigestBaseline = {
       pinned: [],
@@ -1387,6 +1441,14 @@ describe('ChatLoopService effective-context transaction binding', () => {
       ),
       usage: null,
       createdAt: new Date('2026-08-11T08:00:03.000Z'),
+      usageOriginKind: null,
+      usageOriginId: null,
+      usageProvenanceCol: null,
+      contextRevision: null,
+      sourceMaxSeq: null,
+      companionActiveCompactionId: null,
+      companionDigestRebakedFrom: null,
+      companionState: null,
     };
     const baseline: RecencyDigestBaseline = {
       pinned: [],

@@ -35,6 +35,11 @@ function chat(id: string, title = id): Chat {
     recencyDigestBaseline: null,
     recencyDigestTold: null,
     recencyDigestRebakedFrom: null,
+    inheritedContextOriginAt: null,
+    contextRevision: 0,
+    initialContinuationState: null,
+    initialActiveCompactionId: null,
+    initialDigestRebakedFrom: null,
   };
 }
 
@@ -188,6 +193,10 @@ describe('recency digest baseline', () => {
             usage: null,
             inReplyTo: null,
             createdAt: new Date(),
+            inheritedTurnComplete: false,
+            usageOriginKind: null,
+            usageOriginId: null,
+            usageProvenanceCol: null,
           })),
         ),
       );

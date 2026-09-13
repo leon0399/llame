@@ -85,6 +85,11 @@ const chat: Chat = {
   recencyDigestBaseline: null,
   recencyDigestTold: null,
   recencyDigestRebakedFrom: null,
+  inheritedContextOriginAt: null,
+  contextRevision: 0,
+  initialContinuationState: null,
+  initialActiveCompactionId: null,
+  initialDigestRebakedFrom: null,
 };
 
 const message = (seq: number, role: Message['role'] = 'user'): Message => ({
@@ -98,6 +103,10 @@ const message = (seq: number, role: Message['role'] = 'user'): Message => ({
   usage: null,
   inReplyTo: null,
   createdAt: new Date(seq * 1000),
+  inheritedTurnComplete: false,
+  usageOriginKind: null,
+  usageOriginId: null,
+  usageProvenanceCol: null,
 });
 
 describe('MessagesRepository query windows and conversation reads', () => {
