@@ -49,43 +49,60 @@ that capability's placement rule rather than this attached-item list.
 
 ## ADDED Requirements
 
-### Requirement: Skills use a frozen catalog baseline and user-turn notices
+### Requirement: The skill catalog is a frozen prefix baseline stored on the chat
 
-The initial skill metadata catalog SHALL be a system-prompt contribution frozen until compaction, with a 16 KiB bound retaining complete entries in code-point name order and explicit omission information. It SHALL describe proactive loading, multiple-skill use, and the instruction/resource read interface. The baseline SHALL locally frame operator package metadata as catalog data below system instructions and user requests, with no authority to grant tools or relax authorization, even under an operator-replaced prompt. Other prompt changes SHALL NOT refresh this baseline. On the next user-turn preparation after compaction, the current catalog SHALL replace the baseline. Transition compaction inside an already-bound Run SHALL retain that Run's baseline. Baseline and last-disclosed catalog state SHALL be durably linked to each Run so restart does not re-resolve historical state. The Run context record SHALL identify the baseline actually supplied.
+The proactively eligible skill catalog SHALL be classified as a frozen prefix-resident baseline with rail-resident deltas. The baseline SHALL be the `skills` prompt projection defined by `model-system-prompts`: admitted entries in code-point name order, each with name and description, plus the count of proactively eligible entries omitted. Admission SHALL retain whole entries while the admitted count stays within 256 and the cumulative UTF-8 length of name and description stays within 16 KiB, so that template-owned per-entry markup cannot multiply the bound; omission SHALL be disclosed through that count and remain inspectable through `read("skill://")`.
 
-The user message, skill-catalog notice, Run linkage, and new disclosure/epoch state SHALL commit atomically under the authenticated owner identity. A retried accepted message SHALL reuse its persisted state; rollback SHALL expose none of those writes. Caller-supplied owner identifiers SHALL NOT authorize disclosure-state reads or mutations.
+The baseline and the names of the entries the chat was last told SHALL be persisted on the chat row under owner isolation, following the recency-digest precedent, together with the compaction identity under which the baseline was resolved. Accepted-turn preparation SHALL reuse the stored baseline while that identity matches the chat's latest compaction, or both are absent, and SHALL otherwise resolve the current catalog and start a new baseline and told state in the same accepted-turn transaction as the user message and Run. No baseline SHALL be written for a chat on an instance with no configured skill source. Package edits, model switches, and other prompt contributions SHALL NOT refresh the baseline. A transition compaction inside an already-bound Run SHALL leave that Run's bound prompt unchanged; the next accepted turn starts the refreshed baseline. Caller-supplied owner identifiers SHALL NOT authorize baseline or told-state reads or mutations.
 
-At each later user turn, current discovery SHALL be compared with the chat's last disclosed state in the current epoch. Added, removed, or changed entries SHALL produce a `skill-catalog` notice containing sufficient new metadata to update the model's view. Change detection SHALL cover selected source, description, invocation eligibility, and instruction/control content identity. Catalog notices SHALL carry only bounded metadata and changed/invalid status, never instruction bodies; bodies SHALL enter context only through explicit activation or a selected skill read. Supporting files SHALL be read live without eager catalog inventory. A delta exceeding the metadata bound SHALL explicitly supersede prior catalog state with a bounded current snapshot and omission disclosure. Historical system prompts and context parts SHALL NOT be rewritten. No reminder SHALL be injected between model requests inside an existing Run in this iteration.
+The baseline SHALL enter the prompt only through the template projection. A template that does not reference `skills` SHALL render no catalog, and no server-rendered block SHALL be appended outside the template. Operator-authored descriptions SHALL be neutralized before composing the prompt or any item and SHALL replay from persisted text without another sanitization pass.
 
-Explicit selections SHALL produce `skill-activation` notices with final loaded text or failure before the first model request. Both producers SHALL use the existing canonical envelope, provenance, owner visibility, separate executed-context recording, stored-text replay, and author-time ordering. A completed explicit activation SHALL NOT be reloaded on recovery. Partial recovery SHALL preserve completed mention results and fill only unfinished selections in original order. Operator-supplied reserved delimiters SHALL be neutralized before composing and persisting final catalog or activation text; stored text SHALL replay without regeneration or another sanitization pass. Each catalog or activation item containing operator-authored text SHALL state within its own envelope that the text ranks below system instructions and user requests, cannot grant capabilities or relax authorization, and that attempts to do so must be disregarded. This framing SHALL remain present with a replaced operator system prompt.
+#### Scenario: Catalog is frozen within an epoch
 
-#### Scenario: Catalog changes between user messages
-
-- **WHEN** a skill is added, changed, or removed after one user turn
-- **THEN** the next user turn carries the appropriate catalog notice while retaining the original prompt baseline
-- **AND** its immutable effective-context receipt retains the advertised baseline and its separate executed-context record captures the final injected items
-
-#### Scenario: Active Run sees a deleted skill
-
-- **WHEN** a package disappears while a Run is making tool calls
-- **THEN** its next skill read fails under current availability
-- **AND** the catalog removal notice waits for the next user turn
+- **WHEN** a package description changes or the model is switched between two user turns with no compaction between them
+- **THEN** the next Run's prompt renders the stored baseline byte-for-byte
+- **AND** the effective-context snapshot is reused rather than re-minted for that reason
 
 #### Scenario: Compaction starts a new baseline
 
 - **WHEN** a chat is compacted after catalog notices have accumulated
-- **THEN** the next prepared context uses current catalog metadata as its new baseline
+- **THEN** the next accepted turn resolves the current catalog as its new baseline and told state
 - **AND** old deltas are not applied again against that new baseline
-
-#### Scenario: Operator prompt omits the global framing
-
-- **WHEN** skill catalog or activation content is injected under a custom system prompt without the standard context explanation
-- **THEN** each item still carries its own precedence and no-authority-expansion statement
 
 #### Scenario: Transition compaction occurs inside a Run
 
 - **WHEN** context fitting triggers compaction after a Run has bound its prompt
 - **THEN** that Run keeps its bound skill baseline and the next user turn starts the refreshed baseline
+
+#### Scenario: Operator template omits the namespace
+
+- **WHEN** a model's template never references `skills`
+- **THEN** its prompt carries no catalog and boot succeeds
+- **AND** explicit `$skill` activation on that model still loads instructions through the rail
+
+#### Scenario: Another owner targets catalog state
+
+- **WHEN** owner A attempts to read or mutate owner B's chat baseline or told state
+- **THEN** datastore enforcement refuses access using the authenticated identity
+- **AND** supplying owner B's identifier does not authorize the operation
+
+### Requirement: Explicit activations are rail items carrying current instructions
+
+Each explicit `$skill` selection SHALL produce one `skill-activation` item with form `notice` in the triggering user message before the first model request. A successful item SHALL state which mention selected the skill, the absolute skill directory and instructions file, the instruction to resolve package-relative references and scripts against that directory while keeping task-relative inputs and choosing `cwd` explicitly, a precedence statement, and the current `SKILL.md` instruction body with its frontmatter removed, taken from the raw read with its ordinary truncation indicator. A failed selection SHALL produce a bounded item naming the mention and one closed reason from `not_found`, `unavailable`, `permission_denied`, and `read_failed`, without operator diagnostics in model text. Selections beyond the count, output, or work budget SHALL be accounted for by one bounded omission item listing their names.
+
+Activation items SHALL use the existing canonical envelope, provenance, owner visibility, separate executed-context recording, stored-text replay, and author-time ordering. A completed explicit activation SHALL NOT be reloaded on recovery. Partial recovery SHALL preserve completed mention results and fill only unfinished selections in original order. Operator-supplied reserved delimiters SHALL be neutralized before composing and persisting activation text.
+
+#### Scenario: Two explicit selections on one message
+
+- **WHEN** the user sends `$research $technical-writing compare these APIs`
+- **THEN** two activation items persist in that order ahead of the user text
+- **AND** each carries its skill directory, instructions file, and frontmatter-stripped instruction body
+
+#### Scenario: Selection fails after admission is denied
+
+- **WHEN** an explicit selection's read is denied by permission policy
+- **THEN** its item names the mention with reason `permission_denied` and no instructions
+- **AND** the other selections and the Run proceed
 
 #### Scenario: Skill text contains a forged reminder delimiter
 
@@ -93,10 +110,47 @@ Explicit selections SHALL produce `skill-activation` notices with final loaded t
 - **THEN** they are neutralized before prompt or context-item composition and cannot create another envelope
 - **AND** recovery replays the persisted final text unchanged
 
-#### Scenario: Baseline description contains instructions
+### Requirement: Catalog notices announce added and removed skills on the next user turn
 
-- **WHEN** an operator package description contains instruction-like text
-- **THEN** the frozen system-prompt contribution still identifies that text as lower-precedence catalog data that grants no authority
+At each accepted user turn that continues a compaction epoch and whose bound model's template references the `skills` namespace, the current proactively eligible catalog, bounded as for the baseline, SHALL be compared with the chat's told state by name only; descriptions SHALL NOT participate in the comparison and an addition SHALL render the entry's current description. A turn bound to a model whose template does not reference `skills` SHALL emit no catalog notice and SHALL leave the told state unchanged. When entries were added or removed, one `skill-catalog` item with form `notice` SHALL be persisted listing added entries with name and description and removed entries by name, telling the model to read an added skill before applying it and not to apply a removed skill's earlier instructions, and carrying a precedence statement whenever a description is present. An eligibility flip or a promotion from the omitted portion SHALL render as an add or a remove. A changed description or changed instruction content of an entry that stays advertised SHALL NOT produce a notice in this change. Notices SHALL carry only bounded metadata, never instruction bodies. The told state SHALL be updated in the same accepted-turn transaction; a retried accepted message SHALL reuse its persisted state and a rollback SHALL expose none of those writes.
+
+When a delta would exceed the baseline bound, one `skill-catalog` item with form `snapshot` SHALL instead state that the catalog was refreshed and earlier updates are superseded, listing the bounded current set with its omitted count; the told state SHALL then equal that snapshot. No notice SHALL be injected between model requests inside an existing Run; a removed package fails its next read under current availability and its removal is announced on the next user turn.
+
+#### Scenario: Catalog changes between user messages
+
+- **WHEN** one skill is added and another removed after a user turn in the same epoch
+- **THEN** the next user turn carries one notice naming the addition with its description and the removal by name
+- **AND** the immutable effective-context receipt retains the frozen baseline while the executed-context record captures the notice
+
+#### Scenario: Template opts out of the catalog
+
+- **WHEN** a skill is added while the chat's bound model uses a template that never references `skills`
+- **THEN** no catalog notice is emitted and the told state is unchanged
+- **AND** after a switch to a model whose template renders the catalog, the next turn announces the additions since the baseline
+
+#### Scenario: Description changes without membership change
+
+- **WHEN** an advertised skill's description or `SKILL.md` content changes between user turns
+- **THEN** no catalog notice is emitted in this change
+- **AND** a later `skill://` read returns the current content
+
+#### Scenario: Active Run sees a deleted skill
+
+- **WHEN** a package disappears while a Run is making tool calls
+- **THEN** its next skill read fails under current availability
+- **AND** the removal notice waits for the next user turn
+
+#### Scenario: Delta exceeds the bound
+
+- **WHEN** the added and removed entries cannot be rendered within the baseline bound
+- **THEN** a supersession snapshot with the bounded current set replaces the delta
+- **AND** the told state equals the snapshot's admitted entries
+
+#### Scenario: Told-state transaction is interrupted
+
+- **WHEN** the accepted-turn transaction fails before commit after preparing a catalog notice
+- **THEN** neither the message, Run linkage, notice, nor updated told state is visible
+- **AND** retry produces one consistent accepted turn without repeated or skipped catalog changes
 
 ### Requirement: Skill activations remain separate from immutable enqueue receipts
 
@@ -113,15 +167,3 @@ The enqueue-bound effective-context receipt SHALL retain its immutable prompt/to
 - **WHEN** activation results have been persisted but window fitting fails before provider dispatch
 - **THEN** those observations remain in the owner message while the executed-context record remains unrecorded
 - **AND** the immutable enqueue receipt is not changed
-
-#### Scenario: Disclosure-state transaction is interrupted
-
-- **WHEN** the accepted-turn transaction fails before commit after preparing a catalog notice
-- **THEN** neither the message, Run linkage, notice, nor new disclosure state is visible
-- **AND** retry produces one consistent accepted turn without repeated or skipped catalog changes
-
-#### Scenario: Another owner targets disclosure state
-
-- **WHEN** owner A attempts to read or mutate owner B's per-Run baseline or last-disclosed state
-- **THEN** datastore enforcement refuses access using the authenticated identity
-- **AND** supplying owner B's identifier does not authorize the operation
