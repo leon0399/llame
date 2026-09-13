@@ -368,6 +368,11 @@ export class RunsRepository {
             'cancelled',
             'expired',
           ]),
+          // When an attemptId is provided, fence the write: a superseded
+          // worker whose attempt was replaced by a reclaim cannot finish.
+          ...(options?.attemptId !== undefined
+            ? [eq(runs.activeAttemptId, options.attemptId)]
+            : []),
         ),
       )
       .returning();

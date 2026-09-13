@@ -2057,7 +2057,9 @@ export class RunExecutionService {
 
       const previousRun = await new RunsRepository(
         tx,
-      ).findMostRecentByChatMessageSequence(input.chatId, input.userId);
+      ).findMostRecentByChatMessageSequence(input.chatId, input.userId, {
+        beforeSeq: input.userMessage.seq,
+      });
       const previousSnapshot = previousRun
         ? await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
             previousRun.id,

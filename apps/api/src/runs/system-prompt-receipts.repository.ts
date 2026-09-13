@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 
 import {
   systemPromptReceipts,
@@ -54,7 +54,7 @@ export class SystemPromptReceiptsRepository {
           eq(systemPromptReceipts.ownerUserId, ownerUserId),
         ),
       )
-      .orderBy(desc(systemPromptReceipts.createdAt));
+      .orderBy(asc(systemPromptReceipts.createdAt));
   }
 
   /**
