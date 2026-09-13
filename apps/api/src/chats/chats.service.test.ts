@@ -559,6 +559,7 @@ describe('ChatsService message windows, updates and forks', () => {
       expect(create).toHaveBeenCalledWith({
         ownerUserId,
         title: 'Source (fork)',
+        inheritedContextOriginAt: chat.createdAt,
       });
       // Boundary resolution reads all messages, then copy reads the prefix.
       expect(findByChatId).toHaveBeenCalledTimes(2);

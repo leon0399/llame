@@ -462,6 +462,7 @@ export class ChatsRepository {
     ownerUserId: string;
     title?: string;
     visibility?: 'private' | 'public';
+    inheritedContextOriginAt?: Date;
   }): Promise<Chat> {
     const [created] = await this.db
       .insert(chats)
@@ -477,6 +478,9 @@ export class ChatsRepository {
           digestBaseline: null,
           digestTold: null,
         },
+        ...(input.inheritedContextOriginAt !== undefined && {
+          inheritedContextOriginAt: input.inheritedContextOriginAt,
+        }),
       })
       .returning();
     return created;

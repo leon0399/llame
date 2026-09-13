@@ -26,6 +26,7 @@ import {
 import {
   ChatsRepository,
   CompactionsRepository,
+  isCompletedAssistantTurn,
   MessagesRepository,
 } from './chats-repository';
 import { RunsRepository } from '../runs/runs-repository';
@@ -346,16 +347,9 @@ export class ChatsService {
       return { chat, messages };
     });
   }
-
   /**
-   * Shared write side of both fork paths (`forkSharedChat` and `forkChat`
-   * below): create a new chat owned by `ownerUserId` and copy `toCopy` into
-   * it in order, remapping every id (including `inReplyTo` references
-   * between the copied rows) to a freshly generated one. Ids are
-   * pre-assigned before any insert — `createMany`'s chunked bulk insert has
-   * no per-row RETURNING to learn a new id mid-batch, and a reply's
-   * `inReplyTo` only ever points to an earlier row in the same prefix
-   * (lower `seq`), so every reference is guaranteed to already be mapped.
+   * Shared write side of both fork paths: copy `toCopy` into a new chat
+   * with remapped IDs. No usage, no evidence — used by shared/public forks.
    */
   private async copyMessagesIntoNewChat(
     tx: Db,
@@ -371,13 +365,10 @@ export class ChatsService {
     }>,
   ): Promise<Chat> {
     const chatsRepo = new ChatsRepository(tx);
-    // Nullable title (#78): a still-untitled chat stays untitled when forked
-    // rather than forcing a title onto it.
     const created = await chatsRepo.create({
       ownerUserId,
       ...(title !== null && { title: forkTitle(title) }),
     });
-
     const idMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
     await new MessagesRepository(tx).createMany(
       toCopy.map((message, index) => ({
@@ -393,7 +384,33 @@ export class ChatsService {
           : null,
       })),
     );
+    return created;
+  }
 
+  /**
+   * Owner-fork copy (#154): copy the selected prefix with preserved
+   * timestamps, usage (inherited provenance), and the completion fact.
+   */
+  private async copyOwnerPrefix(
+    tx: Db,
+    ownerUserId: string,
+    source: Chat,
+    toCopy: Array<Message>,
+  ): Promise<Chat> {
+    const created = await new ChatsRepository(tx).create({
+      ownerUserId,
+      ...(source.title !== null && { title: forkTitle(source.title) }),
+      ...(toCopy.length > 0 && {
+        inheritedContextOriginAt:
+          source.inheritedContextOriginAt ?? source.createdAt,
+      }),
+    });
+    const idMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
+    await new MessagesRepository(tx).createMany(
+      toCopy.map((m, i) =>
+        mapOwnerCopiedMessage(m, i, created.id, idMap, toCopy),
+      ),
+    );
     return created;
   }
 
@@ -543,14 +560,47 @@ export class ChatsService {
         const toCopy = await messagesRepo.findByChatId(chatId, ownerUserId, {
           maxSeq,
         });
-        return this.copyMessagesIntoNewChat(
-          tx,
-          ownerUserId,
-          source.title,
-          toCopy,
-        );
+        return this.copyOwnerPrefix(tx, ownerUserId, source, toCopy);
       },
       { isolationLevel: 'repeatable read' },
     );
   }
+}
+
+/** Map a source message to its owner-fork destination shape. */
+function mapOwnerCopiedMessage(
+  message: Message,
+  index: number,
+  destChatId: string,
+  idMap: Map<string, string>,
+  allCopied: Array<Message>,
+) {
+  return {
+    id: idMap.get(message.id)!,
+    chatId: destChatId,
+    seq: index + 1,
+    role: message.role,
+    senderUserId: message.senderUserId,
+    parts: message.parts,
+    attachments: message.attachments,
+    usage: message.usage,
+    createdAt: message.createdAt,
+    inReplyTo: message.inReplyTo
+      ? (idMap.get(message.inReplyTo) ?? null)
+      : null,
+    inheritedTurnComplete:
+      message.inheritedTurnComplete ||
+      (message.role === 'user' &&
+        allCopied.some(
+          (m) =>
+            m.role === 'assistant' &&
+            m.inReplyTo === message.id &&
+            isCompletedAssistantTurn(m),
+        )),
+    ...(message.usage != null && {
+      usageOriginKind: message.usageOriginKind ?? ('message' as const),
+      usageOriginId: message.usageOriginId ?? message.id,
+      usageProvenanceCol: 'inherited' as const,
+    }),
+  };
 }
