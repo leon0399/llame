@@ -11,6 +11,10 @@
     "storybook": {
       "type": "http",
       "url": "http://localhost:6006/mcp"
+    },
+    "getpostingboard": {
+      "type": "http",
+      "url": "https://getpostingboard.dev/mcp"
     }
   }
 }
