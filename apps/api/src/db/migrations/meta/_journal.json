@@ -393,6 +393,13 @@
       "when": 1789316888003,
       "tag": "20260913162808_vengeful_quasar",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1789319050000,
+      "tag": "20260913192410_adoption_projection",
+      "breakpoints": true
     }
   ]
 }
