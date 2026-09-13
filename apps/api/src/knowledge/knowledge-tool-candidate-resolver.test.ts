@@ -79,6 +79,42 @@ describe('KnowledgeToolCandidateResolver', () => {
     ).toEqual(['read', 'edit', 'write']);
   });
 
+  it('admits only read, and no absolute-path authority, from skill sources alone', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        skills: { directories: ['/opt/skills'] },
+      },
+    });
+    const candidates = await makeInput(resolver, {
+      allowedToolRules: ['read', 'edit', 'write', 'bash'],
+      codeOwnedTools: [
+        nativeReadTool,
+        nativeEditTool,
+        nativeWriteTool,
+        bashTool,
+      ],
+    });
+
+    expect(
+      candidates.map((candidate) =>
+        candidate.state === 'available' ? candidate.tool.id : candidate.id,
+      ),
+    ).toEqual(['read']);
+  });
+
+  it('admits nothing extra from an empty skill directory list', async () => {
+    const resolver = new KnowledgeToolCandidateResolver({
+      config: { ...BUILT_IN_DEFAULTS, skills: { directories: [] } },
+    });
+    expect(
+      await makeInput(resolver, {
+        allowedToolRules: ['read', 'edit', 'write'],
+        codeOwnedTools: [nativeReadTool, nativeEditTool, nativeWriteTool],
+      }),
+    ).toEqual([]);
+  });
+
   it('offers native candidates when the operator declares host authority', async () => {
     const resolver = new KnowledgeToolCandidateResolver({
       config: {

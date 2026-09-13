@@ -8,6 +8,7 @@ import {
   type KnowledgeFilesystemBinding,
 } from '../knowledge/knowledge-filesystem';
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
+import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { type CompiledPolicy } from './permissions/types';
 
 /**
@@ -72,6 +73,18 @@ export interface ToolContext {
   readonly toolCallId?: string;
   /** Trusted worker-bound Knowledge capability; never model supplied. */
   readonly knowledgeResolver?: KnowledgeToolResolver;
+  /**
+   * Trusted process-wide skill catalog (system-provided-skills D1). Absent
+   * means no skill source is configured, so `skill://` fails closed.
+   */
+  readonly skillCatalog?: SkillCatalogPort;
+  /**
+   * The current user turn's explicit `$skill` selections, derived by the
+   * activation layer from the triggering user message and supplied to every
+   * skill read in that Run. A caller with no turn context leaves it unset, so
+   * a manual-only package's body read refuses.
+   */
+  readonly skillSelection?: ReadonlySet<string>;
   /** Process-wide query embedder for search; undefined when no model is configured. */
   readonly queryEmbedder?: QueryEmbedderPort;
   /**

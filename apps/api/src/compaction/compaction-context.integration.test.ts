@@ -37,6 +37,7 @@ import { SearchIndexService } from '../search/search-index.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import {
   ChatsRepository,
   CompactionsRepository,
@@ -940,6 +941,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       new SearchIndexService(tenantDb),
       noopReindexDispatch(),
       knowledgeResolver,
+      noopSkillCatalog(),
 
       noopEmbedDispatch(),
       noopQueryEmbedder(),

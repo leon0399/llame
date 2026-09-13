@@ -97,6 +97,44 @@ with `invalid_path` on `read`, `edit`, and `write` alike. It is never treated
 as a literal relative or absolute filename, and no file named after the scheme
 is read, created, or modified.
 
+## `skill://` locators
+
+`read` also accepts read-only `skill://` locators for packages the operator
+installed under `skills.directories` (see [skills.md](skills.md)); `edit` and
+`write` reject the scheme with `unsupported_operation` and no filesystem
+effect.
+
+- `skill://<name>` reads the package's `SKILL.md`; `skill://<name>:raw` returns
+  it verbatim, still with the result envelope.
+- `skill://<name>/<path>[:selector]` reads a supporting file, with the same
+  selector, truncation, and context behavior as any other read.
+- `skill://<name>/` lists the package directory, and `skill://` with an
+  optional `:N-M` or `:N+K` lists the catalog, which pages through
+  `nextOffset` like a directory listing.
+
+`<name>` follows the Agent Skills name grammar (1-64 lowercase letters, digits,
+and hyphens, with no leading, trailing, or consecutive hyphen). `<path>`
+follows the same component and bounds rules as a `kb://` path. Package symlinks
+resolve only within a configured real source root, and resource symlinks — plus
+`SKILL.md` and the invocation sidecars — resolve only within the package's real
+directory; anything landing outside returns `not_found` without opening it.
+Every call re-reads the catalog, so a removed or newly invalid package fails
+immediately rather than serving stale bytes.
+
+Every successful result carries `locator`, `sourceDirectory`,
+absolute `resolvedPath`, absolute `skillDirectory`, and `skillPathInstruction`.
+Unlike `kb://`, these paths are published deliberately: a skill's script and
+reference instructions are usable only once the agent can turn them into
+absolute paths. Resolve package-relative references against `skillDirectory`,
+keep task-relative input arguments as given, and pass an explicit `cwd` when a
+script needs its own directory. The tool never rewrites a Bash command and
+never executes a skill's scripts during a read.
+
+A manual-only package (one whose invocation control disables proactive use)
+loads only when the user names it explicitly in the current turn, for example
+by writing `$review`. Without that selection its body and resource reads return
+`skill_requires_explicit_selection` and the catalog listing omits it.
+
 ## Calls
 
 - `read({ path: "/absolute/file.md:10-20" })` returns lines 10 through 20,

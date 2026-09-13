@@ -70,6 +70,9 @@ type HarnessOverrides = {
    *  worker exactly as they do in production. Absent leaves the capability
    *  unconfigured, and an absolute path fails closed as before. */
   knowledgeRoot?: string;
+  /** Operator-configured skill source directories, so `skill://` locators
+   *  resolve in the worker exactly as they do in production. */
+  skillDirectories?: ReadonlyArray<string>;
   runsConcurrency?: number;
   timeoutSeconds?: number;
   heartbeatSeconds?: number;
@@ -102,6 +105,10 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
       ...(overrides?.knowledgeRoot !== undefined && {
         root: overrides.knowledgeRoot,
       }),
+    },
+    skills: {
+      directories:
+        overrides?.skillDirectories ?? BUILT_IN_DEFAULTS.skills.directories,
     },
     runs: {
       ...BUILT_IN_DEFAULTS.runs,

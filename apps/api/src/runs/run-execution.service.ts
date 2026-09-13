@@ -72,6 +72,7 @@ import {
   type ToolResult,
 } from '../tools/types';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
+import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
 import {
   toolTerminationMessage,
   toolTerminationResult,
@@ -231,6 +232,8 @@ export class RunExecutionService {
     private readonly reindexDispatch: ChatReindexDispatcher,
     @Inject(KnowledgeToolRuntimeResolver)
     private readonly knowledgeResolver: KnowledgeToolResolver,
+    @Inject(SkillCatalog)
+    private readonly skillCatalog: SkillCatalogPort,
 
     @Inject(SearchEmbedDispatchService)
     private readonly embedDispatch: ChatEmbedDispatcher,
@@ -557,6 +560,7 @@ export class RunExecutionService {
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
+      skillCatalog: this.skillCatalog,
       queryEmbedder: this.queryEmbedder,
       permissionPolicy: this.permissionPolicy,
     };

@@ -26,7 +26,13 @@ import { runTool } from './runner';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
-import { type KnowledgeToolResolver, type ToolContext } from './types';
+import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
+import { SKILL_PATH_INSTRUCTION } from '../skills/skill-target';
+import {
+  type KnowledgeToolResolver,
+  type ToolContext,
+  type ToolResult,
+} from './types';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 describe('native tool admission', () => {
@@ -435,6 +441,308 @@ describe('knowledge locator resolution', () => {
     await expect(
       readFile(join(directory, 'research', 'note.md')),
     ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+/** The catalog listing is a success result carrying a `skills` array. */
+function hasEntryCount(result: ToolResult, count: number): boolean {
+  if (result.status !== 'success') return false;
+  const skills = result['skills'];
+  return Array.isArray(skills) && skills.length === count;
+}
+
+describe('skill locator resolution', () => {
+  let source: string;
+  let packageDirectory: string;
+
+  function skillContext(
+    overrides: {
+      readonly catalog?: SkillCatalogPort;
+      readonly selection?: ReadonlySet<string>;
+    } = {},
+  ): ToolContext {
+    const base: ToolContext = {
+      userId: 'owner',
+      chatId: 'chat',
+      runId: 'run',
+      toolCallId: 'call',
+      permissionPolicy: compileTestPermissionPolicy(),
+      skillCatalog: overrides.catalog ?? new SkillCatalog([source]),
+      tenantDb: {
+        runAs: () => Promise.reject(new Error('Database unavailable')),
+      },
+    };
+    return overrides.selection === undefined
+      ? base
+      : { ...base, skillSelection: overrides.selection };
+  }
+
+  async function writePackage(
+    name: string,
+    options: { readonly sidecar?: string } = {},
+  ): Promise<void> {
+    packageDirectory = join(source, name);
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(
+      join(packageDirectory, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: The ${name} skill.\n---\n# ${name} instructions\n`,
+    );
+    if (options.sidecar !== undefined) {
+      await mkdir(join(packageDirectory, 'agents'), { recursive: true });
+      await writeFile(
+        join(packageDirectory, 'agents', 'openai.yaml'),
+        options.sidecar,
+      );
+    }
+  }
+
+  beforeEach(async () => {
+    source = await mkdtemp(join(tmpdir(), 'skill-source-'));
+    await writePackage('pdf');
+  });
+  afterEach(async () => {
+    await rm(source, { recursive: true, force: true });
+  });
+
+  it('reads the package root and publishes the real paths and instruction', async () => {
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://pdf' },
+      skillContext(),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      kind: 'file',
+      locator: 'skill://pdf',
+      skillDirectory: packageDirectory,
+      sourceDirectory: source,
+      skillPathInstruction: SKILL_PATH_INSTRUCTION,
+    });
+    expect(JSON.stringify(result)).toContain(packageDirectory);
+    expect(JSON.stringify(result)).toContain('# pdf instructions');
+  });
+
+  it('returns the raw root bytes with the envelope still present', async () => {
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://pdf:raw' },
+      skillContext(),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      representation: 'raw',
+      skillDirectory: packageDirectory,
+    });
+    expect(JSON.stringify(result)).toContain(
+      String.raw`---\nname: pdf\ndescription: The pdf skill.\n---\n# pdf instructions\n`,
+    );
+  });
+
+  it('lists the package directory for the trailing-slash form', async () => {
+    await writeFile(join(packageDirectory, 'notes.md'), '# Notes\n');
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://pdf/' },
+      skillContext(),
+      5,
+    );
+
+    expect(result).toMatchObject({ status: 'success', kind: 'directory' });
+    expect(JSON.stringify(result)).toContain('SKILL.md');
+    expect(JSON.stringify(result)).toContain('notes.md');
+    expect(result).toMatchObject({ skillDirectory: packageDirectory });
+  });
+
+  it('lists the bounded catalog without reading a package body', async () => {
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://' },
+      skillContext(),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      locator: 'skill://',
+      skillCount: 1,
+    });
+    expect(result).not.toHaveProperty('content');
+    expect(result).toMatchObject({
+      skills: [
+        {
+          name: 'pdf',
+          description: 'The pdf skill.',
+          proactive: true,
+          available: true,
+          diagnostics: [],
+        },
+      ],
+    });
+  });
+
+  it('pages the catalog with a line selector', async () => {
+    await writePackage('research');
+    const first = await runTool(
+      nativeReadTool,
+      { path: 'skill://:1-1' },
+      skillContext(),
+      5,
+    );
+    expect(first).toMatchObject({ nextOffset: 1 });
+    expect(hasEntryCount(first, 1)).toBe(true);
+
+    const second = await runTool(
+      nativeReadTool,
+      { path: 'skill://:2-2' },
+      skillContext(),
+      5,
+    );
+    expect(second).not.toHaveProperty('nextOffset');
+    expect(hasEntryCount(second, 1)).toBe(true);
+  });
+
+  it('refuses the catalog :raw selector', async () => {
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://:raw' },
+      skillContext(),
+      5,
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'invalid_selector' });
+  });
+
+  it('refuses a manual-only package without the turn selection', async () => {
+    await rm(packageDirectory, { recursive: true, force: true });
+    await writePackage('review', {
+      sidecar: 'policy:\n  allow_implicit_invocation: false\n',
+    });
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://review' },
+      skillContext(),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'skill_requires_explicit_selection',
+    });
+    expect(String(result.message)).toContain('$review');
+  });
+
+  it('loads a manual-only package the turn selected, and a later turn refuses', async () => {
+    await rm(packageDirectory, { recursive: true, force: true });
+    await writePackage('review', {
+      sidecar: 'policy:\n  allow_implicit_invocation: false\n',
+    });
+
+    const selected = await runTool(
+      nativeReadTool,
+      { path: 'skill://review' },
+      skillContext({ selection: new Set(['review']) }),
+      5,
+    );
+    expect(selected).toMatchObject({ status: 'success' });
+
+    const later = await runTool(
+      nativeReadTool,
+      { path: 'skill://review' },
+      skillContext(),
+      5,
+    );
+    expect(later).toMatchObject({
+      status: 'error',
+      type: 'skill_requires_explicit_selection',
+    });
+  });
+
+  it('refuses an escaping resource symlink without opening it', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'skill-outside-'));
+    await writeFile(join(outside, 'secret.md'), 'secret');
+    await symlink(
+      join(outside, 'secret.md'),
+      join(packageDirectory, 'linked.md'),
+    );
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://pdf/linked.md' },
+      skillContext(),
+      5,
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(JSON.stringify(result)).not.toContain('secret');
+
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  it('refuses encoded traversal and special files', async () => {
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: 'skill://pdf/..%2fsecret' },
+        skillContext(),
+        5,
+      ),
+    ).toMatchObject({ status: 'error', type: 'invalid_path' });
+
+    await mkdir(join(packageDirectory, 'adir'));
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: 'skill://pdf/adir' },
+        skillContext(),
+        5,
+      ),
+    ).toMatchObject({ status: 'success', kind: 'directory' });
+  });
+
+  it('refuses edit and write on a skill locator without effect', async () => {
+    const edit = await runTool(
+      nativeEditTool,
+      { path: 'skill://pdf', oldText: 'a', newText: 'b' },
+      skillContext(),
+      5,
+    );
+    expect(edit).toMatchObject({
+      status: 'error',
+      type: 'unsupported_operation',
+    });
+
+    const write = await runTool(
+      nativeWriteTool,
+      { path: 'skill://pdf/new.md', content: 'x' },
+      skillContext(),
+      5,
+    );
+    expect(write).toMatchObject({
+      status: 'error',
+      type: 'unsupported_operation',
+    });
+
+    const body = await readFile(join(packageDirectory, 'SKILL.md'), 'utf8');
+    expect(body).toContain('# pdf instructions');
+  });
+
+  it('fails closed when no skill catalog is configured', async () => {
+    const context = { ...skillContext(), skillCatalog: undefined };
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://pdf' },
+      context,
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'skill_catalog_unavailable',
+    });
   });
 });
 

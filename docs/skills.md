@@ -103,4 +103,9 @@ read-only and identical for every owner. Entries are ordered by name; pass
 to page through a large catalog. `nextCursor` is `null` on the last page.
 
 Manual-only packages appear in this listing. Loading instructions and package
-files is owned by later capability layers.
+files happens through the native `read` tool's `skill://` locator: `skill://pdf`
+reads `SKILL.md`, `skill://pdf/<path>` reads a supporting file, `skill://pdf/`
+lists the package, and `skill://` lists the catalog. See
+[native-files.md](native-files.md) for the locator contract, the published
+`skillDirectory`/`resolvedPath` envelope, and how a manual-only package is
+selected explicitly.

@@ -57,6 +57,22 @@ describe('projectNativeFilePath', () => {
     expect(projectNativeFilePath('kb://Space/dir/')).toBe('kb://Space/dir/');
   });
 
+  it('projects a skill locator to its canonical resource identity', () => {
+    expect(projectNativeFilePath('skill://pdf')).toBe('skill://pdf');
+    expect(projectNativeFilePath('skill://pdf:raw')).toBe('skill://pdf');
+    expect(projectNativeFilePath('skill://pdf:10-20')).toBe('skill://pdf');
+    expect(projectNativeFilePath('skill://pdf/')).toBe('skill://pdf/');
+    expect(projectNativeFilePath('skill://')).toBe('skill://');
+    expect(projectNativeFilePath('skill://pdf/references/a%20b.md:5+10')).toBe(
+      'skill://pdf/references/a%20b.md',
+    );
+  });
+
+  it('leaves an invalid skill locator unchanged', () => {
+    expect(projectNativeFilePath('skill://PDF')).toBe('skill://PDF');
+    expect(projectNativeFilePath('skill://pdf/%2F')).toBe('skill://pdf/%2F');
+  });
+
   it('leaves direct host locators textual', () => {
     expect(projectNativeFilePath('/tmp/file:1-2')).toBe('/tmp/file:1-2');
   });
@@ -78,6 +94,45 @@ describe('native file permission projection', () => {
     expect(decideNative(map, 'read', { path: '/tmp/file' })).toMatchObject({
       decision: 'allow',
     });
+  });
+
+  it('matches a literal and an encoded skill spelling as one resource', () => {
+    // The projection is the canonical identity, so a policy written in that
+    // canonical spelling matches an encoded submission of the same resource.
+    const map: ToolPermissionMap = {
+      read: {
+        allow: [{ field: 'path', literal: 'skill://pdf/references/a%20b.md' }],
+      },
+    };
+    expect(
+      decideNative(map, 'read', {
+        path: 'skill://pdf/references/a%20b.md:raw',
+      }),
+    ).toMatchObject({ decision: 'allow' });
+    expect(
+      decideNative(map, 'read', { path: 'skill://pdf/references/a%20b.md' }),
+    ).toMatchObject({ decision: 'allow' });
+    expect(
+      decideNative(map, 'read', { path: 'skill://pdf/references/a b.md' }),
+    ).toMatchObject({ decision: 'allow' });
+  });
+
+  it('rejects a built-in credential path through a skill locator', () => {
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: '^skill://[^/]+/(?:\\.|%2[eE])' }],
+      },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'skill://pdf/.env' }),
+    ).toMatchObject({ decision: 'reject' });
+    expect(
+      decideNative(map, 'read', { path: 'skill://pdf/%2eenv:raw' }),
+    ).toMatchObject({ decision: 'reject' });
+    expect(
+      decideNative(map, 'read', { path: 'skill://pdf/references/guide.md' }),
+    ).toMatchObject({ decision: 'allow' });
   });
 
   it('matches equivalent Knowledge spellings through the canonical identity', () => {
