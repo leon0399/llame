@@ -2,7 +2,7 @@
  * Skills catalog e2e: a real HTTP consumer (supertest) against the bootstrapped
  * NestJS app, proving the operator catalog inspection surface is authenticated,
  * identical for two owners, and read-only. Requires POSTGRES_URL (the
- * test:integration globalSetup provides one); skipped without it.
+ * test:integration globalSetup provides one).
  */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
@@ -21,10 +21,7 @@ import { configureApp } from '../app.setup';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf } from '../testing/support';
 
-const hasDb = !!process.env.POSTGRES_URL;
-const d = hasDb ? describe : describe.skip;
-
-d('skills catalog e2e — real HTTP + Postgres', () => {
+describe('skills catalog e2e — real HTTP + Postgres', () => {
   let app: INestApplication;
   let http: Server;
   let workingDirectory = '';
@@ -35,6 +32,12 @@ d('skills catalog e2e — real HTTP + Postgres', () => {
   const tag = Date.now();
 
   beforeAll(async () => {
+    if (!process.env.POSTGRES_URL) {
+      throw new Error(
+        'POSTGRES_URL is required for skills catalog integration tests. ' +
+          'Run via `pnpm --filter api test:integration` (globalSetup provisions it).',
+      );
+    }
     workingDirectory = mkdtempSync(path.join(tmpdir(), 'llame-skills-e2e-'));
     source = path.join(workingDirectory, 'source');
     for (const name of ['pdf', 'review']) {

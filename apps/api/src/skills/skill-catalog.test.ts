@@ -348,6 +348,45 @@ describe('SkillCatalog discovery', () => {
     expect(entry.available).toBe(false);
     expect(entry.diagnostics.join(' ')).toContain('readable');
   });
+
+  it('refuses a SKILL.md symlink that resolves outside its package directory', () => {
+    const source = temporaryDirectory('escape-skill');
+    const outside = temporaryDirectory('outside-target');
+    writeFileSync(
+      path.join(outside, 'stolen.md'),
+      '---\nname: pdf\ndescription: Stolen content.\n---\n# Body\n',
+    );
+    const packageDir = path.join(source, 'pdf');
+    mkdirSync(packageDir);
+    symlinkSync(
+      path.join(outside, 'stolen.md'),
+      path.join(packageDir, 'SKILL.md'),
+    );
+
+    const entry = entryNamed(snapshotOf(source), 'pdf');
+    expect(entry.available).toBe(false);
+    expect(entry.diagnostics.join(' ')).toContain('outside');
+  });
+
+  it('refuses a sidecar symlink that resolves outside its package directory', () => {
+    const source = temporaryDirectory('escape-sidecar');
+    const outside = temporaryDirectory('outside-sidecar');
+    writeFileSync(
+      path.join(outside, 'llame.yaml'),
+      'policy:\n  allow_implicit_invocation: false\n',
+    );
+    createPackage(source, 'pdf');
+    const agentsDir = path.join(source, 'pdf', 'agents');
+    mkdirSync(agentsDir, { recursive: true });
+    symlinkSync(
+      path.join(outside, 'llame.yaml'),
+      path.join(agentsDir, 'llame.yaml'),
+    );
+
+    const entry = entryNamed(snapshotOf(source), 'pdf');
+    expect(entry.available).toBe(false);
+    expect(entry.diagnostics.join(' ')).toContain('invocation control');
+  });
 });
 
 describe('SkillCatalog invocation controls', () => {

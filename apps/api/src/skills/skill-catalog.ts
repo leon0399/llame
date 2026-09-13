@@ -242,6 +242,7 @@ export class SkillCatalog {
 
     const document = this.readSkillDocument(
       path.join(resolved.directory, SKILL_DOCUMENT_FILENAME),
+      resolved.directory,
     );
     if (document.status === 'missing') return undefined;
     if (document.status === 'unavailable') {
@@ -338,7 +339,10 @@ export class SkillCatalog {
     return { status: 'package', directory: real };
   }
 
-  private readSkillDocument(documentPath: string): SkillDocumentRead {
+  private readSkillDocument(
+    documentPath: string,
+    packageDirectory: string,
+  ): SkillDocumentRead {
     const kind = this.fileSystem.fileKind(documentPath);
     if (kind === 'missing') return { status: 'missing' };
     if (kind !== 'file') {
@@ -347,6 +351,9 @@ export class SkillCatalog {
         diagnostic: `${SKILL_DOCUMENT_FILENAME} is not a readable regular file.`,
       };
     }
+    const escaped = this.escapesPackage(documentPath, packageDirectory);
+    if (escaped !== undefined)
+      return { status: 'unavailable', diagnostic: escaped };
     try {
       return { status: 'ok', text: this.fileSystem.readTextFile(documentPath) };
     } catch {
@@ -368,6 +375,7 @@ export class SkillCatalog {
   ): boolean | 'invalid' {
     const llame = this.readSidecarControl(
       path.join(packageDirectory, LLAME_SIDECAR_PATH),
+      packageDirectory,
     );
     if (llame !== 'absent') return llame;
 
@@ -376,14 +384,21 @@ export class SkillCatalog {
 
     const openai = this.readSidecarControl(
       path.join(packageDirectory, OPENAI_SIDECAR_PATH),
+      packageDirectory,
     );
     return openai === 'absent' ? true : openai;
   }
 
-  private readSidecarControl(filePath: string): InvocationControlValue {
+  private readSidecarControl(
+    filePath: string,
+    packageDirectory: string,
+  ): InvocationControlValue {
     const kind = this.fileSystem.fileKind(filePath);
     if (kind === 'missing') return 'absent';
     if (kind !== 'file') return 'invalid';
+    if (this.escapesPackage(filePath, packageDirectory) !== undefined) {
+      return 'invalid';
+    }
     try {
       return readSidecarInvocationControl(
         this.fileSystem.readTextFile(filePath),
@@ -393,6 +408,23 @@ export class SkillCatalog {
     }
   }
 
+  /** Return a diagnostic when `filePath` resolves outside `packageDirectory`,
+   *  or `undefined` when contained. Design D1: resource links must remain
+   *  within the selected real package directory. */
+  private escapesPackage(
+    filePath: string,
+    packageDirectory: string,
+  ): string | undefined {
+    try {
+      const real = this.fileSystem.realPath(filePath);
+      if (!isInside(packageDirectory, real)) {
+        return 'A resource symlink resolves outside its package directory.';
+      }
+      return undefined;
+    } catch {
+      return 'A resource symlink could not be resolved.';
+    }
+  }
   private unavailable(
     directories: ReadonlyArray<string>,
     diagnostic: string,
