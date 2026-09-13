@@ -30,6 +30,7 @@ import {
   MessagesRepository,
 } from '../chats/chats-repository';
 import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
+import { MessageTurnContextsRepository } from '../chats/message-turn-contexts-repository';
 import { createModelChangeItem } from '../chats/context-item-producers';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import type { DynamicToolExecutorResolver } from './snapshot-tool-execution';
@@ -269,6 +270,10 @@ function mockNormalExecutionRepositories() {
   vi.spyOn(
     CompactionsRepository.prototype,
     'findLatestByChatId',
+  ).mockResolvedValue(undefined);
+  vi.spyOn(
+    MessageTurnContextsRepository.prototype,
+    'recordContextItems',
   ).mockResolvedValue(undefined);
   vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
     userMessage,

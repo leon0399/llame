@@ -650,4 +650,16 @@ export class ChatsRepository {
       .returning();
     return updated;
   }
+
+  /** Advance the Chat-local context revision to `nextRevision`. */
+  async advanceContextRevision(
+    chatId: string,
+    ownerUserId: string,
+    nextRevision: number,
+  ): Promise<void> {
+    await this.db
+      .update(chats)
+      .set({ contextRevision: nextRevision })
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
+  }
 }

@@ -82,6 +82,7 @@ import {
   RunsRepository,
   type RunEventType,
 } from './runs-repository';
+import { MessageTurnContextsRepository } from '../chats/message-turn-contexts-repository';
 import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
   buildTurnTelemetry,
@@ -438,13 +439,23 @@ export class RunExecutionService {
       // transition compaction can still replace it, and a preparation failure
       // means no request was ever made. Recording earlier would durably assert
       // a request the model never received.
-      const recorded = await this.tenantDb.runAs(input.userId, (tx) =>
-        new RunsRepository(tx).recordContextItems(
+      const recorded = await this.tenantDb.runAs(input.userId, async (tx) => {
+        const run = await new RunsRepository(tx).recordContextItems(
           input.runId,
           input.userId,
           contextItems,
-        ),
-      );
+        );
+        // Fence: write to the evidence row only if it exists and its
+        // contextItems are still NULL. A redelivered worker cannot replace
+        // already-recorded items.
+        await new MessageTurnContextsRepository(tx).recordContextItems(
+          input.chatId,
+          input.runId,
+          input.userId,
+          contextItems,
+        );
+        return run;
+      });
       // A miss means the owner-scoped row is gone — the chat was deleted out
       // from under a claimed run. Executing past that would send a request on
       // behalf of a run nobody can see, and would leave the authority record

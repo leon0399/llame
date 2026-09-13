@@ -36,6 +36,7 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from './chats-repository';
+import { MessageTurnContextsRepository } from './message-turn-contexts-repository';
 import { type RecencyDigestResolver } from './recency-digest.service';
 
 const model: SystemModelCatalogEntry = {
@@ -191,6 +192,13 @@ function makeService(options?: {
     ChatsRepository.prototype,
     'setRecencyDigestIfAbsent',
   ).mockResolvedValue(chat);
+  vi.spyOn(
+    ChatsRepository.prototype,
+    'advanceContextRevision',
+  ).mockResolvedValue(undefined);
+  vi.spyOn(MessageTurnContextsRepository.prototype, 'create').mockResolvedValue(
+    undefined,
+  );
   vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
     userMessage: undefined,
     assistantMessage: undefined,

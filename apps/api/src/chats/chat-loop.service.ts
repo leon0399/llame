@@ -49,7 +49,6 @@ import {
   SystemPromptsService,
   type SystemPromptRenderInput,
 } from '../system-prompts/system-prompts.service';
-import { type EffectiveContextSnapshotInput } from '../runs/effective-context-resolver';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
@@ -69,7 +68,12 @@ import {
   type RecencyDigestResolution,
   type RecencyDigestResolver,
 } from './recency-digest.service';
-import { resolveTurnContext, type TurnContextDeps } from './turn-context';
+import {
+  resolveTurnContext,
+  type ResolveTurnContextResult,
+  type TurnContextDeps,
+} from './turn-context';
+import { recordAcceptanceEvidence } from './message-turn-contexts-repository';
 
 type RuntimeCatalogSnapshotter = Pick<McpRuntimeService, 'snapshotCandidates'>;
 
@@ -331,26 +335,18 @@ export class ChatLoopService {
   private async persistUserMessageAndRun(
     input: PersistUserMessageAndRunInput,
   ): Promise<PersistUserMessageAndRunResult> {
-    // Accepted-turn binding transaction. The prior accepted Run, active
-    // compaction boundary, durable availability delta, frozen digest baseline,
-    // rendered effective context, user message, immutable snapshot, Run, and
-    // run.created event are bound here atomically. A rollback establishes no
-    // digest or availability baseline. Compaction resets only this model-facing
-    // comparison epoch; it never mutates the process-resident tool catalog.
+    // Accepted-turn binding: message, snapshot, Run, run.created event, and
+    // turn-context evidence land atomically. A rollback establishes nothing.
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
-      const eventsRepo = new RunEventsRepository(tx);
-      const runsRepo = new RunsRepository(tx);
-
       const { chat, userMessage: admittedMessage } = await this.admitTurn(
         chatsRepo,
         messagesRepo,
         input,
       );
       let userMessage = admittedMessage;
-      await this.clearActiveRunSlot({ runsRepo, eventsRepo, ...input });
-
+      await this.clearActiveRunSlot(tx, input);
       const turnContext = await resolveTurnContext(
         this.turnContextDeps(),
         { tx, chatsRepo, chat },
@@ -362,19 +358,14 @@ export class ChatLoopService {
         input,
         turnContext,
       );
-
-      // Durable run (#48): every accepted user message becomes exactly one run
-      // (SPEC §9.3). The run row + run.created land in the SAME transaction as
-      // the user message, so a message can never exist without its execution
-      // record. Reusing a message id is rejected above; retries are a separate
-      // feature, not implicit idempotency.
-      const { run, supersededRunIds } = await this.createRunForMessage(
+      const { run, supersededRunIds } = await this.createRunAndEvidence(
         tx,
+        chatsRepo,
+        chat,
         input,
         userMessage,
-        turnContext.effectiveContext,
+        turnContext,
       );
-
       return {
         runId: run.id,
         userMessage: toRunUserMessage(userMessage),
@@ -522,20 +513,20 @@ export class ChatLoopService {
   }
 
   /**
-   * The Run row + its context snapshot, atomically with canceling any
-   * (defensively impossible, but legacy-data-tolerant) stale active runs on
-   * this same message, and the `run.created` event.
+   * Create the Run row, context snapshot, run.created event, and the
+   * immutable turn-context evidence (#154) atomically.
    */
-  private async createRunForMessage(
+  private async createRunAndEvidence(
     tx: Db,
-    input: CreateRunForMessageInput,
+    chatsRepo: ChatsRepository,
+    chat: Chat,
+    input: CreateRunForMessageInput & PersistUserMessageAndRunInput,
     userMessage: Message,
-    effectiveContext: EffectiveContextSnapshotInput,
+    turnContext: ResolveTurnContextResult,
   ): Promise<CreateRunForMessageResult> {
     const snapshot = await new ModelContextSnapshotsRepository(
       tx,
-    ).createOrReuse(input.userId, effectiveContext);
-
+    ).createOrReuse(input.userId, turnContext.effectiveContext);
     const runsRepo = new RunsRepository(tx);
     const eventsRepo = new RunEventsRepository(tx);
     const superseded = await this.cancelSupersededRuns(
@@ -544,13 +535,20 @@ export class ChatLoopService {
       userMessage,
       input.userId,
     );
-
     const run = await this.createRunRow(tx, input, userMessage, snapshot.id);
     await eventsRepo.append(run.id, 'run.created', {
       chatId: input.chatId,
       messageId: userMessage.id,
     });
-
+    await recordAcceptanceEvidence({
+      tx,
+      chatsRepo,
+      chat,
+      input,
+      run,
+      userMessage,
+      digestDelta: turnContext.digestDelta,
+    });
     return { run, supersededRunIds: superseded.map((stale) => stale.id) };
   }
 
@@ -587,17 +585,17 @@ export class ChatLoopService {
     }
   }
 
-  private async clearActiveRunSlot(input: {
-    runsRepo: RunsRepository;
-    eventsRepo: RunEventsRepository;
-    chatId: string;
-    userId: string;
-  }): Promise<void> {
+  private async clearActiveRunSlot(
+    tx: Db,
+    input: { chatId: string; userId: string },
+  ): Promise<void> {
+    const runsRepo = new RunsRepository(tx);
+    const eventsRepo = new RunEventsRepository(tx);
     const stuckAfterMs = stuckRunThresholdMs(this.instanceConfig.config);
     const isStuck = (run: Run) =>
       Date.now() - (run.startedAt ?? run.createdAt).getTime() >= stuckAfterMs;
     const findActive = () =>
-      input.runsRepo.findActiveByChatId(input.chatId, input.userId);
+      runsRepo.findActiveByChatId(input.chatId, input.userId);
 
     let blocking = await findActive();
     if (!blocking) return;
@@ -615,14 +613,14 @@ export class ChatLoopService {
 
     const message =
       'Expired by a new message: run stuck with no execution progress.';
-    const expired = await input.runsRepo.markFinished(
+    const expired = await runsRepo.markFinished(
       blocking.id,
       input.userId,
       'expired',
       { message },
     );
     if (expired) {
-      await input.eventsRepo.append(blocking.id, 'run.expired', {
+      await eventsRepo.append(blocking.id, 'run.expired', {
         status: 'expired',
         message,
       });
