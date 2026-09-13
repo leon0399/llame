@@ -126,12 +126,10 @@ function parseFrontmatterMapping(
   let parsed: unknown;
   try {
     parsed = parseYaml(yaml);
-  } catch (error) {
+  } catch {
     return {
       status: 'invalid',
-      diagnostic: `SKILL.md frontmatter is not valid YAML: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      diagnostic: 'SKILL.md frontmatter is not valid YAML',
     };
   }
   if (!isRecord(parsed)) {
@@ -172,7 +170,7 @@ function readSkillMetadata(
   if (
     !isString(description) ||
     description.trim().length === 0 ||
-    description.length > SKILL_DESCRIPTION_MAX_LENGTH
+    Array.from(description).length > SKILL_DESCRIPTION_MAX_LENGTH
   ) {
     return {
       status: 'invalid',
