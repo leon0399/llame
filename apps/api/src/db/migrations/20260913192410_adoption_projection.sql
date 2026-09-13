@@ -18,10 +18,12 @@
 -- identity. Temporarily disable FORCE for the backfill, then re-enable.
 -- Re-add FORCE statements if this migration is regenerated.
 
--- Step 1: Disable FORCE RLS on tables we're backfilling.
+-- Step 1: Disable FORCE RLS on tables we're reading from and writing to.
 ALTER TABLE "message_turn_contexts" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "chats" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "compactions" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "runs" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "messages" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 
 -- Step 2: Project existing Run evidence into message_turn_contexts.
 -- Each Run with a message becomes one evidence record. Runs without a
@@ -122,4 +124,6 @@ WHERE "chats"."id" = cs."chat_id";--> statement-breakpoint
 -- Step 4: Re-enable FORCE RLS.
 ALTER TABLE "message_turn_contexts" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "chats" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
-ALTER TABLE "compactions" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "compactions" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "runs" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "messages" FORCE ROW LEVEL SECURITY;
