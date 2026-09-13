@@ -9,6 +9,7 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { Db } from '../db/tenant-db.service';
 import type { Chat, Compaction, ModelContextSnapshot, Run } from '../db/schema';
 import { ChatsRepository, CompactionsRepository } from './chats-repository';
+import { MessageTurnContextsRepository } from './message-turn-contexts-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import type { MessagePart } from './context-builder';
@@ -243,6 +244,9 @@ const installRepositorySpies = () => ({
     .mockResolvedValue(undefined),
   findSnapshot: vi
     .spyOn(ModelContextSnapshotsRepository.prototype, 'findByOwnedRun')
+    .mockResolvedValue(undefined),
+  findLatestEvidence: vi
+    .spyOn(MessageTurnContextsRepository.prototype, 'findLatestByChatId')
     .mockResolvedValue(undefined),
   setBaseline: vi
     .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')

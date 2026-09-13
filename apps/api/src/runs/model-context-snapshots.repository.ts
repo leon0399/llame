@@ -106,4 +106,21 @@ export class ModelContextSnapshotsRepository {
 
     return rows[0]?.snapshot;
   }
+
+  /** Resolve a snapshot by ID and owner. */
+  async findById(
+    snapshotId: string,
+    ownerUserId: string,
+  ): Promise<ModelContextSnapshot | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(modelContextSnapshots)
+      .where(
+        and(
+          eq(modelContextSnapshots.id, snapshotId),
+          eq(modelContextSnapshots.ownerUserId, ownerUserId),
+        ),
+      );
+    return row;
+  }
 }

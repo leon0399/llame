@@ -26,6 +26,7 @@ import {
   type EffectiveContextSnapshotInput,
 } from '../runs/effective-context-resolver';
 import { ChatsRepository, CompactionsRepository } from './chats-repository';
+import { MessageTurnContextsRepository } from './message-turn-contexts-repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { type MessagePart } from './context-builder';
@@ -292,28 +293,48 @@ async function resolveDisclosureEpoch(
   const previousRun = await new RunsRepository(
     tx,
   ).findMostRecentByChatMessageSequence(turnInput.chatId, turnInput.userId);
-  const previousSnapshot = previousRun
-    ? await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
-        previousRun.id,
-        turnInput.userId,
-      )
-    : undefined;
-
+  const previousSnapshot = await resolvePreviousSnapshot(
+    tx,
+    turnInput.chatId,
+    turnInput.userId,
+    previousRun,
+  );
   const compactionSincePreviousRun =
     activeCompaction !== undefined &&
     previousRun !== undefined &&
     activeCompaction.createdAt > previousRun.createdAt;
-  const startsDisclosureEpoch = !previousSnapshot || compactionSincePreviousRun;
-  const digestRebaked =
-    compactionSincePreviousRun &&
-    chat.recencyDigestRebakedFrom === activeCompaction?.id;
-
   return {
     previousRun,
     previousSnapshot,
-    continuesDisclosureEpoch: !startsDisclosureEpoch,
-    digestRebaked,
+    continuesDisclosureEpoch:
+      previousSnapshot !== undefined && !compactionSincePreviousRun,
+    digestRebaked:
+      compactionSincePreviousRun &&
+      chat.recencyDigestRebakedFrom === activeCompaction?.id,
   };
+}
+
+/** Resolve the prior turn's snapshot from the Run or inherited evidence. */
+async function resolvePreviousSnapshot(
+  tx: Db,
+  chatId: string,
+  ownerUserId: string,
+  previousRun: Run | undefined,
+): Promise<ModelContextSnapshot | undefined> {
+  if (previousRun) {
+    return new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+      previousRun.id,
+      ownerUserId,
+    );
+  }
+  const evidence = await new MessageTurnContextsRepository(
+    tx,
+  ).findLatestByChatId(chatId, ownerUserId);
+  if (!evidence?.snapshotId) return undefined;
+  return new ModelContextSnapshotsRepository(tx).findById(
+    evidence.snapshotId,
+    ownerUserId,
+  );
 }
 
 /**

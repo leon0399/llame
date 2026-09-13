@@ -4,7 +4,7 @@
  * evidence and fences one-time execution-item recording.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 
 import {
   type Chat,
@@ -93,6 +93,25 @@ export class MessageTurnContextsRepository {
       )
       .returning();
     return updated;
+  }
+
+  /** Most recent turn evidence for a chat, by contextRevision. */
+  async findLatestByChatId(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<MessageTurnContext | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(messageTurnContexts)
+      .where(
+        and(
+          eq(messageTurnContexts.chatId, chatId),
+          eq(messageTurnContexts.ownerUserId, ownerUserId),
+        ),
+      )
+      .orderBy(desc(messageTurnContexts.contextRevision))
+      .limit(1);
+    return row;
   }
 }
 
