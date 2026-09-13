@@ -42,7 +42,13 @@ import {
   partsToText,
   type MessagePart,
 } from '../chats/context-builder';
-import { isModelChangeItem } from '../chats/context-item-producers';
+import {
+  isModelChangeItem,
+  createModelChangeItem,
+  createToolAvailabilityItem,
+  createTemporalItem,
+  deriveToolAvailabilityPayload,
+} from '../chats/context-item-producers';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { createDeltaBuffer } from './delta-buffer';
 import {
@@ -518,19 +524,113 @@ export class RunExecutionService {
           promptHash: effectiveContext.promptHash,
         });
 
+        // Derive context-rail items this attempt contributes. These are
+        // staged in memory and used in the model request; successful
+        // publication writes them to the user message and run record.
+        const previousRun = await new RunsRepository(
+          tx,
+        ).findMostRecentByChatMessageSequence(input.chatId, input.userId);
+        const previousSnapshot = previousRun
+          ? await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+              previousRun.id,
+              input.userId,
+            )
+          : undefined;
+
+        const compactionSincePrevious =
+          compaction !== undefined &&
+          previousRun !== undefined &&
+          compaction.createdAt > previousRun.createdAt;
+        const startsEpoch = !previousSnapshot || compactionSincePrevious;
+
+        const stagedParts: Array<MessagePart> = [];
+        // Model-switch reminder
+        if (previousRun && previousRun.modelId !== input.client.model) {
+          stagedParts.push(
+            createModelChangeItem({
+              fromModelId: previousRun.modelId,
+              toModelId: input.client.model,
+              runId: input.runId,
+            }),
+          );
+        }
+        // Tool availability delta
+        const availabilityPayload = deriveToolAvailabilityPayload({
+          current: effectiveContext.toolAvailabilityManifest,
+          ...(!startsEpoch && {
+            previous: previousSnapshot?.toolAvailabilityManifest,
+          }),
+        });
+        if (availabilityPayload) {
+          stagedParts.push(
+            createToolAvailabilityItem({
+              runId: input.runId,
+              payload: availabilityPayload,
+            }),
+          );
+        }
+        // Temporal anchor — stamped unconditionally
+        stagedParts.push(
+          createTemporalItem({
+            runId: input.runId,
+            instant: new Date(),
+            timeZone: instanceTimezone,
+          }),
+        );
+
         // Build the message context using the freshly rendered prompt.
         const built = await this.rebuildContextForChat(tx, input, systemPrompt);
 
         return {
           ...built,
           effectiveContext,
+          stagedParts,
           untitled: chat?.title === null,
         };
       });
+
+      // Inject staged context items into the model request: prepend their
+      // rendered text to the triggering user message, matching the canonical
+      // producer order. Uses the same rendering path as userPartsToModelContent.
+      const contextMessages = context.messages;
+      const stagedTextParts = context.stagedParts
+        .map((p) => {
+          const text =
+            'data' in p &&
+            p.data != null &&
+            typeof p.data === 'object' &&
+            'text' in p.data &&
+            typeof p.data.text === 'string'
+              ? p.data.text
+              : undefined;
+          return text ? { type: 'text' as const, text } : undefined;
+        })
+        .filter((t): t is { type: 'text'; text: string } => t !== undefined);
+      if (stagedTextParts.length > 0) {
+        // Find the triggering user message (the last user message in the
+        // context — the one this run executes against) and prepend staged
+        // context items to its content.
+        for (let i = contextMessages.length - 1; i >= 0; i--) {
+          const msg = contextMessages[i];
+          if (msg.role === 'user') {
+            if (Array.isArray(msg.content)) {
+              msg.content.unshift(...stagedTextParts);
+            } else {
+              // String content: convert to array and prepend.
+              (msg as { content: unknown }).content = [
+                ...stagedTextParts,
+                { type: 'text' as const, text: msg.content },
+              ];
+            }
+            break;
+          }
+        }
+      }
+
       let contextItems = context.contextItems;
       prepared = {
         system: context.system,
-        messages: context.messages,
+        messages: contextMessages,
         untitled: context.untitled,
         toolDeclarations: context.effectiveContext.toolDeclarations,
         tools: await resolveBoundExecutableTools(
