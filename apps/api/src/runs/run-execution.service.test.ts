@@ -1361,7 +1361,10 @@ function makeDynamicResolver(executor: Tool): DynamicToolExecutorResolver {
 }
 
 /** Advertises `toolDeclaration` through the worker's dynamic catalog. */
-function withDeclaredTool() {
+function withDeclaredTool(): Pick<
+  ExecutionServiceOptions,
+  'allowed' | 'dynamicCandidates'
+> {
   return {
     allowed: [toolDeclaration.id],
     dynamicCandidates: [
@@ -1380,7 +1383,7 @@ function withDeclaredTool() {
   };
 }
 
-function withDeclaredBashTool() {
+function withDeclaredBashTool(): Pick<ExecutionServiceOptions, 'allowed'> {
   return { allowed: ['bash'] };
 }
 
