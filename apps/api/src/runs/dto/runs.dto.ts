@@ -1,27 +1,14 @@
-import {
-  ApiExtraModels,
-  ApiProperty,
-  ApiPropertyOptional,
-  getSchemaPath,
-} from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
 
 import {
   modelContextPromptSource,
   runStatus,
-  type ModelContextSnapshot,
   type Run,
   type RunStatus,
   type RunContextItem,
 } from '../../db/schema';
-import {
-  parseToolAvailabilityManifest,
-  TOOL_UNAVAILABLE_REASONS,
-  TOOL_UNAVAILABLE_REASON_LABELS,
-  type ToolUnavailableReason,
-} from '../../tools/turn-tool-catalog';
-import { type JsonSchemaDocument } from '../../tools/types';
 
 /** Query for the run-event replay cursor (SPEC §9.4). */
 export class ListRunEventsQuery {
@@ -86,82 +73,31 @@ export class RunResponse {
   @ApiProperty({ format: 'date-time', type: Date, nullable: true })
   finishedAt!: Date | null;
 }
+/** A single system-prompt receipt for one execution attempt. */
+export class AttemptReceiptResponse {
+  @ApiProperty({ description: 'Attempt identity.' })
+  attemptId!: string;
 
-export class ContextReceiptToolResponse {
-  @ApiProperty()
-  id!: string;
-
-  @ApiProperty()
-  description!: string;
-
-  @ApiProperty({ type: Object, additionalProperties: true })
-  inputSchema!: JsonSchemaDocument;
-}
-
-export class ContextReceiptAvailableToolResponse {
-  @ApiProperty()
-  id!: string;
-
-  @ApiProperty({ enum: ['available'] })
-  state!: 'available';
-
-  @ApiProperty()
-  declarationHash!: string;
-
-  @ApiProperty({ enum: ['available'] })
-  label!: 'available';
-}
-
-export class ContextReceiptUnavailableToolResponse {
-  @ApiProperty()
-  id!: string;
-
-  @ApiProperty({ enum: ['unavailable'] })
-  state!: 'unavailable';
-
-  @ApiProperty({ enum: TOOL_UNAVAILABLE_REASONS })
-  reason!: ToolUnavailableReason;
-
-  @ApiProperty()
-  label!: string;
-}
-
-export class ContextReceiptUnobservedAvailabilityResponse {
-  @ApiProperty({ enum: [0] })
-  version!: 0;
-
-  @ApiProperty({ enum: ['unobserved'] })
-  state!: 'unobserved';
-}
-
-export class ContextReceiptObservedAvailabilityResponse {
-  @ApiProperty({ enum: [1] })
-  version!: 1;
+  @ApiProperty({ enum: modelContextPromptSource.enumValues })
+  promptSource!: (typeof modelContextPromptSource.enumValues)[number];
 
   @ApiProperty({
-    type: 'array',
-    items: {
-      oneOf: [
-        { $ref: getSchemaPath(ContextReceiptAvailableToolResponse) },
-        { $ref: getSchemaPath(ContextReceiptUnavailableToolResponse) },
-      ],
-    },
+    description: 'Complete effective system prompt rendered for this attempt.',
   })
-  entries!: Array<
-    ContextReceiptAvailableToolResponse | ContextReceiptUnavailableToolResponse
-  >;
+  systemPrompt!: string;
+
+  @ApiProperty({ description: 'Hash of the rendered system prompt.' })
+  promptHash!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt!: Date;
 }
 
-export type ContextReceiptToolAvailabilityResponse =
-  | ContextReceiptUnobservedAvailabilityResponse
-  | ContextReceiptObservedAvailabilityResponse;
-
-@ApiExtraModels(
-  ContextReceiptAvailableToolResponse,
-  ContextReceiptUnavailableToolResponse,
-  ContextReceiptUnobservedAvailabilityResponse,
-  ContextReceiptObservedAvailabilityResponse,
-)
+/**
+ * System-only receipt response for a run: resolution state plus an ordered
+ * list of per-attempt receipts. No tool declarations, schemas, descriptions,
+ * or availability manifests are exposed.
+ */
 export class ContextReceiptResponse {
   @ApiProperty({
     description: 'Public llame model id selected for this run.',
@@ -171,35 +107,37 @@ export class ContextReceiptResponse {
   @ApiPropertyOptional({
     description:
       'Reasoning effort this run executed at, resolved when the run was ' +
-      'accepted. Absent when the run carried none. An opaque provider token — ' +
-      'a receipt of what ran, never recomputed from current configuration.',
+      'accepted. Absent when the run carried none.',
   })
   effort?: string;
 
-  @ApiProperty({ enum: modelContextPromptSource.enumValues })
-  promptSource!: (typeof modelContextPromptSource.enumValues)[number];
+  @ApiPropertyOptional({
+    description: 'Active execution attempt identity, if any.',
+  })
+  activeAttemptId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Completed (winning) attempt identity, if the run completed successfully.',
+  })
+  completedAttemptId?: string;
 
   @ApiProperty({
-    description: 'Complete effective system prompt bound to this run.',
+    enum: ['pending', 'prepared', 'not_produced'],
+    description:
+      'Resolution state: pending (queued, no attempt prepared yet), ' +
+      'prepared (at least one attempt has a receipt), or not_produced ' +
+      '(terminal without any receipt).',
   })
-  systemPrompt!: string;
-
-  @ApiProperty({ type: () => [ContextReceiptToolResponse] })
-  tools!: Array<ContextReceiptToolResponse>;
-
-  @ApiProperty()
-  availabilityHash!: string;
+  state!: 'pending' | 'prepared' | 'not_produced';
 
   @ApiProperty({
-    oneOf: [
-      { $ref: getSchemaPath(ContextReceiptUnobservedAvailabilityResponse) },
-      { $ref: getSchemaPath(ContextReceiptObservedAvailabilityResponse) },
-    ],
+    type: () => [AttemptReceiptResponse],
+    description:
+      'Ordered list of system-prompt receipts, one per execution attempt ' +
+      'that reached prompt preparation. Earliest first.',
   })
-  toolAvailability!: ContextReceiptToolAvailabilityResponse;
-
-  @ApiProperty()
-  contentHash!: string;
+  receipts!: Array<AttemptReceiptResponse>;
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
@@ -272,65 +210,47 @@ export function toRunResponse(run: Run): RunResponse {
     modelId: run.modelId,
     ...(run.effort !== null && { effort: run.effort }),
     status: run.status,
-    error: run.error ?? null,
+    error: run.error,
     createdAt: run.createdAt,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
   };
 }
 
-/** Maps a parsed manifest to its owner-receipt egress shape. */
-function toToolAvailabilityResponse(
-  availability: ReturnType<typeof parseToolAvailabilityManifest>,
-): ContextReceiptToolAvailabilityResponse {
-  if (availability.version === 0) {
-    return { version: 0, state: 'unobserved' };
-  }
-  return {
-    version: 1,
-    entries: availability.entries.map((entry) =>
-      entry.state === 'available'
-        ? {
-            id: entry.id,
-            state: 'available',
-            declarationHash: entry.declarationHash,
-            label: 'available',
-          }
-        : {
-            id: entry.id,
-            state: 'unavailable',
-            reason: entry.reason,
-            label: TOOL_UNAVAILABLE_REASON_LABELS[entry.reason],
-          },
-    ),
-  };
-}
-
-/** Explicit owner receipt allowlist: never serialize the raw run/snapshot. */
+/** Maps a run and its attempt receipts to the owner-receipt egress shape. */
 export function toContextReceiptResponse(
   run: Run,
-  snapshot: ModelContextSnapshot,
+  receipts: Array<{
+    attemptId: string;
+    source: (typeof modelContextPromptSource.enumValues)[number];
+    systemPrompt: string;
+    promptHash: string;
+    createdAt: Date;
+  }>,
 ): ContextReceiptResponse {
-  const availability = parseToolAvailabilityManifest(
-    snapshot.toolAvailabilityManifest,
+  const isTerminal = ['completed', 'failed', 'cancelled', 'expired'].includes(
+    run.status,
   );
+  const state =
+    receipts.length > 0 ? 'prepared' : isTerminal ? 'not_produced' : 'pending';
+
   return {
     modelId: run.modelId,
-    // Sourced from the run, like `modelId` above — disclosure only: it does
-    // not participate in the snapshot's content or availability hashes.
     ...(run.effort !== null && { effort: run.effort }),
-    promptSource: snapshot.source,
-    systemPrompt: snapshot.systemPrompt,
-    tools: snapshot.toolDeclarations.map(
-      ({ id, description, inputSchema }) => ({
-        id,
-        description,
-        inputSchema,
-      }),
-    ),
-    availabilityHash: snapshot.availabilityHash,
-    toolAvailability: toToolAvailabilityResponse(availability),
-    contentHash: snapshot.contentHash,
-    createdAt: snapshot.createdAt,
+    ...(run.activeAttemptId !== null && {
+      activeAttemptId: run.activeAttemptId,
+    }),
+    ...(run.completedAttemptId !== null && {
+      completedAttemptId: run.completedAttemptId,
+    }),
+    state,
+    receipts: receipts.map((r) => ({
+      attemptId: r.attemptId,
+      promptSource: r.source,
+      systemPrompt: r.systemPrompt,
+      promptHash: r.promptHash,
+      createdAt: r.createdAt,
+    })),
+    createdAt: run.createdAt,
   };
 }

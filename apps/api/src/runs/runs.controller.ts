@@ -31,7 +31,7 @@ import { type Run, type RunEvent } from '../db/schema';
 import { isRecord } from '@workspace/runtime-safety';
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
+import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import {
   ContextReceiptResponse,
   ListRunEventsQuery,
@@ -126,23 +126,21 @@ export class RunsController {
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ContextReceiptResponse> {
-    const receipt = await this.tenantDb.runAs(userId, async (tx) => {
+    const result = await this.tenantDb.runAs(userId, async (tx) => {
       const run = await new RunsRepository(tx).findById(id, userId);
-      if (!run) {
-        return undefined;
-      }
+      if (!run) return undefined;
 
-      const snapshot = await new ModelContextSnapshotsRepository(
+      const receipts = await new SystemPromptReceiptsRepository(
         tx,
       ).findByOwnedRun(id, userId);
-      return snapshot ? toContextReceiptResponse(run, snapshot) : undefined;
+      return toContextReceiptResponse(run, receipts);
     });
 
-    if (!receipt) {
+    if (!result) {
       throw new NotFoundException(`Run ${id} not found`);
     }
 
-    return receipt;
+    return result;
   }
 
   /**
