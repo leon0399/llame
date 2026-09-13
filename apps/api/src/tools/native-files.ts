@@ -19,7 +19,6 @@ import {
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import {
-  SKILL_CATALOG_PAGE_SIZE,
   skillCatalogEnvelope,
   skillResultEnvelope,
 } from '../skills/skill-results';
@@ -157,7 +156,12 @@ async function executeSkill(
   return result.status === 'success' ? { ...result, ...envelope } : result;
 }
 
-/** The catalog listing uses the native line-selector grammar for paging. */
+/**
+ * The catalog listing pages with the native single-range selector. Anything
+ * else the grammar accepts — `:raw`, `:raw:N-M`, comma multi-range — has no
+ * listing meaning, and falling back to the first page would answer a different
+ * question than the caller asked.
+ */
 function catalogWindow(
   selector: string | undefined,
 ): { readonly offset: number; readonly limit?: number } | ToolResult {
@@ -170,7 +174,14 @@ function catalogWindow(
     };
   }
   const ranged = /^(\d+)[-+](\d+)$/u.exec(selector);
-  if (ranged === null) return { offset: 0, limit: SKILL_CATALOG_PAGE_SIZE };
+  if (ranged === null) {
+    return {
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The skill catalog accepts a single :N-M or :N+K range; comma ranges and :raw are not supported.',
+    };
+  }
   const offset = Number(ranged[1]) - 1;
   const length = Number(ranged[2]);
   return Number.isSafeInteger(offset) && Number.isSafeInteger(length)
