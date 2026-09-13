@@ -16,6 +16,7 @@ import { MemoryModule } from './memory/memory.module';
 import { PersonalizationModule } from './personalization/personalization.module';
 import { SessionAuthGuard } from './auth/session-auth.guard';
 import { KnowledgeModule } from './knowledge/knowledge.module';
+import { SkillsModule } from './skills/skills.module';
 import { CanonicalSearchActivationService } from './search/canonical-search-activation.service';
 
 // Global per-IP request ceiling per minute. Env-tunable for the same reason
@@ -57,6 +58,7 @@ const API_RATE_LIMIT_PER_MINUTE = (() => {
     SearchModule,
     IdentityModule,
     KnowledgeModule,
+    SkillsModule,
   ],
   controllers: [AppController],
   providers: [

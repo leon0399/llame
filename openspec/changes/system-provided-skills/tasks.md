@@ -6,15 +6,15 @@ The proposal layer owns only planning artifacts. The catalog layer owns `skills.
 
 Use `$gh-stack` for every stack operation and `$openspec-apply-change` for every implementation layer; create only the next approved layer. Publication and merging require the permissions in CONTRIBUTING.md.
 
-- [ ] 1.1 Obtain approval of the final proposal revision before implementation; verify the approval references that revision.
-- [ ] 1.2 Before catalog implementation, inspect #763's delivered admission interface and coordinate the skill locator projection without changing its permission decisions; verify explicit and proactive reads have a documented common admission path.
+- [x] 1.1 Obtain approval of the final proposal revision before implementation; verify the approval references that revision.
+- [x] 1.2 Before catalog implementation, inspect #763's delivered admission interface and coordinate the skill locator projection without changing its permission decisions; verify explicit and proactive reads have a documented common admission path.
 
 ## 2. Catalog layer: system-provided-skills/catalog
 
-- [ ] 2.1 Add `skills.directories` schema/default/path resolution and operator setup documentation; verify empty defaults, explicit home expansion, relative resolution, rejection of secret interpolation before resolution, bounds, and restart behavior with config tests.
-- [ ] 2.2 Implement bounded immediate-child discovery, ordered overrides, format validation, first-present llame/frontmatter/OpenAI control resolution, and diagnostics behind one in-process catalog port; verify collection roots discover child packages, both boolean values stop invocation fallback, ignored malformed fallback sidecars are never parsed, malformed consulted controls fail, malformed source winners never reveal a lower-precedence body, and unreadable sources cannot produce a partial winning map.
-- [ ] 2.3 Add authenticated bounded catalog inspection at `GET /api/v1/skills`; verify two owners see the same operator packages including manual-only and unavailable entries with diagnostics, unauthenticated requests fail, and no owner mutation or other-owner data appears.
-- [ ] 2.4 Run focused API checks and relevant repository lint/typecheck/build checks for the catalog layer; record the exact commands and results in its PR without closing #770.
+- [x] 2.1 Add `skills.directories` schema/default/path resolution and operator setup documentation; verify empty defaults, explicit home expansion, relative resolution, rejection of secret interpolation before resolution, bounds, and restart behavior with config tests.
+- [x] 2.2 Implement bounded immediate-child discovery, ordered overrides, format validation, first-present llame/frontmatter/OpenAI control resolution, and diagnostics behind one in-process catalog port; verify collection roots discover child packages, both boolean values stop invocation fallback, ignored malformed fallback sidecars are never parsed, malformed consulted controls fail, malformed source winners never reveal a lower-precedence body, and unreadable sources cannot produce a partial winning map.
+- [x] 2.3 Add authenticated bounded catalog inspection at `GET /api/v1/skills`; verify two owners see the same operator packages including manual-only and unavailable entries with diagnostics, unauthenticated requests fail, and no owner mutation or other-owner data appears.
+- [x] 2.4 Run focused API checks and relevant repository lint/typecheck/build checks for the catalog layer; record the exact commands and results in its PR without closing #770.
 
 ## 3. Read layer: system-provided-skills/read
 

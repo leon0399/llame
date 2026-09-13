@@ -257,6 +257,15 @@
   //   "root": "{env:KNOWLEDGE_ROOT}",
   // },
 
+  // Optional operator skill catalog. Each entry is a collection directory whose
+  // immediate child directories are Agent Skills packages (pdf/SKILL.md).
+  // Later entries override earlier entries by package name. Entries are
+  // literal, intentionally public paths: interpolation is rejected here.
+  // Relative entries resolve against this file's directory. See docs/skills.md.
+  // "skills": {
+  //   "directories": ["/opt/skills", "~/.agents/skills"]
+  // },
+
   // Empty allowed disables tools. MCP ids are mcp__<server>__<tool>.
   // Exact ids are safer; use mcp__<server>__* only for an entirely read-only server.
   "tools": {

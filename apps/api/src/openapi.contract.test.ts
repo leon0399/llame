@@ -112,6 +112,7 @@ const EXPECTED_OPERATION_IDS = [
   'listPins',
   'listProjects',
   'listSessions',
+  'listSkills',
   'loginUser',
   'logoutUser',
   'pinItem',
