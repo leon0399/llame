@@ -1,4 +1,5 @@
 export {
+  applySelectorSuffix,
   isSelectorSuffix,
   NativeFileError,
   parsePathScheme,

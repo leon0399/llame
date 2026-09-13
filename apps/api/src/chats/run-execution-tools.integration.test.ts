@@ -89,6 +89,7 @@ import { executeConversationRead } from '../tools/conversation-read';
 import { KnowledgeSpaceLocalResolver } from '../knowledge/knowledge-space.local-resolver';
 import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import { turnTelemetryLogger } from './turn-telemetry';
 import { createModelChangeItem } from './context-item-producers';
@@ -454,6 +455,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       overrides?.searchIndex ?? new SearchIndexService(tenantDb),
       overrides?.reindexDispatch ?? noopReindexDispatch(),
       overrides?.knowledgeResolver ?? knowledgeResolver,
+      noopSkillCatalog(),
 
       overrides?.embedDispatch ?? noopEmbedDispatch(),
       noopQueryEmbedder(),

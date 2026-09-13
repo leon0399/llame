@@ -35,6 +35,7 @@ import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots
 import { resolveBoundExecutableTools } from '../runs/snapshot-tool-execution';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { RunExecutionService } from '../runs/run-execution.service';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type TextPart } from '../chats/context-builder';
 import {} from '../chats/context-item';
@@ -279,6 +280,7 @@ function executionService(
     new SearchIndexService(tenantDb),
     noopReindexDispatch(),
     knowledgeResolver,
+    noopSkillCatalog(),
 
     noopEmbedDispatch(),
     noopQueryEmbedder(),

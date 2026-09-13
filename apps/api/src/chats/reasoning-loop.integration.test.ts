@@ -37,6 +37,7 @@ import type { InstanceConfigReader } from '../instance-config/instance-config.se
 import type { CompactionCapability } from '../compaction/compaction.service';
 import type { TitleCapability } from '../titles/title.service';
 import { RunExecutionService } from '../runs/run-execution.service';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { type KnowledgeToolResolver } from '../tools/types';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
@@ -184,6 +185,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       new SearchIndexService(tenantDb),
       noopReindexDispatch(),
       knowledgeResolver,
+      noopSkillCatalog(),
 
       noopEmbedDispatch(),
       noopQueryEmbedder(),

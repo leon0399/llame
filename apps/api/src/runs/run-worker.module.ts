@@ -6,6 +6,7 @@ import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import { ModelsModule } from '../models/models.module';
 import { QueueModule } from '../queue/queue.module';
 import { SearchModule } from '../search/search.module';
+import { SkillsModule } from '../skills/skills.module';
 import { TitlesModule } from '../titles/titles.module';
 import { RunDispatchService } from './run-dispatch.service';
 import { RunExecutionService } from './run-execution.service';
@@ -30,6 +31,7 @@ import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './snapshot-tool-execution';
     ModelsModule,
     CompactionModule,
     KnowledgeModule,
+    SkillsModule,
     TitlesModule,
     RunsModule,
     SearchModule,

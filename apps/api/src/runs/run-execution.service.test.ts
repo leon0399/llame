@@ -38,6 +38,7 @@ import type { CompactionCapability } from '../compaction/compaction.service';
 import type { TitleCapability } from '../titles/title.service';
 import type { ChatSearchIndexer } from './run-execution.service';
 import type { ChatEmbedDispatcher } from '../search/search-embed-dispatch.service';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import type { ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import {
   RunExecutionService,
@@ -228,6 +229,7 @@ function makeExecutionService(
     searchIndex,
     reindexDispatch,
     knowledgeResolver,
+    noopSkillCatalog(),
     embedDispatch,
     noopQueryEmbedder(),
     permissionPolicy,
