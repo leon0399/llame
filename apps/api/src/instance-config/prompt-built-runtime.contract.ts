@@ -40,3 +40,27 @@ if (
     'Built runtime failed to load and render the packaged default system prompt',
   );
 }
+
+// Verify every packaged tool description resolves from the built output.
+// loadPackagedToolDescription uses __dirname to find prompts/tools/*.md,
+// so running this from dist/ proves Nest copied the nested assets.
+import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
+
+const TOOL_IDS = [
+  'read',
+  'edit',
+  'write',
+  'bash',
+  'search_conversations',
+  'conversation_read',
+  'knowledge_search',
+] as const;
+
+for (const id of TOOL_IDS) {
+  const description = loadPackagedToolDescription(id);
+  if (description.trim().length === 0) {
+    throw new Error(
+      `Built runtime failed to load packaged tool description: ${id}`,
+    );
+  }
+}
