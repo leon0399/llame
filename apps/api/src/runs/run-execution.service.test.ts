@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { bashTool } from '../tools/bash';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
@@ -46,6 +47,11 @@ import type { ChatSearchIndexer } from './run-execution.service';
 import type { ChatEmbedDispatcher } from '../search/search-embed-dispatch.service';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import type { ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
+import { type MemorySettingsBindingResolver } from '../memory/memory.service';
+import {
+  type RecencyDigestResolution,
+  type RecencyDigestResolver,
+} from '../chats/recency-digest.service';
 import {
   RunExecutionService,
   RunNotRunnableError,
@@ -228,6 +234,8 @@ function makeExecutionService(
   options?: {
     allowed?: ReadonlyArray<string>;
     dynamicCandidates?: ReadonlyArray<TurnToolCandidate>;
+    memory?: MemorySettingsBindingResolver;
+    recencyDigest?: RecencyDigestResolver;
   },
 ) {
   const db: Db = drizzle.mock({ schema });
@@ -272,6 +280,16 @@ function makeExecutionService(
     validateModelSelection: vi.fn().mockReturnValue(testModelEntry),
     resolveEffortSelection: vi.fn().mockReturnValue(undefined),
   };
+  const memory: MemorySettingsBindingResolver = options?.memory ?? {
+    getForOwnerForBinding: vi.fn().mockResolvedValue({
+      shareRecentChats: false,
+    }),
+  };
+  const recencyDigest: RecencyDigestResolver = options?.recencyDigest ?? {
+    resolveCandidate: vi
+      .fn()
+      .mockRejectedValue(new Error('unexpected digest read')),
+  };
   const service = new RunExecutionService(
     tenantDb,
     compaction,
@@ -290,6 +308,8 @@ function makeExecutionService(
     knowledgeCandidates,
     { snapshotCandidates: () => options?.dynamicCandidates ?? [] },
     dynamicToolResolver,
+    memory,
+    recencyDigest,
   );
   return {
     service,
@@ -351,6 +371,9 @@ function mockNormalExecutionRepositories() {
   const createAssistantReplyIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createAssistantReplyIfAbsent')
     .mockResolvedValue(assistantMessage);
+  const updateUserMessageParts = vi
+    .spyOn(MessagesRepository.prototype, 'updateUserMessageParts')
+    .mockResolvedValue(userMessage);
   const findMostRecent = vi
     .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
     .mockResolvedValue(undefined);
@@ -362,6 +385,7 @@ function mockNormalExecutionRepositories() {
     markStarted,
     markFinished,
     createAssistantReplyIfAbsent,
+    updateUserMessageParts,
     createOrReuse,
     updateForAttempt,
     createReceipt,
@@ -476,14 +500,36 @@ describe('RunExecutionService executeRun', () => {
       runId,
       userId,
       testAttemptId,
-      { contextItems: [] },
+      {
+        contextItems: [
+          expect.objectContaining({
+            producer: 'temporal',
+            residency: 'rail',
+          }),
+        ],
+      },
     );
     expect(repositorySpies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
       'completed',
-      expect.objectContaining({ attemptId: testAttemptId }),
+      expect.objectContaining({
+        attemptId: testAttemptId,
+        turnToolAvailability: [],
+      }),
     );
+    expect(repositorySpies.updateUserMessageParts).toHaveBeenCalledWith({
+      id: messageId,
+      chatId,
+      parts: [
+        expect.objectContaining({
+          type: 'data-context',
+          data: expect.objectContaining({ producer: 'temporal' }),
+        }),
+        { type: 'text', text: 'hello' },
+      ],
+    });
+
     expect(repositorySpies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({ chatId, inReplyTo: messageId }),
     );
@@ -505,6 +551,186 @@ describe('RunExecutionService executeRun', () => {
         system: snapshot.systemPrompt,
       }),
     );
+  });
+  it('resolves a recency digest only when the owner has opted in on the worker', async () => {
+    const baseline: RecencyDigestResolution['baseline'] = {
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-09-01',
+    };
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({
+        baseline,
+        told: [],
+        candidates: [],
+      });
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValue({ shareRecentChats: true });
+    const setBaseline = vi
+      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+      .mockResolvedValue({
+        ...chat,
+        recencyDigestBaseline: baseline,
+        recencyDigestTold: [],
+      });
+    mockNormalExecutionRepositories();
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: { resolveCandidate },
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+
+    await expect(result.text).resolves.toBe('answer');
+    expect(resolveCandidate).toHaveBeenCalledWith(userId, chatId);
+    expect(setBaseline).toHaveBeenCalledWith(chatId, userId, baseline, []);
+  });
+  it('swallows worker digest resolution failures without exposing corpus text', async () => {
+    const loggerError = vi.spyOn(Logger.prototype, 'error');
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockRejectedValue(new Error('secret excerpt'));
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValue({ shareRecentChats: true });
+    mockNormalExecutionRepositories();
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: { resolveCandidate },
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+
+    await expect(result.text).resolves.toBe('answer');
+    expect(loggerError).toHaveBeenCalledWith(
+      'recency_digest_resolution_failed',
+    );
+    expect(loggerError.mock.calls.flat().join(' ')).not.toContain(
+      'secret excerpt',
+    );
+  });
+  it('persists the disclosed digest told-set with the winning user message', async () => {
+    const baseline: RecencyDigestResolution['baseline'] = {
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-09-01',
+    };
+    const entry = {
+      title: 'Resurfaced through activity',
+      date: '2026-09-02',
+      messageCount: 2,
+      excerpt: 'opening',
+    };
+    const told = [
+      {
+        chatId: 'resurfaced',
+        pinned: false,
+        title: entry.title,
+      },
+    ];
+    const resolution: RecencyDigestResolution = {
+      baseline: {
+        ...baseline,
+        recent: [entry],
+        recentShown: 1,
+        recentTotal: 1,
+      },
+      told,
+      candidates: [
+        {
+          chatId: 'resurfaced',
+          pinned: false,
+          entry,
+        },
+      ],
+    };
+    const chatWithDigest: Chat = {
+      ...chat,
+      recencyDigestBaseline: baseline,
+      recencyDigestTold: [],
+    };
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue(resolution);
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValue({ shareRecentChats: true });
+    const findPinnedChatIds = vi
+      .spyOn(ChatsRepository.prototype, 'findPinnedChatIds')
+      .mockResolvedValue(new Set());
+    const updateRecencyDigestTold = vi
+      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
+      .mockResolvedValue(undefined);
+    const render = vi
+      .spyOn(SystemPromptsService.prototype, 'render')
+      .mockReturnValue('Stable system prompt');
+    const repositories = mockNormalExecutionRepositories();
+    const findById = vi
+      .spyOn(ChatsRepository.prototype, 'findById')
+      .mockResolvedValue(chatWithDigest);
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: { resolveCandidate },
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+
+    await expect(result.text).resolves.toBe('answer');
+    expect(findById).toHaveBeenCalledWith(chatId, userId);
+    expect(findPinnedChatIds).toHaveBeenCalledWith(userId, []);
+    expect(render).toHaveBeenCalledWith(
+      expect.objectContaining({ chats: baseline }),
+    );
+    expect(repositories.updateUserMessageParts).toHaveBeenCalledWith({
+      id: messageId,
+      chatId,
+      parts: [
+        expect.objectContaining({
+          type: 'data-context',
+          data: expect.objectContaining({ producer: 'recency-digest' }),
+        }),
+        expect.objectContaining({
+          type: 'data-context',
+          data: expect.objectContaining({ producer: 'temporal' }),
+        }),
+        { type: 'text', text: 'hello' },
+      ],
+    });
+    expect(updateRecencyDigestTold).toHaveBeenCalledWith(chatId, userId, told);
   });
 
   it('settles a pre-aborted run without preparing context or invoking the model', async () => {

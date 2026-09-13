@@ -37,6 +37,8 @@ import { TOOL_REGISTRY } from '../tools/registry';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { isTextPart, type TextPart } from './context-builder';
 import { isRecord } from '@workspace/runtime-safety';
+import { MemoryService } from '../memory/memory.service';
+import { RecencyDigestService } from './recency-digest.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import type { CompactionCapability } from '../compaction/compaction.service';
@@ -223,9 +225,10 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       compileTestPermissionPolicy(),
       models,
       new SystemPromptsService(),
-      { resolvePromptUser: () => Promise.resolve(undefined) },
-      knowledgeCandidates,
       { snapshotCandidates: () => [] },
+      undefined,
+      new MemoryService(tenantDb),
+      new RecencyDigestService(tenantDb),
     );
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'R', ${`r-${userId}@t.com`})`;

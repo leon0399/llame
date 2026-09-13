@@ -57,6 +57,8 @@ import { McpRuntimeService } from './mcp-runtime.service';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 import { type KnowledgeToolResolver } from '../tools/types';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { MemoryService } from '../memory/memory.service';
+import { RecencyDigestService } from '../chats/recency-digest.service';
 import { TOOL_REGISTRY } from '../tools/registry';
 import {
   createMcpTestFixture,
@@ -318,6 +320,9 @@ function executionService(
     { resolvePromptUser: () => Promise.resolve(undefined) },
     knowledgeCandidates,
     runtime,
+    undefined,
+    new MemoryService(tenantDb),
+    new RecencyDigestService(tenantDb),
   );
 }
 

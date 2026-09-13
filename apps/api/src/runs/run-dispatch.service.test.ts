@@ -106,7 +106,7 @@ describe('RunDispatchService', () => {
     // The owner-scoped callback actually runs: the run is failed with the
     // generic message, never the raw infra error.
     expect(markFinished).toHaveBeenCalledWith('run-1', 'user-1', 'failed', {
-      message: 'Could not queue the run for execution.',
+      error: { message: 'Could not queue the run for execution.' },
     });
   });
 });

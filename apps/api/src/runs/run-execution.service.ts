@@ -5,11 +5,15 @@ import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
+import { compareCodePoints } from '../canonical-json';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
+  type Chat,
   type Message,
   type ModelToolDeclaration,
+  type RunContextItem,
   type RunStatus,
+  type TurnToolAvailabilityEntry,
 } from '../db/schema';
 import { type ModelClient } from '../models/model-client';
 import {
@@ -45,11 +49,13 @@ import {
 import {
   isModelChangeItem,
   createModelChangeItem,
+  createRecencyDigestDeltaItem,
+  createRecencyDigestSupersessionItem,
   createToolAvailabilityItem,
   createTemporalItem,
   deriveToolAvailabilityPayload,
 } from '../chats/context-item-producers';
-import { isContextItemPart } from '../chats/context-item';
+import { isContextItemPart, resolveForm } from '../chats/context-item';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { createDeltaBuffer } from './delta-buffer';
 import {
@@ -113,7 +119,10 @@ import {
   ModelContextExecutionError,
   resolveBoundExecutableTools,
 } from './snapshot-tool-execution';
-import { resolveEffectiveContext } from './effective-context-resolver';
+import {
+  resolveEffectiveContext,
+  type EffectiveContextSnapshotInput,
+} from './effective-context-resolver';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import {
   PersonalizationService,
@@ -129,6 +138,17 @@ import {
 } from '../knowledge/knowledge-tool-candidate-resolver';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
+import {
+  MemoryService,
+  type MemorySettingsBindingResolver,
+} from '../memory/memory.service';
+import {
+  RecencyDigestService,
+  deriveRecencyDigestDelta,
+  type RecencyDigestDelta,
+  type RecencyDigestResolution,
+  type RecencyDigestResolver,
+} from '../chats/recency-digest.service';
 import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
@@ -213,6 +233,35 @@ type TerminalRunStatus = Extract<
   'completed' | 'failed' | 'cancelled' | 'expired'
 >;
 
+type RecencyDigestInitialization = {
+  baseline: NonNullable<Chat['recencyDigestBaseline']>;
+  told: NonNullable<Chat['recencyDigestTold']>;
+};
+function toRunContextItems(
+  parts: ReadonlyArray<MessagePart>,
+): Array<RunContextItem> {
+  return parts.flatMap((part) => {
+    if (!isContextItemPart(part)) return [];
+    const form = resolveForm(part);
+    return [
+      {
+        producer: part.data.producer,
+        ...(form !== undefined && { form }),
+        residency: 'rail' as const,
+        text: part.data.text ?? '',
+      },
+    ];
+  });
+}
+
+function toTurnToolAvailability(
+  manifest: EffectiveContextSnapshotInput['toolAvailabilityManifest'],
+): Array<TurnToolAvailabilityEntry> {
+  return [...manifest.entries]
+    .map(({ id, state }) => ({ id, state }))
+    .sort((left, right) => compareCodePoints(left.id, right.id));
+}
+
 /** A durably recorded tool request, with safe decision metadata once admitted. */
 type ToolRequestedEventPayload = {
   toolCallId: string;
@@ -293,6 +342,10 @@ export class RunExecutionService {
     @Optional()
     @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
     private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
+    @Inject(MemoryService)
+    private readonly memory: MemorySettingsBindingResolver,
+    @Inject(RecencyDigestService)
+    private readonly recencyDigest: RecencyDigestResolver,
   ) {}
 
   /**
@@ -448,16 +501,33 @@ export class RunExecutionService {
     // from the current owner state, admitted catalog, and boot-loaded
     // templates. This replaces the accept-time snapshot binding.
     let prepared: PreparedExecutionContext;
+    let attemptStagedParts: Array<MessagePart> = [];
+    let attemptRecencyDigestTold:
+      | NonNullable<Chat['recencyDigestTold']>
+      | undefined;
+    let attemptRecencyDigestInitialization:
+      | RecencyDigestInitialization
+      | undefined;
+    let attemptToolAvailability: Array<TurnToolAvailabilityEntry> = [];
     try {
       const context = await this.prepareAttemptContext(input, attemptId);
+      attemptStagedParts = context.stagedParts;
+      attemptRecencyDigestTold = context.recencyDigestTold;
+      attemptRecencyDigestInitialization = context.recencyDigestInitialization;
+      attemptToolAvailability = toTurnToolAvailability(
+        context.effectiveContext.toolAvailabilityManifest,
+      );
 
       // Inject staged context items into the model request: prepend their
       // rendered text to the triggering user message. Uses the same rendering
       // path as userPartsToModelContent — context item parts carry data.text.
       const contextMessages = context.messages;
-      this.prependStagedContextItems(contextMessages, context.stagedParts);
+      this.prependStagedContextItems(contextMessages, attemptStagedParts);
 
-      let contextItems = context.contextItems;
+      let contextItems = [
+        ...context.contextItems,
+        ...toRunContextItems(attemptStagedParts),
+      ];
       prepared = {
         system: context.system,
         messages: contextMessages,
@@ -476,6 +546,7 @@ export class RunExecutionService {
       contextItems = await this.ensureRequestFitsContextWindow(
         prepared,
         contextItems,
+        attemptStagedParts,
         input,
       );
       // Recorded only once the request is final: before this point a
@@ -1166,6 +1237,16 @@ export class RunExecutionService {
               telemetry: assistantTelemetry,
             },
             assistantTurn: turn,
+            ...(status === 'completed' && {
+              attemptContextParts: attemptStagedParts,
+              ...(attemptRecencyDigestInitialization !== undefined && {
+                recencyDigestInitialization: attemptRecencyDigestInitialization,
+              }),
+              ...(attemptRecencyDigestTold !== undefined && {
+                recencyDigestTold: attemptRecencyDigestTold,
+              }),
+              turnToolAvailability: attemptToolAvailability,
+            }),
           });
 
           await this.afterAssistantTurn(
@@ -1441,6 +1522,7 @@ export class RunExecutionService {
   private async ensureRequestFitsContextWindow(
     prepared: PreparedExecutionContext,
     contextItems: ReturnType<typeof buildContext>['contextItems'],
+    stagedParts: ReadonlyArray<MessagePart>,
     input: ExecuteRunInput,
   ): Promise<ReturnType<typeof buildContext>['contextItems']> {
     const reservedOutputTokens =
@@ -1456,7 +1538,10 @@ export class RunExecutionService {
     ) {
       return contextItems;
     }
-    if (!input.userMessage.parts.some(isModelChangeItem)) {
+    if (
+      !stagedParts.some(isModelChangeItem) &&
+      !input.userMessage.parts.some(isModelChangeItem)
+    ) {
       throw new ContextIncompatibleError(
         'The complete request exceeds the target model context window and no model-switch source context is available.',
       );
@@ -1465,6 +1550,7 @@ export class RunExecutionService {
       prepared,
       input,
       reservedOutputTokens,
+      stagedParts,
     );
   }
 
@@ -1479,6 +1565,7 @@ export class RunExecutionService {
     prepared: PreparedExecutionContext,
     input: ExecuteRunInput,
     reservedOutputTokens: number | null,
+    stagedParts: ReadonlyArray<MessagePart>,
   ): Promise<ReturnType<typeof buildContext>['contextItems']> {
     try {
       await this.compaction.compactForTransition({
@@ -1498,6 +1585,7 @@ export class RunExecutionService {
     const rebuilt = await this.tenantDb.runAs(input.userId, (tx) =>
       this.rebuildContextForChat(tx, input, prepared.system),
     );
+    this.prependStagedContextItems(rebuilt.messages, stagedParts);
     prepared.messages = rebuilt.messages;
     if (
       !requestFitsContextWindow({
@@ -1512,7 +1600,7 @@ export class RunExecutionService {
         'The complete request still exceeds the target model context window after one transition compaction.',
       );
     }
-    return rebuilt.contextItems;
+    return [...rebuilt.contextItems, ...toRunContextItems(stagedParts)];
   }
 
   private abortedRunMessage(
@@ -1651,6 +1739,10 @@ export class RunExecutionService {
     error?: unknown;
     assistantTurn?: AssistantTurnWrite;
     synthesizedTurnTelemetry?: AssistantTurnTelemetry;
+    attemptContextParts?: ReadonlyArray<MessagePart>;
+    recencyDigestInitialization?: RecencyDigestInitialization;
+    recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
+    turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
   }): Promise<
     | { outcome: 'won' | 'errored'; assistantMessage?: Message }
     | { outcome: 'lost'; finalStatus?: string; assistantMessage?: Message }
@@ -1680,7 +1772,6 @@ export class RunExecutionService {
         // deleteChat is the other direction (runs, then chats): its first act
         // (requestCancel) blocks on the run row below, so it never reaches its
         // chat DELETE — the one lock that WOULD block us — while this
-        // transaction is open. Every other writer takes the run row before any
         // message row of ours, and per-turn message rows are disjoint, so this
         // order waits on no one who waits on us.
         const runsRepo = new RunsRepository(tx);
@@ -1688,7 +1779,14 @@ export class RunExecutionService {
           input.runId,
           input.userId,
           input.status,
-          { error: input.error, attemptId: input.attemptId },
+          {
+            error: input.error,
+            attemptId: input.attemptId,
+            ...(input.status === 'completed' &&
+              input.turnToolAvailability !== undefined && {
+                turnToolAvailability: input.turnToolAvailability,
+              }),
+          },
         );
         if (!finished) {
           const current = await runsRepo.findById(input.runId, input.userId);
@@ -1771,6 +1869,47 @@ export class RunExecutionService {
             input.runId,
             'model.completed',
             input.modelCompleted,
+          );
+        }
+        const chatsRepo = new ChatsRepository(tx);
+        if (
+          input.status === 'completed' &&
+          input.recencyDigestInitialization !== undefined
+        ) {
+          await chatsRepo.setRecencyDigestIfAbsent(
+            finished.chatId,
+            input.userId,
+            input.recencyDigestInitialization.baseline,
+            input.recencyDigestInitialization.told,
+          );
+        }
+        if (
+          input.status === 'completed' &&
+          input.attemptContextParts?.length &&
+          finished.messageId
+        ) {
+          const messagesRepo = new MessagesRepository(tx);
+          const turn = await messagesRepo.findTurnState(
+            finished.chatId,
+            input.userId,
+            finished.messageId,
+          );
+          if (turn.userMessage) {
+            await messagesRepo.updateUserMessageParts({
+              id: turn.userMessage.id,
+              chatId: finished.chatId,
+              parts: [...input.attemptContextParts, ...turn.userMessage.parts],
+            });
+          }
+        }
+        if (
+          input.status === 'completed' &&
+          input.recencyDigestTold !== undefined
+        ) {
+          await chatsRepo.updateRecencyDigestTold(
+            finished.chatId,
+            input.userId,
+            input.recencyDigestTold,
           );
         }
         const durableParts = durable.collector.parts();
@@ -1993,10 +2132,13 @@ export class RunExecutionService {
     attemptId: string,
   ) {
     return this.tenantDb.runAs(input.userId, async (tx) => {
-      const chat = await new ChatsRepository(tx).findById(
-        input.chatId,
-        input.userId,
-      );
+      const chatsRepo = new ChatsRepository(tx);
+      let chat = await chatsRepo.findById(input.chatId, input.userId);
+      if (!chat) {
+        throw new ModelContextExecutionError(
+          `Chat ${input.chatId} was deleted before context preparation.`,
+        );
+      }
 
       const model = this.models.validateModelSelection(input.client.model);
       const user = await this.personalization.resolvePromptUser(input.userId);
@@ -2005,18 +2147,87 @@ export class RunExecutionService {
         input.chatId,
         input.userId,
       );
+
+      let shareRecentChats = await this.memory.getForOwnerForBinding(
+        tx,
+        input.userId,
+      );
+      let digestCandidate: RecencyDigestResolution | undefined;
+      if (shareRecentChats.shareRecentChats) {
+        try {
+          digestCandidate = await this.recencyDigest.resolveCandidate(
+            input.userId,
+            input.chatId,
+          );
+        } catch {
+          // Candidate titles and excerpts are owner content; do not attach the
+          // caught error to a log entry or execution error.
+          this.logger.error('recency_digest_resolution_failed');
+        }
+        // Consent is checked again after candidate resolution and before the
+        // prompt, receipt, and snapshot are prepared.
+        shareRecentChats = await this.memory.getForOwnerForBinding(
+          tx,
+          input.userId,
+        );
+        if (!shareRecentChats.shareRecentChats) {
+          digestCandidate = undefined;
+        }
+      }
+
+      const hadDigestBaseline = chat.recencyDigestBaseline !== null;
+      let promptDigestBaseline = chat.recencyDigestBaseline;
+      let recencyDigestInitialization: RecencyDigestInitialization | undefined;
+      if (
+        chat.recencyDigestBaseline === null &&
+        digestCandidate !== undefined &&
+        shareRecentChats.shareRecentChats
+      ) {
+        promptDigestBaseline = digestCandidate.baseline;
+        recencyDigestInitialization = {
+          baseline: digestCandidate.baseline,
+          told: digestCandidate.told,
+        };
+      }
+
+      let digestDelta: RecencyDigestDelta | null = null;
+      if (
+        hadDigestBaseline &&
+        digestCandidate !== undefined &&
+        chat.recencyDigestTold !== null &&
+        shareRecentChats.shareRecentChats
+      ) {
+        digestDelta = deriveRecencyDigestDelta({
+          candidate: digestCandidate,
+          told: chat.recencyDigestTold,
+          pinnedChatIds: await chatsRepo.findPinnedChatIds(
+            input.userId,
+            chat.recencyDigestTold.map(({ chatId }) => chatId),
+          ),
+        });
+      }
+
       const instanceTimezone = resolveInstanceTimezone(this.logger);
       const anchor = formatTemporalAnchor(
-        compaction?.createdAt ?? chat!.createdAt,
+        compaction?.createdAt ?? chat.createdAt,
         instanceTimezone,
       );
 
-      const systemPrompt = this.systemPrompts.render({
-        model,
-        anchor,
-        user,
-        chats: chat?.recencyDigestBaseline ?? undefined,
-      });
+      let systemPrompt: string;
+      try {
+        systemPrompt = this.systemPrompts.render({
+          model,
+          anchor,
+          user,
+          chats: promptDigestBaseline ?? undefined,
+        });
+      } catch (error) {
+        if (promptDigestBaseline === null) throw error;
+        this.logger.error('recency_digest_render_failed');
+        // Do not let a renderer error carry the owner's digest text out of
+        // this boundary.
+        throw new Error('Failed to render system prompt');
+      }
 
       const allowedToolRules = this.instanceConfig.config.tools.allowed;
       const callTimeoutSeconds =
@@ -2078,6 +2289,9 @@ export class RunExecutionService {
         previousRun !== undefined &&
         compaction.createdAt > previousRun.createdAt;
       const startsEpoch = !previousSnapshot || compactionSincePrevious;
+      const digestRebaked =
+        compactionSincePrevious &&
+        chat.recencyDigestRebakedFrom === compaction?.id;
 
       const stagedParts: Array<MessagePart> = [];
       if (previousRun && previousRun.modelId !== input.client.model) {
@@ -2103,6 +2317,26 @@ export class RunExecutionService {
           }),
         );
       }
+      if (
+        digestRebaked &&
+        chat.recencyDigestBaseline !== null &&
+        shareRecentChats.shareRecentChats
+      ) {
+        stagedParts.push(
+          createRecencyDigestSupersessionItem({ runId: input.runId }),
+        );
+      }
+      if (digestDelta) {
+        stagedParts.push(
+          createRecencyDigestDeltaItem({
+            runId: input.runId,
+            payload: {
+              entries: digestDelta.entries,
+              pinChanges: digestDelta.pinChanges,
+            },
+          }),
+        );
+      }
       stagedParts.push(
         createTemporalItem({
           runId: input.runId,
@@ -2117,7 +2351,9 @@ export class RunExecutionService {
         ...built,
         effectiveContext,
         stagedParts,
-        untitled: chat?.title === null,
+        recencyDigestInitialization,
+        recencyDigestTold: digestDelta?.told,
+        untitled: chat.title === null,
       };
     });
   }

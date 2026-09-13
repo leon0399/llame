@@ -19,6 +19,7 @@ import {
   type RunContextItem,
   type RunEvent,
   type RunStatus,
+  type TurnToolAvailabilityEntry,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 
@@ -344,7 +345,11 @@ export class RunsRepository {
       RunStatus,
       'completed' | 'failed' | 'cancelled' | 'expired'
     >,
-    options?: { error?: unknown; attemptId?: string },
+    options?: {
+      error?: unknown;
+      attemptId?: string;
+      turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
+    },
   ): Promise<Run | undefined> {
     const [updated] = await this.db
       .update(runs)
@@ -355,6 +360,10 @@ export class RunsRepository {
         ...(status === 'completed' &&
           options?.attemptId !== undefined && {
             completedAttemptId: options.attemptId,
+          }),
+        ...(status === 'completed' &&
+          options?.turnToolAvailability !== undefined && {
+            turnToolAvailability: options.turnToolAvailability,
           }),
       })
       .where(

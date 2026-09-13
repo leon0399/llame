@@ -98,6 +98,8 @@ import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import { turnTelemetryLogger } from './turn-telemetry';
 import { createModelChangeItem } from './context-item-producers';
 
+import { MemoryService } from '../memory/memory.service';
+import { RecencyDigestService } from './recency-digest.service';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
@@ -499,6 +501,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
       knowledgeCandidates,
       { snapshotCandidates: () => [] },
       overrides?.dynamicToolResolver,
+      new MemoryService(tenantDb),
+      new RecencyDigestService(tenantDb),
     );
   }
 
