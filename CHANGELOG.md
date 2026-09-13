@@ -25,19 +25,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-13
 
-- Add durable boundary evidence for owner chat forks (#154): a new
-  `message_turn_contexts` table records immutable per-turn acceptance evidence
-  (model, effort, snapshot, continuation state, context items) keyed by
-  `(chatId, originRunId)`. Chats gain `inheritedContextOriginAt`,
-  `contextRevision`, `initialContinuationState`, and typed compaction
-  references for the immutable initial state. Messages gain
-  `inheritedTurnComplete` and usage provenance columns. Compactions gain
-  continuation state companions (revision, boundary, digest) and usage
-  provenance. Continuation-revision staleness guards extend both ordinary and
-  transition compaction paths. A one-time adoption migration projects existing
-  Run evidence and captures current Chat state. Owner-scoped FORCE RLS,
-  same-Chat FK constraints, and negative datastore tests enforce tenant
-  isolation.
+- Complete owner chat forks (#154): owner forks now preserve the complete
+  selected message prefix with literal parts, original timestamps, inherited
+  usage provenance, compaction lineage, and continuation state evidence.
+  Whole-chat forks stop at the last completed assistant turn excluding
+  unfinished Runs; explicit anchors validate completion with typed 409
+  responses (`fork_boundary_unsettled`, `fork_context_unavailable`). Source
+  and boundary are resolved from one REPEATABLE READ snapshot. The prior-turn
+  resolver falls back to inherited evidence for fork-based continuation.
+  A new message-scoped context-receipt endpoint resolves receipts through
+  turn evidence instead of live Run lookup. Usage provenance (`local`,
+  `inherited`) is exposed on message DTOs. The shared/public fork path is
+  unchanged. Schema additions: `message_turn_contexts` table with owner RLS;
+  `inheritedContextOriginAt`, `contextRevision`, `initialContinuationState`
+  on chats; `inheritedTurnComplete` and usage provenance on messages;
+  continuation companions and usage provenance on compactions.
+  Continuation-revision staleness guards in both compaction paths. Adoption
+  migration projects existing Run evidence and captures current Chat state.
 
 # 2026-09-12
 
