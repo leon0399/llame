@@ -572,6 +572,14 @@ export class ChatMessageResponse {
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
+
+  @ApiProperty({
+    enum: ['local', 'inherited'],
+    nullable: true,
+    description:
+      'null = no recorded usage; local = executed here; inherited = copied from a fork source',
+  })
+  usageProvenance!: 'local' | 'inherited' | null;
 }
 
 export class ChatMessagesResponse {
@@ -595,6 +603,7 @@ export function toChatMessageResponse(message: Message): ChatMessageResponse {
     parts: message.parts,
     attachments: message.attachments,
     usage: isRecord(message.usage) ? message.usage : null,
+    usageProvenance: message.usageProvenanceCol ?? null,
     inReplyTo: message.inReplyTo,
     createdAt: message.createdAt,
   };
