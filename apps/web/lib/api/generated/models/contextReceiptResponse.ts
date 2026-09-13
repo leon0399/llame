@@ -5,24 +5,21 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
-import type { ContextReceiptObservedAvailabilityResponse } from "./contextReceiptObservedAvailabilityResponse";
-import type { ContextReceiptResponsePromptSource } from "./contextReceiptResponsePromptSource";
-import type { ContextReceiptToolResponse } from "./contextReceiptToolResponse";
-import type { ContextReceiptUnobservedAvailabilityResponse } from "./contextReceiptUnobservedAvailabilityResponse";
+import type { AttemptReceiptResponse } from "./attemptReceiptResponse";
+import type { ContextReceiptResponseState } from "./contextReceiptResponseState";
 
 export interface ContextReceiptResponse {
   /** Public llame model id selected for this run. */
   modelId: string;
-  /** Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. An opaque provider token — a receipt of what ran, never recomputed from current configuration. */
+  /** Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. */
   effort?: string;
-  promptSource: ContextReceiptResponsePromptSource;
-  /** Complete effective system prompt bound to this run. */
-  systemPrompt: string;
-  tools: ContextReceiptToolResponse[];
-  availabilityHash: string;
-  toolAvailability:
-    | ContextReceiptUnobservedAvailabilityResponse
-    | ContextReceiptObservedAvailabilityResponse;
-  contentHash: string;
+  /** Active execution attempt identity, if any. */
+  activeAttemptId?: string;
+  /** Completed (winning) attempt identity, if the run completed successfully. */
+  completedAttemptId?: string;
+  /** Resolution state: pending (queued, no attempt prepared yet), prepared (at least one attempt has a receipt), or not_produced (terminal without any receipt). */
+  state: ContextReceiptResponseState;
+  /** Ordered list of system-prompt receipts, one per execution attempt that reached prompt preparation. Earliest first. */
+  receipts: AttemptReceiptResponse[];
   createdAt: string;
 }
