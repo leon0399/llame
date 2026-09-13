@@ -27,6 +27,7 @@ import {
   type PermissionDecision,
   type PermissionDecisionReason,
 } from '../tools/permissions/types';
+import { isSystemOriginPayload } from './tool-activity-origin';
 
 /**
  * Cap on persisted reasoning text. Reasoning is display-only (stripped from
@@ -332,6 +333,11 @@ class DurableAssistantReconstructor {
   }
 
   private applyToolRequested(event: RunEvent): void {
+    // System-origin activity never becomes an assistant tool part, so it takes
+    // no collector slot and — because it also never enters `openToolCalls` — no
+    // synthesized settlement on recovery. Leaving it out here is what keeps a
+    // skill activation from being replayed as a call the model made.
+    if (isSystemOriginPayload(event.payload)) return;
     const toolCallId = eventPayloadString(event.payload, 'toolCallId');
     const toolName = eventPayloadString(event.payload, 'toolName');
     if (

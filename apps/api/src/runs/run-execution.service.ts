@@ -67,6 +67,14 @@ import {
   type PermissionDecision,
 } from '../tools/permissions/types';
 import {
+  ORIGIN_SKILL_ACTIVATION,
+  type ToolActivityOrigin,
+} from './tool-activity-origin';
+import { activateSkills } from '../skills/skill-activation';
+import { parseSkillMentions } from '../skills/skill-mention';
+import { ActivationPartsRepository } from '../chats/activation-parts.repository';
+import { nativeReadTool } from '../tools/native-files';
+import {
   type KnowledgeToolResolver,
   type ToolContext,
   type ToolResult,
@@ -183,6 +191,8 @@ type ToolRequestedEventPayload = {
   toolName: string;
   input: unknown;
   permission?: PermissionDecision;
+  /** Absent means model-origin; see tool-activity-origin.ts. */
+  origin?: ToolActivityOrigin;
 };
 
 /** A durably recorded tool completion, carrying the decision for history. */
@@ -192,6 +202,8 @@ type ToolCompletedEventPayload = {
   status: ToolResult['status'];
   output: ToolResult;
   permission?: PermissionDecision;
+  /** Mirrors the request's origin, so recovery needs no second lookup. */
+  origin?: ToolActivityOrigin;
 };
 
 /**
@@ -378,6 +390,16 @@ export class RunExecutionService {
       await this.settleAbortedRun(input);
     }
 
+    // Explicit `$skill` activation runs BEFORE context assembly, because the
+    // instructions it loads are part of the request the model receives on its
+    // first step — not a tool result it reacts to afterwards. It persists its
+    // items onto the triggering user message, so the assembly below reads them
+    // back through the ordinary path and recovery replays the stored text.
+    const skillSelection = await this.activateMentionedSkills(
+      input,
+      claim.nativeDeliverySequence,
+    );
+
     // Context assembly happens at execution time (not enqueue time): the run
     // reads the chat as it exists when it starts — compaction summary + live
     // window up to the triggering message (SPEC §9.5 puts this worker-side).
@@ -561,6 +583,10 @@ export class RunExecutionService {
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
       skillCatalog: this.skillCatalog,
+      // A manual-only skill the user named stays readable for this Run's tool
+      // calls, references and scripts included; a turn that did not name it
+      // carries an empty set and refuses again.
+      skillSelection,
       queryEmbedder: this.queryEmbedder,
       permissionPolicy: this.permissionPolicy,
     };
@@ -588,19 +614,28 @@ export class RunExecutionService {
         toolName: string;
         toolInput: unknown;
         permission?: PermissionDecision;
+        /** Absent means model-origin (tool-activity-origin.ts). */
+        origin?: ToolActivityOrigin;
       }
     >();
     // Reserve the persisted part and the open-call entry at request time (before
     // admission), so part order stays correct even if the call is later
     // rejected and settled by the completion path.
+    // System-origin calls (skill activation) are recorded durably but are NOT
+    // assistant activity: they take no collector slot, so no tool part is
+    // persisted and no fabricated call enters the transcript the UI replays.
+    // The origin rides on the payload, so recovery on another worker reaches
+    // the same conclusion.
     const reserveToolRequest = (
       toolCallId: string,
       toolName: string,
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK's own inputSchema validation (`toFlexibleSchema`, wired into `tool({...})` below) already ran before this callback fires; `toolInput` here is that already-admitted, per-tool-schema-shaped value forwarded for durable recording.
       toolInput: unknown,
+      origin?: ToolActivityOrigin,
     ) => {
-      openToolCalls.set(toolCallId, { toolName, toolInput });
-      assistantPartCollector.toolRequested(toolCallId);
+      openToolCalls.set(toolCallId, { toolName, toolInput, origin });
+      if (origin === undefined)
+        assistantPartCollector.toolRequested(toolCallId);
     };
     // Emit `tool.requested` with the trusted decision once admission resolves.
     // Its durable write is awaited before `tool.started`, so a rejection never
@@ -611,6 +646,7 @@ export class RunExecutionService {
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- same rationale as `reserveToolRequest` above.
       toolInput: unknown,
       permission: PermissionDecision | undefined,
+      origin?: ToolActivityOrigin,
     ) => {
       const payload: ToolRequestedEventPayload = {
         toolCallId,
@@ -618,6 +654,7 @@ export class RunExecutionService {
         input: toolInput,
       };
       if (permission !== undefined) payload.permission = permission;
+      if (origin !== undefined) payload.origin = origin;
       enqueueEvent('tool.requested', payload);
     };
     // Ids whose outcome has already been durably recorded. At-most-once per
@@ -636,7 +673,8 @@ export class RunExecutionService {
         return;
       }
       settledToolCallIds.add(toolCallId);
-      const permission = openToolCalls.get(toolCallId)?.permission;
+      const open = openToolCalls.get(toolCallId);
+      const permission = open?.permission;
       openToolCalls.delete(toolCallId);
       const payload: ToolCompletedEventPayload = {
         toolCallId,
@@ -645,7 +683,10 @@ export class RunExecutionService {
         output: result,
       };
       if (permission !== undefined) payload.permission = permission;
+      if (open?.origin !== undefined) payload.origin = open.origin;
       enqueueEvent('tool.completed', payload);
+      // A system-origin call is durable audit, not assistant activity.
+      if (open?.origin !== undefined) return;
       assistantPartCollector.tool(
         toolActivityPart({
           toolCallId,
@@ -1215,6 +1256,143 @@ export class RunExecutionService {
         },
       }),
     });
+  }
+
+  /**
+   * Load the skills this Run's triggering user message named explicitly.
+   *
+   * The mention set is derived from the STORED user text — the trusted copy,
+   * re-derivable at any time — and never from assistant output, tool results,
+   * or context items. Loading goes through `runTool` with the bound read
+   * declaration, under the same trusted context builder and permission policy
+   * a model-initiated call uses, so activation can neither invent authority nor
+   * bypass #763's admission.
+   *
+   * Returns the turn's selection set, which every later skill read in this Run
+   * carries: a manual-only skill the user named stays readable for this Run's
+   * tool calls and refuses again on a turn that does not name it.
+   */
+  private async activateMentionedSkills(
+    input: ExecuteRunInput,
+    nativeDeliverySequence: number,
+  ): Promise<ReadonlySet<string>> {
+    if (this.instanceConfig.config.skills.directories.length === 0) {
+      return new Set();
+    }
+    // `partsToText` keeps only text parts: not context items, tool output,
+    // reasoning, or attachments. Activation scans exactly the user's own words.
+    const text = partsToText(input.userMessage.parts);
+    const mentions = parseSkillMentions(text);
+    if (mentions.length === 0) return new Set();
+
+    const baseContext = this.buildSkillReadContext(
+      input,
+      nativeDeliverySequence,
+    );
+    const outcome = await activateSkills({
+      mentions,
+      runId: input.runId,
+      readTool: nativeReadTool,
+      toolContext: baseContext,
+      callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
+      activity: {
+        admitted: (toolCallId, decision) =>
+          this.recordSkillAdmission(input, toolCallId, decision),
+        completed: (toolCallId, result) =>
+          this.recordSkillCompletion(input, toolCallId, result),
+      },
+    });
+
+    if (outcome.items.length > 0) {
+      await this.tenantDb.runAs(input.userId, (tx) =>
+        new ActivationPartsRepository(tx).appendForRun({
+          id: input.userMessage.id,
+          chatId: input.chatId,
+          runId: input.runId,
+          items: outcome.items,
+        }),
+      );
+    }
+    return outcome.selection;
+  }
+
+  /**
+   * The trusted context for activation reads: the same fields the model's own
+   * tool context carries, built from the RUN's identity, plus the Run's
+   * remaining wall-clock deadline so a slow package cannot outlive the turn.
+   */
+  private buildSkillReadContext(
+    input: ExecuteRunInput,
+    nativeDeliverySequence: number,
+  ): ToolContext {
+    return {
+      runId: input.runId,
+      nativeExecutorId: this.instanceConfig.config.tools.nativeExecutorId,
+      nativeDeliverySequence,
+      userId: input.userId,
+      chatId: input.chatId,
+      tenantDb: this.tenantDb,
+      abortSignal: input.abortSignal,
+      timeoutMs: this.instanceConfig.config.runs.timeoutSeconds * 1000,
+      knowledgeResolver: this.knowledgeResolver,
+      skillCatalog: this.skillCatalog,
+      permissionPolicy: this.permissionPolicy,
+    };
+  }
+
+  /**
+   * Durable audit for one activation read.
+   *
+   * The `requested` write is awaited BEFORE the read dispatches — the awaited
+   * admission callback #763 already supplies for model-origin calls — so an
+   * audit failure prevents the file from being opened rather than trailing it.
+   * Every record carries the origin discriminator, which is what keeps this
+   * activity out of the assistant transcript and the live UI stream while
+   * leaving it in the owner-scoped event log.
+   *
+   * A denied read emits requested then completed, with no `tool.started`: the
+   * call never genuinely ran, and the same convention holds for the model's own
+   * refused calls.
+   */
+  private async recordSkillAdmission(
+    input: ExecuteRunInput,
+    toolCallId: string,
+    decision: PermissionDecision,
+  ): Promise<void> {
+    await this.tenantDb.runAs(input.userId, async (tx) => {
+      const events = new RunEventsRepository(tx);
+      await events.append(input.runId, 'tool.requested', {
+        toolCallId,
+        toolName: 'read',
+        input: { path: 'skill://' },
+        permission: decision,
+        origin: ORIGIN_SKILL_ACTIVATION,
+      });
+      // Started only for an allowed call, and only after the request is
+      // durable — the same ordering the model-initiated path uses.
+      if (decision.decision === 'allow') {
+        await events.append(input.runId, 'tool.started', {
+          toolCallId,
+          toolName: 'read',
+        });
+      }
+    });
+  }
+
+  private async recordSkillCompletion(
+    input: ExecuteRunInput,
+    toolCallId: string,
+    result: ToolResult,
+  ): Promise<void> {
+    await this.tenantDb.runAs(input.userId, (tx) =>
+      new RunEventsRepository(tx).append(input.runId, 'tool.completed', {
+        toolCallId,
+        toolName: 'read',
+        status: result.status,
+        output: result,
+        origin: ORIGIN_SKILL_ACTIVATION,
+      }),
+    );
   }
 
   /**

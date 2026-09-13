@@ -100,6 +100,7 @@ const EXPECTED_OPERATION_IDS = [
   'getPersonalization',
   'getProject',
   'getRun',
+  'getRunContextItems',
   'getRunContextReceipt',
   'getSharedChat',
   'grantOrgUnitMembership',

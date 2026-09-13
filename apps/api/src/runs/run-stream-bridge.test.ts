@@ -93,6 +93,37 @@ describe('createRunEventTranslator', () => {
     expect(t.finished()).toBe(true);
   });
 
+  it('emits no UI chunk for system-origin skill activation', () => {
+    const t = createRunEventTranslator('run-activation');
+
+    // Skill activation is llame's own read, not a call the model made, so it
+    // has no tool part in the UI. Both events must be inert: a completion chunk
+    // without its request would be an orphan the client cannot attach.
+    expect(
+      t.translate({
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'activation-1',
+          toolName: 'read',
+          input: { path: 'skill://pdf:raw' },
+          origin: 'skill-activation',
+        },
+      }),
+    ).toEqual([]);
+    expect(
+      t.translate({
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'activation-1',
+          toolName: 'read',
+          status: 'success',
+          output: { status: 'success', content: 'instructions' },
+          origin: 'skill-activation',
+        },
+      }),
+    ).toEqual([]);
+  });
+
   it('a run that fails before any delta emits start + error only', () => {
     const t = createRunEventTranslator('run-2');
 

@@ -7,6 +7,7 @@
  */
 import type {
   ContextReceiptResponse,
+  RunContextItemsResponse,
   RunResponse,
   UpdateRunDto,
 } from "../models";
@@ -83,6 +84,48 @@ export const updateRun = async (
     throw err;
   }
   const data: RunResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type getRunContextItemsError = void | void;
+
+export const getGetRunContextItemsUrl = (id: string) => {
+  return `/api/v1/runs/${id}/context-items`;
+};
+
+/**
+ * @summary Get the executed context items recorded for a Run
+ */
+export const getRunContextItems = async (
+  id: string,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<RunContextItemsResponse> => {
+  const res = await fetchFn(getGetRunContextItemsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: getRunContextItemsError;
+      status?: number;
+    } = new globalThis.Error(
+      `GET ${getGetRunContextItemsUrl(id)} failed (${res.status})`,
+    );
+    const data: getRunContextItemsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: RunContextItemsResponse = body ? JSON.parse(body) : {};
   return data;
 };
 
