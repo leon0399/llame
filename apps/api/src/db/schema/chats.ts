@@ -449,7 +449,6 @@ export const messageTurnContexts = pgTable(
         modelContextSnapshots.ownerUserId,
       ],
     }),
-    // Same-Chat compaction FKs with ON DELETE NO ACTION.
     foreignKey({
       name: 'message_turn_contexts_active_compaction_fk',
       columns: [t.activeCompactionId, t.chatId],
@@ -460,12 +459,12 @@ export const messageTurnContexts = pgTable(
       columns: [t.digestRebakedFrom, t.chatId],
       foreignColumns: [compactions.id, compactions.chatId],
     }).onDelete('no action'),
-    // Ordering index for fork boundary selection (D4).
-    index('message_turn_contexts_chat_revision_idx').on(
-      t.chatId,
-      t.contextRevision,
-    ),
-    // RLS: owner-only, no public-read policy.
+    // Defense-in-depth: ownerUserId must match the chat's owner at schema level.
+    foreignKey({
+      name: 'message_turn_contexts_chat_owner_fk',
+      columns: [t.chatId, t.ownerUserId],
+      foreignColumns: [chats.id, chats.ownerUserId],
+    }),
     pgPolicy('message_turn_contexts_owner', {
       using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
     }),

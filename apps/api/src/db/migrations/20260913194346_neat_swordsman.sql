@@ -1,0 +1,2 @@
+DROP INDEX "message_turn_contexts_chat_revision_idx";--> statement-breakpoint
+ALTER TABLE "message_turn_contexts" ADD CONSTRAINT "message_turn_contexts_chat_owner_fk" FOREIGN KEY ("chat_id","owner_user_id") REFERENCES "public"."chats"("id","owner_user_id") ON DELETE no action ON UPDATE no action;
