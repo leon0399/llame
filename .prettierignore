@@ -29,6 +29,10 @@ pnpm-lock.yaml
 # Generated visual-test baselines (baseline.json is written by the addon).
 **/__screenshots__/
 
+# Model-facing prompt assets: their exact bytes are the contract with the
+# provider. Prettier would reflow the prose and change what the model reads.
+apps/api/src/prompts/tools/
+
 # Vendored from shadcn CLI (upstream serialization).
 packages/ui/src/styles/shadcn.css
 # Vendored Oxlint plugin; update from its pinned upstream source, not Prettier.

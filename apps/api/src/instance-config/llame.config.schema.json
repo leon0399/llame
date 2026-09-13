@@ -306,6 +306,12 @@
           "type": "string",
           "description": "Optional literal host path to this model's complete replacement system prompt. Relative paths resolve from the active llame.config.json directory; absolute paths remain absolute. This field does not support {env:...} or {path:...} secret interpolation. Prompt files are Handlebars templates. Renderable paths are exactly {{model.id}} and {{model.name}}; a leading backslash emits a literal expression. Conditionals ({{#if}} / {{#unless}}), comments, and whitespace control are supported. Rendering is single-pass and never re-evaluates its own output. Any other path, a helper, a partial, or unescaped {{{...}}} output fails startup naming the construct; a path with no value renders empty rather than failing. Missing, unreadable, non-file, empty, or invalid prompt content fails startup without falling back to the project default. Prompt contents are owner-visible; the host path is never returned by the public model catalog."
         },
+        "toolPromptFiles": {
+          "type": "object",
+          "description": "Optional per-model whole-file replacements for llame-owned tool descriptions, keyed by registered llame-owned tool id. Wins over the instance-wide tools.promptFiles entry for the same id, which wins over the packaged default. Relative paths resolve from the active llame.config.json directory; absolute paths remain absolute. Keys naming an unregistered or MCP-authored tool are rejected at boot. Missing, unreadable, or empty files fail this execution worker's startup without falling back.",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
         "pricingUsdPer1M": { "$ref": "#/$defs/modelPricing" },
         "name": { "type": "string" },
         "description": { "type": "string" },
@@ -505,6 +511,12 @@
         "callTimeoutSeconds": {
           "$ref": "#/$defs/numberOrToken",
           "description": "Global timeout, in seconds, for a single tool call (a tool may declare a per-tool override at registration — a code-level property, not a config key). Falls back to the built-in default, 120."
+        },
+        "promptFiles": {
+          "type": "object",
+          "description": "Optional instance-wide whole-file replacements for llame-owned tool descriptions, keyed by registered llame-owned tool id. Each file is a complete description rendered through the same template language and variable projection as system prompts. Relative paths resolve from the active llame.config.json directory; absolute paths remain absolute. A model's tools.toolPromptFiles entry for the same id wins over this one, which wins over the packaged default. Keys naming an unregistered or MCP-authored tool are rejected at boot. Missing, unreadable, or empty files fail that execution worker's startup rather than falling back.",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "type": "string", "minLength": 1 }
         }
       }
     },

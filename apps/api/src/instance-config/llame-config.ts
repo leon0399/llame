@@ -336,8 +336,8 @@ export type LlameConfig = {
     maxStepsPerRun: number;
     /** Global per-tool-call timeout, in seconds (a tool may override at registration). */
     callTimeoutSeconds: number;
-    /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs. */
-    promptFiles: Readonly<Record<string, string>>;
+    /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs. Absent means packaged defaults. */
+    promptFiles?: Readonly<Record<string, string>>;
   };
   mcpServers: Readonly<Record<string, McpServerConfig>>;
   /** Optional process-local root for trusted Knowledge Space directories. */
