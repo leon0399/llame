@@ -20,8 +20,8 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
-  ApiCookieAuth,
   ApiConflictResponse,
+  ApiCookieAuth,
   ApiCreatedResponse,
   ApiNoContentResponse,
   ApiNotFoundResponse,
@@ -441,6 +441,11 @@ export class ChatsController {
   @ApiNotFoundResponse({
     description:
       'Chat not found, not owned, or the fork-point message (when given) is absent',
+  })
+  @ApiConflictResponse({
+    description:
+      'Fork boundary unsettled (code: fork_boundary_unsettled) or ' +
+      'required context unavailable (code: fork_context_unavailable)',
   })
   @ApiUnauthorizedResponse()
   async forkChat(

@@ -32,6 +32,7 @@ import { RunsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { pgErrorCode } from '../db/pg-error';
 import { toSharedChatResponse } from './dto/chats.dto';
+import { resolveForkBoundary } from './fork-boundary';
 
 /** Title for a forked chat. */
 export function forkTitle(title: string): string {
@@ -493,88 +494,63 @@ export class ChatsService {
     });
   }
 
-  /**
-   * Fork a conversation: copy every message up to (and including)
-   * `fromMessageId` into a NEW chat owned by the caller, so an alternate
-   * direction can be explored without touching the original. When
-   * `fromMessageId` is omitted, the WHOLE conversation is copied instead —
-   * the anchor for the sidebar's "Fork" (clone) menu item, as opposed to the
-   * per-message "fork from here" action; both reuse this exact machinery.
-   * Owner-scoped and atomic (one `runAs` tx): the source chat AND the
-   * fork-point message (when given) are located ONLY within the caller's own
-   * chat (a cross-chat/cross-tenant message id simply isn't in the list → no
-   * copy); the new chat + copies INSERT under the caller's identity, so RLS
-   * makes them the caller's. `in_reply_to` is remapped to the copied user
-   * turns (satisfies the #73 integrity trigger + the one-reply-per-message
-   * index — the copy is 1:1).
-   *
-   * Faithful, not bounded: a fork copies the ENTIRE prefix (or the entire
-   * chat, for a whole-chat clone), however long, in one atomic transaction —
-   * no message-count cap (a fork must reproduce the source conversation
-   * exactly, never silently truncate it). The prefix is fetched by `maxSeq`
-   * (bounded to the fork point when one is given, no over-read of later
-   * messages; unbounded — the whole chat — when absent) and written via
-   * `createMany`'s chunked bulk insert, so an arbitrarily large conversation
-   * is still a small, bounded number of round-trips.
-   */
+  /** Fork a conversation (#154 owner-chat-forks). */
   async forkChat(
     chatId: string,
     ownerUserId: string,
     fromMessageId?: string,
   ): Promise<Chat> {
-    const forked = await this.tenantDb.runAs(ownerUserId, async (tx) => {
-      const chatsRepo = new ChatsRepository(tx);
-      const messagesRepo = new MessagesRepository(tx);
-
-      const source = await chatsRepo.findById(chatId, ownerUserId);
-      if (!source) {
-        // Unknown/cross-tenant chat (RLS makes it indistinguishable from absent).
-        throw new NotFoundException('Chat not found');
-      }
-
-      // Absent anchor → no maxSeq bound → the whole chat (clone). A given
-      // anchor is resolved to ITS seq, scoped the same way as the chat above
-      // (owner + chat id), so a cross-chat/cross-tenant message id 404s here
-      // exactly like an unknown chat does.
-      let maxSeq: number | undefined;
-      if (fromMessageId !== undefined) {
-        const target = await messagesRepo.findById(
-          chatId,
-          ownerUserId,
-          fromMessageId,
-        );
-        if (!target) {
-          throw new NotFoundException(
-            'Fork-point message not found in this chat',
-          );
-        }
-        maxSeq = target.seq;
-      }
-
-      const toCopy = await messagesRepo.findByChatId(chatId, ownerUserId, {
-        maxSeq,
-      });
-
-      // usage is deliberately NOT copied: a fork makes ZERO API calls, so its
-      // turns must not carry cost/token telemetry — else a future usage
-      // aggregation (summed by created_at) would double-count the original
-      // spend at the fork date.
-      return this.copyMessagesIntoNewChat(
-        tx,
-        ownerUserId,
-        source.title,
-        toCopy,
-      );
-    });
-
-    // Index the forked chat's copied content for search (#195). Fork stays
-    // async by design (grill Q4) — no model call to hide an inline rebuild
-    // behind, and a fork is a copy of an already-indexed chat. Best-effort,
-    // post-commit; the discovery sweep backstops a missed enqueue.
+    const forked = await this.forkChatTransaction(
+      chatId,
+      ownerUserId,
+      fromMessageId,
+    );
     void this.reindexDispatch.enqueueChatReindex(forked.id, ownerUserId);
-    // chat-search-embeddings design D5 — see the sibling fork() above for
-    // why this is safe to send before the reindex has run.
     void this.embedDispatch.enqueueChatEmbed(forked.id, ownerUserId);
     return forked;
+  }
+
+  /**
+   * REPEATABLE READ transaction: resolve source, boundary, and copy the
+   * selected prefix into a new private chat. Empty whole-chat creates an
+   * empty chat. Explicit anchors on unfinished turns → 409.
+   */
+  private async forkChatTransaction(
+    chatId: string,
+    ownerUserId: string,
+    fromMessageId: string | undefined,
+  ): Promise<Chat> {
+    return this.tenantDb.runAs(
+      ownerUserId,
+      async (tx) => {
+        const chatsRepo = new ChatsRepository(tx);
+        const messagesRepo = new MessagesRepository(tx);
+        const source = await chatsRepo.findById(chatId, ownerUserId);
+        if (!source) throw new NotFoundException('Chat not found');
+        const scope = {
+          messagesRepo,
+          runsRepo: new RunsRepository(tx),
+          chatId,
+          ownerUserId,
+        };
+        const maxSeq = await resolveForkBoundary(scope, fromMessageId);
+        if (maxSeq === null) {
+          return chatsRepo.create({
+            ownerUserId,
+            ...(source.title !== null && { title: forkTitle(source.title) }),
+          });
+        }
+        const toCopy = await messagesRepo.findByChatId(chatId, ownerUserId, {
+          maxSeq,
+        });
+        return this.copyMessagesIntoNewChat(
+          tx,
+          ownerUserId,
+          source.title,
+          toCopy,
+        );
+      },
+      { isolationLevel: 'repeatable read' },
+    );
   }
 }

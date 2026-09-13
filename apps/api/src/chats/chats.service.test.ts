@@ -523,6 +523,12 @@ describe('ChatsService message windows, updates and forks', () => {
   });
 
   describe('forkChat', () => {
+    beforeEach(() => {
+      vi.spyOn(
+        RunsRepository.prototype,
+        'findActiveByChatId',
+      ).mockResolvedValue(undefined);
+    });
     it('copies the whole chat, renumbering seq from 1 and remapping in-reply-to edges', async () => {
       const first = message(5);
       const second = message(6, {
@@ -554,8 +560,11 @@ describe('ChatsService message windows, updates and forks', () => {
         ownerUserId,
         title: 'Source (fork)',
       });
+      // Boundary resolution reads all messages, then copy reads the prefix.
+      expect(findByChatId).toHaveBeenCalledTimes(2);
+      expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId);
       expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
-        maxSeq: undefined,
+        maxSeq: second.seq,
       });
 
       const copied = createMany.mock.calls[0][0];
@@ -588,7 +597,11 @@ describe('ChatsService message windows, updates and forks', () => {
     });
 
     it('bounds the copied prefix to the anchor message seq', async () => {
-      const anchor = message(7);
+      const anchor = message(7, {
+        role: 'assistant',
+        senderUserId: null,
+        usage: { status: 'completed', totalTokens: 100 },
+      });
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
       vi.spyOn(ChatsRepository.prototype, 'create').mockResolvedValue({
         ...chat,

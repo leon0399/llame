@@ -220,17 +220,25 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     const chat = await tenantDb.runAs(a, (tx) =>
       new ChatsRepository(tx).create({ ownerUserId: a }),
     );
-    const message = await tenantDb.runAs(a, (tx) =>
-      new MessagesRepository(tx).create({
+    // Add a completed assistant turn so whole-chat fork has a boundary.
+    await tenantDb.runAs(a, async (tx) => {
+      const msgRepo = new MessagesRepository(tx);
+      await msgRepo.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: a,
         parts: [{ type: 'text', text: 'q' }],
-      }),
-    );
+      });
+      await msgRepo.create({
+        chatId: chat.id,
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'a' }],
+        usage: { status: 'completed', totalTokens: 10 },
+      });
+    });
 
-    const forked = await service.forkChat(chat.id, a, message.id);
-
+    // Whole-chat fork (no anchor).
+    const forked = await service.forkChat(chat.id, a);
     expect(forked.title).toBeNull();
   });
 
