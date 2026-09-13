@@ -485,7 +485,7 @@ export class ChatLoopService {
       blocking.id,
       input.userId,
       'expired',
-      { message },
+      { error: { message } },
     );
     if (expired) {
       await input.eventsRepo.append(blocking.id, 'run.expired', {

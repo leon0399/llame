@@ -49,6 +49,7 @@ import {
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import { TOOL_REGISTRY } from '../tools/registry';
+import type { KnowledgeToolResolver, Tool, ToolResult } from '../tools/types';
 
 /**
  * classifyAbortedRun unit tests (durable-run-workers D7): the in-process
@@ -132,6 +133,9 @@ const run: Run = {
   userId,
   modelId: 'fake-model',
   modelContextSnapshotId: snapshotId,
+  activeAttemptId: null,
+  completedAttemptId: null,
+  turnToolAvailability: null,
   status: 'running_model',
   workerId: null,
   cancelRequestedAt: null,

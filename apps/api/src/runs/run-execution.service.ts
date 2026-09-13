@@ -49,6 +49,7 @@ import {
   createTemporalItem,
   deriveToolAvailabilityPayload,
 } from '../chats/context-item-producers';
+import { isContextItemPart } from '../chats/context-item';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { createDeltaBuffer } from './delta-buffer';
 import {
@@ -353,7 +354,7 @@ export class RunExecutionService {
           input.runId,
           input.userId,
           status,
-          { message: this.abortedRunMessage(status) },
+          { error: { message: this.abortedRunMessage(status) } },
         );
         if (finished) {
           await events.append(input.runId, `run.${status}`, {
@@ -442,190 +443,13 @@ export class RunExecutionService {
     // templates. This replaces the accept-time snapshot binding.
     let prepared: PreparedExecutionContext;
     try {
-      const context = await this.tenantDb.runAs(input.userId, async (tx) => {
-        const chat = await new ChatsRepository(tx).findById(
-          input.chatId,
-          input.userId,
-        );
-
-        // Resolve the selected model entry for its prompt template.
-        // A model removed from config after accept fails here explicitly.
-        const model = this.models.validateModelSelection(input.client.model);
-
-        // Current owner personalization, outside the binding transaction
-        // (an edit after accept applies to this attempt — specified).
-        const user = await this.personalization.resolvePromptUser(input.userId);
-
-        // Temporal anchor derives from the latest compaction (or chat creation).
-        const compaction = await new CompactionsRepository(
-          tx,
-        ).findLatestByChatId(input.chatId, input.userId);
-        const instanceTimezone = resolveInstanceTimezone(this.logger);
-        const anchor = formatTemporalAnchor(
-          compaction?.createdAt ?? chat!.createdAt,
-          instanceTimezone,
-        );
-
-        // Render the system prompt with current owner context.
-        const systemPrompt = this.systemPrompts.render({
-          model,
-          anchor,
-          user,
-          chats: chat?.recencyDigestBaseline ?? undefined,
-        });
-
-        // Compose the tool catalog from current config and runtime state.
-        const allowedToolRules = this.instanceConfig.config.tools.allowed;
-        const callTimeoutSeconds =
-          this.instanceConfig.config.tools.callTimeoutSeconds;
-        const codeOwnedCandidates = await this.knowledgeCandidates.resolve({
-          tx,
-          ownerUserId: input.userId,
-          allowedToolRules,
-        });
-        const dynamicCandidates: ReadonlyArray<TurnToolCandidate> =
-          this.mcpRuntime.snapshotCandidates();
-        const effectiveContext = await resolveEffectiveContext({
-          model,
-          systemPrompt,
-          allowedToolRules,
-          callTimeoutSeconds,
-          codeOwnedCandidates,
-          dynamicCandidates,
-        });
-
-        // Create/bind snapshot so the receipt endpoint and compaction can
-        // read it. Content-addressed: identical inputs reuse the same row.
-        // Fenced by activeAttemptId: a superseded worker cannot bind.
-        const snapshot = await new ModelContextSnapshotsRepository(
-          tx,
-        ).createOrReuse(input.userId, effectiveContext);
-        const bound = await new RunsRepository(tx).updateForAttempt(
-          input.runId,
-          input.userId,
-          attemptId,
-          { modelContextSnapshotId: snapshot.id },
-        );
-        if (!bound) {
-          throw new ModelContextExecutionError(
-            `Run ${input.runId} was reclaimed before snapshot binding.`,
-          );
-        }
-
-        // System-prompt receipt: immutable per-attempt record of the rendered
-        // system text. Created before target-model I/O, conditional on still
-        // owning the attempt (the snapshot binding above already verified).
-        await new SystemPromptReceiptsRepository(tx).create({
-          ownerUserId: input.userId,
-          runId: input.runId,
-          attemptId,
-          source: effectiveContext.source,
-          systemPrompt,
-          promptHash: effectiveContext.promptHash,
-        });
-
-        // Derive context-rail items this attempt contributes. These are
-        // staged in memory and used in the model request; successful
-        // publication writes them to the user message and run record.
-        const previousRun = await new RunsRepository(
-          tx,
-        ).findMostRecentByChatMessageSequence(input.chatId, input.userId);
-        const previousSnapshot = previousRun
-          ? await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
-              previousRun.id,
-              input.userId,
-            )
-          : undefined;
-
-        const compactionSincePrevious =
-          compaction !== undefined &&
-          previousRun !== undefined &&
-          compaction.createdAt > previousRun.createdAt;
-        const startsEpoch = !previousSnapshot || compactionSincePrevious;
-
-        const stagedParts: Array<MessagePart> = [];
-        // Model-switch reminder
-        if (previousRun && previousRun.modelId !== input.client.model) {
-          stagedParts.push(
-            createModelChangeItem({
-              fromModelId: previousRun.modelId,
-              toModelId: input.client.model,
-              runId: input.runId,
-            }),
-          );
-        }
-        // Tool availability delta
-        const availabilityPayload = deriveToolAvailabilityPayload({
-          current: effectiveContext.toolAvailabilityManifest,
-          ...(!startsEpoch && {
-            previous: previousSnapshot?.toolAvailabilityManifest,
-          }),
-        });
-        if (availabilityPayload) {
-          stagedParts.push(
-            createToolAvailabilityItem({
-              runId: input.runId,
-              payload: availabilityPayload,
-            }),
-          );
-        }
-        // Temporal anchor — stamped unconditionally
-        stagedParts.push(
-          createTemporalItem({
-            runId: input.runId,
-            instant: new Date(),
-            timeZone: instanceTimezone,
-          }),
-        );
-
-        // Build the message context using the freshly rendered prompt.
-        const built = await this.rebuildContextForChat(tx, input, systemPrompt);
-
-        return {
-          ...built,
-          effectiveContext,
-          stagedParts,
-          untitled: chat?.title === null,
-        };
-      });
+      const context = await this.prepareAttemptContext(input, attemptId);
 
       // Inject staged context items into the model request: prepend their
-      // rendered text to the triggering user message, matching the canonical
-      // producer order. Uses the same rendering path as userPartsToModelContent.
+      // rendered text to the triggering user message. Uses the same rendering
+      // path as userPartsToModelContent — context item parts carry data.text.
       const contextMessages = context.messages;
-      const stagedTextParts = context.stagedParts
-        .map((p) => {
-          const text =
-            'data' in p &&
-            p.data != null &&
-            typeof p.data === 'object' &&
-            'text' in p.data &&
-            typeof p.data.text === 'string'
-              ? p.data.text
-              : undefined;
-          return text ? { type: 'text' as const, text } : undefined;
-        })
-        .filter((t): t is { type: 'text'; text: string } => t !== undefined);
-      if (stagedTextParts.length > 0) {
-        // Find the triggering user message (the last user message in the
-        // context — the one this run executes against) and prepend staged
-        // context items to its content.
-        for (let i = contextMessages.length - 1; i >= 0; i--) {
-          const msg = contextMessages[i];
-          if (msg.role === 'user') {
-            if (Array.isArray(msg.content)) {
-              msg.content.unshift(...stagedTextParts);
-            } else {
-              // String content: convert to array and prepend.
-              (msg as { content: unknown }).content = [
-                ...stagedTextParts,
-                { type: 'text' as const, text: msg.content },
-              ];
-            }
-            break;
-          }
-        }
-      }
+      this.prependStagedContextItems(contextMessages, context.stagedParts);
 
       let contextItems = context.contextItems;
       prepared = {
@@ -1858,8 +1682,7 @@ export class RunExecutionService {
           input.runId,
           input.userId,
           input.status,
-          input.error,
-          { attemptId: input.attemptId },
+          { error: input.error, attemptId: input.attemptId },
         );
         if (!finished) {
           const current = await runsRepo.findById(input.runId, input.userId);
@@ -2153,5 +1976,177 @@ export class RunExecutionService {
       usage: write.telemetry,
       inReplyTo: write.inReplyTo,
     });
+  }
+
+  /**
+   * Resolve prompt, catalog, receipt, context items, and message history for
+   * one execution attempt. Runs inside a single tenant transaction.
+   */
+  private async prepareAttemptContext(
+    input: ExecuteRunInput,
+    attemptId: string,
+  ) {
+    return this.tenantDb.runAs(input.userId, async (tx) => {
+      const chat = await new ChatsRepository(tx).findById(
+        input.chatId,
+        input.userId,
+      );
+
+      const model = this.models.validateModelSelection(input.client.model);
+      const user = await this.personalization.resolvePromptUser(input.userId);
+
+      const compaction = await new CompactionsRepository(tx).findLatestByChatId(
+        input.chatId,
+        input.userId,
+      );
+      const instanceTimezone = resolveInstanceTimezone(this.logger);
+      const anchor = formatTemporalAnchor(
+        compaction?.createdAt ?? chat!.createdAt,
+        instanceTimezone,
+      );
+
+      const systemPrompt = this.systemPrompts.render({
+        model,
+        anchor,
+        user,
+        chats: chat?.recencyDigestBaseline ?? undefined,
+      });
+
+      const allowedToolRules = this.instanceConfig.config.tools.allowed;
+      const callTimeoutSeconds =
+        this.instanceConfig.config.tools.callTimeoutSeconds;
+      const codeOwnedCandidates = await this.knowledgeCandidates.resolve({
+        tx,
+        ownerUserId: input.userId,
+        allowedToolRules,
+      });
+      const dynamicCandidates: ReadonlyArray<TurnToolCandidate> =
+        this.mcpRuntime.snapshotCandidates();
+      const effectiveContext = await resolveEffectiveContext({
+        model,
+        systemPrompt,
+        allowedToolRules,
+        callTimeoutSeconds,
+        codeOwnedCandidates,
+        dynamicCandidates,
+      });
+
+      const snapshot = await new ModelContextSnapshotsRepository(
+        tx,
+      ).createOrReuse(input.userId, effectiveContext);
+      const bound = await new RunsRepository(tx).updateForAttempt(
+        input.runId,
+        input.userId,
+        attemptId,
+        { modelContextSnapshotId: snapshot.id },
+      );
+      if (!bound) {
+        throw new ModelContextExecutionError(
+          `Run ${input.runId} was reclaimed before snapshot binding.`,
+        );
+      }
+
+      await new SystemPromptReceiptsRepository(tx).create({
+        ownerUserId: input.userId,
+        runId: input.runId,
+        attemptId,
+        source: effectiveContext.source,
+        systemPrompt,
+        promptHash: effectiveContext.promptHash,
+      });
+
+      const previousRun = await new RunsRepository(
+        tx,
+      ).findMostRecentByChatMessageSequence(input.chatId, input.userId);
+      const previousSnapshot = previousRun
+        ? await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+            previousRun.id,
+            input.userId,
+          )
+        : undefined;
+
+      const compactionSincePrevious =
+        compaction !== undefined &&
+        previousRun !== undefined &&
+        compaction.createdAt > previousRun.createdAt;
+      const startsEpoch = !previousSnapshot || compactionSincePrevious;
+
+      const stagedParts: Array<MessagePart> = [];
+      if (previousRun && previousRun.modelId !== input.client.model) {
+        stagedParts.push(
+          createModelChangeItem({
+            fromModelId: previousRun.modelId,
+            toModelId: input.client.model,
+            runId: input.runId,
+          }),
+        );
+      }
+      const availabilityPayload = deriveToolAvailabilityPayload({
+        current: effectiveContext.toolAvailabilityManifest,
+        ...(!startsEpoch && {
+          previous: previousSnapshot?.toolAvailabilityManifest,
+        }),
+      });
+      if (availabilityPayload) {
+        stagedParts.push(
+          createToolAvailabilityItem({
+            runId: input.runId,
+            payload: availabilityPayload,
+          }),
+        );
+      }
+      stagedParts.push(
+        createTemporalItem({
+          runId: input.runId,
+          instant: new Date(),
+          timeZone: instanceTimezone,
+        }),
+      );
+
+      const built = await this.rebuildContextForChat(tx, input, systemPrompt);
+
+      return {
+        ...built,
+        effectiveContext,
+        stagedParts,
+        untitled: chat?.title === null,
+      };
+    });
+  }
+
+  /**
+   * Prepend staged context-item text to the triggering user message in the
+   * model request. Extracts `data.text` from each `AuthoredContextItemPart`
+   * and unshifts it into the last user message's content array.
+   */
+  private prependStagedContextItems(
+    messages: ReturnType<typeof buildContext>['messages'],
+    stagedParts: ReadonlyArray<MessagePart>,
+  ): void {
+    const textParts = stagedParts.flatMap((p) => {
+      if (!isContextItemPart(p)) return [];
+      const text = p.data.text;
+      if (text === undefined || text.length === 0) return [];
+      return [{ type: 'text' as const, text }];
+    });
+    if (textParts.length === 0) return;
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== 'user') continue;
+      if (Array.isArray(msg.content)) {
+        msg.content.unshift(...textParts);
+      } else {
+        // User content was a plain string; replace in-place with the text
+        // parts array the SDK equally accepts.
+        const original = msg.content;
+        const combined = [
+          ...textParts,
+          { type: 'text' as const, text: original },
+        ];
+        Object.assign(msg, { content: combined });
+      }
+      return;
+    }
   }
 }

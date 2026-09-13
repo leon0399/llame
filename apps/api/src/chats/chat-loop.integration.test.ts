@@ -930,7 +930,7 @@ describeIfDb(
       );
       await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).markFinished(sameModelRun.id, userId, 'failed', {
-          message: 'provider failed after selection',
+          error: { message: 'provider failed after selection' },
         }),
       );
 

@@ -81,12 +81,8 @@
           "name": "accounts_userId_users_id_fk",
           "tableFrom": "accounts",
           "tableTo": "users",
-          "columnsFrom": [
-            "userId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -156,12 +152,8 @@
           "name": "authenticators_user_id_users_id_fk",
           "tableFrom": "authenticators",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -171,9 +163,7 @@
         "authenticators_credential_id_unique": {
           "name": "authenticators_credential_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "credential_id"
-          ]
+          "columns": ["credential_id"]
         }
       },
       "policies": {},
@@ -330,12 +320,8 @@
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -394,9 +380,7 @@
         "users_email_unique": {
           "name": "users_email_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "email"
-          ]
+          "columns": ["email"]
         }
       },
       "policies": {},
@@ -574,12 +558,8 @@
           "name": "chats_owner_user_id_users_id_fk",
           "tableFrom": "chats",
           "tableTo": "users",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -587,12 +567,8 @@
           "name": "chats_project_id_projects_id_fk",
           "tableFrom": "chats",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -604,9 +580,7 @@
           "name": "chats_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "owner_user_id = current_setting('app.current_user_id', true)",
           "withCheck": "owner_user_id = current_setting('app.current_user_id', true) AND (project_id IS NULL OR project_id IN (SELECT id FROM projects WHERE owner_user_id = current_setting('app.current_user_id', true)))"
         },
@@ -614,9 +588,7 @@
           "name": "chats_public_read",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "visibility = 'public' AND current_setting('app.current_user_id', true) = ''"
         }
       },
@@ -727,12 +699,8 @@
           "name": "compactions_chat_id_chats_id_fk",
           "tableFrom": "compactions",
           "tableTo": "chats",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["chat_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -740,12 +708,8 @@
           "name": "compactions_parent_id_compactions_id_fk",
           "tableFrom": "compactions",
           "tableTo": "compactions",
-          "columnsFrom": [
-            "parent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["parent_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -753,14 +717,8 @@
           "name": "compactions_parent_id_chat_id_fk",
           "tableFrom": "compactions",
           "tableTo": "compactions",
-          "columnsFrom": [
-            "parent_id",
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id",
-            "chat_id"
-          ],
+          "columnsFrom": ["parent_id", "chat_id"],
+          "columnsTo": ["id", "chat_id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -772,9 +730,7 @@
           "name": "compactions_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "chat_id IN (\n        SELECT id FROM chats\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )"
         }
       },
@@ -935,12 +891,8 @@
           "name": "messages_chat_id_chats_id_fk",
           "tableFrom": "messages",
           "tableTo": "chats",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["chat_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -948,12 +900,8 @@
           "name": "messages_sender_user_id_users_id_fk",
           "tableFrom": "messages",
           "tableTo": "users",
-          "columnsFrom": [
-            "sender_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["sender_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -961,12 +909,8 @@
           "name": "messages_in_reply_to_messages_id_fk",
           "tableFrom": "messages",
           "tableTo": "messages",
-          "columnsFrom": [
-            "in_reply_to"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["in_reply_to"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -978,18 +922,14 @@
           "name": "messages_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "chat_id IN (\n        SELECT id FROM chats\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )"
         },
         "messages_public_read": {
           "name": "messages_public_read",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "current_setting('app.current_user_id', true) = '' AND chat_id IN (SELECT id FROM chats WHERE visibility = 'public')"
         }
       },
@@ -1076,12 +1016,8 @@
           "name": "run_events_run_id_runs_id_fk",
           "tableFrom": "run_events",
           "tableTo": "runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1093,18 +1029,14 @@
           "name": "run_events_owner_select",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "run_id IN (\n        SELECT runs.id FROM runs\n        INNER JOIN chats ON chats.id = runs.chat_id\n        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)\n      )"
         },
         "run_events_owner_insert": {
           "name": "run_events_owner_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "withCheck": "run_id IN (\n        SELECT runs.id FROM runs\n        INNER JOIN chats ON chats.id = runs.chat_id\n        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)\n      )"
         }
       },
@@ -1308,12 +1240,8 @@
           "name": "runs_chat_id_chats_id_fk",
           "tableFrom": "runs",
           "tableTo": "chats",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["chat_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1321,12 +1249,8 @@
           "name": "runs_message_id_messages_id_fk",
           "tableFrom": "runs",
           "tableTo": "messages",
-          "columnsFrom": [
-            "message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["message_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -1334,12 +1258,8 @@
           "name": "runs_user_id_users_id_fk",
           "tableFrom": "runs",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1347,14 +1267,8 @@
           "name": "runs_chat_id_user_id_fk",
           "tableFrom": "runs",
           "tableTo": "chats",
-          "columnsFrom": [
-            "chat_id",
-            "user_id"
-          ],
-          "columnsTo": [
-            "id",
-            "owner_user_id"
-          ],
+          "columnsFrom": ["chat_id", "user_id"],
+          "columnsTo": ["id", "owner_user_id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1362,14 +1276,8 @@
           "name": "runs_message_id_chat_id_fk",
           "tableFrom": "runs",
           "tableTo": "messages",
-          "columnsFrom": [
-            "message_id",
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id",
-            "chat_id"
-          ],
+          "columnsFrom": ["message_id", "chat_id"],
+          "columnsTo": ["id", "chat_id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1377,14 +1285,8 @@
           "name": "runs_model_context_snapshot_id_user_id_fk",
           "tableFrom": "runs",
           "tableTo": "model_context_snapshots",
-          "columnsFrom": [
-            "model_context_snapshot_id",
-            "user_id"
-          ],
-          "columnsTo": [
-            "id",
-            "owner_user_id"
-          ],
+          "columnsFrom": ["model_context_snapshot_id", "user_id"],
+          "columnsTo": ["id", "owner_user_id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1396,9 +1298,7 @@
           "name": "runs_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "chat_id IN (\n        SELECT id FROM chats\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )"
         }
       },
@@ -1491,12 +1391,8 @@
           "name": "external_identities_user_id_users_id_fk",
           "tableFrom": "external_identities",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1508,9 +1404,7 @@
           "name": "external_identities_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "user_id = current_setting('app.current_user_id', true)"
         }
       },
@@ -1599,12 +1493,8 @@
           "name": "memberships_user_id_users_id_fk",
           "tableFrom": "memberships",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1612,12 +1502,8 @@
           "name": "memberships_org_unit_id_org_units_id_fk",
           "tableFrom": "memberships",
           "tableTo": "org_units",
-          "columnsFrom": [
-            "org_unit_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["org_unit_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1629,36 +1515,28 @@
           "name": "memberships_select",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "user_id = current_setting('app.current_user_id', true) OR llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner','admin','maintainer','member','viewer','guest','service_account']::org_role[])"
         },
         "memberships_trigger_read": {
           "name": "memberships_trigger_read",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "pg_trigger_depth() > 0"
         },
         "memberships_insert": {
           "name": "memberships_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "withCheck": "(\n        user_id = current_setting('app.current_user_id', true)\n        AND role = 'owner'\n        AND EXISTS (\n          SELECT 1 FROM org_units u\n          WHERE u.id = memberships.org_unit_id\n            AND u.parent_id IS NULL\n            AND u.created_by = current_setting('app.current_user_id', true)\n        )\n      ) OR (\n        llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner']::org_role[])\n      ) OR (\n        memberships.role <> 'owner'\n        AND llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner','admin']::org_role[])\n      )"
         },
         "memberships_update": {
           "name": "memberships_update",
           "as": "PERMISSIVE",
           "for": "UPDATE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "(\n        memberships.role <> 'owner' AND llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner','admin']::org_role[])\n      ) OR llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner']::org_role[])",
           "withCheck": "(\n        memberships.role <> 'owner' AND llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner','admin']::org_role[])\n      ) OR (\n        memberships.role = 'owner' AND llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner']::org_role[])\n      )"
         },
@@ -1666,9 +1544,7 @@
           "name": "memberships_delete",
           "as": "PERMISSIVE",
           "for": "DELETE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "\n        user_id = current_setting('app.current_user_id', true)\n        OR (memberships.role <> 'owner' AND llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner','admin']::org_role[]))\n        OR llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner']::org_role[])\n      "
         }
       },
@@ -1777,12 +1653,8 @@
           "name": "org_units_parent_id_org_units_id_fk",
           "tableFrom": "org_units",
           "tableTo": "org_units",
-          "columnsFrom": [
-            "parent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["parent_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1790,12 +1662,8 @@
           "name": "org_units_created_by_users_id_fk",
           "tableFrom": "org_units",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1807,36 +1675,28 @@
           "name": "org_units_select",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin','maintainer','member','viewer','guest','service_account')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  ) OR created_by = current_setting('app.current_user_id', true)"
         },
         "org_units_trigger_read": {
           "name": "org_units_trigger_read",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "pg_trigger_depth() > 0"
         },
         "org_units_insert": {
           "name": "org_units_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "withCheck": "created_by = current_setting('app.current_user_id', true) AND (parent_id IS NULL OR EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  ))"
         },
         "org_units_update": {
           "name": "org_units_update",
           "as": "PERMISSIVE",
           "for": "UPDATE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )",
           "withCheck": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )"
         },
@@ -1844,9 +1704,7 @@
           "name": "org_units_delete",
           "as": "PERMISSIVE",
           "for": "DELETE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )"
         }
       },
@@ -1926,12 +1784,8 @@
           "name": "knowledge_spaces_owner_user_id_users_id_fk",
           "tableFrom": "knowledge_spaces",
           "tableTo": "users",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1943,27 +1797,21 @@
           "name": "knowledge_spaces_owner_select",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "owner_user_id = current_setting('app.current_user_id', true)"
         },
         "knowledge_spaces_owner_insert": {
           "name": "knowledge_spaces_owner_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "withCheck": "owner_user_id = current_setting('app.current_user_id', true)"
         },
         "knowledge_spaces_owner_update": {
           "name": "knowledge_spaces_owner_update",
           "as": "PERMISSIVE",
           "for": "UPDATE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "owner_user_id = current_setting('app.current_user_id', true)",
           "withCheck": "owner_user_id = current_setting('app.current_user_id', true)"
         },
@@ -1971,9 +1819,7 @@
           "name": "knowledge_spaces_owner_delete",
           "as": "PERMISSIVE",
           "for": "DELETE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "owner_user_id = current_setting('app.current_user_id', true)"
         }
       },
@@ -2115,12 +1961,8 @@
           "name": "model_context_snapshots_owner_user_id_users_id_fk",
           "tableFrom": "model_context_snapshots",
           "tableTo": "users",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2132,18 +1974,14 @@
           "name": "model_context_snapshots_owner_select",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "owner_user_id = current_setting('app.current_user_id', true)"
         },
         "model_context_snapshots_owner_insert": {
           "name": "model_context_snapshots_owner_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "withCheck": "owner_user_id = current_setting('app.current_user_id', true)"
         }
       },
@@ -2240,12 +2078,8 @@
           "name": "system_prompt_receipts_owner_user_id_users_id_fk",
           "tableFrom": "system_prompt_receipts",
           "tableTo": "users",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2257,18 +2091,14 @@
           "name": "system_prompt_receipts_owner_select",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "owner_user_id = current_setting('app.current_user_id', true)"
         },
         "system_prompt_receipts_owner_insert": {
           "name": "system_prompt_receipts_owner_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "withCheck": "owner_user_id = current_setting('app.current_user_id', true)"
         }
       },
@@ -2313,12 +2143,8 @@
           "name": "memory_settings_user_id_users_id_fk",
           "tableFrom": "memory_settings",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2330,27 +2156,21 @@
           "name": "memory_settings_owner_select",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "user_id = current_setting('app.current_user_id', true)"
         },
         "memory_settings_owner_insert": {
           "name": "memory_settings_owner_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "withCheck": "user_id = current_setting('app.current_user_id', true)"
         },
         "memory_settings_owner_update": {
           "name": "memory_settings_owner_update",
           "as": "PERMISSIVE",
           "for": "UPDATE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "user_id = current_setting('app.current_user_id', true)",
           "withCheck": "user_id = current_setting('app.current_user_id', true)"
         },
@@ -2358,9 +2178,7 @@
           "name": "memory_settings_owner_delete",
           "as": "PERMISSIVE",
           "for": "DELETE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "user_id = current_setting('app.current_user_id', true)"
         }
       },
@@ -2430,12 +2248,8 @@
           "name": "personalization_user_id_users_id_fk",
           "tableFrom": "personalization",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2447,27 +2261,21 @@
           "name": "personalization_owner_select",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "user_id = current_setting('app.current_user_id', true)"
         },
         "personalization_owner_insert": {
           "name": "personalization_owner_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "withCheck": "user_id = current_setting('app.current_user_id', true)"
         },
         "personalization_owner_update": {
           "name": "personalization_owner_update",
           "as": "PERMISSIVE",
           "for": "UPDATE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "user_id = current_setting('app.current_user_id', true)",
           "withCheck": "user_id = current_setting('app.current_user_id', true)"
         },
@@ -2475,9 +2283,7 @@
           "name": "personalization_owner_delete",
           "as": "PERMISSIVE",
           "for": "DELETE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "user_id = current_setting('app.current_user_id', true)"
         }
       },
@@ -2555,12 +2361,8 @@
           "name": "pins_user_id_users_id_fk",
           "tableFrom": "pins",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2568,21 +2370,14 @@
       "compositePrimaryKeys": {
         "pins_user_id_item_type_item_id_pk": {
           "name": "pins_user_id_item_type_item_id_pk",
-          "columns": [
-            "user_id",
-            "item_type",
-            "item_id"
-          ]
+          "columns": ["user_id", "item_type", "item_id"]
         }
       },
       "uniqueConstraints": {
         "pins_user_position_unique": {
           "name": "pins_user_position_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "user_id",
-            "position"
-          ]
+          "columns": ["user_id", "position"]
         }
       },
       "policies": {
@@ -2590,27 +2385,21 @@
           "name": "pins_owner_select",
           "as": "PERMISSIVE",
           "for": "SELECT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "user_id = current_setting('app.current_user_id', true)"
         },
         "pins_owner_delete": {
           "name": "pins_owner_delete",
           "as": "PERMISSIVE",
           "for": "DELETE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "user_id = current_setting('app.current_user_id', true)"
         },
         "pins_owner_update": {
           "name": "pins_owner_update",
           "as": "PERMISSIVE",
           "for": "UPDATE",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "user_id = current_setting('app.current_user_id', true)",
           "withCheck": "user_id = current_setting('app.current_user_id', true)"
         },
@@ -2618,9 +2407,7 @@
           "name": "pins_owner_insert",
           "as": "PERMISSIVE",
           "for": "INSERT",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "withCheck": "user_id = current_setting('app.current_user_id', true) AND (\n        (item_type = 'chat' AND item_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true)))\n        OR (item_type = 'project' AND item_id IN (SELECT id FROM projects WHERE owner_user_id = current_setting('app.current_user_id', true)))\n      )"
         }
       },
@@ -2726,12 +2513,8 @@
           "name": "projects_owner_user_id_users_id_fk",
           "tableFrom": "projects",
           "tableTo": "users",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2743,9 +2526,7 @@
           "name": "projects_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "owner_user_id = current_setting('app.current_user_id', true)"
         }
       },
@@ -3107,12 +2888,8 @@
           "name": "search_chat_documents_owner_user_id_users_id_fk",
           "tableFrom": "search_chat_documents",
           "tableTo": "users",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3120,12 +2897,8 @@
           "name": "search_chat_documents_chat_id_chats_id_fk",
           "tableFrom": "search_chat_documents",
           "tableTo": "chats",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["chat_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3137,9 +2910,7 @@
           "name": "search_chat_documents_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "current_setting('app.current_user_id', true) <> '' AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))",
           "withCheck": "current_setting('app.current_user_id', true) <> '' AND owner_user_id = current_setting('app.current_user_id', true) AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))"
         }
@@ -3211,12 +2982,8 @@
           "name": "search_chat_state_chat_id_chats_id_fk",
           "tableFrom": "search_chat_state",
           "tableTo": "chats",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["chat_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3224,12 +2991,8 @@
           "name": "search_chat_state_owner_user_id_users_id_fk",
           "tableFrom": "search_chat_state",
           "tableTo": "users",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3241,9 +3004,7 @@
           "name": "search_chat_state_owner",
           "as": "PERMISSIVE",
           "for": "ALL",
-          "to": [
-            "public"
-          ],
+          "to": ["public"],
           "using": "current_setting('app.current_user_id', true) <> '' AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))",
           "withCheck": "current_setting('app.current_user_id', true) <> '' AND owner_user_id = current_setting('app.current_user_id', true) AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))"
         }
@@ -3256,20 +3017,12 @@
     "public.chat_visibility": {
       "name": "chat_visibility",
       "schema": "public",
-      "values": [
-        "private",
-        "public"
-      ]
+      "values": ["private", "public"]
     },
     "public.message_role": {
       "name": "message_role",
       "schema": "public",
-      "values": [
-        "user",
-        "assistant",
-        "system",
-        "tool"
-      ]
+      "values": ["user", "assistant", "system", "tool"]
     },
     "public.run_status": {
       "name": "run_status",
@@ -3307,28 +3060,17 @@
     "public.org_unit_type": {
       "name": "org_unit_type",
       "schema": "public",
-      "values": [
-        "organization",
-        "group",
-        "team",
-        "department"
-      ]
+      "values": ["organization", "group", "team", "department"]
     },
     "public.model_context_prompt_source": {
       "name": "model_context_prompt_source",
       "schema": "public",
-      "values": [
-        "project_default",
-        "model_override"
-      ]
+      "values": ["project_default", "model_override"]
     },
     "public.pin_item_type": {
       "name": "pin_item_type",
       "schema": "public",
-      "values": [
-        "chat",
-        "project"
-      ]
+      "values": ["chat", "project"]
     }
   },
   "schemas": {},

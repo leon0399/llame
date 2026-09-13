@@ -1165,7 +1165,9 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
   it('markFinished scopes by runId AND userId and stamps finishedAt + status', async () => {
     const { db, queries } = makeMockDb();
     await new RunsRepository(db)
-      .markFinished(runId, ownerUserId, 'failed', { message: 'boom' })
+      .markFinished(runId, ownerUserId, 'failed', {
+        error: { message: 'boom' },
+      })
       .catch(() => null);
     expect(queryContains(queries, runId)).toBe(true);
     expect(queryContains(queries, ownerUserId)).toBe(true);

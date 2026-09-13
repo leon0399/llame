@@ -344,16 +344,14 @@ export class RunsRepository {
       RunStatus,
       'completed' | 'failed' | 'cancelled' | 'expired'
     >,
-    error?: unknown,
-    options?: { attemptId?: string },
+    options?: { error?: unknown; attemptId?: string },
   ): Promise<Run | undefined> {
     const [updated] = await this.db
       .update(runs)
       .set({
         status,
         finishedAt: new Date(),
-        ...(error !== undefined && { error }),
-        // Record the winning attempt on successful completion.
+        ...(options?.error !== undefined && { error: options.error }),
         ...(status === 'completed' &&
           options?.attemptId !== undefined && {
             completedAttemptId: options.attemptId,
@@ -511,7 +509,7 @@ export async function failRunTransactionally(
       job.runId,
       job.userId,
       'failed',
-      { message },
+      { error: { message } },
     );
     if (failed) {
       await new RunEventsRepository(tx).append(job.runId, 'run.failed', {

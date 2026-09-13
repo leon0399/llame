@@ -114,6 +114,9 @@ const run: Run = {
   userId: 'owner-1',
   modelId: 'model-1',
   modelContextSnapshotId: 'snapshot-1',
+  activeAttemptId: null,
+  completedAttemptId: null,
+  turnToolAvailability: null,
   status: 'queued',
   workerId: null,
   cancelRequestedAt: null,
@@ -260,7 +263,7 @@ describe('RunsRepository', () => {
     );
     await expect(
       repository.markFinished(run.id, run.userId, 'failed', {
-        message: 'boom',
+        error: { message: 'boom' },
       }),
     ).resolves.toBe(run);
     await expect(

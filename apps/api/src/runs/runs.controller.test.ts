@@ -1,4 +1,4 @@
-import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
@@ -281,7 +281,6 @@ describe('RunsController context receipt', () => {
       createdAt: pendingRun.createdAt,
     });
   });
-
 
   it('streams a completed run tail and closes with DONE', async () => {
     const event: RunEvent = {
