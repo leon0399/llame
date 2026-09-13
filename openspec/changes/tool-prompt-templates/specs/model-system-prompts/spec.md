@@ -30,6 +30,20 @@ Validation SHALL occur at execution-worker boot against the template; rendering 
 
 A run's rendered prompt MAY therefore derive from **stored per-chat state** as well as per-attempt owner state. That state SHALL be resolved and substituted by the worker under its existing capability lifecycle, alongside current per-user values, before the attempt's system-prompt-only receipt is recorded. No tool catalog or description is persisted with that receipt.
 
+The renderable context SHALL expose exactly `model.id` for the public llame model id and `model.name` for the configured public name, plus the requesting owner's **per-user paths** `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.name`, and `user.email`, plus the requesting chat's **recency-digest collections** `chats.pinned` and `chats.recent`, and the digest's **scalar metadata** `chats.pinnedShown`, `chats.pinnedTotal`, `chats.recentShown`, `chats.recentTotal`, and `chats.compiledOn`, plus the **unconditional temporal-anchor paths** `context.systemTime` and `context.systemTimezone`, plus the **skill-catalog collection** `skills.entries` and its **scalar metadata** `skills.omitted`.
+
+The skill-catalog collection `skills.entries` SHALL declare exactly the item fields `name` and `description`, and its entries SHALL be ordered by name in code-point order.
+
+The skill catalog's `skills.omitted` SHALL be separate from the collection and not iterable, and SHALL be projected as a raw integer rather than a wrapped or escaped string, exactly as the digest's count scalars are projected, so that `{{#if skills.omitted}}` is false at zero; an integer has nothing to escape, and a template can therefore disclose overflow only when the bound left proactively eligible entries out.
+
+The digest gates admit the same inversion, and because `user`, `chats`, and `skills` are **independent** gates the probe SHALL cover their **cross product** — every combination of absent and populated for all three, where the populated `chats` state includes each independently omittable collection state, pinned only and recent only — rather than varying them together.
+
+Rendered model and account-identity values, and rendered skill names, which are grammar-constrained identifiers, SHALL be escaped by replacing exactly `&`, `<`, and `>`, leaving all other punctuation verbatim; rendered owner-authored values, rendered digest item values, and rendered skill descriptions SHALL instead be neutralized by the two tag rules defined in the instance-config capability — a value can never close a tag it did not open within that same value, and can never emit a reserved delimiter name as a tag at all, with unmatched or malformed closers escaped fail-closed and everything else passing verbatim.
+
+**The same discipline SHALL apply to the skill-catalog projection**: `skills` is absent when no proactively eligible entry is admitted to the frozen baseline, so that `{{#if skills}}` gates the whole skills section including its framing prose, and a template that never references `skills` renders no catalog for that model without failing boot.
+
+Boot validation SHALL record, for each resolved prompt, whether its template references the `skills` namespace, and SHALL expose that record to turn preparation, which gates catalog notices on it under `context-injection`; the packaged default references the namespace.
+
 #### Scenario: Model has no prompt override
 
 - **WHEN** a run selects a configured model whose entry omits `systemPromptFile`
@@ -542,6 +556,8 @@ prompt-file paths, MCP connection information, raw source errors, provider
 credentials, and executor context SHALL remain undisclosed. Historical system
 prompt receipts SHALL survive catalog-column removal; historical tool receipt
 fields SHALL be removed rather than rebuilt from current configuration.
+
+Operator skill source/package/file paths intentionally published under `agent-skills` SHALL be permitted in the recorded model-visible skill contributions; this exception SHALL NOT expose prompt-file paths, Knowledge backing paths, credentials, or other private configuration.
 
 #### Scenario: Owner inspects a run carrying personalization
 
