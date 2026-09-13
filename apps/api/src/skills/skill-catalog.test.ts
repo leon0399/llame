@@ -286,13 +286,22 @@ describe('SkillCatalog discovery', () => {
   });
 
   it(
-    'refuses an oversized source through the real filesystem seam',
-    { timeout: 15_000 },
+    'stops reading at the child bound and refuses the oversized source',
+    { timeout: 20_000 },
     () => {
       const source = temporaryDirectory('real-oversized');
-      for (let i = 0; i <= MAX_SOURCE_CHILDREN; i += 1) {
+      // Two past the bound, so a missing early break is observable: the read
+      // would then return every child instead of exactly MAX_SOURCE_CHILDREN+1.
+      for (let i = 0; i <= MAX_SOURCE_CHILDREN + 1; i += 1) {
         mkdirSync(path.join(source, String(i)));
       }
+
+      // The production seam bounds the work itself, which is what keeps an
+      // oversized directory from being materialized before the catalog
+      // rejects it.
+      expect(NODE_SKILL_FILE_SYSTEM.readDirectory(source)).toHaveLength(
+        MAX_SOURCE_CHILDREN + 1,
+      );
 
       const snapshot = snapshotOf(source);
 
