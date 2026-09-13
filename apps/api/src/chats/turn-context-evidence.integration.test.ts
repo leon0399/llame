@@ -180,6 +180,23 @@ describeIfDb('message_turn_contexts — FK constraints and RLS', () => {
     ).rejects.toThrow(/foreign key/i);
   });
 
+  it('rejects a message_turn_contexts row with a cross-owner chat reference', async () => {
+    // Create a chat owned by B.
+    const chatB = await asUser(ownerB, (tx) => seedChat(tx, ownerB));
+    // ownerA tries to insert evidence referencing ownerB's chat —
+    // rejected by either the composite chat-owner FK or RLS.
+    await expect(
+      asUser(ownerA, async (tx) => {
+        const chatA = await seedChat(tx, ownerA);
+        const msgA = await seedMessage(tx, chatA, 1, 'user');
+        await tx`INSERT INTO message_turn_contexts
+          (chat_id, origin_run_id, message_id, owner_user_id, model_id, accepted_at, context_revision, source_max_seq)
+          VALUES (${chatB}, ${crypto.randomUUID()}, ${msgA}, ${ownerA}, 'test-model', now(), 1, 1)`;
+      }),
+    ).rejects.toThrow(/foreign key|row-level security/i);
+    await asUser(ownerB, (tx) => tx`DELETE FROM chats WHERE id = ${chatB}`);
+  });
+
   it('rejects chats initial_active_compaction_id from a different chat', async () => {
     await expect(
       asUser(ownerA, async (tx) => {
