@@ -311,6 +311,40 @@ describe('resolveSkillLocator', () => {
     });
   });
 
+  it('names the manual-only refusal exactly, with the skill it needs', async () => {
+    const source = temporaryDirectory('manual-message');
+    createPackage(source, 'review', {
+      sidecar: 'policy:\n  allow_implicit_invocation: false\n',
+    });
+
+    // The `$name` interpolated into the message is what tells the model how to
+    // ask for the skill, so it is pinned rather than pattern-matched.
+    expect(await resolverResult(source, 'review')).toEqual({
+      status: 'error',
+      type: 'skill_requires_explicit_selection',
+      message:
+        'The skill `review` is manual-only. It loads only when the user names it explicitly in the current turn, for example by writing `$review`.',
+    });
+  });
+
+  it('names an unusable package exactly, without revealing why', async () => {
+    const source = temporaryDirectory('unavailable-message');
+    const packageDirectory = path.join(source, 'pdf');
+    mkdirSync(packageDirectory, { recursive: true });
+    writeFileSync(
+      path.join(packageDirectory, 'SKILL.md'),
+      '---\nname: pdf\n---\n',
+    );
+
+    // The operator diagnostic stays out of the model-facing message: the model
+    // learns the package is unusable, not what is wrong with it on disk.
+    expect(await resolverResult(source, 'pdf')).toEqual({
+      status: 'error',
+      type: 'skill_unavailable',
+      message: 'The skill package is unavailable.',
+    });
+  });
+
   it('refuses an unknown package and an unavailable catalog', async () => {
     const source = temporaryDirectory('unknown');
     createPackage(source, 'pdf');

@@ -129,7 +129,7 @@ describe('skillCatalogEnvelope', () => {
     expect(listing.nextOffset).toBe(13);
   });
 
-  it('reports the continuation past the end when none remain', () => {
+  it('reports no continuation when the window reaches past the end', () => {
     const entries = Array.from({ length: 3 }, (_, index) => entry(index, 20));
 
     // The requested window runs off the end, so there is nothing to resume to.
