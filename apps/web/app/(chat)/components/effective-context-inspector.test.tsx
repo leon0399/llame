@@ -28,10 +28,16 @@ let queryClient: QueryClient;
 
 const receipt = {
   modelId: "system:openai:gpt-5.4-mini",
-  promptSource: "project_default" as const,
-  systemPrompt: "You are a helpful assistant.",
-  tools: [],
-  contentHash: "abc123",
+  state: "prepared" as const,
+  receipts: [
+    {
+      attemptId: "a1b2c3d4-0000-0000-0000-000000000001",
+      promptSource: "project_default" as const,
+      systemPrompt: "You are a helpful assistant.",
+      promptHash: "abc123",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+  ],
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
@@ -84,7 +90,7 @@ describe("EffectiveContextInspector", () => {
     fetchMock.mockReturnValue(new Promise<Response>(() => {}));
     renderInspector("run1", true);
 
-    expect(screen.getByText("Loading effective context…")).toBeTruthy();
+    expect(screen.getByText("System prompt receipt")).toBeTruthy();
   });
 
   it("shows an error state when the receipt fails to load", async () => {
@@ -92,35 +98,32 @@ describe("EffectiveContextInspector", () => {
     renderInspector("run1", true);
 
     expect(
-      await screen.findByText("Effective context unavailable"),
+      await screen.findByText("Could not load the receipt for this run."),
     ).toBeTruthy();
   });
 
-  it("renders the metadata, prompt, and 'no tools advertised' when tools is empty", async () => {
+  it("renders metadata and attempt receipt for a prepared run", async () => {
     fetchMock.mockResolvedValue(jsonResponse(receipt));
     renderInspector("run1", true);
 
     expect(await screen.findByText(receipt.modelId)).toBeTruthy();
+    expect(screen.getByText("prepared")).toBeTruthy();
+    expect(screen.getByText(receipt.receipts[0].systemPrompt)).toBeTruthy();
     expect(screen.getByText("Project default")).toBeTruthy();
-    expect(screen.getByText(receipt.systemPrompt)).toBeTruthy();
-    expect(
-      screen.getByText("No tools were advertised to this run."),
-    ).toBeTruthy();
-    // No effort on this receipt: the row must be entirely absent, not blank.
+    // No effort on this receipt: the row must be entirely absent.
     expect(screen.queryByText("Effort")).toBeNull();
   });
 
-  it("renders the effort row when present, and each advertised tool", async () => {
+  it("renders effort and attempt details when present", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
         ...receipt,
         effort: "high",
-        promptSource: "model_override",
-        tools: [
+        completedAttemptId: receipt.receipts[0].attemptId,
+        receipts: [
           {
-            id: "search_conversations",
-            description: "Search prior conversations.",
-            inputSchema: { type: "object" },
+            ...receipt.receipts[0],
+            promptSource: "model_override" as const,
           },
         ],
       }),
@@ -129,8 +132,23 @@ describe("EffectiveContextInspector", () => {
 
     expect(await screen.findByText("high")).toBeTruthy();
     expect(screen.getByText("Model-specific override")).toBeTruthy();
-    expect(screen.getByText("search_conversations")).toBeTruthy();
-    expect(screen.getByText("Search prior conversations.")).toBeTruthy();
+  });
+
+  it("shows pending message when no receipts exist", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ...receipt,
+        state: "pending",
+        receipts: [],
+      }),
+    );
+    renderInspector("run1", true);
+
+    expect(
+      await screen.findByText(
+        "This run is queued; no attempt has prepared a prompt yet.",
+      ),
+    ).toBeTruthy();
   });
 
   it("waits for a runId before enabling the query (closed for a null run)", () => {

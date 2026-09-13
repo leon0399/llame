@@ -598,7 +598,7 @@ describe("ChatPage — model context transparency", () => {
     });
 
     expect(
-      await screen.findByRole("button", { name: "Effective context" }),
+      await screen.findByRole("button", { name: "System prompt" }),
     ).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /model changed from/i }),
