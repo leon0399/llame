@@ -50,4 +50,4 @@ Use `$gh-stack` for every stack operation and `$openspec-apply-change` for every
 - [x] 7.1 Use `$openspec-sync-specs` to synchronize the five capability deltas and update SPEC/operator docs; verify new behavior is documented once in its owning capability and Knowledge path privacy remains unchanged.
 - [x] 7.2 Reconcile #770, #772, and #782 with the delivered contract and record the deferred description/content change notices as a tracked follow-up; verify no new native dependency was invented.
 - [x] 7.3 Run strict OpenSpec validation, Markdown lint, format checks, and `git diff --check`; complete required delivery review/CI for the stack with recorded results.
-- [ ] 7.4 After implementation verification, use `$openspec-archive-change`; verify every task is complete and the archive is valid, then reconcile project status after the delivery PR is merged.
+- [x] 7.4 After implementation verification, use `$openspec-archive-change`; verify every task is complete and the archive is valid, then reconcile project status after the delivery PR is merged.
