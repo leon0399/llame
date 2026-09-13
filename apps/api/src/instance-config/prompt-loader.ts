@@ -9,12 +9,14 @@ import { isString } from '@workspace/runtime-safety';
 import type {
   PromptChatDigestEntry,
   PromptChatsInput,
+  PromptSkillsInput,
   PromptUserInput,
   SystemPromptSource,
 } from '../models/model-catalog';
 import type { TemporalAnchor } from '../prompts/temporal-anchor';
 export type {
   PromptChatsInput,
+  PromptSkillsInput,
   PromptUserInput,
 } from '../models/model-catalog';
 export type { TemporalAnchor } from '../prompts/temporal-anchor';
@@ -80,6 +82,11 @@ export const PROMPT_CONTEXT_PATHS: ReadonlyArray<string> = [
   // is always present; `context` stays out of PROMPT_GATE_KEYS deliberately.
   'context.systemTime',
   'context.systemTimezone',
+  // The skill catalog's omission count, separate from `skills.entries` and not
+  // iterable (system-provided-skills D4). Projected as a RAW integer, for the
+  // same reason as `chats.pinnedShown`: a wrapped string is an object and so
+  // truthy, which would render an overflow line around a zero count.
+  'skills.omitted',
 ];
 
 /**
@@ -105,6 +112,16 @@ const CHAT_DIGEST_ITEM_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The skill catalog entry vocabulary (system-provided-skills D4). Declared
+ * separately from the digest's because a skill entry shares no field names with
+ * a chat digest entry, and a shared set would silently admit one for the other.
+ */
+const SKILL_CATALOG_ITEM_FIELDS: ReadonlySet<string> = new Set([
+  'name',
+  'description',
+]);
+
+/**
  * Collections are declared with their complete item vocabulary. The same
  * segment-key discipline as scalar paths prevents bracketed paths from
  * spoofing a declared collection, while keeping later collection additions a
@@ -116,6 +133,10 @@ const PROMPT_COLLECTION_ITEM_FIELDS: ReadonlyMap<
 > = new Map([
   [toContextKey('chats.pinned'), CHAT_DIGEST_ITEM_FIELDS],
   [toContextKey('chats.recent'), CHAT_DIGEST_ITEM_FIELDS],
+  // `name` is grammar-constrained by the catalog and escaped; `description` is
+  // operator-authored and takes the tag sanitizer, exactly as a digest item
+  // field does.
+  [toContextKey('skills.entries'), SKILL_CATALOG_ITEM_FIELDS],
 ]);
 
 /**
@@ -130,7 +151,7 @@ const PROMPT_COLLECTION_ITEM_FIELDS: ReadonlyMap<
  * still fails boot with the same message as any other unsupported construct.
  */
 const PROMPT_GATE_KEYS: ReadonlySet<string> = new Set([
-  ...['user', 'user.personalization', 'chats'].map(toContextKey),
+  ...['user', 'user.personalization', 'chats', 'skills'].map(toContextKey),
   ...PROMPT_COLLECTION_ITEM_FIELDS.keys(),
 ]);
 
@@ -229,6 +250,8 @@ export type RenderSystemPromptInput = {
   anchor: TemporalAnchor;
   user?: PromptUserInput;
   chats?: PromptChatsInput;
+  /** The frozen skill-catalog baseline; absent renders no catalog section. */
+  skills?: PromptSkillsInput;
 };
 
 /**
@@ -257,6 +280,13 @@ export const DEFAULT_CHAT_SYSTEM_PROMPT_PATH =
 export type ModelPromptResolution = {
   systemPromptTemplate: string;
   systemPromptSource: SystemPromptSource;
+  /**
+   * Whether this template references the `skills` namespace at all
+   * (system-provided-skills D4). Recorded at boot from the validated AST, so
+   * the notices layer consults a decision rather than re-parsing a rendered
+   * prompt, and so a model that opts out is known before any render.
+   */
+  referencesSkills: boolean;
 };
 
 export type ModelPromptLoader = {
@@ -325,18 +355,44 @@ const PROBE_ANCHOR: TemporalAnchor = {
   systemTime: '2000-01-01 00:00+00:00',
   systemTimezone: 'UTC',
 };
-const SYSTEM_PROMPT_EMPTY_RENDER_PROBES: ReadonlyArray<
-  readonly [PromptUserInput | undefined, PromptChatsInput | undefined]
-> = [
-  [undefined, undefined],
-  [PROBE_USER, undefined],
-  [undefined, PROBE_CHATS],
-  [PROBE_USER, PROBE_CHATS],
-  [undefined, PROBE_CHATS_PINNED_ONLY],
-  [PROBE_USER, PROBE_CHATS_PINNED_ONLY],
-  [undefined, PROBE_CHATS_RECENT_ONLY],
-  [PROBE_USER, PROBE_CHATS_RECENT_ONLY],
-];
+// The skill catalog gates independently of `user` and `chats`, so it joins the
+// cross product for the same reason: a template whose only content sits behind
+// `{{#if skills}}` renders empty for every chat whose catalog admits nothing.
+const PROBE_SKILLS: PromptSkillsInput = {
+  entries: [{ name: 'probe', description: 'probe' }],
+  omitted: 0,
+};
+
+/** The independent gate subjects a boot probe must vary. */
+type PromptProbeGates = {
+  readonly user?: PromptUserInput;
+  readonly chats?: PromptChatsInput;
+  readonly skills?: PromptSkillsInput;
+};
+
+/**
+ * Every combination of the three independent gates. `user` and `chats` each
+ * contribute several shapes because their sub-gates are independent too; a
+ * template empty for ANY combination fails startup rather than shipping a
+ * prompt that disappears for one owner population.
+ */
+const SYSTEM_PROMPT_EMPTY_RENDER_PROBES: ReadonlyArray<PromptProbeGates> = (
+  [
+    [undefined, undefined],
+    [PROBE_USER, undefined],
+    [undefined, PROBE_CHATS],
+    [PROBE_USER, PROBE_CHATS],
+    [undefined, PROBE_CHATS_PINNED_ONLY],
+    [PROBE_USER, PROBE_CHATS_PINNED_ONLY],
+    [undefined, PROBE_CHATS_RECENT_ONLY],
+    [PROBE_USER, PROBE_CHATS_RECENT_ONLY],
+  ] satisfies ReadonlyArray<
+    readonly [PromptUserInput | undefined, PromptChatsInput | undefined]
+  >
+).flatMap(([user, chats]) => [
+  { user, chats },
+  { user, chats, skills: PROBE_SKILLS },
+]);
 
 /** Read, validate, and cache one prompt file by its resolved path — several
  *  models may share one `systemPromptFile`, so `loadedFiles` (owned by the
@@ -348,8 +404,8 @@ function loadPromptFile(
   filePath: string,
   field: string,
   access: PromptFileAccess,
-  loadedFiles: Map<string, string>,
-): string {
+  loadedFiles: Map<string, LoadedPromptFile>,
+): LoadedPromptFile {
   const resolvedPath = path.resolve(filePath);
   const cached = loadedFiles.get(resolvedPath);
   if (cached !== undefined) {
@@ -379,10 +435,20 @@ function loadPromptFile(
   if (normalized.length === 0) {
     throw new InstanceConfigError(`${field}: prompt file is empty`);
   }
-  assertSupportedTemplate(normalized, field);
-  loadedFiles.set(resolvedPath, normalized);
-  return normalized;
+  const loaded: LoadedPromptFile = {
+    template: normalized,
+    referencesSkills: assertSupportedTemplate(normalized, field),
+  };
+  loadedFiles.set(resolvedPath, loaded);
+  return loaded;
 }
+
+/** One validated prompt file: its normalized text and the boot-time facts
+ *  about it that later layers consult rather than re-derive. */
+type LoadedPromptFile = {
+  readonly template: string;
+  readonly referencesSkills: boolean;
+};
 
 /** The state one `createModelPromptLoader` instance closes over — bundled so
  *  `resolveModelPrompt` can take it as a single parameter. */
@@ -390,7 +456,7 @@ type PromptLoaderState = {
   readonly access: PromptFileAccess;
   readonly defaultPromptPath: string;
   readonly configDirectory: string;
-  readonly loadedFiles: Map<string, string>;
+  readonly loadedFiles: Map<string, LoadedPromptFile>;
 };
 
 function resolveModelPrompt(
@@ -405,22 +471,17 @@ function resolveModelPrompt(
     override === undefined
       ? defaultPromptPath
       : path.resolve(configDirectory, override);
-  const systemPromptTemplate = loadPromptFile(
-    promptPath,
-    field,
-    access,
-    loadedFiles,
-  );
+  const loadedPrompt = loadPromptFile(promptPath, field, access, loadedFiles);
+  const systemPromptTemplate = loadedPrompt.template;
 
   if (
     SYSTEM_PROMPT_EMPTY_RENDER_PROBES.some(
-      ([userProbe, chatsProbe]) =>
+      (probe) =>
         renderSystemPromptTemplate({
           template: systemPromptTemplate,
           model,
           anchor: PROBE_ANCHOR,
-          user: userProbe,
-          chats: chatsProbe,
+          ...probe,
         }).trim().length === 0,
     )
   ) {
@@ -436,6 +497,7 @@ function resolveModelPrompt(
     systemPromptTemplate,
     systemPromptSource:
       override === undefined ? 'project_default' : 'model_override',
+    referencesSkills: loadedPrompt.referencesSkills,
   };
 }
 
@@ -448,7 +510,7 @@ export function createModelPromptLoader(
       options.defaultPromptPath ?? DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
     ),
     configDirectory: path.dirname(options.configPath),
-    loadedFiles: new Map<string, string>(),
+    loadedFiles: new Map<string, LoadedPromptFile>(),
   };
 
   return {
@@ -692,7 +754,12 @@ function hasLiteralContent(body: ReadonlyArray<hbs.AST.Statement>): boolean {
   });
 }
 
-function assertSupportedTemplate(prompt: string, field: string): void {
+/**
+ * Validate one template and report whether it references the `skills`
+ * namespace. Reuses the single parse validation already performs, so boot
+ * records the answer without a second parse or a render.
+ */
+function assertSupportedTemplate(prompt: string, field: string): boolean {
   let ast: hbs.AST.Program;
   try {
     ast = templates.parse(prompt);
@@ -705,6 +772,36 @@ function assertSupportedTemplate(prompt: string, field: string): void {
   if (!hasLiteralContent(ast.body)) {
     throw new InstanceConfigError(`${field}: prompt file is empty`);
   }
+
+  return referencesSkillsNamespace(ast.body);
+}
+
+/**
+ * Whether any path in the template is rooted at `skills`. Walks expressions
+ * rather than node types, so it sees a reference in value, conditional,
+ * iteration-subject, or parameter position alike.
+ */
+function referencesSkillsNamespace(
+  body: ReadonlyArray<hbs.AST.Statement>,
+): boolean {
+  for (const node of body) {
+    if (isMustacheStatement(node) && pathRootsAtSkills(node.path)) return true;
+    if (isBlockStatement(node)) {
+      const block = node;
+      if (
+        block.params.some(pathRootsAtSkills) ||
+        referencesSkillsNamespace(block.program?.body ?? []) ||
+        referencesSkillsNamespace(block.inverse?.body ?? [])
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function pathRootsAtSkills(node: hbs.AST.Expression): boolean {
+  return isPathExpression(node) && node.parts[0] === 'skills';
 }
 
 /**
@@ -813,17 +910,40 @@ function chatsContext(chats: PromptChatsInput | undefined) {
   return result;
 }
 
+/**
+ * Projects the frozen skill-catalog baseline independently of the other
+ * namespaces. Like `chats`, an absent or empty admission yields NO `skills`,
+ * so `{{#if skills}}` gates the whole section including its framing prose.
+ */
+function skillsContext(skills: PromptSkillsInput | undefined) {
+  if (skills === undefined || skills.entries.length === 0) {
+    return undefined;
+  }
+  return {
+    entries: skills.entries.map((entry) => ({
+      name: promptValue(entry.name),
+      // Operator-authored, exactly like a digest item field: the tag
+      // sanitizer is what keeps a description from closing an element it did
+      // not open.
+      description: promptValue(entry.description, sanitizeAuthoredText),
+    })),
+    // A raw integer, not a `promptValue` wrapper — see `chats.pinnedShown`.
+    omitted: skills.omitted,
+  };
+}
+
 function renderPrompt(
   template: HandlebarsTemplateDelegate,
   fields: Omit<RenderSystemPromptInput, 'template'>,
 ): string {
-  const { model, anchor, user, chats } = fields;
+  const { model, anchor, user, chats, skills } = fields;
   // An allowlisted path with no value renders empty rather than failing, so
   // that `{{#if model.name}}...{{model.name}}...{{/if}}` is expressible. Typos
   // still fail loudly: an unknown path is rejected in
   // `assertSupportedTemplate`.
   const projectedUser = userContext(user);
   const projectedChats = chatsContext(chats);
+  const projectedSkills = skillsContext(skills);
   type RenderPromptContext = {
     model: {
       id: ReturnType<typeof promptValue>;
@@ -835,6 +955,7 @@ function renderPrompt(
     };
     user?: typeof projectedUser;
     chats?: typeof projectedChats;
+    skills?: typeof projectedSkills;
   };
   const renderContext: RenderPromptContext = {
     model: {
@@ -852,6 +973,7 @@ function renderPrompt(
   };
   if (projectedUser !== undefined) renderContext.user = projectedUser;
   if (projectedChats !== undefined) renderContext.chats = projectedChats;
+  if (projectedSkills !== undefined) renderContext.skills = projectedSkills;
 
   return template(renderContext);
 }

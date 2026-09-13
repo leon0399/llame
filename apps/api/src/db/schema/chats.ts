@@ -51,6 +51,23 @@ export type RecencyDigestToldEntry = {
   title?: string;
 };
 
+/** One admitted skill entry in the frozen prompt baseline. */
+export type SkillCatalogBaselineEntry = {
+  name: string;
+  description: string;
+};
+
+/**
+ * The frozen `skills` prompt projection (system-provided-skills D4): the
+ * admitted entries in code-point name order plus how many proactively eligible
+ * entries the bound left out. Names are derived from `entries` by the notices
+ * layer's own told state, which is a separate column.
+ */
+export type SkillCatalogBaseline = {
+  entries: Array<SkillCatalogBaselineEntry>;
+  omitted: number;
+};
+
 // DB-enforced visibility values (not just a TS-level varchar union, which Postgres
 // would not constrain).
 export const chatVisibility = pgEnum('chat_visibility', ['private', 'public']);
@@ -109,6 +126,18 @@ export const chats = pgTable(
     // active compaction's id and a stale value simply never matches, which
     // withholds the marker rather than asserting a re-bake that did not happen.
     recencyDigestRebakedFrom: uuid('recency_digest_rebaked_from'),
+    // The frozen `skills` prompt projection (system-provided-skills D4).
+    // NULL means this chat has never resolved a baseline; an instance with no
+    // configured skill source never writes one, so a chat that never had skills
+    // and one on an unconfigured instance are both NULL.
+    skillCatalogBaseline: jsonb(
+      'skill_catalog_baseline',
+    ).$type<SkillCatalogBaseline>(),
+    // The compaction id the baseline was resolved under. Same deliberate
+    // absence of a foreign key as `recencyDigestRebakedFrom`: a stale value
+    // simply never matches the active compaction, so it re-resolves rather
+    // than asserting a re-bake that did not happen.
+    skillCatalogRebakedFrom: uuid('skill_catalog_rebaked_from'),
   },
   (t) => [
     // Matches findByOwner's ORDER BY (recency); pin state now lives in the

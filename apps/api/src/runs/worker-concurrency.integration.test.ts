@@ -14,6 +14,7 @@
  */
 
 import { eq } from 'drizzle-orm';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import postgres from 'postgres';
 
 import { RunAbortRegistry } from './run-abort-registry';
@@ -387,6 +388,7 @@ describeIfDb(
           new MemoryService(harness.tenantDb),
           new RecencyDigestService(harness.tenantDb),
           knowledgeCandidates,
+          noopSkillCatalog(),
         );
 
         await expect(

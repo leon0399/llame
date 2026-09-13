@@ -43,5 +43,16 @@
       "combine": "merge",
       "config": { "MD033": false, "MD041": false },
     },
+    {
+      // System-prompt templates, not prose documents: their rendered OUTPUT is
+      // a prompt whose catalogue entries are `<skill name="…">` elements, which
+      // the model-system-prompts capability requires so a multi-line
+      // description cannot merge into the surrounding prose. Only that element
+      // is admitted — the other fences in these files are not valid HTML names,
+      // so markdown-it never reads them as HTML in the first place.
+      "filter": ["apps/api/src/prompts/*.md"],
+      "combine": "merge",
+      "config": { "MD033": { "allowed_elements": ["skill"] } },
+    },
   ],
 }

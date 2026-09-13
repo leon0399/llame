@@ -52,6 +52,7 @@ function configuredCodexModels(): ModelsService {
           contextWindowTokens: 128_000,
           systemPromptTemplate: 'Use only authorized tools.',
           systemPromptSource: 'project_default',
+          referencesSkills: false,
         },
       ],
     },

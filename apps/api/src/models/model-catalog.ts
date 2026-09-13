@@ -119,6 +119,18 @@ export type PromptChatsInput = {
   compiledOn: string;
 };
 
+/** One proactively eligible skill as the prompt projects it. */
+export type PromptSkillEntry = {
+  name: string;
+  description: string;
+};
+
+export type PromptSkillsInput = {
+  entries: ReadonlyArray<PromptSkillEntry>;
+  /** Proactively eligible entries the admission bound left out. */
+  omitted: number;
+};
+
 export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** References a `providers[].id` in the resolved instance config. */
   provider: string;
@@ -139,6 +151,13 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   systemPromptTemplate: string;
   /** Path-free provenance for the resolved prompt. */
   systemPromptSource: SystemPromptSource;
+  /**
+   * Whether this model's template references the `skills` namespace
+   * (system-provided-skills D4), recorded at boot. The notices layer reads this
+   * instead of inspecting a rendered prompt, which cannot distinguish an
+   * omitted section from one that rendered empty.
+   */
+  referencesSkills: boolean;
 }
 
 /**
@@ -156,7 +175,8 @@ export type TokenPrice = {
 
 /**
  * Strip the internal execution-only fields (`provider`, `providerModelId`,
- * `compactionThresholdTokens`, `systemPromptTemplate`, `systemPromptSource`)
+ * `compactionThresholdTokens`, `systemPromptTemplate`, `systemPromptSource`,
+ * `referencesSkills`)
  * from a catalog entry — what's left IS the public shape, so a straight
  * destructure-and-spread stays correct as `PublicModelCatalogEntry` grows
  * without needing a matching field-by-field copy here.
@@ -170,6 +190,7 @@ export function toPublicModel(
     compactionThresholdTokens: _compactionThresholdTokens,
     systemPromptTemplate: _systemPromptTemplate,
     systemPromptSource: _systemPromptSource,
+    referencesSkills: _referencesSkills,
     ...pub
   } = model;
   return pub;

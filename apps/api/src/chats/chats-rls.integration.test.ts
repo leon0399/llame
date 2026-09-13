@@ -318,6 +318,70 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
+  /**
+   * system-provided-skills D4: the frozen skill-catalog baseline lives on the
+   * chat row, so it inherits the chat's tenant boundary. Both directions are
+   * asserted — an owner who cannot read the row cannot read the baseline
+   * either, and the datastore refuses the write rather than trusting the
+   * caller's identity argument.
+   */
+  it('skill baseline cross-tenant: B can neither read nor write A chat baseline', async () => {
+    const chatId = crypto.randomUUID();
+    const baseline = JSON.stringify({
+      entries: [
+        { name: 'secret-skill', description: 'A private catalog entry' },
+      ],
+      omitted: 3,
+    });
+
+    await asUser(userAId, async (tx) => {
+      await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Chat A')`;
+      await tx`
+        UPDATE chats
+        SET skill_catalog_baseline = ${baseline}::jsonb,
+            skill_catalog_rebaked_from = NULL
+        WHERE id = ${chatId}`;
+      const owned = await tx`
+        SELECT skill_catalog_baseline FROM chats WHERE id = ${chatId}`;
+      expect(owned[0]?.skill_catalog_baseline).toEqual(JSON.parse(baseline));
+    });
+
+    try {
+      // Read denial: the row itself is invisible, so the baseline is too.
+      const rows = await asUser(
+        userBId,
+        (tx) =>
+          tx`SELECT id, skill_catalog_baseline FROM chats WHERE id = ${chatId}`,
+      );
+      expect(rows).toHaveLength(0);
+
+      // Write denial: a caller cannot rewrite another owner's frozen baseline
+      // by naming that chat. This is an UPDATE, so RLS's USING clause filters
+      // the row away before WITH CHECK is ever reached — the attempt matches
+      // zero rows and reports no error, which is why the value assertion below
+      // is the meaningful half rather than a thrown rejection.
+      const forged = JSON.stringify({ entries: [], omitted: 0 });
+      const updated = await asUser(
+        userBId,
+        async (tx) =>
+          (
+            await tx`UPDATE chats SET skill_catalog_baseline = ${forged}::jsonb WHERE id = ${chatId} RETURNING id`
+          ).length,
+      );
+      expect(updated).toBe(0);
+
+      // The owner's baseline is byte-identical after B's attempt.
+      const after = await asUser(
+        userAId,
+        (tx) =>
+          tx`SELECT skill_catalog_baseline FROM chats WHERE id = ${chatId}`,
+      );
+      expect(after[0]?.skill_catalog_baseline).toEqual(JSON.parse(baseline));
+    } finally {
+      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
+    }
+  });
+
   // #666 — the cascade tests above cover a chat with messages only, a chat with a
   // compaction only, and a chat with runs only. None covers a chat carrying BOTH,
   // which is the ordinary shape of any conversation long enough to compact, and the

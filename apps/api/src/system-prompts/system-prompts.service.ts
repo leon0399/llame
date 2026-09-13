@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import {
   type PromptChatsInput,
+  type PromptSkillsInput,
   type PromptUserInput,
   type TemporalAnchor,
   renderSystemPromptTemplate,
@@ -19,6 +20,8 @@ export type SystemPromptRenderInput = {
   anchor: TemporalAnchor;
   user?: PromptUserInput;
   chats?: PromptChatsInput;
+  /** The frozen skill-catalog baseline; absent renders no catalog section. */
+  skills?: PromptSkillsInput;
 };
 
 /**
@@ -52,6 +55,7 @@ export class SystemPromptsService {
       anchor: input.anchor,
       user: input.user,
       chats: input.chats,
+      skills: input.skills,
     });
   }
 }

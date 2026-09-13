@@ -29,7 +29,13 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
-import { type Chat, chats, pins, type PinItemType } from '../db/schema';
+import {
+  type Chat,
+  chats,
+  pins,
+  type PinItemType,
+  type SkillCatalogBaseline,
+} from '../db/schema';
 
 import { type Db } from '../db/tenant-db.service';
 export { type Db } from '../db/tenant-db.service';
@@ -321,6 +327,30 @@ export class ChatsRepository {
     await this.db
       .update(chats)
       .set({ recencyDigestTold: told })
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
+  }
+
+  /**
+   * Freeze this epoch's skill-catalog baseline (system-provided-skills D4).
+   *
+   * Owner-scoped in the `WHERE`, so an identity that does not own the chat
+   * updates nothing rather than writing across the tenant boundary. Callers
+   * resolve the baseline inside the accepted-turn transaction, so the write
+   * commits with the message and Run or not at all.
+   */
+  async setSkillCatalogBaseline(options: {
+    chatId: string;
+    ownerUserId: string;
+    baseline: SkillCatalogBaseline;
+    rebakedFrom: string | null;
+  }): Promise<void> {
+    const { chatId, ownerUserId, baseline, rebakedFrom } = options;
+    await this.db
+      .update(chats)
+      .set({
+        skillCatalogBaseline: baseline,
+        skillCatalogRebakedFrom: rebakedFrom,
+      })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 

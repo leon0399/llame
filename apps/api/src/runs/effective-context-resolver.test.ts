@@ -22,6 +22,7 @@ const model = (overrides?: Partial<SystemModelCatalogEntry>) =>
     providerModelId: 'private-provider-id',
     systemPromptTemplate: 'Use the configured prompt.\n',
     systemPromptSource: 'model_override',
+    referencesSkills: false,
     ...overrides,
   }) satisfies SystemModelCatalogEntry;
 

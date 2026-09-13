@@ -178,6 +178,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
           recencyDigestBaseline: null;
           recencyDigestTold: null;
           recencyDigestRebakedFrom: null;
+          skillCatalogBaseline: null;
+          skillCatalogRebakedFrom: null;
         }
       | undefined
     >,
@@ -202,6 +204,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        skillCatalogBaseline: null,
+        skillCatalogRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -227,6 +231,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        skillCatalogBaseline: null,
+        skillCatalogRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -252,6 +258,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        skillCatalogBaseline: null,
+        skillCatalogRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -281,6 +289,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        skillCatalogBaseline: null,
+        skillCatalogRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -305,6 +315,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        skillCatalogBaseline: null,
+        skillCatalogRebakedFrom: null,
       }),
     );
     await expect(
@@ -327,6 +339,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        skillCatalogBaseline: null,
+        skillCatalogRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -351,6 +365,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        skillCatalogBaseline: null,
+        skillCatalogRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)
@@ -627,6 +643,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       recencyDigestBaseline: null,
       recencyDigestTold: null,
       recencyDigestRebakedFrom: null,
+      skillCatalogBaseline: null,
+      skillCatalogRebakedFrom: null,
     };
     const { db, queries } = makeMockDb();
     stubFindById(() => Promise.resolve(archived));
@@ -658,6 +676,8 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         recencyDigestBaseline: null,
         recencyDigestTold: null,
         recencyDigestRebakedFrom: null,
+        skillCatalogBaseline: null,
+        skillCatalogRebakedFrom: null,
       }),
     );
     await new ChatsRepository(db)

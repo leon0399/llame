@@ -109,3 +109,30 @@ lists the package, and `skill://` lists the catalog. See
 [native-files.md](native-files.md) for the locator contract, the published
 `skillDirectory`/`resolvedPath` envelope, and how a manual-only package is
 selected explicitly.
+
+## Model advertisement
+
+The packaged default system prompt advertises the proactively eligible catalog
+so the model can find a skill without being told. It renders only when at least
+one entry is admitted, lists each entry as a `<skill name="…">` element in
+code-point name order, and states how many entries the size bound left out.
+Model-specific prompt overrides opt out by not referencing the `skills`
+namespace; explicit `$skill` invocation still works on those models.
+
+The advertised set is frozen per compaction epoch: it is resolved at an
+accepted turn and stored on the chat, so editing a package, switching models,
+or any other prompt change does NOT re-render the prompt or re-mint the
+effective-context snapshot. Compaction starts a new epoch, and the next
+accepted turn resolves the catalog again. A chat with no configured source
+stores nothing and renders no skill section.
+
+The bound admits whole entries in code-point name order: at most 256 entries
+and at most 16 KiB of names and descriptions combined. Two caps because the
+prompt template owns the per-entry markup, so a byte bound on content alone
+would let thousands of one-character entries render far more than 16 KiB. The
+omission count is disclosed in the prompt and the full catalog stays readable
+at `skill://`.
+
+Invocability is decided by the package's own controls (see above); an entry
+that is manual-only or currently unreadable is never advertised and is not
+counted as omitted, because it has no instructions to offer.

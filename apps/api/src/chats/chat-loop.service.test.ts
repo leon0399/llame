@@ -13,6 +13,7 @@ import {
 } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import {
   type MemorySettingsBindingResolver,
@@ -46,6 +47,7 @@ const model: SystemModelCatalogEntry = {
   providerModelId: 'gpt-5.4-mini',
   systemPromptTemplate: 'Bound prompt',
   systemPromptSource: 'model_override',
+  referencesSkills: false,
 };
 
 const now = new Date('2026-09-03T00:00:00.000Z');
@@ -62,6 +64,8 @@ const chat: Chat = {
   recencyDigestBaseline: null,
   recencyDigestTold: null,
   recencyDigestRebakedFrom: null,
+  skillCatalogBaseline: null,
+  skillCatalogRebakedFrom: null,
 };
 
 const userMessage: Message = {
@@ -275,6 +279,7 @@ function makeService(options?: {
     memory,
     recencyDigest,
     knowledgeCandidates,
+    noopSkillCatalog(),
   );
 
   return {

@@ -35,6 +35,8 @@ function chat(id: string, title = id): Chat {
     recencyDigestBaseline: null,
     recencyDigestTold: null,
     recencyDigestRebakedFrom: null,
+    skillCatalogBaseline: null,
+    skillCatalogRebakedFrom: null,
   };
 }
 

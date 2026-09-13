@@ -17,6 +17,7 @@ import {
   type Compaction,
   type ModelContextSnapshot,
   type Run,
+  type SkillCatalogBaseline,
 } from '../db/schema';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { type SystemPromptsService } from '../system-prompts/system-prompts.service';
@@ -51,6 +52,11 @@ import {
   type RecencyDigestDelta,
 } from './recency-digest.service';
 import { type PersistUserMessageAndRunInput } from './chat-loop.service';
+import {
+  baselineMatchesEpoch,
+  resolveSkillCatalogBaseline,
+} from '../skills/skill-prompt-baseline';
+import { type SkillCatalogPort } from '../skills/skill-catalog';
 
 export type TurnContextDeps = {
   logger: Logger;
@@ -58,6 +64,8 @@ export type TurnContextDeps = {
   instanceConfig: InstanceConfigReader;
   knowledgeCandidates: KnowledgeToolCandidateResolverPort;
   memory: MemorySettingsBindingResolver;
+  /** Process-wide skill catalog; absent means no source is configured. */
+  skillCatalog?: SkillCatalogPort;
 };
 
 type DisclosureEpoch = {
@@ -181,18 +189,12 @@ export async function buildTurnContextAndParts(
   input: BuildTurnContextInput,
 ): Promise<BuildTurnContextResult> {
   const { tx, chat, turnInput, shareRecentChats, digestDelta } = input;
-
-  // Read the latest compaction UNCONDITIONALLY — the temporal anchor derives
-  // from it (falling back to chat.createdAt), and it must be available even
-  // for a chat's very first run. The downstream disclosure-epoch and
-  // digest-rebake logic reuses this same row.
-  const latestCompaction = await new CompactionsRepository(
-    tx,
-  ).findLatestByChatId(turnInput.chatId, turnInput.userId);
   const instanceTimezone = resolveInstanceTimezone(deps.logger);
-  const anchor = formatTemporalAnchor(
-    latestCompaction?.createdAt ?? chat.createdAt,
-    instanceTimezone,
+  // The per-chat frozen state this turn renders from: the latest compaction
+  // (which also dates the anchor) and this epoch's skill baseline.
+  const { latestCompaction, anchor, skillBaseline } = await resolveFrozenState(
+    deps,
+    { tx, chat, turnInput, instanceTimezone },
   );
 
   const effectiveContext = await resolveTurnEffectiveContext(deps, {
@@ -200,6 +202,7 @@ export async function buildTurnContextAndParts(
     chat,
     turnInput,
     anchor,
+    skillBaseline,
   });
   const epoch = await resolveDisclosureEpoch(
     tx,
@@ -224,6 +227,101 @@ export async function buildTurnContextAndParts(
 }
 
 /**
+ * The per-chat frozen state one turn renders from.
+ *
+ * The latest compaction is read UNCONDITIONALLY — the temporal anchor derives
+ * from it (falling back to `chat.createdAt`), so it must be available even for
+ * a chat's very first run, and the disclosure-epoch logic reuses the same row.
+ * The skill baseline resolves against that row because the compaction id IS the
+ * epoch boundary it is stored under.
+ */
+async function resolveFrozenState(
+  deps: TurnContextDeps,
+  input: {
+    tx: Db;
+    chat: Chat;
+    turnInput: PersistUserMessageAndRunInput;
+    instanceTimezone: string;
+  },
+): Promise<{
+  latestCompaction: Compaction | undefined;
+  anchor: TemporalAnchor;
+  skillBaseline: SkillCatalogBaseline | undefined;
+}> {
+  const { tx, chat, turnInput, instanceTimezone } = input;
+  const latestCompaction = await new CompactionsRepository(
+    tx,
+  ).findLatestByChatId(turnInput.chatId, turnInput.userId);
+  return {
+    latestCompaction,
+    anchor: formatTemporalAnchor(
+      latestCompaction?.createdAt ?? chat.createdAt,
+      instanceTimezone,
+    ),
+    skillBaseline: await resolveTurnSkillBaseline(deps, {
+      tx,
+      chat,
+      turnInput,
+      latestCompactionId: latestCompaction?.id ?? null,
+    }),
+  };
+}
+
+/**
+ * This turn's frozen skill-catalog baseline (system-provided-skills D4).
+ *
+ * Reuse within an epoch is what keeps the rendered prompt byte-identical
+ * between compactions, so the effective-context snapshot is reused rather than
+ * re-minted; a new compaction therefore re-resolves lazily at the next accepted
+ * turn, not inside the compaction path, which is what leaves an already-bound
+ * Run's prompt untouched. A chat that has never been compacted pairs a baseline
+ * with `null`, so its first resolution is reused until the first compaction.
+ *
+ * Nothing is written when no source is configured, so an instance without
+ * skills carries no catalog state at all and renders no section.
+ */
+async function resolveTurnSkillBaseline(
+  deps: TurnContextDeps,
+  input: {
+    tx: Db;
+    chat: Chat;
+    turnInput: PersistUserMessageAndRunInput;
+    latestCompactionId: string | null;
+  },
+): Promise<SkillCatalogBaseline | undefined> {
+  const { tx, chat, turnInput, latestCompactionId } = input;
+  const catalog = deps.skillCatalog;
+  // The configured list is the authority, not the snapshot: an empty list
+  // writes no column and renders no section, whatever the catalog would scan.
+  if (catalog === undefined) return undefined;
+  if (deps.instanceConfig.config.skills.directories.length === 0) {
+    return undefined;
+  }
+  const stored = chat.skillCatalogBaseline;
+  if (
+    stored !== null &&
+    baselineMatchesEpoch(
+      stored,
+      chat.skillCatalogRebakedFrom,
+      latestCompactionId,
+    )
+  ) {
+    return stored;
+  }
+
+  const baseline = resolveSkillCatalogBaseline(catalog);
+  // Written in the accepted-turn transaction the caller owns, so it commits
+  // with the message and Run or not at all.
+  await new ChatsRepository(tx).setSkillCatalogBaseline({
+    chatId: turnInput.chatId,
+    ownerUserId: turnInput.userId,
+    baseline,
+    rebakedFrom: latestCompactionId,
+  });
+  return baseline;
+}
+
+/**
  * The system prompt (rendered from `anchor`) + resolved advertised/
  * executable tool catalog this turn's Run snapshot binds.
  */
@@ -234,9 +332,10 @@ async function resolveTurnEffectiveContext(
     chat: Chat;
     turnInput: PersistUserMessageAndRunInput;
     anchor: TemporalAnchor;
+    skillBaseline: SkillCatalogBaseline | undefined;
   },
 ): Promise<EffectiveContextSnapshotInput> {
-  const { tx, chat, turnInput, anchor } = input;
+  const { tx, chat, turnInput, anchor, skillBaseline } = input;
   let systemPrompt: string;
   try {
     systemPrompt = deps.systemPrompts.render({
@@ -244,6 +343,9 @@ async function resolveTurnEffectiveContext(
       anchor,
       user: turnInput.user,
       chats: chat.recencyDigestBaseline ?? undefined,
+      // The frozen baseline, not a live read: the rendered prompt stays
+      // byte-identical between compactions. Absent renders no catalog section.
+      ...(skillBaseline !== undefined && { skills: skillBaseline }),
     });
   } catch (error) {
     if (chat.recencyDigestBaseline === null) throw error;
