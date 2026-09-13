@@ -2,6 +2,7 @@ import { InferSelectModel } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   bigint,
+  boolean,
   check,
   foreignKey,
   index,
@@ -9,6 +10,7 @@ import {
   pgEnum,
   pgPolicy,
   pgTable,
+  primaryKey,
   text,
   uniqueIndex,
   uuid,
@@ -50,6 +52,30 @@ export type RecencyDigestToldEntry = {
   pinned: boolean;
   title?: string;
 };
+
+/**
+ * Immutable continuation state persisted alongside compaction references.
+ * The active compaction and re-bake markers are typed columns with FK
+ * enforcement; this payload carries the remaining state that has no
+ * relational reference requirement.
+ */
+export type ContinuationStatePayload = {
+  contextRevision: number;
+  sourceMaxSeq: number;
+  digestBaseline: RecencyDigestBaseline | null;
+  digestTold: Array<RecencyDigestToldEntry> | null;
+};
+
+export const usageOriginKind = pgEnum('usage_origin_kind', [
+  'run',
+  'message',
+  'compaction',
+]);
+
+export const usageProvenance = pgEnum('usage_provenance', [
+  'local',
+  'inherited',
+]);
 
 // DB-enforced visibility values (not just a TS-level varchar union, which Postgres
 // would not constrain).
@@ -109,6 +135,36 @@ export const chats = pgTable(
     // active compaction's id and a stale value simply never matches, which
     // withholds the marker rather than asserting a re-bake that did not happen.
     recencyDigestRebakedFrom: uuid('recency_digest_rebaked_from'),
+    // Owner-fork origin: the source prefix's context origin, independent of
+    // the fork's creation time. NULL for ordinary new chats and empty forks.
+    // An ordinary chat derives its temporal anchor from createdAt; a non-empty
+    // fork uses this value. Fork-of-fork retains it transitively.
+    inheritedContextOriginAt: timestamptz('inherited_context_origin_at'),
+    // Chat-local increasing revision, advanced atomically by acceptance and
+    // compaction transactions. Determines continuation state ordering and
+    // staleness detection. Starts at 0 for new chats; adoption sets it to the
+    // highest projected historical revision.
+    contextRevision: bigint('context_revision', { mode: 'number' })
+      .notNull()
+      .default(0),
+    // Immutable initial continuation state: recorded once at chat creation
+    // (ordinary new chat = known-empty at revision/boundary zero) or at
+    // adoption (projected current state). The payload carries contextRevision,
+    // sourceMaxSeq, digestBaseline, and digestTold; compaction references are
+    // the typed FK columns below.
+    initialContinuationState: jsonb(
+      'initial_continuation_state',
+    ).$type<ContinuationStatePayload>(),
+    // Composite FK (initialActiveCompactionId, id) → (compactions.id,
+    // compactions.chatId) with ON DELETE NO ACTION. Enforced in migration
+    // SQL only: the `compactions` table is defined later in this file, and
+    // Drizzle's composite foreignKey() builder evaluates its foreignColumns
+    // array synchronously, making a forward reference a lint/TS violation.
+    // Same-Chat integrity is proven by the integration test; regeneration
+    // must restore both FK statements.
+    initialActiveCompactionId: uuid('initial_active_compaction_id'),
+    // Re-bake marker at the initial state boundary. Same FK discipline.
+    initialDigestRebakedFrom: uuid('initial_digest_rebaked_from'),
   },
   (t) => [
     // Matches findByOwner's ORDER BY (recency); pin state now lives in the
@@ -189,6 +245,20 @@ export const messages = pgTable(
       onDelete: 'set null',
     }),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
+    // Source-independent completion fact for copied user messages whose
+    // original assistant reply may be absent. Default false = no inherited
+    // proof, not that a locally executed turn is incomplete. Authored only
+    // by the trusted owner-copy operation during fork.
+    inheritedTurnComplete: boolean('inherited_turn_complete')
+      .notNull()
+      .default(false),
+    // Usage attribution: namespaced origin and provenance for fork
+    // deduplication. NULL columns = no recorded provenance (pre-migration
+    // or genuinely unrecorded). Server-side only; the DTO exposes only
+    // usageProvenance.
+    usageOriginKind: usageOriginKind('usage_origin_kind'),
+    usageOriginId: text('usage_origin_id'),
+    usageProvenanceCol: usageProvenance('usage_provenance'),
   },
   (t) => [
     index('messages_chat_created_idx').on(t.chatId, t.createdAt),
@@ -252,6 +322,28 @@ export const compactions = pgTable(
     // Telemetry of the summarization call (TurnTelemetry shape), like messages.usage.
     usage: jsonb('usage'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
+    // Usage attribution — same columns as messages.
+    usageOriginKind: usageOriginKind('usage_origin_kind'),
+    usageOriginId: text('usage_origin_id'),
+    usageProvenanceCol: usageProvenance('usage_provenance'),
+    // --- Continuation state companions (complete-owner-forks) ---
+    // Chat-local revision at which this compaction's state was committed.
+    // NULL for pre-migration checkpoints.
+    contextRevision: bigint('context_revision', { mode: 'number' }),
+    // Highest message seq boundary this compaction's state observed,
+    // including the triggering turn even when uptoSeq covers an earlier
+    // prefix. NULL for pre-migration checkpoints.
+    sourceMaxSeq: bigint('source_max_seq', { mode: 'number' }),
+    // Active checkpoint at the time this compaction committed. Self-
+    // referencing for ordinary compaction (this row IS the new active
+    // checkpoint). Composite FK (companionActiveCompactionId, chatId) →
+    // (id, chatId) with ON DELETE NO ACTION.
+    companionActiveCompactionId: uuid('companion_active_compaction_id'),
+    // Re-bake marker companion. Same FK discipline.
+    companionDigestRebakedFrom: uuid('companion_digest_rebaked_from'),
+    // Remaining continuation state (digest baseline, told-set) as JSON.
+    // Excludes the typed compaction references above.
+    companionState: jsonb('companion_state').$type<ContinuationStatePayload>(),
   },
   (t) => [
     // Read path: latest compaction per chat (ORDER BY upto_seq DESC LIMIT 1).
@@ -262,6 +354,18 @@ export const compactions = pgTable(
       columns: [t.parentId, t.chatId],
       foreignColumns: [t.id, t.chatId],
     }),
+    // Companion state compaction FKs: same-chat references with ON DELETE
+    // NO ACTION (same discipline as chats initial-state FKs).
+    foreignKey({
+      name: 'compactions_companion_active_compaction_id_fk',
+      columns: [t.companionActiveCompactionId, t.chatId],
+      foreignColumns: [t.id, t.chatId],
+    }).onDelete('no action'),
+    foreignKey({
+      name: 'compactions_companion_digest_rebaked_from_fk',
+      columns: [t.companionDigestRebakedFrom, t.chatId],
+      foreignColumns: [t.id, t.chatId],
+    }).onDelete('no action'),
     // RLS: same shape as messages_owner. The migration ALSO issues
     // FORCE ROW LEVEL SECURITY (Drizzle can't express it) — see migration 0009
     // and the relforcerowsecurity assertion in chats-rls.integration.test.ts.
@@ -275,6 +379,100 @@ export const compactions = pgTable(
 ).enableRLS();
 
 export type Compaction = InferSelectModel<typeof compactions>;
+
+// Immutable evidence for each retained accepted Run, keyed by the original
+// Run identity within a Chat. Records model, effort, acceptance time,
+// effective-context snapshot, continuation state, and executed context items.
+// originRunId is an immutable provenance value with NO foreign key to a
+// source Run — source deletion must neither cascade-delete nor null it.
+//
+// Continuation state: contextRevision and sourceMaxSeq are queryable columns;
+// digest baseline/told are JSONB; compaction references are typed FK columns
+// with ON DELETE NO ACTION (same discipline as chats/compactions).
+export const messageTurnContexts = pgTable(
+  'message_turn_contexts',
+  {
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    // Immutable provenance — the original Run's UUID. NOT a FK to runs.
+    originRunId: uuid('origin_run_id').notNull(),
+    // The triggering user message. Composite FK constrains same Chat.
+    messageId: uuid('message_id').notNull(),
+    // Tenant boundary — enforced by RLS.
+    ownerUserId: text('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // Model/effort captured at acceptance time.
+    modelId: text('model_id').notNull(),
+    effort: text('effort'),
+    acceptedAt: timestamptz('accepted_at').notNull(),
+    // Effective-context snapshot bound at acceptance. Nullable for pre-
+    // migration history where no snapshot was retained.
+    snapshotId: uuid('snapshot_id'),
+    // Chat-local increasing revision. Orders acceptance and compaction
+    // state; used for staleness detection and fork boundary selection.
+    contextRevision: bigint('context_revision', { mode: 'number' }).notNull(),
+    // Highest message seq this state observed. A fork boundary selects
+    // only records whose sourceMaxSeq fits the selected prefix.
+    sourceMaxSeq: bigint('source_max_seq', { mode: 'number' }).notNull(),
+    // Active checkpoint at acceptance. Same-Chat composite FK.
+    activeCompactionId: uuid('active_compaction_id'),
+    // Re-bake marker at acceptance. Same-Chat composite FK.
+    digestRebakedFrom: uuid('digest_rebaked_from'),
+    // Digest triple as JSON — not duplicating the typed compaction refs.
+    digestBaseline: jsonb('digest_baseline').$type<RecencyDigestBaseline>(),
+    digestTold: jsonb('digest_told').$type<Array<RecencyDigestToldEntry>>(),
+    // Context items the Run injected, as rendered. Retained for fork
+    // evidence alongside the snapshot (which captures declarations, not
+    // per-turn items). Nullable for pre-migration or genuinely empty.
+    contextItems: jsonb('context_items').$type<Array<RunContextItem>>(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({
+      name: 'message_turn_contexts_pk',
+      columns: [t.chatId, t.originRunId],
+    }),
+    // Same-Chat message constraint.
+    foreignKey({
+      name: 'message_turn_contexts_message_chat_fk',
+      columns: [t.messageId, t.chatId],
+      foreignColumns: [messages.id, messages.chatId],
+    }),
+    // Owner-scoped snapshot constraint.
+    foreignKey({
+      name: 'message_turn_contexts_snapshot_owner_fk',
+      columns: [t.snapshotId, t.ownerUserId],
+      foreignColumns: [
+        modelContextSnapshots.id,
+        modelContextSnapshots.ownerUserId,
+      ],
+    }),
+    // Same-Chat compaction FKs with ON DELETE NO ACTION.
+    foreignKey({
+      name: 'message_turn_contexts_active_compaction_fk',
+      columns: [t.activeCompactionId, t.chatId],
+      foreignColumns: [compactions.id, compactions.chatId],
+    }).onDelete('no action'),
+    foreignKey({
+      name: 'message_turn_contexts_digest_rebaked_from_fk',
+      columns: [t.digestRebakedFrom, t.chatId],
+      foreignColumns: [compactions.id, compactions.chatId],
+    }).onDelete('no action'),
+    // Ordering index for fork boundary selection (D4).
+    index('message_turn_contexts_chat_revision_idx').on(
+      t.chatId,
+      t.contextRevision,
+    ),
+    // RLS: owner-only, no public-read policy.
+    pgPolicy('message_turn_contexts_owner', {
+      using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
+    }),
+  ],
+).enableRLS();
+
+export type MessageTurnContext = InferSelectModel<typeof messageTurnContexts>;
 
 // The DB enum retains reserved future states for migration compatibility.
 // Current runtime code emits only the subset named in SPEC §9.3. DB-enforced,

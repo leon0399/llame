@@ -386,6 +386,13 @@
       "when": 1788195292823,
       "tag": "20260831165452_timestamptz_auth_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1789316888003,
+      "tag": "20260913162808_vengeful_quasar",
+      "breakpoints": true
     }
   ]
 }
