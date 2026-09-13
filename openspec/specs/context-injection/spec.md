@@ -579,7 +579,7 @@ When a delta would exceed the baseline bound, one `skill-catalog` item with form
 #### Scenario: Description changes without membership change
 
 - **WHEN** an advertised skill's description or `SKILL.md` content changes between user turns
-- **THEN** no catalog notice is emitted in this change
+- **THEN** no catalog notice is emitted in this change (tracked as [#821](https://github.com/leon0399/llame/issues/821))
 - **AND** a later `skill://` read returns the current content
 
 #### Scenario: Active Run sees a deleted skill

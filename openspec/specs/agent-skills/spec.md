@@ -133,7 +133,7 @@ Skill loading SHALL publish the selected package's real absolute directory and r
 
 ### Requirement: Owners can inspect the current catalog
 
-Authenticated owners SHALL be able to inspect the same system catalog through `GET /api/v1/skills`, including source paths, invocation eligibility, unavailable entries, diagnostics, and pagination or explicit omission metadata. Unauthenticated requests SHALL fail. This surface SHALL NOT publish credentials or allow catalog mutation. Skill read listing at `skill://` SHALL be bounded and filter manual-only entries unless selected in the current user turn. Catalog bodies SHALL remain absent until selected. Prompt advertisement SHALL be limited to proactively eligible entries admitted to the chat's frozen baseline, and a description or content change of a still-advertised entry SHALL NOT be announced in this change.
+Authenticated owners SHALL be able to inspect the same system catalog through `GET /api/v1/skills`, including source paths, invocation eligibility, unavailable entries, diagnostics, and pagination or explicit omission metadata. Unauthenticated requests SHALL fail. This surface SHALL NOT publish credentials or allow catalog mutation. Skill read listing at `skill://` SHALL be bounded and filter manual-only entries unless selected in the current user turn. Catalog bodies SHALL remain absent until selected. Prompt advertisement SHALL be limited to proactively eligible entries admitted to the chat's frozen baseline, and a description or content change of a still-advertised entry SHALL NOT be announced in this change (tracked as [#821](https://github.com/leon0399/llame/issues/821)).
 
 #### Scenario: Two owners inspect shared packages
 

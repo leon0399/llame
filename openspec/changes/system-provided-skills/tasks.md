@@ -37,7 +37,7 @@ Use `$gh-stack` for every stack operation and `$openspec-apply-change` for every
 - [x] 5.2 Add the `skill-activation` producer rendering the header, path guidance, precedence line, and the frontmatter-stripped instruction body, plus the bounded failure and omission variants; verify final-text persistence, existing delimiter sanitation of user text and skill content, author-time ordering after `tool-availability`, and that the persisted text replays without regeneration.
 - [x] 5.3 Persist origin-qualified requested/started/completed events with permission provenance before dispatch and mirror the safe record in private activation metadata; verify audit failure prevents file reads, live/recovered assistant tool projections exclude system-origin events, legacy events remain model-origin, and diagnostic metadata is absent from model text, shares, exports, and search.
 - [x] 5.4 Expose the existing executed-context record through owner-only `GET /api/v1/runs/:id/context-items`; verify `items: null` before a final executed request is recorded, the complete recorded array afterward, unrecorded state after preparation failure, an unchanged enqueue receipt, and not-found for non-owners.
-- [ ] 5.5 Verify explicit skills cannot grant tools, expose server credentials, mutate through skill locators, or access another owner's Knowledge; run meaningful negative isolation tests through the Run boundary and record any environment limitation separately from defects.
+- [x] 5.5 Verify explicit skills cannot grant tools, expose server credentials, mutate through skill locators, or access another owner's Knowledge; run meaningful negative isolation tests through the Run boundary and record any environment limitation separately from defects.
 
 ## 6. Notices layer: system-provided-skills/notices
 
@@ -47,7 +47,7 @@ Use `$gh-stack` for every stack operation and `$openspec-apply-change` for every
 
 ## 7. Finalize layer: system-provided-skills/finalize
 
-- [ ] 7.1 Use `$openspec-sync-specs` to synchronize the five capability deltas and update SPEC/operator docs; verify new behavior is documented once in its owning capability and Knowledge path privacy remains unchanged.
-- [ ] 7.2 Reconcile #770, #772, and #782 with the delivered contract and record the deferred description/content change notices as a tracked follow-up; verify no new native dependency was invented.
-- [ ] 7.3 Run strict OpenSpec validation, Markdown lint, format checks, and `git diff --check`; complete required delivery review/CI for the stack with recorded results.
+- [x] 7.1 Use `$openspec-sync-specs` to synchronize the five capability deltas and update SPEC/operator docs; verify new behavior is documented once in its owning capability and Knowledge path privacy remains unchanged.
+- [x] 7.2 Reconcile #770, #772, and #782 with the delivered contract and record the deferred description/content change notices as a tracked follow-up; verify no new native dependency was invented.
+- [x] 7.3 Run strict OpenSpec validation, Markdown lint, format checks, and `git diff --check`; complete required delivery review/CI for the stack with recorded results.
 - [ ] 7.4 After implementation verification, use `$openspec-archive-change`; verify every task is complete and the archive is valid, then reconcile project status after the delivery PR is merged.

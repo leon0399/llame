@@ -200,6 +200,36 @@ A run's rendered prompt MAY therefore derive from **stored per-chat state** as w
 
 For templates with tool predicates, boot SHALL validate syntax and structure without failing merely because a referenced tool is absent. Every actual attempt SHALL reject empty effective system/description text before target-model I/O under `tool-prompt-templates`. API-only acceptance SHALL not resolve prompt files or values. Frozen digest and temporal-anchor semantics SHALL remain owned by their capabilities; rendering on a new attempt does not redefine those values.
 
+#### Scenario: Prompt iterates the skill catalog
+
+- **WHEN** a prompt wraps entry markup in an `each` block over `skills.entries` and references `name` and `description` inside it
+- **THEN** the block renders once per admitted entry in code-point name order with the description tag-neutralized
+- **AND** startup succeeds
+
+#### Scenario: An entire skills section is gated on an admitted entry
+
+- **WHEN** a prompt wraps a skills section, framing prose included, in `{{#if skills}}`
+- **THEN** the section renders only for a chat whose frozen baseline admits at least one proactively eligible entry
+- **AND** a template that never references `skills` validates and renders no catalog
+
+#### Scenario: A prompt gates an overflow line on the omitted count
+
+- **WHEN** a prompt wraps a line in `{{#if skills.omitted}}` and emits `skills.omitted` inside it
+- **THEN** the line renders with the count only when the bound omitted at least one proactively eligible entry
+- **AND** the path is not accepted as an `each` subject
+
+#### Scenario: Boot records whether a template references the catalog
+
+- **WHEN** a model's prompt is resolved at boot
+- **THEN** whether its template references `skills` is recorded for that model
+- **AND** turn preparation reads that record rather than parsing the rendered prompt
+
+#### Scenario: Skills gate is independent of the other gates
+
+- **WHEN** a template's entire content sits inside `{{#if skills}}` and `{{#unless user}}`
+- **THEN** boot fails naming the gate combination for which it renders empty
+- **AND** the probe that catches it varies `skills` independently of `user` and `chats`
+
 ### Requirement: A model switch replaces the top-level prompt and preserves portable history
 
 For a turn whose selected model differs from the most recent successfully committed prior run in the chat, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target attempt's runtime tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability. It MUST NOT replay persisted reasoning or provider-native thinking/signature/cache metadata from earlier runs. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
@@ -561,6 +591,12 @@ fields SHALL be removed rather than rebuilt from current configuration.
 - **WHEN** a retry renders a different system prompt from an earlier failed attempt
 - **THEN** both prepared attempts have separate immutable system-only receipts
 - **AND** only the winning attempt's eligible context may enter committed model history
+
+#### Scenario: Skill activation does not mutate the enqueue receipt
+
+- **WHEN** a skill activation publishes its package directory and resolved file path after the Run is claimed
+- **THEN** the immutable enqueue receipt stays unchanged and the separate executed-context record contains the final activation text
+- **AND** the skill path exception does not expose Knowledge backing paths or private prompt configuration
 
 ### Requirement: Model context is surfaced as progressive disclosure
 
