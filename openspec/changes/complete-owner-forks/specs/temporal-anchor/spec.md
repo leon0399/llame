@@ -8,6 +8,8 @@ An ordinary new chat's context origin SHALL be its creation time. A non-empty ow
 
 The anchor SHALL be derived from the applicable compaction or recorded context origin, not from an independently editable anchor setting. The fork's creation timestamp SHALL continue to record when the new Chat was created.
 
+The inherited origin is an immutable historical input that cannot be derived from a fork's new creation time or its message timestamps. Recording it preserves otherwise unavailable source history; it does not store a second resolved anchor. The resolved anchor remains derived from the applicable compaction when one exists, avoiding an independent value that could drift from that checkpoint. Ordinary chats still derive their origin from their existing creation time.
+
 #### Scenario: Chat has never been compacted
 
 - **WHEN** a run is prepared for an ordinary new chat with no compaction
