@@ -910,6 +910,64 @@ describe('the skill-catalog notice', () => {
     expect(rendered.mock.calls[0][0].skills).toBeUndefined();
   });
 
+  it('reports an unreadable source mid-epoch instead of announcing removals', async () => {
+    // The other half of the unreadable-source guard, and the case it actually
+    // exists for: the chat is already inside its epoch, so the stored baseline
+    // and a non-empty told state are both present. Diffing the failed read
+    // would announce every told name as removed; the delta is skipped instead,
+    // and the stored baseline keeps rendering for the rest of the epoch.
+    const unreadable = path.join(
+      mkdtempSync(path.join(tmpdir(), 'unreadable-mid-epoch-')),
+      'does-not-exist',
+    );
+    const rendered = vi.fn((_input: SystemPromptRenderInput) => 'prompt');
+    const depsWithBadSource: TurnContextDeps = {
+      ...deps(),
+      systemPrompts: { render: rendered },
+      instanceConfig: {
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          skills: { directories: [unreadable] },
+        },
+      },
+      skillCatalog: new SkillCatalog([unreadable]),
+    };
+    const warned = vi.spyOn(depsWithBadSource.logger, 'warn');
+    repositories.findLatest.mockResolvedValue(undefined);
+
+    const result = await buildTurnContextAndParts(depsWithBadSource, {
+      tx,
+      chat: chat({
+        skillCatalogBaseline: {
+          entries: [{ name: 'pdf', description: 'Extract text' }],
+          omitted: 0,
+        },
+        skillCatalogRebakedFrom: null,
+        skillCatalogTold: ['pdf'],
+      }),
+      turnInput: turnInput({
+        model: { ...model, referencesSkills: true },
+      }),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+
+    // No removals notice, no rewritten baseline, and the model still sees the
+    // catalog the chat was already told about.
+    expect(catalogForms(result.messageParts)).toEqual([]);
+    expect(result.skillCatalogTold).toBeUndefined();
+    expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
+    expect(rendered.mock.calls[0][0].skills).toEqual({
+      entries: [{ name: 'pdf', description: 'Extract text' }],
+      omitted: 0,
+    });
+    // Mid-epoch is silent no longer: the operator sees discovery failing here
+    // exactly as they do at epoch start.
+    expect(warned).toHaveBeenCalledWith(
+      expect.stringContaining('skill_catalog_unavailable'),
+    );
+  });
+
   it('announces the removals when the source list is emptied mid-epoch', async () => {
     // The operator disables skills by emptying `skills.directories` after this
     // chat froze a baseline. The stored baseline stays in the prompt for the

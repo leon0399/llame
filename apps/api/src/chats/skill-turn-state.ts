@@ -83,7 +83,7 @@ export async function resolveTurnSkillState(
     return {
       baseline: stored,
       notice: deriveCatalogNotice({
-        current: deps.skillCatalog,
+        deps,
         told: input.chat.skillCatalogTold ?? toldFromBaseline(stored),
         runId: input.runId,
         modelReferencesSkills: input.modelReferencesSkills,
@@ -153,26 +153,35 @@ async function startSkillEpoch(
  * and an addition renders whatever description the entry has now.
  */
 function deriveCatalogNotice(input: {
-  readonly current: SkillCatalogPort | undefined;
+  readonly deps: SkillTurnStateDeps;
   readonly told: ReadonlyArray<string>;
   readonly runId: string;
   readonly modelReferencesSkills: boolean;
 }): SkillCatalogNotice | undefined {
   if (!input.modelReferencesSkills) return undefined;
 
-  // No configured source, or no catalog port at all, means the current
-  // advertisement is EMPTY — not that there is nothing to say. A chat whose
-  // baseline predates that change still carries those names in its frozen
-  // prompt, so suppressing the delta would leave it attempting stale reads for
-  // the rest of the epoch. The removals are exactly the point of the notice.
-  const advertised =
-    input.current === undefined
-      ? EMPTY_BASELINE
-      : resolveSkillCatalogBaseline(input.current);
-  // An unreadable catalog is NOT an empty advertisement: it is a failure to read
-  // the catalog at all, and diffing it would announce removals that have not
-  // happened. Skip, and let the next turn retry.
-  if (advertised === undefined) return undefined;
+  const current = input.deps.skillCatalog;
+  let advertised: SkillCatalogBaseline;
+  if (current === undefined) {
+    // No configured source, or no catalog port at all, means the current
+    // advertisement is EMPTY — not that there is nothing to say. A chat whose
+    // baseline predates that change still carries those names in its frozen
+    // prompt, so suppressing the delta would leave it attempting stale reads for
+    // the rest of the epoch. The removals are exactly the point of the notice.
+    advertised = EMPTY_BASELINE;
+  } else {
+    const resolved = resolveSkillCatalogBaseline(current);
+    if (resolved === undefined) {
+      // An unreadable catalog is NOT an empty advertisement: it is a failure to
+      // read the catalog at all, and diffing it would announce removals that
+      // have not happened. Skip, and let the next turn retry — but report it,
+      // because the epoch-start path reports the same failure and the operator
+      // would otherwise get no signal that discovery is failing mid-epoch.
+      input.deps.reportUnavailable?.(current.getSnapshot().diagnostics);
+      return undefined;
+    }
+    advertised = resolved;
+  }
 
   const delta = deriveSkillCatalogDelta({
     advertised: advertised.entries,
