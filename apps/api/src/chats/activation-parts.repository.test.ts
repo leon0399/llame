@@ -243,6 +243,66 @@ describe('ActivationPartsRepository.appendForRun', () => {
     ).toHaveLength(1);
   });
 
+  it('drops a resolved name from the stale omission item', async () => {
+    // Attempt 1 reported `research` (and `writing`) as unattempted. Attempt 2
+    // resolved `research`. Leaving the omission text intact would contradict the
+    // instructions now sitting beside it.
+    const omission = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: { kind: 'omission', skills: ['research', 'writing'] },
+      text: 'omitted research, writing',
+    });
+    const activation = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: { kind: 'activation', skill: 'research' },
+      text: 'activation research',
+    });
+
+    const { applied, writes } = await append([omission], [activation]);
+
+    expect(applied).toBe(true);
+    const omissions = writes[0].filter(
+      (part) =>
+        isContextItemPart(part) && part.data.payload['kind'] === 'omission',
+    );
+    expect(omissions).toHaveLength(1);
+    expect(
+      omissions.flatMap((part) =>
+        isContextItemPart(part) ? [part.data.payload['skills']] : [],
+      ),
+    ).toEqual([['writing']]);
+  });
+
+  it('removes the omission item once every name is resolved', async () => {
+    const omission = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: { kind: 'omission', skills: ['research'] },
+      text: 'omitted research',
+    });
+    const activation = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: { kind: 'activation', skill: 'research' },
+      text: 'activation research',
+    });
+
+    const { writes } = await append([omission], [activation]);
+
+    expect(
+      writes[0].filter(
+        (part) =>
+          isContextItemPart(part) && part.data.payload['kind'] === 'omission',
+      ),
+    ).toEqual([]);
+  });
+
   it('does nothing when there is nothing to insert', async () => {
     const { applied, writes } = await append([item('temporal', RUN_ID)], []);
 
