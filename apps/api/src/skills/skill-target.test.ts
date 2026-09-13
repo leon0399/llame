@@ -281,6 +281,36 @@ describe('resolveSkillLocator', () => {
     });
   });
 
+  it('reports a closed, bounded reason for each failure', async () => {
+    const source = temporaryDirectory('messages');
+    createPackage(source, 'pdf');
+
+    // Each type is a closed vocabulary the caller switches on, and each message
+    // is bounded and names no host path beyond the package it describes.
+    expect(await resolverResult(source, 'PDF!')).toMatchObject({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'The skill locator is invalid.',
+    });
+    expect(await resolverResult(source, 'absent')).toMatchObject({
+      status: 'error',
+      type: 'not_found',
+      message: 'File not found.',
+    });
+    const missing = path.join(source, 'gone');
+    expect(
+      await resolveSkillLocator(
+        new SkillCatalog([missing]),
+        'pdf',
+        NO_SKILL_SELECTION,
+      ),
+    ).toMatchObject({
+      status: 'error',
+      type: 'skill_catalog_unavailable',
+      message: 'The skill catalog is unavailable.',
+    });
+  });
+
   it('refuses an unknown package and an unavailable catalog', async () => {
     const source = temporaryDirectory('unknown');
     createPackage(source, 'pdf');
