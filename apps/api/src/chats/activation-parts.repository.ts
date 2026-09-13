@@ -9,6 +9,7 @@
  */
 
 import { and, eq } from 'drizzle-orm';
+import { compareCodePoints } from '../canonical-json';
 import { isString } from '@workspace/runtime-safety';
 
 import { messages } from '../db/schema';
@@ -17,6 +18,7 @@ import {
   CONTEXT_ITEM_PRODUCERS,
   isContextItemPart,
   type AuthoredContextItemPart,
+  type ContextItemPart,
 } from './context-item';
 
 /** The producer whose items this repository places. */
@@ -112,17 +114,23 @@ export class ActivationPartsRepository {
     if (row === undefined) return { applied: false };
 
     const parts = Array.isArray(row.parts) ? row.parts : [];
-    if (hasActivationItems(parts, input.runId)) return { applied: false };
+    // Per-ITEM idempotence, not per-Run. A retry legitimately produces items the
+    // prior attempt did not: a selection its byte budget dropped is reported
+    // unattempted and left unpersisted, then read again on the retry. Skipping
+    // the whole append because one item already existed would discard those
+    // fresh instructions while the stale omission notice stayed effective, so
+    // the model would never see them.
+    const stored = storedIdentities(parts, input.runId);
+    const fresh = input.items.filter(
+      (item) => !stored.has(activationIdentity(item)),
+    );
+    if (fresh.length === 0) return { applied: false };
 
     const index = railInsertionIndex(parts);
     const [updated] = await this.db
       .update(messages)
       .set({
-        parts: [
-          ...parts.slice(0, index),
-          ...input.items,
-          ...parts.slice(index),
-        ],
+        parts: [...parts.slice(0, index), ...fresh, ...parts.slice(index)],
       })
       .where(owner)
       .returning({ id: messages.id });
@@ -140,27 +148,43 @@ function producerRank(producer: string): number {
 }
 
 /** Whether this Run's ACTIVATION items are already stored. */
-function hasActivationItems(
-  parts: ReadonlyArray<unknown>,
-  runId: string,
-): boolean {
-  return parts.some(
-    (part) =>
-      isContextItemPart(part) &&
-      part.data.producer === ACTIVATION_PRODUCER &&
-      part.data.runId === runId,
-  );
+/**
+ * What identifies one activation item for idempotence.
+ *
+ * A per-selection item is identified by its selection, so re-reading the same
+ * skill is a no-op while a newly resolved one is not. An omission item is
+ * identified by the set of names it reports, so a retry that omits exactly the
+ * same remainder adds nothing and one that omits a different remainder is
+ * recorded.
+ */
+function activationIdentity(part: ContextItemPart): string {
+  const payload = part.data.payload;
+  const kind = String(payload['kind']);
+  if (kind === 'omission') {
+    const skills: unknown = payload['skills'];
+    if (!Array.isArray(skills)) return 'omission:';
+    const names = skills.filter(isString);
+    return `omission:${[...names].sort(compareCodePoints).join(',')}`;
+  }
+  const skill: unknown = payload['skill'];
+  return `${kind}:${isString(skill) ? skill : ''}`;
 }
 
-/**
- * The index where a `skill-activation` item belongs: before the first part that
- * is not a rail item, and before the first rail item whose producer follows
- * this one.
- *
- * An unrecognized producer sorts last — it comes from a newer revision than
- * this worker knows about, so keeping it after ours preserves the order that
- * revision chose rather than guessing at its rank.
- */
+/** The identities this Run's activation items already carry. */
+function storedIdentities(
+  parts: ReadonlyArray<unknown>,
+  runId: string,
+): ReadonlySet<string> {
+  const identities = new Set<string>();
+  for (const part of parts) {
+    if (!isContextItemPart(part)) continue;
+    if (part.data.producer !== ACTIVATION_PRODUCER) continue;
+    if (part.data.runId !== runId) continue;
+    identities.add(activationIdentity(part));
+  }
+  return identities;
+}
+
 function railInsertionIndex(parts: ReadonlyArray<unknown>): number {
   for (const [index, part] of parts.entries()) {
     if (!isContextItemPart(part)) return index;

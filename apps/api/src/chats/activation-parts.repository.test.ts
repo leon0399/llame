@@ -170,6 +170,79 @@ describe('ActivationPartsRepository.appendForRun', () => {
     expect(applied).toBe(true);
   });
 
+  it('persists a selection the prior attempt never stored', async () => {
+    // The retry case: attempt 1 stored `pdf` and reported `research` as omitted
+    // because its byte budget dropped it. Attempt 2 reads `research` for real, so
+    // the fresh item MUST persist — skipping the whole append because some
+    // activation item already existed for the Run would lose the instructions.
+    const activation = (skill: string) =>
+      createContextItemPart({
+        producer: 'skill-activation',
+        form: 'notice',
+        runId: RUN_ID,
+        payload: { kind: 'activation', skill },
+        text: `activation ${skill}`,
+      });
+
+    const { applied, writes } = await append(
+      [activation('pdf'), item('temporal', RUN_ID)],
+      [activation('research')],
+    );
+
+    expect(applied).toBe(true);
+    expect(producersOf(writes[0])).toContain('skill-activation');
+  });
+
+  it('does not duplicate an already-stored selection', async () => {
+    const activation = (skill: string) =>
+      createContextItemPart({
+        producer: 'skill-activation',
+        form: 'notice',
+        runId: RUN_ID,
+        payload: { kind: 'activation', skill },
+        text: `activation ${skill}`,
+      });
+
+    const { applied, writes } = await append(
+      [activation('pdf')],
+      [activation('pdf')],
+    );
+
+    expect(applied).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it('inserts only the fresh selections from a mixed retry', async () => {
+    const activation = (skill: string) =>
+      createContextItemPart({
+        producer: 'skill-activation',
+        form: 'notice',
+        runId: RUN_ID,
+        payload: { kind: 'activation', skill },
+        text: `activation ${skill}`,
+      });
+
+    const { applied, writes } = await append(
+      [activation('pdf')],
+      [activation('pdf'), activation('research')],
+    );
+
+    expect(applied).toBe(true);
+    // Exactly one row appended, carrying only the selection that was missing.
+    expect(writes[0]).toHaveLength(2);
+    const appended = writes[0].filter(
+      (part) =>
+        isContextItemPart(part) && part.data.payload['skill'] === 'research',
+    );
+    expect(appended).toHaveLength(1);
+    expect(
+      writes[0].filter(
+        (part) =>
+          isContextItemPart(part) && part.data.payload['skill'] === 'pdf',
+      ),
+    ).toHaveLength(1);
+  });
+
   it('does nothing when there is nothing to insert', async () => {
     const { applied, writes } = await append([item('temporal', RUN_ID)], []);
 
