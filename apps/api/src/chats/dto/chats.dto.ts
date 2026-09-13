@@ -154,6 +154,12 @@ export class ForkChatDto {
   fromMessageId?: string;
 }
 
+export class MessageContextReceiptQueryDto {
+  @ApiProperty({ format: 'uuid', description: 'Recorded origin Run id' })
+  @IsUUID()
+  originRunId!: string;
+}
+
 export class CreateTextMessagePartDto {
   @ApiProperty({ enum: ['text'] })
   @IsIn(['text'])
@@ -577,7 +583,8 @@ export class ChatMessageResponse {
     enum: ['local', 'inherited'],
     nullable: true,
     description:
-      'null = no recorded usage; local = executed here; inherited = copied from a fork source',
+      'null = no provenance recorded (legacy usage may still be present); ' +
+      'local = executed in this chat; inherited = copied from a fork source',
   })
   usageProvenance!: 'local' | 'inherited' | null;
 }

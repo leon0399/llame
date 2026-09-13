@@ -8,7 +8,7 @@
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import { type Chat, type Message, type Run } from '../db/schema';
+import { type Message, type Run } from '../db/schema';
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { resolveForkBoundary } from './fork-boundary';
@@ -250,12 +250,5 @@ describe('resolveForkBoundary', () => {
       ],
     });
     await expect(resolveForkBoundary(scope, undefined)).resolves.toBe(2);
-  });
-});
-
-describe('fork boundary scope chat shape', () => {
-  it('is typed against Chat for compile-time safety', () => {
-    const chat: Pick<Chat, 'id' | 'ownerUserId'> = { id: chatId, ownerUserId };
-    expect(chat.id).toBe('chat-1');
   });
 });

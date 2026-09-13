@@ -67,6 +67,7 @@ import {
   CreateMessageDto,
   ForkChatDto,
   ListChatsQueryDto,
+  MessageContextReceiptQueryDto,
   toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
@@ -480,8 +481,9 @@ export class ChatsController {
     @CurrentUser() userId: string,
     @Param('chatId', ParseUUIDPipe) chatId: string,
     @Param('messageId', ParseUUIDPipe) messageId: string,
-    @Query('originRunId', ParseUUIDPipe) originRunId: string,
+    @Query() query: MessageContextReceiptQueryDto,
   ): Promise<ContextReceiptResponse> {
+    const { originRunId } = query;
     const receipt = await this.tenantDb.runAs(userId, async (tx) => {
       const evidence = await new MessageTurnContextsRepository(tx).findByOrigin(
         chatId,

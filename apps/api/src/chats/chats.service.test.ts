@@ -872,10 +872,13 @@ describe('ChatsService message windows, updates and forks', () => {
       const createEvidence = vi
         .spyOn(MessageTurnContextsRepository.prototype, 'create')
         .mockResolvedValue(undefined);
-      vi.spyOn(
-        MessageTurnContextsRepository.prototype,
-        'findLatestByChatId',
-      ).mockResolvedValue(evidence);
+      const findLatest = vi
+        .spyOn(MessageTurnContextsRepository.prototype, 'findLatestByChatId')
+        // Only the DESTINATION chat has copied evidence; a lookup against
+        // the source chat would return nothing.
+        .mockImplementation((id: string) =>
+          Promise.resolve(id === 'chat-fork' ? evidence : undefined),
+        );
       const setState = vi
         .spyOn(ChatsRepository.prototype, 'setForkContinuationState')
         .mockResolvedValue(undefined);
@@ -884,6 +887,7 @@ describe('ChatsService message windows, updates and forks', () => {
 
       // Evidence copied with the DESTINATION message id, not the source id.
       const copiedUser = createMany.mock.calls[0][0][0];
+      expect(findLatest).toHaveBeenCalledWith('chat-fork', ownerUserId);
       expect(createEvidence).toHaveBeenCalledTimes(1);
       expect(createEvidence.mock.calls[0][0]).toMatchObject({
         chatId: 'chat-fork',

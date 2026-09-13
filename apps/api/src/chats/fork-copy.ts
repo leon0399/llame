@@ -66,9 +66,11 @@ export async function copyOwnerPrefix(
       msgIdMap,
       maxSeq: toCopy.at(-1)!.seq,
     };
-    await copyCompactions(scope);
-    await copyEvidence(scope);
-    await setForkInitialState(scope, chatsRepo);
+    // Compactions first: the copied evidence remaps its checkpoint
+    // references through the same ID map.
+    const compIdMap = await copyCompactions(scope);
+    await copyEvidence(scope, compIdMap);
+    await setForkInitialState(scope, compIdMap, chatsRepo);
   }
   return created;
 }
@@ -125,14 +127,13 @@ function isCompanionEligible(
   return comp.sourceMaxSeq === null || comp.sourceMaxSeq <= maxSeq;
 }
 
-async function copyCompactions(scope: CopyScope): Promise<void> {
+async function copyCompactions(scope: CopyScope): Promise<Map<string, string>> {
   const repo = new CompactionsRepository(scope.tx);
   const all = await repo.findByCoverage(
     scope.source.id,
     scope.ownerUserId,
     scope.maxSeq,
   );
-  if (all.length === 0) return;
   const idMap = new Map(all.map((c) => [c.id, crypto.randomUUID()]));
   for (const comp of all) {
     await repo.create({
@@ -164,9 +165,13 @@ async function copyCompactions(scope: CopyScope): Promise<void> {
       }),
     });
   }
+  return idMap;
 }
 
-async function copyEvidence(scope: CopyScope): Promise<void> {
+async function copyEvidence(
+  scope: CopyScope,
+  compIdMap: Map<string, string>,
+): Promise<void> {
   const repo = new MessageTurnContextsRepository(scope.tx);
   const all = await repo.findByCoverage(
     scope.source.id,
@@ -187,31 +192,44 @@ async function copyEvidence(scope: CopyScope): Promise<void> {
       snapshotId: ev.snapshotId,
       contextRevision: ev.contextRevision,
       sourceMaxSeq: ev.sourceMaxSeq,
-      activeCompactionId: null,
+      // Checkpoint lineage is remapped through the copied compactions so
+      // the inherited evidence keeps addressing the fork's own rows.
+      activeCompactionId: ev.activeCompactionId
+        ? (compIdMap.get(ev.activeCompactionId) ?? null)
+        : null,
       digestBaseline: ev.digestBaseline,
       digestTold: ev.digestTold,
-      digestRebakedFrom: null,
+      digestRebakedFrom: ev.digestRebakedFrom
+        ? (compIdMap.get(ev.digestRebakedFrom) ?? null)
+        : null,
     });
   }
 }
 
 async function setForkInitialState(
   scope: CopyScope,
+  compIdMap: Map<string, string>,
   chatsRepo: ChatsRepository,
 ): Promise<void> {
   const latest = await new MessageTurnContextsRepository(
     scope.tx,
   ).findLatestByChatId(scope.destChatId, scope.ownerUserId);
-  // Select the boundary's continuation state from the highest available
-  // recorded evidence; fall back to the source chat's immutable adoption
-  // state when the copied prefix retained no per-turn evidence.
-  const selected = latest
+  // Design D4: select the highest eligible contextRevision across the
+  // turn records AND the copied compaction companions — a compaction
+  // commit is often the newest continuation event at a boundary.
+  const compactionState = await latestCompanionState(scope, compIdMap);
+  const evidenceState = latest
     ? {
         contextRevision: latest.contextRevision,
         digestBaseline: latest.digestBaseline ?? null,
         digestTold: latest.digestTold ?? null,
       }
-    : selectAdoptionState(scope.source, scope.maxSeq);
+    : null;
+  // Fall back to the source chat's immutable adoption state when the
+  // copied prefix retained no per-turn evidence.
+  const selected =
+    selectHighestRevision([evidenceState, compactionState]) ??
+    selectAdoptionState(scope.source, scope.maxSeq);
   if (!selected) {
     throwContextUnavailable(
       'No retained continuation evidence is available at the selected boundary.',
@@ -219,7 +237,8 @@ async function setForkInitialState(
   }
   // The Chat's live digest columns ARE the current continuation state
   // (design D3); without them the fork's first turn renders no inherited
-  // digest and initializes a fresh baseline.
+  // digest and initializes a fresh baseline. The counter starts at the
+  // highest copied revision before any local authoring.
   await chatsRepo.setForkContinuationState(
     scope.destChatId,
     scope.ownerUserId,
@@ -230,6 +249,52 @@ async function setForkInitialState(
       digestTold: selected.digestTold,
     },
   );
+}
+
+type ForkContinuationState = {
+  contextRevision: number;
+  digestBaseline: ContinuationStatePayload['digestBaseline'];
+  digestTold: ContinuationStatePayload['digestTold'];
+};
+
+/** The recorded state carrying the highest contextRevision, if any. */
+function selectHighestRevision(
+  candidates: ReadonlyArray<ForkContinuationState | null>,
+): ForkContinuationState | null {
+  const present = candidates.filter(
+    (s): s is ForkContinuationState => s !== null,
+  );
+  if (present.length === 0) return null;
+  return present.reduce((a, b) =>
+    b.contextRevision > a.contextRevision ? b : a,
+  );
+}
+
+/** The copied compaction companion carrying the highest observed revision. */
+async function latestCompanionState(
+  scope: CopyScope,
+  compIdMap: Map<string, string>,
+): Promise<ForkContinuationState | null> {
+  const all = await new CompactionsRepository(scope.tx).findByCoverage(
+    scope.source.id,
+    scope.ownerUserId,
+    scope.maxSeq,
+  );
+  const eligible = all.filter(
+    (c) =>
+      isCompanionEligible(c, scope.maxSeq) &&
+      compIdMap.has(c.id) &&
+      c.companionState !== null,
+  );
+  if (eligible.length === 0) return null;
+  const best = eligible.reduce((a, b) =>
+    (b.contextRevision ?? 0) > (a.contextRevision ?? 0) ? b : a,
+  );
+  return {
+    contextRevision: best.contextRevision ?? 0,
+    digestBaseline: best.companionState?.digestBaseline ?? null,
+    digestTold: best.companionState?.digestTold ?? null,
+  };
 }
 
 /**
