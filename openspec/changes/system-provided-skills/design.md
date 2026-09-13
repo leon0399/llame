@@ -247,6 +247,7 @@ Observed 2026-09-11 unless noted. Primary-source inspection; upstream tests were
 
 ## Revision history
 
+- v12 (2026-09-13): CodeRabbit round 2 on #803: the proposal summary states activation bounds and the single omission item, and gates catalog notices on the bound template; task 5.1 asserts no-reread recovery of completed ordinals and each activation exhaustion case; task 6.3 scopes the notice-free removal read to the active Run.
 - v11 (2026-09-12): pullfrog and CodeRabbit on #803: proposal uses layer names instead of a second D-numbering; the boot-time record of whether a template references `skills` is a requirement and a task; the Run carries the turn's selection set to model-initiated skill reads; told state is names only, compared by membership; omitted-count drift named in the deferral; probe wording covers all three gates and each independently omittable collection state.
 - v10 (2026-09-12): Indent review on #803: `skills.omitted` is a raw integer, not an escaped value, so the false-at-zero gate holds.
 - v9 (2026-09-12): Codex review on #803: catalog notices and told-state updates gated on the bound model's template referencing `skills`; entry-count cap of 256 added beside the 16 KiB byte bound.
