@@ -594,6 +594,61 @@ describe('the frozen skill-catalog baseline', () => {
     );
   });
 
+  it('keeps advertising a stored baseline after the source list is emptied', async () => {
+    const stored = {
+      entries: [{ name: 'stored', description: 'From the baseline' }],
+      omitted: 0,
+    };
+    const rendered = vi.fn((_input: SystemPromptRenderInput) => 'prompt');
+    // No configured source now, but the chat holds a baseline for this epoch.
+    const context: TurnContextDeps = {
+      ...deps(),
+      systemPrompts: { render: rendered },
+    };
+    repositories.findLatest.mockResolvedValue(undefined);
+
+    await buildTurnContextAndParts(context, {
+      tx,
+      chat: chat({
+        skillCatalogBaseline: stored,
+        skillCatalogRebakedFrom: null,
+      }),
+      turnInput: turnInput(),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+
+    // Reuse outranks the configured list: dropping the section here would
+    // silently unadvertise a catalog the chat is still told about, and removals
+    // are announced as notices rather than by mutating the frozen prompt.
+    expect(rendered).toHaveBeenCalledWith(
+      expect.objectContaining({ skills: stored }),
+    );
+    expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
+  });
+
+  it('writes no baseline for an unconfigured instance with no stored one', async () => {
+    repositories.findLatest.mockResolvedValue(undefined);
+    const rendered = vi.fn((_input: SystemPromptRenderInput) => 'prompt');
+    const context: TurnContextDeps = {
+      ...deps(),
+      systemPrompts: { render: rendered },
+    };
+
+    await buildTurnContextAndParts(context, {
+      tx,
+      chat: chat(),
+      turnInput: turnInput(),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+
+    // No key at all, which is what leaves the default template's
+    // `{{#if skills}}` section unrendered.
+    expect(rendered.mock.calls[0][0].skills).toBeUndefined();
+    expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
+  });
+
   it('reports an honest omitted count when the bound overflows', async () => {
     const entries = Array.from({ length: 300 }, (_, i) =>
       skillEntry(`s${String(i).padStart(3, '0')}`, 'd'),

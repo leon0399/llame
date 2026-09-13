@@ -291,13 +291,12 @@ async function resolveTurnSkillBaseline(
 ): Promise<SkillCatalogBaseline | undefined> {
   const { tx, chat, turnInput, latestCompactionId } = input;
   const catalog = deps.skillCatalog;
-  // The configured list is the authority, not the snapshot: an empty list
-  // writes no column and renders no section, whatever the catalog would scan.
-  if (catalog === undefined) return undefined;
-  if (deps.instanceConfig.config.skills.directories.length === 0) {
-    return undefined;
-  }
   const stored = chat.skillCatalogBaseline;
+  // Reuse is checked FIRST, before the configured list: a stored baseline is
+  // this epoch's frozen advertisement, and emptying the source list must not
+  // silently unadvertise a catalog the chat is still told about. Removals reach
+  // the model as notices against the told state, not by dropping the section,
+  // and the frozen prompt stays byte-identical for the epoch either way.
   if (
     stored !== null &&
     baselineMatchesEpoch(
@@ -307,6 +306,12 @@ async function resolveTurnSkillBaseline(
     )
   ) {
     return stored;
+  }
+  // Nothing NEW is resolved or written without a configured source, so an
+  // unconfigured instance carries no catalog state at all.
+  if (catalog === undefined) return undefined;
+  if (deps.instanceConfig.config.skills.directories.length === 0) {
+    return undefined;
   }
 
   const baseline = resolveSkillCatalogBaseline(catalog);

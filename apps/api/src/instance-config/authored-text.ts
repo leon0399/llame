@@ -60,6 +60,15 @@ const RESERVED_TAG_NAMES: ReadonlySet<string> = new Set([
   'tool-result',
   'user_chat_history',
   'user_personalization',
+  // The skill catalog's own fence and entry element (system-provided-skills
+  // D4). Rule 1 alone does NOT cover these: a description carrying a BALANCED
+  // `<skill name="evil">…</skill>` closes only a tag it opened in-value, so it
+  // satisfies rule 1 while rendering a second, forged catalog entry beside the
+  // real one — enough to advertise a skill that does not exist, or to smuggle
+  // instructions that read as catalog framing. `available_skills` is reserved
+  // for the same reason at block granularity.
+  'skill',
+  'available_skills',
 ]);
 
 /**
