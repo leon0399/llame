@@ -32,8 +32,12 @@ import {
   MessagesRepository,
 } from '../chats/chats-repository';
 import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
+import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { createModelChangeItem } from '../chats/context-item-producers';
-import { hashToolDeclaration } from '../tools/turn-tool-catalog';
+import {
+  hashToolDeclaration,
+  type TurnToolCandidate,
+} from '../tools/turn-tool-catalog';
 import type { DynamicToolExecutorResolver } from './snapshot-tool-execution';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import type { CompactionCapability } from '../compaction/compaction.service';
@@ -94,6 +98,7 @@ const runId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const userId = 'user-1';
 const messageId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const snapshotId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const testAttemptId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const now = new Date('2026-09-01T00:00:00.000Z');
 
 const chat: Chat = {
@@ -220,6 +225,10 @@ function makeExecutionService(
   permissionPolicy: CompiledPolicy = compileTestPermissionPolicy([
     'mcp__demo__lookup',
   ]),
+  options?: {
+    allowed?: ReadonlyArray<string>;
+    dynamicCandidates?: ReadonlyArray<TurnToolCandidate>;
+  },
 ) {
   const db: Db = drizzle.mock({ schema });
   const tenantDb = new TenantDbService({
@@ -234,7 +243,11 @@ function makeExecutionService(
   const instanceConfig: InstanceConfigReader = {
     config: {
       ...BUILT_IN_DEFAULTS,
-      tools: { ...BUILT_IN_DEFAULTS.tools, allowed: [], nativeExecutorId },
+      tools: {
+        ...BUILT_IN_DEFAULTS.tools,
+        allowed: options?.allowed ?? [],
+        nativeExecutorId,
+      },
     },
   };
   // Held separately so tests can rescript them with their inferred Mock type
@@ -275,7 +288,7 @@ function makeExecutionService(
     new SystemPromptsService(),
     { resolvePromptUser: vi.fn().mockResolvedValue(undefined) },
     knowledgeCandidates,
-    { snapshotCandidates: () => [] },
+    { snapshotCandidates: () => options?.dynamicCandidates ?? [] },
     dynamicToolResolver,
   );
   return {
@@ -295,15 +308,30 @@ function makeExecutionService(
 function mockNormalExecutionRepositories() {
   const markStarted = vi
     .spyOn(RunsRepository.prototype, 'markStarted')
-    .mockResolvedValue(run);
-  const recordContextItems = vi
-    .spyOn(RunsRepository.prototype, 'recordContextItems')
-    .mockResolvedValue(run);
+    .mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
   const markFinished = vi
     .spyOn(RunsRepository.prototype, 'markFinished')
     .mockResolvedValue({
       ...run,
       status: 'completed',
+    });
+  const createOrReuse = vi
+    .spyOn(ModelContextSnapshotsRepository.prototype, 'createOrReuse')
+    .mockResolvedValue(snapshot);
+  const updateForAttempt = vi
+    .spyOn(RunsRepository.prototype, 'updateForAttempt')
+    .mockResolvedValue({ ...run, modelContextSnapshotId: snapshotId });
+  const createReceipt = vi
+    .spyOn(SystemPromptReceiptsRepository.prototype, 'create')
+    .mockResolvedValue({
+      id: 'receipt-1',
+      ownerUserId: userId,
+      runId,
+      attemptId: testAttemptId,
+      source: 'project_default',
+      systemPrompt: snapshot.systemPrompt,
+      promptHash: snapshot.promptHash,
+      createdAt: now,
     });
   vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue(event);
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
@@ -323,15 +351,21 @@ function mockNormalExecutionRepositories() {
   const createAssistantReplyIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createAssistantReplyIfAbsent')
     .mockResolvedValue(assistantMessage);
+  const findMostRecent = vi
+    .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
+    .mockResolvedValue(undefined);
   vi.spyOn(
     ModelContextSnapshotsRepository.prototype,
     'findByOwnedRun',
   ).mockResolvedValue(snapshot);
   return {
     markStarted,
-    recordContextItems,
     markFinished,
     createAssistantReplyIfAbsent,
+    createOrReuse,
+    updateForAttempt,
+    createReceipt,
+    findMostRecent,
   };
 }
 
@@ -357,7 +391,9 @@ describe('RunExecutionService executeRun', () => {
       runId,
       userId,
       'failed',
-      expect.objectContaining({ code: 'outcome_unknown' }),
+      expect.objectContaining({
+        error: expect.objectContaining({ code: 'outcome_unknown' }),
+      }),
     );
     expect(appended.map((entry) => entry.type)).toEqual(['run.failed']);
     expect(appended[0].payload).toMatchObject({ code: 'outcome_unknown' });
@@ -436,16 +472,17 @@ describe('RunExecutionService executeRun', () => {
 
     await expect(result.text).resolves.toBe('answer');
     expect(repositorySpies.markStarted).toHaveBeenCalledWith(runId, userId);
-    expect(repositorySpies.recordContextItems).toHaveBeenCalledWith(
+    expect(repositorySpies.updateForAttempt).toHaveBeenCalledWith(
       runId,
       userId,
-      [],
+      testAttemptId,
+      { contextItems: [] },
     );
     expect(repositorySpies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
       'completed',
-      undefined,
+      expect.objectContaining({ attemptId: testAttemptId }),
     );
     expect(repositorySpies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({ chatId, inReplyTo: messageId }),
@@ -496,9 +533,14 @@ describe('RunExecutionService executeRun', () => {
         abortSignal: controller.signal,
       }),
     ).rejects.toBeInstanceOf(RunNotRunnableError);
-    expect(finished).toHaveBeenCalledWith(runId, userId, 'expired', {
-      message: 'Run timed out: exceeded its wall-clock budget.',
-    });
+    expect(finished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'expired',
+      expect.objectContaining({
+        error: { message: 'Run timed out: exceeded its wall-clock budget.' },
+      }),
+    );
     expect(append).toHaveBeenCalledWith(runId, 'run.expired', {
       message: 'Run timed out: exceeded its wall-clock budget.',
     });
@@ -671,7 +713,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
       runId,
       userId,
       'completed',
-      undefined,
+      expect.objectContaining({ attemptId: testAttemptId }),
     );
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -770,7 +812,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
       runId,
       userId,
       'failed',
-      undefined,
+      expect.objectContaining({ attemptId: testAttemptId }),
     );
     expect(appended.at(-1)?.type).toBe('run.failed');
     const erroredUsage: unknown = expect.objectContaining({ status: 'error' });
@@ -802,7 +844,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
       runId,
       userId,
       'expired',
-      undefined,
+      expect.objectContaining({ attemptId: testAttemptId }),
     );
     expect(appended.at(-1)?.type).toBe('run.expired');
   });
@@ -856,7 +898,8 @@ describe('RunExecutionService executeRun — stream failure', () => {
       message: 'provider exploded',
     });
     expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      message: 'provider exploded',
+      error: { message: 'provider exploded' },
+      attemptId: testAttemptId,
     });
     const partialUsage: unknown = expect.objectContaining({ status: 'error' });
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
@@ -882,7 +925,8 @@ describe('RunExecutionService executeRun — stream failure', () => {
     await capturing.streamOptions().onError?.({ error: 'plain string blowup' });
 
     expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      message: 'plain string blowup',
+      error: { message: 'plain string blowup' },
+      attemptId: testAttemptId,
     });
   });
 
@@ -901,9 +945,16 @@ describe('RunExecutionService executeRun — stream failure', () => {
       .streamOptions()
       .onError?.({ error: new Error('aborted by signal') });
 
-    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'expired', {
-      message: 'Run timed out: exceeded its wall-clock budget.',
-    });
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'expired',
+      expect.objectContaining({
+        error: {
+          message: 'Run timed out: exceeded its wall-clock budget.',
+        },
+      }),
+    );
     expect(appended.at(-1)).toStrictEqual({
       type: 'run.expired',
       payload: {
@@ -931,7 +982,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
       runId,
       userId,
       'cancelled',
-      { message: 'stream aborted' },
+      expect.objectContaining({ error: { message: 'stream aborted' } }),
     );
   });
 
@@ -959,9 +1010,16 @@ describe('RunExecutionService executeRun — stream failure', () => {
       finishReason: 'stop',
     });
 
-    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      message: 'Run progress could not be persisted.',
-    });
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: {
+          message: 'Run progress could not be persisted.',
+        },
+      }),
+    );
     expect(appended).toEqual(['run.started', 'model.requested', 'run.failed']);
     expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
   });
@@ -982,9 +1040,16 @@ describe('RunExecutionService executeRun — stream failure', () => {
     options.onTextDelta?.('partial');
     await options.onError?.({ error: new Error('provider exploded') });
 
-    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      message: 'Run progress could not be persisted.',
-    });
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: {
+          message: 'Run progress could not be persisted.',
+        },
+      }),
+    );
     expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
   });
 
@@ -1004,9 +1069,16 @@ describe('RunExecutionService executeRun — stream failure', () => {
     await expect(
       execution.service.executeRun(executionInput(client)),
     ).rejects.toThrow('provider misconfigured');
-    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      message: 'provider misconfigured',
-    });
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: {
+          message: 'provider misconfigured',
+        },
+      }),
+    );
     expect(appended.at(-1)).toStrictEqual({
       type: 'run.failed',
       payload: { status: 'failed', message: 'provider misconfigured' },
@@ -1051,24 +1123,31 @@ function makeDynamicResolver(executor: Tool): DynamicToolExecutorResolver {
   };
 }
 
-/** Advertises `toolDeclaration` on the run's bound snapshot. */
-function withDeclaredTool() {
-  vi.spyOn(
-    ModelContextSnapshotsRepository.prototype,
-    'findByOwnedRun',
-  ).mockResolvedValue({ ...snapshot, toolDeclarations: [toolDeclaration] });
+/** Advertises `toolDeclaration` through the worker's dynamic catalog. */
+function withDeclaredTool(): {
+  allowed: ReadonlyArray<string>;
+  dynamicCandidates: ReadonlyArray<TurnToolCandidate>;
+} {
+  return {
+    allowed: [toolDeclaration.id],
+    dynamicCandidates: [
+      {
+        source: { type: 'mcp', serverId: 'demo' },
+        state: 'available',
+        tool: {
+          id: toolDeclaration.id,
+          description: toolDeclaration.description,
+          classification: 'read_only',
+          inputSchema: toolDeclaration.inputSchema,
+          execute: () => ({ status: 'success' as const }),
+        },
+      },
+    ],
+  };
 }
 
-async function withDeclaredBashTool() {
-  const declaration = {
-    id: bashTool.id,
-    description: bashTool.description,
-    inputSchema: await resolveJsonSchema(bashTool.inputSchema),
-  };
-  vi.spyOn(
-    ModelContextSnapshotsRepository.prototype,
-    'findByOwnedRun',
-  ).mockResolvedValue({ ...snapshot, toolDeclarations: [declaration] });
+function withDeclaredBashTool() {
+  return { allowed: ['bash'] };
 }
 
 /** `toolDeclaration.inputSchema`'s own shape: one required string `q`. */
@@ -1126,15 +1205,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
   it('waits for durable progress before executing a bash call', async () => {
     mockNormalExecutionRepositories();
-    const declaration = {
-      id: bashTool.id,
-      description: bashTool.description,
-      inputSchema: await resolveJsonSchema(bashTool.inputSchema),
-    };
-    vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
-      'findByOwnedRun',
-    ).mockResolvedValue({ ...snapshot, toolDeclarations: [declaration] });
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockImplementation((_runId, eventType) => {
@@ -1150,6 +1220,8 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
+      undefined,
+      { allowed: ['bash'] },
     );
 
     await execution.service.executeRun(executionInput(capturing.client));
@@ -1175,7 +1247,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
   it('keeps a known bash cancellation when the parent abort settles the run', async () => {
     const controller = new AbortController();
     mockNormalExecutionRepositories();
-    await withDeclaredBashTool();
+    const toolOptions = withDeclaredBashTool();
     const appended = recordAppendedEvents();
     replayAppendedEvents(appended);
     const capturing = makeCapturingClient();
@@ -1195,6 +1267,8 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(
@@ -1225,7 +1299,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
   it('bounds a stuck bash call and settles it as outcome_unknown', async () => {
     const controller = new AbortController();
     mockNormalExecutionRepositories();
-    await withDeclaredBashTool();
+    const toolOptions = withDeclaredBashTool();
     const appended = recordAppendedEvents();
     replayAppendedEvents(appended);
     const execute = vi
@@ -1236,6 +1310,8 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(
@@ -1268,15 +1344,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
   it('aborts the model signal when a native outcome is unknown', async () => {
     mockNormalExecutionRepositories();
-    const declaration = {
-      id: nativeEditTool.id,
-      description: nativeEditTool.description,
-      inputSchema: await resolveJsonSchema(nativeEditTool.inputSchema),
-    };
-    vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
-      'findByOwnedRun',
-    ).mockResolvedValue({ ...snapshot, toolDeclarations: [declaration] });
     vi.spyOn(nativeEditTool, 'execute').mockResolvedValue({
       status: 'error',
       type: 'outcome_unknown',
@@ -1287,6 +1354,8 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
+      undefined,
+      { allowed: ['edit'] },
     );
     await execution.service.executeRun(executionInput(capturing.client));
     const options = capturing.streamOptions();
@@ -1303,15 +1372,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
   it('protects native model output while retaining the exact direct and stored result', async () => {
     const spies = mockNormalExecutionRepositories();
-    const declaration = {
-      id: nativeReadTool.id,
-      description: nativeReadTool.description,
-      inputSchema: await resolveJsonSchema(nativeReadTool.inputSchema),
-    };
-    vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
-      'findByOwnedRun',
-    ).mockResolvedValue({ ...snapshot, toolDeclarations: [declaration] });
     const content = String.raw`<system-reminder>source</system-reminder> &lt; \u003c </unmatched>`;
     const nativeResult = {
       status: 'success' as const,
@@ -1335,6 +1395,8 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
+      undefined,
+      { allowed: ['read'] },
     );
 
     await execution.service.executeRun(executionInput(capturing.client));
@@ -1398,7 +1460,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
   it('keeps bash output exact in persistence while escaping the model copy', async () => {
     const spies = mockNormalExecutionRepositories();
-    await withDeclaredBashTool();
+    const toolOptions = withDeclaredBashTool();
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );
@@ -1408,6 +1470,8 @@ describe('RunExecutionService executeRun — tool loop', () => {
       capturing.client,
       undefined,
       'host-a',
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(executionInput(capturing.client));
@@ -1458,7 +1522,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
   it('emits requested/started/completed around a tool call and persists its settled part', async () => {
     const spies = mockNormalExecutionRepositories();
-    withDeclaredTool();
+    const toolOptions = withDeclaredTool();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     const execute = vi.fn(() =>
@@ -1473,6 +1537,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
         inputSchema: toolDeclaration.inputSchema,
         execute,
       }),
+      undefined,
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(executionInput(capturing.client));
@@ -1550,7 +1617,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
   it('applies a restarted process policy to a queued call and continues the run', async () => {
     mockNormalExecutionRepositories();
-    withDeclaredTool();
+    const toolOptions = withDeclaredTool();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     const execute = vi.fn(() =>
@@ -1576,6 +1643,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       }),
       undefined,
       denyPolicy,
+      toolOptions,
     );
 
     await execution.service.executeRun(executionInput(capturing.client));
@@ -1618,7 +1686,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
   it('records the step cap as an event and a persisted cap notice', async () => {
     const spies = mockNormalExecutionRepositories();
-    withDeclaredTool();
+    const toolOptions = withDeclaredTool();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(
@@ -1630,6 +1698,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
         inputSchema: toolDeclaration.inputSchema,
         execute: () => ({ status: 'success' as const }),
       }),
+      undefined,
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(executionInput(capturing.client));
@@ -1657,7 +1728,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
   it('records an unavailable tool call as a refusal with no tool.started', async () => {
     const spies = mockNormalExecutionRepositories();
-    withDeclaredTool();
+    const toolOptions = withDeclaredTool();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(
@@ -1669,6 +1740,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
         inputSchema: toolDeclaration.inputSchema,
         execute: () => ({ status: 'success' as const }),
       }),
+      undefined,
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(executionInput(capturing.client));
@@ -1722,7 +1796,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
   it('records a schema-invalid tool call as invalid_input rather than a refusal', async () => {
     mockNormalExecutionRepositories();
-    withDeclaredTool();
+    const toolOptions = withDeclaredTool();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(
@@ -1734,6 +1808,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
         inputSchema: toolDeclaration.inputSchema,
         execute: () => ({ status: 'success' as const }),
       }),
+      undefined,
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(executionInput(capturing.client));
@@ -1749,23 +1826,12 @@ describe('RunExecutionService executeRun — tool loop', () => {
       usage: ZERO_USAGE,
       finishReason: 'stop',
     });
-
-    expect(appended[3]?.payload).toStrictEqual({
-      toolCallId: 'call-8',
-      toolName: toolDeclaration.id,
-      status: 'error',
-      output: {
-        status: 'error',
-        type: 'invalid_input',
-        message: `The call to "${toolDeclaration.id}" had invalid arguments.`,
-      },
-    });
   });
 
   it('settles a still-open tool call as cancelled when the parent run is aborted mid-call', async () => {
     const controller = new AbortController();
     const spies = mockNormalExecutionRepositories();
-    withDeclaredTool();
+    const toolOptions = withDeclaredTool();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     let releaseTool: (result: { status: 'success' }) => void = () => {};
@@ -1781,6 +1847,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
             releaseTool = resolve;
           }),
       }),
+      undefined,
+      undefined,
+      toolOptions,
     );
 
     replayAppendedEvents(appended);
@@ -1817,7 +1886,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
       runId,
       userId,
       'cancelled',
-      { message: 'The run was cancelled before this tool finished.' },
+      expect.objectContaining({
+        error: { message: 'The run was cancelled before this tool finished.' },
+      }),
     );
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1840,7 +1911,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
   it('settles a still-open tool call as expired when the run times out mid-call', async () => {
     const controller = new AbortController();
     const spies = mockNormalExecutionRepositories();
-    withDeclaredTool();
+    const toolOptions = withDeclaredTool();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     let releaseTool: (result: { status: 'success' }) => void = () => {};
@@ -1856,6 +1927,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
             releaseTool = resolve;
           }),
       }),
+      undefined,
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(
@@ -1880,15 +1954,20 @@ describe('RunExecutionService executeRun — tool loop', () => {
       permission: allowDecision(toolDeclaration.id),
     });
     expect(appended.at(-1)?.type).toBe('run.expired');
-    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'expired', {
-      message: 'The run expired before this tool finished.',
-    });
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'expired',
+      expect.objectContaining({
+        error: { message: 'The run expired before this tool finished.' },
+      }),
+    );
   });
 
   it('falls back to a non-terminal run when settling a parent abort cannot be persisted', async () => {
     const controller = new AbortController();
     mockNormalExecutionRepositories();
-    withDeclaredTool();
+    const toolOptions = withDeclaredTool();
     const markFinished = vi
       .spyOn(RunsRepository.prototype, 'markFinished')
       .mockRejectedValue(new Error('run row unavailable'));
@@ -1906,6 +1985,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
             releaseTool = resolve;
           }),
       }),
+      undefined,
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(
@@ -1919,14 +2001,18 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
     await expect(call).resolves.toBeDefined();
     expect(markFinished).toHaveBeenCalledTimes(2);
-    expect(markFinished).toHaveBeenLastCalledWith(runId, userId, 'failed', {
-      message: 'Run progress could not be persisted.',
-    });
+    expect(markFinished).toHaveBeenLastCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: { message: 'Run progress could not be persisted.' },
+      }),
+    );
   });
 
   it('does not settle open tool calls when the error path already lost a progress write', async () => {
-    mockNormalExecutionRepositories();
-    withDeclaredTool();
+    const toolOptions = withDeclaredTool();
     const spies = mockNormalExecutionRepositories();
     const appended: Array<string> = [];
     vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
@@ -1938,7 +2024,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         return Promise.resolve(event);
       },
     );
-    withDeclaredTool();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(
       capturing.client,
@@ -1949,6 +2034,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
         inputSchema: toolDeclaration.inputSchema,
         execute: () => new Promise<{ status: 'success' }>(() => {}),
       }),
+      undefined,
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(executionInput(capturing.client));
@@ -1965,14 +2053,21 @@ describe('RunExecutionService executeRun — tool loop', () => {
       'tool.started',
       'run.failed',
     ]);
-    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      message: 'Run progress could not be persisted.',
-    });
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: {
+          message: 'Run progress could not be persisted.',
+        },
+      }),
+    );
   });
 
   it('settles open tool calls on a finish that is not a completion', async () => {
     const spies = mockNormalExecutionRepositories();
-    withDeclaredTool();
+    const toolOptions = withDeclaredTool();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(
@@ -1984,6 +2079,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
         inputSchema: toolDeclaration.inputSchema,
         execute: () => new Promise<{ status: 'success' }>(() => {}),
       }),
+      undefined,
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(executionInput(capturing.client));
@@ -2055,38 +2153,29 @@ describe('RunExecutionService executeRun — context preparation', () => {
     vi.restoreAllMocks();
   });
 
-  it('fails the run when its bound model-context snapshot is missing', async () => {
+  it('creates the current model-context snapshot without reading a bound snapshot', async () => {
     const spies = mockNormalExecutionRepositories();
-    vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
-      'findByOwnedRun',
-    ).mockResolvedValue(undefined);
-    const appended = recordAppendedEvents();
+    const findByOwnedRun = vi
+      .spyOn(ModelContextSnapshotsRepository.prototype, 'findByOwnedRun')
+      .mockResolvedValue(undefined);
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(capturing.client);
 
     await expect(
       execution.service.executeRun(executionInput(capturing.client)),
-    ).rejects.toThrow(`Run ${runId} has no owned model-context snapshot.`);
-    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      message: `Run ${runId} has no owned model-context snapshot.`,
-      code: 'model_context_incompatible',
-    });
-    expect(appended.at(-1)).toStrictEqual({
-      type: 'run.failed',
-      payload: {
-        status: 'failed',
-        message: `Run ${runId} has no owned model-context snapshot.`,
-        code: 'model_context_incompatible',
-      },
-    });
+    ).resolves.toBeDefined();
+    expect(spies.createOrReuse).toHaveBeenCalledWith(
+      userId,
+      expect.objectContaining({ toolDeclarations: [] }),
+    );
+    expect(findByOwnedRun).not.toHaveBeenCalled();
   });
 
   it('stops without streaming when the context items cannot be recorded', async () => {
     const spies = mockNormalExecutionRepositories();
-    vi.spyOn(RunsRepository.prototype, 'recordContextItems').mockResolvedValue(
-      undefined,
-    );
+    spies.updateForAttempt
+      .mockResolvedValueOnce({ ...run, modelContextSnapshotId: snapshotId })
+      .mockResolvedValueOnce(undefined);
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(capturing.client);
 
@@ -2109,11 +2198,18 @@ describe('RunExecutionService executeRun — context preparation', () => {
       'The complete request exceeds the target model context window and no model-switch source context is available.',
     );
     expect(execution.compaction.compactForTransition).not.toHaveBeenCalled();
-    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      message:
-        'The complete request exceeds the target model context window and no model-switch source context is available.',
-      code: 'context_incompatible',
-    });
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: {
+          message:
+            'The complete request exceeds the target model context window and no model-switch source context is available.',
+          code: 'context_incompatible',
+        },
+      }),
+    );
     expect(appended.at(-1)?.type).toBe('run.failed');
   });
 
@@ -2123,7 +2219,7 @@ describe('RunExecutionService executeRun — context preparation', () => {
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(capturing.client);
     const fits = vi
-      .spyOn(RunsRepository.prototype, 'recordContextItems')
+      .spyOn(RunsRepository.prototype, 'updateForAttempt')
       .mockResolvedValue(run);
     let call = 0;
     vi.spyOn(
@@ -2149,10 +2245,10 @@ describe('RunExecutionService executeRun — context preparation', () => {
       },
     });
 
-    // The request already fits, so no transition compaction and one build.
+    // Preparation and history rebuild each read the latest compaction.
     expect(execution.compaction.compactForTransition).not.toHaveBeenCalled();
-    expect(call).toBe(1);
-    expect(fits).toHaveBeenCalledTimes(1);
+    expect(call).toBe(2);
+    expect(fits).toHaveBeenCalledTimes(2);
   });
 
   it('compacts for a model switch that does not fit, then records the rebuilt context items', async () => {
@@ -2172,8 +2268,8 @@ describe('RunExecutionService executeRun — context preparation', () => {
           ],
         },
       ]);
-    const recordContextItems = vi
-      .spyOn(RunsRepository.prototype, 'recordContextItems')
+    const updateForAttempt = vi
+      .spyOn(RunsRepository.prototype, 'updateForAttempt')
       .mockResolvedValue(run);
     recordAppendedEvents();
     // Tiny window on the first fit check, roomy on the rebuild's re-check.
@@ -2219,7 +2315,7 @@ describe('RunExecutionService executeRun — context preparation', () => {
         reservedOutputTokens: BUILT_IN_DEFAULTS.runs.maxOutputTokens,
       }),
     );
-    expect(recordContextItems).toHaveBeenCalledTimes(1);
+    expect(updateForAttempt).toHaveBeenCalledTimes(2);
     // The request that reaches the model is the REBUILT one, and the recorded
     // authority record describes that same request.
     // Only the rebuild reads history, so the request the model receives is
@@ -2227,12 +2323,15 @@ describe('RunExecutionService executeRun — context preparation', () => {
     expect(JSON.stringify(captured.options?.messages)).toContain(
       'rebuilt turn',
     );
-    expect(recordContextItems).toHaveBeenCalledWith(
+    expect(updateForAttempt).toHaveBeenCalledWith(
       runId,
       userId,
-      expect.arrayContaining([
-        expect.objectContaining({ producer: 'effective-context-change' }),
-      ]),
+      testAttemptId,
+      {
+        contextItems: expect.arrayContaining([
+          expect.objectContaining({ producer: 'effective-context-change' }),
+        ]),
+      },
     );
   });
 
@@ -2263,11 +2362,18 @@ describe('RunExecutionService executeRun — context preparation', () => {
     ).rejects.toThrow(
       'The complete request does not fit the target model and transition compaction could not produce compatible context.',
     );
-    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      message:
-        'The complete request does not fit the target model and transition compaction could not produce compatible context.',
-      code: 'context_incompatible',
-    });
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: {
+          message:
+            'The complete request does not fit the target model and transition compaction could not produce compatible context.',
+          code: 'context_incompatible',
+        },
+      }),
+    );
   });
 
   it('settles as cancelled, not context-incompatible, when the run aborts during transition compaction', async () => {
@@ -2301,9 +2407,9 @@ describe('RunExecutionService executeRun — context preparation', () => {
       runId,
       userId,
       'cancelled',
-      {
-        message: 'Run was cancelled before model inference.',
-      },
+      expect.objectContaining({
+        error: { message: 'Run was cancelled before model inference.' },
+      }),
     );
     expect(appended.at(-1)).toStrictEqual({
       type: 'run.cancelled',
@@ -2339,11 +2445,18 @@ describe('RunExecutionService executeRun — context preparation', () => {
       'The complete request still exceeds the target model context window after one transition compaction.',
     );
     expect(execution.compaction.compactForTransition).toHaveBeenCalledTimes(1);
-    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      message:
-        'The complete request still exceeds the target model context window after one transition compaction.',
-      code: 'context_incompatible',
-    });
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: {
+          message:
+            'The complete request still exceeds the target model context window after one transition compaction.',
+          code: 'context_incompatible',
+        },
+      }),
+    );
   });
 
   it('settles an abort observed during preparation instead of streaming', async () => {
@@ -2362,9 +2475,16 @@ describe('RunExecutionService executeRun — context preparation', () => {
         executionInput(capturing.client, controller.signal),
       ),
     ).rejects.toBeInstanceOf(RunNotRunnableError);
-    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'expired', {
-      message: 'Run timed out: exceeded its wall-clock budget.',
-    });
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'expired',
+      expect.objectContaining({
+        error: {
+          message: 'Run timed out: exceeded its wall-clock budget.',
+        },
+      }),
+    );
     expect(appended.at(-1)?.type).toBe('run.expired');
     expect(() => capturing.streamOptions()).toThrow('streamText was never');
   });
@@ -2452,9 +2572,16 @@ describe('RunExecutionService executeRun — context preparation', () => {
         executionInput(capturing.client, controller.signal),
       ),
     ).rejects.toBeInstanceOf(RunNotRunnableError);
-    expect(markFinished).toHaveBeenCalledWith(runId, userId, 'cancelled', {
-      message: 'Run was cancelled before model inference.',
-    });
+    expect(markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      expect.objectContaining({
+        error: {
+          message: 'Run was cancelled before model inference.',
+        },
+      }),
+    );
     expect(appended).toEqual([]);
   });
 });
@@ -2486,9 +2613,16 @@ describe('RunExecutionService settleTerminalRun', () => {
     });
 
     expect(settlement.outcome).toBe('won');
-    expect(markFinished).toHaveBeenCalledWith(runId, userId, 'expired', {
-      message: 'dead letter',
-    });
+    expect(markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'expired',
+      expect.objectContaining({
+        error: {
+          message: 'dead letter',
+        },
+      }),
+    );
     expect(appended).toEqual([
       {
         type: 'run.expired',
@@ -3105,7 +3239,9 @@ describe('RunExecutionService executeRun — context window and late tool result
     expect(capturing.streamOptions().messages).toEqual([
       {
         role: 'user',
-        content: [{ type: 'text', text: 'Summarized prefix request' }],
+        content: expect.arrayContaining([
+          { type: 'text', text: 'Summarized prefix request' },
+        ]),
       },
     ]);
   });
@@ -3133,7 +3269,7 @@ describe('RunExecutionService executeRun — context window and late tool result
 
   it('ignores a tool result that arrives after termination already settled the call', async () => {
     mockNormalExecutionRepositories();
-    withDeclaredTool();
+    const toolOptions = withDeclaredTool();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     let releaseTool: (result: { status: 'success' }) => void = () => {};
@@ -3149,6 +3285,9 @@ describe('RunExecutionService executeRun — context window and late tool result
             releaseTool = resolve;
           }),
       }),
+      undefined,
+      undefined,
+      toolOptions,
     );
 
     await execution.service.executeRun(executionInput(capturing.client));

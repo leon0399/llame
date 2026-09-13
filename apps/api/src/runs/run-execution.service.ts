@@ -305,6 +305,8 @@ export class RunExecutionService {
     userId: string;
     runId: string;
     status: TerminalRunStatus;
+    /** Fence the terminal write by this attempt when one is known. */
+    attemptId?: string;
     runPayload?: unknown;
     error?: unknown;
     telemetry?: AssistantTurnTelemetry;
@@ -391,7 +393,10 @@ export class RunExecutionService {
         started.workerId != null &&
         (await new NativeFilesRepository(tx).hasMutation(input.runId))
       ) {
-        return { nativeRecovery: true };
+        return {
+          nativeRecovery: true as const,
+          attemptId: started.activeAttemptId!,
+        };
       }
 
       // The claim returns the persisted effort rather than setting an outer
@@ -418,6 +423,7 @@ export class RunExecutionService {
         userId: input.userId,
         runId: input.runId,
         status: 'failed',
+        attemptId: claim.attemptId,
         error: { code: 'outcome_unknown', message },
         runPayload: { code: 'outcome_unknown', message },
       });
