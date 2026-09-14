@@ -1320,11 +1320,15 @@ function resolveModelEntry(
   assertValidModelEntry(entry, context);
 
   // The remaining fields ride along in the spread below: schema-validated
-  // shape already guarantees they need no further resolution.
+  // shape already guarantees they need no further resolution. The two
+  // server-only path fields are excluded explicitly — a host path must never
+  // reach the resolved entry (and therefore the public catalog).
   const {
     contextWindowTokens: _rawContextWindowTokens,
     compactionThresholdTokens: _rawCompactionThresholdTokens,
     reasoning: _rawReasoning,
+    systemPromptFile: _systemPromptFile,
+    toolPromptFiles: _toolPromptFiles,
     ...display
   } = entry;
 

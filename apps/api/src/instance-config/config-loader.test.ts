@@ -1369,6 +1369,36 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       );
     });
 
+    it('never carries a declared host path into the resolved catalog entry', () => {
+      writePrompt('You are the override.', 'searched.md');
+      writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "model-with-override",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000,
+          "systemPromptFile": "searched.md",
+          "toolPromptFiles": { "bash": "prompts/bash.md" }
+        }]
+      }`);
+
+      const model = loadInstanceConfig().models[0];
+      // The host path is server-only: it must not survive resolution, since
+      // the resolved entry feeds the public model catalog.
+      expect(model).not.toHaveProperty('systemPromptFile');
+      // The override still took effect, proven by its rendered text.
+      expect(
+        renderSystemPromptTemplate({
+          template: model.systemPromptTemplate,
+          model,
+          anchor: TEST_ANCHOR,
+        }),
+      ).toContain('You are the override.');
+      // The worker-owned file map is internal, not client-facing.
+      expect(model.toolPromptFiles).toEqual({ bash: 'prompts/bash.md' });
+    });
+
     it('uses the packaged project default when the override is omitted', () => {
       writeConfig(`{
         ${SINGLE_PROVIDER_JSON},

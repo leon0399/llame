@@ -184,8 +184,10 @@ export type TokenPrice = {
  * `compactionThresholdTokens`, `systemPromptTemplate`, `systemPromptSource`,
  * `referencesSkills`, `toolPromptFiles`) from a catalog entry — what's left IS
  * the public shape, so a straight destructure-and-spread stays correct as
- * `PublicModelCatalogEntry` grows without needing a matching field-by-field copy
- * here.
+ * `PublicModelCatalogEntry` grows without needing a matching field-by-field
+ * copy here. Host-path fields never reach this projection at all: the loader
+ * excludes them while resolving the entry, which its own regression test
+ * pins.
  */
 export function toPublicModel(
   model: SystemModelCatalogEntry,
