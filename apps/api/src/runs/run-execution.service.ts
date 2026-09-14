@@ -76,6 +76,11 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
+import { resolveConfigPath } from '../instance-config/config-loader';
+import {
+  createToolPromptRenderer,
+  type ToolPromptRenderer,
+} from '../instance-config/prompt-loader';
 import {
   BASH_SETTLEMENT_GRACE_MS,
   invalidCallResult,
@@ -129,8 +134,9 @@ import {
   resolveBoundExecutableTools,
 } from './snapshot-tool-execution';
 import {
-  resolveEffectiveContext,
-  type ResolvedAttemptContext,
+  composeAttemptToolCatalog,
+  finalizeEffectiveContext,
+  type AttemptToolCatalog,
   type SystemPromptReceiptInput,
 } from './effective-context-resolver';
 import {
@@ -150,7 +156,10 @@ import {
   type KnowledgeToolCandidateResolverPort,
 } from '../knowledge/knowledge-tool-candidate-resolver';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
-import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
+import {
+  ToolDescriptionRenderError,
+  type TurnToolCandidate,
+} from '../tools/turn-tool-catalog';
 import {
   MemoryService,
   type MemorySettingsBindingResolver,
@@ -163,6 +172,7 @@ import {
   type RecencyDigestResolution,
   type RecencyDigestResolver,
 } from '../chats/recency-digest.service';
+import { isToolPromptId } from '../prompts/tool-descriptions';
 import {
   resolveTurnSkillState,
   type SkillTurnState,
@@ -200,8 +210,10 @@ type SkillCatalogWrites = {
 
 /** Context resolved inside the worker transaction before the model request. */
 type PreparedAttemptContext = BuiltContext & {
-  /** Resolved prompt identity plus the attempt-local catalog. */
-  effectiveContext: ResolvedAttemptContext;
+  /** Receipt-only data persisted before target-model I/O. */
+  effectiveContext: SystemPromptReceiptInput;
+  /** Attempt-local catalog retained only in worker memory. */
+  toolCatalog: AttemptToolCatalog;
   stagedParts: Array<MessagePart>;
   recencyDigestInitialization?: RecencyDigestInitialization;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
@@ -216,12 +228,16 @@ type AttemptDigestContext = {
   digestDelta: RecencyDigestDelta | null;
 };
 
-type AttemptPromptContext = AttemptDigestContext & {
+type AttemptPromptInputs = AttemptDigestContext & {
   chat: Chat;
   model: SystemModelCatalogEntry;
   user: PromptUserInput | undefined;
   compaction: Compaction | undefined;
   instanceTimezone: string;
+  anchor: TemporalAnchor;
+};
+
+type AttemptPromptContext = AttemptPromptInputs & {
   systemPrompt: string;
   /** This turn's skill-catalog decision: the rendered baseline and the notice. */
   skillState: SkillTurnState;
@@ -345,7 +361,7 @@ function toRunContextItems(
 }
 
 function toTurnToolAvailability(
-  manifest: ResolvedAttemptContext['toolAvailabilityManifest'],
+  manifest: AttemptToolCatalog['availabilityManifest'],
 ): Array<TurnToolAvailabilityEntry> {
   return [...manifest.entries]
     .map(({ id, state }) => ({ id, state }))
@@ -396,6 +412,7 @@ export type ChatSearchIndexer = Pick<SearchIndexService, 'reindexChat'>;
 @Injectable()
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
+  private readonly toolPromptRenderer: ToolPromptRenderer;
 
   constructor(
     private readonly tenantDb: TenantDbService,
@@ -436,7 +453,13 @@ export class RunExecutionService {
     @Optional()
     @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
     private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
-  ) {}
+  ) {
+    this.toolPromptRenderer = createToolPromptRenderer({
+      configPath: this.instanceConfig.configPath ?? resolveConfigPath(),
+      instancePromptFiles: this.instanceConfig.config.tools.promptFiles,
+      models: this.instanceConfig.config.models,
+    });
+  }
 
   /**
    * Terminalize work that can outlive its executor (notably retry exhaustion)
@@ -607,7 +630,7 @@ export class RunExecutionService {
       attemptRecencyDigestInitialization = context.recencyDigestInitialization;
       attemptSkillCatalogWrites = context.skillCatalogWrites;
       attemptToolAvailability = toTurnToolAvailability(
-        context.effectiveContext.toolAvailabilityManifest,
+        context.toolCatalog.availabilityManifest,
       );
 
       // Inject staged context items into the model request: prepend their
@@ -624,9 +647,9 @@ export class RunExecutionService {
         system: context.system,
         messages: contextMessages,
         untitled: context.untitled,
-        toolDeclarations: context.effectiveContext.toolDeclarations,
+        toolDeclarations: context.toolCatalog.declarations,
         tools: await resolveBoundExecutableTools(
-          context.effectiveContext.toolDeclarations,
+          context.toolCatalog.declarations,
           undefined,
           this.dynamicToolResolver,
         ),
@@ -2259,11 +2282,35 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     attemptId: string,
   ): Promise<PreparedAttemptContext> {
-    const prompt = await this.resolveAttemptPrompt(tx, input);
-    const effectiveContext = await this.resolveAttemptEffectiveContext(
-      tx,
-      input,
+    // Resolve owner/model/digest inputs before admission so descriptions and
+    // the system prompt share one attempt context. Admission still completes
+    // before either surface is rendered.
+    const promptInputs = await this.resolveAttemptPrompt(tx, input);
+    let catalog: AttemptToolCatalog;
+    try {
+      catalog = await this.composeAttemptCatalog(tx, input, promptInputs);
+    } catch (error) {
+      if (error instanceof ToolDescriptionRenderError) {
+        throw new ModelContextExecutionError(
+          `Tool "${error.toolId}" description rendered empty.`,
+        );
+      }
+      throw error;
+    }
+    const prompt: AttemptPromptContext = {
+      ...promptInputs,
+      systemPrompt: this.renderAttemptSystemPrompt({
+        model: promptInputs.model,
+        anchor: promptInputs.anchor,
+        user: promptInputs.user,
+        chats: promptInputs.promptDigestBaseline,
+        skills: promptInputs.skillState.baseline,
+        admittedToolIds: catalog.admittedIds,
+      }),
+    };
+    const effectiveContext = this.resolveAttemptEffectiveContext(
       prompt,
+      catalog,
     );
     await this.persistAttemptPromptReceipt(
       tx,
@@ -2275,7 +2322,7 @@ export class RunExecutionService {
       tx,
       input,
       prompt,
-      effectiveContext,
+      effectiveContext: catalog,
     });
     const built = await this.rebuildContextForChat(
       tx,
@@ -2285,6 +2332,7 @@ export class RunExecutionService {
     return {
       ...built,
       effectiveContext,
+      toolCatalog: catalog,
       stagedParts: staged.stagedParts,
       recencyDigestInitialization: prompt.recencyDigestInitialization,
       recencyDigestTold: staged.recencyDigestTold,
@@ -2303,7 +2351,7 @@ export class RunExecutionService {
   private async resolveAttemptPrompt(
     tx: Db,
     input: ExecuteRunInput,
-  ): Promise<AttemptPromptContext> {
+  ): Promise<AttemptPromptInputs> {
     const chatsRepo = new ChatsRepository(tx);
     const chat = await chatsRepo.findById(input.chatId, input.userId);
     if (!chat) {
@@ -2346,13 +2394,6 @@ export class RunExecutionService {
         modelReferencesSkills: model.referencesSkills,
       },
     );
-    const systemPrompt = this.renderAttemptSystemPrompt({
-      model,
-      anchor,
-      user,
-      chats: digest.promptDigestBaseline,
-      skills: skillState.baseline,
-    });
     return {
       ...digest,
       chat,
@@ -2360,7 +2401,7 @@ export class RunExecutionService {
       user,
       compaction,
       instanceTimezone,
-      systemPrompt,
+      anchor,
       skillState,
     };
   }
@@ -2459,6 +2500,7 @@ export class RunExecutionService {
     chats: Chat['recencyDigestBaseline'];
     /** The frozen catalog baseline; undefined renders no skill section. */
     skills: SkillCatalogBaseline | undefined;
+    admittedToolIds: ReadonlyArray<string>;
   }): string {
     const renderInput: SystemPromptRenderInput = {
       model: input.model,
@@ -2466,25 +2508,32 @@ export class RunExecutionService {
       user: input.user,
       chats: input.chats ?? undefined,
       ...(input.skills !== undefined && { skills: input.skills }),
+      admittedToolIds: input.admittedToolIds,
     };
+    let rendered: string;
     if (input.chats === null) {
-      return this.systemPrompts.render(renderInput);
+      rendered = this.systemPrompts.render(renderInput);
+    } else {
+      try {
+        rendered = this.systemPrompts.render(renderInput);
+      } catch {
+        this.logger.error('recency_digest_render_failed');
+        // Do not let a renderer error carry the owner's digest text out of
+        // this boundary.
+        throw new Error('Failed to render system prompt');
+      }
     }
-    try {
-      return this.systemPrompts.render(renderInput);
-    } catch {
-      this.logger.error('recency_digest_render_failed');
-      // Do not let a renderer error carry the owner's digest text out of
-      // this boundary.
-      throw new Error('Failed to render system prompt');
+    if (rendered.trim().length === 0) {
+      throw new ModelContextExecutionError('System prompt rendered empty.');
     }
+    return rendered;
   }
 
-  private async resolveAttemptEffectiveContext(
+  private async composeAttemptCatalog(
     tx: Db,
     input: ExecuteRunInput,
-    prompt: AttemptPromptContext,
-  ): Promise<ResolvedAttemptContext> {
+    prompt: AttemptPromptInputs,
+  ): Promise<AttemptToolCatalog> {
     const allowedToolRules = this.instanceConfig.config.tools.allowed;
     const callTimeoutSeconds =
       this.instanceConfig.config.tools.callTimeoutSeconds;
@@ -2495,13 +2544,35 @@ export class RunExecutionService {
     });
     const dynamicCandidates: ReadonlyArray<TurnToolCandidate> =
       this.mcpRuntime.snapshotCandidates();
-    return resolveEffectiveContext({
-      model: prompt.model,
-      systemPrompt: prompt.systemPrompt,
+    return composeAttemptToolCatalog({
       allowedToolRules,
       callTimeoutSeconds,
       codeOwnedCandidates,
       dynamicCandidates,
+      descriptionRenderer: ({ id, description, source, admittedToolIds }) => {
+        if (source.type !== 'code_owned' || !isToolPromptId(id)) {
+          return description;
+        }
+        return this.toolPromptRenderer.render({
+          toolId: id,
+          model: prompt.model,
+          anchor: prompt.anchor,
+          user: prompt.user,
+          chats: prompt.promptDigestBaseline ?? undefined,
+          admittedToolIds,
+        });
+      },
+    });
+  }
+
+  private resolveAttemptEffectiveContext(
+    prompt: AttemptPromptContext,
+    catalog: AttemptToolCatalog,
+  ): SystemPromptReceiptInput {
+    return finalizeEffectiveContext({
+      model: prompt.model,
+      systemPrompt: prompt.systemPrompt,
+      catalog,
     });
   }
 
@@ -2539,7 +2610,7 @@ export class RunExecutionService {
     tx: Db;
     input: ExecuteRunInput;
     prompt: AttemptPromptContext;
-    effectiveContext: ResolvedAttemptContext;
+    effectiveContext: AttemptToolCatalog;
   }): Promise<AttemptStagedContext> {
     const previousRun = await new RunsRepository(
       input.tx,
@@ -2603,10 +2674,10 @@ export class RunExecutionService {
     const availabilityPayload =
       previousSuccessfulAvailability === undefined
         ? deriveToolAvailabilityPayload({
-            current: input.effectiveContext.toolAvailabilityManifest,
+            current: input.effectiveContext.availabilityManifest,
           })
         : deriveToolAvailabilityPayloadFromStates({
-            current: input.effectiveContext.toolAvailabilityManifest,
+            current: input.effectiveContext.availabilityManifest,
             previous: previousSuccessfulAvailability,
           });
     if (availabilityPayload) {

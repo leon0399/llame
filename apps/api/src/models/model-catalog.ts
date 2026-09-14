@@ -160,10 +160,11 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   referencesSkills: boolean;
   /**
    * This model's per-tool description file overrides, keyed by registered
-   * llame-owned tool id. Literal host paths, read and validated by the
-   * executing worker at boot. Never exposed in the public catalog.
+   * llame-owned tool id. Literal host paths are read and validated by the
+   * executing worker at boot; `null`/absent entries fall through to the
+   * instance or packaged source. Never exposed in the public catalog.
    */
-  toolPromptFiles?: Readonly<Record<string, string>>;
+  toolPromptFiles?: Readonly<Record<string, string | null>>;
 }
 
 /**

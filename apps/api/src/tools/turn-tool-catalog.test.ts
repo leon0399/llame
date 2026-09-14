@@ -771,3 +771,58 @@ describe('parseToolAvailabilityManifest key exactness', () => {
     );
   });
 });
+
+describe('composeTurnToolCatalog description rendering', () => {
+  it('renders every admitted description from the complete sorted membership set', async () => {
+    const seen = vi.fn<
+      (input: { id: string; admittedToolIds: ReadonlyArray<string> }) => string
+    >(({ id, admittedToolIds }) => {
+      seenMemberships.push({ id, admittedToolIds });
+      return `${id}:${admittedToolIds.join(',')}`;
+    });
+    const seenMemberships: Array<{
+      id: string;
+      admittedToolIds: ReadonlyArray<string>;
+    }> = [];
+
+    const catalog = await composeTurnToolCatalog({
+      allowedToolRules: ['bash', 'edit'],
+      callTimeoutSeconds: 30,
+      candidates: [available(tool('edit')), available(tool('bash'))],
+      descriptionRenderer: seen,
+    });
+
+    expect(seenMemberships).toEqual([
+      { id: 'bash', admittedToolIds: ['bash', 'edit'] },
+      { id: 'edit', admittedToolIds: ['bash', 'edit'] },
+    ]);
+    expect(catalog.admitted.map(({ declaration }) => declaration)).toEqual([
+      expect.objectContaining({
+        id: 'bash',
+        description: 'bash:bash,edit',
+      }),
+      expect.objectContaining({
+        id: 'edit',
+        description: 'edit:bash,edit',
+      }),
+    ]);
+    expect(catalog.manifest.entries).toEqual(
+      catalog.admitted.map(({ declaration, declarationHash }) => ({
+        id: declaration.id,
+        state: 'available',
+        declarationHash,
+      })),
+    );
+  });
+
+  it('rejects an empty admitted description without silently dropping that tool', async () => {
+    await expect(
+      composeTurnToolCatalog({
+        allowedToolRules: ['bash'],
+        callTimeoutSeconds: 30,
+        candidates: [available(tool('bash'))],
+        descriptionRenderer: () => ' \n\t',
+      }),
+    ).rejects.toThrow('Tool "bash" description rendered empty.');
+  });
+});

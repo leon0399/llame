@@ -61,12 +61,18 @@ import {
 } from './context-builder';
 import { toChatMessageResponse } from './dto/chats.dto';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { createToolPromptRenderer } from '../instance-config/prompt-loader';
+import { resolveConfigPath } from '../instance-config/config-loader';
+import {
+  formatTemporalAnchor,
+  resolveInstanceTimezone,
+} from '../prompts/temporal-anchor';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import type { ModelSelectionValidator } from '../models/models.service';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
-import type { CompactionCapability } from '../compaction/compaction.service';
 import type { TitleCapability } from '../titles/title.service';
+import type { CompactionCapability } from '../compaction/compaction.service';
 import {
   type ChatSearchIndexer,
   RunExecutionService,
@@ -74,7 +80,7 @@ import {
 import { type DynamicToolExecutorResolver } from '../runs/snapshot-tool-execution';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
-import { resolveEffectiveContext } from '../runs/effective-context-resolver';
+import { composeAttemptToolCatalog } from '../runs/effective-context-resolver';
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
 import {
@@ -936,7 +942,21 @@ describeIfDb('executeRun tool-loop persistence', () => {
       throw new Error('search_conversations must exist in the test registry');
     }
     const advertised = calls[0].tools?.['search_conversations'];
-    expect(advertised?.description).toBe(liveTool.description);
+    const chat = await tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).findById(seeded.chatId, userId),
+    );
+    if (!chat) {
+      throw new Error('seeded chat must exist for prompt rendering');
+    }
+    const expectedDescription = createToolPromptRenderer({
+      configPath: resolveConfigPath(),
+    }).render({
+      toolId: 'search_conversations',
+      model: testModelEntry,
+      anchor: formatTemporalAnchor(chat.createdAt, resolveInstanceTimezone()),
+      admittedToolIds: ['search_conversations'],
+    });
+    expect(advertised?.description).toBe(expectedDescription);
     expect(await asSchema(advertised!.inputSchema).jsonSchema).toEqual(
       await resolveJsonSchema(liveTool.inputSchema),
     );
@@ -1262,15 +1282,13 @@ describeIfDb('executeRun tool-loop persistence', () => {
           tool: liveTool,
         },
       ];
-      const resolved = await resolveEffectiveContext({
-        model: testModelEntry,
-        systemPrompt: testModelEntry.systemPromptTemplate,
+      const resolved = await composeAttemptToolCatalog({
         allowedToolRules: [toolId],
         callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
         candidates: [],
         dynamicCandidates,
       });
-      const declaration = resolved.toolDeclarations[0];
+      const declaration = resolved.declarations[0];
       if (!declaration) {
         throw new Error('dynamic test declaration was not resolved');
       }

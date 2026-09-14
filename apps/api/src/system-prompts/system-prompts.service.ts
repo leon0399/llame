@@ -22,6 +22,7 @@ export type SystemPromptRenderInput = {
   chats?: PromptChatsInput;
   /** The frozen skill-catalog baseline; absent renders no catalog section. */
   skills?: PromptSkillsInput;
+  admittedToolIds?: ReadonlyArray<string>;
 };
 
 /**
@@ -56,6 +57,7 @@ export class SystemPromptsService {
       user: input.user,
       chats: input.chats,
       skills: input.skills,
+      admittedToolIds: input.admittedToolIds,
     });
   }
 }

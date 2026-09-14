@@ -283,8 +283,14 @@ describeIfDb(
       // context through the actual worker preparation path, leaving terminal
       // status to each test so failed attempts cannot commit staged metadata.
       const resolve = vi
-        .spyOn(effectiveContextResolver, 'resolveEffectiveContext')
-        .mockResolvedValueOnce(effectiveContext);
+        .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
+        .mockResolvedValueOnce({
+          availabilityManifest: effectiveContext.toolAvailabilityManifest,
+          declarations: effectiveContext.toolDeclarations,
+          admittedIds: effectiveContext.toolAvailabilityManifest.entries
+            .filter((entry) => entry.state === 'available')
+            .map(({ id }) => id),
+        });
       try {
         await chatLoop
           .createMessageStream({
@@ -1405,9 +1411,17 @@ describeIfDb(
           return touched;
         });
       const resolve = vi
-        .spyOn(effectiveContextResolver, 'resolveEffectiveContext')
-        .mockResolvedValueOnce(degraded)
-        .mockResolvedValueOnce(healthy);
+        .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
+        .mockResolvedValueOnce({
+          availabilityManifest: degraded.toolAvailabilityManifest,
+          declarations: degraded.toolDeclarations,
+          admittedIds: degraded.toolDeclarations.map(({ id }) => id),
+        })
+        .mockResolvedValueOnce({
+          availabilityManifest: healthy.toolAvailabilityManifest,
+          declarations: healthy.toolDeclarations,
+          admittedIds: healthy.toolDeclarations.map(({ id }) => id),
+        });
       const degradedMessageId = crypto.randomUUID();
       const recoveredMessageId = crypto.randomUUID();
 

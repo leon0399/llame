@@ -116,12 +116,20 @@ async function resolveCodeOwnedTool(
     );
   }
 
+  // Descriptions are rendered per attempt and are not part of the trusted
+  // native executor contract. Identity and schema remain code-owned authority;
+  // MCP declarations use the separate opaque declaration path below.
   const liveDeclaration = {
     id: executor.id,
-    description: executor.description,
     inputSchema: await resolveJsonSchema(executor.inputSchema),
   };
-  if (canonicalJson(liveDeclaration) !== canonicalJson(declaration)) {
+  const snapshottedDeclaration = {
+    id: declaration.id,
+    inputSchema: declaration.inputSchema,
+  };
+  if (
+    canonicalJson(liveDeclaration) !== canonicalJson(snapshottedDeclaration)
+  ) {
     throw new ModelContextExecutionError(
       `Bound model context tool "${declaration.id}" no longer matches its snapshotted declaration.`,
     );

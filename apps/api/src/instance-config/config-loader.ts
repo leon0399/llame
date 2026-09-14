@@ -206,13 +206,17 @@ function resolveToolPromptFiles(raw: RawInstanceConfig | undefined) {
   if (!isRecord(leaf)) {
     throw new InstanceConfigError('tools.promptFiles: must be an object');
   }
-  // The config schema already enforces non-empty tool ids and non-empty string
-  // values; the guard here exists only to narrow `unknown` to the map type.
-  const files: Record<string, string> = {};
+  // The config schema enforces non-empty tool ids and string/null values; the
+  // guard here narrows the untyped record without resolving host paths.
+  const files: Record<string, string | null> = {};
   for (const [toolId, value] of Object.entries(leaf)) {
+    if (value === null) {
+      files[toolId] = null;
+      continue;
+    }
     if (!isString(value)) {
       throw new InstanceConfigError(
-        `tools.promptFiles.${toolId}: must be a file path string`,
+        `tools.promptFiles.${toolId}: must be a file path string or null`,
       );
     }
     files[toolId] = value;
