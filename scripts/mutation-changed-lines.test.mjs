@@ -108,16 +108,21 @@ test("nearby edits coalesce into one range and distant ones stay separate", () =
   ]);
 });
 
-test("a file edited in more places than the range cap is mutated whole", () => {
+test("a file edited in many places stays a list of ranges, never the whole file", () => {
   const directory = repository({ [`${workspace}/src/a.ts`]: lines(200) });
   const edited = lines(200).split("\n");
   for (let index = 0; index < 200; index += 20) edited[index] = "const x = 2;";
   commit(directory, { [`${workspace}/src/a.ts`]: edited.join("\n") });
 
-  assert.equal(
-    mutateArgument(changedLineRanges("HEAD~1", directory)[workspace]),
-    "src/a.ts",
+  const mutate = mutateArgument(
+    changedLineRanges("HEAD~1", directory)[workspace],
   );
+
+  // Collapsing to `src/a.ts` would mutate the 190 lines this commit never
+  // wrote, and their pre-existing survivors would fail the pull request.
+  assert.equal(mutate.split(",").length, 10);
+  assert.ok(!mutate.split(",").includes("src/a.ts"));
+  assert.equal(mutate.split(",")[0], "src/a.ts:1-1");
 });
 
 test("changes outside mutant sources select nothing", () => {

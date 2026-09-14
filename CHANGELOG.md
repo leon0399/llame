@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-14
 
+- Stop collapsing a heavily edited file to a whole-file mutation scope. The
+  changed-line gate fell back to the entire file past eight ranges, which
+  measured lines the pull request never wrote: one stack layer scored 69.46%
+  with 19 survivors in a file whose diff it had touched in 17 places, all of
+  them pre-existing. A file now contributes one range per hunk however many
+  there are; 34 single-line ranges reproduce a whole-file run exactly, so the
+  list costs characters and nothing else.
+
 - Replace the per-file mutation delta with a changed-line gate. A pull request
   now mutates the lines its diff changed, through Stryker's own mutation
   ranges, and 80% of the mutants on them must be detected. A delta needs a

@@ -64,8 +64,9 @@ A pull request mutates the lines its diff changed, and every mutant on them
 must be detected. `git diff -U0` against the merge base gives the changed lines
 per file; only mutant sources contribute, so a range in a test, a fixture, a
 migration, a generated artifact or a configuration file selects nothing.
-Ranges within three lines of each other merge, and a file with more than eight
-of them is mutated whole, so a hunk-per-line diff stays one argument.
+Ranges within three lines of each other merge; a file touched in many places
+contributes many ranges and is never collapsed to the whole file, because that
+would measure lines the pull request never wrote.
 `coverageAnalysis: perTest` then runs only the tests covering each mutant.
 
 The gate is a level over the changed lines: the score across them must reach

@@ -22,11 +22,8 @@ import { pathToFileURL } from "node:url";
 import { mutationSourceFiles, mutationWorkspaces } from "./mutation-scope.mjs";
 import { mergeMutationReports } from "./mutation-sharding.mjs";
 
-/** Ranges closer than this merge, so a hunk-per-line diff stays one argument. */
+/** Ranges closer than this merge, since a mutant needs its neighbours anyway. */
 const coalesceGap = 3;
-
-/** A file with more ranges than this falls back to the whole file. */
-const maxRangesPerFile = 8;
 
 function git(arguments_, cwd) {
   return execFileSync("git", arguments_, {
@@ -101,15 +98,19 @@ export function changedLineRanges(base, root = process.cwd()) {
   return byWorkspace;
 }
 
-/** The `--mutate` argument value for one workspace, or undefined when inert. */
+/**
+ * The `--mutate` argument value for one workspace, or undefined when inert.
+ *
+ * Every entry is a range. A file the diff touches in many places produces many
+ * of them rather than collapsing to the whole file: collapsing would mutate
+ * lines the pull request never wrote, and their pre-existing survivors are
+ * exactly the untouched-legacy-debt failure this gate exists to avoid. Stryker
+ * takes the list comma-separated, so length costs characters and nothing else.
+ */
 export function mutateArgument(entries) {
   const parts = [];
-  for (const { file, ranges } of entries) {
-    if (ranges.length === 0 || ranges.length > maxRangesPerFile)
-      parts.push(file);
-    else
-      for (const [start, end] of ranges) parts.push(`${file}:${start}-${end}`);
-  }
+  for (const { file, ranges } of entries)
+    for (const [start, end] of ranges) parts.push(`${file}:${start}-${end}`);
   return parts.length === 0 ? undefined : parts.join(",");
 }
 
