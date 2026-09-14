@@ -1,12 +1,12 @@
 name: Restore Stryker baseline
-description: Restore the newest compatible Stryker incremental report.
+description: Restore a compatible mutation index or Stryker incremental report.
 
 inputs:
   workspace:
     description: Workspace path relative to the repository root.
     required: true
   cache-file:
-    description: Incremental report path relative to the workspace.
+    description: Mutation index or incremental report path relative to the workspace.
     required: false
     default: reports/stryker-incremental.json
   cache-suffix:

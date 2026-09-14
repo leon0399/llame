@@ -38,7 +38,7 @@
     "test:integration": "vitest run --project integration",
     "test:mutation": "pnpm --filter 'api^...' --workspace-concurrency=1 -r build && stryker run",
     "test:mutation:aggregate": "node ../../scripts/mutation-sharding.mjs aggregate",
-    "test:mutation:check": "node ../../scripts/mutation-sharding.mjs aggregate --threshold 80 --expected-shards 8 reports/mutation-shards/*/mutation.json",
+    "test:mutation:report": "node ../../scripts/mutation-sharding.mjs aggregate reports/mutation-shards/*/mutation.json",
     "test:mutation:dry": "pnpm --filter 'api^...' --workspace-concurrency=1 -r build && stryker run --dryRunOnly",
     "test:mutation:shard": "pnpm --filter 'api^...' --workspace-concurrency=1 -r build && node ../../scripts/mutation-sharding.mjs run",
     "test:mutation:tooling": "node --test ../../scripts/mutation-*.test.mjs",

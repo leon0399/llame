@@ -1,5 +1,20 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-14
+
+- Scope mutation testing to changed sources and sources covered by changed
+  tests, and gate per-file growth in survived or uncovered mutants (#830).
+  Dependency-package test edits no longer trigger a full API sweep or invalidate
+  its baseline. Small diffs share runners sized by measured mutant work; full
+  runs retain eight weighted shards. Missing baselines, unindexed tests and
+  other unbounded inputs fail before mutation execution; PR/master CI never
+  substitutes a full sweep. Tooling-only changes use tooling checks instead.
+  Master resumes from each workspace's last measured revision, so cancelled
+  runs cannot leave permanent gaps. Gates use the plan's frozen index; trusted
+  refreshes serialize and reject older measurements replacing newer ones.
+  Weekly full sweeps report global MSI without enforcing a threshold.
+  Rename `pnpm test:mutation:check` to `pnpm test:mutation:report`.
+
 # 2026-09-12
 
 - Pin the Pullfrog workflow's two action references to full commit SHAs,

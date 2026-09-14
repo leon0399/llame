@@ -60,7 +60,7 @@ pnpm dev
 pnpm lint
 pnpm format
 pnpm test:mutation
-pnpm test:mutation:check
+pnpm test:mutation:report
 pnpm test:mutation:dry
 pnpm test:e2e
 pnpm test:e2e:ui

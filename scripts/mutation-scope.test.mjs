@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   renameSync,
@@ -13,6 +14,8 @@ import test from "node:test";
 
 import {
   changedFiles,
+  mergeMutationBaseline,
+  mutationBaseline,
   mutationFingerprint,
   mutationSourceFiles,
   selectMutationScope,
@@ -41,13 +44,139 @@ const sources = {
 
 test("source edits select complete files without including other workspaces", () => {
   assert.deepEqual(selectMutationScope(["apps/api/src/b.ts"], sources), {
-    "apps/api": { mode: "changed", files: ["src/b.ts"] },
+    "apps/api": { mode: "scoped", files: ["src/b.ts"] },
     "packages/config-interpolation": { mode: "skip", files: [] },
     "packages/runtime-safety": { mode: "skip", files: [] },
   });
 });
 
-test("tests, deleted source, excluded source and runtime fixtures expand their workspace", () => {
+test("a baseline narrows test edits to the mutant files those tests cover", () => {
+  const baseline = {
+    "apps/api": {
+      files: {
+        "src/a.ts": { mutants: 4, undetected: 1, coveredBy: ["src/a.test.ts"] },
+        "src/b.ts": {
+          mutants: 2,
+          undetected: 0,
+          coveredBy: ["src/a.test.ts", "src/b.test.ts"],
+        },
+      },
+    },
+  };
+  assert.deepEqual(
+    selectMutationScope(["apps/api/src/a.test.ts"], sources, baseline)[
+      "apps/api"
+    ],
+    { mode: "scoped", files: ["src/a.ts", "src/b.ts"] },
+  );
+  // A deleted test file still selects what it used to cover: that is the case
+  // a scope built from source edits alone would silently skip.
+  assert.deepEqual(
+    selectMutationScope(["apps/api/src/removed.test.ts"], sources, {
+      "apps/api": {
+        files: {
+          "src/b.ts": {
+            mutants: 2,
+            undetected: 0,
+            coveredBy: ["src/removed.test.ts"],
+          },
+        },
+      },
+    })["apps/api"],
+    { mode: "scoped", files: ["src/b.ts"] },
+  );
+  // An unindexed test is unbounded; a removed source cannot be selected.
+  assert.equal(
+    selectMutationScope(["apps/api/src/unrelated.test.ts"], sources, baseline)[
+      "apps/api"
+    ].mode,
+    "unavailable",
+  );
+  assert.equal(
+    selectMutationScope(["apps/api/src/a.test.ts"], sources, {
+      "apps/api": {
+        files: {
+          "src/deleted.ts": {
+            mutants: 1,
+            undetected: 1,
+            coveredBy: ["src/a.test.ts"],
+          },
+        },
+      },
+    })["apps/api"].mode,
+    "skip",
+  );
+});
+
+test("a test edit without a baseline schedules no mutation files", () => {
+  const scope = selectMutationScope(["apps/api/src/a.test.ts"], sources)[
+    "apps/api"
+  ];
+  assert.equal(scope.mode, "unavailable");
+  assert.deepEqual(scope.files, []);
+});
+
+test("baseline reading normalizes test ids, counts and undetected mutants", () => {
+  const baseline = mutationBaseline([
+    {
+      schemaVersion: "1.0",
+      testFiles: {
+        "src/a.test.ts": { tests: [{ id: "4", name: "covers a" }] },
+      },
+      files: {
+        "src/a.ts": {
+          mutants: [
+            { status: "Killed", coveredBy: ["4"] },
+            { status: "Survived", coveredBy: ["4"] },
+            { status: "NoCoverage" },
+            { status: "Ignored" },
+            { status: "CompileError", coveredBy: [] },
+          ],
+        },
+      },
+    },
+  ]);
+  assert.deepEqual(baseline.files["src/a.ts"], {
+    mutants: 4,
+    undetected: 2,
+    coveredBy: ["src/a.test.ts"],
+  });
+
+  const merged = mergeMutationBaseline(
+    {
+      files: {
+        "src/kept.ts": { mutants: 9, undetected: 9, coveredBy: [] },
+        "src/a.ts": {
+          mutants: 1,
+          undetected: 1,
+          coveredBy: ["src/other.test.ts"],
+        },
+      },
+    },
+    [
+      {
+        files: {
+          "src/a.ts": {
+            mutants: [{ status: "Killed", coveredBy: ["src/a.test.ts"] }],
+          },
+        },
+      },
+    ],
+  );
+  assert.deepEqual(Object.keys(merged.files).sort(), [
+    "src/a.ts",
+    "src/kept.ts",
+  ]);
+  // The later measurement replaces the counts, but not the coverage a narrower
+  // dry run could not have seen.
+  assert.deepEqual(merged.files["src/a.ts"], {
+    mutants: 1,
+    undetected: 0,
+    coveredBy: ["src/a.test.ts", "src/other.test.ts"],
+  });
+});
+
+test("unbounded test, source and runtime changes cannot schedule mutations", () => {
   for (const file of [
     "src/a.test.ts",
     "src/deleted.ts",
@@ -55,43 +184,75 @@ test("tests, deleted source, excluded source and runtime fixtures expand their w
     "src/prompts/chat-default.md",
     "vitest.config.mts",
   ]) {
-    assert.deepEqual(
-      selectMutationScope([`apps/api/${file}`, "apps/api/src/a.ts"], sources)[
-        "apps/api"
-      ],
-      {
-        mode: "full",
-        files: ["src/a.ts", "src/b.ts"],
-      },
-    );
+    const scope = selectMutationScope(
+      [`apps/api/${file}`, "apps/api/src/a.ts"],
+      sources,
+    )["apps/api"];
+    assert.equal(scope.mode, "unavailable");
+    assert.deepEqual(scope.files, []);
   }
 });
 
-test("shared package edits include the complete dependent API scope", () => {
+test("shared runtime changes cannot claim a scoped API delta", () => {
   const result = selectMutationScope(
     ["packages/runtime-safety/src/redact.ts"],
     sources,
   );
   assert.deepEqual(result["packages/runtime-safety"], {
-    mode: "changed",
+    mode: "scoped",
     files: ["src/redact.ts"],
   });
-  assert.deepEqual(result["apps/api"], {
-    mode: "full",
-    files: ["src/a.ts", "src/b.ts"],
-  });
+  assert.equal(result["apps/api"].mode, "unavailable");
+  assert.deepEqual(result["apps/api"].files, []);
   assert.equal(result["packages/config-interpolation"].mode, "skip");
   for (const dependency of ["native-file-tools", "bash-executor"]) {
     assert.equal(
       selectMutationScope([`packages/${dependency}/src/index.ts`], sources)[
         "apps/api"
       ].mode,
-      "full",
+      "unavailable",
     );
   }
 });
 
-test("mutated fixtures and test doubles expand the complete workspace", () => {
+test("dependency test edits do not expand API mutation scope", () => {
+  const baseline = {
+    "apps/api": {
+      files: {
+        "src/a.ts": { mutants: 4, undetected: 1, coveredBy: ["src/a.test.ts"] },
+      },
+    },
+    "packages/runtime-safety": {
+      files: {
+        "src/redact.ts": {
+          mutants: 2,
+          undetected: 0,
+          coveredBy: ["src/redact.test.ts"],
+        },
+      },
+    },
+  };
+  const result = selectMutationScope(
+    [
+      "apps/api/src/a.test.ts",
+      "packages/native-file-tools/src/read.test.ts",
+      "packages/bash-executor/src/execute.test.ts",
+      "packages/runtime-safety/src/redact.test.ts",
+    ],
+    sources,
+    baseline,
+  );
+  assert.deepEqual(result["apps/api"], {
+    mode: "scoped",
+    files: ["src/a.ts"],
+  });
+  assert.deepEqual(result["packages/runtime-safety"], {
+    mode: "scoped",
+    files: ["src/redact.ts"],
+  });
+});
+
+test("mutated fixtures and test doubles have unavailable impact", () => {
   for (const file of [
     "src/runs/model-context-snapshot.test-fixture.ts",
     "src/mcp/mcp-test-fixture.ts",
@@ -103,8 +264,8 @@ test("mutated fixtures and test doubles expand the complete workspace", () => {
       ...sources,
       "apps/api": ["src/a.ts", file],
     });
-    assert.equal(result["apps/api"].mode, "full");
-    assert.ok(result["apps/api"].files.includes("src/a.ts"));
+    assert.equal(result["apps/api"].mode, "unavailable");
+    assert.deepEqual(result["apps/api"].files, []);
   }
 });
 
@@ -127,10 +288,15 @@ test("baselines invalidate on environment and dependency changes, retaining nati
       devDependencies: { "@workspace/config-typescript": "workspace:*" },
     }),
     "packages/runtime-safety/src/index.ts": "export const dependency = 1;\n",
+    "packages/runtime-safety/src/index.test.ts":
+      "test('dependency', () => {});\n",
     "packages/config-typescript/package.json": "{}\n",
     "packages/config-typescript/base.json": "{}\n",
     "apps/web/app/page.tsx": "export const page = 1;\n",
     "repository-input.json": "{}\n",
+    ".github/workflows/ci.yml": "name: CI\n",
+    ".gitignore": "reports/\n",
+    "scripts/mutation-scope.mjs": "export const version = 1;\n",
   };
   try {
     execFileSync("git", ["init", "--initial-branch=master"], {
@@ -149,8 +315,11 @@ test("baselines invalidate on environment and dependency changes, retaining nati
     for (const file of [
       "apps/api/src/a.ts",
       "apps/api/src/a.test.ts",
+      "packages/runtime-safety/src/index.test.ts",
       "apps/api/README.md",
       "apps/web/app/page.tsx",
+      ".github/workflows/ci.yml",
+      ".gitignore",
     ]) {
       writeFileSync(path.join(directory, file), `${files[file]}// changed\n`);
       assert.equal(mutationFingerprint("apps/api", directory), baseline, file);
@@ -162,6 +331,7 @@ test("baselines invalidate on environment and dependency changes, retaining nati
       "packages/runtime-safety/src/index.ts",
       "packages/config-typescript/base.json",
       "repository-input.json",
+      "scripts/mutation-scope.mjs",
     ]) {
       writeFileSync(path.join(directory, file), `${files[file]}changed\n`);
       assert.notEqual(
@@ -182,23 +352,22 @@ test("baselines invalidate on environment and dependency changes, retaining nati
   }
 });
 
-test("unknown inputs and root configuration expand all mutation workspaces", () => {
+test("unknown runtime inputs make every workspace delta unavailable", () => {
   for (const file of [
     "pnpm-lock.yaml",
     "package.json",
-    "scripts/mutation-scope.mjs",
     "new-runtime/input.txt",
   ]) {
     assert.deepEqual(
       Object.values(selectMutationScope([file], sources)).map(
         (scope) => scope.mode,
       ),
-      ["full", "full", "full"],
+      ["unavailable", "unavailable", "unavailable"],
     );
   }
 });
 
-test("known documentation and frontend changes need no mutation execution", () => {
+test("documentation, frontend and mutation tooling need no mutation execution", () => {
   const result = selectMutationScope(
     [
       "README.md",
@@ -208,6 +377,11 @@ test("known documentation and frontend changes need no mutation execution", () =
       "apps/api/README.md",
       "apps/web/app/page.tsx",
       "packages/ui/src/button.tsx",
+      ".github/workflows/ci.yml",
+      ".gitignore",
+      "scripts/mutation-scope.mjs",
+      "scripts/mutation-sharding.test.mjs",
+      "apps/api/stryker.config.json",
     ],
     sources,
   );
@@ -320,6 +494,268 @@ test("Git scope includes branch, staged, unstaged, untracked, renamed and delete
       "untracked.ts",
     ]);
     assert.throws(() => changedFiles("missing-base", directory));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("trusted plans include changes from a cancelled predecessor run", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-resume-"));
+  const git = (...args) =>
+    execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+      cwd: directory,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  try {
+    git("init", "--initial-branch=master");
+    git("config", "user.name", "Mutation scope test");
+    git("config", "user.email", "mutation-scope@example.invalid");
+    writeFileSync(path.join(directory, ".gitignore"), "**/reports/\n");
+    for (const [workspace, files] of Object.entries(sources)) {
+      mkdirSync(path.join(directory, workspace, "src"), { recursive: true });
+      writeFileSync(
+        path.join(directory, workspace, "stryker.config.json"),
+        JSON.stringify({ mutate: ["src/**/*.ts"] }),
+      );
+      for (const file of files)
+        writeFileSync(
+          path.join(directory, workspace, file),
+          "export const n = 1;\n",
+        );
+    }
+    git("add", ".");
+    git("commit", "-m", "Measured baseline");
+    const revision = git("rev-parse", "HEAD");
+    mkdirSync(path.join(directory, "apps/api/reports"));
+    writeFileSync(
+      path.join(directory, "apps/api/reports/mutation-baseline.json"),
+      JSON.stringify({
+        baselineVersion: 2,
+        revision,
+        files: {
+          "src/a.ts": { mutants: 1, undetected: 0, coveredBy: [] },
+          "src/b.ts": { mutants: 1, undetected: 0, coveredBy: [] },
+        },
+      }),
+    );
+    writeFileSync(
+      path.join(directory, "apps/api/src/a.ts"),
+      "export const n = 2;\n",
+    );
+    git("add", ".");
+    git("commit", "-m", "Cancelled measurement");
+    const before = git("rev-parse", "HEAD");
+    writeFileSync(
+      path.join(directory, "apps/api/src/b.ts"),
+      "export const n = 2;\n",
+    );
+    git("add", ".");
+    git("commit", "-m", "Next master push");
+    const result = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          path.resolve("scripts/mutation-sharding.mjs"),
+          "plan",
+          "--base",
+          before,
+          "--from-baseline",
+        ],
+        { cwd: directory, encoding: "utf8" },
+      ).trim(),
+    );
+    assert.equal(result.apiMode, "scoped");
+    assert.deepEqual(result.apiShards.flatMap((shard) => shard.files).sort(), [
+      "src/a.ts",
+      "src/b.ts",
+    ]);
+
+    const run = (...args) =>
+      execFileSync(
+        process.execPath,
+        [path.resolve("scripts/mutation-sharding.mjs"), ...args],
+        { cwd: directory, encoding: "utf8" },
+      );
+    const report = path.join(directory, "apps/api/reports/current.json");
+    const oldReport = path.join(directory, "apps/api/reports/old.json");
+    const latest = path.join(directory, "apps/api/reports/latest.json");
+    for (const [file, status] of [
+      [report, "Survived"],
+      [oldReport, "Killed"],
+    ]) {
+      writeFileSync(
+        file,
+        JSON.stringify({
+          schemaVersion: "1.0",
+          files: { "src/a.ts": { mutants: [{ id: "0", status }] } },
+        }),
+      );
+    }
+    run("baseline", "--output", latest, report);
+    git("checkout", "--detach", before);
+    copyFileSync(
+      latest,
+      path.join(directory, "apps/api/reports/mutation-baseline.json"),
+    );
+    assert.throws(
+      () => run("plan", "--base", revision),
+      /mutation delta unavailable/u,
+    );
+    run("baseline", "--previous", latest, "--output", latest, oldReport);
+    // An older completion must not reset the newer allowance to zero.
+    assert.match(
+      run("aggregate", "--baseline", latest, report),
+      /No new undetected mutants/u,
+    );
+
+    const unreachable = JSON.stringify({
+      baselineVersion: 2,
+      revision: "f".repeat(40),
+      files: { "src/a.ts": { mutants: 1, undetected: 0, coveredBy: [] } },
+    });
+    writeFileSync(latest, unreachable);
+    writeFileSync(
+      path.join(directory, "apps/api/reports/mutation-baseline.json"),
+      unreachable,
+    );
+    writeFileSync(
+      path.join(directory, "apps/api/src/a.ts"),
+      "export const n = 3;\n",
+    );
+    assert.throws(
+      () => run("plan", "--base", before, "--from-baseline"),
+      /mutation delta unavailable/u,
+    );
+    run("baseline", "--previous", latest, "--output", latest, report);
+    assert.match(
+      run("aggregate", "--baseline", latest, report),
+      /No new undetected mutants/u,
+    );
+
+    copyFileSync(
+      latest,
+      path.join(directory, "apps/api/reports/mutation-baseline.json"),
+    );
+    git("checkout", "--orphan", "unrelated");
+    git("commit", "--allow-empty", "-m", "Unrelated repository history");
+    writeFileSync(
+      path.join(directory, "apps/api/src/a.ts"),
+      "export const n = 4;\n",
+    );
+    assert.throws(
+      () => run("plan", "--base", "HEAD"),
+      /mutation delta unavailable/u,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("cold plans skip mutation tooling but reject missing delta evidence", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-cold-"));
+  const git = (...args) =>
+    execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+      cwd: directory,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  const run = (...args) =>
+    spawnSync(
+      process.execPath,
+      [path.resolve("scripts/mutation-sharding.mjs"), ...args],
+      { cwd: directory, encoding: "utf8" },
+    );
+  try {
+    git("init", "--initial-branch=master");
+    git("config", "user.name", "Mutation scope test");
+    git("config", "user.email", "mutation-scope@example.invalid");
+    for (const [workspace, files] of Object.entries(sources)) {
+      mkdirSync(path.join(directory, workspace, "src"), { recursive: true });
+      writeFileSync(
+        path.join(directory, workspace, "stryker.config.json"),
+        JSON.stringify({ mutate: ["src/**/*.ts"] }),
+      );
+      for (const file of files)
+        writeFileSync(
+          path.join(directory, workspace, file),
+          "export const n = 1;\n",
+        );
+    }
+    for (const manifest of ["package.json", "apps/api/package.json"])
+      writeFileSync(
+        path.join(directory, manifest),
+        JSON.stringify({ scripts: { "test:mutation:check": "old command" } }),
+      );
+    git("add", ".");
+    git("commit", "-m", "Initial mutation inputs");
+    const base = git("rev-parse", "HEAD");
+
+    writeFileSync(
+      path.join(directory, "apps/api/src/a.ts"),
+      "export const n = 2;\n",
+    );
+    for (const command of ["plan", "changed"]) {
+      const missing = run(command, "--base", base);
+      assert.equal(missing.status, 1);
+      assert.match(missing.stderr, /mutation delta unavailable/u);
+    }
+    writeFileSync(
+      path.join(directory, "apps/api/src/a.ts"),
+      "export const n = 1;\n",
+    );
+    const mutationScripts = {
+      scripts: { "test:mutation:report": "new command" },
+    };
+    for (const manifest of ["package.json", "apps/api/package.json"])
+      writeFileSync(
+        path.join(directory, manifest),
+        JSON.stringify(mutationScripts),
+      );
+    mkdirSync(path.join(directory, ".github/workflows"), { recursive: true });
+    writeFileSync(
+      path.join(directory, ".github/workflows/ci.yml"),
+      "name: CI\n",
+    );
+    const tooling = run("plan", "--base", base, "--from-baseline");
+    assert.equal(tooling.status, 0, tooling.stderr);
+    const plan = JSON.parse(tooling.stdout);
+    assert.deepEqual(plan.apiShards, []);
+    assert.equal(plan.apiMode, "skip");
+    assert.ok(plan.packages.every((workspace) => workspace.mode === "skip"));
+
+    const manual = run("plan", "--full");
+    assert.equal(manual.status, 0, manual.stderr);
+    assert.deepEqual(
+      JSON.parse(manual.stdout)
+        .apiShards.flatMap((shard) => shard.files)
+        .sort(),
+      sources["apps/api"],
+    );
+
+    writeFileSync(
+      path.join(directory, "apps/api/package.json"),
+      JSON.stringify({
+        ...mutationScripts,
+        dependencies: { dependency: "2.0.0" },
+      }),
+    );
+    const runtime = run("plan", "--base", base);
+    assert.equal(runtime.status, 1);
+    assert.match(runtime.stderr, /mutation delta unavailable/u);
+    writeFileSync(
+      path.join(directory, "apps/api/package.json"),
+      JSON.stringify(mutationScripts),
+    );
+    writeFileSync(
+      path.join(directory, "package.json"),
+      JSON.stringify({
+        scripts: { ...mutationScripts.scripts, build: "changed build" },
+      }),
+    );
+    const build = run("plan", "--base", base);
+    assert.equal(build.status, 1);
+    assert.match(build.stderr, /mutation delta unavailable/u);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
