@@ -123,7 +123,10 @@ test.describe("model-context transparency (browser, full stack)", () => {
     ).toBe(true);
 
     await switchBoundary.click();
-    await page.getByRole("button", { name: "System prompt" }).click();
+    // The expanded boundary card's own button names the target run; the
+    // per-message actions share the shorter "System prompt" label, so this
+    // selector is the unambiguous one.
+    await page.getByRole("button", { name: "View effective context" }).click();
 
     const receipt = page.getByRole("dialog", {
       name: "System prompt receipt",
