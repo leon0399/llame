@@ -72,6 +72,26 @@ describe('parseSkillMentions', () => {
     expect(names('~\n$pdf')).toEqual(['pdf']);
   });
 
+  it('resumes at the end of a closed inline span', () => {
+    // The span ends after its closing run, so a mention touching that run is
+    // ordinary text. Resuming anywhere earlier would swallow it as code.
+    expect(names('`code`$pdf')).toEqual(['pdf']);
+    expect(names('``code``$pdf')).toEqual(['pdf']);
+    // And a mention inside the span is still excluded.
+    expect(names('`$pdf`$research')).toEqual(['research']);
+  });
+
+  it('needs a boundary on both sides of the token', () => {
+    // A `$` inside a word introduces nothing: `a$pdf` is one token.
+    expect(names('a$pdf')).toEqual([]);
+    expect(names('7$pdf')).toEqual([]);
+    // And the name must end the token: `_` is a word character that is not a
+    // name character, so the token continues and the mention does not.
+    expect(names('$pdf_tools')).toEqual([]);
+    // A boundary character on either side keeps the mention.
+    expect(names('(a) $pdf.')).toEqual(['pdf']);
+  });
+
   it('recognizes a mention after a closed fence', () => {
     expect(names('```\n$pdf\n```\nthen $research')).toEqual(['research']);
   });

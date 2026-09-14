@@ -203,6 +203,24 @@ describe('activateSkills', () => {
     });
   });
 
+  it('reports an installed but unusable package as unavailable', async () => {
+    // The fourth closed reason, and the only one whose text distinguishes a
+    // package the operator installed from one that was never there: a mention
+    // of an unusable skill must not read as a typo.
+    const directory = path.join(source, 'broken');
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(path.join(directory, 'SKILL.md'), 'no frontmatter here\n');
+
+    const { outcome } = await run('$broken');
+
+    const text = texts(outcome.items);
+    expect(text).toContain('`broken`');
+    expect(text).toContain('the skill is installed but not currently usable');
+    expect(text).not.toContain('no such skill is installed');
+    // The diagnostic naming the operator's path stays out of model text.
+    expect(text).not.toContain(source);
+  });
+
   it('reports a denied read as permission_denied without a body', async () => {
     createPackage('pdf');
 
