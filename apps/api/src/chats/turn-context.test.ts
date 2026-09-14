@@ -1016,29 +1016,52 @@ describe('the skill-catalog notice', () => {
     expect(logged.some((line) => line.includes('<skill source>'))).toBe(true);
   });
 
+  it('announces the removals when no catalog port reaches the turn at all', async () => {
+    // Not the production shape - `SkillsModule` always provides a port - but
+    // the branch exists because a turn assembled without one must not diff
+    // against nothing and silently unadvertise a catalog the chat still shows.
+    const { run } = buildWith(
+      [],
+      {
+        skillCatalogBaseline: {
+          entries: [{ name: 'pdf', description: 'Extract' }],
+          omitted: 0,
+        },
+        skillCatalogRebakedFrom: null,
+        skillCatalogTold: ['pdf'],
+      },
+      { unconfigured: true },
+    );
+
+    const result = await run;
+    const [item] = catalogItems(result.messageParts);
+    expect(item.data.payload).toMatchObject({
+      kind: 'delta',
+      added: [],
+      removed: ['pdf'],
+    });
+  });
+
   it('announces the removals when the source list is emptied mid-epoch', async () => {
     // The operator disables skills by emptying `skills.directories` after this
     // chat froze a baseline. The stored baseline stays in the prompt for the
     // rest of the epoch, so the removals MUST be announced — suppressing the
     // delta would leave the model attempting stale reads with no notice.
-    const { run } = buildWith(
-      [],
-      {
-        skillCatalogBaseline: {
-          entries: [
-            { name: 'pdf', description: 'Extract' },
-            { name: 'research', description: 'Plan' },
-          ],
-          omitted: 0,
-        },
-        skillCatalogRebakedFrom: null,
-        skillCatalogTold: ['pdf', 'research'],
+    //
+    // This is the production shape: `SkillsModule` builds a `SkillCatalog`
+    // unconditionally, so an emptied list still yields a port whose snapshot
+    // is available and empty. The absent-port case is separate, below.
+    const { run } = buildWith([], {
+      skillCatalogBaseline: {
+        entries: [
+          { name: 'pdf', description: 'Extract' },
+          { name: 'research', description: 'Plan' },
+        ],
+        omitted: 0,
       },
-      // No source and no catalog port, which is what emptying
-      // `skills.directories` produces - not a configured source that happens
-      // to hold nothing.
-      { unconfigured: true },
-    );
+      skillCatalogRebakedFrom: null,
+      skillCatalogTold: ['pdf', 'research'],
+    });
 
     const result = await run;
     const [item] = catalogItems(result.messageParts);
