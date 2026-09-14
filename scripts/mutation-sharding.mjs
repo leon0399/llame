@@ -279,6 +279,7 @@ function scopeArguments(arguments_) {
       workspace: { type: "string" },
       dryRunOnly: { type: "boolean" },
       full: { type: "boolean" },
+      bypass: { type: "boolean" },
       "from-baseline": { type: "boolean" },
       expectedMode: { type: "string" },
     },
@@ -294,22 +295,41 @@ function scopeArguments(arguments_) {
   return values;
 }
 
-function requireMutationDelta(workspace, scope, baseline) {
+/**
+ * Fail on a workspace whose delta cannot be bounded, unless the run carries an
+ * operator bypass. Returns the unbounded reason when the bypass absorbed it, so
+ * the caller can record exactly what was waived.
+ */
+function requireMutationDelta(workspace, scope, baseline, bypass = false) {
   const reason =
     scope.mode === "unavailable"
       ? scope.reason
       : scope.mode === "scoped" && !baseline
         ? "No compatible ancestor mutation baseline"
         : undefined;
-  if (reason)
+  if (reason === undefined) return undefined;
+  if (!bypass)
     throw new Error(
       `${workspace}: mutation delta unavailable: ${reason}. No mutation execution was scheduled.`,
     );
+  return reason;
+}
+
+/**
+ * Record a bypass where the pull request can see it. The waiver is an operator
+ * decision, so it must not be silent: the annotation names every input that
+ * went unmeasured.
+ */
+function recordMutationBypass(waived) {
+  const detail = waived.join("; ");
+  console.log(`Mutation gate bypassed for ${waived.length} workspace(s)`);
+  console.log(`::warning title=Mutation gate bypassed::${detail}`);
 }
 
 function plan(arguments_) {
   const {
     base,
+    bypass,
     full,
     "from-baseline": fromBaseline,
   } = scopeArguments(arguments_);
@@ -338,8 +358,19 @@ function plan(arguments_) {
         ]),
       )
     : readMutationScope(bases, baselines, root);
-  for (const workspace of mutationWorkspaces)
-    requireMutationDelta(workspace, scopes[workspace], baselines[workspace]);
+  const waived = [];
+  for (const workspace of mutationWorkspaces) {
+    const reason = requireMutationDelta(
+      workspace,
+      scopes[workspace],
+      baselines[workspace],
+      bypass,
+    );
+    if (reason === undefined) continue;
+    waived.push(`${workspace}: ${reason}`);
+    scopes[workspace] = { mode: "skip", files: [] };
+  }
+  if (waived.length > 0) recordMutationBypass(waived);
   const result = mutationPlan(scopes, baselines);
   console.log(JSON.stringify(result));
   if (process.env.GITHUB_OUTPUT) {
@@ -385,18 +416,30 @@ async function changed(arguments_) {
   );
   // Validate every selected workspace before starting any dependency build or
   // mutation process. Unknown impact never expands into a full local/CI run.
+  const waived = [];
   for (const workspace of workspaces) {
     const scope = scopes[workspace];
-    if (!options.dryRunOnly || scope.mode === "unavailable")
-      requireMutationDelta(workspace, scope, baselines[workspace]);
+    if (!options.dryRunOnly || scope.mode === "unavailable") {
+      const reason = requireMutationDelta(
+        workspace,
+        scope,
+        baselines[workspace],
+        options.bypass,
+      );
+      if (reason !== undefined) {
+        waived.push(`${workspace}: ${reason}`);
+        scopes[workspace] = { mode: "skip", files: [] };
+      }
+    }
     if (
       options.expectedMode !== undefined &&
-      scope.mode !== options.expectedMode
+      scopes[workspace].mode !== options.expectedMode
     )
       throw new Error(
-        `${workspace}: planned ${options.expectedMode} but this run resolved ${scope.mode}`,
+        `${workspace}: planned ${options.expectedMode} but this run resolved ${scopes[workspace].mode}`,
       );
   }
+  if (waived.length > 0) recordMutationBypass(waived);
   for (const workspace of workspaces) {
     const scope = scopes[workspace];
     console.log(

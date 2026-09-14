@@ -44,9 +44,11 @@ CI scopes mutation to changed sources and baseline-indexed test coverage,
 packs small diffs into fewer runners, and gates per-file undetected-mutant
 growth. Missing baselines and unbounded impact fail before mutation execution;
 there is no automatic full-sweep fallback. Tooling-only changes use tooling
-checks. Scheduled/manual full runs report without a score threshold. Reports
-are ignored under `reports/`. Restricted sandboxes may need local-bind permission
-for Stryker.
+checks, and lint/format configuration is exempt. An operator waives an
+unbounded delta with the `mutation-bypass` pull-request label, which records
+what went unmeasured. Scheduled/manual full runs report without a score
+threshold. Reports are ignored under `reports/`. Restricted sandboxes may need
+local-bind permission for Stryker.
 
 ## Instance configuration
 

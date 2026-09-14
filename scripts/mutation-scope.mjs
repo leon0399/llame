@@ -59,6 +59,22 @@ function migration(file) {
   return file.startsWith("apps/api/src/db/migrations/");
 }
 
+/**
+ * Lint and format configuration. These read source text and never run during a
+ * test, so no mutant's status can depend on them — the same reasoning that
+ * exempts CI wiring and `.gitignore`. Mutation tooling is deliberately NOT
+ * here: an engine or Stryker configuration change can move every measurement,
+ * so it must still invalidate the index.
+ */
+function qualityTooling(file) {
+  return (
+    /(^|\/)\.markdownlint-cli2\.jsonc$/u.test(file) ||
+    /(^|\/)\.oxlintrc\.json$/u.test(file) ||
+    /(^|\/)\.prettierignore$/u.test(file) ||
+    /(^|\/)\.prettierrc(\.[a-z]+)?$/u.test(file)
+  );
+}
+
 function testSupport(file) {
   if (file.endsWith("/eval/dataset.ts")) return true;
   return /(^|\/)(__mocks__|__fixtures__|fixtures|testing)\/|(^|[./-])(test-fixture|test-helper|fixture|fake|mock|stub)([./-]|$)/u.test(
@@ -327,7 +343,12 @@ export function selectMutationScope(changes, sources, baselines = {}) {
   );
 
   for (const file of changes) {
-    if (documentation(file) || mutationTooling(file) || migration(file))
+    if (
+      documentation(file) ||
+      mutationTooling(file) ||
+      migration(file) ||
+      qualityTooling(file)
+    )
       continue;
     const workspace = mutationWorkspaces.find((directory) =>
       file.startsWith(`${directory}/`),
@@ -418,6 +439,7 @@ export function mutationFingerprint(workspace, root = process.cwd()) {
     .filter((file) => {
       if (
         documentation(file) ||
+        qualityTooling(file) ||
         file.startsWith(".github/") ||
         /(^|\/)\.gitignore$/u.test(file) ||
         migration(file)

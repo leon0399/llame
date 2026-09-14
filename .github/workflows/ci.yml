@@ -78,8 +78,16 @@ jobs:
           # PRs use their base; trusted pushes resume each workspace from the
           # last measured revision so cancelled runs cannot leave coverage gaps.
           MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          # An operator applies this label to waive an unbounded delta. Labels
+          # need write access, so a contributor cannot grant it themselves, and
+          # the plan records every input the waiver left unmeasured. A push has
+          # no labels, so master still fails on missing evidence.
+          MUTATION_BYPASS: ${{ contains(github.event.pull_request.labels.*.name, 'mutation-bypass') }}
         run: |
           arguments=(--base "$MUTATION_BASE")
+          if [[ "$MUTATION_BYPASS" == "true" ]]; then
+            arguments+=(--bypass)
+          fi
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
             arguments+=(--from-baseline)
           fi

@@ -427,7 +427,7 @@ test("unknown runtime inputs make every workspace delta unavailable", () => {
   }
 });
 
-test("documentation, frontend and mutation tooling need no mutation execution", () => {
+test("documentation, frontend, tooling and lint configuration need no mutation execution", () => {
   const result = selectMutationScope(
     [
       "README.md",
@@ -442,6 +442,14 @@ test("documentation, frontend and mutation tooling need no mutation execution", 
       "scripts/mutation-scope.mjs",
       "scripts/mutation-sharding.test.mjs",
       "apps/api/stryker.config.json",
+      // Lint and format configuration reads source text and never runs during a
+      // test, so it cannot move a mutant — including inside a workspace, where
+      // it would otherwise be an unbounded non-source input.
+      ".markdownlint-cli2.jsonc",
+      ".oxlintrc.json",
+      "apps/api/.oxlintrc.json",
+      "apps/api/.prettierrc",
+      ".prettierignore",
     ],
     sources,
   );
@@ -786,6 +794,19 @@ test("cold plans skip mutation tooling but reject missing delta evidence", () =>
     );
     assert.doesNotMatch(withSource.stderr, /Impact cannot be bounded/u);
     rmSync(migrations, { recursive: true, force: true });
+    // An operator waiver turns the same failure into a recorded skip rather
+    // than a silent pass: the annotation names what went unmeasured, and the
+    // workspace schedules no shards.
+    const waived = run("plan", "--base", base, "--bypass");
+    assert.equal(waived.status, 0);
+    assert.match(
+      waived.stdout,
+      /::warning title=Mutation gate bypassed::apps\/api: No compatible ancestor mutation baseline/u,
+    );
+    assert.equal(
+      JSON.parse(waived.stdout.trim().split("\n").at(-1)).apiMode,
+      "skip",
+    );
     writeFileSync(
       path.join(directory, "apps/api/src/a.ts"),
       "export const n = 1;\n",
