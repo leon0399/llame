@@ -35,8 +35,10 @@ import { ModelContextSnapshotsRepository } from './model-context-snapshots.repos
 import {
   ContextReceiptResponse,
   ListRunEventsQuery,
+  RunContextItemsResponse,
   RunResponse,
   toContextReceiptResponse,
+  toRunContextItemsResponse,
   toRunResponse,
   UpdateRunDto,
 } from './dto/runs.dto';
@@ -93,6 +95,25 @@ export class RunsController {
   ): Promise<RunResponse> {
     const run = await this.findOwnedRun(id, userId);
     return toRunResponse(run);
+  }
+
+  @Get(':id/context-items')
+  @ApiOperation({
+    operationId: 'getRunContextItems',
+    summary: 'Get the executed context items recorded for a Run',
+  })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: RunContextItemsResponse })
+  @ApiUnauthorizedResponse()
+  @ApiNotFoundResponse({ description: 'Run not found or not owned' })
+  async getContextItems(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<RunContextItemsResponse> {
+    // Owner-scoped: a run the caller does not own is indistinguishable from one
+    // that does not exist, so no run or context metadata is disclosed.
+    const run = await this.findOwnedRun(id, userId);
+    return toRunContextItemsResponse(run);
   }
 
   @Get(':id/context-receipt')

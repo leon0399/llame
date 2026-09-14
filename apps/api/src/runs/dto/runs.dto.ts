@@ -13,6 +13,7 @@ import {
   type ModelContextSnapshot,
   type Run,
   type RunStatus,
+  type RunContextItem,
 } from '../../db/schema';
 import {
   parseToolAvailabilityManifest,
@@ -205,6 +206,64 @@ export class ContextReceiptResponse {
 }
 
 /** Explicit egress allowlist (mirror toPublicUser) — never return the raw row. */
+/**
+ * The executed-context record this Run actually sent (D5), or `null` when no
+ * final executed request was recorded.
+ *
+ * Null is the UNRECORDED state, not an empty list: a Run that has not reached
+ * request preparation — or that failed before it — has no recorded items at
+ * all, and reporting `[]` would assert a request with no context that never
+ * happened.
+ */
+export class RunContextItemsResponse {
+  @ApiProperty({ format: 'uuid' })
+  runId!: string;
+
+  @ApiProperty({
+    type: () => [RunContextItemResponse],
+    nullable: true,
+    description:
+      'Every context item in the final executed request, or null when unrecorded.',
+  })
+  items!: Array<RunContextItemResponse> | null;
+}
+
+/** One context item as the model received it. */
+export class RunContextItemResponse {
+  @ApiProperty()
+  producer!: string;
+
+  @ApiPropertyOptional()
+  form?: string;
+
+  @ApiProperty({ enum: ['prefix', 'rail'] })
+  residency!: RunContextItem['residency'];
+
+  @ApiProperty({ description: 'Final text, exactly as sent.' })
+  text!: string;
+}
+
+/**
+ * Project the stored record. Passes the stored array through unchanged —
+ * including an empty one — because this endpoint's contract is "what was
+ * recorded", never a re-derivation from current state.
+ */
+export function toRunContextItemsResponse(run: Run): RunContextItemsResponse {
+  const items = run.contextItems;
+  return {
+    runId: run.id,
+    items:
+      items === null
+        ? null
+        : items.map((item) => ({
+            producer: item.producer,
+            ...(item.form !== undefined && { form: item.form }),
+            residency: item.residency,
+            text: item.text,
+          })),
+  };
+}
+
 export function toRunResponse(run: Run): RunResponse {
   return {
     id: run.id,

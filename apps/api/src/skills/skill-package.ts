@@ -94,6 +94,36 @@ export function readFrontmatterInvocationControl(
   return isBoolean(control) ? !control : 'invalid';
 }
 
+/**
+ * The Markdown body of a `SKILL.md`: everything after the closing frontmatter
+ * delimiter, with the delimiter itself removed.
+ *
+ * Claude Code, OMP, and OpenCode all deliver the body without frontmatter on
+ * invocation, and so does llame's activation item: frontmatter is package
+ * metadata the catalog already published (name and description appear in the
+ * item's own header), so repeating it as instruction text would present
+ * metadata as something to follow. A file with no parsable frontmatter is
+ * returned whole — usability was already decided by `parseSkillPackage`, and
+ * this function must not invent a second answer.
+ */
+export function skillInstructionBody(text: string): string {
+  const lines = text.split(/\r?\n/u);
+  if (lines[0] !== '---') return text;
+  const closingIndex = lines.findIndex(
+    (line, index) => index > 0 && line.trimEnd() === '---',
+  );
+  if (closingIndex === -1) return text;
+  return (
+    lines
+      .slice(closingIndex + 1)
+      .join('\n')
+      // Blank lines around the body are framing; leading spaces are not. A
+      // body opening with a four-space code block must keep its indentation,
+      // or the model reads the block as prose.
+      .replaceAll(/^\n+|\n+$/gu, '')
+  );
+}
+
 function frontmatterBlock(
   text: string,
 ):

@@ -48,6 +48,10 @@ export type ContextItemForm = (typeof CONTEXT_ITEM_FORMS)[number];
 export const CONTEXT_ITEM_PRODUCERS = [
   'effective-context-change',
   'tool-availability',
+  // The catalog notice precedes the activations it may prompt (D6), and both
+  // precede the digest so a turn's new context reads before its history.
+  'skill-catalog',
+  'skill-activation',
   'recency-digest',
   'temporal',
   'compaction',

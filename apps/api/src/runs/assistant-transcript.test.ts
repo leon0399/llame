@@ -340,6 +340,104 @@ describe('reconstructDurableAssistant', () => {
   });
 });
 
+describe('system-origin tool activity', () => {
+  // Skill activation is llame's own read, not a call the model made. It is
+  // recorded durably and excluded from the assistant transcript, so the model
+  // never sees a fabricated call and the UI never replays one.
+  const requested = (toolCallId: string) => ({
+    toolCallId,
+    toolName: 'read',
+    input: { path: 'skill://pdf:raw' },
+    origin: 'skill-activation',
+  });
+
+  it('produces no assistant part and no open call', () => {
+    const result = reconstructDurableAssistant([
+      event('tool.requested', requested('activation-1')),
+      event('tool.completed', {
+        toolCallId: 'activation-1',
+        toolName: 'read',
+        status: 'success',
+        output: { status: 'success', content: 'instructions' },
+        origin: 'skill-activation',
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([]);
+    // Nothing left open either: a system-origin request must not become a
+    // synthesized settlement on recovery.
+    expect(result.openToolCalls).toEqual(new Map());
+  });
+
+  it('leaves model-origin activity beside it untouched', () => {
+    const result = reconstructDurableAssistant([
+      event('tool.requested', requested('activation-1')),
+      event('tool.completed', {
+        toolCallId: 'activation-1',
+        toolName: 'read',
+        status: 'success',
+        output: { status: 'success', content: 'instructions' },
+        origin: 'skill-activation',
+      }),
+      event('tool.requested', {
+        toolCallId: 'model-1',
+        toolName: 'search',
+        input: { query: 'needle' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'model-1',
+        output: { status: 'success', value: 'found' },
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      expect.objectContaining({ toolCallId: 'model-1' }),
+    ]);
+  });
+
+  it('treats activity without an origin as model-origin', () => {
+    // Legacy events predate the discriminator and must keep replaying as the
+    // model's own calls.
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'legacy-1',
+        toolName: 'search',
+        input: { query: 'needle' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'legacy-1',
+        output: { status: 'success', value: 'found' },
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      expect.objectContaining({ toolCallId: 'legacy-1' }),
+    ]);
+  });
+
+  it('ignores an unrecognized origin rather than trusting it', () => {
+    // Only the shipped discriminator is system-origin; anything else is an
+    // unknown value and stays model-origin rather than being silently treated
+    // as llame's own activity.
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'other-1',
+        toolName: 'search',
+        input: { query: 'needle' },
+        origin: 'some-other-caller',
+      }),
+      event('tool.completed', {
+        toolCallId: 'other-1',
+        output: { status: 'success', value: 'found' },
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      expect.objectContaining({ toolCallId: 'other-1' }),
+    ]);
+  });
+});
+
 describe('assistantParts', () => {
   it('preserves optional cap notice and omits only an empty answer', () => {
     const tool = successToolPart('call-1');

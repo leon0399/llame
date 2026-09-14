@@ -1158,6 +1158,42 @@
         "tags": ["runs"]
       }
     },
+    "/api/v1/runs/{id}/context-items": {
+      "get": {
+        "operationId": "getRunContextItems",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunContextItemsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Run not found or not owned"
+          }
+        },
+        "summary": "Get the executed context items recorded for a Run",
+        "tags": ["runs"]
+      }
+    },
     "/api/v1/runs/{id}/context-receipt": {
       "get": {
         "operationId": "getRunContextReceipt",
@@ -3500,6 +3536,44 @@
           "startedAt",
           "finishedAt"
         ]
+      },
+      "RunContextItemResponse": {
+        "type": "object",
+        "properties": {
+          "producer": {
+            "type": "string"
+          },
+          "form": {
+            "type": "string"
+          },
+          "residency": {
+            "type": "string",
+            "enum": ["prefix", "rail"]
+          },
+          "text": {
+            "type": "string",
+            "description": "Final text, exactly as sent."
+          }
+        },
+        "required": ["producer", "residency", "text"]
+      },
+      "RunContextItemsResponse": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "items": {
+            "nullable": true,
+            "description": "Every context item in the final executed request, or null when unrecorded.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunContextItemResponse"
+            }
+          }
+        },
+        "required": ["runId", "items"]
       },
       "ContextReceiptAvailableToolResponse": {
         "type": "object",

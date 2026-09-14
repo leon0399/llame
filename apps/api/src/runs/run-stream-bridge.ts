@@ -15,6 +15,7 @@ import { ConfigService } from '@nestjs/config';
 import { TenantDbService } from '../db/tenant-db.service';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { isSystemOriginPayload } from './tool-activity-origin';
 
 /** UI-message stream chunk subset the bridge emits (AI SDK v1 protocol). */
 export type UiChunk =
@@ -258,6 +259,10 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   }
 
   private onToolRequested(event: RunEventLike): Array<UiChunk> {
+    // Skill activation is llame's own read, not a call the model made, so it
+    // has no tool part in the UI. Skipped here for the same reason it is
+    // skipped in the durable reconstruction: one convention, both paths.
+    if (isSystemOriginPayload(event.payload)) return [];
     const toolCallId = payloadString(event.payload, 'toolCallId');
     const toolName = payloadString(event.payload, 'toolName');
     if (!toolCallId || !toolName) {
@@ -283,6 +288,9 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   }
 
   private onToolCompleted(event: RunEventLike): Array<UiChunk> {
+    // Matches `onToolRequested`: no request chunk was emitted, so a completion
+    // chunk would be an orphan the client cannot attach to anything.
+    if (isSystemOriginPayload(event.payload)) return [];
     const toolCallId = payloadString(event.payload, 'toolCallId');
     // At-most-once: if this call was already settled (by termination or a
     // prior event), a late completion must not emit a second outcome.
