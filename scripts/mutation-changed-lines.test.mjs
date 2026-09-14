@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import {
   changedLineRanges,
-  mutateArgument,
+  mutateRanges,
   mutationArguments,
+  writeScopeConfig,
 } from "./mutation-changed-lines.mjs";
 
 const workspace = "packages/runtime-safety";
@@ -51,7 +52,10 @@ function repository(files) {
     );
     writeFileSync(
       path.join(directory, each, "stryker.config.json"),
-      JSON.stringify({ mutate: ["src/**/*.ts", "!src/**/*.test.ts"] }),
+      JSON.stringify({
+        mutate: ["src/**/*.ts", "!src/**/*.test.ts"],
+        testRunner: "vitest",
+      }),
     );
   }
   for (const [file, content] of Object.entries(files))
@@ -88,7 +92,7 @@ test("an edited source line is mutated at that line, not as a whole file", () =>
   assert.deepEqual(ranges[workspace], [
     { file: "src/a.ts", ranges: [[10, 10]] },
   ]);
-  assert.equal(mutateArgument(ranges[workspace]), "src/a.ts:10-10");
+  assert.deepEqual(mutateRanges(ranges[workspace]), ["src/a.ts:10-10"]);
 });
 
 test("nearby edits coalesce into one range and distant ones stay separate", () => {
@@ -108,16 +112,21 @@ test("nearby edits coalesce into one range and distant ones stay separate", () =
   ]);
 });
 
-test("a file edited in more places than the range cap is mutated whole", () => {
+test("a file edited in many places stays a list of ranges, never the whole file", () => {
   const directory = repository({ [`${workspace}/src/a.ts`]: lines(200) });
   const edited = lines(200).split("\n");
   for (let index = 0; index < 200; index += 20) edited[index] = "const x = 2;";
   commit(directory, { [`${workspace}/src/a.ts`]: edited.join("\n") });
 
-  assert.equal(
-    mutateArgument(changedLineRanges("HEAD~1", directory)[workspace]),
-    "src/a.ts",
+  const ranges = mutateRanges(
+    changedLineRanges("HEAD~1", directory)[workspace],
   );
+
+  // Collapsing to `src/a.ts` would mutate the 190 lines this commit never
+  // wrote, and their pre-existing survivors would fail the pull request.
+  assert.equal(ranges.length, 10);
+  assert.ok(!ranges.includes("src/a.ts"));
+  assert.equal(ranges[0], "src/a.ts:1-1");
 });
 
 test("changes outside mutant sources select nothing", () => {
@@ -138,11 +147,8 @@ test("changes outside mutant sources select nothing", () => {
   });
 
   const ranges = changedLineRanges("HEAD~1", directory);
-  assert.equal(mutateArgument(ranges[workspace]), undefined);
-  assert.equal(
-    mutateArgument(ranges["packages/config-interpolation"]),
-    undefined,
-  );
+  assert.deepEqual(mutateRanges(ranges[workspace]), []);
+  assert.deepEqual(mutateRanges(ranges["packages/config-interpolation"]), []);
 });
 
 test("a deletion-only edit contributes no range", () => {
@@ -151,9 +157,9 @@ test("a deletion-only edit contributes no range", () => {
   edited.splice(9, 3);
   commit(directory, { [`${workspace}/src/a.ts`]: edited.join("\n") });
 
-  assert.equal(
-    mutateArgument(changedLineRanges("HEAD~1", directory)[workspace]),
-    undefined,
+  assert.deepEqual(
+    mutateRanges(changedLineRanges("HEAD~1", directory)[workspace]),
+    [],
   );
 });
 
@@ -161,9 +167,9 @@ test("a new source file is mutated over its whole body", () => {
   const directory = repository({ [`${workspace}/src/a.ts`]: lines(5) });
   commit(directory, { [`${workspace}/src/b.ts`]: lines(4) });
 
-  assert.equal(
-    mutateArgument(changedLineRanges("HEAD~1", directory)[workspace]),
-    "src/b.ts:1-4",
+  assert.deepEqual(
+    mutateRanges(changedLineRanges("HEAD~1", directory)[workspace]),
+    ["src/b.ts:1-4"],
   );
 });
 
@@ -177,19 +183,44 @@ test("the run goes through the workspace script that builds its dependencies", (
     }),
   );
 
-  const arguments_ = mutationArguments(workspace, "src/a.ts:1-2", directory);
+  const arguments_ = mutationArguments(workspace, directory);
 
   // Stryker's TypeScript checker type-checks the whole program, so skipping
   // the script's dependency build leaves it unable to resolve a workspace
   // import and it aborts during initialization.
-  assert.deepEqual(arguments_.slice(0, 4), [
+  assert.deepEqual(arguments_, [
     "run",
     "--filter",
     "@workspace/runtime-safety",
     "test:mutation",
+    "stryker.changed-lines.json",
   ]);
   // `pnpm --filter X script -- --flag` forwards the separator into the script,
   // and `stryker run -- --flag` exits non-zero.
   assert.ok(!arguments_.includes("--"));
-  assert.deepEqual(arguments_.slice(4, 6), ["--mutate", "src/a.ts:1-2"]);
+});
+
+test("the scope travels in a config file, so no argv element can reach E2BIG", () => {
+  const directory = repository({ [`${workspace}/src/a.ts`]: lines(5) });
+  const ranges = Array.from(
+    { length: 4000 },
+    (_, index) => `src/deeply/nested/module-${index}.ts:${index}-${index}`,
+  );
+
+  const file = writeScopeConfig(workspace, ranges, directory);
+  const written = JSON.parse(readFileSync(file, "utf8"));
+
+  // Linux caps a single argv element at 32 pages; this many ranges exceed it,
+  // and `spawnSync` would return status null before Stryker started.
+  assert.ok(ranges.join(",").length > 131072);
+  assert.deepEqual(written.mutate, ranges);
+  // The workspace's own settings survive, so the generated run differs from an
+  // ordinary one only in scope and reporters.
+  assert.equal(written.testRunner, "vitest");
+  assert.deepEqual(written.reporters, [
+    "clear-text",
+    "html",
+    "json",
+    "progress-append-only",
+  ]);
 });

@@ -32,7 +32,10 @@ things worse”_.
 Ask the tool the question directly, at line granularity.
 
 1. `git diff -U0 <base>` → hunk headers give the **changed line ranges** per file.
-2. Pass them to Stryker as **mutation ranges**: `--mutate 'src/a.ts:12-18,src/a.ts:40-44'`.
+2. Pass them to Stryker as **mutation ranges** — `src/a.ts:12-18`,
+   `src/a.ts:40-44` — through a generated configuration file rather than
+   `--mutate`, because Linux caps one `argv` element at 131 072 bytes and a
+   large refactor exceeds that.
 3. Stryker mutates only those ranges. `coverageAnalysis: "perTest"` — already
    configured, and the equivalent of Infection's per-line test mapping — runs
    only the tests covering each mutant.

@@ -15,18 +15,15 @@
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { mutationSourceFiles, mutationWorkspaces } from "./mutation-scope.mjs";
 import { mergeMutationReports } from "./mutation-sharding.mjs";
 
-/** Ranges closer than this merge, so a hunk-per-line diff stays one argument. */
+/** Ranges closer than this merge, since a mutant needs its neighbours anyway. */
 const coalesceGap = 3;
-
-/** A file with more ranges than this falls back to the whole file. */
-const maxRangesPerFile = 8;
 
 function git(arguments_, cwd) {
   return execFileSync("git", arguments_, {
@@ -101,16 +98,19 @@ export function changedLineRanges(base, root = process.cwd()) {
   return byWorkspace;
 }
 
-/** The `--mutate` argument value for one workspace, or undefined when inert. */
-export function mutateArgument(entries) {
-  const parts = [];
-  for (const { file, ranges } of entries) {
-    if (ranges.length === 0 || ranges.length > maxRangesPerFile)
-      parts.push(file);
-    else
-      for (const [start, end] of ranges) parts.push(`${file}:${start}-${end}`);
-  }
-  return parts.length === 0 ? undefined : parts.join(",");
+/**
+ * The mutation ranges for one workspace, empty when the diff is inert there.
+ *
+ * Every entry is a range. A file the diff touches in many places produces many
+ * of them rather than collapsing to the whole file: collapsing would mutate
+ * lines the pull request never wrote, and their pre-existing survivors are
+ * exactly the untouched-legacy-debt failure this gate exists to avoid.
+ */
+export function mutateRanges(entries) {
+  const ranges = [];
+  for (const { file, ranges: hunks } of entries)
+    for (const [start, end] of hunks) ranges.push(`${file}:${start}-${end}`);
+  return ranges;
 }
 
 /**
@@ -155,8 +155,45 @@ function option(arguments_, name, fallback) {
 /** The report every workspace's Stryker configuration writes. */
 const reportFile = "reports/mutation/mutation.json";
 
+/** Where the generated scope is written; gitignored, removed after the run. */
+const scopeConfigFile = "stryker.changed-lines.json";
+
 /**
- * The pnpm arguments that mutate `mutate` in `workspace`.
+ * The generated Stryker configuration carrying this run's scope.
+ *
+ * The scope travels in a file, not in `--mutate`: Linux caps one `argv`
+ * element at 32 pages — 131 072 bytes — so a refactor touching a few thousand
+ * places would fail to start `pnpm` with `E2BIG` before Stryker ran. A file
+ * has no such bound, and it keeps line-level scope instead of widening to
+ * whole files to stay short.
+ *
+ * It sits beside the workspace's own configuration so every relative path
+ * inside it — the Vitest config it names, the report locations — resolves
+ * exactly as it does for an ordinary run.
+ */
+export function writeScopeConfig(workspace, ranges, root = process.cwd()) {
+  const directory = path.join(root, workspace);
+  const base = JSON.parse(
+    readFileSync(path.join(directory, "stryker.config.json"), "utf8"),
+  );
+  const file = path.join(directory, scopeConfigFile);
+  writeFileSync(
+    file,
+    `${JSON.stringify(
+      {
+        ...base,
+        mutate: ranges,
+        reporters: ["clear-text", "html", "json", "progress-append-only"],
+      },
+      undefined,
+      2,
+    )}\n`,
+  );
+  return file;
+}
+
+/**
+ * The pnpm arguments that mutate `workspace` with the generated scope.
  *
  * Through the workspace's own `test:mutation`, not the Stryker CLI: each one
  * builds the workspace dependencies Stryker's TypeScript checker needs, and
@@ -164,20 +201,11 @@ const reportFile = "reports/mutation/mutation.json";
  * not `pnpm --filter … --`: the latter forwards the separator itself into the
  * script, and Stryker rejects a bare `--`.
  */
-export function mutationArguments(workspace, mutate, root = process.cwd()) {
+export function mutationArguments(workspace, root = process.cwd()) {
   const { name } = JSON.parse(
     readFileSync(path.join(root, workspace, "package.json"), "utf8"),
   );
-  return [
-    "run",
-    "--filter",
-    name,
-    "test:mutation",
-    "--mutate",
-    mutate,
-    "--reporters",
-    "clear-text,html,json,progress-append-only",
-  ];
+  return ["run", "--filter", name, "test:mutation", scopeConfigFile];
 }
 
 function main(arguments_) {
@@ -188,10 +216,10 @@ function main(arguments_) {
     console.log(
       JSON.stringify(
         Object.fromEntries(
-          mutationWorkspaces.map((workspace) => [
-            workspace,
-            mutateArgument(ranges[workspace]) ?? null,
-          ]),
+          mutationWorkspaces.map((workspace) => {
+            const selected = mutateRanges(ranges[workspace]);
+            return [workspace, selected.length === 0 ? null : selected];
+          }),
         ),
       ),
     );
@@ -203,18 +231,26 @@ function main(arguments_) {
       throw new Error(`Unknown mutation workspace: ${workspace}`);
     const base = option(arguments_, "--base");
     const threshold = Number(option(arguments_, "--threshold", "80"));
-    const mutate = mutateArgument(changedLineRanges(base)[workspace]);
-    if (!mutate) {
+    const ranges = mutateRanges(changedLineRanges(base)[workspace]);
+    if (ranges.length === 0) {
       console.log(`${workspace}: the diff changes no mutable line.`);
       return;
     }
-    console.log(`${workspace}: mutating ${mutate.split(",").length} ranges`);
-    const result = spawnSync("pnpm", mutationArguments(workspace, mutate), {
-      cwd: path.resolve("."),
-      stdio: "inherit",
-    });
-    if (result.status !== 0)
-      throw new Error(`${workspace}: Stryker exited with ${result.status}`);
+    console.log(`${workspace}: mutating ${ranges.length} ranges`);
+    // The path is known before the write, so a write that truncates and then
+    // fails still leaves nothing behind.
+    const config = path.resolve(workspace, scopeConfigFile);
+    try {
+      writeScopeConfig(workspace, ranges);
+      const result = spawnSync("pnpm", mutationArguments(workspace), {
+        cwd: path.resolve("."),
+        stdio: "inherit",
+      });
+      if (result.status !== 0)
+        throw new Error(`${workspace}: Stryker exited with ${result.status}`);
+    } finally {
+      rmSync(config, { force: true });
+    }
     gate(path.join(path.resolve(workspace), reportFile), threshold);
     return;
   }
