@@ -780,22 +780,23 @@ function assertSupportedTemplate(prompt: string, field: string): boolean {
  * Whether any path in the template is rooted at `skills`. Walks expressions
  * rather than node types, so it sees a reference in value, conditional,
  * iteration-subject, or parameter position alike.
+ *
+ * Runs after the template is validated, so each block carries exactly one
+ * parameter - its subject - and always a program: `{{#if x}}{{else}}y{{/if}}`
+ * gives the program an empty body rather than none. An inverse exists only
+ * when an `else` is written.
  */
 function referencesSkillsNamespace(
   body: ReadonlyArray<hbs.AST.Statement>,
 ): boolean {
   for (const node of body) {
     if (isMustacheStatement(node) && pathRootsAtSkills(node.path)) return true;
-    if (isBlockStatement(node)) {
-      const block = node;
-      if (
-        block.params.some(pathRootsAtSkills) ||
-        referencesSkillsNamespace(block.program?.body ?? []) ||
-        referencesSkillsNamespace(block.inverse?.body ?? [])
-      ) {
-        return true;
-      }
+    if (!isBlockStatement(node)) continue;
+    for (const subject of node.params) {
+      if (pathRootsAtSkills(subject)) return true;
     }
+    if (referencesSkillsNamespace(node.program.body)) return true;
+    if (referencesSkillsNamespace(node.inverse?.body ?? [])) return true;
   }
   return false;
 }

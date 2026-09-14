@@ -1084,6 +1084,30 @@ describe('bounded skill-catalog projection', () => {
     );
     expect(loader().resolve({ id: 'm' }).referencesSkills).toBe(true);
   });
+
+  it('sees a reference in every position the walk claims to cover', () => {
+    // A block with no skills reference anywhere: the walk must reach the end
+    // and answer false, not short-circuit on the block itself.
+    writeFileSync(defaultPromptPath, 'base{{#if model.id}}x{{/if}}');
+    expect(loader().resolve({ id: 'm' }).referencesSkills).toBe(false);
+
+    // A bare mustache, outside any block.
+    writeFileSync(defaultPromptPath, 'base{{skills.omitted}}');
+    expect(loader().resolve({ id: 'm' }).referencesSkills).toBe(true);
+
+    // As a block's subject: a validated block carries exactly one parameter,
+    // and it is not reached by walking the block's body.
+    writeFileSync(defaultPromptPath, 'base{{#each skills.entries}}x{{/each}}');
+    expect(loader().resolve({ id: 'm' }).referencesSkills).toBe(true);
+
+    // Reached only through the `else` branch, which a block carries only when
+    // an `else` is written.
+    writeFileSync(
+      defaultPromptPath,
+      'base{{#if model.id}}x{{else}}{{skills.omitted}}{{/if}}',
+    );
+    expect(loader().resolve({ id: 'm' }).referencesSkills).toBe(true);
+  });
 });
 
 describe('boot probes the skills gate independently', () => {
