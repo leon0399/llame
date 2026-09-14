@@ -77,3 +77,4 @@ assessment.
 27. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
 28. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
 29. [ELAI](./elai.md) — Archived architecture and measurement discipline
+30. [Loki Agent](./loki.md) — Rebranded Hermes fork; managed connector gateway degradation and retry contract
