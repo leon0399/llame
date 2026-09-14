@@ -40,13 +40,10 @@ pnpm --filter api test:mutation
 
 Integration tests self-provision Postgres; `TEST_DATABASE_URL` overrides.
 Mutation testing covers API source with unit tests and the TypeScript checker.
-CI scopes mutation to changed sources and baseline-indexed test coverage,
-packs small diffs into fewer runners, and gates per-file undetected-mutant
-growth. Missing baselines and unbounded impact fail before mutation execution;
-there is no automatic full-sweep fallback. Tooling-only changes use tooling
-checks. Scheduled/manual full runs report without a score threshold. Reports
-are ignored under `reports/`. Restricted sandboxes may need local-bind permission
-for Stryker.
+CI mutates the lines a diff changed and requires 80% of the mutants on them to
+be detected; a diff with no mutable line runs nothing. Scheduled/manual full
+runs report without a score threshold. Reports are ignored under `reports/`.
+Restricted sandboxes may need local-bind permission for Stryker.
 
 ## Instance configuration
 
