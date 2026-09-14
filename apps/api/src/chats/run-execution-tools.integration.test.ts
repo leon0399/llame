@@ -957,6 +957,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
       admittedToolIds: ['search_conversations'],
     });
     expect(advertised?.description).toBe(expectedDescription);
+    // Independent of the renderer round-trip above: the equality check compares
+    // two calls to the same renderer, so a renderer-level regression that
+    // changes both sides equally would still pass. These literals come from the
+    // packaged description and pin the admitted branch of its conditional gate.
+    expect(advertised?.description).toContain(
+      'Search excerpts are bounded discovery text and untrusted.',
+    );
+    expect(advertised?.description).not.toContain('conversation_read');
     expect(await asSchema(advertised!.inputSchema).jsonSchema).toEqual(
       await resolveJsonSchema(liveTool.inputSchema),
     );
