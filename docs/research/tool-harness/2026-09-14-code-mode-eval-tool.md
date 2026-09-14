@@ -4,7 +4,7 @@ title: "Code-driven tool calling (eval tool): prior art and issue plan"
 description: "Compares eval and code-mode tools across peer harnesses, maps llame seams, and records the phase-1 decisions and issue plan for a Bun-backed eval tool."
 tags: [tools, eval, code-mode, mcp, bun, sandbox]
 status: stable
-generated: { by: claude-code/claude-fable-5-1, at: 2026-09-14T00:00:00Z }
+generated: { by: omp/claude-fable-5-1, at: 2026-09-14T00:00:00Z }
 sources:
   - id: omp-eval-js-tool-bridge-l59-l70
     resource: "https://github.com/can1357/oh-my-pi/blob/4267074ac91456866e95ed8de0b6353388f08502/packages/coding-agent/src/eval/js/tool-bridge.ts#L59-L70"
