@@ -190,6 +190,24 @@ describe('bootWorkerHarness', () => {
     });
   });
 
+  it('lets an explicit permission group replace one tool without dropping the allow-all default', async () => {
+    const { configs } = installHarnessModule();
+
+    await bootWorkerHarness({
+      allowedTools: ['search_conversations', 'conversation_read'],
+      toolPermissions: { search_conversations: { reject: true } },
+    });
+
+    // The override decides its own tool; every other seeded and registered
+    // tool keeps the harness's permissive default, because a suite that
+    // supplies one group is exercising a permission decision for that tool,
+    // not opting out of execution for the rest.
+    expect(configs[0]?.tools.permissions).toMatchObject({
+      search_conversations: { reject: true },
+      conversation_read: { allow: true },
+    });
+  });
+
   it('uses LLAME_TEST_SCHEMA_PREFIX and leaves POSTGRES_URL alone when TEST_DATABASE_URL is absent', async () => {
     process.env.POSTGRES_URL = 'postgres://keep-me';
     process.env.LLAME_TEST_SCHEMA_PREFIX = 'shard_a';

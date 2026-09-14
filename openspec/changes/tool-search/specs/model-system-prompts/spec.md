@@ -65,6 +65,8 @@ The user message, semantic runtime reminder metadata, Run, and snapshot binding 
 
 The owner SHALL be able to retrieve an immutable context receipt for each new Run. The receipt SHALL contain the public model id, prompt source label, complete effective system prompt contents **including any rendered per-user context exactly as sent to the provider**, every bound tool id/description/input schema each marked as declared or discoverable, the `tool_search` declaration and the strategy label when one was bound, availability manifest version, content hash, availability hash, and snapshot timestamp. For observed v1 availability it SHALL also contain the safe eligible/unavailable entries and closed reason labels. For migrated v0 availability it SHALL instead contain only `state: "unobserved"` and SHALL NOT represent historical non-observation as an empty catalog. It MUST NOT contain the administrator's prompt-file path, MCP URL, configured header names or values, session id, raw remote error, server-only provider model id, provider credentials, executor implementation, or trusted authorization context. Non-owners SHALL receive a not-found response.
 
+Operator skill source/package/file paths intentionally published under `agent-skills` SHALL be permitted in the recorded model-visible skill contributions; this exception SHALL NOT expose prompt-file paths, Knowledge backing paths, credentials, or other private configuration.
+
 #### Scenario: Owner inspects a run carrying personalization
 
 - **WHEN** the chat owner opens the receipt for a run whose prompt rendered their personalization
@@ -108,3 +110,9 @@ The owner SHALL be able to retrieve an immutable context receipt for each new Ru
 - **WHEN** an authenticated user requests a run context receipt they do not own
 - **THEN** the API responds as though the receipt does not exist
 - **AND** no model, prompt, tool, availability, endpoint, or path metadata is disclosed
+
+#### Scenario: Skill activation does not mutate the enqueue receipt
+
+- **WHEN** a skill activation publishes its package directory and resolved file path after the Run is claimed
+- **THEN** the immutable enqueue receipt stays unchanged and the separate executed-context record contains the final activation text
+- **AND** the skill path exception does not expose Knowledge backing paths or private prompt configuration

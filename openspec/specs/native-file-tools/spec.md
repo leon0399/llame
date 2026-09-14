@@ -13,7 +13,8 @@ reads, and future source/type extensions behind one result shape.
 The native `read`, `edit`, and `write` tools SHALL accept absolute local paths
 and execute them with the trusted host process's OS authority in this alpha
 capability, and SHALL accept `kb://` locators under the Knowledge locator
-requirement. The scheme of the `path` argument SHALL select the authority; no
+requirement. `read` SHALL additionally accept read-only skill locators under
+the Skill locator requirement. The scheme of the `path` argument SHALL select the authority; no
 other argument or persisted declaration field SHALL. `edit` and `write` SHALL operate only on regular files. `read` SHALL
 operate on regular files and directories; every other entry kind SHALL fail. A
 `read` that misses a regular file SHALL offer bounded sibling-name
@@ -24,7 +25,9 @@ parent exactly as the read itself follows links. A
 trailing path separator SHALL be accepted on a directory path and SHALL fail as
 `not_found` on any other target. A model argument SHALL NOT select a different
 executor, owner, tenant, permission mode, or remote authority. The three tools SHALL be advertised when the process has accepted native
-host authority or has a configured Knowledge root; an absolute path on a
+host authority or has a configured Knowledge root. Configured skill sources
+SHALL additionally make only `read` eligible for advertisement, subject to
+`tools.allowed`, without admitting absolute-path host access; an absolute path on a
 process without accepted native authority SHALL fail closed with
 `executor_unavailable` rather than resolving through a hosted, Knowledge, or
 Sandbox path. A Run
@@ -81,6 +84,57 @@ there.
 - **WHEN** a later worker or host tries to continue a native Run with a different trusted executor identity
 - **THEN** the native tool returns an executor-unavailable error
 - **AND** it does not resolve the absolute path on the new host
+
+### Requirement: Skill locators provide live read-only package access
+
+`read` SHALL accept `skill://<name>[:selector]` for a package's `SKILL.md`, `skill://<name>/<path>[:selector]` for supporting files, `skill://<name>/` for its directory, and `skill://` for the current bounded catalog. The catalog form SHALL support pagination through native directory range selectors. Skill names SHALL follow the Agent Skills name grammar. Resource segments SHALL follow the Knowledge locator's once-only decoding, selector separation, size/depth, and traversal validation rules. Native directory/read/range/raw/truncation behavior SHALL apply except for the explicit catalog representation. `edit` and `write` SHALL reject skill locators as unsupported operations without effects.
+
+The resolver SHALL re-evaluate the current winning package on each call through the catalog port. It SHALL take the current turn's explicit selection set as a parameter: a manual-only package's body or resource read SHALL return a bounded structured refusal naming explicit selection unless that set contains the package, and the catalog listing SHALL omit manual-only packages not in that set. The Run supplies the set derived from its triggering user message to every skill read it performs, model-initiated reads included; a caller with no turn context supplies an empty set. An explicitly configured source symlink SHALL resolve to its real root. A package symlink SHALL resolve only within configured real roots, and a resource symlink SHALL resolve only within the selected real package. Missing/invalid packages, unsupported operations, and invalid resource paths SHALL return bounded structured errors. The resolver SHALL NOT follow escaping links or read special files.
+
+Results SHALL carry the logical locator, selected source, absolute `resolvedPath`, and absolute `skillDirectory`. These paths and an instruction to resolve package-relative references/script paths into absolute paths using `skillDirectory` SHALL be present in model-facing output as well as owner metadata. That instruction SHALL distinguish task-relative inputs and explicit `cwd` from package-relative paths; the tool SHALL NOT rewrite commands. The result bound SHALL reserve space for this envelope before truncating resource content; if the envelope cannot fit, the read SHALL fail with a bounded error. This publication exception SHALL apply only to operator skill paths, not Knowledge paths. Ordinary permission admission SHALL match a pure canonical projection of the submitted skill locator before any resource open: decode resource segments once, validate and re-encode through the shared locator grammar, and omit read selectors. It SHALL never substitute a physical path. Existing configured/default read rules SHALL apply to that projection, including credential-path rejects; no skill-specific permission bypass or duplicate deny list SHALL be introduced.
+
+#### Scenario: Skill resource exposes the execution base
+
+- **WHEN** the model reads `skill://pdf/scripts/extract.py`
+- **THEN** the result includes the current script content and model-visible real file/package paths
+- **AND** no script executes during the read
+
+#### Scenario: Skill root and directory differ
+
+- **WHEN** the model reads `skill://pdf` and then `skill://pdf/`
+- **THEN** the first reads `SKILL.md` and the second lists the package directory
+
+#### Scenario: Raw root read returns the instructions verbatim
+
+- **WHEN** the model reads `skill://pdf:raw`
+- **THEN** the result carries the current `SKILL.md` bytes without line-number prefixes
+- **AND** the skill result envelope with `skillDirectory` and `resolvedPath` is still present
+
+#### Scenario: Manual-only package is not selected this turn
+
+- **WHEN** a read targets `skill://review` and `review` is manual-only and absent from the turn's selection set
+- **THEN** the read returns a bounded refusal naming explicit selection without opening the file
+- **AND** `skill://` does not list `review`
+
+#### Scenario: Escaping link fails
+
+- **WHEN** a resource symlink resolves outside the selected real package
+- **THEN** the read fails without opening the outside file
+
+#### Scenario: Mutation is unsupported
+
+- **WHEN** an edit or write targets `skill://pdf/SKILL.md`
+- **THEN** it returns an unsupported-operation error without a mutation attempt or filesystem effect
+
+### Requirement: Skill permission matching uses canonical resource identity
+
+The same file permission rules SHALL inspect literal and encoded spellings of one skill resource as the same canonical locator before the resource is opened. Operator replacement policies SHALL retain their existing override semantics.
+
+#### Scenario: Default credential rejects cover skill resources
+
+- **WHEN** the built-in read policy is active and a call targets `skill://pdf/.env`, `skill://pdf/%2eenv:raw`, or `skill://pdf/.ssh/id_ed25519`
+- **THEN** permission admission denies the read before any resource open
+- **AND** an ordinary `skill://pdf/references/guide.md` is not rejected by those credential-path clauses
 
 ### Requirement: Read selectors and context are deterministic
 

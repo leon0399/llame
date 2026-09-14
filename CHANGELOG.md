@@ -59,6 +59,37 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   delta before any mutant ran, and only a trusted run writes the index a
   migration pull request would need.
 
+# 2026-09-13
+
+- Add operator-managed system skills (#770): an Agent Skills catalog discovered
+  from `skills.directories`, advertised to the model through a `skills` prompt
+  namespace, loadable at `skill://` locators by the native `read` tool, and
+  loadable ahead of the first model request by explicit `$skill` mentions.
+  Operators configure an ordered list of collection directories whose immediate
+  child directories are packages; later sources override earlier ones by name,
+  an invalid winner masks the same name from an earlier source rather than
+  substituting its body, and both the configured list and the container the
+  process runs in are the only inputs — no personal, workspace, or remote source
+  is discovered implicitly. Invocation controls resolve in
+  llame → `SKILL.md` frontmatter → OpenAI order, first present wins, so a
+  manual-only package is selectable explicitly and omitted from the advertised
+  set. Authenticated owners inspect the same catalog through `GET /api/v1/skills`
+  or run the bundled scripts and references directly, because a skill read
+  publishes the package's real absolute directory and the resolved file path.
+  `$skill` mentions load before the first model request through the same
+  permission admission a model-initiated read passes, bounded to eight
+  selections, 128 KiB of aggregate output, and 30 seconds of work, with the
+  unattempted remainder named in one notice. The advertised set is frozen per
+  compaction epoch on the chat row, and later turns announce added and removed
+  skills rather than re-rendering the prompt. The subagent-facing surface stays
+  read-only: skills cannot grant tools, expose credentials, or reach another
+  owner's Knowledge. See [docs/skills.md](docs/skills.md) and
+  [docs/native-files.md](docs/native-files.md).
+
+- **Breaking**: `skills.directories` entries are literal paths. `{env:...}` and
+  `{path:...}` interpolation is rejected at boot rather than resolved, because
+  these paths are intentionally published to every authenticated owner.
+
 # 2026-09-12
 
 - Pin the Pullfrog workflow's two action references to full commit SHAs,

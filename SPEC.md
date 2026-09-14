@@ -174,7 +174,39 @@ Knowledge-specific size ceiling, and their output shares the common result
 cap. See [native file behavior](openspec/specs/native-file-tools/spec.md)
 and [operator setup](docs/native-files.md).
 
-### 13.8 Managed bash contract
+### 13.8 System skill catalog
+
+Operators publish reusable Agent Skills packages by configuring
+`skills.directories`: ordered collection directories whose immediate child
+directories are packages. Later sources override earlier ones by name, an
+invalid winner masks that name rather than substituting an earlier body, and
+only the configured list is scanned — no personal, workspace, bundled, or
+remote source is discovered implicitly. Invocation controls resolve first-present
+in `agents/llame.yaml`, `SKILL.md` frontmatter, then `agents/openai.yaml` order,
+so a package is either proactively eligible or manual-only.
+
+The `read` tool accepts read-only `skill://` locators. A successful read
+publishes the package's real absolute directory and the resolved file path,
+because a skill's scripts and references are only usable once the model can turn
+them into absolute tool arguments. Those paths are deliberately published to
+authenticated owners; Knowledge backing paths and process credentials are not.
+
+The advertised set enters the prompt through the `skills` projection namespace
+and is frozen per compaction epoch on the chat row, so package edits and model
+switches never re-render a bound prompt. Later turns announce added and removed
+skills against the told state. Explicit `$skill` mentions in a user message load
+before the first model request through the same permission admission a
+model-initiated read passes, bounded by selection count, aggregate output, and
+aggregate work.
+
+Skills never widen authority: they cannot grant tools, expose server
+credentials, mutate through a `skill://` locator, or reach another owner's
+Knowledge. `tools.allowed` alone decides availability, and operator skill
+sources admit `read` without admitting absolute-path host authority. See
+[agent skills](openspec/specs/agent-skills/spec.md) and
+[operator setup](docs/skills.md).
+
+### 13.9 Managed bash contract
 
 `@workspace/bash-executor` runs the model-facing `bash` tool on the alpha host
 when `tools.nativeExecutorId` is configured and `bash` is allowlisted. The host

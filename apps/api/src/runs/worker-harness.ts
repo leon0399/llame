@@ -78,6 +78,14 @@ type HarnessOverrides = {
   heartbeatSeconds?: number;
   /** Explicit code-owned tool rules for snapshots seeded by this harness. */
   allowedTools?: ReadonlyArray<string>;
+  /**
+   * Extra permission groups merged OVER the permissive allow-all this harness
+   * grants every registered tool. Suites that must exercise a real permission
+   * decision (rather than execution or recovery) supply their own group here;
+   * the allow-all default stays, because a harness-oriented suite that forgot to
+   * would silently reject every call.
+   */
+  toolPermissions?: Record<string, PermissionGroup>;
 };
 
 /** Merges one boot's `bootWorkerHarness` overrides onto the built-in defaults. */
@@ -98,7 +106,7 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
       ...BUILT_IN_DEFAULTS.tools,
       allowed: [...(overrides?.allowedTools ?? [])],
       nativeExecutorId: overrides?.nativeExecutorId,
-      permissions,
+      permissions: { ...permissions, ...overrides?.toolPermissions },
     },
     knowledge: {
       ...BUILT_IN_DEFAULTS.knowledge,
