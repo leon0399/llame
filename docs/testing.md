@@ -81,12 +81,15 @@ report that level without a threshold failure.
 Each workspace's baseline is a merged index
 (`<workspace>/reports/mutation-baseline.json`): the API writes it from its shard
 reports, a package from its own single report. The index records the measured
-Git revision. Counts come from each file's latest measurement; coverage entries
-accumulate so a narrower run cannot erase previously observed reachability.
+Git revision. Scoped refreshes retain unmeasured files and accumulate coverage,
+so a narrower run cannot erase previously observed reachability. Full refreshes
+replace the index, removing deleted paths and their old mutant allowances.
 The plan restores the index under an environment fingerprint covering fixtures,
 excluded inputs and transitive runtime dependencies. Dependency test files are
 not fingerprint inputs. Each gate downloads the plan's immutable index artifact,
 so a concurrent master run cannot change its comparison baseline.
+An index must come from an ancestor of the checked-out revision; future or
+unrelated indexes take the full-run fallback instead of changing PR allowances.
 
 A trusted run folds its reports in once the gate it ran under passes. A complete
 run on master has no gate, so it refreshes the baseline as the trend's own

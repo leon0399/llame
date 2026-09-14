@@ -60,7 +60,12 @@ export function resolveCommit(ref, cwd) {
 }
 
 export function isAncestor(ancestor, descendant, root) {
-  return git(["merge-base", ancestor, descendant], root).trim() === ancestor;
+  try {
+    return git(["merge-base", ancestor, descendant], root).trim() === ancestor;
+  } catch (error) {
+    if (error.status === 1) return false;
+    throw error;
+  }
 }
 
 export function hasCommit(ref, root = process.cwd()) {
@@ -214,7 +219,13 @@ export function readMutationBaselineFile(file) {
 function readMutationBaseline(workspace, root = process.cwd()) {
   const file = path.join(root, workspace, mutationBaselineFile);
   if (!existsSync(file)) return undefined;
-  return readMutationBaselineFile(file);
+  const baseline = readMutationBaselineFile(file);
+  if (
+    !hasCommit(baseline.revision, root) ||
+    !isAncestor(baseline.revision, resolveCommit("HEAD", root), root)
+  )
+    return undefined;
+  return baseline;
 }
 
 export function readMutationBaselines(root = process.cwd()) {

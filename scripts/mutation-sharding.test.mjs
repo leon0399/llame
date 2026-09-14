@@ -506,13 +506,32 @@ test("baseline folds reports into the index and keeps unmeasured files", () => {
       },
     });
 
-    // Without a previous index the run simply replaces it.
+    // A complete measurement removes old paths, including their allowances.
     const fresh = path.join(directory, "fresh.json");
-    assert.equal(runTool("baseline", "--output", fresh, reports[1]).status, 0);
+    const rebuilt = runTool(
+      "baseline",
+      "--full",
+      "--previous",
+      previous,
+      "--output",
+      fresh,
+      reports[1],
+    );
+    assert.equal(rebuilt.status, 0, rebuilt.stderr);
     assert.deepEqual(
       Object.keys(JSON.parse(readFileSync(fresh, "utf8")).files),
       ["src/added.ts"],
     );
+    const recreated = runTool(
+      "aggregate",
+      "--baseline",
+      fresh,
+      reportFile(directory, "recreated.json", {
+        "src/refreshed.ts": { mutants: [{ id: "0", status: "Survived" }] },
+      }),
+    );
+    assert.equal(recreated.status, 1);
+    assert.match(recreated.stdout, /src\/refreshed\.ts: 0 -> 1/u);
 
     const invalid = runTool(
       "baseline",

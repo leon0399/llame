@@ -318,11 +318,14 @@ jobs:
       - name: Refresh the mutation baseline
         if: success() && needs.mutation-plan.outputs.api_count != '0' && github.event_name != 'pull_request'
         working-directory: apps/api
+        env:
+          MUTATION_MODE: ${{ needs.mutation-plan.outputs.api_mode }}
         run: |
-          node ../../scripts/mutation-sharding.mjs baseline \
-            --previous reports/mutation-baseline.json \
-            --output reports/mutation-baseline.json \
-            reports/mutation-shards/*/mutation.json
+          arguments=(--previous reports/mutation-baseline.json --output reports/mutation-baseline.json)
+          if [[ "$MUTATION_MODE" == full ]]; then
+            arguments+=(--full)
+          fi
+          node ../../scripts/mutation-sharding.mjs baseline "${arguments[@]}" reports/mutation-shards/*/mutation.json
 
       - name: Save refreshed mutation baseline
         if: success() && needs.mutation-plan.outputs.api_count != '0' && github.event_name != 'pull_request'
@@ -403,11 +406,15 @@ jobs:
       # own results would be measured against itself on its next push.
       - name: Refresh the mutation baseline
         if: success() && matrix.mode != 'skip' && github.event_name != 'pull_request'
+        env:
+          MUTATION_MODE: ${{ matrix.mode }}
+          MUTATION_PACKAGE: ${{ matrix.package }}
         run: |
-          node scripts/mutation-sharding.mjs baseline \
-            --previous "packages/${{ matrix.package }}/reports/mutation-baseline.json" \
-            --output "packages/${{ matrix.package }}/reports/mutation-baseline.json" \
-            "packages/${{ matrix.package }}/reports/mutation/mutation.json"
+          arguments=(--previous "packages/$MUTATION_PACKAGE/reports/mutation-baseline.json" --output "packages/$MUTATION_PACKAGE/reports/mutation-baseline.json")
+          if [[ "$MUTATION_MODE" == full ]]; then
+            arguments+=(--full)
+          fi
+          node scripts/mutation-sharding.mjs baseline "${arguments[@]}" "packages/$MUTATION_PACKAGE/reports/mutation/mutation.json"
 
       - name: Save refreshed mutation baseline
         if: success() && matrix.mode != 'skip' && github.event_name != 'pull_request'

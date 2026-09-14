@@ -308,7 +308,9 @@ function plan(arguments_) {
   const resolved =
     full === true || !hasCommit(base ?? "", root) ? undefined : base;
   if (resolved === undefined && base !== undefined && full !== true)
-    console.log(`${base}: unusable base ref; planning the complete workspace`);
+    console.error(
+      `${base}: unusable base ref; planning the complete workspace`,
+    );
   // A cancelled master run must not leave its files out of every later diff.
   // Each workspace resumes from the revision its own index actually measured.
   const bases =
@@ -325,7 +327,7 @@ function plan(arguments_) {
     if (scopes[workspace].mode !== "scoped" || baselines[workspace]) continue;
     // A scoped run without a baseline cannot measure a delta, and mutating a
     // subset of the corpus without one drops the gate instead of moving it.
-    console.log(
+    console.error(
       `${workspace}: no usable baseline; expanding to the complete workspace`,
     );
     scopes[workspace] = {
@@ -544,6 +546,8 @@ function buildBaseline(arguments_) {
   const inputs = arguments_.filter((argument) => argument !== "--");
   const previousPath = readOption(inputs, "--previous");
   const outputPath = readOption(inputs, "--output");
+  const full = inputs.includes("--full");
+  if (full) inputs.splice(inputs.indexOf("--full"), 1);
   if (outputPath === undefined) throw new Error("--output is required");
   if (inputs.length === 0) throw new Error("Pass at least one mutation report");
 
@@ -571,7 +575,10 @@ function buildBaseline(arguments_) {
     isAncestor(revision, previous.revision, root);
   const baseline = newer
     ? previous
-    : { ...mergeMutationBaseline(previous, reports), revision };
+    : {
+        ...mergeMutationBaseline(full ? undefined : previous, reports),
+        revision,
+      };
   mkdirSync(path.dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(baseline)}\n`);
   console.log(

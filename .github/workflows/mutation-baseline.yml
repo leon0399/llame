@@ -135,7 +135,7 @@ jobs:
         if: success()
         working-directory: apps/api
         run: |
-          node ../../scripts/mutation-sharding.mjs baseline \
+          node ../../scripts/mutation-sharding.mjs baseline --full \
             --previous reports/mutation-baseline.json \
             --output reports/mutation-baseline.json \
             reports/mutation-shards/*/mutation.json
@@ -193,7 +193,7 @@ jobs:
       - name: Refresh the mutation baseline
         if: success()
         run: |
-          node scripts/mutation-sharding.mjs baseline \
+          node scripts/mutation-sharding.mjs baseline --full \
             --previous "packages/${{ matrix.package }}/reports/mutation-baseline.json" \
             --output "packages/${{ matrix.package }}/reports/mutation-baseline.json" \
             "packages/${{ matrix.package }}/reports/mutation/mutation.json"

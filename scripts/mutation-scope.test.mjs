@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   renameSync,
@@ -587,6 +588,11 @@ test("trusted plans include changes from a cancelled predecessor run", () => {
     }
     run("baseline", "--output", latest, report);
     git("checkout", "--detach", before);
+    copyFileSync(
+      latest,
+      path.join(directory, "apps/api/reports/mutation-baseline.json"),
+    );
+    assert.equal(JSON.parse(run("plan", "--base", revision)).apiMode, "full");
     run("baseline", "--previous", latest, "--output", latest, oldReport);
     // An older completion must not reset the newer allowance to zero.
     assert.match(
@@ -613,6 +619,18 @@ test("trusted plans include changes from a cancelled predecessor run", () => {
       run("aggregate", "--baseline", latest, report),
       /No new undetected mutants/u,
     );
+
+    copyFileSync(
+      latest,
+      path.join(directory, "apps/api/reports/mutation-baseline.json"),
+    );
+    git("checkout", "--orphan", "unrelated");
+    git("commit", "--allow-empty", "-m", "Unrelated repository history");
+    writeFileSync(
+      path.join(directory, "apps/api/src/a.ts"),
+      "export const n = 4;\n",
+    );
+    assert.equal(JSON.parse(run("plan", "--base", "HEAD")).apiMode, "full");
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
