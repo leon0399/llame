@@ -58,6 +58,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   request that adds one: the plan failed with an unusable index and an unbounded
   delta before any mutant ran, and only a trusted run writes the index a
   migration pull request would need.
+
 # 2026-09-13
 
 - Add operator-managed system skills (#770): an Agent Skills catalog discovered
