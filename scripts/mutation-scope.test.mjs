@@ -141,7 +141,16 @@ test("baseline reading normalizes test ids, counts and undetected mutants", () =
   });
 
   const merged = mergeMutationBaseline(
-    { files: { "src/kept.ts": { mutants: 9, undetected: 9, coveredBy: [] } } },
+    {
+      files: {
+        "src/kept.ts": { mutants: 9, undetected: 9, coveredBy: [] },
+        "src/a.ts": {
+          mutants: 1,
+          undetected: 1,
+          coveredBy: ["src/other.test.ts"],
+        },
+      },
+    },
     [
       {
         files: {
@@ -156,10 +165,12 @@ test("baseline reading normalizes test ids, counts and undetected mutants", () =
     "src/a.ts",
     "src/kept.ts",
   ]);
+  // The later measurement replaces the counts, but not the coverage a narrower
+  // dry run could not have seen.
   assert.deepEqual(merged.files["src/a.ts"], {
     mutants: 1,
     undetected: 0,
-    coveredBy: ["src/a.test.ts"],
+    coveredBy: ["src/a.test.ts", "src/other.test.ts"],
   });
 });
 

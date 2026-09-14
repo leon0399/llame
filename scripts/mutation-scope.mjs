@@ -15,7 +15,7 @@ export const apiShardCount = 8;
 
 const undetectedStatuses = new Set(["Survived", "NoCoverage"]);
 
-export function testFile(file) {
+function testFile(file) {
   return /\.test\.[cm]?ts$/u.test(file);
 }
 
@@ -126,7 +126,7 @@ export function mutationSourceFiles(workspace) {
 // `coveredBy` holds test ids that only resolve against the `testFiles` of the
 // same report, so each report is mapped on its own. Ids that are already test
 // paths (an index read back in) pass through unchanged.
-export const mutationBaselineVersion = 1;
+const mutationBaselineVersion = 1;
 
 function mutationBaselineFiles(reports) {
   const files = {};
@@ -169,10 +169,20 @@ export function mutationBaseline(reports) {
 }
 
 export function mergeMutationBaseline(previous, reports) {
-  return {
-    baselineVersion: mutationBaselineVersion,
-    files: { ...(previous?.files ?? {}), ...mutationBaselineFiles(reports) },
-  };
+  const measured = mutationBaselineFiles(reports);
+  const files = { ...(previous?.files ?? {}) };
+  for (const [file, entry] of Object.entries(measured)) {
+    // A scoped dry run collects only the tests related to its own files, so its
+    // `coveredBy` is a lower bound: a test that reaches the file through a
+    // module the scope did not mutate is missing. Keeping earlier entries makes
+    // the union monotone, and an extra test file in it only widens the scope.
+    const coveredBy = new Set([
+      ...(files[file]?.coveredBy ?? []),
+      ...entry.coveredBy,
+    ]);
+    files[file] = { ...entry, coveredBy: [...coveredBy].sort() };
+  }
+  return { baselineVersion: mutationBaselineVersion, files };
 }
 
 // The sharded API baseline is the merged index this project writes; a package
@@ -202,7 +212,7 @@ export function readMutationBaselineFile(file) {
   return mutationBaseline([parsed]);
 }
 
-export function readMutationBaseline(workspace, root = process.cwd()) {
+function readMutationBaseline(workspace, root = process.cwd()) {
   const file = path.join(root, workspace, mutationBaselinePath(workspace));
   if (!existsSync(file)) return undefined;
   return readMutationBaselineFile(file);
@@ -355,7 +365,7 @@ export function repositoryRoot(cwd = process.cwd()) {
   return git(["rev-parse", "--show-toplevel"], cwd).trim();
 }
 
-export function fullMutationScope(root = process.cwd()) {
+function fullMutationScope(root = process.cwd()) {
   return Object.fromEntries(
     mutationWorkspaces.map((workspace) => [
       workspace,
