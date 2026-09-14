@@ -117,6 +117,7 @@ Each package remains runnable directly; reports live under ignored workspace
 `reports/` directories. Add `--dryRunOnly` to the changed command to exercise
 selection and initial tests. `--workspace packages/runtime-safety` narrows local
 execution explicitly. See the [measurements and alternatives](research/development-pipeline.md).
+Direct `test:mutation` runs report MSI without enforcing a score threshold.
 
 ## CI mapping
 

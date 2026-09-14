@@ -176,10 +176,8 @@ export function mergeMutationBaseline(previous, reports) {
   const measured = mutationBaselineFiles(reports);
   const files = { ...(previous?.files ?? {}) };
   for (const [file, entry] of Object.entries(measured)) {
-    // Counts come from this measurement; coverage entries accumulate, so a
-    // report measured over a narrower set cannot narrow what later runs treat
-    // as reachable. A stale entry only widens the scope, and an entry for a
-    // file the corpus no longer has is filtered against the current sources.
+    // Retain known coverage so a narrower measurement cannot narrow future
+    // scopes. Scope selection filters entries against the current sources.
     const coveredBy = new Set([
       ...(files[file]?.coveredBy ?? []),
       ...entry.coveredBy,
