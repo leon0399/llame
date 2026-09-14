@@ -63,11 +63,12 @@ A mutation scope is the changed mutant source files plus every mutant file
 covered by a changed test file, resolved from the baseline's per-test coverage.
 That union is the complete affected set: a test file can only flip mutants it
 covers, so weakening or deleting a test still pulls its files into scope.
-Tests, recognized fixtures/test doubles, deletions, excluded source and
-configuration expand the affected workspace. Shared dependencies expand API
-scope; unknown root inputs expand all mutation workspaces. Known unrelated
-documentation/frontend changes skip mutation. Local changed mode also includes
-tracked working-tree and untracked edits; a missing base ref fails.
+A test change with no baseline to resolve its coverage against, recognized
+fixtures/test doubles, deleted or excluded source, and configuration expand the
+affected workspace instead. Shared dependencies expand API scope; unknown root
+inputs expand all mutation workspaces. Known unrelated documentation/frontend
+changes skip mutation. Local changed mode also includes tracked working-tree and
+untracked edits; a missing base ref fails.
 
 The gate is a delta, not a level: a run fails when a source file it measured
 gains undetected mutants (survived or uncovered) against the baseline, so
@@ -78,22 +79,29 @@ subset cannot be measured against anything: a pull request is then gated at 80%
 MSI, while master and the weekly sweep report that level rather than failing a
 commit that has already landed.
 
-The API baseline is a merged index (`apps/api/reports/mutation-baseline.json`)
-that every passing run folds its own shard reports into: counts come from the
-latest measurement of a file, while coverage entries accumulate, because a
-scoped dry run collects only the tests related to its own files. A package
-baseline is its own incremental report. Both are cache-restored, and their key
-covers fixtures, excluded inputs and transitive workspace dependencies, so an
-environment change discards them: that is what makes a missing baseline mean
-"measure everything". A run folds its reports in only after the gate passes, so
-a regression never becomes the next run's allowance.
+Each workspace's baseline is a merged index
+(`<workspace>/reports/mutation-baseline.json`): the API writes it from its shard
+reports, a package from its own single report. Counts come from the latest
+measurement of a file, while coverage entries accumulate, so a later run over a
+narrower set cannot narrow what is treated as reachable. The index is
+cache-restored, keyed on the same fingerprint as Stryker's own reuse cache —
+fixtures, excluded inputs and transitive workspace dependencies — so an
+environment change discards it: that is what makes a missing baseline mean
+"measure everything", and the restore is what the plan reads to choose between a
+scoped run and the complete set.
 
-CI partitions the selected API files into shards balanced on the measured mutant
-count of each file, not on file names. Pull requests gate their own diff, master
-pushes gate the merge that landed, and the weekly sweep retests every mutant
-(`--force`) and reports the global MSI as a trend instead of a gate. Failed
-selected shards and missing reports, malformed reports or unfinished mutant
-statuses fail the aggregate.
+A trusted run folds its reports in once the gate it ran under passes; a complete
+run on master has no gate, but it is that sweep's own measurement. A pull request
+folds nothing, so it is always measured against master rather than against its
+own earlier pushes.
+
+CI splits the selected API files into shards heaviest-first by measured mutant
+count when the baseline supplies counts, and by file count when it does not; the
+weekly sweep is the run that always has them. Pull requests gate their own diff,
+master pushes gate the merge that landed, and the weekly sweep retests every
+mutant (`--force`) and reports the global MSI as a trend instead of a gate.
+Failed selected shards and missing reports, malformed reports or unfinished
+mutant statuses fail the aggregate.
 
 Each package remains runnable directly; reports live under ignored workspace
 `reports/` directories. Add `--dryRunOnly` to the changed command to exercise
