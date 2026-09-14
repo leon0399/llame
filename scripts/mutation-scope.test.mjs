@@ -98,12 +98,27 @@ test("a baseline narrows test edits to the mutant files those tests cover", () =
     { mode: "skip", files: [] },
   );
   // Absent evidence is not absent coverage: an index that measured no mutants
-  // bounds nothing, so the same edit stays unavailable.
+  // bounds nothing, and the plan names that failure differently from a missing
+  // index so an operator can tell the two apart.
+  const noMutants = selectMutationScope(
+    ["apps/api/src/unrelated.test.ts"],
+    sources,
+    { "apps/api": { files: {} } },
+  )["apps/api"];
+  assert.equal(noMutants.mode, "unavailable");
+  assert.match(noMutants.reason, /measured no mutants/u);
+  // An index that measured mutants yet credits no test — every mutant
+  // uncovered — still bounds this change, so the same edit is skipped rather
+  // than failing the plan.
   assert.equal(
     selectMutationScope(["apps/api/src/unrelated.test.ts"], sources, {
-      "apps/api": { files: {} },
+      "apps/api": {
+        files: {
+          "src/a.ts": { mutants: 3, undetected: 3, coveredBy: [] },
+        },
+      },
     })["apps/api"].mode,
-    "unavailable",
+    "skip",
   );
   assert.equal(
     selectMutationScope(["apps/api/src/a.test.ts"], sources, {
