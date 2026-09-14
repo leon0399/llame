@@ -302,6 +302,19 @@ export function selectMutationScope(changes, sources, baselines = {}) {
       baselines[workspace] ? sourcesByTest(baselines[workspace]) : undefined,
     ]),
   );
+  // Whether the index bounds anything is a question about measured mutants, not
+  // about credited tests: an index whose every mutant is uncovered credits no
+  // test at all, and a narrower fold retains prior `coveredBy` entries that the
+  // latest measurement did not reproduce.
+  const measured = Object.fromEntries(
+    mutationWorkspaces.map((workspace) => [
+      workspace,
+      baselines[workspace] !== undefined &&
+        Object.values(baselines[workspace].files).some(
+          (entry) => entry.mutants > 0,
+        ),
+    ]),
+  );
 
   for (const file of changes) {
     if (documentation(file) || mutationTooling(file)) continue;
@@ -312,10 +325,27 @@ export function selectMutationScope(changes, sources, baselines = {}) {
       const relative = file.slice(workspace.length + 1);
       const byTest = covered[workspace];
       if (testFile(relative)) {
-        if (!byTest?.has(relative))
+        // The baseline attributes no coverage to this test, so editing it
+        // cannot change the status of any mutant the baseline measured: the
+        // gate is a delta on GAINED undetected mutants, and a test the index
+        // does not credit can only add kills. That covers a test the pull
+        // request adds, and a test the mutation run never executes — an
+        // integration test excluded by the runner's own config — which can
+        // never be indexed at any revision.
+        //
+        // Absent evidence is different from absent coverage. Neither an absent
+        // index nor one that measured nothing can bound this change, and each
+        // names its own failure so an operator can tell a stale index from one
+        // that measured nothing.
+        if (byTest === undefined)
           unavailable(
             workspace,
-            `Changed test coverage is not indexed: ${relative}`,
+            `No compatible ancestor mutation baseline: ${relative}`,
+          );
+        else if (!measured[workspace])
+          unavailable(
+            workspace,
+            `Mutation baseline measured no mutants: ${relative}`,
           );
         else
           for (const source of byTest.get(relative) ?? [])
