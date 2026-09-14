@@ -312,10 +312,21 @@ export function selectMutationScope(changes, sources, baselines = {}) {
       const relative = file.slice(workspace.length + 1);
       const byTest = covered[workspace];
       if (testFile(relative)) {
-        if (!byTest?.has(relative))
+        // The baseline attributes no coverage to this test, so editing it
+        // cannot change the status of any mutant the baseline measured: the
+        // gate is a delta on GAINED undetected mutants, and a test the index
+        // does not credit can only add kills. That covers a test the pull
+        // request adds, and a test the mutation run never executes — an
+        // integration test excluded by the runner's own config — which can
+        // never be indexed at any revision.
+        //
+        // Absent evidence is different from absent coverage. With no
+        // compatible index, or one that measured no mutants, nothing bounds
+        // this change and it stays unavailable.
+        if (byTest === undefined || byTest.size === 0)
           unavailable(
             workspace,
-            `Changed test coverage is not indexed: ${relative}`,
+            `No compatible ancestor mutation baseline: ${relative}`,
           );
         else
           for (const source of byTest.get(relative) ?? [])

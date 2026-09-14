@@ -85,11 +85,24 @@ test("a baseline narrows test edits to the mutant files those tests cover", () =
     })["apps/api"],
     { mode: "scoped", files: ["src/b.ts"] },
   );
-  // An unindexed test is unbounded; a removed source cannot be selected.
-  assert.equal(
+  // A test the baseline credits with no coverage can flip no mutant it
+  // measured, so editing it cannot GAIN an undetected mutant and it
+  // contributes nothing instead of making the scope unbounded. Both real
+  // populations land here: a test the pull request adds, and a test the
+  // mutation run never executes (an integration test the runner excludes),
+  // which can never be indexed at any revision.
+  assert.deepEqual(
     selectMutationScope(["apps/api/src/unrelated.test.ts"], sources, baseline)[
       "apps/api"
-    ].mode,
+    ],
+    { mode: "skip", files: [] },
+  );
+  // Absent evidence is not absent coverage: an index that measured no mutants
+  // bounds nothing, so the same edit stays unavailable.
+  assert.equal(
+    selectMutationScope(["apps/api/src/unrelated.test.ts"], sources, {
+      "apps/api": { files: {} },
+    })["apps/api"].mode,
     "unavailable",
   );
   assert.equal(

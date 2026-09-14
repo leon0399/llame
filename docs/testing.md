@@ -62,7 +62,11 @@ pnpm test:mutation:changed --base origin/master
 A mutation scope is the changed mutant source files plus every mutant file
 covered by a changed test file, resolved from the baseline's per-test coverage.
 Weakening or deleting an indexed test still selects the sources it covered.
-An unindexed test, missing baseline, recognized fixture/test double, deleted or
+A changed test the baseline does not credit — a test the pull request adds, or
+one the mutation run never executes, such as an integration test the runner
+excludes — contributes nothing and is skipped: it flips no mutant the baseline
+measured, so it cannot gain an undetected mutant. A missing baseline, an index
+that measured no mutants, a recognized fixture/test double, deleted or
 excluded source, or runtime configuration change makes the delta unavailable.
 Shared runtime dependencies have unbounded API impact; their test files do not,
 because package builds exclude tests. Unknown root inputs make every workspace

@@ -15,6 +15,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Weekly full sweeps report global MSI without enforcing a threshold.
   Rename `pnpm test:mutation:check` to `pnpm test:mutation:report`.
 
+- Stop treating a changed test the mutation index does not credit as unbounded
+  impact. Such a test can flip no mutant the baseline measured, so it cannot
+  gain an undetected mutant and its edits are skipped rather than failing the
+  plan before execution. That covers a test a pull request adds and a test the
+  mutation run never executes — an integration test the runner excludes, which
+  can never be indexed at any revision. A missing index, or one that measured
+  no mutants, remains a failed evidence check instead of a free pass.
+
 # 2026-09-12
 
 - Pin the Pullfrog workflow's two action references to full commit SHAs,
