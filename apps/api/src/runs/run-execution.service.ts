@@ -569,7 +569,7 @@ export class RunExecutionService {
     }
     const { effort, attemptId } = claim;
     if (input.abortSignal?.aborted) {
-      await this.settleAbortedRun(input);
+      await this.settleAbortedRun(input, attemptId);
     }
 
     // Explicit `$skill` activation runs BEFORE context assembly, because the
@@ -661,14 +661,19 @@ export class RunExecutionService {
       }
     } catch (error) {
       if (input.abortSignal?.aborted) {
-        await this.settleAbortedRun(input);
+        await this.settleAbortedRun(input, attemptId);
       }
       if (error instanceof ModelContextExecutionError) {
         const message = error.message;
+        // Fenced by the claim: the failure that ends preparation may BE the
+        // reclaim (`persistAttemptPromptReceipt` refuses a stale attempt), and
+        // an unfenced write here would let that stale attempt mark a run
+        // another attempt is actively executing as failed.
         await this.finishRun({
           userId: input.userId,
           runId: input.runId,
           status: 'failed',
+          attemptId,
           runPayload: { status: 'failed', message, code: error.code },
           error: { message, code: error.code },
         });
@@ -678,7 +683,7 @@ export class RunExecutionService {
     const { system, messages, untitled, tools: executableTools } = prepared;
 
     if (input.abortSignal?.aborted) {
-      await this.settleAbortedRun(input);
+      await this.settleAbortedRun(input, attemptId);
     }
 
     const streamStartedAt = Date.now();
@@ -1034,6 +1039,7 @@ export class RunExecutionService {
           await this.failRunProgressPersistence({
             userId: input.userId,
             runId: input.runId,
+            attemptId,
           });
           return;
         }
@@ -1042,6 +1048,7 @@ export class RunExecutionService {
             userId: input.userId,
             runId: input.runId,
             status,
+            attemptId,
             runPayload: { status, message },
             error: { message },
           });
@@ -1049,6 +1056,7 @@ export class RunExecutionService {
           await this.failRunProgressPersistence({
             userId: input.userId,
             runId: input.runId,
+            attemptId,
           });
         }
       })();
@@ -1172,6 +1180,7 @@ export class RunExecutionService {
             await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
+              attemptId,
               telemetry: assistantTelemetry,
             });
             return;
@@ -1195,6 +1204,7 @@ export class RunExecutionService {
             await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
+              attemptId,
               telemetry: assistantTelemetry,
             });
             return;
@@ -1274,6 +1284,7 @@ export class RunExecutionService {
             await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
+              attemptId,
               telemetry: assistantTelemetry,
             });
             return;
@@ -1303,6 +1314,7 @@ export class RunExecutionService {
               await this.settleProgressWriteFailure({
                 userId: input.userId,
                 runId: input.runId,
+                attemptId,
                 telemetry: assistantTelemetry,
               });
               return;
@@ -1410,13 +1422,16 @@ export class RunExecutionService {
       // any callback can fire) would otherwise strand the claimed run at
       // 'running_model' until the deadman sweep expires it — fail it now.
       if (input.abortSignal?.aborted) {
-        await this.settleAbortedRun(input);
+        await this.settleAbortedRun(input, attemptId);
       }
       const message = error instanceof Error ? error.message : String(error);
+      // This attempt holds the claim; a reclaim during the synchronous throw
+      // must reject this write rather than let the superseded attempt publish.
       await this.finishRun({
         userId: input.userId,
         runId: input.runId,
         status: 'failed',
+        attemptId,
         runPayload: { status: 'failed', message },
         error: { message },
       });
@@ -1711,18 +1726,24 @@ export class RunExecutionService {
   }
 
   /** Settle an observed abort before streaming and suppress queue retries only
-   * after the terminal state + matching event are durably visible. */
-  private async settleAbortedRun(input: {
-    userId: string;
-    runId: string;
-    abortSignal?: AbortSignal;
-  }): Promise<never> {
+   * after the terminal state + matching event are durably visible. Fenced by
+   * `attemptId`: only the attempt that observed the abort may settle it, so a
+   * reclaimed attempt's late abort cannot cancel the live attempt's run. */
+  private async settleAbortedRun(
+    input: {
+      userId: string;
+      runId: string;
+      abortSignal?: AbortSignal;
+    },
+    attemptId: string,
+  ): Promise<never> {
     const status = classifyAbortedRun(input.abortSignal);
     const message = this.abortedRunMessage(status);
     const finish = await this.finishRun({
       userId: input.userId,
       runId: input.runId,
       status,
+      attemptId,
       runPayload: { status, message },
       error: { message },
     });
@@ -1746,6 +1767,7 @@ export class RunExecutionService {
   private async settleProgressWriteFailure(input: {
     userId: string;
     runId: string;
+    attemptId: string;
     telemetry: AssistantTurnTelemetry;
   }): Promise<void> {
     const message = 'Run progress could not be persisted.';
@@ -1753,6 +1775,7 @@ export class RunExecutionService {
       userId: input.userId,
       runId: input.runId,
       status: 'failed',
+      attemptId: input.attemptId,
       telemetry: input.telemetry,
       runPayload: { status: 'failed', message },
       error: { message },
@@ -1762,6 +1785,7 @@ export class RunExecutionService {
   private async failRunProgressPersistence(input: {
     userId: string;
     runId: string;
+    attemptId: string;
   }): Promise<void> {
     const message = 'Run progress could not be persisted.';
     try {
@@ -1769,6 +1793,7 @@ export class RunExecutionService {
         userId: input.userId,
         runId: input.runId,
         status: 'failed',
+        attemptId: input.attemptId,
         runPayload: { status: 'failed', message },
         error: { message },
       });
@@ -2505,17 +2530,43 @@ export class RunExecutionService {
       },
     );
 
-    const compactionSincePrevious =
-      input.prompt.compaction !== undefined &&
-      previousRun !== undefined &&
-      input.prompt.compaction.createdAt > previousRun.createdAt;
-    const startsEpoch = previousRun === undefined || compactionSincePrevious;
+    // The baseline is the most recent *successful* turn, not merely the most
+    // recent one: a failed run publishes no context and never establishes an
+    // epoch baseline, so a failed run between two successful turns must not
+    // discard the availability state those turns established — nor may it
+    // mask a compaction that landed after the last successful turn. No prior
+    // run at all implies no completed predecessor, so the second lookup is
+    // skipped rather than issued for an answer it cannot have.
+    const previousCompletedRun =
+      previousRun === undefined
+        ? undefined
+        : await new RunsRepository(
+            input.tx,
+          ).findMostRecentCompletedByChatMessageSequence(
+            input.input.chatId,
+            input.input.userId,
+            { beforeSeq: input.input.userMessage.seq },
+          );
+
+    // Every newly active compaction checkpoint starts a new disclosure epoch;
+    // the newly active boundary is judged against that same successful-turn
+    // baseline, so a failed attempt after the checkpoint cannot silently keep
+    // the run inside the pre-compaction epoch.
+    const startsEpoch =
+      previousCompletedRun === undefined ||
+      (input.prompt.compaction !== undefined &&
+        input.prompt.compaction.createdAt > previousCompletedRun.createdAt);
+    // The marker reports the re-bake to the first attempt that can publish
+    // after it — the new epoch's first turn — so it rides the same boundary.
     const digestRebaked =
-      compactionSincePrevious &&
+      startsEpoch &&
       input.prompt.chat.recencyDigestRebakedFrom ===
         input.prompt.compaction?.id;
 
     const stagedParts: Array<MessagePart> = [];
+    // Model selection is established by any run (failed runs included), so the
+    // switch item keeps reading the immediately preceding run, not the
+    // successful baseline the availability/epoch comparison uses.
     if (previousRun && previousRun.modelId !== input.input.client.model) {
       stagedParts.push(
         createModelChangeItem({
@@ -2525,20 +2576,9 @@ export class RunExecutionService {
         }),
       );
     }
-    // The baseline is the most recent *successful* turn, not merely the most
-    // recent one: a failed run between two successful turns must not discard
-    // the availability state those turns established.
-    const previousCompletedRun = startsEpoch
+    const previousSuccessfulAvailability = startsEpoch
       ? undefined
-      : await new RunsRepository(
-          input.tx,
-        ).findMostRecentCompletedByChatMessageSequence(
-          input.input.chatId,
-          input.input.userId,
-          { beforeSeq: input.input.userMessage.seq },
-        );
-    const previousSuccessfulAvailability =
-      previousCompletedRun?.turnToolAvailability ?? undefined;
+      : (previousCompletedRun?.turnToolAvailability ?? undefined);
     const availabilityPayload =
       previousSuccessfulAvailability === undefined
         ? deriveToolAvailabilityPayload({
