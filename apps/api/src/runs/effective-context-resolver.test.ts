@@ -7,6 +7,8 @@ import { type Tool } from '../tools/types';
 import { isRecord } from '@workspace/runtime-safety';
 import {
   canonicalJson,
+  composeAttemptToolCatalog,
+  finalizeEffectiveContext,
   resolveEffectiveContext,
 } from './effective-context-resolver';
 
@@ -43,9 +45,7 @@ afterEach(() => {
 
 describe('effective context resolver', () => {
   it('admits and canonicalizes the allowlisted read-only catalog in memory', async () => {
-    const context = await resolveEffectiveContext({
-      model: model(),
-      systemPrompt: model().systemPromptTemplate,
+    const catalog = await composeAttemptToolCatalog({
       callTimeoutSeconds: 15,
       allowedToolRules: ['z_tool', 'a_tool', 'write_tool'],
       candidates: [
@@ -64,35 +64,27 @@ describe('effective context resolver', () => {
       ],
     });
 
-    expect(context.toolDeclarations.map(({ id }) => id)).toEqual([
+    expect(catalog.declarations.map(({ id }) => id)).toEqual([
       'a_tool',
       'z_tool',
     ]);
-    expect(Object.keys(context.toolDeclarations[0].inputSchema)).toEqual(
-      Object.keys(context.toolDeclarations[0].inputSchema).sort(),
+    expect(Object.keys(catalog.declarations[0].inputSchema)).toEqual(
+      Object.keys(catalog.declarations[0].inputSchema).sort(),
     );
-    const inputSchemaProperties =
-      context.toolDeclarations[0].inputSchema.properties;
-    if (
-      !isRecord(inputSchemaProperties) ||
-      !isRecord(inputSchemaProperties.nested)
-    ) {
+    const properties = catalog.declarations[0].inputSchema.properties;
+    if (!isRecord(properties) || !isRecord(properties.nested)) {
       throw new Error('Expected nested JSON Schema properties');
     }
-    const nestedProperties = inputSchemaProperties.nested.properties;
+    const nestedProperties = properties.nested.properties;
     if (!isRecord(nestedProperties)) {
       throw new Error('Expected nested JSON Schema properties object');
     }
     expect(Object.keys(nestedProperties)).toEqual(['a', 'z']);
-    expect(
-      context.toolAvailabilityManifest.entries.map(({ id }) => id),
-    ).toEqual(['a_tool', 'z_tool']);
+    expect(catalog.admittedIds).toEqual(['a_tool', 'z_tool']);
   });
 
   it('records observed availability for admitted declarations without persistence fields', async () => {
-    const context = await resolveEffectiveContext({
-      model: model(),
-      systemPrompt: model().systemPromptTemplate,
+    const catalog = await composeAttemptToolCatalog({
       callTimeoutSeconds: 15,
       allowedToolRules: ['z_tool', 'a_tool'],
       candidates: [
@@ -101,39 +93,24 @@ describe('effective context resolver', () => {
       ],
     });
 
-    expect(context.toolAvailabilityManifest).toMatchObject({
+    expect(catalog.availabilityManifest).toMatchObject({
       version: 1,
       entries: [
         { id: 'a_tool', state: 'available' },
         { id: 'z_tool', state: 'available' },
       ],
     });
-    expect(context.toolAvailabilityManifest.entries).toHaveLength(2);
-    expect(context.toolAvailabilityManifest.entries).toEqual(
+    expect(catalog.availabilityManifest.entries).toHaveLength(2);
+    expect(catalog.availabilityManifest.entries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'a_tool', state: 'available' }),
         expect.objectContaining({ id: 'z_tool', state: 'available' }),
       ]),
     );
-    for (const entry of context.toolAvailabilityManifest.entries) {
-      if (entry.state !== 'available') {
-        throw new Error('Expected an available entry');
-      }
-      // The observation carries the declaration hash — never the declaration
-      // body it stands for.
-      expect(Object.keys(entry).sort()).toEqual([
-        'declarationHash',
-        'id',
-        'state',
-      ]);
-      expect(entry.declarationHash).toMatch(/^[0-9a-f]{64}$/);
-    }
   });
 
-  it('keeps unavailable owner-bound candidates in the resolved context', async () => {
-    const context = await resolveEffectiveContext({
-      model: model(),
-      systemPrompt: model().systemPromptTemplate,
+  it('keeps unavailable owner-bound candidates in the attempt catalog', async () => {
+    const catalog = await composeAttemptToolCatalog({
       callTimeoutSeconds: 15,
       allowedToolRules: ['knowledge_search'],
       codeOwnedCandidates: [
@@ -147,8 +124,8 @@ describe('effective context resolver', () => {
       ],
     });
 
-    expect(context.toolDeclarations).toEqual([]);
-    expect(context.toolAvailabilityManifest).toEqual({
+    expect(catalog.declarations).toEqual([]);
+    expect(catalog.availabilityManifest).toEqual({
       version: 1,
       entries: [
         {
@@ -161,9 +138,7 @@ describe('effective context resolver', () => {
   });
 
   it('composes dynamic MCP candidates and applies namespace wildcards to exact ids', async () => {
-    const context = await resolveEffectiveContext({
-      model: model(),
-      systemPrompt: model().systemPromptTemplate,
+    const catalog = await composeAttemptToolCatalog({
       callTimeoutSeconds: 15,
       allowedToolRules: ['mcp__web__*'],
       candidates: [],
@@ -181,42 +156,33 @@ describe('effective context resolver', () => {
       ],
     });
 
-    expect(context.toolDeclarations.map(({ id }) => id)).toEqual([
+    expect(catalog.declarations.map(({ id }) => id)).toEqual([
       'mcp__web__search',
     ]);
-    expect(
-      context.toolAvailabilityManifest.entries.map(({ id }) => id),
-    ).toEqual(['mcp__web__search']);
-    expect(context.toolDeclarations.map(({ id }) => id)).not.toContain(
-      'mcp__web__*',
-    );
+    expect(catalog.availabilityManifest.entries.map(({ id }) => id)).toEqual([
+      'mcp__web__search',
+    ]);
+    expect(catalog.admittedIds).not.toContain('mcp__web__*');
   });
 
   it('returns a system-only receipt input and a domain-separated prompt hash', async () => {
     const prompt = model().systemPromptTemplate;
-    const context = await resolveEffectiveContext({
-      model: model(),
+    const receipt = await resolveEffectiveContext({
       systemPrompt: prompt,
+      model: model(),
       callTimeoutSeconds: 15,
       allowedToolRules: ['tool'],
       candidates: [tool('tool', z.object({ value: z.string() }))],
     });
-    const { toolAvailabilityManifest, toolDeclarations, ...receipt } = context;
 
-    // Only the system prompt half is receipt input; the admitted tool contract
-    // stays in memory beside it.
     expect(Object.keys(receipt).sort()).toEqual([
       'promptHash',
       'source',
       'systemPrompt',
     ]);
-    expect(toolDeclarations.map(({ id }) => id)).toEqual(['tool']);
-    expect(toolAvailabilityManifest.entries.map(({ id }) => id)).toEqual([
-      'tool',
-    ]);
+    expect(receipt.promptHash).toMatch(/^[0-9a-f]{64}$/);
     expect(receipt.source).toBe('model_override');
     expect(receipt.systemPrompt).toBe(prompt);
-    expect(receipt.promptHash).toMatch(/^[0-9a-f]{64}$/);
 
     // The domain tag and digest are persisted contract: pin the literal so a
     // change to the separator, encoding, or digest fails here instead of
@@ -233,6 +199,32 @@ describe('effective context resolver', () => {
     });
     expect(repeated.promptHash).toBe(receipt.promptHash);
     expect(repeated.systemPrompt).toBe(receipt.systemPrompt);
+  });
+
+  it('finalizes the receipt from an already-admitted catalog without copying it', async () => {
+    const catalog = await composeAttemptToolCatalog({
+      callTimeoutSeconds: 15,
+      allowedToolRules: ['tool'],
+      candidates: [tool('tool', z.object({ value: z.string() }))],
+    });
+    const receipt = finalizeEffectiveContext({
+      model: model(),
+      systemPrompt: 'A later prompt.\n',
+      catalog,
+    });
+
+    expect(receipt).toMatchObject({
+      source: 'model_override',
+      systemPrompt: 'A later prompt.\n',
+    });
+    expect(receipt.promptHash).toMatch(/^[0-9a-f]{64}$/);
+    // The admitted catalog stays in attempt memory: the persisted receipt is
+    // the prompt and its provenance, never a copy of the declarations.
+    expect(Object.keys(receipt).sort()).toEqual([
+      'promptHash',
+      'source',
+      'systemPrompt',
+    ]);
   });
 
   it('sorts object keys recursively while preserving array order', () => {
@@ -262,9 +254,7 @@ describe('effective context resolver', () => {
       type: 'object',
       properties: { value: { type: 'string' } },
     };
-    const context = await resolveEffectiveContext({
-      model: model(),
-      systemPrompt: model().systemPromptTemplate,
+    const catalog = await composeAttemptToolCatalog({
       callTimeoutSeconds: 15,
       allowedToolRules: ['valid_json', 'valid_zod', 'malformed', 'unsupported'],
       candidates: [
@@ -281,23 +271,9 @@ describe('effective context resolver', () => {
       ],
     });
 
-    expect(context.toolDeclarations.map(({ id }) => id)).toEqual([
+    expect(catalog.declarations.map(({ id }) => id)).toEqual([
       'valid_json',
       'valid_zod',
-    ]);
-    expect(context.toolAvailabilityManifest.entries).toMatchObject([
-      {
-        id: 'malformed',
-        state: 'unavailable',
-        reason: 'declaration_refused',
-      },
-      {
-        id: 'unsupported',
-        state: 'unavailable',
-        reason: 'declaration_refused',
-      },
-      { id: 'valid_json', state: 'available' },
-      { id: 'valid_zod', state: 'available' },
     ]);
     expect(warnings).toHaveLength(2);
     expect(warnings.join('\n')).toContain('malformed');
