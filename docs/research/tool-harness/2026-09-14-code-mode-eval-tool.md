@@ -61,10 +61,10 @@ sources:
     resource: "https://github.com/openclaw/openclaw/blob/e3db9654277ba8ac19a6cd6bccbda57d13931924/src/agents/code-mode-execution.ts#L598-L604"
     title: "resume session ownership check"
   - id: codex-code-mode-rs
-    resource: "https://github.com/openai/codex/blob/main/codex-rs/tools/src/code_mode.rs"
-    title: "augment_tool_spec_for_code_mode"
+    resource: "https://github.com/openai/codex/blob/94697375cb9d2aa8ae74d61957c6b396819bec94/codex-rs/tools/src/code_mode.rs#L8-L99"
+    title: "augment_tool_spec_for_code_mode and collect_code_mode_tool_definitions"
   - id: codex-execute-handler-rs
-    resource: "https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/code_mode/execute_handler.rs"
+    resource: "https://github.com/openai/codex/blob/94697375cb9d2aa8ae74d61957c6b396819bec94/codex-rs/core/src/tools/code_mode/execute_handler.rs#L48-L78"
     title: "code-mode execute handler"
   - id: cloudflare-code-mode
     resource: "https://blog.cloudflare.com/code-mode/"
@@ -99,14 +99,29 @@ sources:
   - id: llame-tool-search-design
     resource: "../../../openspec/changes/tool-search/design.md"
     title: "tool-search design D1"
+  - id: harness-oh-my-pi
+    resource: "../harnesses/oh-my-pi.md"
+    title: "oh-my-pi reference entry"
+  - id: harness-openclaw
+    resource: "../harnesses/openclaw.md"
+    title: "OpenClaw reference entry"
+  - id: harness-codex-cli
+    resource: "../harnesses/codex-cli.md"
+    title: "Codex CLI reference entry"
 ---
 
 # Code-driven tool calling (`eval` tool): prior art and issue plan
 
 Noncanonical research. Date: 2026-09-14. Inspected revisions: oh-my-pi
 `4267074ac91456866e95ed8de0b6353388f08502`, OpenClaw
-`e3db9654277ba8ac19a6cd6bccbda57d13931924`. Path citations below refer to those
+`e3db9654277ba8ac19a6cd6bccbda57d13931924`, Codex CLI
+`94697375cb9d2aa8ae74d61957c6b396819bec94`. Path citations below refer to those
 checkouts; llame citations refer to `master` at the time of writing.
+
+Reference entries in the harness bundle carry the mechanism-level findings:
+[oh-my-pi](../harnesses/oh-my-pi.md) F22, [OpenClaw](../harnesses/openclaw.md)
+F31, and [Codex CLI](../harnesses/codex-cli.md) item 3. This document retains
+the comparison, llame fit, and decisions.
 
 ## Premise check
 
@@ -376,9 +391,9 @@ a partition.
 
 [^openclaw-code-mode-execution-l598-l604]: [resume session ownership check](https://github.com/openclaw/openclaw/blob/e3db9654277ba8ac19a6cd6bccbda57d13931924/src/agents/code-mode-execution.ts#L598-L604)
 
-[^codex-code-mode-rs]: [`augment_tool_spec_for_code_mode`](https://github.com/openai/codex/blob/main/codex-rs/tools/src/code_mode.rs)
+[^codex-code-mode-rs]: [`augment_tool_spec_for_code_mode` and `collect_code_mode_tool_definitions`](https://github.com/openai/codex/blob/94697375cb9d2aa8ae74d61957c6b396819bec94/codex-rs/tools/src/code_mode.rs#L8-L99)
 
-[^codex-execute-handler-rs]: [code-mode execute handler](https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/code_mode/execute_handler.rs)
+[^codex-execute-handler-rs]: [code-mode execute handler](https://github.com/openai/codex/blob/94697375cb9d2aa8ae74d61957c6b396819bec94/codex-rs/core/src/tools/code_mode/execute_handler.rs#L48-L78)
 
 [^cloudflare-code-mode]: [Cloudflare Code Mode](https://blog.cloudflare.com/code-mode/)
 
