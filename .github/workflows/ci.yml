@@ -41,7 +41,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      api_mode: ${{ steps.scope.outputs.api_mode }}
       api_count: ${{ steps.scope.outputs.api_count }}
       api_matrix: ${{ steps.scope.outputs.api_matrix }}
       packages: ${{ steps.scope.outputs.packages }}

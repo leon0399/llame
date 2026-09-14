@@ -346,7 +346,6 @@ function plan(arguments_) {
     appendFileSync(
       process.env.GITHUB_OUTPUT,
       [
-        `api_mode=${result.apiMode}`,
         `api_count=${result.apiShards.length}`,
         `api_matrix=${JSON.stringify(result.apiShards)}`,
         `packages=${JSON.stringify(result.packages)}`,
