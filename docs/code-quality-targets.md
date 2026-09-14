@@ -13,7 +13,8 @@ map a function unambiguously; ten API functions currently report that visible
 | Lines per file             |                      `<800` | Oxlint uses stricter 500        |
 | Line coverage              |                     `>=85%` | Vitest V8 thresholds            |
 | CRAP                       | goal `<=25`; ceiling `<=42` | `@barney-media/crap-typescript` |
-| Mutation score (MSI)       |                     `>=80%` | Stryker, pull-request fallback  |
+| Undetected mutant growth   |     `<=0` per measured file | Mutation delta gate             |
+| Mutation score (MSI)       |                  trend only | Stryker scheduled/manual runs   |
 | Dead code                  |                         `0` | Knip                            |
 | Duplication                |                    `<0.25%` | jscpd                           |
 | `any` / unparsed `unknown` |                         `0` | Oxlint and anti-slop            |
@@ -35,10 +36,10 @@ Coverage commands regenerate Istanbul data and run function-level CRAP over the
 same paths. API currently peaks at CRAP 42 with seven functions above 25. Web
 and config interpolation are below 25; the coverage scripts enforce 42 until the
 shared ceiling can move down. Stryker covers API, config interpolation and runtime safety
-through package-owned tasks: pull requests are gated on the undetected-mutant
-delta of their own diff, and 80% MSI applies to full-run fallbacks for unbounded
-scope or missing baselines. The weekly sweep reports the global score as a trend
-instead of failing on it; see [testing.md](testing.md).
+through package-owned tasks. PR and master checks gate the undetected-mutant
+delta of the affected scope. Missing baselines and unbounded impact fail before
+mutation execution; they never trigger an automatic full sweep. Scheduled/manual
+full runs report global MSI without a level gate; see [testing.md](testing.md).
 
 ```bash
 pnpm lint

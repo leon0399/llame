@@ -7,7 +7,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Dependency-package test edits no longer trigger a full API sweep or invalidate
   its baseline. Small diffs share runners sized by measured mutant work; full
   runs retain eight weighted shards. Missing baselines, unindexed tests and
-  other unbounded inputs use a full-run fallback, gated at 80% MSI on PRs only.
+  other unbounded inputs fail before mutation execution; PR/master CI never
+  substitutes a full sweep. Tooling-only changes use tooling checks instead.
   Master resumes from each workspace's last measured revision, so cancelled
   runs cannot leave permanent gaps. Gates use the plan's frozen index; trusted
   refreshes serialize and reject older measurements replacing newer ones.

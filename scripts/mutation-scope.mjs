@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, globSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 export const mutationWorkspaces = [
   "apps/api",
@@ -34,6 +35,17 @@ function documentation(file) {
 function unrelated(file) {
   return /^(apps\/(web|storybook)|packages\/(ui|oxlint-plugin-anti-slop)|e2e)\//u.test(
     file,
+  );
+}
+
+function mutationTooling(file) {
+  return (
+    file.startsWith(".github/") ||
+    /(^|\/)\.gitignore$/u.test(file) ||
+    /^scripts\/mutation-(scope|sharding)(\.test)?\.mjs$/u.test(file) ||
+    mutationWorkspaces.some(
+      (workspace) => file === `${workspace}/stryker.config.json`,
+    )
   );
 }
 
@@ -92,6 +104,27 @@ export function changedFiles(base, cwd = process.cwd()) {
         .filter(Boolean),
     ),
   ].sort();
+}
+
+function mutationCommandsOnly(file, base, root) {
+  if (!/(^|\/)package\.json$/u.test(file)) return false;
+  let manifests;
+  try {
+    const ancestor = git(["merge-base", "HEAD", base], root).trim();
+    manifests = [
+      JSON.parse(git(["show", `${ancestor}:${file}`], root)),
+      JSON.parse(readFileSync(path.join(root, file), "utf8")),
+    ];
+  } catch {
+    return false;
+  }
+  for (const manifest of manifests)
+    manifest.scripts = Object.fromEntries(
+      Object.entries(manifest.scripts ?? {}).filter(
+        ([name]) => !/^test:mutation($|:)/u.test(name),
+      ),
+    );
+  return isDeepStrictEqual(...manifests);
 }
 
 export function mutationSourceFiles(workspace) {
@@ -253,17 +286,16 @@ export function selectMutationScope(changes, sources, baselines = {}) {
       { mode: "skip", files: [] },
     ]),
   );
-  const full = (workspace) => {
-    scopes[workspace] = { mode: "full", files: sources[workspace] };
+  const unavailable = (workspace, reason) => {
+    scopes[workspace] = { mode: "unavailable", files: [], reason };
   };
   const scoped = (workspace, file) => {
-    if (scopes[workspace].mode === "full") return;
+    if (scopes[workspace].mode === "unavailable") return;
     scopes[workspace].mode = "scoped";
     scopes[workspace].files.push(file);
   };
-  // A test file can only flip mutants in the mutant files it covers. That
-  // mapping needs a baseline; without one a changed test file still expands to
-  // the complete workspace, because its effect cannot be bounded.
+  // Unknown reachability cannot produce a sound delta. Report it without
+  // scheduling an implicit full-corpus mutation run.
   const covered = Object.fromEntries(
     mutationWorkspaces.map((workspace) => [
       workspace,
@@ -272,7 +304,7 @@ export function selectMutationScope(changes, sources, baselines = {}) {
   );
 
   for (const file of changes) {
-    if (documentation(file)) continue;
+    if (documentation(file) || mutationTooling(file)) continue;
     const workspace = mutationWorkspaces.find((directory) =>
       file.startsWith(`${directory}/`),
     );
@@ -280,7 +312,11 @@ export function selectMutationScope(changes, sources, baselines = {}) {
       const relative = file.slice(workspace.length + 1);
       const byTest = covered[workspace];
       if (testFile(relative)) {
-        if (!byTest?.has(relative)) full(workspace);
+        if (!byTest?.has(relative))
+          unavailable(
+            workspace,
+            `Changed test coverage is not indexed: ${relative}`,
+          );
         else
           for (const source of byTest.get(relative) ?? [])
             if (sources[workspace].includes(source)) scoped(workspace, source);
@@ -288,16 +324,18 @@ export function selectMutationScope(changes, sources, baselines = {}) {
         testSupport(relative) ||
         !sources[workspace].includes(relative)
       )
-        full(workspace);
+        unavailable(workspace, `Impact cannot be bounded: ${relative}`);
       else scoped(workspace, relative);
       // API consumes built packages, which exclude their test files. Runtime
-      // dependency changes still require the complete API corpus.
+      // dependency changes have unbounded API impact.
       if (workspace.startsWith("packages/") && !testFile(relative))
-        full("apps/api");
+        unavailable("apps/api", `Runtime dependency changed: ${file}`);
     } else if (/^packages\/(native-file-tools|bash-executor)\//u.test(file)) {
-      if (!testFile(file)) full("apps/api");
+      if (!testFile(file))
+        unavailable("apps/api", `Runtime dependency changed: ${file}`);
     } else if (!unrelated(file)) {
-      for (const directory of mutationWorkspaces) full(directory);
+      for (const directory of mutationWorkspaces)
+        unavailable(directory, `Impact cannot be bounded: ${file}`);
     }
   }
   for (const scope of Object.values(scopes)) {
@@ -337,7 +375,12 @@ export function mutationFingerprint(workspace, root = process.cwd()) {
     .split("\0")
     .filter(Boolean)
     .filter((file) => {
-      if (documentation(file)) return false;
+      if (
+        documentation(file) ||
+        file.startsWith(".github/") ||
+        /(^|\/)\.gitignore$/u.test(file)
+      )
+        return false;
       if (file.startsWith(`${workspace}/`)) {
         const relative = file.slice(workspace.length + 1);
         return (
@@ -390,11 +433,24 @@ export function readMutationScope(base, baselines, root = process.cwd()) {
         revision === undefined ||
         (typeof base !== "string" && !hasCommit(revision, root))
       )
-        return [workspace, { mode: "full", files: sources[workspace] }];
+        return [
+          workspace,
+          {
+            mode: "unavailable",
+            files: [],
+            reason: "No usable comparison revision",
+          },
+        ];
       if (!scopesByRevision.has(revision))
         scopesByRevision.set(
           revision,
-          selectMutationScope(changedFiles(revision, root), sources, baselines),
+          selectMutationScope(
+            changedFiles(revision, root).filter(
+              (file) => !mutationCommandsOnly(file, revision, root),
+            ),
+            sources,
+            baselines,
+          ),
         );
       return [workspace, scopesByRevision.get(revision)[workspace]];
     }),

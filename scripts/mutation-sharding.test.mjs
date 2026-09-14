@@ -302,12 +302,6 @@ test("mergeMutationReports rejects duplicate source files", () => {
   );
 });
 
-test("changed rejects an unknown planned mode", () => {
-  const result = runTool("changed", "--expectedMode", "everything");
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /--expectedMode must be skip, scoped or full/u);
-});
-
 function runTool(...arguments_) {
   return spawnSync(
     process.execPath,

@@ -288,10 +288,23 @@ function scopeArguments(arguments_) {
     throw new Error("Unknown mutation workspace");
   if (
     values.expectedMode !== undefined &&
-    !["skip", "scoped", "full"].includes(values.expectedMode)
+    !["skip", "scoped"].includes(values.expectedMode)
   )
-    throw new Error("--expectedMode must be skip, scoped or full");
+    throw new Error("--expectedMode must be skip or scoped");
   return values;
+}
+
+function requireMutationDelta(workspace, scope, baseline) {
+  const reason =
+    scope.mode === "unavailable"
+      ? scope.reason
+      : scope.mode === "scoped" && !baseline
+        ? "No compatible ancestor mutation baseline"
+        : undefined;
+  if (reason)
+    throw new Error(
+      `${workspace}: mutation delta unavailable: ${reason}. No mutation execution was scheduled.`,
+    );
 }
 
 function plan(arguments_) {
@@ -302,15 +315,7 @@ function plan(arguments_) {
   } = scopeArguments(arguments_);
   const root = repositoryRoot();
   const baselines = readMutationBaselines(root);
-  // A base that does not resolve — a force push, a branch-creation push, a
-  // shallow clone — cannot bound the change, so measure the whole workspace
-  // rather than guess at a diff.
-  const resolved =
-    full === true || !hasCommit(base ?? "", root) ? undefined : base;
-  if (resolved === undefined && base !== undefined && full !== true)
-    console.error(
-      `${base}: unusable base ref; planning the complete workspace`,
-    );
+  const resolved = hasCommit(base ?? "", root) ? base : undefined;
   // A cancelled master run must not leave its files out of every later diff.
   // Each workspace resumes from the revision its own index actually measured.
   const bases =
@@ -318,23 +323,23 @@ function plan(arguments_) {
       ? Object.fromEntries(
           mutationWorkspaces.map((workspace) => [
             workspace,
-            baselines[workspace]?.revision,
+            baselines[workspace]?.revision ?? resolved,
           ]),
         )
       : resolved;
-  const scopes = readMutationScope(bases, baselines, root);
-  for (const workspace of mutationWorkspaces) {
-    if (scopes[workspace].mode !== "scoped" || baselines[workspace]) continue;
-    // A scoped run without a baseline cannot measure a delta, and mutating a
-    // subset of the corpus without one drops the gate instead of moving it.
-    console.error(
-      `${workspace}: no usable baseline; expanding to the complete workspace`,
-    );
-    scopes[workspace] = {
-      mode: "full",
-      files: mutationSourceFiles(path.join(root, workspace)),
-    };
-  }
+  const scopes = full
+    ? Object.fromEntries(
+        mutationWorkspaces.map((workspace) => [
+          workspace,
+          {
+            mode: "full",
+            files: mutationSourceFiles(path.join(root, workspace)),
+          },
+        ]),
+      )
+    : readMutationScope(bases, baselines, root);
+  for (const workspace of mutationWorkspaces)
+    requireMutationDelta(workspace, scopes[workspace], baselines[workspace]);
   const result = mutationPlan(scopes, baselines);
   console.log(JSON.stringify(result));
   if (process.env.GITHUB_OUTPUT) {
@@ -369,30 +374,32 @@ async function changed(arguments_) {
       ? Object.fromEntries(
           mutationWorkspaces.map((workspace) => [
             workspace,
-            baselines[workspace]?.revision,
+            baselines[workspace]?.revision ?? options.base ?? "origin/master",
           ]),
         )
       : (options.base ?? "origin/master"),
     baselines,
     root,
   );
-  for (const workspace of mutationWorkspaces) {
-    if (options.workspace && options.workspace !== workspace) continue;
+  const workspaces = mutationWorkspaces.filter(
+    (workspace) => !options.workspace || options.workspace === workspace,
+  );
+  // Validate every selected workspace before starting any dependency build or
+  // mutation process. Unknown impact never expands into a full local/CI run.
+  for (const workspace of workspaces) {
     const scope = scopes[workspace];
-    // The plan is the single decider. Re-deriving here is what keeps local runs
-    // usable, but a job that resolves a mode the plan did not choose — or finds
-    // no baseline where the plan needed one — must fail instead of quietly
-    // running less or gating nothing.
-    if (options.expectedMode !== undefined) {
-      if (scope.mode !== options.expectedMode)
-        throw new Error(
-          `${workspace}: planned ${options.expectedMode} but this run resolved ${scope.mode}`,
-        );
-      if (scope.mode === "scoped" && !baselines[workspace])
-        throw new Error(
-          `${workspace}: planned a scoped run but no baseline was restored`,
-        );
-    }
+    if (!options.dryRunOnly || scope.mode === "unavailable")
+      requireMutationDelta(workspace, scope, baselines[workspace]);
+    if (
+      options.expectedMode !== undefined &&
+      scope.mode !== options.expectedMode
+    )
+      throw new Error(
+        `${workspace}: planned ${options.expectedMode} but this run resolved ${scope.mode}`,
+      );
+  }
+  for (const workspace of workspaces) {
+    const scope = scopes[workspace];
     console.log(
       `${workspace}: ${scope.mode} mutation scope (${scope.files.length} files)`,
     );
@@ -414,17 +421,11 @@ async function changed(arguments_) {
     await execute(process.execPath, args, directory);
     if (options.dryRunOnly) continue;
     const report = path.join(directory, "reports/mutation/mutation.json");
-    if (scope.mode === "full") aggregate(["--threshold", "80", report]);
-    else if (baselines[workspace])
-      aggregate([
-        "--baseline",
-        path.join(directory, mutationBaselineFile),
-        report,
-      ]);
-    else
-      console.log(
-        `${workspace}: no baseline available; reporting the scoped score without a gate`,
-      );
+    aggregate([
+      "--baseline",
+      path.join(directory, mutationBaselineFile),
+      report,
+    ]);
   }
 }
 

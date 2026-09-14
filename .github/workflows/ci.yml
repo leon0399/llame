@@ -204,31 +204,13 @@ jobs:
 
       - uses: ./.github/actions/setup
 
-      - uses: ./.github/actions/stryker-baseline
-        id: baseline
-        if: needs.mutation-plan.outputs.api_mode == 'full'
-        with:
-          workspace: apps/api
-          cache-file: reports/stryker-incremental-*.json
-          cache-suffix: api-shard-${{ matrix.index }}
-
       - env:
           MUTATION_SHARD: ${{ matrix.shard }}
           MUTATION_FILES: ${{ join(matrix.files, ',') }}
-          MUTATION_MODE: ${{ needs.mutation-plan.outputs.api_mode }}
         run: |
-          arguments=(--shard "$MUTATION_SHARD" --mutate "$MUTATION_FILES" --reporters "clear-text,html,json,progress-append-only")
-          if [[ "$MUTATION_MODE" == full ]]; then
-            arguments+=(--incremental)
-          fi
-          pnpm --filter api test:mutation:shard -- "${arguments[@]}"
-
-      - name: Save refreshed mutation baseline
-        if: success() && needs.mutation-plan.outputs.api_mode == 'full'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: apps/api/reports/stryker-incremental-*.json
-          key: ${{ steps.baseline.outputs.prefix }}${{ steps.baseline.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          pnpm --filter api test:mutation:shard -- \
+            --shard "$MUTATION_SHARD" --mutate "$MUTATION_FILES" \
+            --reporters "clear-text,html,json,progress-append-only"
 
       - name: Upload mutation report
         if: always()
@@ -287,21 +269,11 @@ jobs:
         if: needs.mutation-plan.outputs.api_count != '0'
         env:
           EXPECTED_SHARDS: ${{ needs.mutation-plan.outputs.api_count }}
-          MUTATION_MODE: ${{ needs.mutation-plan.outputs.api_mode }}
-          # Without a baseline there is no delta, so a complete run falls back
-          # to the corpus level — on a pull request only. On master that level
-          # would red-line a commit nobody can fix before it lands; erosion on
-          # master is the weekly sweep's trend to surface instead.
-          MUTATION_THRESHOLD: ${{ github.event_name == 'pull_request' && needs.mutation-plan.outputs.api_mode == 'full' && '80' || '' }}
         working-directory: apps/api
         run: |
-          arguments=(--expected-shards "$EXPECTED_SHARDS" reports/mutation-shards/*/mutation.json)
-          if [[ "$MUTATION_MODE" != full ]]; then
-            arguments=(--baseline reports/mutation-baseline.json "${arguments[@]}")
-          elif [[ -n "$MUTATION_THRESHOLD" ]]; then
-            arguments=(--threshold "$MUTATION_THRESHOLD" "${arguments[@]}")
-          fi
-          pnpm test:mutation:aggregate -- "${arguments[@]}"
+          pnpm test:mutation:aggregate -- \
+            --baseline reports/mutation-baseline.json \
+            --expected-shards "$EXPECTED_SHARDS" reports/mutation-shards/*/mutation.json
 
       # Serialize the latest trusted restore/fold/save. The delta above uses
       # the plan's snapshot; the fold preserves other completed measurements.
@@ -318,14 +290,11 @@ jobs:
       - name: Refresh the mutation baseline
         if: success() && needs.mutation-plan.outputs.api_count != '0' && github.event_name != 'pull_request'
         working-directory: apps/api
-        env:
-          MUTATION_MODE: ${{ needs.mutation-plan.outputs.api_mode }}
         run: |
-          arguments=(--previous reports/mutation-baseline.json --output reports/mutation-baseline.json)
-          if [[ "$MUTATION_MODE" == full ]]; then
-            arguments+=(--full)
-          fi
-          node ../../scripts/mutation-sharding.mjs baseline "${arguments[@]}" reports/mutation-shards/*/mutation.json
+          node ../../scripts/mutation-sharding.mjs baseline \
+            --previous reports/mutation-baseline.json \
+            --output reports/mutation-baseline.json \
+            reports/mutation-shards/*/mutation.json
 
       - name: Save refreshed mutation baseline
         if: success() && needs.mutation-plan.outputs.api_count != '0' && github.event_name != 'pull_request'
@@ -362,37 +331,16 @@ jobs:
           name: mutation-baseline-input
           path: .
 
-      # Stryker's own reuse cache, only meaningful for a complete run.
-      - uses: ./.github/actions/stryker-baseline
-        id: incremental
-        if: matrix.mode == 'full'
-        with:
-          workspace: packages/${{ matrix.package }}
-          cache-suffix: ${{ matrix.package }}
-
       - if: matrix.mode != 'skip'
         env:
           MUTATION_PACKAGE: ${{ matrix.package }}
           MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-          MUTATION_MODE: ${{ matrix.mode }}
         run: |
-          if [[ "$MUTATION_MODE" == scoped ]]; then
-            arguments=(--workspace "packages/$MUTATION_PACKAGE" --base "$MUTATION_BASE" --expectedMode scoped)
-            if [[ "$GITHUB_EVENT_NAME" == push ]]; then
-              arguments+=(--from-baseline)
-            fi
-            node scripts/mutation-sharding.mjs changed "${arguments[@]}"
-          else
-            pnpm --filter "@workspace/$MUTATION_PACKAGE" test:mutation --incremental --reporters clear-text,html,json,progress-append-only
-            # The package's own thresholds.break is null, so a complete run is
-            # measured here: gated at 80 on a pull request, reported on master
-            # like the API's complete run.
-            arguments=("packages/$MUTATION_PACKAGE/reports/mutation/mutation.json")
-            if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-              arguments=(--threshold 80 "${arguments[@]}")
-            fi
-            node scripts/mutation-sharding.mjs aggregate "${arguments[@]}"
+          arguments=(--workspace "packages/$MUTATION_PACKAGE" --base "$MUTATION_BASE" --expectedMode scoped)
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            arguments+=(--from-baseline)
           fi
+          node scripts/mutation-sharding.mjs changed "${arguments[@]}"
 
       - uses: ./.github/actions/stryker-baseline
         id: baseline
@@ -407,14 +355,12 @@ jobs:
       - name: Refresh the mutation baseline
         if: success() && matrix.mode != 'skip' && github.event_name != 'pull_request'
         env:
-          MUTATION_MODE: ${{ matrix.mode }}
           MUTATION_PACKAGE: ${{ matrix.package }}
         run: |
-          arguments=(--previous "packages/$MUTATION_PACKAGE/reports/mutation-baseline.json" --output "packages/$MUTATION_PACKAGE/reports/mutation-baseline.json")
-          if [[ "$MUTATION_MODE" == full ]]; then
-            arguments+=(--full)
-          fi
-          node scripts/mutation-sharding.mjs baseline "${arguments[@]}" "packages/$MUTATION_PACKAGE/reports/mutation/mutation.json"
+          node scripts/mutation-sharding.mjs baseline \
+            --previous "packages/$MUTATION_PACKAGE/reports/mutation-baseline.json" \
+            --output "packages/$MUTATION_PACKAGE/reports/mutation-baseline.json" \
+            "packages/$MUTATION_PACKAGE/reports/mutation/mutation.json"
 
       - name: Save refreshed mutation baseline
         if: success() && matrix.mode != 'skip' && github.event_name != 'pull_request'
@@ -422,13 +368,6 @@ jobs:
         with:
           path: packages/${{ matrix.package }}/reports/mutation-baseline.json
           key: ${{ steps.baseline.outputs.prefix }}${{ steps.baseline.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-
-      - name: Save the Stryker reuse cache
-        if: success() && matrix.mode == 'full'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: packages/${{ matrix.package }}/reports/stryker-incremental.json
-          key: ${{ steps.incremental.outputs.prefix }}${{ steps.incremental.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload mutation report
         if: always() && matrix.mode != 'skip'
