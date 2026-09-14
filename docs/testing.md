@@ -95,15 +95,28 @@ mutation result. Restore or generate a compatible trusted baseline, or update
 the PR to a revision it covers.
 
 Unbounded-impact changes need an explicitly approved bypass; CI does not waive
-the requirement automatically. The bypass is the `mutation-bypass` label on the
-pull request. Applying a label needs write access, so only an operator can
-grant it, and a push event carries no labels, so master still fails on missing
-evidence. `mutation-plan` passes `--bypass` to the plan, which resolves each
-unbounded workspace to `skip`, schedules no shards for it, and emits a
-`::warning` annotation naming every input the waiver left unmeasured — the
-waiver is recorded on the run rather than silent. A waived merge still changes
-master's environment fingerprint, so follow it with a
-`mutation-baseline.yml` dispatch to rebuild the index.
+the requirement automatically. The bypass is an operator label that names the
+revision it approves, `mutation-bypass@<12-char head sha>`:
+
+```bash
+sha=$(gh pr view <pr> --json headRefOid --jq '.headRefOid[0:12]')
+gh label create "mutation-bypass@$sha" --force
+gh pr edit <pr> --add-label "mutation-bypass@$sha"
+```
+
+Naming the revision is what bounds the waiver: any later push changes the head
+SHA, so the label stops matching and the delta must be approved again rather
+than a new commit inheriting the old approval. Applying a label needs write
+access, so only an operator can grant one, and a push event carries no labels
+at all, so master still fails on missing evidence. `ci.yml` subscribes to
+`labeled` because applying the label must start a fresh run — re-running the
+failed one replays its original payload and would still see no approval.
+`mutation-plan` passes `--bypass`, which resolves each unbounded workspace to
+`skip`, schedules no shards for it, and emits a `::warning` annotation naming
+every input the waiver left unmeasured — the waiver is recorded on the run
+rather than silent. A waived merge still changes master's environment
+fingerprint, so follow it with a `mutation-baseline.yml` dispatch to rebuild the
+index.
 Full-corpus mutation runs are explicit scheduled/manual work and report MSI
 without enforcing a score threshold.
 

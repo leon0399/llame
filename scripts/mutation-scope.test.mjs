@@ -395,6 +395,22 @@ test("unknown runtime inputs make every workspace delta unavailable", () => {
   }
 });
 
+test("a workspace reports every unbounded input, not only the last", () => {
+  // A waiver records what it left unmeasured, so the reason must not collapse
+  // to whichever path happened to be visited last.
+  const scope = selectMutationScope(
+    [
+      "apps/api/src/testing/first-double.ts",
+      "apps/api/src/prompts/second.md",
+      "apps/api/src/db/migrations/third.sql",
+    ],
+    sources,
+  )["apps/api"];
+  assert.equal(scope.mode, "unavailable");
+  for (const path of ["first-double.ts", "second.md", "third.sql"])
+    assert.match(scope.reason, new RegExp(path, "u"));
+});
+
 test("documentation, frontend, tooling and lint configuration need no mutation execution", () => {
   const result = selectMutationScope(
     [

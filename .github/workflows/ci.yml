@@ -20,6 +20,10 @@ name: CI
 
 on:
   pull_request:
+    # `labeled` is required: the mutation waiver is an operator-applied label,
+    # and a rerun replays the original event payload, so applying it must start
+    # a fresh run rather than re-evaluate a stale one.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [master]
 
@@ -78,14 +82,17 @@ jobs:
           # PRs use their base; trusted pushes resume each workspace from the
           # last measured revision so cancelled runs cannot leave coverage gaps.
           MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-          # An operator applies this label to waive an unbounded delta. Labels
-          # need write access, so a contributor cannot grant it themselves, and
-          # the plan records every input the waiver left unmeasured. A push has
-          # no labels, so master still fails on missing evidence.
-          MUTATION_BYPASS: ${{ contains(github.event.pull_request.labels.*.name, 'mutation-bypass') }}
+          # The waiver is an operator label that NAMES the revision it approved,
+          # so a commit pushed after approval cannot inherit it. Labels need
+          # write access, so a contributor cannot grant one, and a push has no
+          # labels at all, so master still fails on missing evidence. The plan
+          # records every input the waiver left unmeasured.
+          MUTATION_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          MUTATION_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           arguments=(--base "$MUTATION_BASE")
-          if [[ "$MUTATION_BYPASS" == "true" ]]; then
+          approved="mutation-bypass@${MUTATION_HEAD:0:12}"
+          if [[ " $MUTATION_LABELS " == *" $approved "* ]]; then
             arguments+=(--bypass)
           fi
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
