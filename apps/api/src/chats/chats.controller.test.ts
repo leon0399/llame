@@ -33,6 +33,7 @@ const chat: Chat = {
   recencyDigestRebakedFrom: null,
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
+  skillCatalogTold: null,
 };
 
 const chatMessages: Array<Message> = [

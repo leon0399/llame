@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { Logger } from '@nestjs/common';
 import { z } from 'zod';
 import type {
@@ -28,7 +31,7 @@ import {
   resolveTurnContext,
   type TurnContextDeps,
 } from './turn-context';
-import { isContextItemPart } from './context-item';
+import { isContextItemPart, type ContextItemPart } from './context-item';
 import { vi, describe, expect, it, beforeEach, afterEach } from 'vitest';
 
 const USER_ID = 'user-1';
@@ -93,6 +96,7 @@ const chat = (overrides: Partial<Chat> = {}): Chat => ({
   recencyDigestRebakedFrom: null,
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
+  skillCatalogTold: null,
   ...overrides,
 });
 
@@ -256,6 +260,24 @@ const catalogOf = (
   return catalog;
 };
 
+/**
+ * A catalog whose read failed, carrying the diagnostic the real one produces for
+ * an unreadable or oversized source — which names that source by absolute path.
+ */
+const unavailableCatalogOf = (
+  directories: ReadonlyArray<string>,
+  diagnostic: string,
+): SkillCatalogPort => {
+  const catalog = new SkillCatalog([]);
+  vi.spyOn(catalog, 'getSnapshot').mockReturnValue({
+    available: false,
+    directories: [...directories],
+    entries: [],
+    diagnostics: [diagnostic],
+  });
+  return catalog;
+};
+
 const skillEntry = (
   name: string,
   description: string | null,
@@ -290,6 +312,9 @@ const installRepositorySpies = () => ({
     .mockResolvedValue(undefined),
   setSkillBaseline: vi
     .spyOn(ChatsRepository.prototype, 'setSkillCatalogBaseline')
+    .mockResolvedValue(undefined),
+  setSkillTold: vi
+    .spyOn(ChatsRepository.prototype, 'updateSkillCatalogTold')
     .mockResolvedValue(undefined),
   findById: vi
     .spyOn(ChatsRepository.prototype, 'findById')
@@ -586,6 +611,7 @@ describe('the frozen skill-catalog baseline', () => {
       chat: chat({
         skillCatalogBaseline: stored,
         skillCatalogRebakedFrom: null,
+        skillCatalogTold: null,
       }),
       turnInput: turnInput(),
       shareRecentChats: { shareRecentChats: false },
@@ -616,6 +642,7 @@ describe('the frozen skill-catalog baseline', () => {
       chat: chat({
         skillCatalogBaseline: stored,
         skillCatalogRebakedFrom: null,
+        skillCatalogTold: null,
       }),
       turnInput: turnInput(),
       shareRecentChats: { shareRecentChats: false },
@@ -669,6 +696,420 @@ describe('the frozen skill-catalog baseline', () => {
     if (passed === undefined) throw new Error('expected a skills projection');
     expect(passed.entries).toHaveLength(256);
     expect(passed.omitted).toBe(44);
+  });
+});
+
+describe('the skill-catalog notice', () => {
+  beforeEach(() => {
+    repositories = installRepositorySpies();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const buildWith = (
+    entries: ReadonlyArray<SkillCatalogEntry>,
+    chatOverrides: Partial<Chat>,
+    options: {
+      readonly referencesSkills?: boolean;
+      /** No configured source at all, rather than a source with nothing in it. */
+      readonly unconfigured?: boolean;
+    } = {},
+  ) => {
+    const rendered = vi.fn((_input: SystemPromptRenderInput) => 'prompt');
+    const context = skillDeps(entries);
+    if (options.unconfigured === true) {
+      context.skillCatalog = undefined;
+      context.instanceConfig = {
+        config: {
+          ...context.instanceConfig.config,
+          skills: { directories: [] },
+        },
+      };
+    }
+    context.systemPrompts = { render: rendered };
+    const model = {
+      ...turnInput().model,
+      referencesSkills: options.referencesSkills ?? true,
+    };
+    return {
+      context,
+      run: buildTurnContextAndParts(context, {
+        tx,
+        chat: chat({ ...chatOverrides }),
+        turnInput: turnInput({ model }),
+        shareRecentChats: { shareRecentChats: false },
+        digestDelta: null,
+      }),
+    };
+  };
+
+  function catalogItems(parts: Array<MessagePart>): Array<ContextItemPart> {
+    return parts.filter(
+      (part): part is ContextItemPart =>
+        isContextItemPart(part) && part.data.producer === 'skill-catalog',
+    );
+  }
+
+  const catalogForms = (parts: Array<MessagePart>): Array<string> =>
+    catalogItems(parts).map((part) => part.data.form ?? 'notice');
+
+  it('announces an addition with its current description', async () => {
+    const { run } = buildWith(
+      [skillEntry('pdf', 'Extract text'), skillEntry('research', 'Plan it')],
+      {
+        skillCatalogBaseline: {
+          entries: [{ name: 'pdf', description: 'Extract text' }],
+          omitted: 0,
+        },
+        skillCatalogRebakedFrom: null,
+        skillCatalogTold: ['pdf'],
+      },
+    );
+
+    const result = await run;
+    expect(catalogForms(result.messageParts)).toEqual(['notice']);
+    const [item] = catalogItems(result.messageParts);
+    expect(item.data.text).toContain('`research`');
+    expect(item.data.text).toContain('Plan it');
+    expect(item.data.payload).toMatchObject({
+      kind: 'delta',
+      added: [{ name: 'research', description: 'Plan it' }],
+      removed: [],
+    });
+    // The turn reports the told state it establishes; persisting it belongs to
+    // the accepted-turn transaction the caller owns, so this unit asserts the
+    // value rather than the write.
+    expect(result.skillCatalogTold).toEqual(['pdf', 'research']);
+  });
+
+  it('announces a removal by name only', async () => {
+    const { run } = buildWith([skillEntry('pdf', 'Extract text')], {
+      skillCatalogBaseline: { entries: [], omitted: 0 },
+      skillCatalogRebakedFrom: null,
+      skillCatalogTold: ['pdf', 'legacy'],
+    });
+
+    const result = await run;
+    const [item] = catalogItems(result.messageParts);
+    expect(item.data.payload).toMatchObject({
+      kind: 'delta',
+      added: [],
+      removed: ['legacy'],
+    });
+    // A removals-only delta carries no operator text, so no precedence line.
+    expect(item.data.text).not.toContain('operator-authored catalog data');
+  });
+
+  it('emits nothing when the advertised set is unchanged', async () => {
+    const { run } = buildWith([skillEntry('pdf', 'Extract text')], {
+      skillCatalogBaseline: {
+        entries: [{ name: 'pdf', description: 'Extract text' }],
+        omitted: 0,
+      },
+      skillCatalogRebakedFrom: null,
+      skillCatalogTold: ['pdf'],
+    });
+
+    const result = await run;
+    expect(catalogForms(result.messageParts)).toEqual([]);
+    expect(result.skillCatalogTold).toBeUndefined();
+  });
+
+  it('emits nothing and leaves the told state alone on an opted-out model', async () => {
+    const { run } = buildWith(
+      [skillEntry('pdf', 'Extract text'), skillEntry('research', 'Plan it')],
+      {
+        skillCatalogBaseline: { entries: [], omitted: 0 },
+        skillCatalogRebakedFrom: null,
+        skillCatalogTold: ['pdf'],
+      },
+      { referencesSkills: false },
+    );
+
+    const result = await run;
+    expect(catalogForms(result.messageParts)).toEqual([]);
+    // Untouched, so a later switch to a rendering model announces the addition.
+    expect(result.skillCatalogTold).toBeUndefined();
+  });
+
+  it('announces the addition after a switch to a rendering model', async () => {
+    const { run } = buildWith(
+      [skillEntry('pdf', 'Extract text'), skillEntry('research', 'Plan it')],
+      {
+        skillCatalogBaseline: { entries: [], omitted: 0 },
+        skillCatalogRebakedFrom: null,
+        skillCatalogTold: ['pdf'],
+      },
+      { referencesSkills: true },
+    );
+
+    const [item] = catalogItems((await run).messageParts);
+    expect(item.data.payload).toMatchObject({
+      added: [expect.objectContaining({ name: 'research' })],
+    });
+  });
+
+  it('starts a new told state at a compaction epoch with no notice', async () => {
+    const { run, context } = buildWith([skillEntry('pdf', 'Extract text')], {
+      skillCatalogBaseline: {
+        entries: [{ name: 'stale', description: 'Old epoch' }],
+        omitted: 0,
+      },
+      skillCatalogRebakedFrom: 'compaction-1',
+      skillCatalogTold: ['stale'],
+    });
+    repositories.findLatest.mockResolvedValue(
+      compaction({ id: 'compaction-2' }),
+    );
+
+    const result = await run;
+    // No delta across the boundary: the baseline is what the model is shown.
+    expect(catalogForms(result.messageParts)).toEqual([]);
+    // The epoch reset writes the told state directly (it is not a notice), so
+    // the turn reports nothing extra to persist.
+    expect(result.skillCatalogTold).toBeUndefined();
+    expect(repositories.setSkillTold).toHaveBeenCalledWith(CHAT_ID, USER_ID, [
+      'pdf',
+    ]);
+    expect(context.systemPrompts.render).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skills: {
+          entries: [{ name: 'pdf', description: 'Extract text' }],
+          omitted: 0,
+        },
+      }),
+    );
+  });
+
+  it('adopts the baseline as told state when none was recorded', async () => {
+    // A chat whose baseline predates this layer was still shown the catalog by
+    // its prompt, so adopting it emits no duplicate notice.
+    const { run } = buildWith([skillEntry('pdf', 'Extract text')], {
+      skillCatalogBaseline: {
+        entries: [{ name: 'pdf', description: 'Extract text' }],
+        omitted: 0,
+      },
+      skillCatalogRebakedFrom: null,
+      skillCatalogTold: null,
+    });
+
+    expect(catalogForms((await run).messageParts)).toEqual([]);
+  });
+
+  it('renders no section and does not fail the turn when a source is unreadable', async () => {
+    // A configured source that cannot be read is not an empty catalog. Without
+    // the guard, `toldFromBaseline` would read `entries` off an undefined
+    // baseline and throw during accepted-turn preparation, failing the user's
+    // turn outright.
+    const unreadable = path.join(
+      mkdtempSync(path.join(tmpdir(), 'unreadable-root-')),
+      'does-not-exist',
+    );
+    const rendered = vi.fn((_input: SystemPromptRenderInput) => 'prompt');
+    const depsWithBadSource: TurnContextDeps = {
+      ...deps(),
+      systemPrompts: { render: rendered },
+      instanceConfig: {
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          skills: { directories: [unreadable] },
+        },
+      },
+      // The real catalog names the failing source by absolute path here — this
+      // is the `readSource` diagnostic for an unreadable or oversized source.
+      skillCatalog: unavailableCatalogOf(
+        [unreadable],
+        `Skill source ${unreadable} is missing or unreadable; the catalog is unavailable.`,
+      ),
+    };
+    const warned = vi.spyOn(depsWithBadSource.logger, 'warn');
+    repositories.findLatest.mockResolvedValue(undefined);
+
+    const result = await buildTurnContextAndParts(depsWithBadSource, {
+      tx,
+      chat: chat(),
+      turnInput: turnInput(),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+
+    // No section, no baseline written, and the operator gets the reason.
+    expect(result.skillCatalogTold).toBeUndefined();
+    expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
+    const logged = warned.mock.calls.map((call) => JSON.stringify(call));
+    expect(logged.some((line) => line.includes('missing or unreadable'))).toBe(
+      true,
+    );
+    // The reason survives; the configured host path does not. A log line is not
+    // the authenticated owner API that publishes source paths deliberately, and
+    // `SkillCatalog` embeds the failing source's absolute path in this message.
+    expect(logged.some((line) => line.includes(unreadable))).toBe(false);
+    expect(logged.some((line) => line.includes('<skill source>'))).toBe(true);
+    // The key is ABSENT, which is what leaves the default template's
+    // `{{#if skills}}` section unrendered.
+    expect(rendered.mock.calls[0][0].skills).toBeUndefined();
+  });
+
+  it('reports an unreadable source mid-epoch instead of announcing removals', async () => {
+    // The other half of the unreadable-source guard, and the case it actually
+    // exists for: the chat is already inside its epoch, so the stored baseline
+    // and a non-empty told state are both present. Diffing the failed read
+    // would announce every told name as removed; the delta is skipped instead,
+    // and the stored baseline keeps rendering for the rest of the epoch.
+    const unreadable = path.join(
+      mkdtempSync(path.join(tmpdir(), 'unreadable-mid-epoch-')),
+      'does-not-exist',
+    );
+    const rendered = vi.fn((_input: SystemPromptRenderInput) => 'prompt');
+    const depsWithBadSource: TurnContextDeps = {
+      ...deps(),
+      systemPrompts: { render: rendered },
+      instanceConfig: {
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          skills: { directories: [unreadable] },
+        },
+      },
+      skillCatalog: unavailableCatalogOf(
+        [unreadable],
+        `Skill source ${unreadable} is missing or unreadable; the catalog is unavailable.`,
+      ),
+    };
+    const warned = vi.spyOn(depsWithBadSource.logger, 'warn');
+    repositories.findLatest.mockResolvedValue(undefined);
+
+    const result = await buildTurnContextAndParts(depsWithBadSource, {
+      tx,
+      chat: chat({
+        skillCatalogBaseline: {
+          entries: [{ name: 'pdf', description: 'Extract text' }],
+          omitted: 0,
+        },
+        skillCatalogRebakedFrom: null,
+        skillCatalogTold: ['pdf'],
+      }),
+      turnInput: turnInput({
+        model: { ...model, referencesSkills: true },
+      }),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+
+    // No removals notice, no rewritten baseline, and the model still sees the
+    // catalog the chat was already told about.
+    expect(catalogForms(result.messageParts)).toEqual([]);
+    expect(result.skillCatalogTold).toBeUndefined();
+    expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
+    expect(rendered.mock.calls[0][0].skills).toEqual({
+      entries: [{ name: 'pdf', description: 'Extract text' }],
+      omitted: 0,
+    });
+    // Mid-epoch is silent no longer: the operator sees discovery failing here
+    // exactly as they do at epoch start, and without the host path either.
+    const logged = warned.mock.calls.map((call) => JSON.stringify(call));
+    expect(logged.some((line) => line.includes('missing or unreadable'))).toBe(
+      true,
+    );
+    expect(logged.some((line) => line.includes(unreadable))).toBe(false);
+    expect(logged.some((line) => line.includes('<skill source>'))).toBe(true);
+  });
+
+  it('announces the removals when no catalog port reaches the turn at all', async () => {
+    // Not the production shape - `SkillsModule` always provides a port - but
+    // the branch exists because a turn assembled without one must not diff
+    // against nothing and silently unadvertise a catalog the chat still shows.
+    const { run } = buildWith(
+      [],
+      {
+        skillCatalogBaseline: {
+          entries: [{ name: 'pdf', description: 'Extract' }],
+          omitted: 0,
+        },
+        skillCatalogRebakedFrom: null,
+        skillCatalogTold: ['pdf'],
+      },
+      { unconfigured: true },
+    );
+
+    const result = await run;
+    const [item] = catalogItems(result.messageParts);
+    expect(item.data.payload).toMatchObject({
+      kind: 'delta',
+      added: [],
+      removed: ['pdf'],
+    });
+  });
+
+  it('announces the removals when the source list is emptied mid-epoch', async () => {
+    // The operator disables skills by emptying `skills.directories` after this
+    // chat froze a baseline. The stored baseline stays in the prompt for the
+    // rest of the epoch, so the removals MUST be announced — suppressing the
+    // delta would leave the model attempting stale reads with no notice.
+    //
+    // This is the production shape: `SkillsModule` builds a `SkillCatalog`
+    // unconditionally, so an emptied list still yields a port whose snapshot
+    // is available and empty. The absent-port case is separate, below.
+    const { run } = buildWith([], {
+      skillCatalogBaseline: {
+        entries: [
+          { name: 'pdf', description: 'Extract' },
+          { name: 'research', description: 'Plan' },
+        ],
+        omitted: 0,
+      },
+      skillCatalogRebakedFrom: null,
+      skillCatalogTold: ['pdf', 'research'],
+    });
+
+    const result = await run;
+    const [item] = catalogItems(result.messageParts);
+    expect(item.data.payload).toMatchObject({
+      kind: 'delta',
+      added: [],
+      removed: ['pdf', 'research'],
+    });
+    expect(result.skillCatalogTold).toEqual([]);
+  });
+
+  it('supersedes with a snapshot when the delta cannot fit the bound', async () => {
+    // 300 removals plus one addition is past the 256-entry bound, so the delta
+    // cannot be rendered honestly and the bounded current set replaces it.
+    const told = Array.from(
+      { length: 300 },
+      (_, i) => `gone-${String(i).padStart(3, '0')}`,
+    );
+    const { run } = buildWith([skillEntry('pdf', 'Extract text')], {
+      skillCatalogBaseline: { entries: [], omitted: 0 },
+      skillCatalogRebakedFrom: null,
+      skillCatalogTold: told,
+    });
+
+    const result = await run;
+    const [item] = catalogItems(result.messageParts);
+    expect(item.data.form).toBe('snapshot');
+    expect(item.data.text).toContain('superseded');
+    expect(item.data.payload).toMatchObject({ kind: 'snapshot', omitted: 0 });
+    // The told state becomes the snapshot's admitted set, not the delta's.
+    expect(result.skillCatalogTold).toEqual(['pdf']);
+  });
+
+  it('supersedes when the delta exceeds the byte bound', async () => {
+    // Names come out of the told state and are not themselves bounded, so a
+    // large told set alongside a large advertised entry overflows on bytes.
+    const told = Array.from(
+      { length: 200 },
+      (_, i) => `${'g'.repeat(60)}-${i}`,
+    );
+    const { run } = buildWith([skillEntry('pdf', 'x'.repeat(15 * 1024))], {
+      skillCatalogBaseline: { entries: [], omitted: 0 },
+      skillCatalogRebakedFrom: null,
+      skillCatalogTold: told,
+    });
+
+    const [item] = catalogItems((await run).messageParts);
+    expect(item.data.form).toBe('snapshot');
   });
 });
 

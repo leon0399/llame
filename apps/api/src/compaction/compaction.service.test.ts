@@ -50,6 +50,7 @@ const chat: Chat = {
   recencyDigestRebakedFrom: null,
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
+  skillCatalogTold: null,
 };
 
 function message(seq: number, role: Message['role'] = 'user'): Message {

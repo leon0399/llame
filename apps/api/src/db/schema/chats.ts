@@ -68,6 +68,9 @@ export type SkillCatalogBaseline = {
   omitted: number;
 };
 
+/** The names a chat was last told about, in the order they were advertised. */
+export type SkillCatalogTold = Array<string>;
+
 // DB-enforced visibility values (not just a TS-level varchar union, which Postgres
 // would not constrain).
 export const chatVisibility = pgEnum('chat_visibility', ['private', 'public']);
@@ -138,6 +141,11 @@ export const chats = pgTable(
     // simply never matches the active compaction, so it re-resolves rather
     // than asserting a re-bake that did not happen.
     skillCatalogRebakedFrom: uuid('skill_catalog_rebaked_from'),
+    // Names of the advertised entries this chat was last TOLD about (D6).
+    // Names only: an addition renders the entry's CURRENT description, so a
+    // description-only change cannot produce a notice, and the told state
+    // cannot itself become a stale copy of catalog content.
+    skillCatalogTold: jsonb('skill_catalog_told').$type<Array<string>>(),
   },
   (t) => [
     // Matches findByOwner's ORDER BY (recency); pin state now lives in the

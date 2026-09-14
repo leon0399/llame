@@ -75,6 +75,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     recencyDigestRebakedFrom: null,
     skillCatalogBaseline: null,
     skillCatalogRebakedFrom: null,
+    skillCatalogTold: null,
   };
 
   function message(seq: number): Message {
@@ -241,6 +242,7 @@ describe('ChatsService message windows, updates and forks', () => {
     recencyDigestRebakedFrom: null,
     skillCatalogBaseline: null,
     skillCatalogRebakedFrom: null,
+    skillCatalogTold: null,
   };
 
   function message(seq: number, overrides: Partial<Message> = {}): Message {
