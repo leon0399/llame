@@ -458,6 +458,38 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
     ]);
   });
 
+  it('resolves tools.promptFiles into an id -> path map', () => {
+    writeConfig(
+      '{ "tools": { "promptFiles": { "bash": "prompts/bash.md", "read": "/etc/llame/read.md" } } }',
+    );
+    expect(loadInstanceConfig().tools.promptFiles).toEqual({
+      bash: 'prompts/bash.md',
+      read: '/etc/llame/read.md',
+    });
+  });
+
+  it('leaves tools.promptFiles empty when the file omits or nulls it', () => {
+    writeConfig('{ "tools": { "allowed": [] } }');
+    expect(loadInstanceConfig().tools.promptFiles).toEqual({});
+    writeConfig('{ "tools": { "promptFiles": {} } }');
+    expect(loadInstanceConfig().tools.promptFiles).toEqual({});
+  });
+
+  it('rejects a malformed tools.promptFiles at the schema boundary', () => {
+    // Shape, key, and value constraints are the closed config schema's job —
+    // the resolver only narrows what the schema already accepted.
+    for (const body of [
+      '{ "tools": { "promptFiles": ["bash.md"] } }',
+      '{ "tools": { "promptFiles": { "": "bash.md" } } }',
+      '{ "tools": { "promptFiles": { "bash": 7 } } }',
+      '{ "tools": { "promptFiles": { "bash": "" } } }',
+    ]) {
+      writeConfig(body);
+      expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+      expect(() => loadInstanceConfig()).toThrow(/\/tools\/promptFiles/);
+    }
+  });
+
   it('fails BOOT naming the path and the id when tools.allowed names an unregistered tool', () => {
     writeConfig('{ "tools": { "allowed": ["not_a_real_tool"] } }');
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);

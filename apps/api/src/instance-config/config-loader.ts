@@ -204,20 +204,15 @@ function resolveToolPromptFiles(raw: RawInstanceConfig | undefined) {
   const { present, raw: leaf } = readLeaf(raw, 'tools', 'promptFiles');
   if (!present) return {};
   if (!isRecord(leaf)) {
-    throw new InstanceConfigError(
-      'tools.promptFiles: must be an object of tool id -> file path',
-    );
+    throw new InstanceConfigError('tools.promptFiles: must be an object');
   }
+  // The config schema already enforces non-empty tool ids and non-empty string
+  // values; the guard here exists only to narrow `unknown` to the map type.
   const files: Record<string, string> = {};
   for (const [toolId, value] of Object.entries(leaf)) {
-    if (toolId.length === 0) {
+    if (!isString(value)) {
       throw new InstanceConfigError(
-        'tools.promptFiles: tool ids must be non-empty',
-      );
-    }
-    if (!isString(value) || value.length === 0) {
-      throw new InstanceConfigError(
-        `tools.promptFiles.${toolId}: must be a non-empty file path`,
+        `tools.promptFiles.${toolId}: must be a file path string`,
       );
     }
     files[toolId] = value;
