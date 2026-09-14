@@ -1,19 +1,27 @@
-import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { appendFileSync, readFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import {
+  apiShardCount,
+  hasCommit,
+  mergeMutationBaseline,
+  mutationBaselinePath,
   mutationFingerprint,
   mutationSourceFiles,
   mutationWorkspaces,
+  readMutationBaselineFile,
+  readMutationBaselines,
   readMutationScope,
+  repositoryRoot,
 } from "./mutation-scope.mjs";
-
-// Fixed namespace keeps assignments stable and the current eight shards balanced.
-const SHARD_NAMESPACE = "v4517";
 
 export function parseShard(value) {
   const match = /^(\d+)\/(\d+)$/u.exec(value);
@@ -34,24 +42,45 @@ export function parseShard(value) {
   return { index: number - 1, number, total };
 }
 
-function shardIndex(file, total) {
-  return (
-    createHash("sha256")
-      .update(`${SHARD_NAMESPACE}:${file}`)
-      .digest()
-      .readUInt32BE(0) % total
-  );
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
-export function selectShardFiles(files, shard) {
-  return [...files]
-    .sort()
-    .filter((file) => shardIndex(file, shard.total) === shard.index);
+function median(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+// Distributes files over the runner pool by the work each one carries. Shard
+// duration tracks mutant count, not file count or bytes, so files are assigned
+// longest-processing-time-first: heaviest first, each onto the least loaded
+// shard. Files the baseline does not know — new sources, or no baseline at all
+// — fall back to the median measured weight.
+export function assignShardFiles(files, weights, total) {
+  const known = files
+    .map((file) => weights?.get(file))
+    .filter((weight) => typeof weight === "number");
+  const fallback = known.length === 0 ? 1 : median(known);
+  const weightOf = (file) => weights?.get(file) ?? fallback;
+  const shards = Array.from({ length: total }, () => ({ load: 0, files: [] }));
+
+  const ordered = [...files].sort(
+    (left, right) =>
+      weightOf(right) - weightOf(left) || compareText(left, right),
+  );
+  for (const file of ordered) {
+    const shard = shards.reduce((best, candidate) =>
+      candidate.load < best.load ? candidate : best,
+    );
+    shard.load += weightOf(file);
+    shard.files.push(file);
+  }
+  return shards.map((shard) => shard.files.sort());
 }
 
 export function parseRunArguments(arguments_) {
   let shardValue;
-  let base;
+  let mutate;
   const strykerArguments = [];
 
   for (let index = 0; index < arguments_.length; index += 1) {
@@ -66,21 +95,31 @@ export function parseRunArguments(arguments_) {
     } else if (argument.startsWith("--shard=")) {
       if (shardValue) throw new Error("Pass --shard exactly once");
       shardValue = argument.slice("--shard=".length);
-    } else if (argument === "--base") {
-      if (base !== undefined) throw new Error("Pass --base exactly once");
-      base = arguments_[index + 1];
-      if (!base || base.startsWith("--"))
-        throw new Error("--base requires a ref");
+    } else if (argument === "--mutate") {
+      if (mutate) throw new Error("Pass --mutate exactly once");
+      mutate = arguments_[index + 1];
       index += 1;
+    } else if (argument.startsWith("--mutate=")) {
+      if (mutate) throw new Error("Pass --mutate exactly once");
+      mutate = argument.slice("--mutate=".length);
     } else {
       strykerArguments.push(argument);
     }
   }
 
   if (!shardValue) throw new Error("Missing required --shard N/TOTAL option");
-  const result = { shard: parseShard(shardValue), strykerArguments };
-  if (base !== undefined) result.base = base;
-  return result;
+  // The plan already decided which files this shard owns; re-deriving them here
+  // would duplicate the scope computation and could disagree with the matrix.
+  if (!mutate) throw new Error("Missing required --mutate file list");
+  const files = mutate.split(",");
+  if (files.some((file) => file.length === 0))
+    throw new Error("--mutate received an empty file name");
+
+  return {
+    shard: parseShard(shardValue),
+    files: files.sort(),
+    strykerArguments,
+  };
 }
 
 export function resolveStrykerCli(workspace = process.cwd()) {
@@ -152,14 +191,7 @@ export function mergeMutationReports(reports) {
 }
 
 async function runShard(arguments_) {
-  const { shard, strykerArguments, base } = parseRunArguments(arguments_);
-  const scope =
-    base === undefined
-      ? { mode: "full", files: mutationSourceFiles(process.cwd()) }
-      : readMutationScope(base)["apps/api"];
-  const files = selectShardFiles(scope.files, shard);
-  if (files.length === 0)
-    throw new Error(`Mutation shard ${shard.number} is empty`);
+  const { shard, files, strykerArguments } = parseRunArguments(arguments_);
 
   console.log(
     `Mutation shard ${shard.number}/${shard.total}: ${files.length} source files`,
@@ -174,9 +206,7 @@ async function runShard(arguments_) {
       files.join(","),
       "--incrementalFile",
       incrementalFile,
-      ...strykerArguments.filter(
-        (argument) => scope.mode !== "changed" || argument !== "--incremental",
-      ),
+      ...strykerArguments,
     ],
     { stdio: "inherit" },
   );
@@ -188,14 +218,27 @@ async function runShard(arguments_) {
   process.exitCode = result.code ?? 1;
 }
 
-export function mutationPlan(scopes) {
-  const apiShards = Array.from({ length: 8 }, (_, index) => ({
-    shard: `${index + 1}/8`,
-    index,
-  })).filter(
-    ({ shard }) =>
-      selectShardFiles(scopes["apps/api"].files, parseShard(shard)).length > 0,
-  );
+export function mutationPlan(scopes, baselines = {}) {
+  const measured = baselines["apps/api"];
+  const weights = measured
+    ? new Map(
+        Object.entries(measured.files).map(([file, entry]) => [
+          file,
+          entry.mutants,
+        ]),
+      )
+    : undefined;
+  const apiShards = assignShardFiles(
+    scopes["apps/api"].files,
+    weights,
+    apiShardCount,
+  )
+    .map((files, index) => ({
+      shard: `${index + 1}/${apiShardCount}`,
+      index,
+      files,
+    }))
+    .filter(({ files }) => files.length > 0);
   return {
     apiMode: scopes["apps/api"].mode,
     apiShards,
@@ -213,6 +256,7 @@ function scopeArguments(arguments_) {
       base: { type: "string" },
       workspace: { type: "string" },
       dryRunOnly: { type: "boolean" },
+      full: { type: "boolean" },
     },
   });
   if (values.base === "") throw new Error("--base requires a ref");
@@ -222,8 +266,30 @@ function scopeArguments(arguments_) {
 }
 
 function plan(arguments_) {
-  const { base } = scopeArguments(arguments_);
-  const result = mutationPlan(readMutationScope(base));
+  const { base, full } = scopeArguments(arguments_);
+  const root = repositoryRoot();
+  const baselines = readMutationBaselines(root);
+  // A base that does not resolve — a force push, a branch-creation push, a
+  // shallow clone — cannot bound the change, so measure the whole workspace
+  // rather than guess at a diff.
+  const resolved =
+    full === true || !hasCommit(base ?? "", root) ? undefined : base;
+  if (resolved === undefined && base !== undefined && full !== true)
+    console.log(`${base}: unusable base ref; planning the complete workspace`);
+  const scopes = readMutationScope(resolved, baselines, root);
+  for (const workspace of mutationWorkspaces) {
+    if (scopes[workspace].mode !== "scoped" || baselines[workspace]) continue;
+    // A scoped run without a baseline cannot measure a delta, and mutating a
+    // subset of the corpus without one drops the gate instead of moving it.
+    console.log(
+      `${workspace}: no usable baseline; expanding to the complete workspace`,
+    );
+    scopes[workspace] = {
+      mode: "full",
+      files: mutationSourceFiles(path.join(root, workspace)),
+    };
+  }
+  const result = mutationPlan(scopes, baselines);
   console.log(JSON.stringify(result));
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(
@@ -250,7 +316,13 @@ async function execute(command, arguments_, cwd) {
 
 async function changed(arguments_) {
   const options = scopeArguments(arguments_);
-  const scopes = readMutationScope(options.base ?? "origin/master");
+  const root = repositoryRoot();
+  const baselines = readMutationBaselines(root);
+  const scopes = readMutationScope(
+    options.base ?? "origin/master",
+    baselines,
+    root,
+  );
   for (const workspace of mutationWorkspaces) {
     if (options.workspace && options.workspace !== workspace) continue;
     const scope = scopes[workspace];
@@ -262,9 +334,9 @@ async function changed(arguments_) {
       await execute(
         "pnpm",
         ["--filter", "api^...", "--workspace-concurrency=1", "-r", "build"],
-        process.cwd(),
+        root,
       );
-    const directory = path.resolve(workspace);
+    const directory = path.resolve(root, workspace);
     const args = [
       resolveStrykerCli(directory),
       "run",
@@ -273,12 +345,19 @@ async function changed(arguments_) {
     ];
     if (options.dryRunOnly) args.push("--dryRunOnly");
     await execute(process.execPath, args, directory);
-    if (!options.dryRunOnly)
+    if (options.dryRunOnly) continue;
+    const report = path.join(directory, "reports/mutation/mutation.json");
+    if (scope.mode === "full") aggregate(["--threshold", "80", report]);
+    else if (baselines[workspace])
       aggregate([
-        "--threshold",
-        "80",
-        path.join(directory, "reports/mutation/mutation.json"),
+        "--baseline",
+        path.join(directory, mutationBaselinePath(workspace)),
+        report,
       ]);
+    else
+      console.log(
+        `${workspace}: no baseline available; reporting the scoped score without a gate`,
+      );
   }
 }
 
@@ -291,9 +370,60 @@ function readOption(arguments_, option) {
   return value;
 }
 
+function stepSummary(lines) {
+  const file = process.env.GITHUB_STEP_SUMMARY;
+  if (!file) return;
+  appendFileSync(file, `${lines.join("\n")}\n`);
+}
+
+// Source files whose undetected mutant count grew against the baseline. A file
+// the baseline never measured — a new source — has no allowance to spend.
+export function mutationRegressions(baseline, current) {
+  return Object.entries(current.files)
+    .map(([file, entry]) => ({
+      file,
+      undetected: entry.undetected,
+      previous: baseline.files[file]?.undetected ?? 0,
+    }))
+    .filter(({ undetected, previous }) => undetected > previous)
+    .sort((left, right) => compareText(left.file, right.file));
+}
+
+// Compares a scoped run against its baseline: only the files this run measured
+// are judged, and only growth in undetected mutants fails.
+function mutationDelta(baselinePath, reports) {
+  const baseline = readMutationBaselineFile(baselinePath);
+  const current = mergeMutationBaseline(undefined, reports);
+  const regressions = mutationRegressions(baseline, current);
+  const files = Object.keys(current.files);
+  const scopedUndetected = (source) =>
+    files.reduce((sum, file) => sum + (source.files[file]?.undetected ?? 0), 0);
+  const lines = [
+    `Undetected mutants (survived or uncovered): ${scopedUndetected(current)} across ${files.length} source files (baseline ${scopedUndetected(baseline)})`,
+  ];
+  if (regressions.length === 0) lines.push("", "No new undetected mutants.");
+  else
+    lines.push(
+      "",
+      `New undetected mutants in ${regressions.length} source files:`,
+      ...regressions.map(
+        ({ file, undetected, previous }) =>
+          `- ${file}: ${previous} -> ${undetected}`,
+      ),
+    );
+  return {
+    lines,
+    failure:
+      regressions.length === 0
+        ? undefined
+        : `${regressions.length} source files gained undetected mutants`,
+  };
+}
+
 function aggregate(arguments_) {
   const inputs = arguments_.filter((argument) => argument !== "--");
   const thresholdValue = readOption(inputs, "--threshold");
+  const baselinePath = readOption(inputs, "--baseline");
   const expectedValue = readOption(inputs, "--expected-shards");
   const expected = Number(expectedValue ?? inputs.length);
   const threshold =
@@ -312,26 +442,66 @@ function aggregate(arguments_) {
   ) {
     throw new Error("--threshold must be between 0 and 100");
   }
+  if (threshold !== undefined && baselinePath !== undefined) {
+    throw new Error("Pass --threshold or --baseline, not both");
+  }
 
   const reports = inputs.map((file) => JSON.parse(readFileSync(file, "utf8")));
   const result = mergeMutationReports(reports);
-  console.log(`Mutation score: ${result.score.toFixed(2)}%`);
-  console.log(
+  let failure;
+  let lines = [];
+  if (baselinePath === undefined) {
+    if (threshold !== undefined && result.score < threshold) {
+      failure = `Mutation score ${result.score.toFixed(2)}% is below ${threshold}%`;
+    }
+  } else {
+    ({ failure, lines } = mutationDelta(baselinePath, reports));
+  }
+
+  const summary = [
+    "### Mutation",
+    "",
+    `Score: ${result.score.toFixed(2)}%`,
     Object.entries(result.counts)
       .map(([status, count]) => `${status}: ${count}`)
       .join(", "),
+    ...lines,
+  ];
+  console.log(summary.slice(2).join("\n"));
+  stepSummary(summary);
+  if (failure !== undefined) throw new Error(failure);
+}
+
+// Folds this run's shard reports into the workspace's baseline index. The
+// previous index is carried forward, so a scoped run refreshes the files it
+// measured without discarding the rest of the corpus.
+function buildBaseline(arguments_) {
+  const inputs = arguments_.filter((argument) => argument !== "--");
+  const previousPath = readOption(inputs, "--previous");
+  const outputPath = readOption(inputs, "--output");
+  if (outputPath === undefined) throw new Error("--output is required");
+  if (inputs.length === 0) throw new Error("Pass at least one mutation report");
+
+  const reports = inputs.map((file) => JSON.parse(readFileSync(file, "utf8")));
+  // Same integrity rules as the gate: a crashed shard must not become the
+  // oracle the next delta is measured against.
+  mergeMutationReports(reports);
+  const previous =
+    previousPath !== undefined && existsSync(previousPath)
+      ? JSON.parse(readFileSync(previousPath, "utf8"))
+      : undefined;
+  const baseline = mergeMutationBaseline(previous, reports);
+  writeFileSync(outputPath, `${JSON.stringify(baseline)}\n`);
+  console.log(
+    `Mutation baseline: ${Object.keys(baseline.files).length} source files from ${reports.length} reports`,
   );
-  if (threshold !== undefined && result.score < threshold) {
-    throw new Error(
-      `Mutation score ${result.score.toFixed(2)}% is below ${threshold}%`,
-    );
-  }
 }
 
 async function main() {
   const [command, ...arguments_] = process.argv.slice(2);
   if (command === "run") return runShard(arguments_);
   if (command === "aggregate") return aggregate(arguments_);
+  if (command === "baseline") return buildBaseline(arguments_);
   if (command === "plan") return plan(arguments_);
   if (command === "changed") return changed(arguments_);
   if (command === "fingerprint") {
@@ -341,7 +511,7 @@ async function main() {
     return;
   }
   throw new Error(
-    "Usage: mutation-sharding.mjs <run|aggregate|plan|changed|fingerprint>",
+    "Usage: mutation-sharding.mjs <run|aggregate|baseline|plan|changed|fingerprint>",
   );
 }
 

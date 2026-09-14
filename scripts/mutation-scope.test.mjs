@@ -13,6 +13,8 @@ import test from "node:test";
 
 import {
   changedFiles,
+  mergeMutationBaseline,
+  mutationBaseline,
   mutationFingerprint,
   mutationSourceFiles,
   selectMutationScope,
@@ -41,9 +43,123 @@ const sources = {
 
 test("source edits select complete files without including other workspaces", () => {
   assert.deepEqual(selectMutationScope(["apps/api/src/b.ts"], sources), {
-    "apps/api": { mode: "changed", files: ["src/b.ts"] },
+    "apps/api": { mode: "scoped", files: ["src/b.ts"] },
     "packages/config-interpolation": { mode: "skip", files: [] },
     "packages/runtime-safety": { mode: "skip", files: [] },
+  });
+});
+
+test("a baseline narrows test edits to the mutant files those tests cover", () => {
+  const baseline = {
+    "apps/api": {
+      files: {
+        "src/a.ts": { mutants: 4, undetected: 1, coveredBy: ["src/a.test.ts"] },
+        "src/b.ts": {
+          mutants: 2,
+          undetected: 0,
+          coveredBy: ["src/a.test.ts", "src/b.test.ts"],
+        },
+      },
+    },
+  };
+  assert.deepEqual(
+    selectMutationScope(["apps/api/src/a.test.ts"], sources, baseline)[
+      "apps/api"
+    ],
+    { mode: "scoped", files: ["src/a.ts", "src/b.ts"] },
+  );
+  // A deleted test file still selects what it used to cover: that is the case
+  // a scope built from source edits alone would silently skip.
+  assert.deepEqual(
+    selectMutationScope(["apps/api/src/removed.test.ts"], sources, {
+      "apps/api": {
+        files: {
+          "src/b.ts": {
+            mutants: 2,
+            undetected: 0,
+            coveredBy: ["src/removed.test.ts"],
+          },
+        },
+      },
+    })["apps/api"],
+    { mode: "scoped", files: ["src/b.ts"] },
+  );
+  // Covers nothing, or no longer a mutant source: nothing to run.
+  assert.equal(
+    selectMutationScope(["apps/api/src/unrelated.test.ts"], sources, baseline)[
+      "apps/api"
+    ].mode,
+    "skip",
+  );
+  assert.equal(
+    selectMutationScope(["apps/api/src/a.test.ts"], sources, {
+      "apps/api": {
+        files: {
+          "src/deleted.ts": {
+            mutants: 1,
+            undetected: 1,
+            coveredBy: ["src/a.test.ts"],
+          },
+        },
+      },
+    })["apps/api"].mode,
+    "skip",
+  );
+});
+
+test("a test edit without a baseline still expands its workspace", () => {
+  assert.deepEqual(
+    selectMutationScope(["apps/api/src/a.test.ts"], sources)["apps/api"],
+    { mode: "full", files: ["src/a.ts", "src/b.ts"] },
+  );
+});
+
+test("baseline reading normalizes test ids, counts and undetected mutants", () => {
+  const baseline = mutationBaseline([
+    {
+      schemaVersion: "1.0",
+      testFiles: {
+        "src/a.test.ts": { tests: [{ id: "4", name: "covers a" }] },
+      },
+      files: {
+        "src/a.ts": {
+          mutants: [
+            { status: "Killed", coveredBy: ["4"] },
+            { status: "Survived", coveredBy: ["4"] },
+            { status: "NoCoverage" },
+            { status: "Ignored" },
+            { status: "CompileError", coveredBy: [] },
+          ],
+        },
+      },
+    },
+  ]);
+  assert.deepEqual(baseline.files["src/a.ts"], {
+    mutants: 4,
+    undetected: 2,
+    coveredBy: ["src/a.test.ts"],
+  });
+
+  const merged = mergeMutationBaseline(
+    { files: { "src/kept.ts": { mutants: 9, undetected: 9, coveredBy: [] } } },
+    [
+      {
+        files: {
+          "src/a.ts": {
+            mutants: [{ status: "Killed", coveredBy: ["src/a.test.ts"] }],
+          },
+        },
+      },
+    ],
+  );
+  assert.deepEqual(Object.keys(merged.files).sort(), [
+    "src/a.ts",
+    "src/kept.ts",
+  ]);
+  assert.deepEqual(merged.files["src/a.ts"], {
+    mutants: 1,
+    undetected: 0,
+    coveredBy: ["src/a.test.ts"],
   });
 });
 
@@ -73,7 +189,7 @@ test("shared package edits include the complete dependent API scope", () => {
     sources,
   );
   assert.deepEqual(result["packages/runtime-safety"], {
-    mode: "changed",
+    mode: "scoped",
     files: ["src/redact.ts"],
   });
   assert.deepEqual(result["apps/api"], {

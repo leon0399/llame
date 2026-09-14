@@ -1,40 +1,64 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  assignShardFiles,
   mergeMutationReports,
   mutationPlan,
+  mutationRegressions,
   parseRunArguments,
   parseShard,
   resolveStrykerCli,
-  selectShardFiles,
 } from "./mutation-sharding.mjs";
 
-test("a sparse mutation plan retains semantic shard identities", () => {
-  const files = ["src/a.ts", "src/b.ts"];
-  const plan = mutationPlan({
-    "apps/api": { mode: "changed", files },
-    "packages/config-interpolation": { mode: "skip", files: [] },
-    "packages/runtime-safety": { mode: "skip", files: [] },
-  });
-  assert.equal(plan.apiMode, "changed");
+const skippedPackages = [
+  { package: "config-interpolation", mode: "skip" },
+  { package: "runtime-safety", mode: "skip" },
+];
+
+test("the mutation plan assigns every API file to one weighted shard", () => {
+  const files = ["src/heavy.ts", "src/light.ts", "src/middle.ts"];
+  const weights = new Map([
+    ["src/heavy.ts", 100],
+    ["src/light.ts", 1],
+    ["src/middle.ts", 50],
+  ]);
+  const plan = mutationPlan(
+    {
+      "apps/api": { mode: "scoped", files },
+      "packages/config-interpolation": { mode: "skip", files: [] },
+      "packages/runtime-safety": { mode: "skip", files: [] },
+    },
+    {
+      "apps/api": {
+        files: Object.fromEntries(
+          [...weights].map(([file, mutants]) => [
+            file,
+            { mutants, undetected: 0, coveredBy: [] },
+          ]),
+        ),
+      },
+    },
+  );
+  assert.equal(plan.apiMode, "scoped");
   assert.deepEqual(
-    plan.apiShards
-      .flatMap(({ shard }) => selectShardFiles(files, parseShard(shard)))
-      .sort(),
+    plan.apiShards.flatMap(({ files: shardFiles }) => shardFiles).sort(),
     files,
   );
+  // The heavy file must not share a shard with the other heavy file: the
+  // assignment tracks measured work, not file count.
+  const shardOf = (file) =>
+    plan.apiShards.find(({ files: shardFiles }) => shardFiles.includes(file))
+      .index;
+  assert.notEqual(shardOf("src/heavy.ts"), shardOf("src/middle.ts"));
   for (const { index, shard } of plan.apiShards)
     assert.equal(index, Number(shard.split("/")[0]) - 1);
-  assert.deepEqual(plan.packages, [
-    { package: "config-interpolation", mode: "skip" },
-    { package: "runtime-safety", mode: "skip" },
-  ]);
+  assert.deepEqual(plan.packages, skippedPackages);
 });
 
 test("an irrelevant change has no API shards but preserves package check names", () => {
@@ -51,24 +75,89 @@ test("an irrelevant change has no API shards but preserves package check names",
   assert.equal(plan.packages.length, 2);
 });
 
-test("the shard runner consumes its base ref without forwarding it to Stryker", () => {
+test("measured work is spread over the shard pool", () => {
+  const weights = [8, 7, 6, 5, 4, 3, 2, 1];
+  const files = weights.map((_, index) => `src/file-${index}.ts`);
+  const measured = new Map(files.map((file, index) => [file, weights[index]]));
+  const loads = assignShardFiles(files, measured, 4).map((shard) =>
+    shard.reduce((sum, file) => sum + measured.get(file), 0),
+  );
+  // Round-robin over the sorted paths would stack 8+4 and 7+3 on two shards.
+  assert.ok(Math.max(...loads) - Math.min(...loads) <= 2, loads.join(","));
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  assert.equal(
+    loads.reduce((sum, load) => sum + load, 0),
+    total,
+  );
+});
+
+test("equal or unknown weights still spread every file over the pool", () => {
+  const files = Array.from(
+    { length: 40 },
+    (_, index) => `src/file-${index}.ts`,
+  );
+  for (const weights of [undefined, new Map(files.map((file) => [file, 5]))]) {
+    const shards = assignShardFiles(files, weights, 8);
+    assert.deepEqual(shards.flat().sort(), files.sort());
+    assert.equal(new Set(shards.flat()).size, files.length);
+    const counts = shards.map((shard) => shard.length);
+    assert.equal(Math.max(...counts) - Math.min(...counts), 0);
+  }
+});
+
+test("the shard runner takes its file list from the plan", () => {
   assert.deepEqual(
     parseRunArguments([
       "--shard",
       "3/8",
-      "--base",
-      "origin/master",
+      "--mutate",
+      "src/b.ts,src/a.ts",
       "--incremental",
     ]),
     {
       shard: { index: 2, number: 3, total: 8 },
-      base: "origin/master",
+      files: ["src/a.ts", "src/b.ts"],
       strykerArguments: ["--incremental"],
     },
   );
+  assert.deepEqual(parseRunArguments(["--shard=4/8", "--mutate=src/a.ts"]), {
+    shard: { index: 3, number: 4, total: 8 },
+    files: ["src/a.ts"],
+    strykerArguments: [],
+  });
+  // pnpm forwards its own separator, which Stryker must not receive.
+  assert.deepEqual(
+    parseRunArguments([
+      "--",
+      "--mutate",
+      "src/a.ts",
+      "--shard",
+      "2/8",
+      "--force",
+    ]),
+    {
+      shard: { index: 1, number: 2, total: 8 },
+      files: ["src/a.ts"],
+      strykerArguments: ["--force"],
+    },
+  );
+  assert.throws(() => parseRunArguments(["--shard", "3/8"]), /--mutate/u);
+  assert.throws(() => parseRunArguments(["--mutate", "src/a.ts"]), /--shard/u);
   assert.throws(
-    () => parseRunArguments(["--shard", "3/8", "--base"]),
-    /requires a ref/u,
+    () =>
+      parseRunArguments(["--shard", "1/8", "--mutate", "src/a.ts,,src/b.ts"]),
+    /empty file name/u,
+  );
+  assert.throws(
+    () =>
+      parseRunArguments([
+        "--shard",
+        "1/8",
+        "--mutate",
+        "src/a.ts",
+        "--mutate=src/b.ts",
+      ]),
+    /once/u,
   );
 });
 
@@ -109,28 +198,6 @@ test("parseShard rejects invalid shard notation", () => {
   }
 });
 
-test("parseRunArguments removes the shard option and forwards Stryker options", () => {
-  assert.deepEqual(
-    parseRunArguments(["--", "--incremental", "--shard", "2/8", "--force"]),
-    {
-      shard: { index: 1, number: 2, total: 8 },
-      strykerArguments: ["--incremental", "--force"],
-    },
-  );
-  assert.deepEqual(parseRunArguments(["--shard=4/8"]), {
-    shard: { index: 3, number: 4, total: 8 },
-    strykerArguments: [],
-  });
-});
-
-test("parseRunArguments requires exactly one shard", () => {
-  assert.throws(() => parseRunArguments([]), /--shard/u);
-  assert.throws(
-    () => parseRunArguments(["--shard", "1/8", "--shard=2/8"]),
-    /once/u,
-  );
-});
-
 test("resolveStrykerCli uses the workspace dependency", () => {
   assert.match(
     resolveStrykerCli(path.resolve("apps/api")),
@@ -138,36 +205,26 @@ test("resolveStrykerCli uses the workspace dependency", () => {
   );
 });
 
-test("selectShardFiles partitions every file exactly once", () => {
-  const files = Array.from(
-    { length: 40 },
-    (_, index) => `src/file-${index}.ts`,
-  );
-  const shards = Array.from({ length: 8 }, (_, index) =>
-    selectShardFiles(files, { index, total: 8 }),
-  );
-
-  assert.deepEqual(shards.flat().sort(), files.sort());
-  assert.equal(new Set(shards.flat()).size, files.length);
-  assert.ok(shards.every((shard) => shard.length > 0));
-});
-
-test("selectShardFiles keeps existing assignments when another file is added", () => {
-  const files = ["src/a.ts", "src/b.ts", "src/c.ts"];
-  const before = files.map((file) =>
-    Array.from({ length: 8 }, (_, index) =>
-      selectShardFiles(files, { index, total: 8 }).includes(file),
-    ).findIndex(Boolean),
-  );
-  const after = files.map((file) =>
-    Array.from({ length: 8 }, (_, index) =>
-      selectShardFiles([...files, "src/new.ts"], { index, total: 8 }).includes(
-        file,
-      ),
-    ).findIndex(Boolean),
-  );
-
-  assert.deepEqual(after, before);
+test("mutationRegressions reports only files that gained undetected mutants", () => {
+  const baseline = {
+    files: {
+      "src/lost.ts": { mutants: 3, undetected: 0, coveredBy: [] },
+      "src/improved.ts": { mutants: 3, undetected: 2, coveredBy: [] },
+      "src/equal.ts": { mutants: 3, undetected: 1, coveredBy: [] },
+    },
+  };
+  const current = {
+    files: {
+      "src/lost.ts": { mutants: 4, undetected: 2, coveredBy: [] },
+      "src/improved.ts": { mutants: 3, undetected: 0, coveredBy: [] },
+      "src/equal.ts": { mutants: 3, undetected: 1, coveredBy: [] },
+      "src/new.ts": { mutants: 2, undetected: 1, coveredBy: [] },
+    },
+  };
+  assert.deepEqual(mutationRegressions(baseline, current), [
+    { file: "src/lost.ts", undetected: 2, previous: 0 },
+    { file: "src/new.ts", undetected: 1, previous: 0 },
+  ]);
 });
 
 test("mergeMutationReports uses Stryker's mutation score semantics", () => {
@@ -216,28 +273,28 @@ test("mergeMutationReports rejects duplicate source files", () => {
   );
 });
 
-test("aggregate accepts pnpm's argument separator", () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-shard-"));
-  const reportFile = path.join(directory, "mutation.json");
-  writeFileSync(
-    reportFile,
-    JSON.stringify({ schemaVersion: "1.0", files: {} }),
+function runTool(...arguments_) {
+  return spawnSync(
+    process.execPath,
+    [
+      fileURLToPath(new URL("./mutation-sharding.mjs", import.meta.url)),
+      ...arguments_,
+    ],
+    { encoding: "utf8" },
   );
+}
 
+function reportFile(directory, name, files) {
+  const file = path.join(directory, name);
+  writeFileSync(file, JSON.stringify({ schemaVersion: "1.0", files }));
+  return file;
+}
+
+test("aggregate accepts pnpm's argument separator", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-msi-"));
   try {
-    const result = spawnSync(
-      process.execPath,
-      [
-        fileURLToPath(new URL("./mutation-sharding.mjs", import.meta.url)),
-        "aggregate",
-        "--",
-        "--expected-shards",
-        "1",
-        reportFile,
-      ],
-      { encoding: "utf8" },
-    );
-
+    const report = reportFile(directory, "mutation.json", {});
+    const result = runTool("aggregate", "--", "--expected-shards", "1", report);
     assert.equal(result.status, 0, result.stderr);
   } finally {
     rmSync(directory, { recursive: true });
@@ -246,26 +303,10 @@ test("aggregate accepts pnpm's argument separator", () => {
 
 test("aggregate rejects an MSI threshold outside 0 through 100", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-msi-"));
-  const reportFile = path.join(directory, "mutation.json");
-  writeFileSync(
-    reportFile,
-    JSON.stringify({ schemaVersion: "1.0", files: {} }),
-  );
-
   try {
+    const report = reportFile(directory, "mutation.json", {});
     for (const threshold of ["-1", "101"]) {
-      const result = spawnSync(
-        process.execPath,
-        [
-          fileURLToPath(new URL("./mutation-sharding.mjs", import.meta.url)),
-          "aggregate",
-          "--threshold",
-          threshold,
-          reportFile,
-        ],
-        { encoding: "utf8" },
-      );
-
+      const result = runTool("aggregate", "--threshold", threshold, report);
       assert.equal(result.status, 1);
       assert.match(result.stderr, /--threshold must be between 0 and 100/u);
     }
@@ -276,32 +317,170 @@ test("aggregate rejects an MSI threshold outside 0 through 100", () => {
 
 test("aggregate fails below the requested MSI threshold", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-msi-"));
-  const reportFile = path.join(directory, "mutation.json");
-  writeFileSync(
-    reportFile,
-    JSON.stringify({
-      schemaVersion: "1.0",
-      files: {
-        "src/a.ts": { mutants: [{ id: "0", status: "Survived" }] },
-      },
-    }),
-  );
-
   try {
-    const result = spawnSync(
-      process.execPath,
-      [
-        fileURLToPath(new URL("./mutation-sharding.mjs", import.meta.url)),
-        "aggregate",
-        "--threshold",
-        "80",
-        reportFile,
-      ],
-      { encoding: "utf8" },
-    );
-
+    const report = reportFile(directory, "mutation.json", {
+      "src/a.ts": { mutants: [{ id: "0", status: "Survived" }] },
+    });
+    const result = runTool("aggregate", "--threshold", "80", report);
     assert.equal(result.status, 1);
     assert.match(result.stderr, /Mutation score 0\.00% is below 80%/u);
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+});
+
+test("aggregate rejects a baseline combined with a threshold", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-delta-"));
+  try {
+    const report = reportFile(directory, "mutation.json", {});
+    const result = runTool(
+      "aggregate",
+      "--threshold",
+      "80",
+      "--baseline",
+      report,
+      report,
+    );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /not both/u);
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+});
+
+test("aggregate gates on undetected mutants gained against a baseline", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-delta-"));
+  try {
+    const index = path.join(directory, "baseline.json");
+    writeFileSync(
+      index,
+      JSON.stringify({
+        baselineVersion: 1,
+        files: {
+          "src/edited.ts": {
+            mutants: 2,
+            undetected: 1,
+            coveredBy: ["src/edited.test.ts"],
+          },
+          "src/untouched.ts": { mutants: 1, undetected: 1, coveredBy: [] },
+        },
+      }),
+    );
+    const survivors = reportFile(directory, "mutation.json", {
+      "src/edited.ts": {
+        mutants: [
+          { id: "0", status: "Killed" },
+          { id: "1", status: "Survived" },
+          { id: "2", status: "NoCoverage" },
+        ],
+      },
+    });
+
+    // One pre-existing survivor is forgiven; the second is this diff's doing.
+    const failed = runTool("aggregate", "--baseline", index, survivors);
+    assert.equal(failed.status, 1);
+    assert.match(failed.stdout, /src\/edited\.ts: 1 -> 2/u);
+    assert.match(failed.stderr, /1 source files gained undetected mutants/u);
+
+    const held = runTool(
+      "aggregate",
+      "--baseline",
+      index,
+      reportFile(directory, "resolved.json", {
+        "src/edited.ts": {
+          mutants: [
+            { id: "0", status: "Killed" },
+            { id: "1", status: "Survived" },
+          ],
+        },
+      }),
+    );
+    assert.equal(held.status, 0, held.stderr);
+    assert.match(held.stdout, /No new undetected mutants/u);
+
+    // A package baseline is its own incremental report, not a merged index.
+    const raw = runTool(
+      "aggregate",
+      "--baseline",
+      reportFile(directory, "incremental.json", {
+        "src/edited.ts": {
+          mutants: [
+            { id: "0", status: "Killed" },
+            { id: "1", status: "Survived" },
+          ],
+        },
+      }),
+      survivors,
+    );
+    assert.equal(raw.status, 1);
+    assert.match(raw.stdout, /src\/edited\.ts: 1 -> 2/u);
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+});
+
+test("baseline folds reports into the index and keeps unmeasured files", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-index-"));
+  try {
+    // The previous index is what a prior build wrote; the plan and the gate
+    // read it back, so the round trip through disk is the contract.
+    const previous = path.join(directory, "previous.json");
+    writeFileSync(
+      previous,
+      JSON.stringify({
+        baselineVersion: 1,
+        files: {
+          "src/kept.ts": {
+            mutants: 1,
+            undetected: 0,
+            coveredBy: ["src/kept.test.ts"],
+          },
+          "src/refreshed.ts": { mutants: 1, undetected: 1, coveredBy: [] },
+        },
+      }),
+    );
+    const reports = [
+      reportFile(directory, "shard-1.json", {
+        "src/refreshed.ts": {
+          mutants: [{ id: "0", status: "Killed" }],
+        },
+      }),
+      reportFile(directory, "shard-2.json", {
+        "src/added.ts": {
+          mutants: [{ id: "0", status: "NoCoverage" }],
+        },
+      }),
+    ];
+    const output = path.join(directory, "mutation-baseline.json");
+    const result = runTool(
+      "baseline",
+      "--previous",
+      previous,
+      "--output",
+      output,
+      ...reports,
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), {
+      baselineVersion: 1,
+      files: {
+        "src/kept.ts": {
+          mutants: 1,
+          undetected: 0,
+          coveredBy: ["src/kept.test.ts"],
+        },
+        "src/refreshed.ts": { mutants: 1, undetected: 0, coveredBy: [] },
+        "src/added.ts": { mutants: 1, undetected: 1, coveredBy: [] },
+      },
+    });
+
+    // Without a previous index the run simply replaces it.
+    const fresh = path.join(directory, "fresh.json");
+    assert.equal(runTool("baseline", "--output", fresh, reports[1]).status, 0);
+    assert.deepEqual(
+      Object.keys(JSON.parse(readFileSync(fresh, "utf8")).files),
+      ["src/added.ts"],
+    );
   } finally {
     rmSync(directory, { recursive: true });
   }

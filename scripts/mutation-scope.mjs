@@ -9,6 +9,25 @@ export const mutationWorkspaces = [
   "packages/runtime-safety",
 ];
 
+// The API corpus runs in a fixed runner pool. Shard identity indexes both the
+// plan matrix and the per-shard baseline caches, so the count is shared here.
+export const apiShardCount = 8;
+
+const undetectedStatuses = new Set(["Survived", "NoCoverage"]);
+
+export function testFile(file) {
+  return /\.test\.[cm]?ts$/u.test(file);
+}
+
+// The API baseline is a merged index of its shard reports; a package baseline
+// is the incremental report of its own single run. `mutationBaseline` reads
+// both shapes.
+export function mutationBaselinePath(workspace) {
+  return workspace === "apps/api"
+    ? "reports/mutation-baseline.json"
+    : "reports/stryker-incremental.json";
+}
+
 function documentation(file) {
   return (
     /^[^/]+\.md$/u.test(file) ||
@@ -38,11 +57,24 @@ function git(arguments_, cwd) {
   });
 }
 
-export function changedFiles(base, cwd = process.cwd()) {
-  const revision = git(
-    ["rev-parse", "--verify", "--end-of-options", `${base}^{commit}`],
+function resolveCommit(ref, cwd) {
+  return git(
+    ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`],
     cwd,
   ).trim();
+}
+
+export function hasCommit(ref, root = process.cwd()) {
+  try {
+    resolveCommit(ref, root);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function changedFiles(base, cwd = process.cwd()) {
+  const revision = resolveCommit(base, cwd);
   const ancestor = git(["merge-base", "HEAD", revision], cwd).trim();
   return [
     ...new Set(
@@ -87,7 +119,116 @@ export function mutationSourceFiles(workspace) {
   return selected;
 }
 
-export function selectMutationScope(changes, sources) {
+// Normalizes Stryker reports into the one shape the scope and delta gates
+// read: per source file, how much work it carries, how much of it is
+// undetected, and which test files can flip it.
+//
+// `coveredBy` holds test ids that only resolve against the `testFiles` of the
+// same report, so each report is mapped on its own. Ids that are already test
+// paths (an index read back in) pass through unchanged.
+export const mutationBaselineVersion = 1;
+
+function mutationBaselineFiles(reports) {
+  const files = {};
+  for (const report of reports) {
+    if (!report || typeof report.files !== "object" || report.files === null)
+      throw new Error("Invalid mutation baseline report");
+    const testPaths = new Map(
+      Object.entries(report.testFiles ?? {}).flatMap(([file, entry]) =>
+        (entry?.tests ?? []).map((test) => [test.id, file]),
+      ),
+    );
+    for (const [file, entry] of Object.entries(report.files)) {
+      if (!Array.isArray(entry?.mutants))
+        throw new Error(`Invalid mutant list for ${file}`);
+      const coveredBy = new Set();
+      let undetected = 0;
+      let tested = 0;
+      for (const mutant of entry.mutants) {
+        if (mutant.status === "Ignored") continue;
+        tested += 1;
+        if (undetectedStatuses.has(mutant.status)) undetected += 1;
+        for (const id of mutant.coveredBy ?? [])
+          coveredBy.add(testPaths.get(id) ?? id);
+      }
+      files[file] = {
+        mutants: tested,
+        undetected,
+        coveredBy: [...coveredBy].sort(),
+      };
+    }
+  }
+  return files;
+}
+
+export function mutationBaseline(reports) {
+  return {
+    baselineVersion: mutationBaselineVersion,
+    files: mutationBaselineFiles(reports),
+  };
+}
+
+export function mergeMutationBaseline(previous, reports) {
+  return {
+    baselineVersion: mutationBaselineVersion,
+    files: { ...(previous?.files ?? {}), ...mutationBaselineFiles(reports) },
+  };
+}
+
+// The sharded API baseline is the merged index this project writes; a package
+// baseline is the incremental report of its own single run. Reading accepts
+// both, so callers never depend on which one they were handed.
+export function readMutationBaselineFile(file) {
+  const parsed = JSON.parse(readFileSync(file, "utf8"));
+  if (parsed?.baselineVersion === mutationBaselineVersion) {
+    if (
+      !parsed.files ||
+      typeof parsed.files !== "object" ||
+      Array.isArray(parsed.files)
+    )
+      throw new Error(`Invalid mutation baseline: ${file}`);
+    if (
+      Object.values(parsed.files).some(
+        (entry) =>
+          !Number.isInteger(entry?.mutants) ||
+          !Number.isInteger(entry?.undetected) ||
+          !Array.isArray(entry?.coveredBy),
+      )
+    ) {
+      throw new Error(`Invalid mutation baseline: ${file}`);
+    }
+    return parsed;
+  }
+  return mutationBaseline([parsed]);
+}
+
+export function readMutationBaseline(workspace, root = process.cwd()) {
+  const file = path.join(root, workspace, mutationBaselinePath(workspace));
+  if (!existsSync(file)) return undefined;
+  return readMutationBaselineFile(file);
+}
+
+export function readMutationBaselines(root = process.cwd()) {
+  return Object.fromEntries(
+    mutationWorkspaces.map((workspace) => [
+      workspace,
+      readMutationBaseline(workspace, root),
+    ]),
+  );
+}
+
+function sourcesByTest(baseline) {
+  const byTest = new Map();
+  for (const [source, entry] of Object.entries(baseline.files)) {
+    for (const test of entry.coveredBy) {
+      if (!byTest.has(test)) byTest.set(test, new Set());
+      byTest.get(test).add(source);
+    }
+  }
+  return byTest;
+}
+
+export function selectMutationScope(changes, sources, baselines = {}) {
   const scopes = Object.fromEntries(
     mutationWorkspaces.map((workspace) => [
       workspace,
@@ -97,6 +238,20 @@ export function selectMutationScope(changes, sources) {
   const full = (workspace) => {
     scopes[workspace] = { mode: "full", files: sources[workspace] };
   };
+  const scoped = (workspace, file) => {
+    if (scopes[workspace].mode === "full") return;
+    scopes[workspace].mode = "scoped";
+    scopes[workspace].files.push(file);
+  };
+  // A test file can only flip mutants in the mutant files it covers. That
+  // mapping needs a baseline; without one a changed test file still expands to
+  // the complete workspace, because its effect cannot be bounded.
+  const covered = Object.fromEntries(
+    mutationWorkspaces.map((workspace) => [
+      workspace,
+      baselines[workspace] ? sourcesByTest(baselines[workspace]) : undefined,
+    ]),
+  );
 
   for (const file of changes) {
     if (documentation(file)) continue;
@@ -105,12 +260,18 @@ export function selectMutationScope(changes, sources) {
     );
     if (workspace) {
       const relative = file.slice(workspace.length + 1);
-      if (testSupport(relative) || !sources[workspace].includes(relative))
+      const byTest = covered[workspace];
+      if (testFile(relative)) {
+        if (!byTest) full(workspace);
+        else
+          for (const source of byTest.get(relative) ?? [])
+            if (sources[workspace].includes(source)) scoped(workspace, source);
+      } else if (
+        testSupport(relative) ||
+        !sources[workspace].includes(relative)
+      )
         full(workspace);
-      else if (scopes[workspace].mode !== "full") {
-        scopes[workspace].mode = "changed";
-        scopes[workspace].files.push(relative);
-      }
+      else scoped(workspace, relative);
       // API consumes built shared packages; their changes are outside its
       // own mutant/test files and cannot be inferred by Stryker incremental mode.
       if (workspace.startsWith("packages/")) full("apps/api");
@@ -120,8 +281,11 @@ export function selectMutationScope(changes, sources) {
       for (const directory of mutationWorkspaces) full(directory);
     }
   }
-  for (const scope of Object.values(scopes))
+  for (const scope of Object.values(scopes)) {
     scope.files = [...new Set(scope.files)].sort();
+    if (scope.mode === "scoped" && scope.files.length === 0)
+      scope.mode = "skip";
+  }
   return scopes;
 }
 
@@ -159,7 +323,7 @@ export function mutationFingerprint(workspace, root = process.cwd()) {
         const relative = file.slice(workspace.length + 1);
         return (
           testSupport(relative) ||
-          (!mutated.has(relative) && !relative.endsWith(".test.ts"))
+          (!mutated.has(relative) && !testFile(relative))
         );
       }
       if (/^(apps|packages)\//u.test(file))
@@ -187,20 +351,29 @@ export function mutationFingerprint(workspace, root = process.cwd()) {
   return hash.digest("hex");
 }
 
-export function readMutationScope(base) {
-  const root = git(["rev-parse", "--show-toplevel"], process.cwd()).trim();
+export function repositoryRoot(cwd = process.cwd()) {
+  return git(["rev-parse", "--show-toplevel"], cwd).trim();
+}
+
+export function fullMutationScope(root = process.cwd()) {
+  return Object.fromEntries(
+    mutationWorkspaces.map((workspace) => [
+      workspace,
+      {
+        mode: "full",
+        files: mutationSourceFiles(path.join(root, workspace)),
+      },
+    ]),
+  );
+}
+
+export function readMutationScope(base, baselines, root = process.cwd()) {
+  if (base === undefined) return fullMutationScope(root);
   const sources = Object.fromEntries(
     mutationWorkspaces.map((workspace) => [
       workspace,
       mutationSourceFiles(path.join(root, workspace)),
     ]),
   );
-  return base === undefined
-    ? Object.fromEntries(
-        mutationWorkspaces.map((workspace) => [
-          workspace,
-          { mode: "full", files: sources[workspace] },
-        ]),
-      )
-    : selectMutationScope(changedFiles(base, root), sources);
+  return selectMutationScope(changedFiles(base, root), sources, baselines);
 }
