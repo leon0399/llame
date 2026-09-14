@@ -12,9 +12,7 @@ grammar.
 
 An allowlisted `knowledge_read` entry now fails boot; remove it from
 `tools.allowed` before upgrading. Historical `knowledge_read` observations in
-existing chats still render as recorded, and a Run accepted before the removal
-whose bound tool snapshot names it fails closed before the provider request
-rather than executing a substitute.
+existing chats still render as recorded, and no attempt admits the deleted tool.
 
 ## Configuration and ownership
 

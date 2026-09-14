@@ -100,7 +100,7 @@ Infrastructure failures retry under bounded queue policy; exhausted jobs dead-le
 
 ### 9.7 Immutable model context
 
-Every newly queued Run binds, in the message transaction, an owner-scoped immutable snapshot of its complete effective system prompt, advertised tool declarations, and source-neutral tool-availability manifest. The worker executes only that snapshot; later configuration or catalog changes affect later Runs. Availability is disclosed at a fresh conversation or post-compaction epoch only when degraded, then only on observable changes; unchanged state is not repeated. Owners can inspect the safe receipt through the Run API, while public shares, exports, and search exclude it. See [`model-context.ts`](apps/api/src/db/schema/model-context.ts), [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md), and [`tool-calling`](openspec/specs/tool-calling/spec.md).
+Prompt preparation happens in the executing worker, per attempt, inside that attempt's transaction. The worker composes the attempt's admitted tool catalog and holds the declarations and availability manifest in memory only; each prepared attempt writes its own immutable, owner-scoped, system-only receipt carrying the rendered system prompt, its prompt source, and its prompt hash, and no attempt reuses another's receipt. Later configuration or catalog changes affect later attempts. Availability is disclosed at a fresh conversation or post-compaction epoch only when degraded, then only on observable changes against the previous successful turn's committed availability record; unchanged state is not repeated. Owners can inspect the attempt receipts through the Run API, while public shares, exports, and search exclude them. See [`system-prompt-receipts.ts`](apps/api/src/db/schema/system-prompt-receipts.ts), [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md), and [`tool-calling`](openspec/specs/tool-calling/spec.md).
 
 ### 9.8 Context injection
 
@@ -112,11 +112,11 @@ Reserved delimiters are neutralized on the user and tool rails so untrusted cont
 
 ## 13. Tools and integrations
 
-The current Run loop interleaves model output with tool calls within an operator step cap. The code-owned tools are `search_conversations` (two-mode: keyword content search with optional time ranges, and timeline activity-pointer discovery), the optional `conversation_read`, the personal Knowledge readers, and the opt-in native file tools; operators may also configure instance-scoped Streamable HTTP MCP servers through the restart-applied top-level `mcpServers` map. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the immutable Run snapshot.
+The current Run loop interleaves model output with tool calls within an operator step cap. The code-owned tools are `search_conversations` (two-mode: keyword content search with optional time ranges, and timeline activity-pointer discovery), the optional `conversation_read`, the personal Knowledge readers, and the opt-in native file tools; operators may also configure instance-scoped Streamable HTTP MCP servers through the restart-applied top-level `mcpServers` map. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the attempt's admitted tool catalog.
 
 Remote ids are stable `mcp__<server>__<tool>` names. Only the exact ids in `tools.allowed` may be advertised or executed, and an MCP allowlist entry is the operator's attestation that the operation is read-only—not automated semantic verification. Write, send, delete, execute, financial, and administrative MCP operations are prohibited. Two transports ship: remote Streamable HTTP, and local stdio servers llame runs as child processes. Supported protocol revisions are the session-capable `2025-03-26`, `2025-06-18`, and `2025-11-25` on both; sessionless MCP `2026-07-28` and deprecated HTTP+SSE do not ship. A stdio child receives only its declared `env` over the MCP SDK's base allowlist — llame's own environment is not passed through — and executes unsandboxed as the llame user.
 
-Each API or worker process eagerly owns independent per-server clients and sessions. Disconnect and discovery failures withdraw only that server; turns never wait for remote discovery or reconnect, and workers execute only an exact declaration-hash match from the immutable Run snapshot. Configured endpoints are operator-approved outbound data boundaries. Redirects are disabled, while private endpoints are intentionally allowed for self-hosted services. See [`mcp-tools`](openspec/specs/mcp-tools/spec.md) and [docs/mcp-tools.md](docs/mcp-tools.md).
+Each API or worker process eagerly owns independent per-server clients and sessions. Disconnect and discovery failures withdraw only that server; turns never wait for remote discovery or reconnect, and workers execute only an exact declaration-hash match against the attempt's admitted catalog. Configured endpoints are operator-approved outbound data boundaries. Redirects are disabled, while private endpoints are intentionally allowed for self-hosted services. See [`mcp-tools`](openspec/specs/mcp-tools/spec.md) and [docs/mcp-tools.md](docs/mcp-tools.md).
 
 Queue retries may restart read-only Runs from their first step. A Run that started a native mutation fails on recovery instead of replaying its model loop. The existing owner-scoped event log records native attempts before file changes and settles known results before continuation; client replay executes no filesystem operation.
 
@@ -130,12 +130,12 @@ The code-owned `knowledge_search` tool is an optional, operator-allowlisted
 `read_only` tool; Knowledge file reads, edits, and writes are the `kb://`
 locator of the native file tools (§13.7), not a separate Knowledge-owned
 reader. `knowledge_read` is deleted: a `tools.allowed` entry naming it fails
-boot, and a Run accepted before removal whose immutable snapshot names it fails
-closed before the provider request rather than executing a substitute. Run acceptance resolves `knowledge_search` availability for the
-authenticated owner inside the Run-binding RLS transaction, without probing the
-API process filesystem. Workers resolve the binding from trusted Run context,
-revalidate their local mount at execution, and fail closed when it is
-unavailable. Tool declarations remain static; no tenant mutates the registry.
+boot, and no attempt admits it. The executing worker resolves
+`knowledge_search` availability for the authenticated owner inside the attempt's
+RLS transaction, without probing the API process filesystem. Workers resolve
+the binding from trusted Run context, revalidate their local mount at
+execution, and fail closed when it is unavailable. Tool declarations remain
+static; no tenant mutates the registry.
 
 Each `knowledge_search` passage carries a `locator`
 (`kb://<space-id>/<path>:N-M`, one-based inclusive) that is directly a valid
@@ -286,8 +286,7 @@ Search and read use the current bounded filesystem, including modified or
 newly created files without a Git commit. New `kb://` results expose no
 content hash, expected hash, revision, or host path. Historical
 `knowledge_read` results retain their earlier hash-bearing shape and remain
-immutable; the tool itself is deleted, and a Run whose snapshot names it fails
-closed before the provider request.
+immutable; the tool itself is deleted, and no attempt admits it.
 
 Git history, versioned publication, accepted revisions, and synchronization
 begin in #212 or later capabilities. No Knowledge index or embedding projection,
@@ -329,7 +328,7 @@ Each user may author a `preferredName`, an `about`, and `responsePreferences`, g
 
 ### 20.3 Chat recency digest
 
-An opted-in owner's chat resolves, on its first accepted Run, a capped digest of their other pinned and recent chats — title, last-activity date, message count, and a 200-code-point excerpt of the first user message, with no chat identifiers — and **freezes** it, so the digest contributes no per-turn variation: across turns whose other effective-context inputs are unchanged, the rendered prompt stays byte-identical and the snapshot is reused rather than re-minted. Personalization, the selected model's template, an operator prompt reload, and the tool-availability manifest are all snapshot inputs, so a change to any of them still mints a new snapshot — the freeze is a property of the digest, not a guarantee over the whole prompt. Changes reach the model as appended server-authored events on the reminder rail, never as a restated list; compaction is the only re-bake boundary. This is **awareness, not retrieval**: it exists so the model has reason to call `search_conversations`, and the content path stays RLS-scoped and auditable.
+An opted-in owner's chat resolves, on its first accepted Run, a capped digest of their other pinned and recent chats — title, last-activity date, message count, and a 200-code-point excerpt of the first user message, with no chat identifiers — and **freezes** it, so the digest contributes no per-turn variation: across turns whose other effective-context inputs are unchanged, the rendered prompt stays byte-identical and the frozen baseline is reused. Personalization, the selected model's template, and an operator prompt reload are rendered per attempt, so a change to any of them changes the next attempt's prompt — the freeze is a property of the digest, not a guarantee over the whole prompt. Changes reach the model as appended server-authored events on the reminder rail, never as a restated list; compaction is the only re-bake boundary. This is **awareness, not retrieval**: it exists so the model has reason to call `search_conversations`, and the content path stays RLS-scoped and auditable.
 
 Two limits are recorded rather than glossed. The data-not-instructions framing is advisory, carried by the packaged prompt's prose and model compliance; only delimiter integrity is guaranteed. The compaction exclusion is likewise an instruction naming each delimiter — including the append rail's, which sits in the compactable prefix rather than the replayed prompt — and the structural alternative is foreclosed by putting the digest in the system prompt at all. See [`chat-recency-digest`](openspec/specs/chat-recency-digest/spec.md).
 
@@ -363,4 +362,4 @@ Other storage must preserve the ownership and isolation boundaries in this file.
 
 ### 28.2 User and retrieved content
 
-User messages, generated checkpoints, and tool or retrieval results are model input, not trusted authority. They cannot select tenant identity, top-level instructions, tool availability, or access scope. The bound Run snapshot is the sole system-prompt/tool-declaration authority. Stored system-role rows and persisted reasoning parts are excluded from replayed context. Tool observations are replayed in the conventional tool-call/tool-result representation, labelled untrusted, escape-proofed, and bounded per call and per turn. See [`context-builder.ts`](apps/api/src/chats/context-builder.ts), [`model-context.ts`](apps/api/src/db/schema/model-context.ts), and [`tool-calling`](openspec/specs/tool-calling/spec.md).
+User messages, generated checkpoints, and tool or retrieval results are model input, not trusted authority. They cannot select tenant identity, top-level instructions, tool availability, or access scope. The executing worker's per-attempt composition is the sole system-prompt/tool-declaration authority. Stored system-role rows and persisted reasoning parts are excluded from replayed context. Tool observations are replayed in the conventional tool-call/tool-result representation, labelled untrusted, escape-proofed, and bounded per call and per turn. See [`context-builder.ts`](apps/api/src/chats/context-builder.ts), [`run-execution.service.ts`](apps/api/src/runs/run-execution.service.ts), and [`tool-calling`](openspec/specs/tool-calling/spec.md).

@@ -105,10 +105,10 @@ closed; subset mounts and owner-affinity routing are unsupported. See
 ## MCP process multiplication
 
 Every API and worker owns clients and discovery state. Replica count multiplies
-remote connections and stdio child processes, including `web` APIs that need a
-catalog to author Run snapshots. Catalog divergence settles exact declaration
-mismatches as unavailable. See [mcp-tools.md](mcp-tools.md) for configuration
-and deployment.
+remote connections and stdio child processes, and each worker composes its
+attempt's admitted catalog from its own discovery. An execution-time declaration
+mismatch settles that tool unavailable. See [mcp-tools.md](mcp-tools.md) for
+configuration and deployment.
 
 ## Open scaling work
 
