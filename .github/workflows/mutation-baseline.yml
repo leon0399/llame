@@ -1,10 +1,10 @@
 # Full-corpus mutation sweep: a trend, not a gate.
 #
-# Every mutant is retested (`--force`) so the merged API baseline index and the
-# package incrementals are rebuilt from scratch, and the resulting global MSI is
-# reported rather than enforced. Slow erosion that no single pull request caused
-# surfaces here, where the response is a cleanup issue instead of a red X. Pull
-# requests are gated by `ci.yml` against the delta of their own diff.
+# Every mutant is retested (`--force`) and global MSI is reported, not enforced.
+# The index is refreshed unless a newer master measurement has already landed;
+# the summary logs when it retains that newer revision. Slow erosion surfaces
+# here as a cleanup task rather than a PR gate failure. Pull requests are gated
+# by `ci.yml` against the delta of their own diff.
 
 name: Mutation baseline refresh
 
@@ -97,12 +97,16 @@ jobs:
     name: Forced API mutation summary
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: mutation-trusted-api-baseline
+      cancel-in-progress: false
     needs: [api-shard, plan]
     if: always() && !cancelled()
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: ./.github/actions/setup
 
@@ -158,6 +162,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: ./.github/actions/setup
 

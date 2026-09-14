@@ -84,12 +84,12 @@ test("a baseline narrows test edits to the mutant files those tests cover", () =
     })["apps/api"],
     { mode: "scoped", files: ["src/b.ts"] },
   );
-  // Covers nothing, or no longer a mutant source: nothing to run.
+  // An unindexed test is unbounded; a removed source cannot be selected.
   assert.equal(
     selectMutationScope(["apps/api/src/unrelated.test.ts"], sources, baseline)[
       "apps/api"
     ].mode,
-    "skip",
+    "full",
   );
   assert.equal(
     selectMutationScope(["apps/api/src/a.test.ts"], sources, {
@@ -218,6 +218,43 @@ test("shared package edits include the complete dependent API scope", () => {
   }
 });
 
+test("dependency test edits do not expand API mutation scope", () => {
+  const baseline = {
+    "apps/api": {
+      files: {
+        "src/a.ts": { mutants: 4, undetected: 1, coveredBy: ["src/a.test.ts"] },
+      },
+    },
+    "packages/runtime-safety": {
+      files: {
+        "src/redact.ts": {
+          mutants: 2,
+          undetected: 0,
+          coveredBy: ["src/redact.test.ts"],
+        },
+      },
+    },
+  };
+  const result = selectMutationScope(
+    [
+      "apps/api/src/a.test.ts",
+      "packages/native-file-tools/src/read.test.ts",
+      "packages/bash-executor/src/execute.test.ts",
+      "packages/runtime-safety/src/redact.test.ts",
+    ],
+    sources,
+    baseline,
+  );
+  assert.deepEqual(result["apps/api"], {
+    mode: "scoped",
+    files: ["src/a.ts"],
+  });
+  assert.deepEqual(result["packages/runtime-safety"], {
+    mode: "scoped",
+    files: ["src/redact.ts"],
+  });
+});
+
 test("mutated fixtures and test doubles expand the complete workspace", () => {
   for (const file of [
     "src/runs/model-context-snapshot.test-fixture.ts",
@@ -254,6 +291,8 @@ test("baselines invalidate on environment and dependency changes, retaining nati
       devDependencies: { "@workspace/config-typescript": "workspace:*" },
     }),
     "packages/runtime-safety/src/index.ts": "export const dependency = 1;\n",
+    "packages/runtime-safety/src/index.test.ts":
+      "test('dependency', () => {});\n",
     "packages/config-typescript/package.json": "{}\n",
     "packages/config-typescript/base.json": "{}\n",
     "apps/web/app/page.tsx": "export const page = 1;\n",
@@ -276,6 +315,7 @@ test("baselines invalidate on environment and dependency changes, retaining nati
     for (const file of [
       "apps/api/src/a.ts",
       "apps/api/src/a.test.ts",
+      "packages/runtime-safety/src/index.test.ts",
       "apps/api/README.md",
       "apps/web/app/page.tsx",
     ]) {
@@ -447,6 +487,132 @@ test("Git scope includes branch, staged, unstaged, untracked, renamed and delete
       "untracked.ts",
     ]);
     assert.throws(() => changedFiles("missing-base", directory));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("trusted plans include changes from a cancelled predecessor run", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-resume-"));
+  const git = (...args) =>
+    execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+      cwd: directory,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  try {
+    git("init", "--initial-branch=master");
+    git("config", "user.name", "Mutation scope test");
+    git("config", "user.email", "mutation-scope@example.invalid");
+    writeFileSync(path.join(directory, ".gitignore"), "**/reports/\n");
+    for (const [workspace, files] of Object.entries(sources)) {
+      mkdirSync(path.join(directory, workspace, "src"), { recursive: true });
+      writeFileSync(
+        path.join(directory, workspace, "stryker.config.json"),
+        JSON.stringify({ mutate: ["src/**/*.ts"] }),
+      );
+      for (const file of files)
+        writeFileSync(
+          path.join(directory, workspace, file),
+          "export const n = 1;\n",
+        );
+    }
+    git("add", ".");
+    git("commit", "-m", "Measured baseline");
+    const revision = git("rev-parse", "HEAD");
+    mkdirSync(path.join(directory, "apps/api/reports"));
+    writeFileSync(
+      path.join(directory, "apps/api/reports/mutation-baseline.json"),
+      JSON.stringify({
+        baselineVersion: 2,
+        revision,
+        files: {
+          "src/a.ts": { mutants: 1, undetected: 0, coveredBy: [] },
+          "src/b.ts": { mutants: 1, undetected: 0, coveredBy: [] },
+        },
+      }),
+    );
+    writeFileSync(
+      path.join(directory, "apps/api/src/a.ts"),
+      "export const n = 2;\n",
+    );
+    git("add", ".");
+    git("commit", "-m", "Cancelled measurement");
+    const before = git("rev-parse", "HEAD");
+    writeFileSync(
+      path.join(directory, "apps/api/src/b.ts"),
+      "export const n = 2;\n",
+    );
+    git("add", ".");
+    git("commit", "-m", "Next master push");
+    const result = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          path.resolve("scripts/mutation-sharding.mjs"),
+          "plan",
+          "--base",
+          before,
+          "--from-baseline",
+        ],
+        { cwd: directory, encoding: "utf8" },
+      ).trim(),
+    );
+    assert.equal(result.apiMode, "scoped");
+    assert.deepEqual(result.apiShards.flatMap((shard) => shard.files).sort(), [
+      "src/a.ts",
+      "src/b.ts",
+    ]);
+
+    const run = (...args) =>
+      execFileSync(
+        process.execPath,
+        [path.resolve("scripts/mutation-sharding.mjs"), ...args],
+        { cwd: directory, encoding: "utf8" },
+      );
+    const report = path.join(directory, "apps/api/reports/current.json");
+    const oldReport = path.join(directory, "apps/api/reports/old.json");
+    const latest = path.join(directory, "apps/api/reports/latest.json");
+    for (const [file, status] of [
+      [report, "Survived"],
+      [oldReport, "Killed"],
+    ]) {
+      writeFileSync(
+        file,
+        JSON.stringify({
+          schemaVersion: "1.0",
+          files: { "src/a.ts": { mutants: [{ id: "0", status }] } },
+        }),
+      );
+    }
+    run("baseline", "--output", latest, report);
+    git("checkout", "--detach", before);
+    run("baseline", "--previous", latest, "--output", latest, oldReport);
+    // An older completion must not reset the newer allowance to zero.
+    assert.match(
+      run("aggregate", "--baseline", latest, report),
+      /No new undetected mutants/u,
+    );
+
+    const unreachable = JSON.stringify({
+      baselineVersion: 2,
+      revision: "f".repeat(40),
+      files: { "src/a.ts": { mutants: 1, undetected: 0, coveredBy: [] } },
+    });
+    writeFileSync(latest, unreachable);
+    writeFileSync(
+      path.join(directory, "apps/api/reports/mutation-baseline.json"),
+      unreachable,
+    );
+    assert.equal(
+      JSON.parse(run("plan", "--base", before, "--from-baseline")).apiMode,
+      "full",
+    );
+    run("baseline", "--previous", latest, "--output", latest, report);
+    assert.match(
+      run("aggregate", "--baseline", latest, report),
+      /No new undetected mutants/u,
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

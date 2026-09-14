@@ -13,6 +13,7 @@ import { parseArgs } from "node:util";
 import {
   apiShardCount,
   hasCommit,
+  isAncestor,
   mergeMutationBaseline,
   mutationBaselineFile,
   mutationFingerprint,
@@ -22,6 +23,7 @@ import {
   readMutationBaselines,
   readMutationScope,
   repositoryRoot,
+  resolveCommit,
 } from "./mutation-scope.mjs";
 
 export function parseShard(value) {
@@ -229,10 +231,29 @@ export function mutationPlan(scopes, baselines = {}) {
         ]),
       )
     : undefined;
+  let shardCount = apiShardCount;
+  if (scopes["apps/api"].mode === "scoped" && weights?.size) {
+    const values = [...weights.values()];
+    const target = Math.max(
+      1,
+      values.reduce((sum, weight) => sum + weight, 0) / apiShardCount,
+    );
+    const fallback = median(values);
+    const selected = scopes["apps/api"].files.reduce(
+      (sum, file) => sum + (weights.get(file) ?? fallback),
+      0,
+    );
+    // Reuse the full corpus's average shard workload as the scoped budget.
+    // Small diffs should not repeat setup and checker startup on eight runners.
+    shardCount = Math.min(
+      apiShardCount,
+      Math.max(1, Math.ceil(selected / target)),
+    );
+  }
   const apiShards = assignShardFiles(
     scopes["apps/api"].files,
     weights,
-    apiShardCount,
+    shardCount,
   )
     .map((files, index) => ({
       shard: `${index + 1}/${apiShardCount}`,
@@ -258,6 +279,7 @@ function scopeArguments(arguments_) {
       workspace: { type: "string" },
       dryRunOnly: { type: "boolean" },
       full: { type: "boolean" },
+      "from-baseline": { type: "boolean" },
       expectedMode: { type: "string" },
     },
   });
@@ -273,7 +295,11 @@ function scopeArguments(arguments_) {
 }
 
 function plan(arguments_) {
-  const { base, full } = scopeArguments(arguments_);
+  const {
+    base,
+    full,
+    "from-baseline": fromBaseline,
+  } = scopeArguments(arguments_);
   const root = repositoryRoot();
   const baselines = readMutationBaselines(root);
   // A base that does not resolve — a force push, a branch-creation push, a
@@ -283,7 +309,18 @@ function plan(arguments_) {
     full === true || !hasCommit(base ?? "", root) ? undefined : base;
   if (resolved === undefined && base !== undefined && full !== true)
     console.log(`${base}: unusable base ref; planning the complete workspace`);
-  const scopes = readMutationScope(resolved, baselines, root);
+  // A cancelled master run must not leave its files out of every later diff.
+  // Each workspace resumes from the revision its own index actually measured.
+  const bases =
+    fromBaseline && full !== true
+      ? Object.fromEntries(
+          mutationWorkspaces.map((workspace) => [
+            workspace,
+            baselines[workspace]?.revision,
+          ]),
+        )
+      : resolved;
+  const scopes = readMutationScope(bases, baselines, root);
   for (const workspace of mutationWorkspaces) {
     if (scopes[workspace].mode !== "scoped" || baselines[workspace]) continue;
     // A scoped run without a baseline cannot measure a delta, and mutating a
@@ -326,7 +363,14 @@ async function changed(arguments_) {
   const root = repositoryRoot();
   const baselines = readMutationBaselines(root);
   const scopes = readMutationScope(
-    options.base ?? "origin/master",
+    options["from-baseline"]
+      ? Object.fromEntries(
+          mutationWorkspaces.map((workspace) => [
+            workspace,
+            baselines[workspace]?.revision,
+          ]),
+        )
+      : (options.base ?? "origin/master"),
     baselines,
     root,
   );
@@ -507,15 +551,33 @@ function buildBaseline(arguments_) {
   // Same integrity rules as the gate: a crashed shard must not become the
   // oracle the next delta is measured against.
   mergeMutationReports(reports);
-  const previous =
+  let previous =
     previousPath !== undefined && existsSync(previousPath)
-      ? JSON.parse(readFileSync(previousPath, "utf8"))
+      ? readMutationBaselineFile(previousPath)
       : undefined;
-  const baseline = mergeMutationBaseline(previous, reports);
+  const root = repositoryRoot();
+  const revision = resolveCommit("HEAD", root);
+  if (previous && !hasCommit(previous.revision, root)) {
+    console.log(
+      `Discarding unreachable baseline revision ${previous.revision}`,
+    );
+    previous = undefined;
+  }
+  // Refresh jobs serialize restore/fold/save, but older measurements can
+  // finish later. Never replace a descendant's index with an older revision.
+  const newer =
+    previous &&
+    previous.revision !== revision &&
+    isAncestor(revision, previous.revision, root);
+  const baseline = newer
+    ? previous
+    : { ...mergeMutationBaseline(previous, reports), revision };
   mkdirSync(path.dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(baseline)}\n`);
   console.log(
-    `Mutation baseline: ${Object.keys(baseline.files).length} source files from ${reports.length} reports`,
+    newer
+      ? `Keeping newer baseline ${previous.revision}; measurement ${revision} was not folded`
+      : `Mutation baseline: ${Object.keys(baseline.files).length} source files from ${reports.length} reports`,
   );
 }
 

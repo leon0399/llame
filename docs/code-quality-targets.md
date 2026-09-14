@@ -36,8 +36,8 @@ same paths. API currently peaks at CRAP 42 with seven functions above 25. Web
 and config interpolation are below 25; the coverage scripts enforce 42 until the
 shared ceiling can move down. Stryker covers API, config interpolation and runtime safety
 through package-owned tasks: pull requests are gated on the undetected-mutant
-delta of their own diff, and 80% MSI applies only where no baseline exists to
-measure a delta against. The weekly sweep reports the global score as a trend
+delta of their own diff, and 80% MSI applies to full-run fallbacks for unbounded
+scope or missing baselines. The weekly sweep reports the global score as a trend
 instead of failing on it; see [testing.md](testing.md).
 
 ```bash

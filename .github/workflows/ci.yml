@@ -45,6 +45,7 @@ jobs:
       api_count: ${{ steps.scope.outputs.api_count }}
       api_matrix: ${{ steps.scope.outputs.api_matrix }}
       packages: ${{ steps.scope.outputs.packages }}
+      baseline_artifact: ${{ steps.baselines.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -53,10 +54,8 @@ jobs:
 
       - uses: ./.github/actions/setup
 
-      # The plan reads the same baselines its shards will be gated against: the
-      # merged API index, and each package's own incremental report. Whether a
-      # baseline is present decides between a scoped run and the complete
-      # workspace, so restoring it here is what makes the scope sound.
+      # Freeze the indexes used for selection. Gate jobs consume this exact
+      # snapshot rather than a newer cache entry restored after execution.
       - uses: ./.github/actions/stryker-baseline
         with:
           workspace: apps/api
@@ -77,10 +76,26 @@ jobs:
 
       - id: scope
         env:
-          # A pull request diffs against its base commit; a master push against
-          # the commit it replaced, so a merge is measured as the change it was.
+          # PRs use their base; trusted pushes resume each workspace from the
+          # last measured revision so cancelled runs cannot leave coverage gaps.
           MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: node scripts/mutation-sharding.mjs plan --base "$MUTATION_BASE"
+        run: |
+          arguments=(--base "$MUTATION_BASE")
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            arguments+=(--from-baseline)
+          fi
+          node scripts/mutation-sharding.mjs plan "${arguments[@]}"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: baselines
+        with:
+          name: mutation-baseline-input
+          path: |
+            apps/api/reports/mutation-baseline.json
+            packages/config-interpolation/reports/mutation-baseline.json
+            packages/runtime-safety/reports/mutation-baseline.json
+          retention-days: 1
+          if-no-files-found: ignore
 
   typecheck:
     name: Typecheck
@@ -230,6 +245,9 @@ jobs:
     timeout-minutes: 10
     needs: [mutation-api-shard, mutation-plan]
     if: always() && !cancelled()
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('mutation-pr-{0}-api-baseline', github.event.pull_request.number) || 'mutation-trusted-api-baseline' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: Require successful mutation execution
         env:
@@ -248,21 +266,16 @@ jobs:
         if: needs.mutation-plan.outputs.api_count != '0'
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: ./.github/actions/setup
         if: needs.mutation-plan.outputs.api_count != '0'
 
-      # The gate compares this run against the baseline the plan measured the
-      # diff with: a scoped run is judged as a delta, a complete run as a level.
-      # A complete run restores nothing — no baseline is what made it complete —
-      # and the refresh below writes the one the next run reads.
-      - uses: ./.github/actions/stryker-baseline
-        id: baseline
-        if: needs.mutation-plan.outputs.api_count != '0'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: needs.mutation-plan.outputs.api_count != '0' && needs.mutation-plan.outputs.baseline_artifact != ''
         with:
-          workspace: apps/api
-          cache-file: reports/mutation-baseline.json
-          cache-suffix: api-baseline
+          name: mutation-baseline-input
+          path: .
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         if: needs.mutation-plan.outputs.api_count != '0'
@@ -289,6 +302,16 @@ jobs:
             arguments=(--threshold "$MUTATION_THRESHOLD" "${arguments[@]}")
           fi
           pnpm test:mutation:aggregate -- "${arguments[@]}"
+
+      # Serialize the latest trusted restore/fold/save. The delta above uses
+      # the plan's snapshot; the fold preserves other completed measurements.
+      - uses: ./.github/actions/stryker-baseline
+        id: baseline
+        if: success() && needs.mutation-plan.outputs.api_count != '0' && github.event_name != 'pull_request'
+        with:
+          workspace: apps/api
+          cache-file: reports/mutation-baseline.json
+          cache-suffix: api-baseline
 
       # A trusted run refreshes the baseline; a pull request never does, or its
       # next push would be measured against its own results instead of master's.
@@ -330,14 +353,11 @@ jobs:
       - uses: ./.github/actions/setup
         if: matrix.mode != 'skip'
 
-      # The gate's oracle for this package, restored for every mode that runs.
-      - uses: ./.github/actions/stryker-baseline
-        id: baseline
-        if: matrix.mode != 'skip'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: matrix.mode != 'skip' && needs.mutation-plan.outputs.baseline_artifact != ''
         with:
-          workspace: packages/${{ matrix.package }}
-          cache-file: reports/mutation-baseline.json
-          cache-suffix: ${{ matrix.package }}-baseline
+          name: mutation-baseline-input
+          path: .
 
       # Stryker's own reuse cache, only meaningful for a complete run.
       - uses: ./.github/actions/stryker-baseline
@@ -354,7 +374,11 @@ jobs:
           MUTATION_MODE: ${{ matrix.mode }}
         run: |
           if [[ "$MUTATION_MODE" == scoped ]]; then
-            node scripts/mutation-sharding.mjs changed --workspace "packages/$MUTATION_PACKAGE" --base "$MUTATION_BASE" --expectedMode scoped
+            arguments=(--workspace "packages/$MUTATION_PACKAGE" --base "$MUTATION_BASE" --expectedMode scoped)
+            if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+              arguments+=(--from-baseline)
+            fi
+            node scripts/mutation-sharding.mjs changed "${arguments[@]}"
           else
             pnpm --filter "@workspace/$MUTATION_PACKAGE" test:mutation --incremental --reporters clear-text,html,json,progress-append-only
             # The package's own thresholds.break is null, so a complete run is
@@ -366,6 +390,14 @@ jobs:
             fi
             node scripts/mutation-sharding.mjs aggregate "${arguments[@]}"
           fi
+
+      - uses: ./.github/actions/stryker-baseline
+        id: baseline
+        if: success() && matrix.mode != 'skip' && github.event_name != 'pull_request'
+        with:
+          workspace: packages/${{ matrix.package }}
+          cache-file: reports/mutation-baseline.json
+          cache-suffix: ${{ matrix.package }}-baseline
 
       # Only a trusted run refreshes the baseline: a pull request that saved its
       # own results would be measured against itself on its next push.

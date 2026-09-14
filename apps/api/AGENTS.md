@@ -40,9 +40,11 @@ pnpm --filter api test:mutation
 
 Integration tests self-provision Postgres; `TEST_DATABASE_URL` overrides.
 Mutation testing covers API source with unit tests and the TypeScript checker.
-CI partitions source files into stable shards and enforces MSI on their merged
-report. Reports are ignored under `reports/`. Restricted sandboxes may need
-local-bind permission for Stryker.
+CI scopes mutation to changed sources and baseline-indexed test coverage,
+packs small diffs into fewer runners, and gates per-file undetected-mutant
+growth. Unbounded PR scopes use the 80% MSI fallback; weekly full runs report
+without a threshold. Reports are ignored under `reports/`. Restricted sandboxes
+may need local-bind permission for Stryker.
 
 ## Instance configuration
 

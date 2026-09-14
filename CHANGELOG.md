@@ -2,28 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-14
 
-- Scope the mutation gate to the diff and measure it as a delta (#830). A run
-  now mutates the changed source files plus every mutant file covered by a
-  changed test file, resolved from the baseline's per-test coverage, so
-  weakening or deleting a test still pulls its files into scope; previously any
-  change to a `.test.ts`, fixture or config file expanded the entire workspace,
-  which is every pull request that touches tests. The gate compares each
-  measured file's undetected mutant count — survived or uncovered — against the
-  baseline instead of a level, so editing one line of a legacy file no longer
-  fails a pull request for pre-existing debt. A file with no baseline entry has
-  no allowance, and a run with no usable baseline expands to the complete
-  workspace, where the 80% level gate still applies. Master pushes gate the
-  merge that landed, and the weekly sweep retests every mutant and reports the
-  global score as a trend rather than failing on it: `thresholds.break` is now
-  null in both package configs, and the complete-run level gate is a
-  pull-request fallback for a diff that has no baseline to be measured against,
-  never a red master. API shards are assigned by measured mutant count instead
-  of a filename hash, and each workspace's baseline is a merged index at
-  `<workspace>/reports/mutation-baseline.json` — the API's from its shard
-  reports, a package's from its own — cache-restored by the plan and the gate,
-  folded in by trusted runs only, so a pull request is measured against master
-  rather than against its own earlier pushes. `pnpm test:mutation:check` is
-  renamed `pnpm test:mutation:report`, which reports without gating.
+- Scope mutation testing to changed sources and sources covered by changed
+  tests, and gate per-file growth in survived or uncovered mutants (#830).
+  Dependency-package test edits no longer trigger a full API sweep or invalidate
+  its baseline. Small diffs share runners sized by measured mutant work; full
+  runs retain eight weighted shards. Missing baselines, unindexed tests and
+  other unbounded inputs use a full-run fallback, gated at 80% MSI on PRs only.
+  Master resumes from each workspace's last measured revision, so cancelled
+  runs cannot leave permanent gaps. Gates use the plan's frozen index; trusted
+  refreshes serialize and reject older measurements replacing newer ones.
+  Weekly full sweeps report global MSI without enforcing a threshold.
+  Rename `pnpm test:mutation:check` to `pnpm test:mutation:report`.
 
 # 2026-09-12
 

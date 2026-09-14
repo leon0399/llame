@@ -61,47 +61,54 @@ pnpm test:mutation:changed --base origin/master
 
 A mutation scope is the changed mutant source files plus every mutant file
 covered by a changed test file, resolved from the baseline's per-test coverage.
-That union is the complete affected set: a test file can only flip mutants it
-covers, so weakening or deleting a test still pulls its files into scope.
-A test change with no baseline to resolve its coverage against, recognized
-fixtures/test doubles, deleted or excluded source, and configuration expand the
-affected workspace instead. Shared dependencies expand API scope; unknown root
-inputs expand all mutation workspaces. Known unrelated documentation/frontend
-changes skip mutation. Local changed mode also includes tracked working-tree and
-untracked edits; a missing base ref fails.
+Weakening or deleting an indexed test still selects the sources it covered.
+An unindexed test, missing baseline, recognized fixture/test double, deleted or
+excluded source, or configuration change expands the affected workspace.
+Shared runtime dependencies expand API scope; their test files do not, because
+package builds exclude tests. Unknown root inputs expand all mutation workspaces.
+Known unrelated documentation/frontend changes skip mutation. Local changed
+mode also includes tracked working-tree and untracked edits; a missing base ref
+fails.
 
 The gate is a delta, not a level: a run fails when a source file it measured
 gains undetected mutants (survived or uncovered) against the baseline, so
 editing one line of a legacy file does not fail a pull request for pre-existing
-debt. Files with no baseline entry — new sources — have no allowance. Without a
-usable baseline a workspace expands to the complete set instead, because a
-subset cannot be measured against anything: a pull request is then gated at 80%
-MSI, while master and the weekly sweep report that level rather than failing a
-commit that has already landed.
+debt. In a scoped run, files with no baseline entry have no allowance.
+An unbounded scope or missing usable baseline requires the complete corpus:
+pull requests then use an 80% MSI fallback, while master and the weekly sweep
+report that level without a threshold failure.
 
 Each workspace's baseline is a merged index
 (`<workspace>/reports/mutation-baseline.json`): the API writes it from its shard
-reports, a package from its own single report. Counts come from the latest
-measurement of a file, while coverage entries accumulate, so a later run over a
-narrower set cannot narrow what is treated as reachable. The index is
-cache-restored, keyed on the same fingerprint as Stryker's own reuse cache —
-fixtures, excluded inputs and transitive workspace dependencies — so an
-environment change discards it: that is what makes a missing baseline mean
-"measure everything", and the restore is what the plan reads to choose between a
-scoped run and the complete set.
+reports, a package from its own single report. The index records the measured
+Git revision. Counts come from each file's latest measurement; coverage entries
+accumulate so a narrower run cannot erase previously observed reachability.
+The plan restores the index under an environment fingerprint covering fixtures,
+excluded inputs and transitive runtime dependencies. Dependency test files are
+not fingerprint inputs. Each gate downloads the plan's immutable index artifact,
+so a concurrent master run cannot change its comparison baseline.
 
 A trusted run folds its reports in once the gate it ran under passes. A complete
 run on master has no gate, so it refreshes the baseline as the trend's own
 measurement, and a pull request folds nothing, so it is always measured against
-master rather than against its own earlier pushes.
+master rather than against its own earlier pushes. Master plans resume from each
+workspace's last measured revision (`--from-baseline`), including changes from
+cancelled or failed predecessor runs. Trusted API restore/fold/save jobs are
+serialized across CI and weekly refresh; a late ancestor measurement cannot
+overwrite a descendant's index.
+A missing revision triggers a full rebuild. If a weekly sweep finishes after a
+newer master measurement, its score is still published, but the older index is
+not folded; the refresh log states which newer revision was retained.
 
-CI splits the selected API files into shards heaviest-first by measured mutant
-count when the baseline supplies counts, and by file count when it does not; the
-weekly sweep is the run that always has them. Pull requests gate their own diff,
-master pushes gate the merge that landed, and the weekly sweep retests every
-mutant (`--force`) and reports the global MSI as a trend instead of a gate.
-Failed selected shards and missing reports, malformed reports or unfinished
-mutant statuses fail the aggregate.
+CI assigns API files heaviest-first using measured mutant counts, with at most
+eight runners. A scoped run sizes its pool by its share of the cached corpus,
+using one full-run shard's average workload as the target. Small diffs share one
+runner instead of repeating dependency builds and checker startup per file.
+Full runs retain eight slots; without measurements they balance by file count.
+Mutant counts estimate work, not duration: test costs can still differ.
+The weekly sweep retests every mutant (`--force`) and reports global MSI.
+Failed selected shards, missing or malformed reports, and unfinished mutant
+statuses fail the aggregate.
 
 Each package remains runnable directly; reports live under ignored workspace
 `reports/` directories. Add `--dryRunOnly` to the changed command to exercise

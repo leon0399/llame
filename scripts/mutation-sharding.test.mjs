@@ -15,6 +15,7 @@ import {
   parseShard,
   resolveStrykerCli,
 } from "./mutation-sharding.mjs";
+import { resolveCommit } from "./mutation-scope.mjs";
 
 const skippedPackages = [
   { package: "config-interpolation", mode: "skip" },
@@ -59,6 +60,34 @@ test("the mutation plan assigns every API file to one weighted shard", () => {
   for (const { index, shard } of plan.apiShards)
     assert.equal(index, Number(shard.split("/")[0]) - 1);
   assert.deepEqual(plan.packages, skippedPackages);
+});
+
+test("a small diff shares one runner instead of starting a runner per file", () => {
+  const files = ["src/a.ts", "src/b.ts", "src/new.ts"];
+  const scopes = {
+    "apps/api": { mode: "scoped", files },
+    "packages/config-interpolation": { mode: "skip", files: [] },
+    "packages/runtime-safety": { mode: "skip", files: [] },
+  };
+  const baseline = {
+    "apps/api": {
+      files: {
+        "src/a.ts": { mutants: 5 },
+        "src/b.ts": { mutants: 5 },
+        "src/unchanged.ts": { mutants: 790 },
+      },
+    },
+  };
+  const plan = mutationPlan(scopes, baseline);
+  assert.deepEqual(plan.apiShards, [{ shard: "1/8", index: 0, files }]);
+  const full = mutationPlan({
+    ...scopes,
+    "apps/api": {
+      mode: "full",
+      files: Array.from({ length: 16 }, (_, index) => `src/${index}.ts`),
+    },
+  });
+  assert.equal(full.apiShards.length, 8);
 });
 
 test("an irrelevant change has no API shards but preserves package check names", () => {
@@ -361,7 +390,8 @@ test("aggregate gates on undetected mutants gained against a baseline", () => {
     writeFileSync(
       index,
       JSON.stringify({
-        baselineVersion: 1,
+        baselineVersion: 2,
+        revision: resolveCommit("HEAD", process.cwd()),
         files: {
           "src/edited.ts": {
             mutants: 2,
@@ -428,7 +458,8 @@ test("baseline folds reports into the index and keeps unmeasured files", () => {
     writeFileSync(
       previous,
       JSON.stringify({
-        baselineVersion: 1,
+        baselineVersion: 2,
+        revision: resolveCommit("HEAD", process.cwd()),
         files: {
           "src/kept.ts": {
             mutants: 1,
@@ -462,7 +493,8 @@ test("baseline folds reports into the index and keeps unmeasured files", () => {
     );
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), {
-      baselineVersion: 1,
+      baselineVersion: 2,
+      revision: resolveCommit("HEAD", process.cwd()),
       files: {
         "src/kept.ts": {
           mutants: 1,
@@ -481,6 +513,17 @@ test("baseline folds reports into the index and keeps unmeasured files", () => {
       Object.keys(JSON.parse(readFileSync(fresh, "utf8")).files),
       ["src/added.ts"],
     );
+
+    const invalid = runTool(
+      "baseline",
+      "--previous",
+      reports[0],
+      "--output",
+      output,
+      reports[1],
+    );
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stderr, /Invalid mutation baseline/u);
   } finally {
     rmSync(directory, { recursive: true });
   }
