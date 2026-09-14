@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -71,7 +72,9 @@ describe('proactivelyEligible', () => {
     // Conflating them would freeze an empty advertisement onto the chat for a
     // whole epoch, so this distinction is the one that matters.
     const missing = new SkillCatalog([
-      path.join(tmpdir(), 'no-such-skills-dir'),
+      // Unique per run: a fixed name under a shared tmpdir could exist, and
+      // then this asserts nothing.
+      path.join(tmpdir(), `no-such-skills-dir-${randomUUID()}`),
     ]);
 
     expect(proactivelyEligible(missing)).toBeUndefined();
