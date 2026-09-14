@@ -52,28 +52,30 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * The owner auditing exactly what a run saw: the complete receipt (prompt
- * source, full system prompt, advertised tools, content hash) with the
- * server-only host path structurally absent — never leaked to the client.
+ * The owner auditing what the attempt sent: the system-only receipt (attempt
+ * id, prompt source, prompt hash, and the complete rendered system prompt)
+ * with advertised tool declarations and server-only host paths structurally
+ * absent — never persisted or leaked to the client.
  *
- * @summary complete owner receipt without a host path
+ * @summary system-only attempt receipt without a host path
  */
 export const Receipt: Story = {
   tags: ["ai-generated"],
   play: async () => {
     const dialog = within(
       await within(document.body).findByRole("dialog", {
-        name: "Effective context",
+        name: "System prompt receipt",
       }),
     );
     await expect(dialog.getByText("Model-specific override")).toBeVisible();
     await expect(
       dialog.getByText("You are the complete model-specific prompt."),
     ).toBeVisible();
-    await expect(dialog.getByText("search_conversations")).toBeVisible();
-    await expect(dialog.getByText(/"query"/)).toBeVisible();
     await expect(dialog.getByText("7f07b813")).toBeVisible();
-    // The configured systemPromptFile path is server-only (README contract).
+    await expect(dialog.getByText("prepared")).toBeVisible();
+    // Tool declarations are runtime-only by contract, and the configured
+    // systemPromptFile path is server-only (README contract).
+    await expect(dialog.queryByText(/search_conversations/)).toBeNull();
     await expect(
       dialog.queryByText(/\/etc\/|systemPromptFile|host path/i),
     ).not.toBeInTheDocument();
