@@ -178,7 +178,7 @@ describe('skill-catalog snapshot', () => {
     });
 
     expect(bodyOf(item)).toContain(
-      '1 more skills are available but not listed; `skill://` lists the whole catalog.',
+      '1 more skill is available but not listed; `skill://` lists the whole catalog.',
     );
   });
 });

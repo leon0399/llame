@@ -711,10 +711,23 @@ describe('the skill-catalog notice', () => {
   const buildWith = (
     entries: ReadonlyArray<SkillCatalogEntry>,
     chatOverrides: Partial<Chat>,
-    options: { readonly referencesSkills?: boolean } = {},
+    options: {
+      readonly referencesSkills?: boolean;
+      /** No configured source at all, rather than a source with nothing in it. */
+      readonly unconfigured?: boolean;
+    } = {},
   ) => {
     const rendered = vi.fn((_input: SystemPromptRenderInput) => 'prompt');
     const context = skillDeps(entries);
+    if (options.unconfigured === true) {
+      context.skillCatalog = undefined;
+      context.instanceConfig = {
+        config: {
+          ...context.instanceConfig.config,
+          skills: { directories: [] },
+        },
+      };
+    }
     context.systemPrompts = { render: rendered };
     const model = {
       ...turnInput().model,
@@ -1008,17 +1021,24 @@ describe('the skill-catalog notice', () => {
     // chat froze a baseline. The stored baseline stays in the prompt for the
     // rest of the epoch, so the removals MUST be announced — suppressing the
     // delta would leave the model attempting stale reads with no notice.
-    const { run } = buildWith([], {
-      skillCatalogBaseline: {
-        entries: [
-          { name: 'pdf', description: 'Extract' },
-          { name: 'research', description: 'Plan' },
-        ],
-        omitted: 0,
+    const { run } = buildWith(
+      [],
+      {
+        skillCatalogBaseline: {
+          entries: [
+            { name: 'pdf', description: 'Extract' },
+            { name: 'research', description: 'Plan' },
+          ],
+          omitted: 0,
+        },
+        skillCatalogRebakedFrom: null,
+        skillCatalogTold: ['pdf', 'research'],
       },
-      skillCatalogRebakedFrom: null,
-      skillCatalogTold: ['pdf', 'research'],
-    });
+      // No source and no catalog port, which is what emptying
+      // `skills.directories` produces - not a configured source that happens
+      // to hold nothing.
+      { unconfigured: true },
+    );
 
     const result = await run;
     const [item] = catalogItems(result.messageParts);

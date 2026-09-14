@@ -140,9 +140,13 @@ function renderSnapshot(payload: SkillCatalogSnapshotPayload): string {
     );
   }
   if (payload.omitted > 0) {
+    const remainder =
+      payload.omitted === 1
+        ? '1 more skill is available'
+        : `${payload.omitted} more skills are available`;
     lines.push(
       '',
-      `${payload.omitted} more skills are available but not listed; \`skill://\` lists the whole catalog.`,
+      `${remainder} but not listed; \`skill://\` lists the whole catalog.`,
     );
   }
   lines.push('', PRECEDENCE_LINE);
