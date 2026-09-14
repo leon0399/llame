@@ -1,3 +1,5 @@
+import type { Server } from 'node:http';
+
 import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -6,20 +8,15 @@ import { AppModule } from '../app.module';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp } from '../app.setup';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { modelContextSnapshots } from '../db/schema';
+import { systemPromptReceipts } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { isString } from '@workspace/runtime-safety';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
-import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture';
 import { RunsRepository } from './runs-repository';
 
-function isUnknownArray(value: unknown): value is ReadonlyArray<unknown> {
-  return Array.isArray(value);
-}
-
 describe('GET /api/v1/runs/:id/context-receipt', () => {
-  let app: INestApplication<import('http').Server>;
-  let http: import('http').Server;
+  let app: INestApplication<Server>;
+  let http: Server;
   let tenantDb: TenantDbService;
   let ownerId = '';
   let otherId = '';
@@ -38,7 +35,7 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
     return { id: body.user.id, cookie: cookieOf(response) };
   }
 
-  async function seedRun(userId: string, snapshotId: string) {
+  async function seedRun(userId: string) {
     return tenantDb.runAs(userId, async (tx) => {
       const chat = await new ChatsRepository(tx).create({
         ownerUserId: userId,
@@ -55,7 +52,6 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
         messageId: message.id,
         userId,
         modelId: 'system:test',
-        modelContextSnapshotId: snapshotId,
       });
     });
   }
@@ -93,14 +89,47 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
     await app?.close();
   });
 
-  it('returns owner-safe v1 availability and hides the receipt cross-tenant', async () => {
-    const snapshot = await tenantDb.runAs(ownerId, (tx) =>
-      seedModelContextSnapshot(tx, ownerId, 'receipt-v1', [
-        'search_conversations',
-        'bash',
+  it('returns ordered system-only receipts and hides the receipt cross-tenant', async () => {
+    const run = await seedRun(ownerId);
+    const firstAttempt = await tenantDb.runAs(ownerId, (tx) =>
+      new RunsRepository(tx).markStarted(run.id, ownerId),
+    );
+    const secondAttempt = await tenantDb.runAs(ownerId, (tx) =>
+      new RunsRepository(tx).markStarted(run.id, ownerId),
+    );
+    const firstAttemptId = firstAttempt?.activeAttemptId;
+    const secondAttemptId = secondAttempt?.activeAttemptId;
+    if (!isString(firstAttemptId) || !isString(secondAttemptId)) {
+      throw new Error('Expected worker attempts to be assigned');
+    }
+
+    await tenantDb.runAs(ownerId, (tx) =>
+      tx.insert(systemPromptReceipts).values([
+        {
+          ownerUserId: ownerId,
+          runId: run.id,
+          attemptId: firstAttemptId,
+          source: 'project_default',
+          systemPrompt: 'First effective prompt',
+          promptHash: 'first-prompt-hash',
+          createdAt: new Date('2026-09-01T10:00:00.000Z'),
+        },
+        {
+          ownerUserId: ownerId,
+          runId: run.id,
+          attemptId: secondAttemptId,
+          source: 'model_override',
+          systemPrompt: 'Second effective prompt',
+          promptHash: 'second-prompt-hash',
+          createdAt: new Date('2026-09-01T10:00:01.000Z'),
+        },
       ]),
     );
-    const run = await seedRun(ownerId, snapshot.id);
+    await tenantDb.runAs(ownerId, (tx) =>
+      new RunsRepository(tx).markFinished(run.id, ownerId, 'completed', {
+        attemptId: secondAttemptId,
+      }),
+    );
 
     const ownerResponse = await request(http)
       .get(`/api/v1/runs/${run.id}/context-receipt`)
@@ -108,52 +137,35 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
 
     expect(ownerResponse.status).toBe(200);
     expect(ownerResponse.body).toMatchObject({
-      availabilityHash: snapshot.availabilityHash,
-      toolAvailability: {
-        version: 1,
-        entries: [
-          {
-            id: 'bash',
-            state: 'available',
-            label: 'available',
-          },
-          {
-            id: 'search_conversations',
-            state: 'available',
-            label: 'available',
-          },
-        ],
-      },
-    });
-    const ownerBody: unknown = ownerResponse.body;
-    if (!isRecord(ownerBody) || !isUnknownArray(ownerBody.tools)) {
-      throw new Error('Expected owner receipt with tool declarations');
-    }
-    const bashDeclaration = ownerBody.tools.find(
-      (tool) => isRecord(tool) && tool.id === 'bash',
-    );
-    if (!isRecord(bashDeclaration) || !isString(bashDeclaration.description)) {
-      throw new Error('Expected bash declaration in owner receipt');
-    }
-    expect(bashDeclaration.description).toContain('fresh process');
-    expect(bashDeclaration).toMatchObject({
-      id: 'bash',
-      inputSchema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          command: { type: 'string' },
-          cwd: { type: 'string' },
-          env: {
-            type: 'object',
-            additionalProperties: { type: 'string' },
-          },
+      modelId: 'system:test',
+      activeAttemptId: secondAttemptId,
+      completedAttemptId: secondAttemptId,
+      state: 'prepared',
+      receipts: [
+        {
+          attemptId: firstAttemptId,
+          promptSource: 'project_default',
+          systemPrompt: 'First effective prompt',
+          promptHash: 'first-prompt-hash',
         },
-        required: ['command'],
-      },
+        {
+          attemptId: secondAttemptId,
+          promptSource: 'model_override',
+          systemPrompt: 'Second effective prompt',
+          promptHash: 'second-prompt-hash',
+        },
+      ],
     });
+    for (const field of [
+      'tools',
+      'toolAvailability',
+      'availabilityHash',
+      'contentHash',
+    ]) {
+      expect(ownerResponse.body).not.toHaveProperty(field);
+    }
     expect(JSON.stringify(ownerResponse.body)).not.toMatch(
-      /ownerUserId|promptHash|toolHash|sourceDiagnostics|session|header|url/i,
+      /ownerUserId|runId|providerModelId|credential|executor|path|\/home\//i,
     );
 
     const otherResponse = await request(http)
@@ -162,66 +174,38 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
     expect(otherResponse.status).toBe(404);
   });
 
-  it('returns the encoded-locator guidance from the stored read declaration', async () => {
-    const snapshot = await tenantDb.runAs(ownerId, (tx) =>
-      seedModelContextSnapshot(tx, ownerId, 'receipt-encoding', ['read']),
-    );
-    const run = await seedRun(ownerId, snapshot.id);
+  it('reports pending before any worker attempt prepares context', async () => {
+    const run = await seedRun(ownerId);
     const response = await request(http)
       .get(`/api/v1/runs/${run.id}/context-receipt`)
       .set('Cookie', ownerCookie);
+
     expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({ tools: [{ id: 'read' }] });
-    expect(response.body).toHaveProperty(
-      'tools.0.description',
-      expect.stringContaining('suggests similar names when a file is missing'),
-    );
-    expect(response.body).toHaveProperty(
-      'tools.0.description',
-      expect.stringContaining(
-        'write a literal :, ?, #, or % as %3A, %3F, %23, or %25',
-      ),
-    );
+    expect(response.body).toMatchObject({
+      modelId: 'system:test',
+      state: 'pending',
+      receipts: [],
+    });
   });
 
-  it('reports historical v0 as unobserved rather than an empty catalog', async () => {
-    const snapshot = await tenantDb.runAs(ownerId, async (tx) => {
-      const [created] = await tx
-        .insert(modelContextSnapshots)
-        .values({
-          ownerUserId: ownerId,
-          availabilityHash:
-            '8c150f84f99edb30ec7fb866968b27db1bfc2d26e1be8a7e94ee61e565adf11e',
-          contentHash: `legacy-content-${crypto.randomUUID()}`,
-          promptHash: `legacy-prompt-${crypto.randomUUID()}`,
-          toolHash: `legacy-tools-${crypto.randomUUID()}`,
-          source: 'project_default',
-          systemPrompt: 'Historical prompt',
-          toolAvailabilityManifest: { version: 0, state: 'unobserved' },
-          toolDeclarations: [],
-        })
-        .returning();
-      if (!created) {
-        throw new Error('Failed to seed historical snapshot');
-      }
-      return created;
-    });
-    const run = await seedRun(ownerId, snapshot.id);
+  it('reports not_produced for a terminal run without an attempt receipt', async () => {
+    const run = await seedRun(ownerId);
+    await tenantDb.runAs(ownerId, (tx) =>
+      new RunsRepository(tx).markFinished(run.id, ownerId, 'failed', {
+        error: { message: 'worker failed before prompt preparation' },
+      }),
+    );
 
     const response = await request(http)
       .get(`/api/v1/runs/${run.id}/context-receipt`)
       .set('Cookie', ownerCookie);
 
     expect(response.status).toBe(200);
-    const body: unknown = response.body;
-    if (!isRecord(body)) {
-      throw new Error('Expected object response body');
-    }
-    expect(body.toolAvailability).toEqual({
-      version: 0,
-      state: 'unobserved',
+    expect(response.body).toMatchObject({
+      modelId: 'system:test',
+      state: 'not_produced',
+      receipts: [],
     });
-    expect(body.toolAvailability).not.toHaveProperty('entries');
   });
 
   it('requires authentication', async () => {

@@ -322,7 +322,7 @@ function executionService(
     runtime,
     new MemoryService(tenantDb),
     new RecencyDigestService(tenantDb),
-    undefined,
+    runtime,
   );
 }
 
@@ -625,17 +625,13 @@ describe('operator-configured MCP production acceptance', () => {
           senderUserId: userId,
           parts: userMessageParts,
         });
-        const snapshot = await new ModelContextSnapshotsRepository(
-          tx,
-        ).createOrReuse(userId, context);
         const run = await new RunsRepository(tx).create({
           chatId: chatId!,
           messageId: userMessage.id,
           userId,
           modelId: model.id,
-          modelContextSnapshotId: snapshot.id,
         });
-        return { run, snapshot, userMessage };
+        return { run, userMessage };
       });
 
       const providerInputs: Array<unknown> = [];
@@ -680,7 +676,6 @@ describe('operator-configured MCP production acceptance', () => {
           messageId: userMessage.id,
           userId,
           modelId: model.id,
-          modelContextSnapshotId: seeded.snapshot.id,
         });
         return { run, userMessage };
       });

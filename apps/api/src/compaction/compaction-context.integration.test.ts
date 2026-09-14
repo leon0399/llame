@@ -938,19 +938,12 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         senderUserId: userId,
         parts: targetUserParts,
       });
-      const targetSnapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        `transition-target-${chat.id}`,
-        ['search_conversations'],
-      );
       const targetRun = await runs.create({
         id: targetRunId,
         chatId: chat.id,
         messageId: targetUser.id,
         userId,
         modelId: 'target-model',
-        modelContextSnapshotId: targetSnapshot.id,
       });
       return {
         chat,
@@ -958,7 +951,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         switchPart,
         targetUser,
         targetUserParts,
-        targetSnapshot,
         targetRun,
       };
     });
@@ -969,7 +961,15 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       tenantDb,
       compaction,
       { maybeGenerateTitle: async () => {} },
-      { config: BUILT_IN_DEFAULTS },
+      {
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          tools: {
+            ...BUILT_IN_DEFAULTS.tools,
+            allowed: ['search_conversations'],
+          },
+        },
+      },
       new SearchIndexService(tenantDb),
       noopReindexDispatch(),
       knowledgeResolver,
@@ -1085,7 +1085,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['target response'], 800);
+    const targetDelegate = createFakeModelClient(['target response'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1133,11 +1133,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       createClient: createSourceClient,
     });
     // Synthetic bound, sized to fit exactly one transition checkpoint plus the
-    // switch item. Raised from 500 when the unified envelope added a measured
-    // ~17 tokens to a checkpoint and ~24 to a notice (attributes plus the
-    // one-line provenance statement) — the budget was calibrated to the old
-    // per-producer delimiters, not to a behaviour change.
-    const targetDelegate = createFakeModelClient(['target response'], 800);
+    // switch item and the live worker-admitted search declaration. The budget
+    // is deliberately below the un-compacted history, so this still exercises
+    // one transition checkpoint.
+    const targetDelegate = createFakeModelClient(['target response'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1195,7 +1194,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     );
 
     expect(targetCalls).toHaveLength(1);
-    expect(targetCalls[0].system).toBe(seeded.targetSnapshot.systemPrompt);
+    expect(targetCalls[0].system).toBe('Test prompt: default');
     expect(Object.keys(targetCalls[0].tools ?? {})).toEqual([
       'search_conversations',
     ]);
@@ -1213,13 +1212,15 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       ],
     });
     expect(contentText(targetCalls[0].messages[0].content)).toContain(summary);
-    expect(targetCalls[0].messages.at(-1)).toEqual({
-      role: 'user',
-      content: [
-        { type: 'text', text: seeded.switchPart.data.text },
-        { type: 'text', text: 'CURRENT TRIGGER' },
-      ],
-    });
+    const targetTrigger = targetCalls[0].messages.at(-1);
+    expect(targetTrigger?.role).toBe('user');
+    const targetTriggerText = contentText(targetTrigger?.content ?? '');
+    expect(targetTriggerText).toContain(seeded.switchPart.data.text);
+    expect(targetTriggerText).toContain('Message received:');
+    expect(targetTriggerText).toContain(
+      'You are now running as model "target-model".',
+    );
+    expect(targetTriggerText).toMatch(/CURRENT TRIGGER$/u);
     expect(JSON.stringify(targetCalls[0])).not.toContain(
       seeded.sourceSnapshot.systemPrompt,
     );
@@ -1263,7 +1264,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         compactionClient({ model: 'source-model', calls: sourceCalls }),
       ),
     });
-    const targetDelegate = createFakeModelClient(['must not run'], 700);
+    const targetDelegate = createFakeModelClient(['must not run'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1325,7 +1326,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['must not run'], 700);
+    const targetDelegate = createFakeModelClient(['must not run'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1394,7 +1395,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['target response'], 700);
+    const targetDelegate = createFakeModelClient(['target response'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1467,7 +1468,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['target response'], 700);
+    const targetDelegate = createFakeModelClient(['target response'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1567,7 +1568,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     async ({ sourceRun, switchMarker, models }) => {
       const seeded = await seedSwitch({ sourceRun, switchMarker });
       const targetCalls: Array<ModelStreamInput> = [];
-      const target = createFakeModelClient(['must not run'], 700);
+      const target = createFakeModelClient(['must not run'], 1000);
       const targetClient: ModelClient = {
         ...target,
         model: 'target-model',

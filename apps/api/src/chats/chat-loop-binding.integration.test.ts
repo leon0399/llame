@@ -1,34 +1,43 @@
 /**
- * Transaction-bound orchestration checks. These cases use the real
- * TenantDbService/Drizzle transaction boundary while spying on repository
- * collaborators to isolate context and message-part composition. The
- * production nested-transaction path runs against Postgres here;
- * `chat-loop.integration.test.ts` separately proves real persistence,
- * savepoint conflicts, rollback, RLS, and single-flight behavior end to end.
+ * Accept/execute transaction-bound orchestration checks.
+ *
+ * The API transaction owns admission, user-message persistence, Run creation,
+ * and dispatch only. Prompt/catalog resolution belongs to the worker attempt.
+ * Worker execution is driven through RunExecutionService.executeRun so
+ * preparation is observed through durable snapshots, receipts, and commits.
  */
-
-import { expectMessageParts, expectTemporalRow } from '../testing/support';
+import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql as drizzleSql } from 'drizzle-orm';
-import postgres from 'postgres';
-import { Logger } from '@nestjs/common';
+import postgres, { type Sql } from 'postgres';
+import { type Message } from '../db/schema';
 
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
+import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import {
   resolveEffortSelection,
   type ModelSelectionValidator,
 } from '../models/models.service';
+import { createFakeModelClient } from '../models/fake-model-client';
+import {
+  type ModelClient,
+  type ModelStreamInput,
+} from '../models/model-client';
+import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { type RunAborter } from '../runs/run-abort-registry';
 import {
   type MemorySettingsBindingResolver,
-  type MemorySettingsResolver,
+  type ResolvedMemorySettings,
 } from '../memory/memory.service';
 import { type RecencyDigestResolver } from './recency-digest.service';
 import { isContextItemPart } from './context-item';
 import { isRecencyDigestItem } from './context-item-producers';
 import { renderConversationCheckpoint } from './context-builder';
-
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { ChatLoopService } from './chat-loop.service';
@@ -41,8 +50,12 @@ import {
   MessagesRepository,
 } from './chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { type RunJob } from '../runs/run-queues';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
-import { type SystemModelCatalogEntry } from '../models/model-catalog';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
+import { RunExecutionService } from '../runs/run-execution.service';
+import { type CompactionCapability } from '../compaction/compaction.service';
+import { type TitleCapability } from '../titles/title.service';
 import {
   type Chat,
   type Compaction,
@@ -57,9 +70,9 @@ import {
   type KnowledgeToolCandidateResolverInput,
   type KnowledgeToolCandidateResolverPort,
 } from '../knowledge/knowledge-tool-candidate-resolver';
+import { type KnowledgeToolResolver } from '../tools/types';
 import { TOOL_REGISTRY } from '../tools/registry';
-
-import { type RunJob } from '../runs/run-queues';
+import { type PromptUserResolver } from '../personalization/personalization.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 if (!TEST_DB_URL) {
@@ -69,8 +82,9 @@ if (!TEST_DB_URL) {
 }
 
 type RuntimeCatalogSnapshotter = {
-  snapshotCandidates(): ReadonlyArray<TurnToolCandidate>;
+  snapshotCandidates: () => ReadonlyArray<TurnToolCandidate>;
 };
+type PersistedMessage = { current: Message };
 
 function fakeInstanceConfig(
   toolsAllowed: ReadonlyArray<string> = [],
@@ -99,8 +113,72 @@ function compactionReplacementHistory(
   ];
 }
 
-describe('ChatLoopService effective-context transaction binding', () => {
-  let sql: ReturnType<typeof postgres>;
+function baseline(
+  overrides: Partial<RecencyDigestBaseline> = {},
+): RecencyDigestBaseline {
+  return {
+    pinned: [],
+    recent: [],
+    pinnedShown: 0,
+    pinnedTotal: 0,
+    recentShown: 0,
+    recentTotal: 0,
+    compiledOn: '2026-08-13',
+    ...overrides,
+  };
+}
+
+function previousRun(overrides: Partial<Run> = {}): Run {
+  return {
+    id: '22222222-2222-4222-8222-222222222222',
+    chatId: 'chat-id',
+    messageId: '33333333-3333-4333-8333-333333333333',
+    userId: 'user-id',
+    modelId: 'system:openai:previous-model',
+    modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
+    effort: null,
+    status: 'failed',
+    workerId: null,
+    activeAttemptId: null,
+    completedAttemptId: null,
+    turnToolAvailability: null,
+    cancelRequestedAt: null,
+    error: { message: 'provider failed' },
+    contextItems: null,
+    createdAt: new Date('2026-08-11T08:00:00.000Z'),
+    startedAt: new Date('2026-08-11T08:00:01.000Z'),
+    finishedAt: new Date('2026-08-11T08:00:02.000Z'),
+    ...overrides,
+  };
+}
+
+function activeCompaction(): Compaction {
+  const summary = 'Retains the latest messages.';
+  return {
+    id: '55555555-5555-4555-8555-555555555555',
+    chatId: 'chat-id',
+    uptoSeq: 8,
+    parentId: null,
+    summary,
+    replacementHistory: compactionReplacementHistory(summary),
+    usage: null,
+    createdAt: new Date('2026-08-11T08:00:03.000Z'),
+  };
+}
+
+const knowledgeResolver: KnowledgeToolResolver = {
+  listForOwnerPage: () => Promise.resolve({ spaces: [] }),
+  resolveBindingForOwnerById: () => Promise.resolve(undefined),
+  createAdapter: () => ({
+    search: () => Promise.resolve([]),
+    resolveHostPath: () =>
+      Promise.reject(new Error('Knowledge adapter is not exercised')),
+    isInsideSpace: () => Promise.resolve(true),
+  }),
+};
+
+describe('ChatLoopService accept/worker context binding', () => {
+  let sql: Sql;
   let tenantDb: TenantDbService;
 
   const model: SystemModelCatalogEntry = {
@@ -135,29 +213,60 @@ describe('ChatLoopService effective-context transaction binding', () => {
     activeCompaction?: Compaction;
     toolsAllowed?: ReadonlyArray<string>;
     runtime?: RuntimeCatalogSnapshotter;
-    memory?: MemorySettingsResolver & MemorySettingsBindingResolver;
+    memory?: MemorySettingsBindingResolver;
     recencyDigest?: RecencyDigestResolver;
     knowledgeCandidates?: KnowledgeToolCandidateResolverPort;
     baseline?: RecencyDigestBaseline;
     told?: Chat['recencyDigestTold'];
     rebakedFrom?: string | null;
     systemPrompts?: SystemPromptsService;
+    personalization?: PromptUserResolver;
   }) {
+    const {
+      failRunCreated,
+      previousRun: priorRun,
+      previousManifest,
+      activeCompaction: compaction,
+      toolsAllowed,
+      runtime: runtimeOverride,
+      memory: memoryOverride,
+      recencyDigest: recencyDigestOverride,
+      knowledgeCandidates: knowledgeCandidatesOverride,
+      baseline: baselineOverride,
+      told: toldOverride,
+      rebakedFrom,
+      systemPrompts: systemPromptsOverride,
+      personalization: personalizationOverride,
+    } = options ?? {};
     const runAs = vi.spyOn(tenantDb, 'runAs');
-    const dispatch = vi.fn(async (_job: RunJob): Promise<void> => {});
+    const dispatch = vi.fn((_job: RunJob): Promise<void> => Promise.resolve());
+    const persistedMessage: PersistedMessage = {
+      current: {
+        id: 'message-id',
+        chatId: 'chat-id',
+        seq: 1,
+        role: 'user',
+        senderUserId: 'user-id',
+        parts: [{ type: 'text', text: 'hello' }],
+        attachments: [],
+        usage: null,
+        inReplyTo: null,
+        createdAt: new Date(),
+      },
+    };
 
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       id: 'chat-id',
       ownerUserId: 'user-id',
       title: null,
       visibility: 'private',
-      createdAt: new Date(),
+      createdAt: new Date('2026-08-10T08:00:00.000Z'),
       updatedAt: new Date(),
       archivedAt: null,
       projectId: null,
-      recencyDigestBaseline: options?.baseline ?? null,
-      recencyDigestTold: options?.told ?? null,
-      recencyDigestRebakedFrom: options?.rebakedFrom ?? null,
+      recencyDigestBaseline: baselineOverride ?? null,
+      recencyDigestTold: toldOverride ?? null,
+      recencyDigestRebakedFrom: rebakedFrom ?? null,
       skillCatalogBaseline: null,
       skillCatalogRebakedFrom: null,
       skillCatalogTold: null,
@@ -169,24 +278,44 @@ describe('ChatLoopService effective-context transaction binding', () => {
     const updateRecencyDigestTold = vi
       .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
       .mockResolvedValue(undefined);
-    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
-      userMessage: undefined,
-      assistantMessage: undefined,
-    });
+    let acceptedMessage = false;
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockImplementation(
+      () =>
+        Promise.resolve(
+          acceptedMessage
+            ? {
+                userMessage: persistedMessage.current,
+                assistantMessage: undefined,
+              }
+            : {
+                userMessage: undefined,
+                assistantMessage: undefined,
+              },
+        ),
+    );
     const createUserMessage = vi
       .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
-      .mockResolvedValue({
-        id: 'message-id',
-        chatId: 'chat-id',
-        seq: 1,
-        role: 'user',
-        senderUserId: 'user-id',
-        parts: [{ type: 'text', text: 'hello' }],
-        attachments: [],
-        usage: null,
-        inReplyTo: null,
-        createdAt: new Date(),
+      .mockImplementation((input) => {
+        acceptedMessage = true;
+        persistedMessage.current = {
+          ...persistedMessage.current,
+          id: input.id,
+          chatId: input.chatId,
+          senderUserId: input.senderUserId,
+          parts: input.parts,
+        };
+        return Promise.resolve(persistedMessage.current);
       });
+    const updateUserMessageParts = vi
+      .spyOn(MessagesRepository.prototype, 'updateUserMessageParts')
+      .mockResolvedValue(undefined);
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createAssistantReplyIfAbsent',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
+      () => Promise.resolve([persistedMessage.current]),
+    );
     vi.spyOn(
       RunsRepository.prototype,
       'cancelActiveRunsForMessage',
@@ -196,46 +325,125 @@ describe('ChatLoopService effective-context transaction binding', () => {
     );
     const findPreviousRun = vi
       .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
-      .mockResolvedValue(options?.previousRun);
+      .mockResolvedValue(priorRun);
     vi.spyOn(
       CompactionsRepository.prototype,
       'findLatestByChatId',
-    ).mockResolvedValue(options?.activeCompaction);
+    ).mockResolvedValue(compaction);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
     vi.spyOn(
       ModelContextSnapshotsRepository.prototype,
       'findByOwnedRun',
-    ).mockResolvedValue(
-      options?.previousRun && options.previousManifest
-        ? {
-            id: options.previousRun.modelContextSnapshotId!,
-            ownerUserId: 'user-id',
-            availabilityHash: 'previous-availability-hash',
-            contentHash: 'previous-content-hash',
-            promptHash: 'previous-prompt-hash',
-            toolHash: 'previous-tool-hash',
-            source: 'model_override',
-            systemPrompt: 'Previous prompt',
-            toolAvailabilityManifest: options.previousManifest,
-            toolDeclarations: [],
-            createdAt: new Date(),
-          }
-        : undefined,
-    );
-    const createSnapshot = vi
-      .spyOn(ModelContextSnapshotsRepository.prototype, 'createOrReuse')
-      .mockResolvedValue({
-        id: 'snapshot-id',
+    ).mockImplementation(() => {
+      if (!priorRun || !previousManifest) return Promise.resolve(undefined);
+      return Promise.resolve({
+        id: priorRun.modelContextSnapshotId!,
         ownerUserId: 'user-id',
-        availabilityHash: 'availability-hash',
-        contentHash: 'content-hash',
-        promptHash: 'prompt-hash',
-        toolHash: 'tool-hash',
+        availabilityHash: 'previous-availability-hash',
+        contentHash: 'previous-content-hash',
+        promptHash: 'previous-prompt-hash',
+        toolHash: 'previous-tool-hash',
         source: 'model_override',
-        systemPrompt: 'Bound prompt',
-        toolAvailabilityManifest: { version: 1, entries: [] },
+        systemPrompt: 'Previous prompt',
+        toolAvailabilityManifest: previousManifest,
         toolDeclarations: [],
         createdAt: new Date(),
       });
+    });
+    const createSnapshot = vi
+      .spyOn(ModelContextSnapshotsRepository.prototype, 'createOrReuse')
+      .mockImplementation((ownerUserId, context) =>
+        Promise.resolve({
+          id: 'snapshot-id',
+          ownerUserId,
+          ...context,
+          createdAt: new Date(),
+        }),
+      );
+    const updateForAttempt = vi
+      .spyOn(RunsRepository.prototype, 'updateForAttempt')
+      .mockResolvedValue({
+        id: 'run-id',
+        chatId: 'chat-id',
+        messageId: 'message-id',
+        userId: 'user-id',
+        modelId: model.id,
+        modelContextSnapshotId: 'snapshot-id',
+        effort: null,
+        status: 'running_model',
+        workerId: null,
+        activeAttemptId: 'attempt-id',
+        completedAttemptId: null,
+        turnToolAvailability: null,
+        cancelRequestedAt: null,
+        error: null,
+        contextItems: null,
+        createdAt: new Date(),
+        startedAt: new Date(),
+        finishedAt: null,
+      });
+    vi.spyOn(RunsRepository.prototype, 'markStarted').mockImplementation(
+      (runId) =>
+        Promise.resolve(
+          previousRun({
+            id: runId,
+            chatId: 'chat-id',
+            messageId: 'message-id',
+            userId: 'user-id',
+            modelId: model.id,
+            modelContextSnapshotId: null,
+            status: 'running_model',
+            activeAttemptId: 'attempt-id',
+            error: null,
+            startedAt: new Date(),
+            finishedAt: null,
+          }),
+        ),
+    );
+    vi.spyOn(RunsRepository.prototype, 'markFinished').mockImplementation(
+      (runId, _userId, status) =>
+        Promise.resolve(
+          previousRun({
+            id: runId,
+            chatId: 'chat-id',
+            messageId: 'message-id',
+            userId: 'user-id',
+            modelId: model.id,
+            modelContextSnapshotId: 'snapshot-id',
+            status,
+            activeAttemptId: 'attempt-id',
+            error: null,
+            startedAt: new Date(),
+            finishedAt: new Date(),
+          }),
+        ),
+    );
+    const createReceipt = vi
+      .spyOn(SystemPromptReceiptsRepository.prototype, 'create')
+      .mockImplementation((input) =>
+        Promise.resolve({
+          id: 'receipt-id',
+          ...input,
+          createdAt: new Date(),
+        }),
+      );
+    const appendEvent = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation((runId, eventType, payload) => {
+        if (failRunCreated && eventType === 'run.created') {
+          return Promise.reject(new Error('run.created failed'));
+        }
+        return Promise.resolve({
+          sequence: 1,
+          runId,
+          eventType,
+          payload,
+          createdAt: new Date(),
+        });
+      });
+
     const createRun = vi
       .spyOn(RunsRepository.prototype, 'create')
       .mockImplementation((runInput) =>
@@ -246,8 +454,8 @@ describe('ChatLoopService effective-context transaction binding', () => {
           userId: runInput.userId,
           modelId: runInput.modelId,
           modelContextSnapshotId: runInput.modelContextSnapshotId ?? null,
-          effort: null,
-          status: 'queued',
+          effort: runInput.effort ?? null,
+          status: 'queued' as const,
           workerId: null,
           activeAttemptId: null,
           completedAttemptId: null,
@@ -260,33 +468,50 @@ describe('ChatLoopService effective-context transaction binding', () => {
           finishedAt: null,
         }),
       );
-    const appendEvent = vi
-      .spyOn(RunEventsRepository.prototype, 'append')
-      .mockImplementation(() =>
-        options?.failRunCreated
-          ? Promise.reject(new Error('run.created failed'))
-          : Promise.resolve({
-              sequence: 1,
-              runId: 'run-id',
-              eventType: 'run.created',
-              payload: null,
-              createdAt: new Date(),
-            }),
-      );
 
     const modelsService: ModelSelectionValidator = {
       validateModelSelection: vi.fn(() => model),
-      // Delegates to production so a suite that declares a vocabulary on
-      // `model` exercises the real resolution rather than a stub's.
-      resolveEffortSelection: (m, requested) =>
-        resolveEffortSelection(m, requested),
+      resolveEffortSelection: (selected, requested) =>
+        resolveEffortSelection(selected, requested),
     };
-    const instanceConfig = fakeInstanceConfig(options?.toolsAllowed);
+    const instanceConfig = fakeInstanceConfig(toolsAllowed);
     const bridge: RunStreamResponder = {
       createUiMessageStreamResponse: vi.fn(() => new Response()),
     };
     const aborts: RunAborter = { abort: vi.fn() };
     const dispatcher: RunDispatcher = { dispatch };
+    const systemPrompts = systemPromptsOverride ?? new SystemPromptsService();
+    const render = vi.spyOn(systemPrompts, 'render');
+    const personalization: PromptUserResolver = personalizationOverride ?? {
+      resolvePromptUser: vi.fn().mockResolvedValue(undefined),
+    };
+    const memory: MemorySettingsBindingResolver = memoryOverride ?? {
+      getForOwnerForBinding: vi.fn().mockResolvedValue({
+        shareRecentChats: false,
+      } satisfies ResolvedMemorySettings),
+    };
+    const recencyDigest: RecencyDigestResolver = recencyDigestOverride ?? {
+      resolveCandidate: vi.fn().mockResolvedValue({
+        baseline: baselineOverride ?? baseline(),
+        told: toldOverride ?? [],
+        candidates: [],
+      }),
+    };
+    const knowledgeCandidates: KnowledgeToolCandidateResolverPort =
+      knowledgeCandidatesOverride ?? {
+        resolve: vi.fn(() =>
+          Promise.resolve(
+            [...TOOL_REGISTRY.values()].map((tool) => ({
+              source: { type: 'code_owned' as const },
+              state: 'available' as const,
+              tool,
+            })),
+          ),
+        ),
+      };
+    const runtime: RuntimeCatalogSnapshotter = runtimeOverride ?? {
+      snapshotCandidates: vi.fn(() => []),
+    };
 
     const service = new ChatLoopService(
       tenantDb,
@@ -296,17 +521,88 @@ describe('ChatLoopService effective-context transaction binding', () => {
       aborts,
       dispatcher,
     );
+    const noopCompaction: CompactionCapability = {
+      maybeCompact: () => Promise.resolve(),
+      compactForTransition: () =>
+        Promise.reject(new Error('transition compaction is not exercised')),
+    };
+    const noopTitles: TitleCapability = {
+      maybeGenerateTitle: () => Promise.resolve(),
+    };
+    const execution = new RunExecutionService(
+      tenantDb,
+      noopCompaction,
+      noopTitles,
+      instanceConfig,
+      { reindexChat: () => Promise.resolve() },
+      noopReindexDispatch(),
+      knowledgeResolver,
+      noopSkillCatalog(),
+      noopEmbedDispatch(),
+      noopQueryEmbedder(),
+      compileTestPermissionPolicy(toolsAllowed ?? []),
+      modelsService,
+      systemPrompts,
+      personalization,
+      knowledgeCandidates,
+      runtime,
+      memory,
+      recencyDigest,
+      undefined,
+    );
+
+    const executeAttempt = async () => {
+      let request: ModelStreamInput | undefined;
+      const delegate = createFakeModelClient(['worker response']);
+      const client: ModelClient = {
+        model: model.id,
+        provider: model.provider,
+        contextWindowTokens: model.contextWindowTokens,
+        streamText(input) {
+          request = input;
+          return delegate.streamText(input);
+        },
+      };
+      const result = await execution.executeRun({
+        runId: createRun.mock.calls[0]?.[0].id ?? 'run-id',
+        chatId: 'chat-id',
+        userId: 'user-id',
+        userMessage: {
+          id: persistedMessage.current.id,
+          seq: persistedMessage.current.seq,
+          parts: input.message.parts,
+        },
+        client,
+      });
+      if (request === undefined) {
+        throw new Error('Expected worker model request');
+      }
+      return { result, request };
+    };
 
     return {
       service,
+      execution,
       runAs,
       dispatch,
       createSnapshot,
+      updateForAttempt,
+      createReceipt,
       findPreviousRun,
       createRun,
       appendEvent,
       updateRecencyDigestTold,
       createUserMessage,
+      persistedMessage,
+      executeAttempt,
+      updateUserMessageParts,
+      render,
+      systemPrompts,
+      personalization,
+      memory,
+      recencyDigest,
+      knowledgeCandidates,
+      runtime,
     };
   }
 
@@ -320,24 +616,47 @@ describe('ChatLoopService effective-context transaction binding', () => {
     },
   };
 
-  it('creates the snapshot, binds it to the run in the same tenant transaction, then dispatches after commit', async () => {
-    const { service, runAs, dispatch, createSnapshot, createRun, appendEvent } =
-      setup();
+  it('accepts only the user turn, creates an unbound Run, and dispatches after commit', async () => {
+    const {
+      service,
+      runAs,
+      dispatch,
+      createSnapshot,
+      createRun,
+      appendEvent,
+      createUserMessage,
+      knowledgeCandidates,
+      runtime,
+      render,
+      personalization,
+      memory,
+      recencyDigest,
+      persistedMessage,
+    } = setup();
 
     await service.createMessageStream(input);
 
     expect(runAs).toHaveBeenCalledWith('user-id', expect.any(Function));
-    expect(createSnapshot).toHaveBeenCalledWith(
-      'user-id',
+    expect(createUserMessage).toHaveBeenCalledOnce();
+    expect(persistedMessage.current.parts).toEqual([
+      { type: 'text', text: 'hello' },
+    ]);
+    expect(createRun).toHaveBeenCalledWith(
       expect.objectContaining({
-        source: 'model_override',
-        systemPrompt: 'Bound prompt',
-        toolDeclarations: [],
+        chatId: 'chat-id',
+        messageId: 'message-id',
+        userId: 'user-id',
+        modelId: model.id,
       }),
     );
-    expect(createRun).toHaveBeenCalledWith(
-      expect.objectContaining({ modelContextSnapshotId: 'snapshot-id' }),
-    );
+    expect(createRun.mock.calls[0]?.[0].modelContextSnapshotId).toBeUndefined();
+    expect(createSnapshot).not.toHaveBeenCalled();
+    expect(knowledgeCandidates.resolve).not.toHaveBeenCalled();
+    expect(runtime.snapshotCandidates).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    expect(personalization.resolvePromptUser).not.toHaveBeenCalled();
+    expect(memory.getForOwnerForBinding).not.toHaveBeenCalled();
+    expect(recencyDigest.resolveCandidate).not.toHaveBeenCalled();
     expect(Object.keys(dispatch.mock.calls[0][0]).sort()).toEqual([
       'chatId',
       'modelId',
@@ -350,7 +669,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     );
   });
 
-  it('resolves owner-bound code-owned candidates inside the accepted transaction', async () => {
+  it('resolves owner-bound candidates in the worker transaction and records receipt, snapshot binding, and staged parts', async () => {
     const resolve = vi.fn(
       async ({
         tx,
@@ -363,7 +682,6 @@ describe('ChatLoopService effective-context transaction binding', () => {
         expect(currentUser?.current_user_id).toBe('user-id');
         expect(ownerUserId).toBe('user-id');
         expect(allowedToolRules).toEqual(['knowledge_search']);
-
         return [...TOOL_REGISTRY.values()].map((tool) =>
           tool.id === 'knowledge_search'
             ? {
@@ -381,41 +699,77 @@ describe('ChatLoopService effective-context transaction binding', () => {
         );
       },
     );
-    const { service, createSnapshot, dispatch } = setup({
+    const {
+      service,
+      createSnapshot,
+      updateForAttempt,
+      createReceipt,
+      executeAttempt,
+      updateUserMessageParts,
+      persistedMessage,
+    } = setup({
       toolsAllowed: ['knowledge_search'],
       knowledgeCandidates: { resolve },
     });
 
     await service.createMessageStream(input);
+    const acceptedParts = persistedMessage.current.parts;
+    const attempt = await executeAttempt();
 
+    expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
     expect(resolve).toHaveBeenCalledOnce();
     const resolveInput = resolve.mock.calls[0]?.[0];
     expect(resolveInput?.ownerUserId).toBe('user-id');
     expect(resolveInput?.allowedToolRules).toEqual(['knowledge_search']);
     expect(resolveInput?.tx).toBeDefined();
-    expect(resolve.mock.invocationCallOrder[0]).toBeLessThan(
-      createSnapshot.mock.invocationCallOrder[0],
+    expect(createSnapshot).toHaveBeenCalledOnce();
+    expect(createSnapshot.mock.invocationCallOrder[0]).toBeGreaterThan(
+      resolve.mock.invocationCallOrder[0],
     );
-    expect(createSnapshot).toHaveBeenCalledWith(
+    expect(createSnapshot.mock.calls[0]?.[1]).toMatchObject({
+      systemPrompt: 'Bound prompt',
+      toolAvailabilityManifest: {
+        version: 1,
+        entries: [
+          {
+            id: 'knowledge_search',
+            state: 'unavailable',
+            reason: 'knowledge_space_unavailable',
+          },
+        ],
+      },
+      toolDeclarations: [],
+    });
+    expect(updateForAttempt).toHaveBeenCalledWith(
+      expect.any(String),
       'user-id',
+      'attempt-id',
+      { modelContextSnapshotId: 'snapshot-id' },
+    );
+    expect(createReceipt).toHaveBeenCalledWith(
       expect.objectContaining({
-        toolAvailabilityManifest: {
-          version: 1,
-          entries: [
-            {
-              id: 'knowledge_search',
-              state: 'unavailable',
-              reason: 'knowledge_space_unavailable',
-            },
-          ],
-        },
-        toolDeclarations: [],
+        ownerUserId: 'user-id',
+        attemptId: 'attempt-id',
+        source: 'model_override',
+        systemPrompt: 'Bound prompt',
       }),
     );
-    expect(dispatch).toHaveBeenCalledOnce();
+    expect(attempt.request.system).toBe('Bound prompt');
+    await attempt.result.consumeStream?.();
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    expect(committedParts).toBeDefined();
+    expect(committedParts?.some(isContextItemPart)).toBe(true);
+    expect(
+      committedParts?.some(
+        (part) => isContextItemPart(part) && part.data.producer === 'temporal',
+      ),
+    ).toBe(true);
+    expect(createSnapshot.mock.invocationCallOrder[0]).toBeLessThan(
+      createReceipt.mock.invocationCallOrder[0],
+    );
   });
 
-  it('rolls back the accepted turn when owner-bound candidate resolution rejects', async () => {
+  it('defers candidate failures to the worker without rolling back an accepted user turn', async () => {
     const error = new Error('candidate resolution failed');
     const resolve = vi.fn(() => Promise.reject(error));
     const {
@@ -425,61 +779,28 @@ describe('ChatLoopService effective-context transaction binding', () => {
       createUserMessage,
       createRun,
       appendEvent,
+      executeAttempt,
     } = setup({
       toolsAllowed: ['knowledge_search'],
       knowledgeCandidates: { resolve },
     });
 
-    await expect(service.createMessageStream(input)).rejects.toBe(error);
+    await service.createMessageStream(input);
+    await expect(executeAttempt()).rejects.toBe(error);
 
     expect(resolve).toHaveBeenCalledOnce();
-    expect(createSnapshot).not.toHaveBeenCalled();
-    expect(createUserMessage).not.toHaveBeenCalled();
-    expect(createRun).not.toHaveBeenCalled();
-    expect(appendEvent).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-
-  it('binds one synchronous process-local runtime snapshot into the accepted turn', async () => {
-    const id = 'mcp__web__search';
-    const dynamicCandidates: ReadonlyArray<TurnToolCandidate> = [
-      {
-        source: { type: 'mcp', serverId: 'web' },
-        state: 'unavailable',
-        id,
-        classification: 'read_only',
-        reason: 'source_disconnected',
-      },
-    ];
-    const snapshotCandidates = vi.fn(() => dynamicCandidates);
-    const { service, createSnapshot } = setup({
-      toolsAllowed: [id],
-      runtime: { snapshotCandidates },
-    });
-
-    await service.createMessageStream(input);
-
-    expect(snapshotCandidates).toHaveBeenCalledOnce();
-    expect(snapshotCandidates).toHaveBeenCalledWith();
-    expect(createSnapshot).toHaveBeenCalledWith(
-      'user-id',
-      expect.objectContaining({
-        toolAvailabilityManifest: {
-          version: 1,
-          entries: [
-            {
-              id,
-              state: 'unavailable',
-              reason: 'source_disconnected',
-            },
-          ],
-        },
-        toolDeclarations: [],
-      }),
+    expect(createUserMessage).toHaveBeenCalledOnce();
+    expect(createRun).toHaveBeenCalledOnce();
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.any(String),
+      'run.created',
+      expect.any(Object),
     );
+    expect(createSnapshot).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledOnce();
   });
 
-  it('passes raw wildcard rules to effective-context composition after taking an unfiltered runtime snapshot', async () => {
+  it('takes the runtime catalog snapshot only in the worker and keeps the exact wildcard rule', async () => {
     const id = 'mcp__web__search';
     const dynamicCandidates: ReadonlyArray<TurnToolCandidate> = [
       {
@@ -491,12 +812,14 @@ describe('ChatLoopService effective-context transaction binding', () => {
       },
     ];
     const snapshotCandidates = vi.fn(() => dynamicCandidates);
-    const { service, createSnapshot } = setup({
+    const { service, createSnapshot, executeAttempt, runtime } = setup({
       toolsAllowed: ['mcp__web__*'],
       runtime: { snapshotCandidates },
     });
 
     await service.createMessageStream(input);
+    expect(runtime.snapshotCandidates).not.toHaveBeenCalled();
+    await executeAttempt();
 
     expect(snapshotCandidates).toHaveBeenCalledOnce();
     expect(snapshotCandidates).toHaveBeenCalledWith();
@@ -518,217 +841,187 @@ describe('ChatLoopService effective-context transaction binding', () => {
     );
   });
 
-  it('does not dispatch when run.created fails inside the atomic transaction', async () => {
+  it('does not dispatch when run.created fails, and does not perform worker preparation at accept time', async () => {
     const { service, createSnapshot, createRun, appendEvent, dispatch } = setup(
-      {
-        failRunCreated: true,
-      },
+      { failRunCreated: true },
     );
 
     await expect(service.createMessageStream(input)).rejects.toThrow(
       'run.created failed',
     );
-    expect(createSnapshot).toHaveBeenCalledTimes(1);
-    expect(createRun).toHaveBeenCalledTimes(1);
-    expect(appendEvent).toHaveBeenCalledTimes(1);
+    expect(createSnapshot).not.toHaveBeenCalled();
+    expect(createRun).toHaveBeenCalledOnce();
+    expect(appendEvent).toHaveBeenCalledOnce();
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it('logs only the failure kind when candidate resolution fails and continues without a digest', async () => {
+  it('logs only the failure kind when worker digest resolution fails and still prepares a prompt snapshot', async () => {
     const sensitive = 'PRIVATE CHAT TITLE AND EXCERPT';
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => {});
-    const { service, createSnapshot } = setup({
+    const recencyDigest: RecencyDigestResolver = {
+      resolveCandidate: () => Promise.reject(new Error(sensitive)),
+    };
+    const { service, createSnapshot, executeAttempt } = setup({
       memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
         getForOwnerForBinding: () =>
           Promise.resolve({ shareRecentChats: true }),
       },
-      recencyDigest: {
-        resolveCandidate: () => Promise.reject(new Error(sensitive)),
-      },
+      recencyDigest,
     });
 
     await service.createMessageStream(input);
+    await executeAttempt();
 
     expect(error).toHaveBeenCalledWith('recency_digest_resolution_failed');
     expect(JSON.stringify(error.mock.calls)).not.toContain(sensitive);
     expect(createSnapshot).toHaveBeenCalledOnce();
   });
 
-  it('discards a candidate when the binding-time locked setting is false', async () => {
+  it('checks the binding-time setting in the worker and discards a digest candidate when sharing is disabled', async () => {
     const getForOwnerForBinding = vi.fn(() =>
       Promise.resolve({ shareRecentChats: false }),
+    );
+    const resolveCandidate = vi.fn(() =>
+      Promise.resolve({ baseline: baseline(), told: [], candidates: [] }),
     );
     const setBaseline = vi.spyOn(
       ChatsRepository.prototype,
       'setRecencyDigestIfAbsent',
     );
-    const { service, createSnapshot } = setup({
-      memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
-        getForOwnerForBinding,
-      },
-      recencyDigest: {
-        resolveCandidate: () =>
-          Promise.resolve({
-            baseline: {
-              pinned: [],
-              recent: [],
-              pinnedShown: 0,
-              pinnedTotal: 0,
-              recentShown: 0,
-              recentTotal: 0,
-              compiledOn: '2026-08-12',
-            },
-            told: [],
-            candidates: [],
-          }),
-      },
-    });
+    const { service, createSnapshot, executeAttempt, updateUserMessageParts } =
+      setup({
+        memory: { getForOwnerForBinding },
+        recencyDigest: { resolveCandidate },
+      });
 
     await service.createMessageStream(input);
+    const attempt = await executeAttempt();
 
     expect(getForOwnerForBinding).toHaveBeenCalledOnce();
+    expect(resolveCandidate).not.toHaveBeenCalled();
     expect(setBaseline).not.toHaveBeenCalled();
     expect(createSnapshot).toHaveBeenCalledWith(
       'user-id',
       expect.objectContaining({ systemPrompt: 'Bound prompt' }),
     );
+    await attempt.result.consumeStream?.();
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    expect(committedParts?.filter(isContextItemPart)).toHaveLength(1);
+    expect(committedParts?.filter(isContextItemPart)[0]?.data.producer).toBe(
+      'temporal',
+    );
   });
 
-  it('persists one digest append and advances its told-set atomically', async () => {
-    const baseline: RecencyDigestBaseline = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-08-13',
-    };
-    const { service, updateRecencyDigestTold } = setup({
-      baseline,
-      told: [],
-      memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
-        getForOwnerForBinding: () =>
-          Promise.resolve({ shareRecentChats: true }),
-      },
-      recencyDigest: {
-        resolveCandidate: () =>
-          Promise.resolve({
-            baseline: {
-              ...baseline,
-              recent: [
-                {
-                  title: 'Resurfaced through activity',
-                  date: '2026-08-13',
-                  messageCount: 2,
-                  excerpt: 'opening',
-                },
-              ],
-              recentShown: 1,
-              recentTotal: 1,
-            },
-            told: [
-              {
-                chatId: 'resurfaced',
-                pinned: false,
-                title: 'Resurfaced through activity',
-              },
-            ],
-            candidates: [
-              {
-                chatId: 'resurfaced',
-                pinned: false,
-                entry: {
-                  title: 'Resurfaced through activity',
-                  date: '2026-08-13',
-                  messageCount: 2,
-                  excerpt: 'opening',
-                },
-              },
-            ],
-          }),
-      },
+  it('stages a digest delta in the worker and leaves accept-time parts/told state untouched', async () => {
+    const digestBaseline = baseline({
+      recent: [
+        {
+          title: 'Resurfaced through activity',
+          date: '2026-08-13',
+          messageCount: 2,
+          excerpt: 'opening',
+        },
+      ],
+      recentShown: 1,
+      recentTotal: 1,
     });
-    const createMessage = vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    );
-
-    await service.createMessageStream(input);
-
-    const persisted = createMessage.mock.calls[0]?.[0];
-    const digestPart = persisted?.parts[0];
-    expect(isRecencyDigestItem(digestPart)).toBe(true);
-    if (!isContextItemPart(digestPart)) {
-      throw new Error('Expected a recency digest part');
-    }
-    expect(digestPart.data.payload).toMatchObject({
-      entries: [{ title: 'Resurfaced through activity', pinned: false }],
-    });
-    expect(persisted?.parts[2]).toEqual({ type: 'text', text: 'hello' });
-    expectTemporalRow(persisted?.parts ?? []);
-    expect(updateRecencyDigestTold).toHaveBeenCalledWith('chat-id', 'user-id', [
+    const told = [
       {
         chatId: 'resurfaced',
         pinned: false,
         title: 'Resurfaced through activity',
       },
-    ]);
-  });
-
-  it('does not append to an existing baseline while sharing is disabled', async () => {
+    ];
     const resolveCandidate = vi.fn(() =>
       Promise.resolve({
-        baseline: {
-          pinned: [],
-          recent: [],
-          pinnedShown: 0,
-          pinnedTotal: 0,
-          recentShown: 0,
-          recentTotal: 0,
-          compiledOn: '2026-08-13',
-        },
-        told: [],
-        candidates: [],
+        baseline: digestBaseline,
+        told,
+        candidates: [
+          {
+            chatId: 'resurfaced',
+            pinned: false,
+            entry: digestBaseline.recent[0],
+          },
+        ],
       }),
     );
-    const { service, updateRecencyDigestTold } = setup({
-      baseline: {
-        pinned: [],
-        recent: [],
-        pinnedShown: 0,
-        pinnedTotal: 0,
-        recentShown: 0,
-        recentTotal: 0,
-        compiledOn: '2026-08-13',
-      },
+    const {
+      service,
+      executeAttempt,
+      persistedMessage,
+      updateRecencyDigestTold,
+      updateUserMessageParts,
+    } = setup({
+      baseline: baseline(),
+      told: [],
       memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: false }),
+        getForOwnerForBinding: () =>
+          Promise.resolve({ shareRecentChats: true }),
+      },
+      recencyDigest: { resolveCandidate },
+    });
+
+    await service.createMessageStream(input);
+    const attempt = await executeAttempt();
+
+    expect(persistedMessage.current.parts).toEqual([
+      { type: 'text', text: 'hello' },
+    ]);
+    expect(resolveCandidate).toHaveBeenCalledOnce();
+    expect(updateRecencyDigestTold).not.toHaveBeenCalled();
+    await attempt.result.consumeStream?.();
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    const digestPart = committedParts?.find(isRecencyDigestItem);
+    expect(digestPart).toBeDefined();
+    expect(isContextItemPart(digestPart)).toBe(true);
+    if (isContextItemPart(digestPart)) {
+      expect(digestPart.data.payload).toMatchObject({
+        entries: [{ title: 'Resurfaced through activity', pinned: false }],
+      });
+    }
+    expect(updateRecencyDigestTold).toHaveBeenCalledWith(
+      'chat-id',
+      'user-id',
+      told,
+    );
+  });
+
+  it('does not resolve or stage digest context when sharing is disabled for an existing baseline', async () => {
+    const resolveCandidate = vi.fn(() =>
+      Promise.resolve({ baseline: baseline(), told: [], candidates: [] }),
+    );
+    const {
+      service,
+      executeAttempt,
+      persistedMessage,
+      updateRecencyDigestTold,
+      updateUserMessageParts,
+    } = setup({
+      baseline: baseline(),
+      told: [],
+      memory: {
         getForOwnerForBinding: () =>
           Promise.resolve({ shareRecentChats: false }),
       },
       recencyDigest: { resolveCandidate },
     });
-    const createMessage = vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    );
 
     await service.createMessageStream(input);
+    const attempt = await executeAttempt();
 
     expect(resolveCandidate).not.toHaveBeenCalled();
     expect(updateRecencyDigestTold).not.toHaveBeenCalled();
-    expectMessageParts(createMessage.mock.calls[0][0].parts, [
+    expect(persistedMessage.current.parts).toEqual([
       { type: 'text', text: 'hello' },
     ]);
+    await attempt.result.consumeStream?.();
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    expect(committedParts?.filter(isContextItemPart)).toHaveLength(1);
   });
 
-  it('logs only the failure kind when rendering a stored digest fails', async () => {
+  it('defers digest render failures to the worker and does not leak digest text', async () => {
     const sensitive = 'PRIVATE CHAT TITLE AND EXCERPT';
     const prompts = new SystemPromptsService();
     vi.spyOn(prompts, 'render').mockImplementation(() => {
@@ -737,33 +1030,24 @@ describe('ChatLoopService effective-context transaction binding', () => {
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => {});
-    const { service, dispatch } = setup({
-      baseline: {
-        pinned: [],
-        recent: [],
-        pinnedShown: 0,
-        pinnedTotal: 0,
-        recentShown: 0,
-        recentTotal: 0,
-        compiledOn: '2026-08-12',
-      },
+    const { service, dispatch, createSnapshot, executeAttempt } = setup({
+      baseline: baseline(),
       systemPrompts: prompts,
     });
 
-    await expect(service.createMessageStream(input)).rejects.toThrow(
+    await service.createMessageStream(input);
+    await expect(executeAttempt()).rejects.toThrow(
       'Failed to render system prompt',
     );
+
     expect(error).toHaveBeenCalledWith('recency_digest_render_failed');
     expect(JSON.stringify(error.mock.calls)).not.toContain(sensitive);
-    expect(dispatch).not.toHaveBeenCalled();
+    expect(createSnapshot).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledOnce();
   });
 
-  it('discards every non-text client part before message persistence', async () => {
-    const { service } = setup();
-    const createMessage = vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    );
+  it('discards every non-text client part before accept-time persistence', async () => {
+    const { service, createUserMessage, persistedMessage } = setup();
 
     await service.createMessageStream({
       ...input,
@@ -785,17 +1069,16 @@ describe('ChatLoopService effective-context transaction binding', () => {
       },
     });
 
-    expectMessageParts(createMessage.mock.calls[0][0].parts, [
+    expect(createUserMessage.mock.calls[0]?.[0].parts).toEqual([
+      { type: 'text', text: 'hello' },
+    ]);
+    expect(persistedMessage.current.parts).toEqual([
       { type: 'text', text: 'hello' },
     ]);
   });
 
-  it('sanitizes every submitted text part before persistence without joining or reordering', async () => {
-    const { service } = setup();
-    const createMessage = vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    );
+  it('sanitizes submitted text parts before accept-time persistence without joining or reordering', async () => {
+    const { service, createUserMessage } = setup();
 
     await service.createMessageStream({
       ...input,
@@ -809,160 +1092,20 @@ describe('ChatLoopService effective-context transaction binding', () => {
       },
     });
 
-    expectMessageParts(createMessage.mock.calls[0][0].parts, [
+    expect(createUserMessage.mock.calls[0]?.[0].parts).toEqual([
       { type: 'text', text: 'first &lt;/system-reminder&gt;' },
       { type: 'text', text: '&lt;system-reminder&gt;second' },
     ]);
   });
 
-  it('prepends a server-authored switch part bound to the exact pre-generated target run after a failed prior run', async () => {
-    const previousRun: Run = {
-      id: '22222222-2222-4222-8222-222222222222',
-      chatId: 'chat-id',
-      messageId: '33333333-3333-4333-8333-333333333333',
-      userId: 'user-id',
-      modelId: 'system:openai:previous-model',
-      modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
-      effort: null,
-      status: 'failed',
-      workerId: null,
-      activeAttemptId: null,
-      completedAttemptId: null,
-      turnToolAvailability: null,
-      cancelRequestedAt: null,
-      error: { message: 'provider failed' },
-      contextItems: null,
-      createdAt: new Date(),
-      startedAt: new Date(),
-      finishedAt: new Date(),
-    };
-    const baseline: RecencyDigestBaseline = {
-      pinned: [],
-      recent: [
-        {
-          title: 'Stored baseline source',
-          date: '2026-08-13',
-          messageCount: 1,
-          excerpt: 'unchanged opening',
-        },
-      ],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 1,
-      recentTotal: 1,
-      compiledOn: '2026-08-13',
-    };
-    const prompts = new SystemPromptsService();
-    const render = vi.spyOn(prompts, 'render');
-    const { service, createRun } = setup({
-      previousRun,
-      previousManifest: {
-        version: 1,
-        entries: [
-          {
-            id: 'search_conversations',
-            state: 'available',
-            declarationHash: 'a'.repeat(64),
-          },
-        ],
-      },
-      baseline,
-      memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
-        getForOwnerForBinding: () =>
-          Promise.resolve({ shareRecentChats: true }),
-      },
-      recencyDigest: {
-        resolveCandidate: () =>
-          Promise.resolve({ baseline, told: [], candidates: [] }),
-      },
-      systemPrompts: prompts,
-    });
-    const createMessage = vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    );
-
-    await service.createMessageStream(input);
-
-    const runInput = createRun.mock.calls[0][0];
-    expect(runInput.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
-    expectMessageParts(
-      createMessage.mock.calls[0][0].parts,
-      [
-        {
-          type: 'data-context',
-          data: {
-            v: 1,
-            producer: 'effective-context-change',
-            form: 'notice',
-            runId: runInput.id,
-            payload: {
-              cause: 'model',
-              fromModelId: previousRun.modelId,
-              toModelId: model.id,
-            },
-          },
-        },
-        {
-          type: 'data-context',
-          data: {
-            v: 1,
-            producer: 'tool-availability',
-            form: 'notice',
-            runId: runInput.id,
-            payload: {
-              kind: 'delta',
-              added: [],
-              removed: ['search_conversations'],
-              unavailable: [],
-              becameUnavailable: [],
-              nowAvailable: [],
-            },
-          },
-        },
-        { type: 'text', text: 'hello' },
-      ],
-      runInput.id,
-    );
-    expect(createMessage.mock.invocationCallOrder[0]).toBeLessThan(
-      createRun.mock.invocationCallOrder[0],
-    );
-    expect(render).toHaveBeenCalledOnce();
-    const renderInput = render.mock.calls[0][0];
-    expect(renderInput).toMatchObject({
-      model,
-      user: undefined,
-      chats: baseline,
-    });
-    expect(renderInput).toHaveProperty('anchor.systemTime');
-    expect(renderInput).toHaveProperty('anchor.systemTimezone');
-  });
-  it('persists a prior-snapshot delta part bound to the same target Run before the user text', async () => {
-    const previousRun: Run = {
-      id: '22222222-2222-4222-8222-222222222222',
-      chatId: 'chat-id',
-      messageId: '33333333-3333-4333-8333-333333333333',
-      userId: 'user-id',
-      modelId: model.id,
-      modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
-      effort: null,
-      status: 'failed',
-      workerId: null,
-      activeAttemptId: null,
-      completedAttemptId: null,
-      turnToolAvailability: null,
-      cancelRequestedAt: null,
-      error: { message: 'provider failed' },
-      contextItems: null,
-      createdAt: new Date(),
-      startedAt: new Date(),
-      finishedAt: new Date(),
-    };
-    const { service, createRun } = setup({
-      previousRun,
+  it('stages a model-switch notice in the worker, not on the accepted user message', async () => {
+    const {
+      service,
+      executeAttempt,
+      persistedMessage,
+      updateUserMessageParts,
+    } = setup({
+      previousRun: previousRun(),
       previousManifest: {
         version: 1,
         entries: [
@@ -974,84 +1117,94 @@ describe('ChatLoopService effective-context transaction binding', () => {
         ],
       },
     });
-    const createMessage = vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    );
 
     await service.createMessageStream(input);
+    const attempt = await executeAttempt();
 
-    const runInput = createRun.mock.calls[0][0];
-    expectMessageParts(
-      createMessage.mock.calls[0][0].parts,
-      [
-        {
-          type: 'data-context',
-          data: {
-            v: 1,
-            producer: 'tool-availability',
-            form: 'notice',
-            runId: runInput.id,
-            payload: {
-              kind: 'delta',
-              added: [],
-              removed: ['search_conversations'],
-              unavailable: [],
-              becameUnavailable: [],
-              nowAvailable: [],
-            },
-          },
+    expect(persistedMessage.current.parts).toEqual([
+      { type: 'text', text: 'hello' },
+    ]);
+    await attempt.result.consumeStream?.();
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    const modelChange = committedParts?.find(
+      (part) =>
+        isContextItemPart(part) &&
+        part.data.producer === 'effective-context-change',
+    );
+    expect(modelChange).toBeDefined();
+    expect(modelChange).toMatchObject({
+      data: {
+        form: 'notice',
+        payload: {
+          cause: 'model',
+          fromModelId: 'system:openai:previous-model',
+          toModelId: model.id,
         },
-        { type: 'text', text: 'hello' },
-      ],
-      runInput.id,
-    );
-    expect(createMessage.mock.invocationCallOrder[0]).toBeLessThan(
-      createRun.mock.invocationCallOrder[0],
-    );
+      },
+    });
   });
 
-  it('starts a degraded disclosure epoch when a retained-window compaction was created after the previous Run', async () => {
+  it('stages a prior-snapshot tool availability delta in the worker', async () => {
+    const {
+      service,
+      executeAttempt,
+      persistedMessage,
+      updateUserMessageParts,
+    } = setup({
+      previousRun: previousRun({ modelId: model.id }),
+      previousManifest: {
+        version: 1,
+        entries: [
+          {
+            id: 'search_conversations',
+            state: 'available',
+            declarationHash: 'a'.repeat(64),
+          },
+        ],
+      },
+    });
+
+    await service.createMessageStream(input);
+    const attempt = await executeAttempt();
+
+    expect(persistedMessage.current.parts).toEqual([
+      { type: 'text', text: 'hello' },
+    ]);
+    await attempt.result.consumeStream?.();
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    const availability = committedParts?.find(
+      (part) =>
+        isContextItemPart(part) && part.data.producer === 'tool-availability',
+    );
+    expect(availability).toMatchObject({
+      data: {
+        form: 'notice',
+        payload: {
+          kind: 'delta',
+          added: [],
+          removed: ['search_conversations'],
+          unavailable: [],
+          becameUnavailable: [],
+          nowAvailable: [],
+        },
+      },
+    });
+  });
+
+  it('starts a degraded availability epoch in the worker after retained-window compaction', async () => {
     const id = 'mcp__web__search';
-    const previousRun: Run = {
-      id: '22222222-2222-4222-8222-222222222222',
-      chatId: 'chat-id',
-      messageId: '33333333-3333-4333-8333-333333333333',
-      userId: 'user-id',
-      modelId: model.id,
-      modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
-      effort: null,
-      status: 'completed',
-      workerId: null,
-      activeAttemptId: null,
-      completedAttemptId: null,
-      turnToolAvailability: null,
-      cancelRequestedAt: null,
-      error: null,
-      contextItems: null,
-      createdAt: new Date('2026-08-11T08:00:00.000Z'),
-      startedAt: new Date('2026-08-11T08:00:01.000Z'),
-      finishedAt: new Date('2026-08-11T08:00:02.000Z'),
-    };
-    const activeCompaction: Compaction = {
-      id: '55555555-5555-4555-8555-555555555555',
-      chatId: 'chat-id',
-      uptoSeq: 8,
-      parentId: null,
-      summary: 'Retains the latest messages.',
-      replacementHistory: compactionReplacementHistory(
-        'Retains the latest messages.',
-      ),
-      usage: null,
-      createdAt: new Date('2026-08-11T08:00:03.000Z'),
-    };
-    const { service, createRun } = setup({
-      previousRun,
+    const {
+      service,
+      executeAttempt,
+      persistedMessage,
+      updateUserMessageParts,
+    } = setup({
+      previousRun: previousRun({ modelId: model.id }),
       previousManifest: {
         version: 1,
         entries: [{ id, state: 'available', declarationHash: 'a'.repeat(64) }],
       },
-      activeCompaction,
+      activeCompaction: activeCompaction(),
       toolsAllowed: [id],
       runtime: {
         snapshotCandidates: () => [
@@ -1065,385 +1218,169 @@ describe('ChatLoopService effective-context transaction binding', () => {
         ],
       },
     });
-    const createMessage = vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    );
 
     await service.createMessageStream(input);
+    const attempt = await executeAttempt();
 
-    const runInput = createRun.mock.calls[0][0];
-    expectMessageParts(
-      createMessage.mock.calls[0][0].parts,
-      [
-        {
-          type: 'data-context',
-          data: {
-            v: 1,
-            producer: 'tool-availability',
-            form: 'notice',
-            runId: runInput.id,
-            payload: {
-              kind: 'initial',
-              added: [],
-              removed: [],
-              unavailable: [{ id, reason: 'source_disconnected' }],
-              becameUnavailable: [],
-              nowAvailable: [],
-            },
-          },
-        },
-        { type: 'text', text: 'hello' },
-      ],
-      runInput.id,
+    expect(persistedMessage.current.parts).toEqual([
+      { type: 'text', text: 'hello' },
+    ]);
+    await attempt.result.consumeStream?.();
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    const availability = committedParts?.find(
+      (part) =>
+        isContextItemPart(part) && part.data.producer === 'tool-availability',
     );
+    expect(availability).toBeDefined();
+    if (isContextItemPart(availability)) {
+      expect(availability.data.form).toBe('notice');
+      expect(availability.data.payload).toMatchObject({
+        kind: 'initial',
+        unavailable: [{ id, reason: 'source_disconnected' }],
+      });
+    }
   });
 
-  it('emits one digest supersession marker after an enabled re-bake', async () => {
-    const id = 'search_conversations';
-    const previousRun: Run = {
-      id: '22222222-2222-4222-8222-222222222222',
-      chatId: 'chat-id',
-      messageId: '33333333-3333-4333-8333-333333333333',
-      userId: 'user-id',
-      modelId: model.id,
-      modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
-      effort: null,
-      status: 'completed',
-      workerId: null,
-      activeAttemptId: null,
-      completedAttemptId: null,
-      turnToolAvailability: null,
-      cancelRequestedAt: null,
-      error: null,
-      contextItems: null,
-      createdAt: new Date('2026-08-11T08:00:00.000Z'),
-      startedAt: new Date('2026-08-11T08:00:01.000Z'),
-      finishedAt: new Date('2026-08-11T08:00:02.000Z'),
-    };
-    const activeCompaction: Compaction = {
-      id: '55555555-5555-4555-8555-555555555555',
-      chatId: 'chat-id',
-      uptoSeq: 8,
-      parentId: null,
-      summary: 'Retains the latest messages.',
-      replacementHistory: compactionReplacementHistory(
-        'Retains the latest messages.',
-      ),
-      usage: null,
-      createdAt: new Date('2026-08-11T08:00:03.000Z'),
-    };
-    const baseline: RecencyDigestBaseline = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-08-11',
-    };
-    const { service, createRun } = setup({
-      previousRun,
+  it('stages one digest supersession marker in the worker after an enabled re-bake', async () => {
+    const previous = previousRun({ modelId: model.id });
+    const digestBaseline = baseline();
+    const {
+      service,
+      executeAttempt,
+      persistedMessage,
+      updateUserMessageParts,
+    } = setup({
+      previousRun: previous,
       previousManifest: {
         version: 1,
-        entries: [{ id, state: 'unavailable', reason: 'source_disconnected' }],
+        entries: [
+          {
+            id: 'search_conversations',
+            state: 'unavailable',
+            reason: 'source_disconnected',
+          },
+        ],
       },
-      activeCompaction,
-      toolsAllowed: [id],
-      baseline,
+      activeCompaction: activeCompaction(),
+      baseline: digestBaseline,
       told: [],
-      rebakedFrom: activeCompaction.id,
+      rebakedFrom: '55555555-5555-4555-8555-555555555555',
       memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
         getForOwnerForBinding: () =>
           Promise.resolve({ shareRecentChats: true }),
       },
       recencyDigest: {
         resolveCandidate: () =>
-          Promise.resolve({ baseline, told: [], candidates: [] }),
+          Promise.resolve({
+            baseline: digestBaseline,
+            told: [],
+            candidates: [],
+          }),
       },
     });
-    const createMessage = vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    );
 
     await service.createMessageStream(input);
+    const attempt = await executeAttempt();
 
-    const runInput = createRun.mock.calls[0][0];
-    expectMessageParts(
-      createMessage.mock.calls[0][0].parts,
-      [
-        {
-          type: 'data-context',
-          data: {
-            v: 1,
-            producer: 'recency-digest',
-            form: 'snapshot',
-            runId: runInput.id,
-            payload: {},
-          },
-        },
-        { type: 'text', text: 'hello' },
-      ],
-      runInput.id,
-    );
+    expect(persistedMessage.current.parts).toEqual([
+      { type: 'text', text: 'hello' },
+    ]);
+    await attempt.result.consumeStream?.();
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    expect(committedParts?.filter(isRecencyDigestItem)).toHaveLength(1);
+    expect(committedParts?.find(isRecencyDigestItem)).toMatchObject({
+      data: { form: 'snapshot', payload: {} },
+    });
   });
 
-  it("still emits the supersession marker when this turn's own candidate resolution fails", async () => {
-    const id = 'search_conversations';
-    const previousRun: Run = {
-      id: '22222222-2222-4222-8222-222222222222',
-      chatId: 'chat-id',
-      messageId: '33333333-3333-4333-8333-333333333333',
-      userId: 'user-id',
-      modelId: model.id,
-      modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
-      effort: null,
-      status: 'completed',
-      workerId: null,
-      activeAttemptId: null,
-      completedAttemptId: null,
-      turnToolAvailability: null,
-      cancelRequestedAt: null,
-      error: null,
-      contextItems: null,
-      createdAt: new Date('2026-08-11T08:00:00.000Z'),
-      startedAt: new Date('2026-08-11T08:00:01.000Z'),
-      finishedAt: new Date('2026-08-11T08:00:02.000Z'),
-    };
-    const activeCompaction: Compaction = {
-      id: '55555555-5555-4555-8555-555555555555',
-      chatId: 'chat-id',
-      uptoSeq: 8,
-      parentId: null,
-      summary: 'Retains the latest messages.',
-      replacementHistory: compactionReplacementHistory(
-        'Retains the latest messages.',
-      ),
-      usage: null,
-      createdAt: new Date('2026-08-11T08:00:03.000Z'),
-    };
-    const baseline: RecencyDigestBaseline = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-08-11',
-    };
-    const { service, createRun } = setup({
-      previousRun,
+  it("still stages the supersession marker when the worker's fresh digest read fails", async () => {
+    const digestBaseline = baseline();
+    const { service, executeAttempt, updateUserMessageParts } = setup({
+      previousRun: previousRun({ modelId: model.id }),
       previousManifest: {
         version: 1,
-        entries: [{ id, state: 'unavailable', reason: 'source_disconnected' }],
+        entries: [
+          {
+            id: 'search_conversations',
+            state: 'unavailable',
+            reason: 'source_disconnected',
+          },
+        ],
       },
-      activeCompaction,
-      toolsAllowed: [id],
-      baseline,
+      activeCompaction: activeCompaction(),
+      baseline: digestBaseline,
       told: [],
-      rebakedFrom: activeCompaction.id,
+      rebakedFrom: '55555555-5555-4555-8555-555555555555',
       memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
         getForOwnerForBinding: () =>
           Promise.resolve({ shareRecentChats: true }),
       },
-      // This turn's own fresh-candidate read fails (transient DB hiccup),
-      // independent of the earlier compaction's re-bake having succeeded.
       recencyDigest: {
         resolveCandidate: () =>
           Promise.reject(new Error('candidate unavailable')),
       },
     });
-    const createMessage = vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    );
 
     await service.createMessageStream(input);
+    const attempt = await executeAttempt();
 
-    const runInput = createRun.mock.calls[0][0];
-    expectMessageParts(
-      createMessage.mock.calls[0][0].parts,
-      [
-        {
-          type: 'data-context',
-          data: {
-            v: 1,
-            producer: 'recency-digest',
-            form: 'snapshot',
-            runId: runInput.id,
-            payload: {},
-          },
-        },
-        { type: 'text', text: 'hello' },
-      ],
-      runInput.id,
-    );
+    await attempt.result.consumeStream?.();
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    expect(committedParts?.filter(isRecencyDigestItem)).toHaveLength(1);
   });
 
-  it('does not emit a digest supersession marker after sharing was disabled during compaction', async () => {
-    const previousRun: Run = {
-      id: '22222222-2222-4222-8222-222222222222',
-      chatId: 'chat-id',
-      messageId: '33333333-3333-4333-8333-333333333333',
-      userId: 'user-id',
-      modelId: model.id,
-      modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
-      effort: null,
-      status: 'completed',
-      workerId: null,
-      activeAttemptId: null,
-      completedAttemptId: null,
-      turnToolAvailability: null,
-      cancelRequestedAt: null,
-      error: null,
-      contextItems: null,
-      createdAt: new Date('2026-08-11T08:00:00.000Z'),
-      startedAt: new Date('2026-08-11T08:00:01.000Z'),
-      finishedAt: new Date('2026-08-11T08:00:02.000Z'),
-    };
-    const activeCompaction: Compaction = {
-      id: '55555555-5555-4555-8555-555555555555',
-      chatId: 'chat-id',
-      uptoSeq: 8,
-      parentId: null,
-      summary: 'Retains the latest messages.',
-      replacementHistory: compactionReplacementHistory(
-        'Retains the latest messages.',
-      ),
-      usage: null,
-      createdAt: new Date('2026-08-11T08:00:03.000Z'),
-    };
-    const baseline: RecencyDigestBaseline = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-08-11',
-    };
-    const { service } = setup({
-      previousRun,
-      activeCompaction,
-      baseline,
+  it('does not stage a digest supersession marker after sharing is disabled during compaction', async () => {
+    const { service, executeAttempt, updateUserMessageParts } = setup({
+      previousRun: previousRun({ modelId: model.id }),
+      activeCompaction: activeCompaction(),
+      baseline: baseline(),
       told: [],
       memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
+        getForOwnerForBinding: () =>
+          Promise.resolve({ shareRecentChats: false }),
+      },
+      recencyDigest: {
+        resolveCandidate: () =>
+          Promise.resolve({ baseline: baseline(), told: [], candidates: [] }),
+      },
+    });
+
+    await service.createMessageStream(input);
+    const attempt = await executeAttempt();
+
+    await attempt.result.consumeStream?.();
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    expect(committedParts?.filter(isRecencyDigestItem)).toHaveLength(0);
+  });
+
+  it('keeps a model-switch notice but no digest supersession marker when the prior attempt used another model', async () => {
+    const { service, executeAttempt, updateUserMessageParts } = setup({
+      previousRun: previousRun({ modelId: 'previous-model' }),
+      activeCompaction: activeCompaction(),
+      baseline: baseline(),
+      told: [],
+      memory: {
         getForOwnerForBinding: () =>
           Promise.resolve({ shareRecentChats: true }),
       },
       recencyDigest: {
         resolveCandidate: () =>
-          Promise.resolve({ baseline, told: [], candidates: [] }),
+          Promise.resolve({ baseline: baseline(), told: [], candidates: [] }),
       },
     });
-    const createMessage = vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    );
 
     await service.createMessageStream(input);
+    const attempt = await executeAttempt();
 
-    expectMessageParts(createMessage.mock.calls[0][0].parts, [
-      { type: 'text', text: 'hello' },
-    ]);
-  });
-
-  it('does not emit a digest supersession marker after compaction digest resolution failed or on a model switch', async () => {
-    const previousRun: Run = {
-      id: '22222222-2222-4222-8222-222222222222',
-      chatId: 'chat-id',
-      messageId: '33333333-3333-4333-8333-333333333333',
-      userId: 'user-id',
-      modelId: 'previous-model',
-      modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
-      effort: null,
-      status: 'completed',
-      workerId: null,
-      activeAttemptId: null,
-      completedAttemptId: null,
-      turnToolAvailability: null,
-      cancelRequestedAt: null,
-      error: null,
-      contextItems: null,
-      createdAt: new Date('2026-08-11T08:00:00.000Z'),
-      startedAt: new Date('2026-08-11T08:00:01.000Z'),
-      finishedAt: new Date('2026-08-11T08:00:02.000Z'),
-    };
-    const activeCompaction: Compaction = {
-      id: '55555555-5555-4555-8555-555555555555',
-      chatId: 'chat-id',
-      uptoSeq: 8,
-      parentId: null,
-      summary: 'Retains the latest messages.',
-      replacementHistory: compactionReplacementHistory(
-        'Retains the latest messages.',
+    await attempt.result.consumeStream?.();
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    expect(committedParts?.filter(isRecencyDigestItem)).toHaveLength(0);
+    expect(
+      committedParts?.some(
+        (part) =>
+          isContextItemPart(part) &&
+          part.data.producer === 'effective-context-change',
       ),
-      usage: null,
-      createdAt: new Date('2026-08-11T08:00:03.000Z'),
-    };
-    const baseline: RecencyDigestBaseline = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-08-11',
-    };
-    const { service, createRun } = setup({
-      previousRun,
-      activeCompaction,
-      baseline,
-      told: [],
-      memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
-        getForOwnerForBinding: () =>
-          Promise.resolve({ shareRecentChats: true }),
-      },
-      recencyDigest: {
-        resolveCandidate: () =>
-          Promise.resolve({ baseline, told: [], candidates: [] }),
-      },
-    });
-    const createMessage = vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    );
-
-    await service.createMessageStream(input);
-
-    const runInput = createRun.mock.calls[0][0];
-    expect(createMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'message-id',
-        chatId: 'chat-id',
-        senderUserId: 'user-id',
-      }),
-    );
-    expectMessageParts(
-      createMessage.mock.calls[0][0].parts,
-      [
-        {
-          type: 'data-context',
-          data: {
-            v: 1,
-            producer: 'effective-context-change',
-            form: 'notice',
-            runId: runInput.id,
-            payload: {
-              cause: 'model',
-              fromModelId: 'previous-model',
-              toModelId: model.id,
-            },
-          },
-        },
-        { type: 'text', text: 'hello' },
-      ],
-      runInput.id,
-    );
+    ).toBe(true);
   });
 });
