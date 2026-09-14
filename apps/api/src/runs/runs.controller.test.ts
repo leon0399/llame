@@ -169,6 +169,20 @@ describe('RunsController context receipt', () => {
     expect(findById).toHaveBeenCalledWith(run.id, 'owner');
   });
 
+  it('discloses no context items for a run another owner holds', async () => {
+    const findById = vi
+      .spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValue(undefined);
+
+    await expect(
+      controller().getContextItems('intruder', run.id),
+    ).rejects.toThrow(`Run ${run.id} not found`);
+    // The lookup carries the authenticated caller, never an id the client
+    // chose, so another owner's run is indistinguishable from a missing one -
+    // and no item, count, or producer name leaks through the difference.
+    expect(findById).toHaveBeenCalledWith(run.id, 'intruder');
+  });
+
   it('requests cancellation and aborts an in-process run', async () => {
     const running = { ...run, status: 'running_model' as const };
     vi.spyOn(RunsRepository.prototype, 'requestCancel').mockResolvedValue(
