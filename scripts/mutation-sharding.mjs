@@ -13,7 +13,7 @@ import {
   apiShardCount,
   hasCommit,
   mergeMutationBaseline,
-  mutationBaselinePath,
+  mutationBaselineFile,
   mutationFingerprint,
   mutationSourceFiles,
   mutationWorkspaces,
@@ -257,11 +257,17 @@ function scopeArguments(arguments_) {
       workspace: { type: "string" },
       dryRunOnly: { type: "boolean" },
       full: { type: "boolean" },
+      expectedMode: { type: "string" },
     },
   });
   if (values.base === "") throw new Error("--base requires a ref");
   if (values.workspace && !mutationWorkspaces.includes(values.workspace))
     throw new Error("Unknown mutation workspace");
+  if (
+    values.expectedMode !== undefined &&
+    !["skip", "scoped", "full"].includes(values.expectedMode)
+  )
+    throw new Error("--expectedMode must be skip, scoped or full");
   return values;
 }
 
@@ -326,6 +332,20 @@ async function changed(arguments_) {
   for (const workspace of mutationWorkspaces) {
     if (options.workspace && options.workspace !== workspace) continue;
     const scope = scopes[workspace];
+    // The plan is the single decider. Re-deriving here is what keeps local runs
+    // usable, but a job that resolves a mode the plan did not choose — or finds
+    // no baseline where the plan needed one — must fail instead of quietly
+    // running less or gating nothing.
+    if (options.expectedMode !== undefined) {
+      if (scope.mode !== options.expectedMode)
+        throw new Error(
+          `${workspace}: planned ${options.expectedMode} but this run resolved ${scope.mode}`,
+        );
+      if (scope.mode === "scoped" && !baselines[workspace])
+        throw new Error(
+          `${workspace}: planned a scoped run but no baseline was restored`,
+        );
+    }
     console.log(
       `${workspace}: ${scope.mode} mutation scope (${scope.files.length} files)`,
     );
@@ -351,7 +371,7 @@ async function changed(arguments_) {
     else if (baselines[workspace])
       aggregate([
         "--baseline",
-        path.join(directory, mutationBaselinePath(workspace)),
+        path.join(directory, mutationBaselineFile),
         report,
       ]);
     else

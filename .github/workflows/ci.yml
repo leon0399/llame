@@ -66,12 +66,14 @@ jobs:
       - uses: ./.github/actions/stryker-baseline
         with:
           workspace: packages/config-interpolation
-          cache-suffix: config-interpolation
+          cache-file: reports/mutation-baseline.json
+          cache-suffix: config-interpolation-baseline
 
       - uses: ./.github/actions/stryker-baseline
         with:
           workspace: packages/runtime-safety
-          cache-suffix: runtime-safety
+          cache-file: reports/mutation-baseline.json
+          cache-suffix: runtime-safety-baseline
 
       - id: scope
         env:
@@ -288,10 +290,10 @@ jobs:
           fi
           pnpm test:mutation:aggregate -- "${arguments[@]}"
 
-      # Refreshed only after a passing gate: a baseline that recorded this
-      # run's regressions would excuse them on the next one.
+      # A trusted run refreshes the baseline; a pull request never does, or its
+      # next push would be measured against its own results instead of master's.
       - name: Refresh the mutation baseline
-        if: success() && needs.mutation-plan.outputs.api_count != '0'
+        if: success() && needs.mutation-plan.outputs.api_count != '0' && github.event_name != 'pull_request'
         working-directory: apps/api
         run: |
           node ../../scripts/mutation-sharding.mjs baseline \
@@ -300,7 +302,7 @@ jobs:
             reports/mutation-shards/*/mutation.json
 
       - name: Save refreshed mutation baseline
-        if: success() && needs.mutation-plan.outputs.api_count != '0'
+        if: success() && needs.mutation-plan.outputs.api_count != '0' && github.event_name != 'pull_request'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/api/reports/mutation-baseline.json
@@ -328,9 +330,19 @@ jobs:
       - uses: ./.github/actions/setup
         if: matrix.mode != 'skip'
 
+      # The gate's oracle for this package, restored for every mode that runs.
       - uses: ./.github/actions/stryker-baseline
         id: baseline
         if: matrix.mode != 'skip'
+        with:
+          workspace: packages/${{ matrix.package }}
+          cache-file: reports/mutation-baseline.json
+          cache-suffix: ${{ matrix.package }}-baseline
+
+      # Stryker's own reuse cache, only meaningful for a complete run.
+      - uses: ./.github/actions/stryker-baseline
+        id: incremental
+        if: matrix.mode == 'full'
         with:
           workspace: packages/${{ matrix.package }}
           cache-suffix: ${{ matrix.package }}
@@ -342,7 +354,7 @@ jobs:
           MUTATION_MODE: ${{ matrix.mode }}
         run: |
           if [[ "$MUTATION_MODE" == scoped ]]; then
-            node scripts/mutation-sharding.mjs changed --workspace "packages/$MUTATION_PACKAGE" --base "$MUTATION_BASE"
+            node scripts/mutation-sharding.mjs changed --workspace "packages/$MUTATION_PACKAGE" --base "$MUTATION_BASE" --expectedMode scoped
           else
             pnpm --filter "@workspace/$MUTATION_PACKAGE" test:mutation --incremental --reporters clear-text,html,json,progress-append-only
             # The package's own thresholds.break is null, so a complete run is
@@ -355,12 +367,29 @@ jobs:
             node scripts/mutation-sharding.mjs aggregate "${arguments[@]}"
           fi
 
+      # Only a trusted run refreshes the baseline: a pull request that saved its
+      # own results would be measured against itself on its next push.
+      - name: Refresh the mutation baseline
+        if: success() && matrix.mode != 'skip' && github.event_name != 'pull_request'
+        run: |
+          node scripts/mutation-sharding.mjs baseline \
+            --previous "packages/${{ matrix.package }}/reports/mutation-baseline.json" \
+            --output "packages/${{ matrix.package }}/reports/mutation-baseline.json" \
+            "packages/${{ matrix.package }}/reports/mutation/mutation.json"
+
       - name: Save refreshed mutation baseline
+        if: success() && matrix.mode != 'skip' && github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages/${{ matrix.package }}/reports/mutation-baseline.json
+          key: ${{ steps.baseline.outputs.prefix }}${{ steps.baseline.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save the Stryker reuse cache
         if: success() && matrix.mode == 'full'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/${{ matrix.package }}/reports/stryker-incremental.json
-          key: ${{ steps.baseline.outputs.prefix }}${{ steps.baseline.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ steps.incremental.outputs.prefix }}${{ steps.incremental.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload mutation report
         if: always() && matrix.mode != 'skip'

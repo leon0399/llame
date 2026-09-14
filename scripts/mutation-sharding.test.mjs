@@ -273,6 +273,12 @@ test("mergeMutationReports rejects duplicate source files", () => {
   );
 });
 
+test("changed rejects an unknown planned mode", () => {
+  const result = runTool("changed", "--expectedMode", "everything");
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--expectedMode must be skip, scoped or full/u);
+});
+
 function runTool(...arguments_) {
   return spawnSync(
     process.execPath,
@@ -398,22 +404,16 @@ test("aggregate gates on undetected mutants gained against a baseline", () => {
     assert.equal(held.status, 0, held.stderr);
     assert.match(held.stdout, /No new undetected mutants/u);
 
-    // A package baseline is its own incremental report, not a merged index.
-    const raw = runTool(
+    // Anything that is not an index is refused: a raw report at this path means
+    // the writer and the reader disagree about what a baseline is.
+    const refusesRaw = runTool(
       "aggregate",
       "--baseline",
-      reportFile(directory, "incremental.json", {
-        "src/edited.ts": {
-          mutants: [
-            { id: "0", status: "Killed" },
-            { id: "1", status: "Survived" },
-          ],
-        },
-      }),
       survivors,
+      reportFile(directory, "other.json", {}),
     );
-    assert.equal(raw.status, 1);
-    assert.match(raw.stdout, /src\/edited\.ts: 1 -> 2/u);
+    assert.equal(refusesRaw.status, 1);
+    assert.match(refusesRaw.stderr, /Invalid mutation baseline/u);
   } finally {
     rmSync(directory, { recursive: true });
   }

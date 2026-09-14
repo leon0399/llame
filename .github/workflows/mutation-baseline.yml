@@ -106,8 +106,9 @@ jobs:
 
       - uses: ./.github/actions/setup
 
-      # The previous index is carried forward, so a partial sweep still leaves a
-      # complete baseline for pull requests to be measured against.
+      # Each sweep rebuilds the index from every shard it measured; the refresh
+      # only runs once all of them reported, so a short sweep leaves the
+      # previous entry in place untouched.
       - uses: ./.github/actions/stryker-baseline
         id: baseline
         with:
@@ -160,8 +161,17 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      # The gate's oracle, and Stryker's own reuse cache: the sweep rebuilds
+      # both, and the baseline rebuild keeps unmeasured files.
       - uses: ./.github/actions/stryker-baseline
         id: baseline
+        with:
+          workspace: packages/${{ matrix.package }}
+          cache-file: reports/mutation-baseline.json
+          cache-suffix: ${{ matrix.package }}-baseline
+
+      - uses: ./.github/actions/stryker-baseline
+        id: incremental
         with:
           workspace: packages/${{ matrix.package }}
           cache-suffix: ${{ matrix.package }}
@@ -175,12 +185,27 @@ jobs:
         if: success()
         run: node scripts/mutation-sharding.mjs aggregate "packages/${{ matrix.package }}/reports/mutation/mutation.json"
 
+      - name: Refresh the mutation baseline
+        if: success()
+        run: |
+          node scripts/mutation-sharding.mjs baseline \
+            --previous "packages/${{ matrix.package }}/reports/mutation-baseline.json" \
+            --output "packages/${{ matrix.package }}/reports/mutation-baseline.json" \
+            "packages/${{ matrix.package }}/reports/mutation/mutation.json"
+
       - name: Save rebuilt mutation baseline
         if: success()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: packages/${{ matrix.package }}/reports/stryker-incremental.json
+          path: packages/${{ matrix.package }}/reports/mutation-baseline.json
           key: ${{ steps.baseline.outputs.prefix }}trusted-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save rebuilt Stryker reuse cache
+        if: success()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages/${{ matrix.package }}/reports/stryker-incremental.json
+          key: ${{ steps.incremental.outputs.prefix }}trusted-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload mutation report
         if: always()

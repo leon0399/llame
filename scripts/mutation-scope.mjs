@@ -19,14 +19,9 @@ function testFile(file) {
   return /\.test\.[cm]?ts$/u.test(file);
 }
 
-// The API baseline is a merged index of its shard reports; a package baseline
-// is the incremental report of its own single run. `mutationBaseline` reads
-// both shapes.
-export function mutationBaselinePath(workspace) {
-  return workspace === "apps/api"
-    ? "reports/mutation-baseline.json"
-    : "reports/stryker-incremental.json";
-}
+// Every workspace's gate reads the same merged index. The API writes it from
+// its shard reports; a package writes it from its own single report.
+export const mutationBaselineFile = "reports/mutation-baseline.json";
 
 function documentation(file) {
   return (
@@ -172,10 +167,10 @@ export function mergeMutationBaseline(previous, reports) {
   const measured = mutationBaselineFiles(reports);
   const files = { ...(previous?.files ?? {}) };
   for (const [file, entry] of Object.entries(measured)) {
-    // A scoped dry run collects only the tests related to its own files, so its
-    // `coveredBy` is a lower bound: a test that reaches the file through a
-    // module the scope did not mutate is missing. Keeping earlier entries makes
-    // the union monotone, and an extra test file in it only widens the scope.
+    // Counts come from this measurement; coverage entries accumulate, so a
+    // report measured over a narrower set cannot narrow what later runs treat
+    // as reachable. A stale entry only widens the scope, and an entry for a
+    // file the corpus no longer has is filtered against the current sources.
     const coveredBy = new Set([
       ...(files[file]?.coveredBy ?? []),
       ...entry.coveredBy,
@@ -185,35 +180,30 @@ export function mergeMutationBaseline(previous, reports) {
   return { baselineVersion: mutationBaselineVersion, files };
 }
 
-// The sharded API baseline is the merged index this project writes; a package
-// baseline is the incremental report of its own single run. Reading accepts
-// both, so callers never depend on which one they were handed.
+// The index is the only accepted baseline: a raw report at this path would
+// mean the writer and the reader disagree, which is worth failing on rather
+// than measuring a delta against a shape nothing produces.
 export function readMutationBaselineFile(file) {
   const parsed = JSON.parse(readFileSync(file, "utf8"));
-  if (parsed?.baselineVersion === mutationBaselineVersion) {
-    if (
-      !parsed.files ||
-      typeof parsed.files !== "object" ||
-      Array.isArray(parsed.files)
+  if (
+    parsed?.baselineVersion !== mutationBaselineVersion ||
+    !parsed.files ||
+    typeof parsed.files !== "object" ||
+    Array.isArray(parsed.files) ||
+    Object.values(parsed.files).some(
+      (entry) =>
+        !Number.isInteger(entry?.mutants) ||
+        !Number.isInteger(entry?.undetected) ||
+        !Array.isArray(entry?.coveredBy),
     )
-      throw new Error(`Invalid mutation baseline: ${file}`);
-    if (
-      Object.values(parsed.files).some(
-        (entry) =>
-          !Number.isInteger(entry?.mutants) ||
-          !Number.isInteger(entry?.undetected) ||
-          !Array.isArray(entry?.coveredBy),
-      )
-    ) {
-      throw new Error(`Invalid mutation baseline: ${file}`);
-    }
-    return parsed;
+  ) {
+    throw new Error(`Invalid mutation baseline: ${file}`);
   }
-  return mutationBaseline([parsed]);
+  return parsed;
 }
 
 function readMutationBaseline(workspace, root = process.cwd()) {
-  const file = path.join(root, workspace, mutationBaselinePath(workspace));
+  const file = path.join(root, workspace, mutationBaselineFile);
   if (!existsSync(file)) return undefined;
   return readMutationBaselineFile(file);
 }
