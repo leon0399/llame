@@ -1,7 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 
-import { ChatsModule } from '../chats/chats.module';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { RunWorkerModule } from '../runs/run-worker.module';
@@ -77,11 +76,7 @@ describe('McpRuntimeModule', () => {
     await moduleRef.close();
   });
 
-  it('wires the same graph-local runtime into HTTP turn binding and worker execution', () => {
-    const chatImports: unknown = Reflect.getMetadata(
-      MODULE_METADATA.IMPORTS,
-      ChatsModule,
-    );
+  it('wires the graph-local runtime into worker execution', () => {
     const workerImports: unknown = Reflect.getMetadata(
       MODULE_METADATA.IMPORTS,
       RunWorkerModule,
@@ -91,7 +86,8 @@ describe('McpRuntimeModule', () => {
       RunWorkerModule,
     );
 
-    expect(chatImports).toContain(McpRuntimeModule);
+    // The accept path no longer resolves MCP candidates: the executing worker
+    // owns catalog composition, so this is the only graph that binds it.
     expect(workerImports).toContain(McpRuntimeModule);
     expect(workerProviders).toContainEqual({
       provide: DYNAMIC_TOOL_EXECUTOR_RESOLVER,
