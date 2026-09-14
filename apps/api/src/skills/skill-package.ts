@@ -113,10 +113,15 @@ export function skillInstructionBody(text: string): string {
     (line, index) => index > 0 && line.trimEnd() === '---',
   );
   if (closingIndex === -1) return text;
-  return lines
-    .slice(closingIndex + 1)
-    .join('\n')
-    .trim();
+  return (
+    lines
+      .slice(closingIndex + 1)
+      .join('\n')
+      // Blank lines around the body are framing; leading spaces are not. A
+      // body opening with a four-space code block must keep its indentation,
+      // or the model reads the block as prose.
+      .replaceAll(/^\n+|\n+$/gu, '')
+  );
 }
 
 function frontmatterBlock(

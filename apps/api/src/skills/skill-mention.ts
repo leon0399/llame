@@ -190,7 +190,7 @@ type ScanState = {
 /** What one line does to the fence state. */
 function classifyLine(
   state: ScanState,
-  fenceMatch: { readonly marker: string; readonly length: number } | undefined,
+  fenceMatch: FenceMatch | undefined,
 ): 'opens-fence' | 'closes-fence' | 'plain' {
   if (state.fence === undefined) {
     return fenceMatch === undefined ? 'plain' : 'opens-fence';
@@ -198,7 +198,11 @@ function classifyLine(
   if (
     fenceMatch !== undefined &&
     fenceMatch.marker === state.fence.marker &&
-    fenceMatch.length >= state.fence.length
+    fenceMatch.length >= state.fence.length &&
+    // A closing fence carries no info string. Treating ```` ```ts ```` as a
+    // close would end the block early and hand the rest of the code to the
+    // mention parser, which the spec excludes.
+    fenceMatch.suffix.trim().length === 0
   ) {
     return 'closes-fence';
   }
@@ -210,19 +214,28 @@ function nextLineEnd(text: string, from: number): number {
   return newline < 0 ? text.length : newline + 1;
 }
 
+type FenceMatch = {
+  readonly marker: string;
+  readonly length: number;
+  /** Whatever followed the marker: an info string on an opening fence. */
+  readonly suffix: string;
+};
+
 /** The fence marker opening or closing a line, when that line is fence-shaped. */
 function fenceMarker(
   text: string,
   lineStart: number,
   lineEnd: number,
-): { readonly marker: string; readonly length: number } | undefined {
+): FenceMatch | undefined {
   const line = text.slice(lineStart, lineEnd).trim();
   const match = /^(`{3,}|~{3,})/u.exec(line);
   if (match === null) return undefined;
-  // A closing fence carries no info string; an opening one may. Neither
-  // distinction matters here — any fence-shaped line toggles the state.
   const marker = match[1][0];
-  return { marker, length: match[1].length };
+  return {
+    marker,
+    length: match[1].length,
+    suffix: line.slice(match[1].length),
+  };
 }
 
 /**
@@ -247,7 +260,12 @@ function inlineCodeEnd(
     while (runEnd < lineEnd && text[runEnd] === '`') runEnd += 1;
     const length = runEnd - cursor;
     const closing = findBacktickRun(text, runEnd, length);
-    if (closing === undefined) return undefined;
+    if (closing === undefined) {
+      // An unmatched run is literal text, so a complete span later on the same
+      // line is still code and a mention inside it is still excluded.
+      cursor = runEnd;
+      continue;
+    }
     return closing + length;
   }
   return undefined;

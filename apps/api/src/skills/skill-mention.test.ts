@@ -36,6 +36,21 @@ describe('parseSkillMentions', () => {
     expect(names(text)).toEqual([]);
   });
 
+  it('keeps a fence open past a line that carries an info string', () => {
+    // A closing fence carries no info string, so ```` ```ts ```` opens nothing
+    // and closes nothing: the block runs on and its mentions stay excluded.
+    expect(names('```\n$pdf\n```ts\n$research\n```\n$after')).toEqual([
+      'after',
+    ]);
+  });
+
+  it('excludes a mention in a span that follows an unmatched backtick run', () => {
+    // The double run never finds its pair, so it is literal text - but the
+    // single-backtick span after it is still code, and scanning must reach it.
+    expect(names('``x `$pdf` y')).toEqual([]);
+    expect(names('``x `$pdf` $research')).toEqual(['research']);
+  });
+
   it('recognizes a mention after a closed fence', () => {
     expect(names('```\n$pdf\n```\nthen $research')).toEqual(['research']);
   });

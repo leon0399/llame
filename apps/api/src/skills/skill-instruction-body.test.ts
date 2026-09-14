@@ -22,6 +22,14 @@ describe('skillInstructionBody', () => {
     ).toBe('# PDF\n\nSteps.');
   });
 
+  it('keeps the indentation of a body that opens with a code block', () => {
+    // Four leading spaces are a Markdown code block. Trimming them turns the
+    // block into prose, so only the blank framing lines come off.
+    expect(
+      skillInstructionBody('---\nname: a\n---\n\n    code();\n\ntext\n'),
+    ).toBe('    code();\n\ntext');
+  });
+
   it('returns the whole text when it has no frontmatter', () => {
     expect(skillInstructionBody('# Just prose\n')).toBe('# Just prose\n');
   });
