@@ -1042,7 +1042,7 @@ describe("missing file suggestions", () => {
     });
   });
 
-  it("discards suggestions within 200 ms when long names exhaust the scoring budget", async () => {
+  it("discards suggestions within 2000 ms when long names exhaust the scoring budget", async () => {
     for (let index = 0; index < 10_000; index++) {
       await mkdir(
         join(directory, `${String(index).padStart(5, "0")}${"a".repeat(250)}`),
@@ -1074,7 +1074,15 @@ describe("missing file suggestions", () => {
     if (!isRecord(measured) || !isNumber(measured.elapsed))
       throw new Error("Missing timing result");
     expect(measured.result).toStrictEqual(result);
-    expect(measured.elapsed).toBeLessThan(200);
+    // The bound is the point: refusing an over-budget directory must cost a
+    // fraction of scoring it. Measured on a 10,000-entry directory of 250-char
+    // names, the early refusal takes ~70 ms while the same directory WITH the
+    // budget lifted takes ~7,600 ms — two orders of magnitude apart, so a
+    // generous wall-clock bound still fails if the refusal is removed. It is
+    // generous because this measures a COLD `tsx` process, whose transpile and
+    // module load vary by hundreds of milliseconds on a shared runner; the
+    // earlier 200 ms bound flaked at 204-435 ms in CI while passing locally.
+    expect(measured.elapsed).toBeLessThan(2000);
 
     // A plausible name cannot be emitted from a directory over the entry cap.
     await mkdir(join(directory, "notes.md"));
