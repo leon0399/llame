@@ -33,7 +33,10 @@ upstream Git `revision`. It does not record document generation or verification.
 
 The [long-term-memory synthesis](../long-term-memory/2026-07-05-memory-landscape/CROSS-REPORT.md)
 and [product-vision synthesis](../product-vision/2026-07-15-working-synthesis/report.md)
-retain broader research. [SPEC.md §2.1](../../../SPEC.md) and its linked OpenSpec
+retain broader research; the
+[code-mode deep dive](../tool-harness/2026-09-14-code-mode-eval-tool.md)
+compares eval and code-mode tools across OMP, OpenClaw, and Codex CLI.
+[SPEC.md §2.1](../../../SPEC.md) and its linked OpenSpec
 capabilities own the current compaction contract. Dated deep dives linked from
 individual references retain their original observations; they are not refreshed
 by a bundle update.
@@ -77,3 +80,4 @@ assessment.
 27. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
 28. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
 29. [ELAI](./elai.md) — Archived architecture and measurement discipline
+30. [Loki Agent](./loki.md) — Rebranded Hermes fork; managed connector gateway degradation and retry contract
