@@ -313,7 +313,17 @@ export function selectMutationScope(changes, sources, baselines = {}) {
     ]),
   );
   const unavailable = (workspace, reason) => {
-    scopes[workspace] = { mode: "unavailable", files: [], reason };
+    // Keep every reason: a waiver records what it left unmeasured, and a
+    // workspace with several unbounded paths must not report only the last.
+    const previous = scopes[workspace];
+    scopes[workspace] = {
+      mode: "unavailable",
+      files: [],
+      reason:
+        previous.mode === "unavailable"
+          ? `${previous.reason}; ${reason}`
+          : reason,
+    };
   };
   const scoped = (workspace, file) => {
     if (scopes[workspace].mode === "unavailable") return;

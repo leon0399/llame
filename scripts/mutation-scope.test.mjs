@@ -427,6 +427,28 @@ test("unknown runtime inputs make every workspace delta unavailable", () => {
   }
 });
 
+test("a workspace reports every unbounded input, not only the last", () => {
+  // A waiver records what it left unmeasured, so the reason must not collapse
+  // to whichever path happened to be visited last.
+  // Workspace-root files are run configuration that no test reads, which is the
+  // remaining unbounded case.
+  const scope = selectMutationScope(
+    [
+      "apps/api/tsconfig.json",
+      "apps/api/vitest.config.mts",
+      "apps/api/tsconfig.build.json",
+    ],
+    sources,
+  )["apps/api"];
+  assert.equal(scope.mode, "unavailable");
+  for (const path of [
+    "tsconfig.json",
+    "vitest.config.mts",
+    "tsconfig.build.json",
+  ])
+    assert.match(scope.reason, new RegExp(path.replace(".", "\\.", "gu"), "u"));
+});
+
 test("documentation, frontend, tooling and lint configuration need no mutation execution", () => {
   const result = selectMutationScope(
     [

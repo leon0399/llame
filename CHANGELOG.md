@@ -30,12 +30,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   request that adds one: the plan failed with an unusable index and an unbounded
   delta before any mutant ran, and only a trusted run writes the index a
   migration pull request would need.
-- Waive an unbounded mutation delta with the `mutation-bypass` pull-request
-  label, the bypass the mutation-scope documentation already required and which
-  had no implementation. The plan resolves each unbounded workspace to `skip`,
-  schedules no shards for it, and annotates the run with every input the waiver
-  left unmeasured; a push carries no labels, so master still fails on missing
-  evidence. Lint and format configuration (markdownlint, oxlint, Prettier) is
+
+- Waive an unbounded mutation delta with an operator label that names the
+  revision it approves, `mutation-bypass@<sha12>`, the bypass the mutation-scope
+  documentation already required and which had no implementation. Naming the
+  revision bounds the waiver: a later push changes the head SHA, so it stops
+  matching instead of letting new unbounded inputs inherit an old approval.
+  Applying a label needs write access and a push carries no labels, so master
+  still fails on missing evidence. CI subscribes to `labeled`, because
+  re-running the failed run would replay its original payload and still see no
+  approval. The plan resolves each unbounded workspace to `skip`, schedules no
+  shards for it, and annotates the run with every input the waiver left
+  unmeasured. Lint and format configuration (markdownlint, oxlint, Prettier) is
   now exempt from both the scope and the environment fingerprint, on the same
   reasoning as CI wiring and Git ignore rules — a root-level lint config
   otherwise made every workspace's delta unavailable at once.

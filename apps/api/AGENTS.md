@@ -45,7 +45,8 @@ packs small diffs into fewer runners, and gates per-file undetected-mutant
 growth. Missing baselines and unbounded impact fail before mutation execution;
 there is no automatic full-sweep fallback. Tooling-only changes use tooling
 checks, and lint/format configuration is exempt. An operator waives an
-unbounded delta with the `mutation-bypass` pull-request label, which records
+unbounded delta with the `mutation-bypass@<sha12>` pull-request label, whose
+revision naming means a later push must be approved again; the plan records
 what went unmeasured. Scheduled/manual full runs report without a score
 threshold. Reports are ignored under `reports/`. Restricted sandboxes may need
 local-bind permission for Stryker.
