@@ -158,9 +158,10 @@ same timeout, same `tool.requested`/`tool.completed` receipts, parent
 `toolCallId` recorded. The eval result returned to the model is the cell's
 stdout/display plus a compact ledger of nested call ids and outcomes.
 
-D4. Persistent kernel per Run, not per session, reaped at run end or idle
-timeout. Workers are pg-boss processes; a kernel cannot outlive its worker, so
-"persists across calls" means within a Run only. Document it as such.
+D4. Stateless cells: each call spawns a fresh child process and nothing
+persists between calls. Replay-safe, and workers are pg-boss processes that
+cannot hold kernels across restarts anyway. Add a persistent kernel only if
+transcripts show cell chaining that stateless cells make expensive.
 
 D5. Bun before Python. Python adds a second kernel protocol and a second
 dependency story (uv/pip) for a smaller gain in llame's assistant use case.
@@ -219,17 +220,14 @@ I7. Sandbox executor for eval: child of #756, not this tracker.
 Ordering: I1, then I2 and I4 in parallel, then I3, then I5. Multi-user
 availability waits on I7.
 
-## Open questions for Leo
+## Decisions (2026-09-14)
 
-Q1. Accept host authority for phase 1 (same posture as bash), or block the
-whole feature on #756? Recommendation: host authority, single-owner alpha,
-same `nativeExecutorId` gate.
+Q1. Phase 1 ships under the same host-authority posture as `bash`:
+single-owner alpha, gated by `tools.nativeExecutorId`, documented as host
+authority rather than tenant isolation. Multi-user availability waits on #756.
 
-Q2. Persistent kernel per Run (D4) or stateless one-shot cells (Cloudflare,
-Codex)? Stateless is simpler and replay-safe; persistent matches OMP ergonomics.
-Recommendation: stateless in I2; add persistence only if cell-chaining shows
-up in transcripts.
+Q2. Stateless one-shot cells (D4). No per-Run kernel.
 
-Q3. Direct-tool restriction when eval is available (Codex Code Mode
-partition)? Recommendation: no; keep the full direct catalog and let the model
-choose. Revisit with #338.
+Q3. No direct-tool restriction. The full direct catalog stays advertised
+alongside `eval`; the model chooses. Revisit with #338 if catalog size forces
+a partition.
