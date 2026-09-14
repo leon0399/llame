@@ -90,12 +90,19 @@ test.describe("anonymous auth flows", () => {
     test(`blocks open redirect callbackUrl ${callbackUrl}`, async ({
       page,
       account,
+      baseURL,
     }) => {
       await page.goto(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
       await loginViaUi(page, account);
 
-      await expect(page).toHaveURL(/\/$/);
+      // The property under test is that the attacker's target never wins, and
+      // that login completes on our own origin. Asserting the exact landing
+      // path would race the app's own move from `/` to a fresh draft chat:
+      // this test then passes or fails on whether it sampled the URL before
+      // that navigation, which has nothing to do with open redirects.
       await expectProtectedShell(page, account);
+      expect(page.url().startsWith(`${baseURL ?? ""}/`)).toBe(true);
+      expect(page.url()).not.toContain("evil.example");
     });
   }
 
