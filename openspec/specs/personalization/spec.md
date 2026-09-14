@@ -86,7 +86,7 @@ Absence SHALL be expressed by omission from the context at every level: an indiv
 
 Every rendered value SHALL be neutralized by the templating capability's rules for its field kind: account-identity values by strict `&`/`<`/`>` escaping, and authored values by the tag sanitizer, whose two rules — a value can never close a tag it did not open within that same value, and can never emit the delimiter's own reserved name as a tag at all — together keep authored text unable to terminate or forge the surrounding structure, while letting self-contained authored markup under any other name (an owner's own `<instructions>…</instructions>` blocks) reach the model verbatim. Rendered output SHALL NOT be re-evaluated as a template.
 
-Per-user values SHALL be read under the chat owner's tenant scope, projected into the render context, and substituted **before** the snapshot's prompt and content hashes are computed, then bound to the run atomically with the user message. The read MAY occur in a separate short tenant-scoped transaction preceding the binding transaction, so that the binding transaction is not held open across it; a personalization edit committed between the read and the write MAY apply only to the next run.
+For each execution attempt, the worker SHALL read current per-user values under the chat owner's tenant scope and project them into the shared system/description context before rendering. The rendered system text SHALL be recorded in that attempt's system-only receipt before target-model I/O; rendered tool descriptions SHALL remain in memory. A later edit applies to the next attempt, including a retry, without rewriting an earlier receipt.
 
 The render context MUST remain an explicitly constructed projection: adding these paths MUST NOT be implemented by passing a personalization row, a user row, or any other record as context.
 
@@ -182,7 +182,7 @@ Rendered `responsePreferences` SHALL be presented to the model as owner-authored
 
 - **WHEN** a user writes preference text instructing the assistant to use a tool the operator has not allowlisted
 - **THEN** the advertised and executable tool set is unchanged
-- **AND** the bound snapshot's tool contract is identical to the same run without personalization
+- **AND** admitted tool identities, schemas, classification, and invocation authority are identical to those resolved without personalization; operator-authored templates may vary rendered wording using the safe projection
 
 #### Scenario: Preferences conflict with the operator prompt
 
@@ -194,7 +194,7 @@ Rendered `responsePreferences` SHALL be presented to the model as owner-authored
 
 Personalization SHALL be documented and treated as a surface for non-sensitive, owner-authored text that is safe to include in every request for that owner. It MUST NOT be used to store inferred observations, accumulated conversation facts, credentials, or secrets. Personalization content MUST NOT be written to operator logs or error messages, and MUST NOT be exposed to any identity other than its owner.
 
-Rendered values persist in the immutable effective-context snapshots bound to past runs. Deleting an account SHALL remove those snapshots along with it. Changing or withdrawing a value SHALL NOT rewrite snapshots already bound, so a superseded value remains visible in the owner's own receipts for earlier runs; this SHALL be documented as a known limitation rather than presented as erasure.
+Values rendered into a system prompt SHALL persist in the immutable system-only receipt for that attempt. Deleting the account SHALL remove its receipts. Changing or withdrawing a value SHALL not rewrite earlier receipts; it SHALL affect the next execution attempt, including a queued Run or retry. Values rendered only into tool descriptions SHALL not create a persisted description receipt. Document the retention of earlier system text rather than claiming erasure.
 
 #### Scenario: Personalization is absent from logs
 
@@ -205,12 +205,12 @@ Rendered values persist in the immutable effective-context snapshots bound to pa
 #### Scenario: Deleting a field removes it from later runs
 
 - **WHEN** an owner clears a personalization field
-- **THEN** runs enqueued after that change carry no trace of the cleared value
+- **THEN** execution attempts resolving after that change carry no trace of the cleared value
 - **AND** the owner's stored personalization no longer contains it
 
 #### Scenario: Earlier runs retain what they bound
 
-- **WHEN** an owner changes a personalization value after runs have already bound the previous one
+- **WHEN** an owner changes a personalization value after attempts have recorded the previous one
 - **THEN** those earlier runs' receipts still show the value that was actually sent
 - **AND** no run is retroactively rewritten to claim content it did not send
 

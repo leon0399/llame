@@ -333,9 +333,9 @@ The system SHALL NOT verify that a declared level is accepted by the provider. A
 
 Each `models[]` entry MAY include a `systemPromptFile` string naming a complete system-prompt file. The setting SHALL be handled as a host path, not as `{path:...}` secret interpolation, because the resolved prompt contents are intentionally visible to the chat owner. An omitted field SHALL select the versioned project-default prompt. A configured field SHALL replace the default completely for that model; models MUST NOT inherit or compose prompts from other model entries.
 
-Relative prompt paths SHALL resolve against the directory containing the resolved instance configuration file, and absolute paths SHALL remain absolute. The loader SHALL read prompt files at boot, normalize CRLF/CR line endings to LF, remove trailing whitespace only at the end of the file, and require non-empty rendered content.
+Relative prompt paths SHALL resolve against the directory containing the resolved instance configuration file, and absolute paths SHALL remain absolute. The loader SHALL read prompt files at execution-worker boot, normalize CRLF/CR line endings to LF, remove trailing whitespace only at the end of the file, and require non-empty rendered content.
 
-Prompt files SHALL be **Handlebars templates**. The loader SHALL parse each template at boot and validate its abstract syntax tree, failing startup and naming the model id together with the offending construct on anything it does not explicitly permit.
+Prompt files SHALL be **Handlebars templates**. The loader SHALL parse each template at execution-worker boot and validate its abstract syntax tree, failing startup and naming the model id together with the offending construct on anything it does not explicitly permit.
 
 Validation SHALL permit only these node kinds: literal content, a value expression, a block expression, and a comment. Everything else SHALL be rejected. An allowlist is used because it is simpler than enumerating bad forms and does not need revisiting when the engine adds a node kind — partials, for example, exist in three syntactic forms that a blocklist would have to name individually.
 
@@ -343,14 +343,14 @@ Within permitted node kinds:
 
 - a value expression SHALL reference an allowlisted context path and SHALL carry no parameters, since a parameterized value expression is a helper invocation;
 - a context path SHALL be validated on its **parsed segments and depth**, not on its display string: a bracketed path such as `{{[model.id]}}` reports an allowlisted display string while parsing to a single literal segment, so accepting it would silently render empty instead of failing boot, and a parent-context path (`../`) escapes the projection entirely;
-- a block expression SHALL be `if` or `unless`, SHALL take exactly one parameter, and SHALL carry neither hash arguments nor block parameters — a hash pair can hold a subexpression, which is a helper invocation the parameter check alone does not see; a wrong argument count left to the engine surfaces at render time as an unwrapped error naming neither the model nor the field; and `as |x|` binds a name outside the projected context;
+- a block expression SHALL use `if`/`unless` or the bounded `each` defined by `model-system-prompts`, SHALL take exactly one permitted subject, and SHALL carry neither hash arguments nor block parameters — a hash pair can hold a subexpression, which is a helper invocation the parameter check alone does not see; a wrong argument count left to the engine surfaces at render time as an unwrapped error naming neither the model nor the field; and `as |x|` binds a name outside the projected context;
 - unescaped output SHALL be rejected.
 
 Fragments stay rejected because `model-system-prompts` forbids prompt composition; with an allowlist this costs nothing to enforce.
 
-A template SHALL be rejected at boot as empty when it contains no literal text at all. Literal text SHALL count wherever it appears, **including inside a conditional body** — a prompt may legitimately consist of nothing but an `if` block wrapping its only prose, and rejecting that would defeat the conditional idiom this capability exists to enable.
+A template SHALL be rejected at execution-worker boot as empty when it contains no literal text at all. Literal text SHALL count wherever it appears, **including inside a conditional body** — a prompt may legitimately consist of nothing but an `if` block wrapping its only prose, and rejecting that would defeat the conditional idiom this capability exists to enable.
 
-Template **rendering** SHALL be lenient where validation is strict: a context path that is allowlisted but has no value at render time SHALL render as empty rather than raising, so that data absent at request time can never fail a run. Boot-time validation SHALL be performed against the template rather than against any rendered output.
+Template **rendering** SHALL be lenient where validation is strict: a context path that is allowlisted but has no value at render time SHALL render as empty rather than raising, so absence is not an expression-resolution error. The complete rendered system prompt and each admitted description SHALL still satisfy the nonempty-attempt requirement; an empty final result fails preparation. Boot structural validation and the supported probe rules SHALL not require an absent tool to exist.
 
 Rendered values SHALL be neutralized in two regimes, by field kind. **Model and account-identity values** (`model.*`, `user.name`, `user.email`) SHALL be escaped by replacing exactly `&`, `<`, and `>` with character references — short single-line strings with no legitimate markup. **Owner-authored values** (the `user.personalization.*` text fields) SHALL instead pass through a tag sanitizer enforcing exactly two rules:
 
@@ -359,15 +359,26 @@ Rendered values SHALL be neutralized in two regimes, by field kind. **Model and 
 
 Everything else — self-contained markup under a non-reserved name, unmatched opening tags, prose comparisons, ampersands — SHALL pass byte-for-byte, because owners legitimately author tag-structured preference text and entity-mangling it destroys the structure it exists to convey. In both regimes no other character SHALL be altered, so apostrophes, quotation marks, equals signs, backticks, and other prose punctuation survive verbatim; the engine's default escaping MUST NOT be used, because it converts all of those and mangles both prose and code fragments. Neutralization SHALL be applied when building the context and the value marked already-safe, so the engine emits it without a second pass. The engine's global escaping behavior MUST NOT be mutated: a created environment shares its utility object with the global one, so replacing that function process-wide would alter behavior for every other consumer.
 
-The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record — including when the context is extended with per-user values. The renderable set SHALL be the selected model's public id and configured public name, plus the **per-user paths** `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.name`, and `user.email`.
+The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record — including when the context is extended with per-user values. The renderable set SHALL be the complete explicit projection defined by `model-system-prompts`, including its chat collections and temporal paths, plus absent-safe conditional-only `tools.<exact-id>` predicates. Both template kinds SHALL use that same projection. Neither records nor unrequested capability flags become renderable.
 
-Per-user paths SHALL be validated at boot exactly like any other identifier, while their **values** resolve per run because no owner is in scope at startup. The loader SHALL therefore expose a template that the run path renders, rather than returning a string rendered at boot. Boot SHALL render each template with BOTH an absent and a populated per-user context, and SHALL fail if either renders empty. One probe is not sufficient: `unless` is a permitted helper over the per-user gates, so a template whose only content sits inside `{{#unless user}}` renders non-empty with no owner and empty for precisely the owners who personalized. The earlier claim that an absent per-user context yields the minimum possible output is therefore false, and probing one gate state would pass such a template at boot and ship an empty prompt in production. A template that references no per-user path SHALL remain valid and MUST NOT fail startup; that model simply forgoes per-user context.
+Per-user and per-chat paths SHALL be validated at execution-worker boot, while their values resolve per execution attempt because no owner or Chat is in scope at startup. The loader SHALL expose a template for the worker attempt path to render. For templates without tool predicates, boot SHALL probe the independent absent/populated `user` × `chats` cross-product defined by `model-system-prompts` and SHALL fail if any combination renders empty. Every probe SHALL supply a representative unconditional temporal anchor; varying the optional gates together or probing an absent anchor is invalid. A template SHALL NOT fail startup merely because it references no per-user path; that model simply forgoes per-user context.
 
-A missing, unreadable, non-file, or empty configured prompt SHALL fail startup naming the model id and field; it MUST NOT silently use the project default. An allowlisted path whose value is simply absent SHALL NOT fail startup — it renders empty, so that a conditional over a possibly-absent value is expressible; this SHALL apply to per-user paths at boot, where no value can exist by construction. The built-in project prompt SHALL be validated at startup as a packaged application asset.
+A missing, unreadable, non-file, or empty configured prompt SHALL fail worker startup naming the model id and field; it MUST NOT silently use the project default. An allowlisted path whose value is simply absent SHALL NOT fail worker startup — it renders empty, so that a conditional over a possibly-absent value is expressible; this SHALL apply to per-user paths at execution-worker boot, where no value can exist by construction. The built-in project prompt SHALL be validated at worker startup as a packaged application asset.
 
 The **packaged project-default prompt** SHALL reference the per-user paths, each inside a conditional, so that a stock installation applies an owner's personalization with no operator action and an owner's `shareAccountIdentity` toggle governs their account identity directly. An operator who replaces the default with a prompt referencing no per-user path SHALL silently forgo personalization for that model; this consequence SHALL be documented, and it is accepted rather than reported, because per-model activation reporting is out of scope.
 
 The resolved public model catalog and all user-facing APIs MUST omit `systemPromptFile` and every resolved host path. The resolved prompt contents and a source label MAY be exposed only through the owner-authorized run context receipt defined by the `model-system-prompts` capability. Config errors and operator logs MUST NOT print prompt contents.
+
+#### Scenario: A mixed optional-context state renders empty
+
+- **WHEN** a template without tool predicates renders non-empty for both lockstep gate states but empty when `user` is absent and `chats` is populated
+- **THEN** the independent gate probes reject it at worker boot
+
+#### Scenario: A template uses only temporal context
+
+- **WHEN** an otherwise-valid template renders non-empty text using only `context.systemTime` and `context.systemTimezone`
+- **THEN** every boot probe supplies the anchor and succeeds
+- **AND** absence of per-user or per-chat values does not invalidate it
 
 #### Scenario: Relative model prompt path resolves
 
@@ -378,7 +389,7 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 #### Scenario: Absolute model prompt path resolves
 
 - **WHEN** a model declares a valid absolute `systemPromptFile`
-- **THEN** the loader reads that exact file at startup
+- **THEN** the loader reads that exact file at worker startup
 - **AND** no additional path sandbox is applied beyond the administrator-controlled process permissions
 
 #### Scenario: Prompt override is omitted
@@ -390,7 +401,7 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 #### Scenario: Configured prompt file is invalid
 
 - **WHEN** `systemPromptFile` resolves to a missing, unreadable, non-file, or empty prompt
-- **THEN** startup fails naming the model id and field
+- **THEN** worker startup fails naming the model id and field
 - **AND** neither prompt contents nor partial model catalog state is exposed
 - **AND** the project default is not used as a silent recovery path
 
@@ -408,65 +419,65 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 #### Scenario: Template references an unknown identifier
 
 - **WHEN** a configured prompt file references a context path outside the allowlist
-- **THEN** startup fails naming the model id and that path
+- **THEN** worker startup fails naming the model id and that path
 - **AND** no prompt contents are printed
 
 #### Scenario: Path only appears allowlisted in its display form
 
 - **WHEN** a configured prompt file uses a bracketed path whose display string matches an allowlisted path but whose parsed segments do not, or a parent-context path
-- **THEN** startup fails naming the model id and that path
+- **THEN** worker startup fails naming the model id and that path
 - **AND** the template is not accepted to render empty at request time
 
 #### Scenario: Conditional has the wrong argument count
 
 - **WHEN** a configured prompt file uses an `if` or `unless` block with no parameter or more than one
-- **THEN** startup fails with the capability's own configuration error, naming the model id and the construct
+- **THEN** worker startup fails with the capability's own configuration error, naming the model id and the construct
 - **AND** the failure does not surface later as an unwrapped engine error at render time
 
 #### Scenario: Conditional declares block parameters
 
 - **WHEN** a configured prompt file declares block parameters on a conditional
-- **THEN** startup fails naming the model id and the construct
+- **THEN** worker startup fails naming the model id and the construct
 
 #### Scenario: Template requests unescaped output
 
 - **WHEN** a configured prompt file emits a value through unescaped output
-- **THEN** startup fails naming the model id and that expression
+- **THEN** worker startup fails naming the model id and that expression
 - **AND** the template is not loaded with escaping bypassed
 
 #### Scenario: Template references a fragment
 
 - **WHEN** a configured prompt file references a partial in any of its syntactic forms
-- **THEN** startup fails naming the model id and the construct
+- **THEN** worker startup fails naming the model id and the construct
 
 #### Scenario: Template invokes a helper
 
-- **WHEN** a configured prompt file invokes any helper other than `if` or `unless`, in either value or block position
-- **THEN** startup fails naming the model id and the helper
+- **WHEN** a configured prompt file invokes any helper outside the shared `if`/`unless`/bounded-`each` rules
+- **THEN** worker startup fails naming the model id and the helper
 - **AND** `if` and `unless` continue to load successfully
 
 #### Scenario: Comment is permitted
 
 - **WHEN** a configured prompt file contains a template comment
-- **THEN** startup succeeds and the comment does not appear in rendered output
+- **THEN** worker startup succeeds and the comment does not appear in rendered output
 
 #### Scenario: Helper smuggled through a block hash argument
 
 - **WHEN** a configured prompt file passes a hash argument holding a subexpression to an `if` or `unless` block
-- **THEN** startup fails naming the model id and the helper invocation
+- **THEN** worker startup fails naming the model id and the helper invocation
 - **AND** the helper is never executed at render time
 
 #### Scenario: Conditional holds the only literal content
 
 - **WHEN** a configured prompt file consists solely of a conditional block whose body carries its only literal text
-- **THEN** startup succeeds rather than rejecting the template as empty
+- **THEN** worker startup succeeds rather than rejecting the template as empty
 - **AND** the block renders its content when the tested path has a value
 
 #### Scenario: Allowlisted value is missing at render time
 
-- **WHEN** an allowlisted context path has no value when a prompt is rendered
+- **WHEN** an allowlisted context path has no value and the surrounding template produces nonempty final text
 - **THEN** the expression renders as empty and rendering succeeds
-- **AND** neither startup nor the run fails
+- **AND** the missing value itself causes no startup or attempt failure
 
 #### Scenario: Escaping alters exactly three characters
 
@@ -489,18 +500,18 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 
 - **WHEN** a configured prompt file references personalization or account-identity paths
 - **THEN** startup accepts them as allowlisted identifiers without resolving any owner data
-- **AND** their values resolve per run instead
+- **AND** their values resolve per execution attempt instead
 
 #### Scenario: Template names an unknown per-user field
 
 - **WHEN** a configured prompt file references a per-user path outside the allowlist
-- **THEN** startup fails naming the model id and that path
+- **THEN** worker startup fails naming the model id and that path
 - **AND** the allowlist is not silently extended
 
 #### Scenario: Template references no per-user path
 
 - **WHEN** an operator's configured prompt file references no per-user context path
-- **THEN** startup succeeds
+- **THEN** worker startup succeeds
 - **AND** that model forgoes per-user context rather than failing startup or falling back to the project default
 
 #### Scenario: Context extension does not pass records
@@ -523,7 +534,7 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 
 #### Scenario: Packaged default carries the per-user block
 
-- **WHEN** the packaged project-default prompt is validated at startup
+- **WHEN** the packaged project-default prompt is validated at worker startup
 - **THEN** it references the per-user paths, each inside a conditional
 - **AND** a stock installation applies an owner's personalization without an operator editing any file
 
@@ -557,6 +568,71 @@ Instance configuration SHALL accept `skills.directories` as an ordered array of 
 - **WHEN** `skills.directories` contains `/opt/skills` and `/opt/skills/pdf/SKILL.md` exists
 - **THEN** the `pdf` package is discovered
 - **AND** the operator does not configure `/opt/skills/pdf` for this layout; a source directory's own `SKILL.md` is not a discovered child package
+API-only processes SHALL validate configuration shape and model references without loading prompt-file contents. A process hosting a Run consumer SHALL perform file loading and executable-template validation before it consumes jobs. Tool-aware templates SHALL follow the absent-tool and actual-attempt empty-render rules in `tool-prompt-templates`; an absent tool cannot fail worker boot.
+
+### Requirement: Tool prompt files support instance and model precedence
+
+Configuration SHALL accept optional `tools.promptFiles` and
+`models[].toolPromptFiles` maps from registered llame-owned exact tool ids to
+complete prompt-file paths. For each id, the selected model's entry SHALL win
+over the instance entry, which SHALL win over the packaged default. Missing or
+null entries SHALL follow existing absence semantics; an empty map SHALL not
+clear lower-level entries. Selection SHALL not compose multiple files.
+
+Worker boot SHALL validate all packaged and configured files, including
+shadowed and disabled-tool entries, using system-prompt visible-content path
+rules, normalization, and shared template validation. Relative paths SHALL
+resolve against the active instance config directory. An explicit invalid file
+SHALL fail worker startup without fallback. Unknown override targets, MCP
+override targets, and wildcard keys SHALL be rejected. This key validation
+SHALL not reject a valid template predicate merely because its target is absent.
+
+File/config changes SHALL require restarting the executing process. The worker
+SHALL render its boot-loaded sources with newly resolved attempt inputs.
+Catalogs, owner receipts, and public APIs SHALL not disclose override paths or
+raw configuration. System-only receipts SHALL expose the actual rendered
+system prompt; rendered tool descriptions SHALL not be stored in receipts.
+
+#### Scenario: Highest applicable file wins
+
+- **WHEN** a model and the instance both override Bash
+- **THEN** the model uses its complete Bash file
+- **AND** a model without that key uses the instance file
+
+#### Scenario: Overrides inherit independently
+
+- **WHEN** the model overrides read and the instance overrides Bash
+- **THEN** each tool resolves its highest-priority entry independently
+- **AND** tools with no entry use their packaged defaults
+
+#### Scenario: Empty maps do not disable tools
+
+- **WHEN** a map is missing, null, or empty
+- **THEN** absent keys resolve from the next level
+- **AND** template selection does not alter tool admission
+
+#### Scenario: Invalid shadowed file fails worker boot
+
+- **WHEN** an explicit instance override is invalid but shadowed by every model
+- **THEN** worker startup fails at that field without a fallback
+
+#### Scenario: Unknown predicate is valid while unknown override target is not
+
+- **WHEN** a valid registered-tool override checks an unregistered `tools.grep`
+- **THEN** worker boot succeeds and that predicate is false
+- **AND** an override map entry targeting the unregistered grep tool itself is rejected
+
+#### Scenario: Worker restart applies file edits
+
+- **WHEN** a worker restarts after a valid file edit
+- **THEN** its next execution attempt renders the new file
+- **AND** running workers retain their existing boot-loaded source
+
+#### Scenario: API-only process schedules work without file access
+
+- **WHEN** configuration shape is valid and an API-only process has no mounted prompt files
+- **THEN** it can accept the selected model's Run
+- **AND** only its executing worker needs to load and validate those files
 
 ### Requirement: Operator configuration declares one private local Knowledge root
 

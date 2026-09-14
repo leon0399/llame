@@ -44,6 +44,8 @@ Each item SHALL occupy its **own text content block** within that message rather
   `checkpoint`, while the stored record is not a `data-context` part and replays
   without metadata reconstruction
 
+Worker-attempt contributions intended for conversation history SHALL be staged in memory before target-model I/O and published in the triggering message only with successful turn completion. Failed or superseded attempts SHALL not append such parts. Legitimate accepted-message facts remain persisted-literal; accepting a user message is not publishing a failed attempt's context. Committed parts retain the exact prepared text and existing envelope/order.
+
 ### Requirement: The envelope states its own provenance and an operator cannot remove it
 
 Each rendered envelope SHALL carry a statement that its content was inserted by llame and was not written by the user. That statement SHALL be produced by the system rather than by producer-supplied or operator-supplied text, and there SHALL be no configuration through which an operator can suppress it.
@@ -172,7 +174,7 @@ unchanged.
 
 ### Requirement: Co-occurring items have a total author-time order
 
-When more than one item is injected on the same turn, the accepting path SHALL
+When more than one item is injected on the same turn, the authoring/request-preparation path SHALL
 persist them in a fixed producer precedence order, ahead of the triggering user
 text within the same message:
 
@@ -216,6 +218,8 @@ that capability's placement rule rather than this attached-item list.
 - **WHEN** a later release adds a producer or changes author-time precedence
 - **THEN** new items follow the new authoring order
 - **AND** existing messages remain in their original stored order
+
+When worker preparation adds attempt-owned items beside already persisted message facts, the final request SHALL apply this same producer order while preserving each producer's internal order and all user-authored content. Successful publication SHALL store that final ordering atomically; a failed attempt SHALL store no attempt-owned message parts.
 
 ### Requirement: Residency determines whether a change re-renders the prompt or appends an item
 
@@ -375,6 +379,8 @@ Standing context that is re-supplied on every request SHALL be excluded from the
 - **THEN** the baseline is re-resolved
 - **AND** it is not re-resolved by any other event
 
+Frozen per-chat digest and temporal baselines retain their owning lifecycles. This requirement SHALL not freeze owner-variable resolution, runtime tool catalogs, or descriptions across attempts. Availability comparisons use the previous successful turn's minimal id/state record within the current epoch; failed attempts never establish an epoch baseline.
+
 ### Requirement: An item is either persisted-literal or bind-time
 
 Every item SHALL be one of two kinds:
@@ -408,9 +414,35 @@ because a stored statement about the present request could become false later.
   item
 - **THEN** no stale copy of that item appears in history
 
-### Requirement: Every Run records the items it injected
+An attempt-generated item intended for later conversation history SHALL be staged as a pending persisted-literal contribution. Its exact prepared text is used in the current request, then atomically committed on successful completion. A failure discards that pending contribution. This staging does not add a new wire-format item kind or permit a bind-time-only producer to persist into message history.
 
-Each Run SHALL record context items injected into the request it executed, as
+### Requirement: Worker-attempt cutover preserves existing conversation state
+
+The new successful-attempt publication and failed-attempt exclusion rules SHALL
+apply to attempts executed after the coordinated runtime cutover. Cutover SHALL
+preserve existing messages and reminders, active summaries/checkpoints, and
+digest baseline/told-set state without rebuilding, clearing, or adding
+retrospective replay filters. Existing state SHALL retain its ordinary
+compaction, digest, and owner-access rules. These prospective rules SHALL NOT
+claim to remove failed pre-cutover Run contributions from existing history or
+aggregates. The separate system-receipt and tool-catalog storage migration
+remains required and SHALL NOT authorize rewriting conversation state.
+
+#### Scenario: An existing Chat crosses the worker-attempt cutover
+
+- **WHEN** an existing Chat has stored reminders, an active checkpoint, and digest disclosure state
+- **THEN** cutover preserves their contents and existing replay eligibility without reconstruction
+- **AND** later compaction and digest updates follow their ordinary lifecycle
+
+#### Scenario: A post-cutover attempt fails in an existing Chat
+
+- **WHEN** a newly prepared attempt fails after cutover
+- **THEN** its pending output, context, and digest updates do not publish to model history or advance the comparison baseline
+- **AND** pre-existing conversation state is not retrospectively filtered or reset
+
+### Requirement: Successful Runs record the winning attempt's injected items
+
+Each successfully completed Run SHALL record the winning attempt's context items injected into the final request it executed, as
 they appeared in the final application request, together with each item's
 producer, form, and residency. The record SHALL be owner-scoped and enforced at
 the datastore, and SHALL NOT be exposed to a non-owner, public share, ordinary
@@ -427,8 +459,7 @@ When request preparation rebuilds the request after transition compaction, the
 record SHALL describe the rebuilt request. A Run whose preparation fails before
 dispatch SHALL record no injected items.
 
-The record SHALL remain separate from the reusable effective-context snapshot,
-whose content address and lifecycle differ from turn-specific injected items.
+The record SHALL identify the winning attempt and remain separate from its system-prompt-only receipt and the minimal availability comparison record. It SHALL commit with successful turn publication. Failed-attempt injected-item lists SHALL not become this record or model history; their system-only receipts and necessary operational events remain separate.
 Content copied from outside the chat SHALL remain non-erasable through deletion
 of its source once it has been written into a persisted reminder or Run record;
 that limitation SHALL remain documented.
@@ -452,11 +483,11 @@ that limitation SHALL remain documented.
   record with empty text
 - **AND** metadata is not rendered to fill either location
 
-#### Scenario: Two Runs share an effective-context snapshot
+#### Scenario: Two Runs render the same system prompt
 
-- **WHEN** two Runs reuse one snapshot but inject different reminders
+- **WHEN** two successfully completed Runs render the same system prompt but inject different reminders
 - **THEN** each Run records its own reminder text
-- **AND** snapshot reuse is unaffected
+- **AND** each identifies its own successful attempt and system-only receipt
 
 #### Scenario: A source of injected content is deleted
 

@@ -159,7 +159,7 @@ This projection SHALL NOT rewrite executor arguments, accept an invalid locator 
 
 ### Requirement: Execution policy is frozen per process and reevaluated after restart
 
-Each API or worker process SHALL load and compile one immutable effective policy at startup. Configuration changes SHALL require restarting the affected installation processes. Each new invocation SHALL use its executor process's policy, including invocations from Runs queued or started under an earlier policy. This policy SHALL be independent of the immutable system prompt, tool declarations, and availability snapshot, which SHALL NOT be rebound by permission changes.
+Each API or worker process SHALL load and compile one immutable effective policy at startup. Configuration changes SHALL require restarting the affected installation processes. Each new invocation SHALL use its executor process's policy, including invocations from Runs queued or started under an earlier policy. Invocation policy SHALL remain independent of attempt-local tool membership and system-prompt receipts: a policy rejection SHALL not remove a tool from that attempt's catalog. Each fresh attempt SHALL still resolve the executing worker's current catalog, and no historical declaration snapshot SHALL be restored.
 
 Stored completed effects and observations SHALL remain historical facts. The existing Run-level native recovery fence SHALL retain precedence over authorizing any new execution; this capability SHALL NOT add per-call resumption or known-result recovery: a policy reject SHALL NOT disguise an already possible effect. Read-only re-execution permitted by the existing recovery contract SHALL pass the restarted process's policy before dispatch.
 

@@ -41,7 +41,7 @@ This capability SHALL offer MCP protocol `2025-11-25` and MAY negotiate only the
 
 ### Requirement: MCP tool ids are stable, provider-safe, and collision-free
 
-Every admitted MCP tool SHALL have an id produced by the provider-independent `mcp-tool-id-v1` algorithm; provider selection SHALL NOT affect the mapping. The configured ASCII server id SHALL be preserved byte-for-byte. The discovered tool name SHALL be Unicode-NFKC-normalized, each maximal run outside ASCII `[A-Za-z0-9_-]` SHALL be replaced with `_`, leading and trailing `_` SHALL be removed, and ASCII letter case SHALL be preserved. The final id SHALL be `mcp__<server>__<tool>` and at most 64 ASCII characters; 64 SHALL be the fixed provider-independent executable limit for this capability. Empty or overlength results SHALL be refused rather than truncated or suffixed. Collisions SHALL be detected under ASCII case-folding across the composed catalog, and every member of a colliding set SHALL be refused before advertisement. `mcp-tool-id-v1` SHALL be part of the observed v1 availability-manifest semantics, so a future mapping change requires a new manifest version and explicit migration.
+Every admitted MCP tool SHALL have an id produced by the provider-independent `mcp-tool-id-v1` algorithm; provider selection SHALL NOT affect the mapping. The configured ASCII server id SHALL be preserved byte-for-byte. The discovered tool name SHALL be Unicode-NFKC-normalized, each maximal run outside ASCII `[A-Za-z0-9_-]` SHALL be replaced with `_`, leading and trailing `_` SHALL be removed, and ASCII letter case SHALL be preserved. The final id SHALL be `mcp__<server>__<tool>` and at most 64 ASCII characters; 64 SHALL be the fixed provider-independent executable limit for this capability. Empty or overlength results SHALL be refused rather than truncated or suffixed. Collisions SHALL be detected under ASCII case-folding across the composed catalog, and every member of a colliding set SHALL be refused before advertisement. `mcp-tool-id-v1` SHALL govern runtime identities and the exact ids in minimal committed-turn availability records. A future mapping change requires an explicit identity/migration contract without rewriting historical call identities.
 
 Startup allowlist parsing SHALL enforce that exact entries use the same grammar, length, configured-server lookup, and canonical tool-segment rules. Separately, it SHALL recognize only `mcp__<server>__*` as a namespace wildcard, using the exact canonical id of a configured server and treating `*` as the complete permission-only tool segment. Wildcards SHALL NOT change `mcp-tool-id-v1` or become executable tool ids. A future provider adapter with a stricter limit SHALL add an explicit provider capability/validation path and SHALL NOT silently change `mcp-tool-id-v1`.
 
@@ -59,7 +59,7 @@ Startup allowlist parsing SHALL enforce that exact entries use the same grammar,
 #### Scenario: Provider-incompatible id is refused
 
 - **WHEN** a generated id violates an executable provider's tool-name constraints
-- **THEN** that tool is refused before entering an effective-context snapshot
+- **THEN** that tool is refused before worker attempt advertisement or a successful availability-state record
 
 #### Scenario: Public normalization mapping is deterministic
 
@@ -204,24 +204,24 @@ For disconnect and reconnect disclosure, a process SHALL retain the exact identi
 #### Scenario: Refused declaration remains invisible
 
 - **WHEN** a declaration from an allowlisted namespace fails schema, collision, secret, or other admission checks
-- **THEN** its id and declaration enter neither the executable catalog nor an availability manifest
+- **THEN** its id and declaration enter neither the executable catalog nor the current runtime availability state used for successful-turn comparison
 
 #### Scenario: Exact permission does not manufacture identity
 
-- **WHEN** an exact MCP permission names an id absent from the fresh process's admitted or remembered source inventory
-- **THEN** that id enters neither the effective context nor an availability manifest
+- **WHEN** an exact MCP permission names an id absent from both the fresh process's admitted or remembered source inventory and the previous successful turn's comparison record
+- **THEN** that id enters neither the executable catalog nor the current runtime availability comparison input
 
 #### Scenario: Disconnect retains identity but not authority to call
 
 - **WHEN** a previously admitted wildcard-selected tool's server disconnects
-- **THEN** the next Run may record that exact id as unavailable and disclose the corresponding transition
+- **THEN** the next worker attempt may record that exact id as unavailable and disclose the corresponding transition
 - **AND** no stale executor or declaration is advertised or callable
 
 #### Scenario: Reconnect replaces the remembered exact set
 
 - **WHEN** fresh complete rediscovery succeeds after a disconnect
 - **THEN** the newly admitted exact ids replace the server's remembered set atomically
-- **AND** later Run manifests expose added, recovered, removed, or still-unavailable identities using the existing exact-id availability semantics
+- **AND** later attempts compare their runtime state with the previous successful turn to disclose added, recovered, removed, or still-unavailable identities using the existing exact-id availability semantics
 
 #### Scenario: Offline first start invents nothing
 
@@ -230,9 +230,11 @@ For disconnect and reconnect disclosure, a process SHALL retain the exact identi
 
 #### Scenario: Patterns never enter durable or model-facing state
 
-- **WHEN** a wildcard-selected tool is advertised, snapshotted, rebound, receipted, persisted, or disclosed
+- **WHEN** a wildcard-selected tool is advertised or invoked in memory, or its exact id/state or actual call is recorded
 - **THEN** every such surface contains only its exact canonical tool id and exact admitted declaration where applicable
 - **AND** the wildcard remains only in restart-applied instance configuration
+
+This requirement SHALL not authorize persistence of tool definitions. MCP schemas and descriptions remain in worker memory; only the minimal successful-turn id/state record and ordinary call/result/reminder history may persist.
 
 ### Requirement: MCP calls use bounded non-retrying execution and portable results
 
@@ -308,7 +310,7 @@ Any HTTP failure during initialization, discovery, or background refresh SHALL m
 
 When an MCP client disconnects, llame SHALL atomically withdraw every tool from that server before scheduling a reconnect. Reconnect attempts SHALL run in the background, remain single-flight, and SHALL reset the attempt counter only after initialization plus complete discovery and admission succeed.
 
-For a remote transport, reconnect SHALL use AWS Full Jitter: for zero-based failure attempt `n`, sample uniformly from zero through `min(5 minutes, 1 second * 2^n)`, and attempts SHALL continue indefinitely while the server remains configured. For a local stdio transport, attempts SHALL instead be bounded as specified in "stdio launch failures retry a bounded number of times", because an unbounded loop there respawns a child process rather than reopening a socket, and the most common cause is a configuration error that no number of retries resolves. A new turn that observes the server already unavailable or reconnecting SHALL bind that unavailable state immediately rather than wait for or initiate a reconnect. Reconnection SHALL create a fresh client and session and SHALL publish no tool until complete fresh discovery and admission succeeds. A timer or cached declaration MUST NOT re-advertise a stale tool.
+For a remote transport, reconnect SHALL use AWS Full Jitter: for zero-based failure attempt `n`, sample uniformly from zero through `min(5 minutes, 1 second * 2^n)`, and attempts SHALL continue indefinitely while the server remains configured. For a local stdio transport, attempts SHALL instead be bounded as specified in "stdio launch failures retry a bounded number of times", because an unbounded loop there respawns a child process rather than reopening a socket, and the most common cause is a configuration error that no number of retries resolves. A worker attempt that observes the server already unavailable or reconnecting SHALL use that runtime state immediately rather than wait for or initiate a reconnect. Reconnection SHALL create a fresh client and session and SHALL publish no tool until complete fresh discovery and admission succeeds. A timer or cached declaration MUST NOT re-advertise a stale tool.
 
 Every per-server asynchronous operation and callback SHALL be fenced by the current lifecycle generation and exact client identity. A callback from an older client or generation MUST NOT publish or withdraw the current catalog, close the current client, change current lifecycle state, or schedule reconnect/state work. It MAY release only resources captured from its own stale generation. Runtime shutdown SHALL be terminal: it SHALL invalidate every current generation and client identity before cancellation and close begin, and no callback after shutdown starts MAY publish or withdraw a catalog, change lifecycle state, or schedule reconnect/refresh work even if it captured the formerly current generation.
 
@@ -317,7 +319,7 @@ While ready, each instance-managed server SHALL undergo complete discovery perio
 #### Scenario: Disconnect withdraws the server catalog
 
 - **WHEN** a connected MCP transport closes
-- **THEN** all tools from that server are immediately absent from new Run snapshots
+- **THEN** all tools from that server are immediately absent from newly prepared worker catalogs
 - **AND** unrelated tools remain available
 
 #### Scenario: Reconnect publishes only fresh declarations
@@ -357,7 +359,7 @@ While ready, each instance-managed server SHALL undergo complete discovery perio
 
 #### Scenario: Declaration drift withdraws only the tool
 
-- **WHEN** an MCP tool's live declaration no longer canonically matches the declaration bound to a queued Run
+- **WHEN** an MCP tool's live declaration no longer canonically matches the source declaration retained in the currently executing attempt
 - **THEN** that tool call settles as unavailable rather than executing a different contract
 - **AND** the mismatch does not fail the entire Run or affect sibling tools
 
@@ -366,6 +368,8 @@ While ready, each instance-managed server SHALL undergo complete discovery perio
 - **WHEN** the API or dedicated worker shuts down
 - **THEN** reconnect work is cancelled, catalogs are withdrawn, and every live MCP client is closed within a bounded shutdown path
 - **AND** late callbacks release only captured resources and cannot publish, change state, or schedule work
+
+Within an attempt, source-declaration equality and executor/lifecycle checks SHALL remain in memory. A new queue attempt SHALL resolve fresh rather than restore a declaration from the database. Failed attempts SHALL not create model-visible history or availability comparison baselines.
 
 ### Requirement: MCP credentials and secret-bearing payloads never escape
 
@@ -428,9 +432,9 @@ The capability SHALL ship with a deterministic local Streamable HTTP fixture cov
 
 The instance configuration SHALL accept named local MCP servers that llame runs as child processes and communicates with over stdin and stdout. Each such server SHALL be launched from an executable and an ordered argument list, never from a shell-interpreted command string. A configured stdio server SHALL have the same independent lifecycle guarantee as a remote one: a server that fails to launch, fails to initialize, or exits MUST NOT prevent startup, native-tool use, answer-only Runs, or another MCP server from operating.
 
-Every process that resolves MCP tools SHALL run its own child process per configured stdio server, because a process authors a Run's availability manifest from its own live catalog.
+Every process that resolves MCP tools SHALL run its own child process per configured stdio server, because the executing worker resolves each attempt from its own live catalog.
 
-Discovery, declaration admission, tool-id composition, allowlist filtering, drift refusal, receipts, and snapshot binding SHALL behave identically for stdio and remote servers. Configuring a stdio server SHALL NOT alter the operator read-only attestation model: llame does not verify remote semantic effects for either transport.
+Discovery, declaration admission, tool-id composition, allowlist filtering, and in-memory within-attempt drift refusal SHALL behave identically for stdio and remote servers. Neither transport SHALL persist schemas or descriptions as an execution catalog. Configuring a stdio server SHALL NOT alter the operator read-only attestation model: llame does not verify remote semantic effects for either transport.
 
 A stdio server SHALL be subject to the same negotiated-revision limits as a remote one, and a server negotiating a revision outside the supported set SHALL become unavailable with the closed protocol-unsupported reason rather than being used.
 

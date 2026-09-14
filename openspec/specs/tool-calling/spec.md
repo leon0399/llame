@@ -129,13 +129,13 @@ grant authority across source kinds.
 - **WHEN** a code-owned registry entry has an id beginning with `mcp__`
 - **THEN** registration fails at startup naming the reserved prefix
 
-### Requirement: Fail-closed operator availability gate
+### Requirement: Each execution attempt applies the fail-closed operator availability gate
 
 Tool eligibility SHALL be governed by the operator allowlist in `llame.config.json` (`tools.allowed`). The default SHALL be an empty allowlist — an instance with no tools configured runs exactly as before this change (no tools advertised, none executable). The system SHALL first construct its source-owned inventory from registered code-owned tools and the safely admitted current or remembered-unavailable MCP inventory, then apply `tools.allowed` strictly as a boolean permission predicate over each candidate's canonical `tool.id`. Code-owned ids SHALL require exact entries. A canonical MCP id SHALL match either the same exact entry or a validated namespace rule `mcp__<configured-server>__*` whose terminal `*` is removed for literal ID-prefix comparison. Matching SHALL be case-sensitive. The validated trailing separator SHALL prevent one server prefix from matching a longer server id, and the reserved `mcp__` namespace SHALL prevent matching code-owned tools. Permission rules SHALL NOT create, copy, expand, or deduplicate candidates. A tool that matches no rule SHALL be neither advertised to the model nor executed if requested.
 
 Exact and namespace MCP entries SHALL grant eligibility only to exact identities learned from safely admitted declarations for that server. When a live process loses the server transport, the last completely admitted identity set SHALL remain source inventory in an unavailable state; when complete discovery succeeds, its newly admitted identity set SHALL replace the prior set authoritatively. Neither permission form SHALL fabricate identities before first successful discovery or expose refused declarations. An eligible dynamic tool SHALL become advertisable or executable only while the source supplies a currently admitted declaration for that exact id under the operator's read-only attestation.
 
-The restart-applied allowlist decision SHALL be bound into the immutable Run snapshot as filtered exact ids and exact declarations when a turn is accepted; wildcard patterns SHALL NOT enter provider requests, manifests, receipts, persistence, or execution binding. Removing an exact entry or namespace wildcard from later instance configuration SHALL affect newly accepted Runs but SHALL NOT retroactively rebind an already accepted Run or its queue retries. This snapshot binds availability, not a permanent exemption from execution permission checks. The executing process SHALL additionally apply its startup-loaded `tools.permissions` policy to each new invocation, including calls from older Runs. Hot policy reload remains outside this capability; operator changes require a restart. Remote tools remain restricted to operator-attested read-only operations. Write-capable MCP tools remain prohibited even when they claim idempotence; durable side-effect checkpointing and permission policy are separate follow-ups.
+The executing worker's restart-applied allowlist SHALL filter exact ids and declarations into attempt-local memory when each execution attempt is prepared; wildcard patterns SHALL NOT enter provider requests, manifests, receipts, persistence, or execution binding. After a worker restart, changed exact or namespace rules SHALL apply to its next attempt, including a retry of an already scheduled Run. Declarations SHALL remain fixed within that attempt, while invocation permissions remain independently enforced. The executing process SHALL additionally apply its startup-loaded `tools.permissions` policy to each new invocation, including calls from older Runs. Hot policy reload remains outside this capability; operator changes require a restart. Remote tools remain restricted to operator-attested read-only operations. Write-capable MCP tools remain prohibited even when they claim idempotence; durable side-effect checkpointing and permission policy are separate follow-ups.
 
 #### Scenario: Default is no tools
 
@@ -161,24 +161,24 @@ The restart-applied allowlist decision SHALL be bound into the immutable Run sna
 
 - **WHEN** a previously admitted MCP identity still matches an exact or namespace permission but its live process loses the server transport
 - **THEN** unrelated Runs remain usable and the filtered identity is recorded as unavailable
-- **AND** that tool is not advertised or executable for newly bound Runs
+- **AND** that tool is not advertised or executable for newly prepared attempts
 
 #### Scenario: Permission does not create a fresh-offline identity
 
 - **WHEN** a fresh process has no admitted or remembered MCP inventory and `tools.allowed` names an exact id or namespace from that server
-- **THEN** the permission produces no effective-context or availability-manifest entry
+- **THEN** the permission produces no runtime candidate or availability-state entry
 
 #### Scenario: Complete discovery removes omitted identities
 
 - **WHEN** successful complete discovery omits or refuses a previously admitted exact identity
 - **THEN** the new source inventory no longer contains that identity
-- **AND** the next Run treats it as absent even when an exact or namespace permission would match it
+- **AND** the next execution attempt treats it as absent even when an exact or namespace permission would match it
 
 #### Scenario: Namespace wildcard admits future exact ids
 
 - **WHEN** a configured MCP server later supplies a safely admitted canonical tool id within its allowlisted namespace
-- **THEN** the next Run may bind and advertise that exact id without an instance-config change
-- **AND** no wildcard pattern appears in the Run snapshot or provider request
+- **THEN** the next execution attempt may bind and advertise that exact id without an instance-config change
+- **AND** no wildcard pattern appears in the database or provider request
 
 #### Scenario: Overlapping rules filter one inventory candidate once
 
@@ -190,11 +190,11 @@ The restart-applied allowlist decision SHALL be bound into the immutable Run sna
 - **WHEN** distinct source candidates collide and both match one or more permission rules
 - **THEN** both candidates reach the existing collision refusal unchanged rather than being deduplicated by permission matching
 
-#### Scenario: Later allowlist removal does not rebind an accepted Run
+#### Scenario: Later allowlist removal applies to the next execution attempt
 
-- **WHEN** an exact entry or matching namespace wildcard is removed from restart-applied configuration after a Run accepted and snapshotted the filtered exact tool
-- **THEN** that Run and its retries retain the bound availability and declaration, subject to the executing process's call-permission policy
-- **AND** newly accepted Runs no longer advertise or execute the removed permission's unmatched tools
+- **WHEN** an exact entry or namespace rule is removed from a worker's restart-applied configuration after a Run was scheduled
+- **THEN** its next attempt, including a retry, omits tools no longer admitted
+- **AND** the earlier attempt's catalog is never recovered from the database
 
 #### Scenario: Queue retry may repeat only a remote read
 
@@ -205,7 +205,7 @@ The restart-applied allowlist decision SHALL be bound into the immutable Run sna
 #### Scenario: Permission reject does not hide a tool
 
 - **WHEN** a tool remains admitted by `tools.allowed` and its execution permission group rejects every call
-- **THEN** permission evaluation does not remove it from the immutable catalog or availability manifest
+- **THEN** permission evaluation does not remove it from the attempt-local catalog or availability state
 - **AND** attempted calls receive a non-fatal `permission_denied` observation
 
 ### Requirement: Tenant-scoped tool execution
@@ -294,7 +294,7 @@ A tool that throws, times out, becomes unavailable, dynamically loses its truste
 
 Oversized tool results SHALL be truncated to a documented cap, measured in JavaScript UTF-16 code units over the serialized result, after secret redaction. Truncation SHALL operate on the tool's own payload rather than on the result envelope: the `status` discriminant and every top-level field the tool declared SHALL survive, with values shrunk in place. Where the declared field names alone exceed the cap, the cap SHALL win over the declared shape — trailing fields SHALL be omitted and the marker SHALL state how many of how many — so a result above the cap is never emitted. A string value SHALL be cut only on a Unicode code-point boundary, so no truncated payload contains a lone surrogate. Truncation SHALL NOT re-serialize any part of the payload into a string field, so redaction performed before truncation cannot be defeated by an alternate typed representation. A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. When truncation shortens a list, the marker SHALL also state how many elements of that list survived out of how many it held, naming the lists that lost the most and counting any remainder, so a count read off a shortened list is not mistaken for a complete one. Error results SHALL NOT be truncated, because every error message this loop produces is a short, statically authored string.
 
-A code-owned tool whose trusted executor is missing or incompatible, or whose live declaration no longer matches its immutable snapshot, SHALL remain a context-integrity failure for the Run before any provider request. A dynamic source tool that loses its executor, disconnects, or drifts after enqueue SHALL instead retain its snapshotted model-facing declaration with an unavailable executor for that Run, so a requested call settles non-fatally without substituting a changed contract.
+A code-owned tool whose executor is inconsistent with its admitted in-memory id/schema/classification SHALL fail attempt preparation before a provider request. Fresh attempts SHALL resolve from the executing worker's trusted registry; no historical description or template hash SHALL be required. A dynamic source tool that loses its executor, disconnects, or drifts after attempt preparation SHALL instead retain its attempt-local model-facing declaration with an unavailable executor for that Run, so a requested call settles non-fatally without substituting a changed contract.
 
 #### Scenario: Tool error surfaces to the model and the run continues
 
@@ -314,17 +314,17 @@ A code-owned tool whose trusted executor is missing or incompatible, or whose li
 
 #### Scenario: Dynamic executor disappears after enqueue
 
-- **WHEN** a dynamic tool was bound into a Run snapshot but its source disconnects before the model requests it
+- **WHEN** a dynamic tool was bound into an attempt but its source disconnects before the model requests it
 - **THEN** the call settles as structured `not_available`, no substitute executes, and the Run continues
 
 #### Scenario: Code-owned declaration drift remains fail-closed
 
-- **WHEN** a snapshotted code-owned tool no longer canonically matches its live trusted declaration
+- **WHEN** a prepared code-owned declaration has an id/schema inconsistent with its trusted attempt-local executor
 - **THEN** the Run fails before the provider request rather than executing a different contract
 
 #### Scenario: Code-owned executor loss remains fail-closed
 
-- **WHEN** a snapshotted code-owned tool has no compatible trusted executor at execution
+- **WHEN** a prepared code-owned tool has no compatible trusted executor at execution
 - **THEN** the Run fails before the provider request rather than returning a dynamic unavailability observation
 
 #### Scenario: Error results carry no internals
@@ -371,53 +371,55 @@ A code-owned tool whose trusted executor is missing or incompatible, or whose li
 - **AND** the model receives `permission_denied` and may continue within existing Run limits
 - **AND** the system neither retries the rejected call automatically nor requests approval
 
-### Requirement: Tool availability is source-neutral and bound per Run
+### Requirement: Availability comparison retains only committed tool identities and states
 
-Every new Run SHALL bind one canonical availability manifest covering exact tool ids relevant to that turn regardless of source, including code-owned tools such as `search_conversations`, MCP tools, and later tool sources. The manifest SHALL distinguish the exact eligible ids retained after operator-policy filtering, the exact declarations advertised to the model, and eligible exact ids unavailable for a closed server-authored reason. Configuration patterns SHALL NOT appear in the manifest. A tool never eligible and never previously visible in that chat SHALL not be disclosed through the manifest or reminders.
+A successfully committed turn SHALL retain an owner/chat-scoped comparison
+record consisting only of sorted exact tool ids and each id's `available` or
+`unavailable` state, associated with that turn's message/Run. It SHALL contain
+no schema, template, description, declaration/source hash, connection data, or
+raw failure detail. This record SHALL NOT be used for tool admission, execution,
+or reconstructing historical tool definitions.
 
-Every snapshot authored after this capability is deployed SHALL use an observed v1 manifest containing an `entries` array, including when its eligible catalog is empty. Historical snapshots that predate availability observation SHALL use exactly the canonical v0 sentinel `{"version":0,"state":"unobserved"}` with no `entries` field. Comparing a current manifest with that sentinel SHALL use initial-baseline semantics rather than treating the sentinel as an observed empty catalog. A v0 manifest with `entries`, a v1 manifest without `entries`, or any hybrid shape SHALL be rejected as malformed.
+Every attempt SHALL read the preceding successfully committed turn's record
+within its disclosure epoch. No observation SHALL remain distinct from an
+observed empty record. Failed attempts and failed/cancelled/expired Runs SHALL
+not establish or replace that baseline. The runtime catalog and safe current
+reasons SHALL remain in memory; only actual successfully published reminder
+text may retain its rendered explanation.
 
-#### Scenario: Code-owned and MCP tools share availability semantics
+#### Scenario: Worker handoff preserves comparisons
 
-- **WHEN** `search_conversations` and an exact MCP tool selected by an exact entry or namespace wildcard are both eligible for a turn
-- **THEN** one manifest describes which exact declarations are advertised and which eligible ids are unavailable
+- **WHEN** a retry starts in another worker process
+- **THEN** it compares its fresh runtime state with the same persisted successful-turn id/state record
+- **AND** it does not need the previous worker's catalog or an in-memory cross-Run cache
 
-#### Scenario: Unallowlisted discovery remains invisible
+#### Scenario: Existing state is unobserved
 
-- **WHEN** a dynamic source discovers a tool that matches neither an exact entry nor a namespace wildcard and was not previously visible in the chat
-- **THEN** its id and declaration appear in neither the model toolset nor an availability reminder
+- **WHEN** no successful historical observation exists
+- **THEN** the attempt follows initial availability disclosure semantics
+- **AND** it does not treat missing observation as an empty historical catalog
 
-#### Scenario: Admission-refused discovery remains invisible
+#### Scenario: Historical tool catalog storage is removed
 
-- **WHEN** a discovered dynamic tool fails declaration admission regardless of whether an exact or namespace permission would match its prospective id
-- **THEN** its id and declaration appear in neither the source inventory, model toolset, nor an availability reminder
+- **WHEN** the coordinated migration removes combined context snapshots
+- **THEN** only actual successful-turn id/state observations are retained for comparison
+- **AND** schemas, descriptions, declaration hashes, and raw manifest payloads are not retained through renamed fields
 
-#### Scenario: Wildcard pattern remains configuration-only
+### Requirement: Attempt availability is disclosed against the preceding successful turn
 
-- **WHEN** a namespace wildcard selects one or more admitted MCP tools
-- **THEN** the availability manifest contains only their exact canonical ids and states
-- **AND** no wildcard pattern is persisted or rendered to the model
+The worker SHALL derive availability disclosure from its current attempt's admitted runtime state and the previous successful committed turn's minimal id/state record. It SHALL prepare canonical `tool-availability` context text for this attempt's model request and publish that text into message history only with successful turn completion. The persisted text SHALL include the envelope, provenance, disclosure body, and closing delimiter and SHALL be the sole replay authority. The metadata SHALL retain ids, closed reason codes, and the Run/attempt id for machine behavior and provenance; it SHALL NOT retain remote-authored text, URLs, raw errors, or prompt contents. Client-authored availability parts MUST be rejected or discarded under the `context-injection` boundary contract.
 
-#### Scenario: Historical absence of observation differs from an empty catalog
+For a configured MCP source that is not ready on the executing worker, previously committed exact ids that still match the current allowlist SHALL supplement availability-comparison input, even when the worker has never discovered that source. This SHALL be a separate non-admissible state-only input, never a `TurnToolCandidate` or an input to schema/classification/catalog admission. They SHALL carry only state and the current source's closed unavailable reason, never reconstructed declarations/classifications/executors, and SHALL not make `tools.<id>` true. Removed/disallowed/unconfigured ids are absent; a ready source's complete fresh discovery is authoritative about removal. No never-observed wildcard tool id SHALL be invented.
 
-- **WHEN** historical snapshots are migrated before availability was ever observed
-- **THEN** they receive exact canonical JSON `{"version":0,"state":"unobserved"}` and its availability hash
-- **AND** the sentinel has no `entries` field
-- **AND** it is distinct from an observed v1 manifest whose `entries` array is empty
+On the first turn of a model-facing availability disclosure epoch, the reminder SHALL identify only eligible tools that are currently unavailable under the exact heading `Unavailable tools:`; callable tools are already advertised through the provider's native tool declarations on every request and SHALL NOT be duplicated in an initial prose inventory. A fresh conversation SHALL start the first disclosure epoch, and every newly active compaction checkpoint SHALL start another. On later turns within the epoch, the system SHALL compare each id's `absent`, `available`, or `unavailable` state between the current attempt's runtime state and the preceding successful turn's minimal id/state record in that epoch. Each changed id SHALL appear in exactly one group: absent to available as Added tools, available or unavailable to absent as Removed tools, absent to unavailable as Unavailable tools, available to unavailable as Became unavailable, and unavailable to available as Now available. Empty groups SHALL be omitted. `Added tools` SHALL contain only tools callable in the current Run. If availability is unchanged, no availability reminder SHALL be emitted, including while an outage persists.
 
-### Requirement: Runtime tool availability is disclosed before the affected user turn
+When an eligible tool keeps the same id and remains available but its canonical declaration changes, the current attempt SHALL advertise its fresh in-memory declaration through the provider's native tool contract. Declaration-only drift SHALL NOT produce an availability reminder and SHALL NOT be represented as a synthetic Removed-plus-Added transition.
 
-The API SHALL derive availability disclosure from strict server-authored semantic metadata, render the complete canonical context-item text before the triggering user message commits, and persist both together under producer `tool-availability`. The persisted text SHALL include the envelope, provenance, disclosure body, and closing delimiter and SHALL be the sole replay authority. The metadata SHALL retain ids, closed reason codes, and the bound Run id for machine behavior and provenance; it SHALL NOT retain remote-authored text, URLs, raw errors, or prompt contents. Client-authored availability parts MUST be rejected or discarded under the `context-injection` boundary contract.
+Only a successfully committed turn SHALL establish the comparison baseline. Its published reminder text remains model-visible until a context rewrite removes it. A failed, cancelled, expired, or superseded attempt SHALL publish no availability reminder to model history and SHALL not advance the baseline. Every retry compares with the same preceding committed turn, including after worker handoff.
 
-On the first turn of a model-facing availability disclosure epoch, the reminder SHALL identify only eligible tools that are currently unavailable under the exact heading `Unavailable tools:`; callable tools are already advertised through the provider's native tool declarations on every request and SHALL NOT be duplicated in an initial prose inventory. A fresh conversation SHALL start the first disclosure epoch, and every newly active compaction checkpoint SHALL start another. On later turns within the epoch, the system SHALL compare each id's `absent`, `available`, or `unavailable` state between the current immutable manifest and the preceding accepted Run manifest in that epoch. Each changed id SHALL appear in exactly one group: absent to available as Added tools, available or unavailable to absent as Removed tools, absent to unavailable as Unavailable tools, available to unavailable as Became unavailable, and unavailable to available as Now available. Empty groups SHALL be omitted. `Added tools` SHALL contain only tools callable in the current Run. If availability is unchanged, no availability reminder SHALL be emitted, including while an outage persists.
+When there is no successful observed baseline, including migrated non-observation, the attempt SHALL use initial-baseline semantics. Successful completion SHALL store only its sorted exact ids and available/unavailable states; empty observed state is distinct from no observation.
 
-When an eligible tool keeps the same id and remains available but its canonical declaration changes, the current Run SHALL bind and advertise the new declaration and declaration hash through the provider's native tool contract. Declaration-only drift SHALL NOT produce an availability reminder and SHALL NOT be represented as a synthetic Removed-plus-Added transition.
-
-A prior Run whose user-message/Run/snapshot transaction committed SHALL establish the prior availability baseline regardless of whether that Run later completed, failed, was cancelled, or expired. Its persisted availability block SHALL remain model-visible verbatim on later Runs until superseded by compaction or another context rewrite. A request that fails before the transaction commits SHALL establish no baseline.
-
-When the most recent prior Run manifest is the legacy/unobserved sentinel, the current turn SHALL follow the same initial-baseline semantics: disclose currently eligible unavailable tools, do not emit Added entries for healthy tools, and persist an observed v1 manifest for the new Run.
-
-The first accepted turn after a newly active compaction checkpoint SHALL use the same initial-baseline semantics as a fresh conversation and SHALL NOT compare against a pre-compaction manifest: it SHALL list currently unavailable eligible tools under `Unavailable tools:` and SHALL emit no reminder when all eligible tools are available. This new disclosure epoch SHALL NOT reset MCP clients, catalogs, reconnect backoff, immutable Run manifests, or other runtime or persisted state. A semantic checkpoint MAY retain prior tool outages, recoveries, or failures when they mattered to the conversation; those statements SHALL be treated as historical context rather than current availability. The current request's provider-native declarations and current runtime availability reminder, when present, SHALL establish current callability.
+The first successfully committed turn after a newly active compaction checkpoint SHALL use the same initial-baseline semantics as a fresh conversation and SHALL NOT compare against a pre-compaction record: it SHALL list currently unavailable eligible tools under `Unavailable tools:` and SHALL emit no reminder when all eligible tools are available. This new disclosure epoch SHALL NOT reset MCP clients, catalogs, reconnect backoff, attempt-local bindings, or other runtime or persisted state. A semantic checkpoint MAY retain prior tool outages, recoveries, or failures when they mattered to the conversation; those statements SHALL be treated as historical context rather than current availability. The current request's provider-native declarations and current runtime availability reminder, when present, SHALL establish current callability.
 
 At authoring time, the reminder SHALL instruct the model not to simulate removed or unavailable tools or invent their results. Tool ids and reason prose SHALL be rendered only from validated ids and closed server-authored reason codes. Its persisted position relative to other context items SHALL follow the `context-injection` capability's author-time order, and later replay SHALL preserve that stored position without re-rendering or re-sorting it.
 
@@ -434,14 +436,14 @@ At authoring time, the reminder SHALL instruct the model not to simulate removed
 
 #### Scenario: Existing chat establishes its first observed baseline after migration
 
-- **WHEN** the latest prior Run uses the legacy/unobserved sentinel and the current turn has healthy eligible tools
+- **WHEN** the prior successful turn has no observed availability record and the current turn has healthy eligible tools
 - **THEN** the provider's native tool declarations advertise those tools
 - **AND** no Added-tools reminder is fabricated from the migration sentinel
-- **AND** the new Run binds an observed v1 manifest
+- **AND** successful completion stores the minimal observed id/state record
 
 #### Scenario: Availability changes between turns
 
-- **WHEN** the current manifest differs observably from the previous turn's manifest
+- **WHEN** the current attempt differs observably from the previous successful turn's id/state record
 - **THEN** the persisted reminder contains only the non-empty Added, Removed, Unavailable, Became unavailable, and Now available groups
 - **AND** each changed id appears in exactly one group
 
@@ -454,14 +456,14 @@ At authoring time, the reminder SHALL instruct the model not to simulate removed
 #### Scenario: Declaration-only drift uses the native contract
 
 - **WHEN** an eligible tool remains available under the same id but its canonical declaration changes
-- **THEN** the current Run advertises and binds the new native declaration and declaration hash
+- **THEN** the current attempt advertises its new in-memory declaration without persisting it
 - **AND** no runtime availability reminder is emitted solely for that declaration change
 
-#### Scenario: Failed prior Run still establishes the baseline
+#### Scenario: Failed prior attempt does not establish the baseline
 
-- **WHEN** an accepted prior Run binds an availability manifest and later fails
-- **THEN** the next turn compares against that prior Run's manifest
-- **AND** its persisted availability text remains in portable history unchanged until a context rewrite removes it
+- **WHEN** an attempt prepares an availability transition but fails
+- **THEN** a retry or later turn compares against the preceding successful committed turn
+- **AND** the failed attempt's reminder does not enter model history
 
 #### Scenario: Unchanged outage emits no reminder
 
@@ -503,9 +505,15 @@ At authoring time, the reminder SHALL instruct the model not to simulate removed
 - **THEN** the server rejects or discards it under the `context-injection` boundary contract
 - **AND** only server-derived state can author the reminder
 
+#### Scenario: Retry reaches a fresh worker while an MCP source is offline
+
+- **WHEN** the previous successful turn recorded an MCP id, the new worker has no remembered inventory, and that source remains configured and allowlisted but not ready
+- **THEN** the id is an unavailable comparison record outside tool admission with its predicate false
+- **AND** the notice reports unavailability rather than removal without reconstructing a tool definition
+
 #### Scenario: Transient flap recovers between turns
 
-- **WHEN** a tool disconnects and reconnects between two turn snapshots with the same final availability and declaration
+- **WHEN** a tool disconnects and reconnects between two successful turn observations with the same availability
 - **THEN** no operational event reminder is emitted solely for the recovered transient flap
 
 #### Scenario: Availability renderer changes
@@ -513,6 +521,18 @@ At authoring time, the reminder SHALL instruct the model not to simulate removed
 - **WHEN** a later release changes availability wording or reason labels and replays an existing disclosure
 - **THEN** the existing disclosure uses its persisted complete text unchanged
 - **AND** only newly authored disclosures use the new wording
+
+#### Scenario: Failed attempt observes a temporary outage
+
+- **WHEN** the previous committed message had grep available, an attempt sees it unavailable and fails, and its retry sees it available again
+- **THEN** the retry emits no restoration notice because it compares with the previous committed message
+- **AND** the failed attempt changes neither the comparison record nor model history
+
+#### Scenario: Baseline publication is atomic and fenced
+
+- **WHEN** a winning attempt successfully commits its assistant turn
+- **THEN** its exact reminder text and minimal id/state record commit atomically with that completion
+- **AND** stale or failed attempts cannot publish competing records
 
 ### Requirement: Tool input schemas may be declared as JSON Schema
 
@@ -522,11 +542,11 @@ Argument validation SHALL be **effective**, not merely declared: a schema whose 
 
 A tool's schema SHALL be consumed without dialect rewriting. Nothing in this codebase SHALL require a source to declare, restate, or adjust its schema to a preferred JSON Schema dialect — external sources author their own schemas. A schema that declares a supported dialect and compiles successfully SHALL be accepted as shipped; lack of an available validator or compilation failure remains the explicit refusal case below.
 
-Arguments SHALL be validated under the dialect the schema itself declares. Where no `$schema` is declared, draft-07 SHALL be assumed, matching both the model SDK's tool-schema typing and prevailing practice for tool schemas. Semantically equivalent URI forms for a supported dialect SHALL resolve to the same validator without rewriting the source document. A schema SHALL be refused only when it cannot be checked faithfully: no validator for its declared dialect is available, or the schema is malformed or invalid and cannot be compiled by that validator. The refusal SHALL name the affected tool and declared or assumed dialect, SHALL happen before the declaration enters the immutable context snapshot, and SHALL NOT affect valid sibling tools. Validating a schema under a dialect other than its own SHALL NOT be done, because keywords such as `items` carry different meaning between dialects and the mismatch would silently enforce something the author did not write.
+Arguments SHALL be validated under the dialect the schema itself declares. Where no `$schema` is declared, draft-07 SHALL be assumed, matching both the model SDK's tool-schema typing and prevailing practice for tool schemas. Semantically equivalent URI forms for a supported dialect SHALL resolve to the same validator without rewriting the source document. A schema SHALL be refused only when it cannot be checked faithfully: no validator for its declared dialect is available, or the schema is malformed or invalid and cannot be compiled by that validator. The refusal SHALL name the affected tool and declared or assumed dialect, SHALL happen before the declaration enters the attempt-local model catalog, and SHALL NOT affect valid sibling tools. Validating a schema under a dialect other than its own SHALL NOT be done, because keywords such as `items` carry different meaning between dialects and the mismatch would silently enforce something the author did not write.
 
 Standard JSON Schema formats supported by the validator integration, including `email`, `uri`, and `date-time`, SHALL be enforced when a schema declares them. Advertising a format while silently accepting values that violate it does not satisfy effective validation.
 
-Comparing a bound snapshot declaration against its live tool SHALL NOT convert a schema that is already JSON Schema into another representation and back. Comparison SHALL be by **canonical equality**: two declarations are equal when their canonical forms — recursively key-sorted, with no other normalization — are identical. Key order and other insignificant serialization differences SHALL NOT count as drift; any difference in schema content SHALL. The same canonicalization SHALL be used when the snapshot is written and when it is compared, so the two can never disagree.
+Comparing an attempt-local MCP source declaration against its current source SHALL NOT convert a schema that is already JSON Schema into another representation and back. Comparison SHALL be by **canonical equality**: two declarations are equal when their canonical forms — recursively key-sorted, with no other normalization — are identical. Key order and other insignificant serialization differences SHALL NOT count as drift; any difference in schema content SHALL. The same canonicalization SHALL be used when the in-memory declaration is admitted and when it is compared, so the two can never disagree.
 
 #### Scenario: A schema is validated under its own declared dialect
 
@@ -546,7 +566,7 @@ Comparing a bound snapshot declaration against its live tool SHALL NOT convert a
 #### Scenario: A malformed schema refuses only the affected tool
 
 - **WHEN** a source contributes one tool whose schema cannot compile and another tool with a valid schema
-- **THEN** the malformed tool is refused before snapshotting, naming the tool and dialect, while the valid sibling remains available
+- **THEN** the malformed tool is refused before attempt advertisement, naming the tool and dialect, while the valid sibling remains available
 
 #### Scenario: Equivalent supported dialect URIs select the same validator
 
@@ -585,7 +605,7 @@ Comparing a bound snapshot declaration against its live tool SHALL NOT convert a
 
 #### Scenario: An unchanged JSON-Schema tool rebinds without spurious drift
 
-- **WHEN** a run binds a snapshot declaring a JSON-Schema tool and later executes it, with nothing about that tool changed
+- **WHEN** an attempt admits a JSON-Schema tool and later executes it, with nothing about that tool changed
 - **THEN** the declaration matches and the tool executes
 
 #### Scenario: Tool activity from a JSON-Schema tool reconstructs from history
@@ -679,6 +699,8 @@ A worker SHALL acknowledge a drained model stream only after the owner-scoped Ru
 
 ### Requirement: Tool observations survive into later turns as stored UI parts
 
+The prospective cutover boundary in `context-injection` SHALL govern failed-attempt exclusion; existing conversation state SHALL not be retrospectively filtered or rebuilt. For post-cutover attempts, these model-history rules apply only to observations from successfully committed attempts. Failed, cancelled, expired, or superseded attempts may retain operational/UI records, but their output and context SHALL not enter a retry, later model turn, recall projection, or compaction. An individual failed tool call within a successfully committed attempt SHALL still retain its normal paired failure observation.
+
 A round's tool activity SHALL remain available to the model in later turns
 within the bounded replay contract below. What a tool was asked and what it
 returned or failed to return SHALL be representable on the next turn unless an
@@ -764,8 +786,8 @@ that produced them.
 
 #### Scenario: A cancelled call is projected as cancelled
 
-- **WHEN** a prior call was settled by Run termination
-- **THEN** its matching result reports `cancelled`
+- **WHEN** a prior call was settled by unsuccessful Run termination
+- **THEN** operational/UI replay reports its matching `cancelled` result, while that failed attempt is excluded from model history
 - **AND** it remains distinguishable from a tool-produced error
 
 #### Scenario: A tool call made during reasoning is projected
@@ -870,7 +892,7 @@ that produced them.
 
 ### Requirement: No mid-run tool-state checkpointing (read-only slice; write-tool landmine)
 
-The existing read-only loop may retry a claimable Run from its first step. A Run
+The existing read-only loop may retry a claimable Run from its first step with freshly resolved worker context. It SHALL not reuse the failed attempt's model history, prompt, or catalog, and SHALL compare availability against the same previous committed turn. A Run
 that has executed an alpha native `edit` or `write` SHALL NOT automatically
 replay that mutation after a worker failure, timeout, or unknown settlement.
 The host SHALL settle the mutation as `outcome_unknown` or fail the containing
@@ -938,13 +960,13 @@ The web chat SHALL render tool activity inline in the message stream — the cal
 - **WHEN** a run hits the step cap
 - **THEN** the chat UI renders a visible inline notice alongside the final answer (live and when reloaded from history)
 
-### Requirement: Code-owned Knowledge tools use the existing immutable read-only loop
+### Requirement: Code-owned Knowledge tools use the attempt-local read-only loop
 
-The code-owned tool inventory SHALL include `knowledge_search` in addition to `search_conversations`; Knowledge file access is the `kb://` locator of the native file tools. `knowledge_search` SHALL declare `read_only`, require its own exact entry in `tools.allowed`, and participate in the same declaration admission, immutable Run tool snapshot, execution rebinding, timeout, abort, settlement, persistence, replay, compaction, result neutralization, truncation, and browser-rendering contracts as every other code-owned tool. The Run tool snapshot SHALL bind operation eligibility and declarations, not a Knowledge resource inventory.
+The code-owned tool inventory SHALL include `knowledge_search` in addition to `search_conversations`; Knowledge file access is the `kb://` locator of the native file tools. `knowledge_search` SHALL declare `read_only`, require its own exact entry in `tools.allowed`, and participate in the same declaration admission, attempt-local tool catalog, trusted executor binding, timeout, abort, settlement, persistence, replay, compaction, result neutralization, truncation, and browser-rendering contracts as every other code-owned tool. The runtime catalog SHALL describe operation eligibility and declarations, not a Knowledge resource inventory, and SHALL not be persisted.
 
 The operator allowlist controls only whether these fixed operations are eligible. It SHALL NOT choose an owner, configured root, child directory, path root, or execution location. A permitted Knowledge tool MAY accept a stable Knowledge Space selector as defined by its code-owned schema, but current authority for that selector MUST come from the trusted Run owner at execution time. Model input SHALL NOT supply or expand ownership or local filesystem authority.
 
-For each newly accepted Run, the code-owned candidate resolver SHALL use the static declaration, safety classification, exact allowlist entry, and configured Knowledge root to determine Knowledge tool availability. It SHALL NOT query or snapshot the owner's Knowledge Space inventory. With a configured root, an owner with zero current resources SHALL still receive the callable tool declarations; invocation SHALL return `knowledge_space_not_configured`. Without a configured root, each otherwise-eligible Knowledge tool SHALL retain the closed `knowledge_space_unavailable` manifest state. The API request path SHALL NOT probe the filesystem.
+For each newly prepared execution attempt, the executing worker's candidate resolver SHALL use its source declaration, safety classification, exact allowlist entry, and configured Knowledge root to determine Knowledge tool availability. It SHALL NOT query or snapshot the owner's Knowledge Space inventory. With a configured root, an owner with zero current resources SHALL still receive the callable tool declarations; invocation SHALL return `knowledge_space_not_configured`. Without a configured root, each otherwise-eligible Knowledge tool SHALL retain the closed `knowledge_space_unavailable` manifest state. The API acceptance path SHALL neither resolve the catalog nor probe the filesystem.
 
 Worker execution SHALL receive the private filesystem resolver through trusted dependency injection or tool context and current owner identity through trusted Run context. It SHALL resolve current owner resources under RLS for every invocation and SHALL NOT serialize local binding data into declarations or accept it from model input.
 
@@ -952,31 +974,31 @@ Knowledge results SHALL retain the global execution envelope `status: "success" 
 
 New Knowledge results SHALL persist and render the current passage/range attribution defined by `knowledge-tools` without requiring a content hash. Historical persisted Knowledge results MAY retain their earlier hash-bearing shape. Execution, persistence, replay, compaction, and browser rendering SHALL preserve either bounded observation as authored and SHALL NOT normalize historical results into the new shape or synthesize removed fields. Existing persisted calls without new optional range or cursor arguments SHALL remain valid observations.
 
-Changing the code-owned `knowledge_search` declaration SHALL be a coordinated API/worker revision boundary because an accepted Run binds the exact declaration and a code-owned executor refuses drift. Before replacing binaries for the passage-search declaration, the deployment SHALL quiesce new Run acceptance and drain every accepted Run bound to the prior declaration. It SHALL deploy matching API and worker binaries before resuming acceptance. Rollback SHALL quiesce and drain Runs bound to the newer declaration before restoring older API or worker binaries. No mixed-revision executor fallback or declaration normalization is introduced by this change.
+Changing execution semantics or stored Knowledge locator interpretation SHALL remain a coordinated API/worker/data boundary. Description-template edits SHALL be restart-applied and do not create a historical declaration-hash requirement for a scheduled Run. Before replacing binaries for the passage-search declaration, the deployment SHALL quiesce new Run acceptance and drain every accepted Run bound to the prior declaration. It SHALL deploy matching API and worker binaries before resuming acceptance. Rollback SHALL quiesce and drain Runs bound to the newer declaration before restoring older API or worker binaries. No mixed-revision executor fallback or declaration normalization is introduced by this change.
 
-The canonical closed Knowledge reason vocabulary and model-safe label mapping SHALL retain `knowledge_space_not_configured` and `knowledge_space_unavailable`. Because zero inventory no longer changes tool availability, `knowledge_space_not_configured` SHALL be emitted only as a tool-call result, not as an immutable manifest state. `knowledge_space_unavailable` and its existing recovery mapping SHALL continue to govern missing process configuration without admitting arbitrary reason text.
+The canonical closed Knowledge reason vocabulary and model-safe label mapping SHALL retain `knowledge_space_not_configured` and `knowledge_space_unavailable`. Because zero inventory no longer changes tool availability, `knowledge_space_not_configured` SHALL be emitted only as a tool-call result, not as a runtime availability state. Current missing process configuration SHALL use the safe `knowledge_space_unavailable` label. Recovery notices SHALL identify the restored tool without asserting a prior cause, because the previous committed record stores only id/state.
 
 #### Scenario: Knowledge tool is not allowlisted
 
 - **WHEN** a Knowledge tool is registered but its exact ID is absent from `tools.allowed`
-- **THEN** it is neither advertised nor executable for a newly accepted Run
+- **THEN** it is neither advertised nor executable for a newly prepared execution attempt
 
-#### Scenario: Allowlisted Knowledge tool is snapshotted
+#### Scenario: Allowlisted Knowledge tool is admitted at runtime
 
-- **WHEN** an exact Knowledge tool ID is allowlisted for a newly accepted Run with a configured Knowledge root
-- **THEN** its exact declaration is included in that Run's immutable tool snapshot regardless of current owner inventory
+- **WHEN** an exact Knowledge tool ID is allowlisted for a newly prepared execution attempt with a configured Knowledge root
+- **THEN** its exact declaration is included in that Run's in-memory tool catalog regardless of current owner inventory
 - **AND** execution requires the matching code-owned read-only executor
 
 #### Scenario: Eligible Knowledge tool starts unavailable
 
-- **WHEN** a Knowledge tool is allowlisted but the authoring API has no configured Knowledge root
-- **THEN** the Run manifest records `knowledge_space_unavailable`
+- **WHEN** a Knowledge tool is allowlisted but the executing worker has no configured Knowledge root
+- **THEN** the attempt's runtime availability records `knowledge_space_unavailable`
 - **AND** the tool is not advertised as callable for that Run
 
-#### Scenario: Knowledge availability recovery uses the closed mapping
+#### Scenario: Knowledge availability recovery does not infer a prior cause
 
-- **WHEN** a later accepted Run changes `knowledge_space_unavailable` to available within the disclosure epoch
-- **THEN** its `Now available` transition uses `knowledge_space_restored`
+- **WHEN** an attempt admits a Knowledge tool recorded as unavailable in the previous committed turn within the disclosure epoch
+- **THEN** its `Now available` transition identifies that exact tool without inferring a stored failure reason
 - **AND** no root, host path, or arbitrary reason text is rendered
 
 #### Scenario: Knowledge observation persists through reload and replay
@@ -1009,10 +1031,10 @@ The canonical closed Knowledge reason vocabulary and model-safe label mapping SH
 - **THEN** the tool is advertised as callable
 - **AND** invocation returns the closed `knowledge_space_not_configured` result
 
-#### Scenario: Removed reader fails closed for a bound Run
+#### Scenario: Removed reader is not recreated from history
 
-- **WHEN** a Run accepted before removal has `knowledge_read` in its immutable tool snapshot
-- **THEN** the Run fails closed before the provider request, under the existing code-owned executor-loss rule
+- **WHEN** historical tool activity mentions the removed `knowledge_read` id
+- **THEN** a fresh attempt does not reconstruct or execute it from that history
 - **AND** no shim, alias, or redirect to `read` is applied
 
 #### Scenario: Incomplete Knowledge search stays incomplete after payload clearing
@@ -1021,13 +1043,13 @@ The canonical closed Knowledge reason vocabulary and model-safe label mapping SH
 - **THEN** the payload-cleared observation and subsequent replay carry outcome `incomplete`
 - **AND** the call is not upgraded to complete success
 
-### Requirement: Conversation read uses the existing immutable read-only tool loop
+### Requirement: Conversation read uses the attempt-local read-only tool loop
 
-The code-owned tool inventory SHALL include `conversation_read` in addition to `search_conversations` and `knowledge_search`. It SHALL declare `read_only`, require its own exact `tools.allowed` entry, and participate in the existing declaration admission, immutable Run snapshot, execution rebinding, timeout, cooperative cancellation, settlement, persistence, replay, compaction, neutralization, and generic browser-rendering lifecycle. Owner authority SHALL come only from trusted Run context, never from model arguments or a message locator.
+The code-owned tool inventory SHALL include `conversation_read` in addition to `search_conversations` and `knowledge_search`. It SHALL declare `read_only`, require its own exact `tools.allowed` entry, and participate in the existing declaration admission, attempt-local runtime catalog, trusted executor binding, timeout, cooperative cancellation, settlement, persistence, replay, compaction, neutralization, and generic browser-rendering lifecycle. Owner authority SHALL come only from trusted Run context, never from model arguments or a message locator.
 
 The conversation reader SHALL enforce the `conversation-reads` bounds of 2,000 logical lines and 15,000 JavaScript UTF-16 code units before generic result truncation. A read whose first selected source line cannot fit SHALL return `conversation_limit_exceeded`. Bounded pages SHALL preserve exact `nextOffset` and cut-reason metadata, and generic truncation SHALL NOT clip numbered source content.
 
-Structured Chat/message sequence attribution, role/timestamp, numbered content, neighboring eligible sequences, continuation metadata, and the closed untrusted-history notice SHALL persist and render as authored through the ordinary tool UI. Replay SHALL NOT rehydrate newer message content, synthesize hashes/UUIDs/versions/part identities, remove line prefixes/notices, or normalize historical result shapes. Adding or changing the code-owned declaration or Chat-local sequence semantics SHALL use a coordinated API/worker/data cutover: quiesce new Run acceptance, drain Runs bound to the prior declaration and sequence interpretation, migrate durable sequence boundaries, deploy matching executors/declarations, then resume; rollback SHALL restore the matching prior binaries and data snapshot rather than mix locator interpretations.
+Structured Chat/message sequence attribution, role/timestamp, numbered content, neighboring eligible sequences, continuation metadata, and the closed untrusted-history notice SHALL persist and render as authored through the ordinary tool UI. Replay SHALL NOT rehydrate newer message content, synthesize hashes/UUIDs/versions/part identities, remove line prefixes/notices, or normalize historical result shapes. Changing executable or Chat-local sequence semantics SHALL use a coordinated API/worker/data cutover; restart-applied description wording does not require a persisted declaration hash: quiesce new Run acceptance, drain Runs bound to the prior declaration and sequence interpretation, migrate durable sequence boundaries, deploy matching executors/declarations, then resume; rollback SHALL restore the matching prior binaries and data snapshot rather than mix locator interpretations.
 
 A persisted conversation-read observation SHALL follow the destination Chat's existing retention and deletion lifecycle. Product behavior SHALL NOT delete an individual source message. Deleting or later losing access to the source Chat SHALL make a fresh read return `conversation_source_not_found` but SHALL NOT redact or rewrite text already recorded in another owner-visible Chat. Deleting the destination Chat SHALL remove its messages, Runs, and Run events through the existing cascade lifecycle.
 
@@ -1036,12 +1058,12 @@ Because the global-to-Chat-local sequence rewrite is a pre-merge alpha hard cuto
 #### Scenario: Conversation reader is not allowlisted
 
 - **WHEN** `conversation_read` is registered but absent from `tools.allowed`
-- **THEN** it is neither advertised nor executable for a newly accepted Run
+- **THEN** it is neither advertised nor executable for a newly prepared execution attempt
 
 #### Scenario: Allowlisted reader is bound immutably
 
-- **WHEN** the exact reader ID is eligible for a newly accepted Run
-- **THEN** that Run snapshots its exact declaration and requires the matching code-owned executor
+- **WHEN** the exact reader ID is eligible for a newly prepared execution attempt
+- **THEN** that attempt retains its exact declaration in memory and requires the matching code-owned executor
 - **AND** no Chat/sequence argument supplies owner authority
 
 #### Scenario: Bounded continuation survives persistence
