@@ -18,9 +18,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   null in both package configs, and the complete-run level gate is a
   pull-request fallback for a diff that has no baseline to be measured against,
   never a red master. API shards are assigned by measured mutant count instead
-  of a filename hash, and the API baseline is a merged index at
-  `apps/api/reports/mutation-baseline.json`, cache-restored by the plan and the
-  gate and refreshed only after a passing run. `pnpm test:mutation:check` is
+  of a filename hash, and each workspace's baseline is a merged index at
+  `<workspace>/reports/mutation-baseline.json` — the API's from its shard
+  reports, a package's from its own — cache-restored by the plan and the gate,
+  folded in by trusted runs only, so a pull request is measured against master
+  rather than against its own earlier pushes. `pnpm test:mutation:check` is
   renamed `pnpm test:mutation:report`, which reports without gating.
 
 # 2026-09-12
