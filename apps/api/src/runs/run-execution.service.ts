@@ -2525,10 +2525,20 @@ export class RunExecutionService {
         }),
       );
     }
+    // The baseline is the most recent *successful* turn, not merely the most
+    // recent one: a failed run between two successful turns must not discard
+    // the availability state those turns established.
+    const previousCompletedRun = startsEpoch
+      ? undefined
+      : await new RunsRepository(
+          input.tx,
+        ).findMostRecentCompletedByChatMessageSequence(
+          input.input.chatId,
+          input.input.userId,
+          { beforeSeq: input.input.userMessage.seq },
+        );
     const previousSuccessfulAvailability =
-      !startsEpoch && previousRun?.status === 'completed'
-        ? (previousRun.turnToolAvailability ?? undefined)
-        : undefined;
+      previousCompletedRun?.turnToolAvailability ?? undefined;
     const availabilityPayload =
       previousSuccessfulAvailability === undefined
         ? deriveToolAvailabilityPayload({

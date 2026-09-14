@@ -320,16 +320,23 @@ describeIfDb(
       status: 'completed' | 'failed' | 'cancelled' | 'expired' = 'completed',
       turnToolAvailability?: Array<TurnToolAvailabilityEntry>,
     ) =>
-      tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).markFinished(
-          runId,
-          userId,
-          status,
-          turnToolAvailability === undefined
-            ? undefined
-            : { turnToolAvailability },
-        ),
-      );
+      tenantDb.runAs(userId, async (tx) => {
+        const runs = new RunsRepository(tx);
+        // `settleAttempt` finishes a run fenced by the attempt that produced
+        // it, which is also how a completed run earns the winning attempt
+        // link the availability baseline lookup requires. Mirror that here so
+        // fixtures are genuine completed turns rather than unlinked ones.
+        const run = await runs.findById(runId, userId);
+        const attemptId = run?.activeAttemptId ?? undefined;
+        const options: NonNullable<
+          Parameters<RunsRepository['markFinished']>[3]
+        > = {};
+        if (attemptId !== undefined) options.attemptId = attemptId;
+        if (turnToolAvailability !== undefined) {
+          options.turnToolAvailability = turnToolAvailability;
+        }
+        return runs.markFinished(runId, userId, status, options);
+      });
 
     beforeAll(async () => {
       const postgres = await import('postgres');
@@ -1288,7 +1295,9 @@ describeIfDb(
       });
       expect(recoveredAvailability?.text).toContain('mcp__docs__lookup');
       expect(recoveredAvailability?.text).toContain('tool restored');
-      await finish(recovered.runId, 'cancelled');
+      await finish(recovered.runId, 'completed', [
+        { id: 'mcp__docs__lookup', state: 'available' },
+      ]);
 
       const transientFlap = await persistWithContext(
         chatId,
@@ -1300,9 +1309,16 @@ describeIfDb(
 
       const removed = await persistWithContext(chatId, 'tool removed', empty);
       const removedAvailability = availabilityRunItem(removed.run);
-      // The expired predecessor cannot establish a baseline; an empty fresh
-      // epoch has no unavailable tools to disclose.
-      expect(removedAvailability).toBeUndefined();
+      // The expired predecessor is skipped, not treated as a fresh epoch: the
+      // last successful turn observed the tool as available, so dropping it
+      // from the eligible set is an observable removal.
+      expect(removedAvailability).toMatchObject({
+        producer: 'tool-availability',
+        form: 'notice',
+        residency: 'rail',
+      });
+      expect(removedAvailability?.text).toContain('mcp__docs__lookup');
+      expect(removedAvailability?.text).toContain('Removed tools');
       await finish(removed.runId, 'completed', []);
 
       const newlyUnavailable = await persistWithContext(

@@ -319,6 +319,22 @@ describe('ChatLoopService accept/worker context binding', () => {
     const findPreviousRun = vi
       .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
       .mockResolvedValue(priorRun);
+    // The availability baseline reads the most recent *genuine completed* turn:
+    // the repository query only returns runs that finished successfully and
+    // carry the winning attempt link. Mirror that contract over the fixture.
+    const findPreviousCompletedRun = vi
+      .spyOn(
+        RunsRepository.prototype,
+        'findMostRecentCompletedByChatMessageSequence',
+      )
+      .mockImplementation(() =>
+        Promise.resolve(
+          priorRun?.status === 'completed' &&
+            priorRun.completedAttemptId !== null
+            ? priorRun
+            : undefined,
+        ),
+      );
     vi.spyOn(
       CompactionsRepository.prototype,
       'findLatestByChatId',
@@ -548,6 +564,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       updateForAttempt,
       createReceipt,
       findPreviousRun,
+      findPreviousCompletedRun,
       createRun,
       appendEvent,
       updateRecencyDigestTold,
@@ -1090,6 +1107,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       previousRun: previousRun({
         modelId: model.id,
         status: 'completed',
+        completedAttemptId: 'attempt-id',
         turnToolAvailability: [
           { id: 'search_conversations', state: 'unavailable' },
         ],
