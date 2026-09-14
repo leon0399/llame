@@ -237,8 +237,11 @@ function main(arguments_) {
       return;
     }
     console.log(`${workspace}: mutating ${ranges.length} ranges`);
-    const config = writeScopeConfig(workspace, ranges);
+    // The path is known before the write, so a write that truncates and then
+    // fails still leaves nothing behind.
+    const config = path.resolve(workspace, scopeConfigFile);
     try {
+      writeScopeConfig(workspace, ranges);
       const result = spawnSync("pnpm", mutationArguments(workspace), {
         cwd: path.resolve("."),
         stdio: "inherit",
