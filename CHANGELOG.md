@@ -8,7 +8,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   with 19 survivors in a file whose diff it had touched in 17 places, all of
   them pre-existing. A file now contributes one range per hunk however many
   there are; 34 single-line ranges reproduce a whole-file run exactly, so the
-  list costs characters and nothing else.
+  list costs characters and nothing else. The scope travels in a generated
+  Stryker configuration file rather than `--mutate`: Linux caps one `argv`
+  element at 131 072 bytes, so a few thousand ranges would fail to start the
+  runner with `E2BIG` before any mutant ran.
 
 - Replace the per-file mutation delta with a changed-line gate. A pull request
   now mutates the lines its diff changed, through Stryker's own mutation
