@@ -117,15 +117,34 @@ export async function activateSkills(
   const selection = new Set(admitted.map((mention) => mention.name));
 
   const items: Array<AuthoredContextItemPart> = [];
-  const bytes = await attemptWithinBudget(
+  await attemptWithinBudget(
     input,
-    { admitted, selection },
+    { admitted, selection, ceiling: instructionCeiling(input) },
     items,
     unattempted,
   );
-  appendOmissionItem(input.runId, unattempted, bytes, items);
+  appendOmissionItem(input.runId, unattempted, items);
 
   return { items, selection };
+}
+
+/**
+ * The bytes instructions may spend, which is the aggregate bound less the
+ * largest omission notice this turn could need.
+ *
+ * Accounting for what did not load is not optional - every unattempted
+ * selection is reported - so the notice cannot be the thing that overflows.
+ * Reserving its worst case, every mentioned name listed, keeps the aggregate
+ * bound intact while guaranteeing the report; at eight selections the reserve
+ * is a few hundred bytes of 128 KiB.
+ */
+function instructionCeiling(input: ActivationRequest): number {
+  if (input.mentions.length === 0) return MAX_SKILL_ACTIVATION_BYTES;
+  const worstCase = createSkillActivationOmissionItem({
+    runId: input.runId,
+    skills: input.mentions.map((mention) => mention.name),
+  });
+  return MAX_SKILL_ACTIVATION_BYTES - measureNativeModelOutput(worstCase);
 }
 
 /** What one selection resolved to, from this turn's budget's point of view. */
@@ -151,10 +170,11 @@ async function attemptWithinBudget(
   selections: {
     readonly admitted: ReadonlyArray<SkillMention>;
     readonly selection: ReadonlySet<string>;
+    readonly ceiling: number;
   },
   items: Array<AuthoredContextItemPart>,
   unattempted: Array<string>,
-): Promise<number> {
+): Promise<void> {
   let bytes = 0;
   const deadline = Date.now() + SKILL_ACTIVATION_BUDGET_MS;
 
@@ -164,7 +184,13 @@ async function attemptWithinBudget(
     if (input.resolved?.has(mention.name) === true) continue;
     const attempt = await attemptMention(
       input,
-      { selection: selections.selection, ordinal, deadline, bytes },
+      {
+        selection: selections.selection,
+        ordinal,
+        deadline,
+        bytes,
+        ceiling: selections.ceiling,
+      },
       mention,
     );
     if (attempt.kind !== 'item') {
@@ -174,7 +200,6 @@ async function attemptWithinBudget(
     bytes += attempt.bytes;
     items.push(attempt.item);
   }
-  return bytes;
 }
 
 async function attemptMention(
@@ -184,6 +209,7 @@ async function attemptMention(
     readonly ordinal: number;
     readonly deadline: number;
     readonly bytes: number;
+    readonly ceiling: number;
   },
   mention: SkillMention,
 ): Promise<MentionAttempt> {
@@ -196,7 +222,7 @@ async function attemptMention(
     ordinal: budget.ordinal,
   });
   const bytes = measureNativeModelOutput(item);
-  return budget.bytes + bytes > MAX_SKILL_ACTIVATION_BYTES
+  return budget.bytes + bytes > budget.ceiling
     ? { kind: 'unattempted' }
     : { kind: 'item', item, bytes };
 }
@@ -204,29 +230,17 @@ async function attemptMention(
 /**
  * The single bounded item naming every unattempted selection.
  *
- * Its own size is measured rather than assumed: it lists every remainder in both
- * its payload and its text, so leaving it outside the accounting would let the
- * aggregate bound be exceeded by the very item reporting the overflow. If even
- * the notice cannot fit, admitted instructions have already spent the budget,
- * and the remainder stays inspectable at `skill://` instead.
+ * Always emitted when anything went unattempted: the instruction ceiling
+ * already reserved this notice's worst case, so the item reporting the
+ * overflow cannot itself be what overflows.
  */
 function appendOmissionItem(
   runId: string,
   unattempted: ReadonlyArray<string>,
-  bytes: number,
   items: Array<AuthoredContextItemPart>,
 ): void {
   if (unattempted.length === 0) return;
-  const omission = createSkillActivationOmissionItem({
-    runId,
-    skills: unattempted,
-  });
-  if (
-    bytes + measureNativeModelOutput(omission) <=
-    MAX_SKILL_ACTIVATION_BYTES
-  ) {
-    items.push(omission);
-  }
+  items.push(createSkillActivationOmissionItem({ runId, skills: unattempted }));
 }
 
 /**
