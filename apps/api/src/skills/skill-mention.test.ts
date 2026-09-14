@@ -51,6 +51,27 @@ describe('parseSkillMentions', () => {
     expect(names('``x `$pdf` $research')).toEqual(['research']);
   });
 
+  it('closes a fence only on the same marker, long enough, and bare', () => {
+    // A different marker does not close the block.
+    expect(names('```\n$pdf\n~~~\n$research\n```\n$after')).toEqual(['after']);
+    // Nor does a shorter run than the one that opened it.
+    expect(names('````\n$pdf\n```\n$research\n````\n$after')).toEqual([
+      'after',
+    ]);
+    // Trailing whitespace is permitted on a closing fence, so this one closes.
+    expect(names('```\n$pdf\n```   \n$after')).toEqual(['after']);
+  });
+
+  it('reads a fence-shaped line the way Markdown does', () => {
+    // Indented up to three spaces is still a fence.
+    expect(names('  ```\n$pdf\n  ```\n$after')).toEqual(['after']);
+    // Backticks that do not open the line are not a fence, so the mention
+    // after them is ordinary text.
+    expect(names('see ```\n$pdf')).toEqual(['pdf']);
+    // A marker needs three characters: a single tilde opens nothing.
+    expect(names('~\n$pdf')).toEqual(['pdf']);
+  });
+
   it('recognizes a mention after a closed fence', () => {
     expect(names('```\n$pdf\n```\nthen $research')).toEqual(['research']);
   });
