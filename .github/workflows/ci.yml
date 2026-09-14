@@ -53,15 +53,32 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      # The plan reads the same baselines its shards will be gated against: the
+      # merged API index, and each package's own incremental report. Whether a
+      # baseline is present decides between a scoped run and the complete
+      # workspace, so restoring it here is what makes the scope sound.
+      - uses: ./.github/actions/stryker-baseline
+        with:
+          workspace: apps/api
+          cache-file: reports/mutation-baseline.json
+          cache-suffix: api-baseline
+
+      - uses: ./.github/actions/stryker-baseline
+        with:
+          workspace: packages/config-interpolation
+          cache-suffix: config-interpolation
+
+      - uses: ./.github/actions/stryker-baseline
+        with:
+          workspace: packages/runtime-safety
+          cache-suffix: runtime-safety
+
       - id: scope
         env:
-          MUTATION_BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if [[ -n "$MUTATION_BASE" ]]; then
-            node scripts/mutation-sharding.mjs plan --base "$MUTATION_BASE"
-          else
-            node scripts/mutation-sharding.mjs plan
-          fi
+          # A pull request diffs against its base commit; a master push against
+          # the commit it replaced, so a merge is measured as the change it was.
+          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/mutation-sharding.mjs plan --base "$MUTATION_BASE"
 
   typecheck:
     name: Typecheck
@@ -180,15 +197,12 @@ jobs:
 
       - env:
           MUTATION_SHARD: ${{ matrix.shard }}
-          MUTATION_BASE: ${{ github.event.pull_request.base.sha }}
+          MUTATION_FILES: ${{ join(matrix.files, ',') }}
           MUTATION_MODE: ${{ needs.mutation-plan.outputs.api_mode }}
         run: |
-          arguments=(--shard "$MUTATION_SHARD" --reporters "clear-text,html,json,progress-append-only")
+          arguments=(--shard "$MUTATION_SHARD" --mutate "$MUTATION_FILES" --reporters "clear-text,html,json,progress-append-only")
           if [[ "$MUTATION_MODE" == full ]]; then
             arguments+=(--incremental)
-          fi
-          if [[ -n "$MUTATION_BASE" ]]; then
-            arguments+=(--base "$MUTATION_BASE")
           fi
           pnpm --filter api test:mutation:shard -- "${arguments[@]}"
 
@@ -236,17 +250,56 @@ jobs:
       - uses: ./.github/actions/setup
         if: needs.mutation-plan.outputs.api_count != '0'
 
+      # The gate compares this run against the baseline the plan measured the
+      # diff with, so a scoped run is judged as a delta and a complete run as a
+      # level. A complete run restores nothing: no baseline is what made it
+      # complete, and the refresh below writes the one the next run reads.
+      - uses: ./.github/actions/stryker-baseline
+        id: baseline
+        if: needs.mutation-plan.outputs.api_count != '0'
+        with:
+          workspace: apps/api
+          cache-file: reports/mutation-baseline.json
+          cache-suffix: api-baseline
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         if: needs.mutation-plan.outputs.api_count != '0'
         with:
           pattern: mutation-report-api-*
           path: apps/api/reports/mutation-shards
 
-      - run: pnpm test:mutation:aggregate -- --threshold 80 --expected-shards "$EXPECTED_SHARDS" reports/mutation-shards/*/mutation.json
+      - name: Gate the mutation result
         if: needs.mutation-plan.outputs.api_count != '0'
         env:
           EXPECTED_SHARDS: ${{ needs.mutation-plan.outputs.api_count }}
+          MUTATION_MODE: ${{ needs.mutation-plan.outputs.api_mode }}
         working-directory: apps/api
+        run: |
+          arguments=(--expected-shards "$EXPECTED_SHARDS" reports/mutation-shards/*/mutation.json)
+          if [[ "$MUTATION_MODE" == full ]]; then
+            arguments=(--threshold 80 "${arguments[@]}")
+          else
+            arguments=(--baseline reports/mutation-baseline.json "${arguments[@]}")
+          fi
+          pnpm test:mutation:aggregate -- "${arguments[@]}"
+
+      # Refreshed only after a passing gate: a baseline that recorded this
+      # run's regressions would excuse them on the next one.
+      - name: Refresh the mutation baseline
+        if: success() && needs.mutation-plan.outputs.api_count != '0'
+        working-directory: apps/api
+        run: |
+          node ../../scripts/mutation-sharding.mjs baseline \
+            --previous reports/mutation-baseline.json \
+            --output reports/mutation-baseline.json \
+            reports/mutation-shards/*/mutation.json
+
+      - name: Save refreshed mutation baseline
+        if: success() && needs.mutation-plan.outputs.api_count != '0'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/api/reports/mutation-baseline.json
+          key: ${{ steps.baseline.outputs.prefix }}${{ steps.baseline.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   mutation-packages:
     name: Mutation testing (${{ matrix.package }})
@@ -272,7 +325,7 @@ jobs:
 
       - uses: ./.github/actions/stryker-baseline
         id: baseline
-        if: matrix.mode == 'full'
+        if: matrix.mode != 'skip'
         with:
           workspace: packages/${{ matrix.package }}
           cache-suffix: ${{ matrix.package }}
@@ -280,13 +333,16 @@ jobs:
       - if: matrix.mode != 'skip'
         env:
           MUTATION_PACKAGE: ${{ matrix.package }}
-          MUTATION_BASE: ${{ github.event.pull_request.base.sha }}
+          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           MUTATION_MODE: ${{ matrix.mode }}
         run: |
-          if [[ "$MUTATION_MODE" == changed ]]; then
+          if [[ "$MUTATION_MODE" == scoped ]]; then
             node scripts/mutation-sharding.mjs changed --workspace "packages/$MUTATION_PACKAGE" --base "$MUTATION_BASE"
           else
             pnpm --filter "@workspace/$MUTATION_PACKAGE" test:mutation --incremental --reporters clear-text,html,json,progress-append-only
+            # The package's own thresholds.break is null, so a complete run is
+            # gated here, the same way the API's complete run is.
+            node scripts/mutation-sharding.mjs aggregate --threshold 80 "packages/$MUTATION_PACKAGE/reports/mutation/mutation.json"
           fi
 
       - name: Save refreshed mutation baseline

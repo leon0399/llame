@@ -1,3 +1,11 @@
+# Full-corpus mutation sweep: a trend, not a gate.
+#
+# Every mutant is retested (`--force`) so the merged API baseline index and the
+# package incrementals are rebuilt from scratch, and the resulting global MSI is
+# reported rather than enforced. Slow erosion that no single pull request caused
+# surfaces here, where the response is a cleanup issue instead of a red X. Pull
+# requests are gated by `ci.yml` against the delta of their own diff.
+
 name: Mutation baseline refresh
 
 on:
@@ -12,14 +20,40 @@ env:
   TURBO_TELEMETRY_DISABLED: "1"
 
 jobs:
+  plan:
+    name: Mutation shard plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      api_count: ${{ steps.scope.outputs.api_count }}
+      api_matrix: ${{ steps.scope.outputs.api_matrix }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      # Weights come from the baseline the last sweep wrote, so this run's shards
+      # are balanced on measured mutant counts rather than on file names.
+      - uses: ./.github/actions/stryker-baseline
+        with:
+          workspace: apps/api
+          cache-file: reports/mutation-baseline.json
+          cache-suffix: api-baseline
+
+      - id: scope
+        run: node scripts/mutation-sharding.mjs plan --full
+
   api-shard:
     name: Forced API mutation shard ${{ matrix.shard }}
+    needs: [plan]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        shard: ["1/8", "2/8", "3/8", "4/8", "5/8", "6/8", "7/8", "8/8"]
+        include: ${{ fromJSON(needs.plan.outputs.api_matrix) }}
     concurrency:
       group: mutation-trusted-api-${{ matrix.shard }}
       cancel-in-progress: false
@@ -35,11 +69,12 @@ jobs:
         with:
           workspace: apps/api
           cache-file: reports/stryker-incremental-*.json
-          cache-suffix: api-shard-${{ strategy.job-index }}
+          cache-suffix: api-shard-${{ matrix.index }}
 
       - run: >-
           pnpm --filter api test:mutation:shard -- --shard
-          "${{ matrix.shard }}" --incremental --force
+          "${{ matrix.shard }}" --mutate "${{ join(matrix.files, ',') }}"
+          --incremental --force
           --reporters clear-text,html,json,progress-append-only
 
       - name: Save rebuilt mutation baseline
@@ -53,7 +88,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: mutation-report-forced-api-${{ strategy.job-index }}
+          name: mutation-report-forced-api-${{ matrix.index }}
           path: apps/api/reports/mutation/
           retention-days: 30
           if-no-files-found: error
@@ -62,7 +97,7 @@ jobs:
     name: Forced API mutation summary
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [api-shard]
+    needs: [api-shard, plan]
     if: always() && !cancelled()
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -71,13 +106,41 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      # The previous index is carried forward, so a partial sweep still leaves a
+      # complete baseline for pull requests to be measured against.
+      - uses: ./.github/actions/stryker-baseline
+        id: baseline
+        with:
+          workspace: apps/api
+          cache-file: reports/mutation-baseline.json
+          cache-suffix: api-baseline
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: mutation-report-forced-api-*
           path: apps/api/reports/mutation-shards
 
-      - run: pnpm test:mutation:check
+      - name: Report the global mutation score
         working-directory: apps/api
+        env:
+          EXPECTED_SHARDS: ${{ needs.plan.outputs.api_count }}
+        run: pnpm test:mutation:report -- --expected-shards "$EXPECTED_SHARDS"
+
+      - name: Refresh the mutation baseline
+        if: success()
+        working-directory: apps/api
+        run: |
+          node ../../scripts/mutation-sharding.mjs baseline \
+            --previous reports/mutation-baseline.json \
+            --output reports/mutation-baseline.json \
+            reports/mutation-shards/*/mutation.json
+
+      - name: Save refreshed mutation baseline
+        if: success()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/api/reports/mutation-baseline.json
+          key: ${{ steps.baseline.outputs.prefix }}trusted-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   packages:
     name: Forced ${{ matrix.package }} mutation run

@@ -1,5 +1,27 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-14
+
+- Scope the mutation gate to the diff and measure it as a delta (#830). A run
+  now mutates the changed source files plus every mutant file covered by a
+  changed test file, resolved from the baseline's per-test coverage, so
+  weakening or deleting a test still pulls its files into scope; previously any
+  change to a `.test.ts`, fixture or config file expanded the entire workspace,
+  which is every pull request that touches tests. The gate compares each
+  measured file's undetected mutant count — survived or uncovered — against the
+  baseline instead of a level, so editing one line of a legacy file no longer
+  fails a pull request for pre-existing debt. A file with no baseline entry has
+  no allowance, and a run with no usable baseline expands to the complete
+  workspace, where the 80% level gate still applies. Master pushes gate the
+  merge that landed, and the weekly sweep retests every mutant and reports the
+  global score as a trend rather than failing on it: `thresholds.break` is now
+  null in both package configs, with the complete-run level gate applied
+  explicitly where one is intended. API shards are assigned by measured mutant
+  count instead of a filename hash, and the API baseline is a merged index at
+  `apps/api/reports/mutation-baseline.json`, cache-restored by the plan and the
+  gate and refreshed only after a passing run. `pnpm test:mutation:check` is
+  renamed `pnpm test:mutation:report`, which reports without gating.
+
 # 2026-09-12
 
 - Pin the Pullfrog workflow's two action references to full commit SHAs,

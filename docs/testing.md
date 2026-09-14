@@ -59,20 +59,37 @@ pnpm test:mutation
 pnpm test:mutation:changed --base origin/master
 ```
 
-PRs mutate complete changed source files against the PR base's merge-base.
+A mutation scope is the changed mutant source files plus every mutant file
+covered by a changed test file, resolved from the baseline's per-test coverage.
+That union is the complete affected set: a test file can only flip mutants it
+covers, so weakening or deleting a test still pulls its files into scope.
 Tests, recognized fixtures/test doubles, deletions, excluded source and
 configuration expand the affected workspace. Shared dependencies expand API
 scope; unknown root inputs expand all mutation workspaces. Known unrelated
 documentation/frontend changes skip mutation. Local changed mode also includes
 tracked working-tree and untracked edits; a missing base ref fails.
 
-CI partitions the selected API files into stable shards. The merged selected
-report and each selected shared-package run enforce 80% MSI. A scoped score
-measures that scope, not the full workspace. Full-scope runs retain compatible
-incremental baselines; fixtures, excluded inputs and transitive workspace
-dependencies invalidate them. Scoped runs do not reuse full baselines. Master
-keeps full scope and weekly refreshes force all mutants. Failed selected shards
-and missing reports, malformed reports or unfinished mutant statuses fail the aggregate.
+The gate is a delta, not a level: a run fails when a source file it measured
+gains undetected mutants (survived or uncovered) against the baseline, so
+editing one line of a legacy file does not fail a pull request for pre-existing
+debt. Files with no baseline entry — new sources — have no allowance. Without a
+usable baseline a scoped run reports its score and gates nothing; the plan
+expands such a workspace to the complete set instead, which enforces 80% MSI.
+
+The baseline is the merged index of the last complete API sweep
+(`apps/api/reports/mutation-baseline.json`), or a package's own incremental
+report. Both are cache-restored, and their key covers fixtures, excluded inputs
+and transitive workspace dependencies, so an environment change discards them:
+that is what makes a missing baseline mean "measure everything". Baselines are
+refreshed only after a passing gate, and a scoped run refreshes only the files
+it measured.
+
+CI partitions the selected API files into shards balanced on the measured mutant
+count of each file, not on file names. Pull requests gate their own diff, master
+pushes gate the merge that landed, and the weekly sweep retests every mutant
+(`--force`) and reports the global MSI as a trend instead of a gate. Failed
+selected shards and missing reports, malformed reports or unfinished mutant
+statuses fail the aggregate.
 
 Each package remains runnable directly; reports live under ignored workspace
 `reports/` directories. Add `--dryRunOnly` to the changed command to exercise
