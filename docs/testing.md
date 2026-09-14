@@ -68,6 +68,9 @@ excludes — contributes nothing and is skipped: it flips no mutant the baseline
 measured, so it cannot gain an undetected mutant. A missing baseline, an index
 that measured no mutants, a recognized fixture/test double, deleted or
 excluded source, or runtime configuration change makes the delta unavailable.
+A migration is skipped for the same reason a changed test the index does not
+credit is: it flips no mutant, so it cannot gain an undetected mutant, and only
+a trusted run writes the index that bounding it would require.
 Shared runtime dependencies have unbounded API impact; their test files do not,
 because package builds exclude tests. Unknown root inputs make every workspace
 delta unavailable. PR and master CI fail before mutation execution in these
@@ -100,9 +103,11 @@ Git revision. Scoped refreshes retain unmeasured files and accumulate coverage,
 so a narrower run cannot erase previously observed reachability. Full refreshes
 replace the index, removing deleted paths and their old mutant allowances.
 The plan restores the index under an environment fingerprint covering fixtures,
-excluded inputs and transitive runtime dependencies. Dependency test files are
-not fingerprint inputs. Each gate downloads the plan's immutable index artifact,
-so a concurrent master run cannot change its comparison baseline.
+excluded inputs and transitive runtime dependencies. Dependency test files and
+Drizzle migrations are not fingerprint inputs: neither changes which mutants
+exist or which test reports covering one, and a scoped run re-measures its files
+against the checked-out schema. Each gate downloads the plan's immutable index
+artifact, so a concurrent master run cannot change its comparison baseline.
 An index must come from an ancestor of the checked-out revision; future or
 unrelated indexes cannot supply a PR allowance.
 
