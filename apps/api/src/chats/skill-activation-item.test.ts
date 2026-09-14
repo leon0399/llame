@@ -8,6 +8,7 @@
  */
 
 import {
+  MAX_OMISSION_NAMES,
   SKILL_ACTIVATION_FAILURE_REASONS,
   createSkillActivationFailureItem,
   createSkillActivationItem,
@@ -164,6 +165,51 @@ describe('the selections left unattempted', () => {
         'Do not invent their instructions; tell the user they were not loaded if they rely on them.',
       ),
     );
+  });
+
+  it('lists a bounded number of names and counts the rest', () => {
+    // Nothing caps how many distinct names a message can mention, so listing
+    // every one would let the item reporting the overflow be the thing that
+    // overflows. Past the bound the remainder is a count.
+    const skills = Array.from(
+      { length: MAX_OMISSION_NAMES + 5 },
+      (_, index) => `skill-${index}`,
+    );
+
+    const item = createSkillActivationOmissionItem({ runId: RUN_ID, skills });
+
+    expect(item.data.payload).toMatchObject({
+      skills: skills.slice(0, MAX_OMISSION_NAMES),
+      beyond: 5,
+    });
+    expect(bodyOf(item)).toContain('and 5 more not listed here.');
+    expect(bodyOf(item)).not.toContain(`\`$skill-${MAX_OMISSION_NAMES}\``);
+  });
+
+  it('counts no remainder when every name fits', () => {
+    const item = createSkillActivationOmissionItem({
+      runId: RUN_ID,
+      skills: ['alpha'],
+    });
+
+    expect(item.data.payload).not.toHaveProperty('beyond');
+    expect(bodyOf(item)).not.toContain('more not listed');
+  });
+
+  it('refuses a remainder count that claims nothing was left out', () => {
+    expect(
+      isSkillActivationPayload({ kind: 'omission', skills: ['a'], beyond: 0 }),
+    ).toBe(false);
+    expect(
+      isSkillActivationPayload({
+        kind: 'omission',
+        skills: ['a'],
+        beyond: 1.5,
+      }),
+    ).toBe(false);
+    expect(
+      isSkillActivationPayload({ kind: 'omission', skills: ['a'], beyond: 2 }),
+    ).toBe(true);
   });
 
   it('refuses an empty remainder, which would announce nothing', () => {

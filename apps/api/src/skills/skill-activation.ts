@@ -25,6 +25,7 @@ import {
   createSkillActivationFailureItem,
   createSkillActivationItem,
   createSkillActivationOmissionItem,
+  MAX_OMISSION_NAMES,
   type SkillActivationFailureReason,
 } from '../chats/skill-activation-item';
 import { type PermissionDecision } from '../tools/permissions/types';
@@ -134,15 +135,26 @@ export async function activateSkills(
  *
  * Accounting for what did not load is not optional - every unattempted
  * selection is reported - so the notice cannot be the thing that overflows.
- * Reserving its worst case, every mentioned name listed, keeps the aggregate
- * bound intact while guaranteeing the report; at eight selections the reserve
- * is a few hundred bytes of 128 KiB.
+ * Its worst case is bounded by `MAX_OMISSION_NAMES` and the longest name a
+ * mention can carry, never by how many names the message contains: nothing
+ * caps distinct mentions, so reserving one line per mention would let a
+ * message of a few tens of KB drive this ceiling negative and stop everything
+ * from loading.
  */
 function instructionCeiling(input: ActivationRequest): number {
   if (input.mentions.length === 0) return MAX_SKILL_ACTIVATION_BYTES;
+  const reserved = input.mentions
+    .map((mention) => mention.name)
+    .sort((left, right) => right.length - left.length)
+    .slice(0, MAX_OMISSION_NAMES);
   const worstCase = createSkillActivationOmissionItem({
     runId: input.runId,
-    skills: input.mentions.map((mention) => mention.name),
+    // One more than the bound, so the reserve also covers the sentence that
+    // reports the remainder as a count.
+    skills: [
+      ...reserved,
+      ...(input.mentions.length > reserved.length ? ['x'] : []),
+    ],
   });
   return MAX_SKILL_ACTIVATION_BYTES - measureNativeModelOutput(worstCase);
 }

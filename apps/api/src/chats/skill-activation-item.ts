@@ -16,7 +16,11 @@
  */
 
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
-import { isString, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isNumber,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 
 import {
   createRenderedContextItem,
@@ -66,6 +70,8 @@ export interface SkillActivationFailurePayload extends UnknownRecord {
 export interface SkillActivationOmissionPayload extends UnknownRecord {
   readonly kind: 'omission';
   readonly skills: ReadonlyArray<string>;
+  /** Names past the list bound, reported as a count rather than listed. */
+  readonly beyond?: number;
 }
 
 type SkillActivationItemPayload =
@@ -97,15 +103,29 @@ export function isSkillActivationPayload(
         isFailureReason(value['reason'])
       );
     case 'omission':
-      return (
-        isExactRecord(value, ['kind', 'skills']) &&
-        Array.isArray(value['skills']) &&
-        value['skills'].length > 0 &&
-        value['skills'].every(isNonEmptyString)
-      );
+      return isOmissionPayload(value);
     default:
       return false;
   }
+}
+
+function isOmissionPayload(value: UnknownRecord): boolean {
+  const hasBeyond = 'beyond' in value;
+  return (
+    isExactRecord(
+      value,
+      hasBeyond ? ['kind', 'skills', 'beyond'] : ['kind', 'skills'],
+    ) &&
+    Array.isArray(value['skills']) &&
+    value['skills'].length > 0 &&
+    value['skills'].every(isNonEmptyString) &&
+    // Present only when names were left out, and then it counts at least one:
+    // a zero would claim a remainder that does not exist.
+    (!hasBeyond ||
+      (isNumber(value['beyond']) &&
+        Number.isInteger(value['beyond']) &&
+        value['beyond'] > 0))
+  );
 }
 
 function isRecordWithKind(value: unknown): value is UnknownRecord {
@@ -193,32 +213,44 @@ export function createSkillActivationFailureItem(input: {
   });
 }
 
+/** How many names one notice lists before it reports the rest as a count. */
+export const MAX_OMISSION_NAMES = 32;
+
 /**
  * ONE item covering every selection the count, output, or time budget left
  * unattempted. A per-selection item would multiply the very cost the bound
  * exists to cap, and the unattempted names are all one fact: the remainder.
+ *
+ * The list itself is bounded. Nothing caps how many distinct names a message
+ * can mention, so listing all of them would let the item reporting the
+ * overflow be the thing that overflows: past `MAX_OMISSION_NAMES` the rest is
+ * reported as a count, which keeps the notice a fixed size.
  */
 export function createSkillActivationOmissionItem(input: {
   readonly runId: string;
   readonly skills: ReadonlyArray<string>;
 }): AuthoredContextItemPart {
+  const listedNames = input.skills.slice(0, MAX_OMISSION_NAMES);
+  const beyond = input.skills.length - listedNames.length;
   const payload: SkillActivationOmissionPayload = {
     kind: 'omission',
-    skills: [...input.skills],
+    skills: listedNames,
+    ...(beyond > 0 && { beyond }),
   };
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the non-empty invariant this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isSkillActivationPayload(payload)) {
     throw new TypeError('Invalid server-authored skill activation metadata');
   }
-  const listed = payload.skills.map((skill) => `\`$${skill}\``).join(', ');
-  const noun = payload.skills.length === 1 ? 'skill' : 'skills';
+  const listed = listedNames.map((skill) => `\`$${skill}\``).join(', ');
+  const noun = input.skills.length === 1 ? 'skill' : 'skills';
+  const rest = beyond > 0 ? ` and ${beyond} more not listed here` : '';
   return createRenderedContextItem({
     producer: 'skill-activation',
     form: 'notice',
     runId: input.runId,
     payload,
     body: [
-      `The user named more ${noun} than one turn can load, so these were not loaded: ${listed}.`,
+      `The user named more ${noun} than one turn can load, so these were not loaded: ${listed}${rest}.`,
       'Do not invent their instructions; tell the user they were not loaded if they rely on them.',
     ].join('\n'),
   });
