@@ -82,14 +82,18 @@ embeddings-backed search. `pnpm db:up` provides both. **Breaking** for
 self-hosters on their own Postgres: switch to a pgvector-capable image before
 upgrading, or the extension migration fails.
 
-`models[]` entries can set `systemPromptFile` to a prompt file; omitting it uses
-the packaged default. Relative paths resolve from the active config file,
-invalid overrides fail startup without fallback,
-and prompt contents must be safe for the chat owner to inspect. Each Run binds
-an immutable receipt of the effective prompt and advertised tools. The owner UI
-shows model switches and loads the receipt on demand; host file paths never
-enter the model catalog or receipt. Authoring:
-[apps/api/AGENTS.md](apps/api/AGENTS.md).
+`models[]` entries can set `systemPromptFile` to a prompt file, and llame-owned
+tool descriptions are replaceable through `tools.promptFiles` and
+`models[].toolPromptFiles`; omitting either uses the packaged default. Relative
+paths resolve from the active config file, invalid overrides fail startup
+without fallback, and prompt contents must be safe for the chat owner to
+inspect. Each attempt that reaches prompt preparation binds an immutable
+system-prompt-only receipt; tool declarations and rendered descriptions stay in
+worker memory, so a receipt is not a record of the descriptions the model was
+shown. The owner UI shows model switches and loads the receipt on demand; host
+file paths never enter the model catalog or receipt. Authoring:
+[apps/api/AGENTS.md](apps/api/AGENTS.md), operator runbook:
+[docs/tool-prompts.md](docs/tool-prompts.md).
 
 `shareRecentChats` defaults off. Enabling sends a frozen, capped digest of the
 owner's other chats' titles and opening excerpts to the configured provider;
@@ -123,6 +127,8 @@ read-only. See [docs/mcp-tools.md](docs/mcp-tools.md).
 - [AGENTS.md](AGENTS.md): repository workflow and engineering rules
 - [docs/knowledge.md](docs/knowledge.md): personal Knowledge operator runbook
 - [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook
+- [docs/tool-prompts.md](docs/tool-prompts.md): tool description template
+  operator runbook
 - [docs/codex-subscription.md](docs/codex-subscription.md): ChatGPT/Codex
   subscription operator runbook
 - [docs/research/harnesses/index.md](docs/research/harnesses/index.md):

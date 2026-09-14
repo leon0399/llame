@@ -66,6 +66,10 @@
       "provider": "openai",
       "providerModelId": "gpt-5.6-sol",
       // "systemPromptFile": "./prompts/gpt-5.6-sol.md",
+      // Optional whole-file replacement for one llame-owned tool description
+      // on this model, keyed by tool id. Wins over tools.promptFiles below;
+      // see docs/tool-prompts.md.
+      // "toolPromptFiles": { "bash": "./prompts/gpt-5.6-sol-bash.md" },
       "name": "GPT-5.6 Sol",
       "description": "Flagship frontier reasoning model for complex agentic and scientific tasks.",
       "contextWindowTokens": 1050000,
@@ -277,6 +281,14 @@
     // coverage a startup gate. Add conversation_read independently for exact
     // line reads; see docs/conversation-recall.md.
     "allowed": ["search_conversations"],
+    // Optional whole-file replacements for llame-owned tool descriptions,
+    // keyed by registered tool id (bash, conversation_read, edit,
+    // knowledge_search, read, search_conversations, write); MCP ids are
+    // rejected. A models[].toolPromptFiles entry above wins over this one,
+    // which wins over the packaged default. Paths are literal, resolve against
+    // this file, and are read when an execution process starts — editing one
+    // needs a restart. See docs/tool-prompts.md.
+    // "promptFiles": { "search_conversations": "./prompts/search.md" },
     // Allow/reject rules per exact tool id. There is NO built-in policy:
     // omitting this property rejects every call. This block is the recommended
     // portable map — the seven code-owned tools, each with a whole-tool allow
