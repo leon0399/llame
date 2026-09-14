@@ -73,16 +73,20 @@ The gate is a delta, not a level: a run fails when a source file it measured
 gains undetected mutants (survived or uncovered) against the baseline, so
 editing one line of a legacy file does not fail a pull request for pre-existing
 debt. Files with no baseline entry — new sources — have no allowance. Without a
-usable baseline a scoped run reports its score and gates nothing; the plan
-expands such a workspace to the complete set instead, which enforces 80% MSI.
+usable baseline a workspace expands to the complete set instead, because a
+subset cannot be measured against anything: a pull request is then gated at 80%
+MSI, while master and the weekly sweep report that level rather than failing a
+commit that has already landed.
 
-The baseline is the merged index of the last complete API sweep
-(`apps/api/reports/mutation-baseline.json`), or a package's own incremental
-report. Both are cache-restored, and their key covers fixtures, excluded inputs
-and transitive workspace dependencies, so an environment change discards them:
-that is what makes a missing baseline mean "measure everything". Baselines are
-refreshed only after a passing gate, and a scoped run refreshes only the files
-it measured.
+The API baseline is a merged index (`apps/api/reports/mutation-baseline.json`)
+that every passing run folds its own shard reports into: counts come from the
+latest measurement of a file, while coverage entries accumulate, because a
+scoped dry run collects only the tests related to its own files. A package
+baseline is its own incremental report. Both are cache-restored, and their key
+covers fixtures, excluded inputs and transitive workspace dependencies, so an
+environment change discards them: that is what makes a missing baseline mean
+"measure everything". A run folds its reports in only after the gate passes, so
+a regression never becomes the next run's allowance.
 
 CI partitions the selected API files into shards balanced on the measured mutant
 count of each file, not on file names. Pull requests gate their own diff, master

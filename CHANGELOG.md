@@ -15,9 +15,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   workspace, where the 80% level gate still applies. Master pushes gate the
   merge that landed, and the weekly sweep retests every mutant and reports the
   global score as a trend rather than failing on it: `thresholds.break` is now
-  null in both package configs, with the complete-run level gate applied
-  explicitly where one is intended. API shards are assigned by measured mutant
-  count instead of a filename hash, and the API baseline is a merged index at
+  null in both package configs, and the complete-run level gate is a
+  pull-request fallback for a diff that has no baseline to be measured against,
+  never a red master. API shards are assigned by measured mutant count instead
+  of a filename hash, and the API baseline is a merged index at
   `apps/api/reports/mutation-baseline.json`, cache-restored by the plan and the
   gate and refreshed only after a passing run. `pnpm test:mutation:check` is
   renamed `pnpm test:mutation:report`, which reports without gating.

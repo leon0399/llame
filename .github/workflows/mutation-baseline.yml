@@ -171,6 +171,10 @@ jobs:
           --incremental --force
           --reporters clear-text,html,json,progress-append-only
 
+      - name: Report the mutation score
+        if: success()
+        run: node scripts/mutation-sharding.mjs aggregate "packages/${{ matrix.package }}/reports/mutation/mutation.json"
+
       - name: Save rebuilt mutation baseline
         if: success()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

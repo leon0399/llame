@@ -251,9 +251,9 @@ jobs:
         if: needs.mutation-plan.outputs.api_count != '0'
 
       # The gate compares this run against the baseline the plan measured the
-      # diff with, so a scoped run is judged as a delta and a complete run as a
-      # level. A complete run restores nothing: no baseline is what made it
-      # complete, and the refresh below writes the one the next run reads.
+      # diff with: a scoped run is judged as a delta, a complete run as a level.
+      # A complete run restores nothing — no baseline is what made it complete —
+      # and the refresh below writes the one the next run reads.
       - uses: ./.github/actions/stryker-baseline
         id: baseline
         if: needs.mutation-plan.outputs.api_count != '0'
@@ -273,13 +273,18 @@ jobs:
         env:
           EXPECTED_SHARDS: ${{ needs.mutation-plan.outputs.api_count }}
           MUTATION_MODE: ${{ needs.mutation-plan.outputs.api_mode }}
+          # Without a baseline there is no delta, so a complete run falls back
+          # to the corpus level — on a pull request only. On master that level
+          # would red-line a commit nobody can fix before it lands; erosion on
+          # master is the weekly sweep's trend to surface instead.
+          MUTATION_THRESHOLD: ${{ github.event_name == 'pull_request' && needs.mutation-plan.outputs.api_mode == 'full' && '80' || '' }}
         working-directory: apps/api
         run: |
           arguments=(--expected-shards "$EXPECTED_SHARDS" reports/mutation-shards/*/mutation.json)
-          if [[ "$MUTATION_MODE" == full ]]; then
-            arguments=(--threshold 80 "${arguments[@]}")
-          else
+          if [[ "$MUTATION_MODE" != full ]]; then
             arguments=(--baseline reports/mutation-baseline.json "${arguments[@]}")
+          elif [[ -n "$MUTATION_THRESHOLD" ]]; then
+            arguments=(--threshold "$MUTATION_THRESHOLD" "${arguments[@]}")
           fi
           pnpm test:mutation:aggregate -- "${arguments[@]}"
 
@@ -341,8 +346,13 @@ jobs:
           else
             pnpm --filter "@workspace/$MUTATION_PACKAGE" test:mutation --incremental --reporters clear-text,html,json,progress-append-only
             # The package's own thresholds.break is null, so a complete run is
-            # gated here, the same way the API's complete run is.
-            node scripts/mutation-sharding.mjs aggregate --threshold 80 "packages/$MUTATION_PACKAGE/reports/mutation/mutation.json"
+            # measured here: gated at 80 on a pull request, reported on master
+            # like the API's complete run.
+            arguments=("packages/$MUTATION_PACKAGE/reports/mutation/mutation.json")
+            if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+              arguments=(--threshold 80 "${arguments[@]}")
+            fi
+            node scripts/mutation-sharding.mjs aggregate "${arguments[@]}"
           fi
 
       - name: Save refreshed mutation baseline
