@@ -3,7 +3,7 @@
 #   typecheck ------> API unit + integration ----+
 #   typecheck + unit -> build --------------------+-> browser-e2e
 #   typecheck + unit -> component (Storybook)
-#   typecheck + unit + mutation-plan -> mutation
+#   typecheck + unit -> mutation
 #
 # One job per concern, so a red X names what broke instead of hiding inside a
 # grab-bag. Cheap gates run first and unconditionally; each expensive layer
@@ -36,66 +36,6 @@ env:
   TURBO_TELEMETRY_DISABLED: "1"
 
 jobs:
-  mutation-plan:
-    name: Mutation scope
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      api_count: ${{ steps.scope.outputs.api_count }}
-      api_matrix: ${{ steps.scope.outputs.api_matrix }}
-      packages: ${{ steps.scope.outputs.packages }}
-      baseline_artifact: ${{ steps.baselines.outputs.artifact-id }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - uses: ./.github/actions/setup
-
-      # Freeze the indexes used for selection. Gate jobs consume this exact
-      # snapshot rather than a newer cache entry restored after execution.
-      - uses: ./.github/actions/stryker-baseline
-        with:
-          workspace: apps/api
-          cache-file: reports/mutation-baseline.json
-          cache-suffix: api-baseline
-
-      - uses: ./.github/actions/stryker-baseline
-        with:
-          workspace: packages/config-interpolation
-          cache-file: reports/mutation-baseline.json
-          cache-suffix: config-interpolation-baseline
-
-      - uses: ./.github/actions/stryker-baseline
-        with:
-          workspace: packages/runtime-safety
-          cache-file: reports/mutation-baseline.json
-          cache-suffix: runtime-safety-baseline
-
-      - id: scope
-        env:
-          # PRs use their base; trusted pushes resume each workspace from the
-          # last measured revision so cancelled runs cannot leave coverage gaps.
-          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          arguments=(--base "$MUTATION_BASE")
-          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
-            arguments+=(--from-baseline)
-          fi
-          node scripts/mutation-sharding.mjs plan "${arguments[@]}"
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        id: baselines
-        with:
-          name: mutation-baseline-input
-          path: |
-            apps/api/reports/mutation-baseline.json
-            packages/config-interpolation/reports/mutation-baseline.json
-            packages/runtime-safety/reports/mutation-baseline.json
-          retention-days: 1
-          if-no-files-found: ignore
-
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
@@ -182,19 +122,28 @@ jobs:
       # CRAP from the fresh Istanbul report.
       - run: pnpm --filter api test:coverage
 
-  mutation-api-shard:
-    name: Mutation testing (API shard ${{ matrix.shard }})
+  # Mutate the lines this diff changed and require them to be detected. No
+  # stored index, no baseline restore, no environment fingerprint: the scope is
+  # computed from the diff against the pull request's own tree, so it cannot go
+  # stale and cannot refuse for want of a prior measurement. `coverageAnalysis:
+  # perTest` already runs only the tests covering each mutant, which is what
+  # kept the sharded full-corpus run affordable. See
+  # docs/mutation-gate-redesign.md.
+  mutation:
+    name: Mutation testing (${{ matrix.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    needs: [typecheck, unit, mutation-plan]
-    if: needs.mutation-plan.outputs.api_count != '0'
+    timeout-minutes: 45
+    needs: [typecheck, unit]
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.mutation-plan.outputs.api_matrix) }}
-    concurrency:
-      group: ${{ github.event_name == 'pull_request' && format('mutation-pr-{0}-api-{1}', github.event.pull_request.number, matrix.shard) || format('mutation-trusted-api-{0}', matrix.shard) }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+        include:
+          - name: API
+            workspace: apps/api
+          - name: config-interpolation
+            workspace: packages/config-interpolation
+          - name: runtime-safety
+            workspace: packages/runtime-safety
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -204,181 +153,23 @@ jobs:
       - uses: ./.github/actions/setup
 
       - env:
-          MUTATION_SHARD: ${{ matrix.shard }}
-          MUTATION_FILES: ${{ join(matrix.files, ',') }}
+          MUTATION_WORKSPACE: ${{ matrix.workspace }}
+          # A pull request measures against its base. A trusted push measures
+          # against the commit it advanced from, so a merge is scored on the
+          # lines it introduced rather than re-scoring master.
+          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          pnpm --filter api test:mutation:shard -- \
-            --shard "$MUTATION_SHARD" --mutate "$MUTATION_FILES" \
-            --reporters "clear-text,html,json,progress-append-only"
+          node scripts/mutation-changed-lines.mjs run \
+            --workspace "$MUTATION_WORKSPACE" --base "$MUTATION_BASE"
 
       - name: Upload mutation report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: mutation-report-api-${{ matrix.index }}
-          path: apps/api/reports/mutation/
+          name: mutation-report-${{ matrix.name }}
+          path: ${{ matrix.workspace }}/reports/mutation/
           retention-days: 14
-          if-no-files-found: error
-
-  mutation-api:
-    name: Mutation testing (API)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [mutation-api-shard, mutation-plan]
-    if: always() && !cancelled()
-    concurrency:
-      group: ${{ github.event_name == 'pull_request' && format('mutation-pr-{0}-api-baseline', github.event.pull_request.number) || 'mutation-trusted-api-baseline' }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    steps:
-      - name: Require successful mutation execution
-        env:
-          PLAN_RESULT: ${{ needs.mutation-plan.result }}
-          SHARD_RESULT: ${{ needs.mutation-api-shard.result }}
-          EXPECTED_SHARDS: ${{ needs.mutation-plan.outputs.api_count }}
-        run: |
-          [[ "$PLAN_RESULT" == success ]] || exit 1
-          if [[ "$EXPECTED_SHARDS" == 0 ]]; then
-            echo "No API mutation inputs changed."
-          else
-            [[ "$SHARD_RESULT" == success ]] || exit 1
-          fi
-
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        if: needs.mutation-plan.outputs.api_count != '0'
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - uses: ./.github/actions/setup
-        if: needs.mutation-plan.outputs.api_count != '0'
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        if: needs.mutation-plan.outputs.api_count != '0' && needs.mutation-plan.outputs.baseline_artifact != ''
-        with:
-          name: mutation-baseline-input
-          path: .
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        if: needs.mutation-plan.outputs.api_count != '0'
-        with:
-          pattern: mutation-report-api-*
-          path: apps/api/reports/mutation-shards
-
-      - name: Gate the mutation result
-        if: needs.mutation-plan.outputs.api_count != '0'
-        env:
-          EXPECTED_SHARDS: ${{ needs.mutation-plan.outputs.api_count }}
-        working-directory: apps/api
-        run: |
-          pnpm test:mutation:aggregate -- \
-            --baseline reports/mutation-baseline.json \
-            --expected-shards "$EXPECTED_SHARDS" reports/mutation-shards/*/mutation.json
-
-      # Serialize the latest trusted restore/fold/save. The delta above uses
-      # the plan's snapshot; the fold preserves other completed measurements.
-      - uses: ./.github/actions/stryker-baseline
-        id: baseline
-        if: success() && needs.mutation-plan.outputs.api_count != '0' && github.event_name != 'pull_request'
-        with:
-          workspace: apps/api
-          cache-file: reports/mutation-baseline.json
-          cache-suffix: api-baseline
-
-      # A trusted run refreshes the baseline; a pull request never does, or its
-      # next push would be measured against its own results instead of master's.
-      - name: Refresh the mutation baseline
-        if: success() && needs.mutation-plan.outputs.api_count != '0' && github.event_name != 'pull_request'
-        working-directory: apps/api
-        run: |
-          node ../../scripts/mutation-sharding.mjs baseline \
-            --previous reports/mutation-baseline.json \
-            --output reports/mutation-baseline.json \
-            reports/mutation-shards/*/mutation.json
-
-      - name: Save refreshed mutation baseline
-        if: success() && needs.mutation-plan.outputs.api_count != '0' && github.event_name != 'pull_request'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: apps/api/reports/mutation-baseline.json
-          key: ${{ steps.baseline.outputs.prefix }}${{ steps.baseline.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-
-  mutation-packages:
-    name: Mutation testing (${{ matrix.package }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    needs: [typecheck, unit, mutation-plan]
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.mutation-plan.outputs.packages) }}
-    concurrency:
-      group: ${{ github.event_name == 'pull_request' && format('mutation-pr-{0}-{1}', github.event.pull_request.number, matrix.package) || format('mutation-trusted-{0}', matrix.package) }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        if: matrix.mode != 'skip'
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - uses: ./.github/actions/setup
-        if: matrix.mode != 'skip'
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        if: matrix.mode != 'skip' && needs.mutation-plan.outputs.baseline_artifact != ''
-        with:
-          name: mutation-baseline-input
-          path: .
-
-      - if: matrix.mode != 'skip'
-        env:
-          MUTATION_PACKAGE: ${{ matrix.package }}
-          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          arguments=(--workspace "packages/$MUTATION_PACKAGE" --base "$MUTATION_BASE" --expectedMode scoped)
-          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
-            arguments+=(--from-baseline)
-          fi
-          node scripts/mutation-sharding.mjs changed "${arguments[@]}"
-
-      - uses: ./.github/actions/stryker-baseline
-        id: baseline
-        if: success() && matrix.mode != 'skip' && github.event_name != 'pull_request'
-        with:
-          workspace: packages/${{ matrix.package }}
-          cache-file: reports/mutation-baseline.json
-          cache-suffix: ${{ matrix.package }}-baseline
-
-      # Only a trusted run refreshes the baseline: a pull request that saved its
-      # own results would be measured against itself on its next push.
-      - name: Refresh the mutation baseline
-        if: success() && matrix.mode != 'skip' && github.event_name != 'pull_request'
-        env:
-          MUTATION_PACKAGE: ${{ matrix.package }}
-        run: |
-          node scripts/mutation-sharding.mjs baseline \
-            --previous "packages/$MUTATION_PACKAGE/reports/mutation-baseline.json" \
-            --output "packages/$MUTATION_PACKAGE/reports/mutation-baseline.json" \
-            "packages/$MUTATION_PACKAGE/reports/mutation/mutation.json"
-
-      - name: Save refreshed mutation baseline
-        if: success() && matrix.mode != 'skip' && github.event_name != 'pull_request'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: packages/${{ matrix.package }}/reports/mutation-baseline.json
-          key: ${{ steps.baseline.outputs.prefix }}${{ steps.baseline.outputs.trust }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-
-      - name: Upload mutation report
-        if: always() && matrix.mode != 'skip'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: mutation-report-${{ matrix.package }}
-          path: packages/${{ matrix.package }}/reports/mutation/
-          retention-days: 14
-          if-no-files-found: warn
-
-      - if: matrix.mode == 'skip'
-        run: echo "No mutation inputs changed for this package."
+          if-no-files-found: ignore
 
   component:
     name: Component tests (Storybook)

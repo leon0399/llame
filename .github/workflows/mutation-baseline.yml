@@ -4,7 +4,7 @@
 # The index is refreshed unless a newer master measurement has already landed;
 # the summary logs when it retains that newer revision. Slow erosion surfaces
 # here as a cleanup task rather than a PR gate failure. Pull requests are gated
-# by `ci.yml` against the delta of their own diff.
+# by `ci.yml` over the lines their own diff changed.
 
 name: Mutation baseline refresh
 

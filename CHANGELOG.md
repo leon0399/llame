@@ -2,6 +2,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-14
 
+- Replace the per-file mutation delta with a changed-line gate. A pull request
+  now mutates the lines its diff changed, through Stryker's own mutation
+  ranges, and 80% of the mutants on them must be detected. A delta needs a
+  stored index, the index needs a cache key, and the key needs an environment
+  fingerprint that only a trusted run can write — so a pull request whose tree
+  differed from the measured revision could not restore a baseline and failed
+  before any mutant ran. That chain blocked seven pull requests in one day, each
+  on a different file kind: a fixture, a migration, a generated artifact, a
+  prompt document, a root lint config. The new scope is computed from the pull
+  request's own tree, so it cannot go stale, cannot refuse for want of a prior
+  measurement, and needs no exemption list: a diff with no mutable line runs
+  nothing. Untouched legacy debt is never measured. The trade is explicit —
+  coverage removed without changing a source line is caught by the weekly
+  sweep, not the gate. Retires the delta gate, the baseline restore/fold/save
+  on pull requests, the environment fingerprint and the eight-way pull-request
+  sharding, and removes the need for an operator bypass label.
+
 - Scope mutation testing to changed sources and sources covered by changed
   tests, and gate per-file growth in survived or uncovered mutants (#830).
   Dependency-package test edits no longer trigger a full API sweep or invalidate
