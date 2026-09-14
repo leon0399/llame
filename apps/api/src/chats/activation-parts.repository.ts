@@ -130,13 +130,24 @@ export class ActivationPartsRepository {
       resolvedNames(fresh),
     );
 
+    // The rewrite can produce the very item this batch was about to insert: a
+    // stored remainder of `a, b` whose `a` just resolved becomes the notice for
+    // `b`, and the retry that resolved `a` emits that same notice. Identities
+    // are recomputed against the rewritten rail, so the pair collapses to one
+    // instead of accumulating a duplicate on every attempt.
+    const carried = storedIdentities(rewritten, input.runId);
+    const insert = fresh.filter(
+      (item) => !carried.has(activationIdentity(item)),
+    );
+    if (insert.length === 0 && rewritten === parts) return { applied: false };
+
     const index = railInsertionIndex(rewritten);
     const [updated] = await this.db
       .update(messages)
       .set({
         parts: [
           ...rewritten.slice(0, index),
-          ...fresh,
+          ...insert,
           ...rewritten.slice(index),
         ],
       })
@@ -217,6 +228,10 @@ function resolvedNames(
 /**
  * Remove just-resolved names from this Run's omission items, dropping an item
  * once it names nothing.
+ *
+ * Returns the original array when no item changed, so the caller can tell a
+ * rewrite from a no-op and skip a write that would store what is already
+ * there.
  */
 function dropResolvedFromOmissions(
   parts: ReadonlyArray<unknown>,
@@ -224,7 +239,7 @@ function dropResolvedFromOmissions(
   resolved: ReadonlySet<string>,
 ): ReadonlyArray<unknown> {
   if (resolved.size === 0) return parts;
-  return parts.flatMap((part) => {
+  const rewritten = parts.flatMap((part) => {
     if (!isContextItemPart(part)) return [part];
     if (part.data.producer !== ACTIVATION_PRODUCER) return [part];
     if (part.data.runId !== runId) return [part];
@@ -238,6 +253,10 @@ function dropResolvedFromOmissions(
     if (remaining.length === 0) return [];
     return [createSkillActivationOmissionItem({ runId, skills: remaining })];
   });
+  const unchanged =
+    rewritten.length === parts.length &&
+    rewritten.every((part, index) => part === parts[index]);
+  return unchanged ? parts : rewritten;
 }
 
 /** The identities this Run's activation items already carry. */
