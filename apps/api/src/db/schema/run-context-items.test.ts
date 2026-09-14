@@ -35,7 +35,6 @@ describe('per-run context-item record', () => {
       messageId: 'message-1',
       userId: 'user-1',
       modelId: 'system:openai:gpt-5.4-mini',
-      modelContextSnapshotId: null,
       activeAttemptId: null,
       completedAttemptId: null,
       turnToolAvailability: null,

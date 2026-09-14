@@ -33,7 +33,7 @@ import {
   canonicalJson,
   resolveEffectiveContext,
 } from '../runs/effective-context-resolver';
-import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { resolveBoundExecutableTools } from '../runs/snapshot-tool-execution';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { RunExecutionService } from '../runs/run-execution.service';
@@ -599,7 +599,7 @@ describe('operator-configured MCP production acceptance', () => {
         systemPromptSource: 'project_default',
         referencesSkills: false,
       };
-      const context = await resolveEffectiveContext({
+      const receiptInput = await resolveEffectiveContext({
         model,
         systemPrompt: model.systemPromptTemplate,
         allowedToolRules: ['mcp__web__*'],
@@ -607,8 +607,15 @@ describe('operator-configured MCP production acceptance', () => {
         candidates: [],
         dynamicCandidates: api.runtime.snapshotCandidates(),
       });
-      expect(context.toolDeclarations.map(({ id }) => id)).toEqual([TOOL_ID]);
-      expect(canonicalJson(context)).not.toContain('mcp__web__*');
+      expect(
+        apiCatalog.admitted.map(({ declaration }) => declaration.id),
+      ).toEqual([TOOL_ID]);
+      expect(receiptInput).toMatchObject({
+        source: 'project_default',
+        systemPrompt: model.systemPromptTemplate,
+      });
+      expect(receiptInput.promptHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(canonicalJson(receiptInput)).not.toContain('mcp__web__*');
       chatId = crypto.randomUUID();
       const userMessageParts: Array<TextPart> = [
         { type: 'text', text: 'Find the fixture evidence.' },
@@ -704,7 +711,7 @@ describe('operator-configured MCP production acceptance', () => {
         async (tx) => [
           await new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
           await new MessagesRepository(tx).findByChatId(chatId!, userId),
-          await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+          await new SystemPromptReceiptsRepository(tx).findByOwnedRun(
             seeded.run.id,
             userId,
           ),

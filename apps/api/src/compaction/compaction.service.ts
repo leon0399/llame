@@ -32,7 +32,7 @@ import {
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
 import { type Message, type ModelToolDeclaration } from '../db/schema';
 import { isRecord } from '@workspace/runtime-safety';
-import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import {
   MemoryService,
@@ -342,7 +342,7 @@ export class CompactionService {
         'No completed assistant prefix is available for transition compaction.',
       );
     }
-    if (!state.sourceRun || !state.sourceSnapshot) {
+    if (!state.sourceRun || !state.sourceReceipt) {
       throw new TransitionCompactionError(
         'No owned source run context is available for transition compaction.',
       );
@@ -365,7 +365,7 @@ export class CompactionService {
     }
 
     const request = buildCompactionRequest({
-      system: state.sourceSnapshot.systemPrompt,
+      system: state.sourceReceipt.systemPrompt,
       previous: state.previous
         ? {
             summary: state.previous.summary,
@@ -380,7 +380,7 @@ export class CompactionService {
       !requestFitsContextWindow({
         system: request.system,
         messages: request.messages,
-        toolDeclarations: state.sourceSnapshot.toolDeclarations,
+        toolDeclarations: [],
         contextWindowTokens: sourceClient.contextWindowTokens,
         reservedOutputTokens: input.reservedOutputTokens,
       })
@@ -396,7 +396,7 @@ export class CompactionService {
         client: sourceClient,
         system: request.system,
         messages: request.messages,
-        toolDeclarations: state.sourceSnapshot.toolDeclarations,
+        toolDeclarations: [],
         // Read off the source run this method already loaded, so passing the
         // incoming turn's effort by mistake is not expressible here.
         ...(sourceEffort !== undefined && { effort: sourceEffort }),
@@ -445,9 +445,9 @@ export class CompactionService {
     });
   }
 
-  /** Read phase of `compactForTransition`: the plan plus the source run whose
-   * prompt prefix and model it will reuse — gathered in one transaction so
-   * the plan and its source snapshot describe the same instant. */
+  /** Read phase of `compactForTransition`: the plan plus the successful
+   * source run and its winning attempt receipt, gathered in one transaction so
+   * the plan and source context describe the same instant. */
   private async loadTransitionState(input: {
     chatId: string;
     userId: string;
@@ -474,17 +474,24 @@ export class CompactionService {
       );
       const sourceRun = await new RunsRepository(
         tx,
-      ).findMostRecentByChatMessageSequence(input.chatId, input.userId, {
-        beforeSeq: input.triggeringUserSeq,
-      });
-      const sourceSnapshot = sourceRun
-        ? await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
-            sourceRun.id,
-            input.userId,
-          )
-        : undefined;
+      ).findMostRecentCompletedByChatMessageSequence(
+        input.chatId,
+        input.userId,
+        {
+          beforeSeq: input.triggeringUserSeq,
+        },
+      );
+      const sourceReceipt =
+        sourceRun?.completedAttemptId !== null &&
+        sourceRun?.completedAttemptId !== undefined
+          ? await new SystemPromptReceiptsRepository(tx).findByAttempt(
+              sourceRun.id,
+              sourceRun.completedAttemptId,
+              input.userId,
+            )
+          : undefined;
 
-      return { previous, plan, sourceRun, sourceSnapshot };
+      return { previous, plan, sourceRun, sourceReceipt };
     });
   }
 

@@ -36,6 +36,7 @@ import {
   type Compaction,
   type ModelToolDeclaration,
   type Run,
+  type TurnToolAvailabilityEntry,
 } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type ModelSelectionValidator } from '../models/models.service';
@@ -49,7 +50,7 @@ import { RunExecutionService } from '../runs/run-execution.service';
 import { type RunJob } from '../runs/run-queues';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { type DynamicToolExecutorResolver } from '../runs/snapshot-tool-execution';
 import { ChatLoopService } from './chat-loop.service';
 import { MemoryService } from '../memory/memory.service';
@@ -74,13 +75,11 @@ import {
 } from './chats-repository';
 import {
   canonicalJson,
-  type EffectiveContextSnapshotInput,
+  type ResolvedAttemptContext,
 } from '../runs/effective-context-resolver';
 import * as effectiveContextResolver from '../runs/effective-context-resolver';
 import { hashWithDomain } from '../canonical-json';
 import {
-  hashToolAvailabilityManifest,
-  TOOL_AVAILABILITY_UNOBSERVED,
   type ToolAvailabilityManifestV1,
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
@@ -204,8 +203,8 @@ describeIfDb(
 
     function availabilityContext(
       states: ReadonlyArray<AvailabilityState>,
-      key: string,
-    ): EffectiveContextSnapshotInput {
+    ): ResolvedAttemptContext {
+      const prompt = 'Availability integration prompt';
       const toolDeclarations: Array<ModelToolDeclaration> = states.flatMap(
         (state) =>
           state.state === 'available'
@@ -222,7 +221,7 @@ describeIfDb(
               ]
             : [],
       );
-      const manifest: ToolAvailabilityManifestV1 = {
+      const toolAvailabilityManifest: ToolAvailabilityManifestV1 = {
         version: 1,
         entries: states.map((state) => {
           if (state.state === 'unavailable') return state;
@@ -239,22 +238,11 @@ describeIfDb(
           };
         }),
       };
-      const prompt = `Availability integration prompt ${key}`;
-      const canonicalTools = canonicalJson(toolDeclarations);
       return {
-        availabilityHash: hashToolAvailabilityManifest(manifest),
         promptHash: hashWithDomain('llame:model-context:prompt:v1', prompt),
-        toolHash: hashWithDomain(
-          'llame:model-context:tools:v1',
-          canonicalTools,
-        ),
-        contentHash: hashWithDomain(
-          'llame:model-context:content:v1',
-          canonicalJson({ systemPrompt: prompt, toolDeclarations }),
-        ),
         source: 'project_default',
         systemPrompt: prompt,
-        toolAvailabilityManifest: manifest,
+        toolAvailabilityManifest,
         toolDeclarations,
       };
     }
@@ -288,7 +276,7 @@ describeIfDb(
     const persistWithContext = async (
       chatId: string,
       text: string,
-      effectiveContext: EffectiveContextSnapshotInput,
+      effectiveContext: ResolvedAttemptContext,
       modelId = 'system:openai:gpt-5.4-mini',
     ): Promise<PersistResult> => {
       // The API only persists the sanitized user message. Resolve the supplied
@@ -330,9 +318,17 @@ describeIfDb(
     const finish = (
       runId: string,
       status: 'completed' | 'failed' | 'cancelled' | 'expired' = 'completed',
+      turnToolAvailability?: Array<TurnToolAvailabilityEntry>,
     ) =>
       tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).markFinished(runId, userId, status),
+        new RunsRepository(tx).markFinished(
+          runId,
+          userId,
+          status,
+          turnToolAvailability === undefined
+            ? undefined
+            : { turnToolAvailability },
+        ),
       );
 
     beforeAll(async () => {
@@ -552,7 +548,7 @@ describeIfDb(
       expect(source.id).toBeDefined();
     });
 
-    it('freezes one baseline and reuses its snapshot on the second run', async () => {
+    it('freezes one baseline and records a receipt on each later run', async () => {
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
       });
@@ -580,17 +576,14 @@ describeIfDb(
 
       expect(runs).toHaveLength(2);
       expect(runs[0].id).toBe(firstRun.id);
-      expect(runs[1].modelContextSnapshotId).toBe(
-        runs[0].modelContextSnapshotId,
-      );
-      const secondSnapshot = await tenantDb.runAs(userId, (tx) =>
-        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+      const secondReceipts = await tenantDb.runAs(userId, (tx) =>
+        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           runs[1].id,
           userId,
         ),
       );
-      expect(secondSnapshot?.systemPrompt).not.toContain('Later source');
-      expect(secondSnapshot?.systemPrompt).not.toContain('must stay absent');
+      expect(secondReceipts[0]?.systemPrompt).not.toContain('Later source');
+      expect(secondReceipts[0]?.systemPrompt).not.toContain('must stay absent');
     });
 
     it('renders the packaged digest into the receipt and retains a bound baseline after withdrawal', async () => {
@@ -608,12 +601,13 @@ describeIfDb(
 
       await send(chatId, crypto.randomUUID(), 'first target turn');
       const firstRun = await finishActive(chatId);
-      const firstReceipt = await tenantDb.runAs(userId, (tx) =>
-        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+      const firstReceipts = await tenantDb.runAs(userId, (tx) =>
+        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           firstRun.id,
           userId,
         ),
       );
+      const firstReceipt = firstReceipts[0];
       expect(firstReceipt?.systemPrompt).toContain('<user_chat_history>');
       expect(firstReceipt?.systemPrompt).toContain('Receipt source');
       expect(firstReceipt?.systemPrompt).toContain('receipt opening');
@@ -630,12 +624,13 @@ describeIfDb(
       const [first, second] = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findByChatId(chatId, userId),
       );
-      const secondReceipt = await tenantDb.runAs(userId, (tx) =>
-        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+      const secondReceipts = await tenantDb.runAs(userId, (tx) =>
+        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           second.id,
           userId,
         ),
       );
+      const secondReceipt = secondReceipts[0];
       const messages = await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, userId),
       );
@@ -692,7 +687,7 @@ describeIfDb(
       ]);
     });
 
-    it('lets only one concurrent initializing send bind a baseline and snapshot', async () => {
+    it('lets only one concurrent initializing send bind a baseline', async () => {
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
       });
@@ -719,11 +714,13 @@ describeIfDb(
       expect(chat?.recencyDigestBaseline).not.toBeNull();
       expect(chat?.recencyDigestTold).not.toBeNull();
       expect(runs).toHaveLength(1);
-      expect(
-        new Set(
-          runs.map(({ modelContextSnapshotId }) => modelContextSnapshotId),
-        ).size,
-      ).toBe(1);
+      const receipts = await tenantDb.runAs(userId, (tx) =>
+        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
+          runs[0].id,
+          userId,
+        ),
+      );
+      expect(receipts).toHaveLength(1);
     });
 
     it('keeps another owner and the empty identity out of digest resolution', async () => {
@@ -909,7 +906,7 @@ describeIfDb(
       expect(dispatchCalls).toHaveLength(2);
     });
 
-    it('rolls back the message, snapshot, run, and event together when run.created fails', async () => {
+    it('rolls back the message, run, and event together when run.created fails', async () => {
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
       });
@@ -966,8 +963,7 @@ describeIfDb(
       const before = await tenantDb.runAs(userId, async (tx) => ({
         chats: (await tx.select().from(schema.chats)).length,
         messages: (await tx.select().from(schema.messages)).length,
-        snapshots: (await tx.select().from(schema.modelContextSnapshots))
-          .length,
+        receipts: (await tx.select().from(schema.systemPromptReceipts)).length,
         runs: (await tx.select().from(schema.runs)).length,
         events: (await tx.select().from(schema.runEvents)).length,
       }));
@@ -995,8 +991,7 @@ describeIfDb(
       const after = await tenantDb.runAs(userId, async (tx) => ({
         chats: (await tx.select().from(schema.chats)).length,
         messages: (await tx.select().from(schema.messages)).length,
-        snapshots: (await tx.select().from(schema.modelContextSnapshots))
-          .length,
+        receipts: (await tx.select().from(schema.systemPromptReceipts)).length,
         runs: (await tx.select().from(schema.runs)).length,
         events: (await tx.select().from(schema.runEvents)).length,
       }));
@@ -1176,97 +1171,75 @@ describeIfDb(
       ]);
     });
 
-    it('binds later prompt/tool changes only to later worker attempts and keeps a reclaimed run on its original snapshot', async () => {
+    it('binds later prompt/tool changes to later worker attempts and records system-only receipts', async () => {
       const chatId = crypto.randomUUID();
       await send(chatId, crypto.randomUUID(), 'first context');
       const firstJob = dispatchCalls.at(-1);
       if (!firstJob) throw new Error('Expected first context dispatch');
-      const preparedFirst = await executeWorker(firstJob, { consume: false });
-      const firstSnapshot = await tenantDb.runAs(userId, (tx) =>
-        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
-          preparedFirst.id,
+      await executeWorker(firstJob, { consume: false });
+      const firstRun = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findMostRecentByChatMessageSequence(
+          chatId,
           userId,
         ),
       );
-      expect(firstSnapshot?.systemPrompt).toBe('Chat-loop integration prompt');
-      expect(firstSnapshot?.toolDeclarations).toEqual([]);
+      if (!firstRun) throw new Error('Expected first run');
+      const firstReceipts = await tenantDb.runAs(userId, (tx) =>
+        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
+          firstRun.id,
+          userId,
+        ),
+      );
+      expect(firstReceipts[0]?.systemPrompt).toBe(
+        'Chat-loop integration prompt',
+      );
+      expect(firstReceipts[0]).not.toHaveProperty('declarations');
 
-      await finish(preparedFirst.id, 'completed');
+      await finish(firstRun.id, 'completed');
       systemPrompt = 'Later prompt';
       allowedTools.push('search_conversations');
 
       await send(chatId, crypto.randomUUID(), 'later context');
       const secondJob = dispatchCalls.at(-1);
       if (!secondJob) throw new Error('Expected later context dispatch');
-      const preparedSecond = await executeWorker(secondJob, {
-        consume: false,
-      });
+      await executeWorker(secondJob, { consume: false });
       const runs = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findByChatId(chatId, userId),
       );
-      const firstRun = runs[0];
       const secondRun = runs[1];
-      const secondSnapshot = await tenantDb.runAs(userId, (tx) =>
-        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+      if (!secondRun) throw new Error('Expected second run');
+      const secondReceipts = await tenantDb.runAs(userId, (tx) =>
+        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           secondRun.id,
           userId,
         ),
       );
-
-      expect(firstRun.modelContextSnapshotId).toBe(firstSnapshot?.id);
-      expect(secondRun.modelContextSnapshotId).toBe(secondSnapshot?.id);
-      expect(secondSnapshot?.id).not.toBe(firstSnapshot?.id);
-      expect(secondSnapshot?.systemPrompt).toBe('Later prompt');
-      expect(secondSnapshot?.toolDeclarations.map(({ id }) => id)).toEqual([
-        'search_conversations',
-      ]);
-
-      await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).markStarted(secondRun.id, userId),
+      expect(secondReceipts[0]?.systemPrompt).toBe('Later prompt');
+      expect(secondReceipts[0]).not.toHaveProperty('declarations');
+      expect(firstReceipts[0]?.systemPrompt).not.toBe(
+        secondReceipts[0]?.systemPrompt,
       );
-      const reclaimed = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(secondRun.id, userId),
-      );
-      expect(reclaimed?.modelContextSnapshotId).toBe(secondSnapshot?.id);
-      expect(preparedSecond.modelContextSnapshotId).toBe(secondSnapshot?.id);
-      await expect(
-        tenantDb.runAs(userId, (tx) =>
-          new ModelContextSnapshotsRepository(tx).findByOwnedRun(
-            firstRun.id,
-            userId,
-          ),
-        ),
-      ).resolves.toEqual(firstSnapshot);
     });
-
     it('persists only observable availability changes and uses terminal Runs as the baseline', async () => {
       const chatId = crypto.randomUUID();
-      const key = crypto.randomUUID();
-      const degraded = availabilityContext(
-        [
-          {
-            id: 'mcp__docs__lookup',
-            state: 'unavailable',
-            reason: 'source_disconnected',
-          },
-        ],
-        key,
-      );
-      const changedDiagnostic = availabilityContext(
-        [
-          {
-            id: 'mcp__docs__lookup',
-            state: 'unavailable',
-            reason: 'source_connecting',
-          },
-        ],
-        key,
-      );
-      const healthy = availabilityContext(
-        [{ id: 'mcp__docs__lookup', state: 'available' }],
-        key,
-      );
-      const empty = availabilityContext([], key);
+      const degraded = availabilityContext([
+        {
+          id: 'mcp__docs__lookup',
+          state: 'unavailable',
+          reason: 'source_disconnected',
+        },
+      ]);
+      const changedDiagnostic = availabilityContext([
+        {
+          id: 'mcp__docs__lookup',
+          state: 'unavailable',
+          reason: 'source_connecting',
+        },
+      ]);
+      const healthy = availabilityContext([
+        { id: 'mcp__docs__lookup', state: 'available' },
+      ]);
+      const empty = availabilityContext([]);
 
       const first = await persistWithContext(
         chatId,
@@ -1288,8 +1261,19 @@ describeIfDb(
         'same outage with a changed internal reason',
         changedDiagnostic,
       );
-      expect(availabilityRunItem(unchangedOutage.run)).toBeUndefined();
-      await finish(unchangedOutage.runId, 'completed');
+      const unchangedOutageAvailability = availabilityRunItem(
+        unchangedOutage.run,
+      );
+      expect(unchangedOutageAvailability).toMatchObject({
+        producer: 'tool-availability',
+        form: 'notice',
+        residency: 'rail',
+      });
+      expect(unchangedOutageAvailability?.text).toContain('mcp__docs__lookup');
+      expect(unchangedOutageAvailability?.text).toContain('server connecting');
+      await finish(unchangedOutage.runId, 'completed', [
+        { id: 'mcp__docs__lookup', state: 'unavailable' },
+      ]);
 
       const recovered = await persistWithContext(
         chatId,
@@ -1303,12 +1287,12 @@ describeIfDb(
         residency: 'rail',
       });
       expect(recoveredAvailability?.text).toContain('mcp__docs__lookup');
-      expect(recoveredAvailability?.text).toContain('server reconnected');
+      expect(recoveredAvailability?.text).toContain('tool restored');
       await finish(recovered.runId, 'cancelled');
 
       const transientFlap = await persistWithContext(
         chatId,
-        'disconnect and reconnect between snapshots',
+        'disconnect and reconnect between attempts',
         healthy,
       );
       expect(availabilityRunItem(transientFlap.run)).toBeUndefined();
@@ -1316,13 +1300,10 @@ describeIfDb(
 
       const removed = await persistWithContext(chatId, 'tool removed', empty);
       const removedAvailability = availabilityRunItem(removed.run);
-      expect(removedAvailability).toMatchObject({
-        producer: 'tool-availability',
-        form: 'notice',
-        residency: 'rail',
-      });
-      expect(removedAvailability?.text).toContain('mcp__docs__lookup');
-      await finish(removed.runId, 'completed');
+      // The expired predecessor cannot establish a baseline; an empty fresh
+      // epoch has no unavailable tools to disclose.
+      expect(removedAvailability).toBeUndefined();
+      await finish(removed.runId, 'completed', []);
 
       const newlyUnavailable = await persistWithContext(
         chatId,
@@ -1339,40 +1320,36 @@ describeIfDb(
       });
       expect(newlyUnavailableAvailability?.text).toContain('mcp__docs__lookup');
 
-      const snapshot = await tenantDb.runAs(userId, (tx) =>
-        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+      const receipts = await tenantDb.runAs(userId, (tx) =>
+        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           newlyUnavailable.runId,
           userId,
         ),
       );
-      expect(snapshot?.toolAvailabilityManifest).toEqual(
-        degraded.toolAvailabilityManifest,
-      );
+      expect(receipts[0]?.systemPrompt).toEqual(expect.any(String));
+      expect(receipts[0]).not.toHaveProperty('availabilityManifest');
     });
 
     it('serializes the availability baseline read with concurrent accepted turns', async () => {
       const chatId = crypto.randomUUID();
-      const key = crypto.randomUUID();
-      const healthy = availabilityContext(
-        [{ id: 'mcp__docs__lookup', state: 'available' }],
-        key,
-      );
-      const degraded = availabilityContext(
-        [
-          {
-            id: 'mcp__docs__lookup',
-            state: 'unavailable',
-            reason: 'source_disconnected',
-          },
-        ],
-        key,
-      );
+      const healthy = availabilityContext([
+        { id: 'mcp__docs__lookup', state: 'available' },
+      ]);
+      const degraded = availabilityContext([
+        {
+          id: 'mcp__docs__lookup',
+          state: 'unavailable',
+          reason: 'source_disconnected',
+        },
+      ]);
       const baseline = await persistWithContext(
         chatId,
         'healthy baseline',
         healthy,
       );
-      await finish(baseline.runId);
+      await finish(baseline.runId, 'completed', [
+        { id: 'mcp__docs__lookup', state: 'available' },
+      ]);
 
       const gate = () => {
         let release!: () => void;
@@ -1442,7 +1419,9 @@ describeIfDb(
         await executeWorker(degradedJob, {
           consume: false,
         });
-        await finish(degradedJob.runId);
+        await finish(degradedJob.runId, 'completed', [
+          { id: 'mcp__docs__lookup', state: 'unavailable' },
+        ]);
         releaseSecond.release();
         await recoveredTurn;
 
@@ -1459,7 +1438,7 @@ describeIfDb(
           form: 'notice',
           residency: 'rail',
         });
-        expect(recoveredAvailability?.text).toContain('server reconnected');
+        expect(recoveredAvailability?.text).toContain('tool restored');
         await finish(recoveredJob.runId);
       } finally {
         releaseFirst.release();
@@ -1482,51 +1461,32 @@ describeIfDb(
           senderUserId: userId,
           parts: [{ type: 'text', text: 'historical turn' }],
         });
-        const [snapshot] = await tx
-          .insert(schema.modelContextSnapshots)
-          .values({
-            ownerUserId: userId,
-            availabilityHash: hashToolAvailabilityManifest(
-              TOOL_AVAILABILITY_UNOBSERVED,
-            ),
-            contentHash: `legacy-content-${crypto.randomUUID()}`,
-            promptHash: `legacy-prompt-${crypto.randomUUID()}`,
-            toolHash: `legacy-tools-${crypto.randomUUID()}`,
-            source: 'project_default',
-            systemPrompt: 'Historical prompt',
-            toolAvailabilityManifest: TOOL_AVAILABILITY_UNOBSERVED,
-            toolDeclarations: [],
-          })
-          .returning();
         const run = await new RunsRepository(tx).create({
           chatId: chat.id,
           messageId: message!.id,
           userId,
           modelId: 'system:openai:gpt-5.4-mini',
-          modelContextSnapshotId: snapshot.id,
         });
         await new RunsRepository(tx).markFinished(run.id, userId, 'completed');
         return chat.id;
       });
-      const healthy = availabilityContext(
-        [{ id: 'mcp__docs__lookup', state: 'available' }],
-        crypto.randomUUID(),
-      );
+      const healthy = availabilityContext([
+        { id: 'mcp__docs__lookup', state: 'available' },
+      ]);
       const afterLegacy = await persistWithContext(
         legacyChat,
         'first observed healthy turn',
         healthy,
       );
       expect(availabilityRunItem(afterLegacy.run)).toBeUndefined();
-      const observedSnapshot = await tenantDb.runAs(userId, (tx) =>
-        new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+      const observedReceipts = await tenantDb.runAs(userId, (tx) =>
+        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           afterLegacy.runId,
           userId,
         ),
       );
-      expect(observedSnapshot?.toolAvailabilityManifest).toEqual(
-        healthy.toolAvailabilityManifest,
-      );
+      expect(observedReceipts[0]?.systemPrompt).toEqual(expect.any(String));
+      expect(observedReceipts[0]).not.toHaveProperty('availabilityManifest');
 
       const degradedChatId = crypto.randomUUID();
       const beforeCompaction = await persistWithContext(
@@ -1534,7 +1494,9 @@ describeIfDb(
         'healthy before compaction',
         healthy,
       );
-      await finish(beforeCompaction.runId);
+      await finish(beforeCompaction.runId, 'completed', [
+        { id: 'mcp__docs__lookup', state: 'available' },
+      ]);
       await tenantDb.runAs(userId, (tx) =>
         new CompactionsRepository(tx).create({
           chatId: degradedChatId,
@@ -1545,16 +1507,13 @@ describeIfDb(
           ),
         }),
       );
-      const degraded = availabilityContext(
-        [
-          {
-            id: 'mcp__docs__lookup',
-            state: 'unavailable',
-            reason: 'source_disconnected',
-          },
-        ],
-        crypto.randomUUID(),
-      );
+      const degraded = availabilityContext([
+        {
+          id: 'mcp__docs__lookup',
+          state: 'unavailable',
+          reason: 'source_disconnected',
+        },
+      ]);
       const firstAfterCompaction = await persistWithContext(
         degradedChatId,
         'degraded after compaction',
@@ -1570,7 +1529,9 @@ describeIfDb(
       });
       expect(firstAfterAvailability?.text).toContain('mcp__docs__lookup');
       expect(firstAfterAvailability?.text).toContain('server disconnected');
-      await finish(firstAfterCompaction.runId);
+      await finish(firstAfterCompaction.runId, 'completed', [
+        { id: 'mcp__docs__lookup', state: 'unavailable' },
+      ]);
       const repeated = await persistWithContext(
         degradedChatId,
         'unchanged after new epoch baseline',
@@ -1584,7 +1545,9 @@ describeIfDb(
         'degraded before healthy epoch',
         degraded,
       );
-      await finish(degradedBefore.runId);
+      await finish(degradedBefore.runId, 'completed', [
+        { id: 'mcp__docs__lookup', state: 'unavailable' },
+      ]);
       await tenantDb.runAs(userId, (tx) =>
         new CompactionsRepository(tx).create({
           chatId: healthyChatId,
@@ -1608,16 +1571,13 @@ describeIfDb(
         shareRecentChats: true,
       });
       const chatId = crypto.randomUUID();
-      const degraded = availabilityContext(
-        [
-          {
-            id: 'mcp__docs__lookup',
-            state: 'unavailable',
-            reason: 'discovery_failed',
-          },
-        ],
-        crypto.randomUUID(),
-      );
+      const degraded = availabilityContext([
+        {
+          id: 'mcp__docs__lookup',
+          state: 'unavailable',
+          reason: 'discovery_failed',
+        },
+      ]);
 
       const failedResolve = vi
         .spyOn(effectiveContextResolver, 'resolveEffectiveContext')
@@ -1665,7 +1625,28 @@ describeIfDb(
       );
       expectMessageParts(
         userMessages[1]?.parts ?? [],
-        [{ type: 'text', text: 'accepted after failure' }],
+        [
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'tool-availability',
+              form: 'notice',
+              runId: successfulRun.id,
+              payload: {
+                kind: 'initial',
+                added: [],
+                removed: [],
+                unavailable: [
+                  { id: 'mcp__docs__lookup', reason: 'discovery_failed' },
+                ],
+                becameUnavailable: [],
+                nowAvailable: [],
+              },
+            },
+          },
+          { type: 'text', text: 'accepted after failure' },
+        ],
         successfulRun.id,
       );
     });

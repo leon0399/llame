@@ -113,7 +113,6 @@ const run: Run = {
   messageId: 'message-1',
   userId: 'owner-1',
   modelId: 'model-1',
-  modelContextSnapshotId: 'snapshot-1',
   activeAttemptId: null,
   completedAttemptId: null,
   turnToolAvailability: null,
@@ -149,7 +148,6 @@ describe('RunsRepository', () => {
       messageId: 'message-1',
       userId: run.userId,
       modelId: run.modelId,
-      modelContextSnapshotId: 'snapshot-1',
     };
 
     await expect(

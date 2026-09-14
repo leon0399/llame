@@ -20,8 +20,7 @@ import { MessagesRepository } from '../chats/chats-repository';
 import { isTextPart } from '../chats/context-builder';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { RunsRepository } from '../runs/runs-repository';
-import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
-import { PersonalizationRepository } from './personalization-repository';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { PersonalizationService } from './personalization.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { createFakeModelClient } from '../models/fake-model-client';
@@ -109,18 +108,24 @@ describeIfDb('personalization binds per run', () => {
       message: { id: messageId, parts: [{ type: 'text', text: 'hello' }] },
     });
 
-  /** The system prompt actually bound to that chat's run. */
-  const boundSnapshot = async (userId: string, chatId: string) =>
+  /** The system prompt actually recorded for that chat's winning attempt. */
+  const boundReceipt = async (userId: string, chatId: string) =>
     tenantDb.runAs(userId, async (tx) => {
       const [run] = await new RunsRepository(tx).findByChatId(chatId, userId);
-      const snapshot = await new ModelContextSnapshotsRepository(
+      if (!run?.completedAttemptId) {
+        throw new Error('Expected a completed attempt receipt');
+      }
+      const receipt = await new SystemPromptReceiptsRepository(
         tx,
-      ).findByOwnedRun(run.id, userId);
-      return snapshot!;
+      ).findByAttempt(run.id, run.completedAttemptId, userId);
+      if (!receipt) {
+        throw new Error('Expected a system prompt receipt');
+      }
+      return receipt;
     });
 
   const boundPrompt = async (userId: string, chatId: string) =>
-    (await boundSnapshot(userId, chatId)).systemPrompt;
+    (await boundReceipt(userId, chatId)).systemPrompt;
 
   beforeAll(async () => {
     const postgres = await import('postgres');
@@ -286,38 +291,5 @@ describeIfDb('personalization binds per run', () => {
     expect(bound).not.toContain('Email:');
 
     await personalization.updateForOwner(userAId, { enabled: true });
-  });
-
-  it('an owner with nothing to render binds the same prompt as no owner at all', async () => {
-    // Content-addressed snapshots must keep deduping, or every unpersonalized
-    // run writes a fresh full-prompt row.
-    const emptyUserId = crypto.randomUUID();
-    await sql`INSERT INTO users (id, name, email) VALUES (${emptyUserId}, 'Empty', ${`empty-${emptyUserId}@test.com`})`;
-    const chatId = crypto.randomUUID();
-    const messageId = crypto.randomUUID();
-    await send(emptyUserId, chatId, messageId);
-    await execute(emptyUserId, chatId, messageId);
-    const first = await boundSnapshot(emptyUserId, chatId);
-    expect(first.systemPrompt).toBe('Base prompt.');
-
-    await tenantDb.runAs(emptyUserId, (tx) =>
-      new PersonalizationRepository(tx).upsertForOwner(emptyUserId, {
-        about: '   ',
-      }),
-    );
-    const secondChat = crypto.randomUUID();
-    const secondMessage = crypto.randomUUID();
-    await send(emptyUserId, secondChat, secondMessage);
-    await execute(emptyUserId, secondChat, secondMessage);
-    const second = await boundSnapshot(emptyUserId, secondChat);
-
-    // Identical TEXT would pass even if dedup broke and a fresh row were
-    // written per run, so assert the content address itself: same hash means
-    // the same snapshot row was reused.
-    expect(second.systemPrompt).toBe('Base prompt.');
-    expect(second.contentHash).toBe(first.contentHash);
-    expect(second.id).toBe(first.id);
-
-    await sql`DELETE FROM users WHERE id = ${emptyUserId}`;
   });
 });

@@ -15,6 +15,7 @@ import {
   type Run,
   type RunContextItem,
   type RunStatus,
+  type SkillCatalogBaseline,
   type TurnToolAvailabilityEntry,
 } from '../db/schema';
 import {
@@ -61,6 +62,7 @@ import {
   createToolAvailabilityItem,
   createTemporalItem,
   deriveToolAvailabilityPayload,
+  deriveToolAvailabilityPayloadFromStates,
 } from '../chats/context-item-producers';
 import { isContextItemPart, resolveForm } from '../chats/context-item';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
@@ -110,6 +112,7 @@ import {
   RunsRepository,
   type RunEventType,
 } from './runs-repository';
+import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
   buildTurnTelemetry,
@@ -117,8 +120,6 @@ import {
   turnTelemetryLogger,
   type TurnTelemetry,
 } from '../chats/turn-telemetry';
-import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
-import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import {
   ContextIncompatibleError,
   DYNAMIC_TOOL_EXECUTOR_RESOLVER,
@@ -129,7 +130,8 @@ import {
 } from './snapshot-tool-execution';
 import {
   resolveEffectiveContext,
-  type EffectiveContextSnapshotInput,
+  type ResolvedAttemptContext,
+  type SystemPromptReceiptInput,
 } from './effective-context-resolver';
 import {
   SystemPromptsService,
@@ -162,6 +164,10 @@ import {
   type RecencyDigestResolver,
 } from '../chats/recency-digest.service';
 import {
+  resolveTurnSkillState,
+  type SkillTurnState,
+} from '../chats/skill-turn-state';
+import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
   type TemporalAnchor,
@@ -179,15 +185,24 @@ type AssistantTurnWrite = AssistantTurnPersistence & {
   telemetry: AssistantTurnTelemetry;
 };
 
+type SkillCatalogFreeze = NonNullable<SkillTurnState['freeze']>;
+
 /** Context resolved inside the worker transaction before the model request. */
 type PreparedAttemptContext = BuiltContext & {
-  effectiveContext: EffectiveContextSnapshotInput;
+  /** Resolved prompt identity plus the attempt-local catalog. */
+  effectiveContext: ResolvedAttemptContext;
   stagedParts: Array<MessagePart>;
   recencyDigestInitialization?: RecencyDigestInitialization;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
+  /**
+   * The skill-catalog writes this turn establishes, applied by the terminal
+   * transaction of the attempt that completes it: the baseline to freeze when
+   * the turn starts an epoch, and the names it leaves the chat told about.
+   */
+  skillCatalogFreeze?: SkillCatalogFreeze;
+  skillCatalogTold?: NonNullable<Chat['skillCatalogTold']>;
   untitled: boolean;
 };
-
 type AttemptDigestContext = {
   shareRecentChats: ResolvedMemorySettings;
   promptDigestBaseline: Chat['recencyDigestBaseline'];
@@ -202,11 +217,14 @@ type AttemptPromptContext = AttemptDigestContext & {
   compaction: Compaction | undefined;
   instanceTimezone: string;
   systemPrompt: string;
+  /** This turn's skill-catalog decision: the rendered baseline and the notice. */
+  skillState: SkillTurnState;
 };
 
 type AttemptStagedContext = {
   stagedParts: Array<MessagePart>;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
+  skillCatalogTold?: NonNullable<Chat['skillCatalogTold']>;
 };
 
 type FinishRunInput = {
@@ -226,6 +244,8 @@ type FinishRunInput = {
   attemptContextParts?: ReadonlyArray<MessagePart>;
   recencyDigestInitialization?: RecencyDigestInitialization;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
+  skillCatalogFreeze?: SkillCatalogFreeze;
+  skillCatalogTold?: NonNullable<Chat['skillCatalogTold']>;
   turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
 };
 
@@ -320,7 +340,7 @@ function toRunContextItems(
 }
 
 function toTurnToolAvailability(
-  manifest: EffectiveContextSnapshotInput['toolAvailabilityManifest'],
+  manifest: ResolvedAttemptContext['toolAvailabilityManifest'],
 ): Array<TurnToolAvailabilityEntry> {
   return [...manifest.entries]
     .map(({ id, state }) => ({ id, state }))
@@ -573,12 +593,18 @@ export class RunExecutionService {
     let attemptRecencyDigestInitialization:
       | RecencyDigestInitialization
       | undefined;
+    let attemptSkillCatalogFreeze: SkillCatalogFreeze | undefined;
+    let attemptSkillCatalogTold:
+      | NonNullable<Chat['skillCatalogTold']>
+      | undefined;
     let attemptToolAvailability: Array<TurnToolAvailabilityEntry> = [];
     try {
       const context = await this.prepareAttemptContext(input, attemptId);
       attemptStagedParts = context.stagedParts;
       attemptRecencyDigestTold = context.recencyDigestTold;
       attemptRecencyDigestInitialization = context.recencyDigestInitialization;
+      attemptSkillCatalogFreeze = context.skillCatalogFreeze;
+      attemptSkillCatalogTold = context.skillCatalogTold;
       attemptToolAvailability = toTurnToolAvailability(
         context.effectiveContext.toolAvailabilityManifest,
       );
@@ -872,7 +898,7 @@ export class RunExecutionService {
       shouldSettle: (toolName: string) => boolean = () => true,
     ) => {
       // recordToolCompleted deletes the current key; removing the entry being
-      // visited is well-defined for a Map iterator, so no snapshot is needed.
+      // visited is well-defined for a Map iterator.
       for (const [toolCallId, { toolName, toolInput }] of openToolCalls) {
         if (!shouldSettle(toolName)) continue;
         recordToolCompleted(
@@ -889,7 +915,7 @@ export class RunExecutionService {
     // surfaced to the stream/worker instead of becoming a detached rejection.
     let parentAbortSettlement: Promise<void> | undefined;
 
-    // The immutable snapshot is the authority for what the model sees. The
+    // The attempt-local catalog is the authority for what the model sees. The
     // registry supplied compatible executor functions above. Native calls also
     // recheck trusted host authority; the mutable allowlist is not re-applied.
     const toolSet: ToolSet = Object.fromEntries(
@@ -1309,6 +1335,12 @@ export class RunExecutionService {
               }),
               ...(attemptRecencyDigestTold !== undefined && {
                 recencyDigestTold: attemptRecencyDigestTold,
+              }),
+              ...(attemptSkillCatalogFreeze !== undefined && {
+                skillCatalogFreeze: attemptSkillCatalogFreeze,
+              }),
+              ...(attemptSkillCatalogTold !== undefined && {
+                skillCatalogTold: attemptSkillCatalogTold,
               }),
               turnToolAvailability: attemptToolAvailability,
             }),
@@ -1977,6 +2009,26 @@ export class RunExecutionService {
         input.recencyDigestTold,
       );
     }
+    // The skill-catalog state advances with the turn that showed it: a turn
+    // that started an epoch freezes the baseline its prompt rendered, and a
+    // turn that carried a notice records the names it disclosed. Both land in
+    // this attempt-fenced terminal transaction, so a losing attempt can never
+    // freeze a catalog the winner never rendered.
+    if (input.status === 'completed' && input.skillCatalogFreeze !== undefined) {
+      await chatsRepo.setSkillCatalogBaseline({
+        chatId: finished.chatId,
+        ownerUserId: input.userId,
+        baseline: input.skillCatalogFreeze.baseline,
+        rebakedFrom: input.skillCatalogFreeze.rebakedFrom,
+      });
+    }
+    if (input.status === 'completed' && input.skillCatalogTold !== undefined) {
+      await chatsRepo.updateSkillCatalogTold(
+        finished.chatId,
+        input.userId,
+        input.skillCatalogTold,
+      );
+    }
   }
 
   private buildAssistantTurnForFinish(
@@ -2172,7 +2224,7 @@ export class RunExecutionService {
       this.prepareAttemptContextInTransaction(tx, input, attemptId),
     );
   }
-  /** Resolve and bind the complete attempt context inside one transaction. */
+  /** Resolve and persist the receipt for the complete attempt context. */
   private async prepareAttemptContextInTransaction(
     tx: Db,
     input: ExecuteRunInput,
@@ -2184,7 +2236,7 @@ export class RunExecutionService {
       input,
       prompt,
     );
-    await this.bindAttemptContextSnapshot(
+    await this.persistAttemptPromptReceipt(
       tx,
       input,
       attemptId,
@@ -2207,6 +2259,12 @@ export class RunExecutionService {
       stagedParts: staged.stagedParts,
       recencyDigestInitialization: prompt.recencyDigestInitialization,
       recencyDigestTold: staged.recencyDigestTold,
+      ...(prompt.skillState.freeze !== undefined && {
+        skillCatalogFreeze: prompt.skillState.freeze,
+      }),
+      ...(staged.skillCatalogTold !== undefined && {
+        skillCatalogTold: staged.skillCatalogTold,
+      }),
       untitled: prompt.chat.title === null,
     };
   }
@@ -2239,11 +2297,30 @@ export class RunExecutionService {
       compaction?.createdAt ?? chat.createdAt,
       instanceTimezone,
     );
+    const skillState = resolveTurnSkillState(
+      {
+        skillCatalog: this.skillCatalog,
+        skillDirectories: this.instanceConfig.config.skills.directories,
+        // Operator-only: an unreadable catalog is logged, never shown to the
+        // model.
+        reportUnavailable: (diagnostics) =>
+          this.logger.warn(
+            `skill_catalog_unavailable: ${diagnostics.join(' ')}`,
+          ),
+      },
+      {
+        chat,
+        runId: input.runId,
+        latestCompactionId: compaction?.id ?? null,
+        modelReferencesSkills: model.referencesSkills,
+      },
+    );
     const systemPrompt = this.renderAttemptSystemPrompt({
       model,
       anchor,
       user,
       chats: digest.promptDigestBaseline,
+      skills: skillState.baseline,
     });
     return {
       ...digest,
@@ -2253,6 +2330,7 @@ export class RunExecutionService {
       compaction,
       instanceTimezone,
       systemPrompt,
+      skillState,
     };
   }
 
@@ -2279,7 +2357,7 @@ export class RunExecutionService {
         this.logger.error('recency_digest_resolution_failed');
       }
       // Consent is checked again after candidate resolution and before the
-      // prompt, receipt, and snapshot are prepared.
+      // prompt, receipt, and staged context are prepared.
       shareRecentChats = await this.memory.getForOwnerForBinding(
         input.tx,
         input.input.userId,
@@ -2333,12 +2411,15 @@ export class RunExecutionService {
     anchor: TemporalAnchor;
     user: PromptUserInput | undefined;
     chats: Chat['recencyDigestBaseline'];
+    /** The frozen catalog baseline; undefined renders no skill section. */
+    skills: SkillCatalogBaseline | undefined;
   }): string {
     const renderInput: SystemPromptRenderInput = {
       model: input.model,
       anchor: input.anchor,
       user: input.user,
       chats: input.chats ?? undefined,
+      ...(input.skills !== undefined && { skills: input.skills }),
     };
     if (input.chats === null) {
       return this.systemPrompts.render(renderInput);
@@ -2357,7 +2438,7 @@ export class RunExecutionService {
     tx: Db,
     input: ExecuteRunInput,
     prompt: AttemptPromptContext,
-  ): Promise<EffectiveContextSnapshotInput> {
+  ): Promise<ResolvedAttemptContext> {
     const allowedToolRules = this.instanceConfig.config.tools.allowed;
     const callTimeoutSeconds =
       this.instanceConfig.config.tools.callTimeoutSeconds;
@@ -2378,33 +2459,33 @@ export class RunExecutionService {
     });
   }
 
-  private async bindAttemptContextSnapshot(
+  private async persistAttemptPromptReceipt(
     tx: Db,
     input: ExecuteRunInput,
     attemptId: string,
-    effectiveContext: EffectiveContextSnapshotInput,
+    receipt: SystemPromptReceiptInput,
   ): Promise<void> {
-    const snapshot = await new ModelContextSnapshotsRepository(
-      tx,
-    ).createOrReuse(input.userId, effectiveContext);
+    // Keep the receipt publication behind the same owner/active-attempt fence
+    // as every other attempt-owned write. Reassigning the identical UUID is a
+    // deliberate no-op update that still makes a stale attempt return no row.
     const bound = await new RunsRepository(tx).updateForAttempt(
       input.runId,
       input.userId,
       attemptId,
-      { modelContextSnapshotId: snapshot.id },
+      { activeAttemptId: attemptId },
     );
     if (!bound) {
       throw new ModelContextExecutionError(
-        `Run ${input.runId} was reclaimed before snapshot binding.`,
+        `Run ${input.runId} was reclaimed before receipt publication.`,
       );
     }
     await new SystemPromptReceiptsRepository(tx).create({
       ownerUserId: input.userId,
       runId: input.runId,
       attemptId,
-      source: effectiveContext.source,
-      systemPrompt: effectiveContext.systemPrompt,
-      promptHash: effectiveContext.promptHash,
+      source: receipt.source,
+      systemPrompt: receipt.systemPrompt,
+      promptHash: receipt.promptHash,
     });
   }
 
@@ -2412,7 +2493,7 @@ export class RunExecutionService {
     tx: Db;
     input: ExecuteRunInput;
     prompt: AttemptPromptContext;
-    effectiveContext: EffectiveContextSnapshotInput;
+    effectiveContext: ResolvedAttemptContext;
   }): Promise<AttemptStagedContext> {
     const previousRun = await new RunsRepository(
       input.tx,
@@ -2423,18 +2504,12 @@ export class RunExecutionService {
         beforeSeq: input.input.userMessage.seq,
       },
     );
-    const previousSnapshot = previousRun
-      ? await new ModelContextSnapshotsRepository(input.tx).findByOwnedRun(
-          previousRun.id,
-          input.input.userId,
-        )
-      : undefined;
 
     const compactionSincePrevious =
       input.prompt.compaction !== undefined &&
       previousRun !== undefined &&
       input.prompt.compaction.createdAt > previousRun.createdAt;
-    const startsEpoch = !previousSnapshot || compactionSincePrevious;
+    const startsEpoch = previousRun === undefined || compactionSincePrevious;
     const digestRebaked =
       compactionSincePrevious &&
       input.prompt.chat.recencyDigestRebakedFrom ===
@@ -2450,12 +2525,19 @@ export class RunExecutionService {
         }),
       );
     }
-    const availabilityPayload = deriveToolAvailabilityPayload({
-      current: input.effectiveContext.toolAvailabilityManifest,
-      ...(!startsEpoch && {
-        previous: previousSnapshot?.toolAvailabilityManifest,
-      }),
-    });
+    const previousSuccessfulAvailability =
+      !startsEpoch && previousRun?.status === 'completed'
+        ? (previousRun.turnToolAvailability ?? undefined)
+        : undefined;
+    const availabilityPayload =
+      previousSuccessfulAvailability === undefined
+        ? deriveToolAvailabilityPayload({
+            current: input.effectiveContext.toolAvailabilityManifest,
+          })
+        : deriveToolAvailabilityPayloadFromStates({
+            current: input.effectiveContext.toolAvailabilityManifest,
+            previous: previousSuccessfulAvailability,
+          });
     if (availabilityPayload) {
       stagedParts.push(
         createToolAvailabilityItem({
@@ -2463,6 +2545,12 @@ export class RunExecutionService {
           payload: availabilityPayload,
         }),
       );
+    }
+    // Between tool availability and the digest disclosures, which is where the
+    // rail's producer precedence places the catalog notice.
+    const skillNotice = input.prompt.skillState.notice;
+    if (skillNotice !== undefined) {
+      stagedParts.push(skillNotice.item);
     }
     if (
       digestRebaked &&
@@ -2494,6 +2582,11 @@ export class RunExecutionService {
     return {
       stagedParts,
       recencyDigestTold: input.prompt.digestDelta?.told,
+      ...(input.prompt.skillState.told !== undefined && {
+        // The decision hands back a readonly list; the column holds a mutable
+        // array, so the value is copied rather than shared.
+        skillCatalogTold: [...input.prompt.skillState.told],
+      }),
     };
   }
   /**

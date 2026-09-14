@@ -1063,14 +1063,12 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
         messageId: 'msg-1',
         userId: ownerUserId,
         modelId: 'system:openai:gpt-5.4-mini',
-        modelContextSnapshotId: 'snapshot-1',
       })
       .catch(() => null);
     expect(querySqlContains(queries, 'insert into "runs"')).toBe(true);
     expect(queryContains(queries, chatId)).toBe(true);
     expect(queryContains(queries, ownerUserId)).toBe(true);
     expect(queryContains(queries, 'system:openai:gpt-5.4-mini')).toBe(true);
-    expect(queryContains(queries, 'snapshot-1')).toBe(true);
   });
 
   it('findActiveByChatId scopes by chatId AND userId and excludes terminal runs', async () => {

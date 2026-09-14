@@ -17,7 +17,6 @@ import { type RunAborter } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { stuckRunThresholdMs } from '../runs/run-queues';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
-import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { ChatLoopService } from './chat-loop.service';
@@ -78,7 +77,6 @@ const run: Run = {
   messageId: userMessage.id,
   userId: chat.ownerUserId,
   modelId: model.id,
-  modelContextSnapshotId: 'snapshot-id',
   status: 'queued',
   workerId: null,
   activeAttemptId: null,
@@ -142,7 +140,6 @@ function makeService(options?: { streamResponse?: Response }) {
   const aborts: RunAborter = { abort };
   const dispatchRun = vi.fn(async () => {});
   const dispatch: RunDispatcher = { dispatch: dispatchRun };
-  const snapshotCandidates = vi.fn(() => []);
 
   const findById = vi
     .spyOn(ChatsRepository.prototype, 'findById')
@@ -190,7 +187,6 @@ function makeService(options?: { streamResponse?: Response }) {
         messageId: runInput.messageId,
         userId: runInput.userId,
         modelId: runInput.modelId,
-        modelContextSnapshotId: runInput.modelContextSnapshotId ?? null,
         effort: runInput.effort ?? null,
       }),
     );
@@ -203,26 +199,6 @@ function makeService(options?: { streamResponse?: Response }) {
       payload: null,
       createdAt: now,
     });
-  vi.spyOn(
-    ModelContextSnapshotsRepository.prototype,
-    'findByOwnedRun',
-  ).mockResolvedValue(undefined);
-  vi.spyOn(
-    ModelContextSnapshotsRepository.prototype,
-    'createOrReuse',
-  ).mockResolvedValue({
-    id: 'snapshot-id',
-    ownerUserId: chat.ownerUserId,
-    availabilityHash: 'availability-hash',
-    contentHash: 'content-hash',
-    promptHash: 'prompt-hash',
-    toolHash: 'tool-hash',
-    source: 'model_override',
-    systemPrompt: 'Bound prompt',
-    toolAvailabilityManifest: { version: 1, entries: [] },
-    toolDeclarations: [],
-    createdAt: now,
-  });
 
   const service = new ChatLoopService(
     tenantDb,
@@ -249,7 +225,6 @@ function makeService(options?: { streamResponse?: Response }) {
     markFinished,
     createRun,
     appendEvent,
-    snapshotCandidates,
   };
 }
 

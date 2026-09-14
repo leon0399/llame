@@ -1,3 +1,4 @@
+import { hashWithDomain } from '../canonical-json';
 import { Logger } from '@nestjs/common';
 import { bashTool } from '../tools/bash';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
@@ -11,10 +12,10 @@ import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import type {
   Chat,
   Message,
-  ModelContextSnapshot,
   ModelToolDeclaration,
   Run,
   RunEvent,
+  SkillCatalogBaseline,
 } from '../db/schema';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -31,7 +32,6 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from '../chats/chats-repository';
-import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { createModelChangeItem } from '../chats/context-item-producers';
 import {
@@ -45,6 +45,10 @@ import type { TitleCapability } from '../titles/title.service';
 import type { ChatSearchIndexer } from './run-execution.service';
 import type { ChatEmbedDispatcher } from '../search/search-embed-dispatch.service';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
+import {
+  type SkillCatalogEntry,
+  type SkillCatalogPort,
+} from '../skills/skill-catalog';
 import type { ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { type MemorySettingsBindingResolver } from '../memory/memory.service';
 import {
@@ -102,7 +106,6 @@ const chatId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const runId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const userId = 'user-1';
 const messageId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-const snapshotId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const testAttemptId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const now = new Date('2026-09-01T00:00:00.000Z');
 
@@ -142,7 +145,6 @@ const run: Run = {
   messageId,
   userId,
   modelId: 'fake-model',
-  modelContextSnapshotId: snapshotId,
   activeAttemptId: null,
   completedAttemptId: null,
   turnToolAvailability: null,
@@ -157,17 +159,10 @@ const run: Run = {
   effort: null,
 };
 
-const snapshot: ModelContextSnapshot = {
-  id: snapshotId,
-  ownerUserId: userId,
-  contentHash: 'content-hash',
-  availabilityHash: 'availability-hash',
-  promptHash: 'prompt-hash',
-  toolHash: 'tool-hash',
-  source: 'project_default',
+const receipt = {
+  source: 'project_default' as const,
   systemPrompt: 'Stable system prompt',
-  toolAvailabilityManifest: { version: 1, entries: [] },
-  toolDeclarations: [],
+  promptHash: 'prompt-hash',
   createdAt: now,
 };
 
@@ -223,12 +218,40 @@ const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
     ),
 };
 
+const skillEntry = (
+  name: string,
+  description: string,
+): SkillCatalogEntry => ({
+  name,
+  description,
+  proactive: true,
+  sourceDirectory: '/opt/skills',
+  skillDirectory: `/opt/skills/${name}`,
+  available: true,
+  diagnostics: [],
+});
+
+/** A readable catalog advertising exactly these packages. */
+const skillCatalogOf = (
+  entries: ReadonlyArray<SkillCatalogEntry>,
+): SkillCatalogPort => ({
+  getSnapshot: () => ({
+    available: true,
+    directories: ['/opt/skills'],
+    entries: [...entries],
+    diagnostics: [],
+  }),
+});
+
 type ExecutionServiceOptions = {
   permissionPolicy?: CompiledPolicy;
   allowed?: ReadonlyArray<string>;
   dynamicCandidates?: ReadonlyArray<TurnToolCandidate>;
   memory?: MemorySettingsBindingResolver;
   recencyDigest?: RecencyDigestResolver;
+  skillCatalog?: SkillCatalogPort;
+  skillDirectories?: ReadonlyArray<string>;
+  model?: SystemModelCatalogEntry;
 };
 
 function makeExecutionService(
@@ -258,6 +281,10 @@ function makeExecutionService(
         allowed: options.allowed ?? [],
         nativeExecutorId,
       },
+      skills: {
+        ...BUILT_IN_DEFAULTS.skills,
+        directories: options.skillDirectories ?? [],
+      },
     },
   };
   // Held separately so tests can rescript them with their inferred Mock type
@@ -279,7 +306,9 @@ function makeExecutionService(
     enqueueChatEmbed: vi.fn(() => Promise.resolve()),
   };
   const models: ModelSelectionValidator = {
-    validateModelSelection: vi.fn().mockReturnValue(testModelEntry),
+    validateModelSelection: vi
+      .fn()
+      .mockReturnValue(options.model ?? testModelEntry),
     resolveEffortSelection: vi.fn().mockReturnValue(undefined),
   };
   const memory: MemorySettingsBindingResolver = options.memory ?? {
@@ -300,7 +329,7 @@ function makeExecutionService(
     searchIndex,
     reindexDispatch,
     knowledgeResolver,
-    noopSkillCatalog(),
+    options.skillCatalog ?? noopSkillCatalog(),
     embedDispatch,
     noopQueryEmbedder(),
     permissionPolicy,
@@ -337,12 +366,9 @@ function mockNormalExecutionRepositories() {
       ...run,
       status: 'completed',
     });
-  const createOrReuse = vi
-    .spyOn(ModelContextSnapshotsRepository.prototype, 'createOrReuse')
-    .mockResolvedValue(snapshot);
   const updateForAttempt = vi
     .spyOn(RunsRepository.prototype, 'updateForAttempt')
-    .mockResolvedValue({ ...run, modelContextSnapshotId: snapshotId });
+    .mockResolvedValue({ ...run });
   const createReceipt = vi
     .spyOn(SystemPromptReceiptsRepository.prototype, 'create')
     .mockResolvedValue({
@@ -351,8 +377,8 @@ function mockNormalExecutionRepositories() {
       runId,
       attemptId: testAttemptId,
       source: 'project_default',
-      systemPrompt: snapshot.systemPrompt,
-      promptHash: snapshot.promptHash,
+      systemPrompt: receipt.systemPrompt,
+      promptHash: receipt.promptHash,
       createdAt: now,
     });
   vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue(event);
@@ -379,16 +405,11 @@ function mockNormalExecutionRepositories() {
   const findMostRecent = vi
     .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
     .mockResolvedValue(undefined);
-  vi.spyOn(
-    ModelContextSnapshotsRepository.prototype,
-    'findByOwnedRun',
-  ).mockResolvedValue(snapshot);
   return {
     markStarted,
     markFinished,
     createAssistantReplyIfAbsent,
     updateUserMessageParts,
-    createOrReuse,
     updateForAttempt,
     createReceipt,
     findMostRecent,
@@ -556,7 +577,7 @@ describe('RunExecutionService executeRun', () => {
       expect.objectContaining({
         chatId,
         userId,
-        system: snapshot.systemPrompt,
+        system: receipt.systemPrompt,
       }),
     );
   });
@@ -742,6 +763,125 @@ describe('RunExecutionService executeRun', () => {
       ],
     });
     expect(updateRecencyDigestTold).toHaveBeenCalledWith(chatId, userId, told);
+  });
+  it('freezes the resolved skill baseline and records its told set on a completed turn', async () => {
+    const baseline: SkillCatalogBaseline = {
+      entries: [{ name: 'pdf', description: 'Extract text' }],
+      omitted: 0,
+    };
+    const setSkillBaseline = vi
+      .spyOn(ChatsRepository.prototype, 'setSkillCatalogBaseline')
+      .mockResolvedValue(undefined);
+    const updateSkillCatalogTold = vi
+      .spyOn(ChatsRepository.prototype, 'updateSkillCatalogTold')
+      .mockResolvedValue(undefined);
+    const render = vi.spyOn(SystemPromptsService.prototype, 'render');
+    mockNormalExecutionRepositories();
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        skillCatalog: skillCatalogOf([
+          skillEntry('pdf', 'Extract text'),
+          // Manual-only: admitted to the catalog but never advertised.
+          { ...skillEntry('review', 'Review'), proactive: false },
+        ]),
+        skillDirectories: ['/opt/skills'],
+        model: { ...testModelEntry, referencesSkills: true },
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+
+    await expect(result.text).resolves.toBe('answer');
+    // A first turn resolves the epoch: the prompt renders the frozen baseline
+    // and the chat row records it together with the names it advertises.
+    expect(render).toHaveBeenCalledWith(
+      expect.objectContaining({ skills: baseline }),
+    );
+    expect(setSkillBaseline).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      baseline,
+      rebakedFrom: null,
+    });
+    expect(updateSkillCatalogTold).toHaveBeenCalledWith(chatId, userId, [
+      'pdf',
+    ]);
+  });
+  it('stages the catalog notice and persists the told set with the winning user message', async () => {
+    const stored: SkillCatalogBaseline = {
+      entries: [{ name: 'pdf', description: 'Extract text' }],
+      omitted: 0,
+    };
+    const setSkillBaseline = vi
+      .spyOn(ChatsRepository.prototype, 'setSkillCatalogBaseline')
+      .mockResolvedValue(undefined);
+    const updateSkillCatalogTold = vi
+      .spyOn(ChatsRepository.prototype, 'updateSkillCatalogTold')
+      .mockResolvedValue(undefined);
+    const render = vi.spyOn(SystemPromptsService.prototype, 'render');
+    const repositories = mockNormalExecutionRepositories();
+    const findById = vi
+      .spyOn(ChatsRepository.prototype, 'findById')
+      .mockResolvedValue({
+        ...chat,
+        skillCatalogBaseline: stored,
+        skillCatalogRebakedFrom: null,
+        skillCatalogTold: ['pdf'],
+      });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        skillCatalog: skillCatalogOf([
+          skillEntry('pdf', 'Extract text'),
+          skillEntry('research', 'Plan it'),
+        ]),
+        skillDirectories: ['/opt/skills'],
+        model: { ...testModelEntry, referencesSkills: true },
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+
+    await expect(result.text).resolves.toBe('answer');
+    expect(findById).toHaveBeenCalledWith(chatId, userId);
+    // The chat is inside its epoch, so the stored baseline keeps rendering and
+    // only the addition is disclosed.
+    expect(render).toHaveBeenCalledWith(
+      expect.objectContaining({ skills: stored }),
+    );
+    expect(setSkillBaseline).not.toHaveBeenCalled();
+    const catalogNoticeData: unknown = expect.objectContaining({
+      producer: 'skill-catalog',
+      form: 'notice',
+    });
+    const temporalData: unknown = expect.objectContaining({
+      producer: 'temporal',
+    });
+    expect(repositories.updateUserMessageParts).toHaveBeenCalledWith({
+      id: messageId,
+      chatId,
+      parts: [
+        expect.objectContaining({
+          type: 'data-context',
+          data: catalogNoticeData,
+        }),
+        expect.objectContaining({ type: 'data-context', data: temporalData }),
+        { type: 'text', text: 'hello' },
+      ],
+    });
+    expect(updateSkillCatalogTold).toHaveBeenCalledWith(chatId, userId, [
+      'pdf',
+      'research',
+    ]);
   });
 
   it('settles a pre-aborted run without preparing context or invoking the model', async () => {
@@ -2354,7 +2494,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     );
   });
 
-  it('offers no tools and no step cap when the snapshot declares none', async () => {
+  it('offers no tools and no step cap when the attempt catalog declares none', async () => {
     mockNormalExecutionRepositories();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(capturing.client);
@@ -2374,28 +2514,35 @@ describe('RunExecutionService executeRun — context preparation', () => {
     vi.restoreAllMocks();
   });
 
-  it('creates the current model-context snapshot without reading a bound snapshot', async () => {
+  it('creates a system-only prompt receipt without persisting the attempt catalog', async () => {
     const spies = mockNormalExecutionRepositories();
-    const findByOwnedRun = vi
-      .spyOn(ModelContextSnapshotsRepository.prototype, 'findByOwnedRun')
-      .mockResolvedValue(undefined);
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(capturing.client);
 
     await expect(
       execution.service.executeRun(executionInput(capturing.client)),
     ).resolves.toBeDefined();
-    expect(spies.createOrReuse).toHaveBeenCalledWith(
-      userId,
-      expect.objectContaining({ toolDeclarations: [] }),
+    expect(spies.createReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: receipt.systemPrompt,
+        promptHash: hashWithDomain(
+          'llame:model-context:prompt:v1',
+          receipt.systemPrompt,
+        ),
+      }),
     );
-    expect(findByOwnedRun).not.toHaveBeenCalled();
+    expect(spies.createReceipt.mock.calls[0]?.[0]).not.toHaveProperty(
+      'toolDeclarations',
+    );
+    expect(spies.createReceipt.mock.calls[0]?.[0]).not.toHaveProperty(
+      'toolAvailabilityManifest',
+    );
   });
 
   it('stops without streaming when the context items cannot be recorded', async () => {
     const spies = mockNormalExecutionRepositories();
     spies.updateForAttempt
-      .mockResolvedValueOnce({ ...run, modelContextSnapshotId: snapshotId })
+      .mockResolvedValueOnce({ ...run })
       .mockResolvedValueOnce(undefined);
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(capturing.client);

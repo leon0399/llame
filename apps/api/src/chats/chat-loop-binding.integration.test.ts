@@ -51,7 +51,6 @@ import {
 } from './chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type RunJob } from '../runs/run-queues';
-import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { type CompactionCapability } from '../compaction/compaction.service';
@@ -62,10 +61,7 @@ import {
   type RecencyDigestBaseline,
   type Run,
 } from '../db/schema';
-import {
-  type ToolAvailabilityManifest,
-  type TurnToolCandidate,
-} from '../tools/turn-tool-catalog';
+import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
 import {
   type KnowledgeToolCandidateResolverInput,
   type KnowledgeToolCandidateResolverPort,
@@ -135,7 +131,6 @@ function previousRun(overrides: Partial<Run> = {}): Run {
     messageId: '33333333-3333-4333-8333-333333333333',
     userId: 'user-id',
     modelId: 'system:openai:previous-model',
-    modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
     effort: null,
     status: 'failed',
     workerId: null,
@@ -209,7 +204,6 @@ describe('ChatLoopService accept/worker context binding', () => {
   function setup(options?: {
     failRunCreated?: boolean;
     previousRun?: Run;
-    previousManifest?: ToolAvailabilityManifest;
     activeCompaction?: Compaction;
     toolsAllowed?: ReadonlyArray<string>;
     runtime?: RuntimeCatalogSnapshotter;
@@ -225,7 +219,6 @@ describe('ChatLoopService accept/worker context binding', () => {
     const {
       failRunCreated,
       previousRun: priorRun,
-      previousManifest,
       activeCompaction: compaction,
       toolsAllowed,
       runtime: runtimeOverride,
@@ -333,35 +326,6 @@ describe('ChatLoopService accept/worker context binding', () => {
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
       [],
     );
-    vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
-      'findByOwnedRun',
-    ).mockImplementation(() => {
-      if (!priorRun || !previousManifest) return Promise.resolve(undefined);
-      return Promise.resolve({
-        id: priorRun.modelContextSnapshotId!,
-        ownerUserId: 'user-id',
-        availabilityHash: 'previous-availability-hash',
-        contentHash: 'previous-content-hash',
-        promptHash: 'previous-prompt-hash',
-        toolHash: 'previous-tool-hash',
-        source: 'model_override',
-        systemPrompt: 'Previous prompt',
-        toolAvailabilityManifest: previousManifest,
-        toolDeclarations: [],
-        createdAt: new Date(),
-      });
-    });
-    const createSnapshot = vi
-      .spyOn(ModelContextSnapshotsRepository.prototype, 'createOrReuse')
-      .mockImplementation((ownerUserId, context) =>
-        Promise.resolve({
-          id: 'snapshot-id',
-          ownerUserId,
-          ...context,
-          createdAt: new Date(),
-        }),
-      );
     const updateForAttempt = vi
       .spyOn(RunsRepository.prototype, 'updateForAttempt')
       .mockResolvedValue({
@@ -370,7 +334,6 @@ describe('ChatLoopService accept/worker context binding', () => {
         messageId: 'message-id',
         userId: 'user-id',
         modelId: model.id,
-        modelContextSnapshotId: 'snapshot-id',
         effort: null,
         status: 'running_model',
         workerId: null,
@@ -393,7 +356,6 @@ describe('ChatLoopService accept/worker context binding', () => {
             messageId: 'message-id',
             userId: 'user-id',
             modelId: model.id,
-            modelContextSnapshotId: null,
             status: 'running_model',
             activeAttemptId: 'attempt-id',
             error: null,
@@ -411,7 +373,6 @@ describe('ChatLoopService accept/worker context binding', () => {
             messageId: 'message-id',
             userId: 'user-id',
             modelId: model.id,
-            modelContextSnapshotId: 'snapshot-id',
             status,
             activeAttemptId: 'attempt-id',
             error: null,
@@ -453,7 +414,6 @@ describe('ChatLoopService accept/worker context binding', () => {
           messageId: runInput.messageId,
           userId: runInput.userId,
           modelId: runInput.modelId,
-          modelContextSnapshotId: runInput.modelContextSnapshotId ?? null,
           effort: runInput.effort ?? null,
           status: 'queued' as const,
           workerId: null,
@@ -585,7 +545,6 @@ describe('ChatLoopService accept/worker context binding', () => {
       execution,
       runAs,
       dispatch,
-      createSnapshot,
       updateForAttempt,
       createReceipt,
       findPreviousRun,
@@ -621,7 +580,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       service,
       runAs,
       dispatch,
-      createSnapshot,
+      createReceipt,
       createRun,
       appendEvent,
       createUserMessage,
@@ -649,8 +608,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         modelId: model.id,
       }),
     );
-    expect(createRun.mock.calls[0]?.[0].modelContextSnapshotId).toBeUndefined();
-    expect(createSnapshot).not.toHaveBeenCalled();
+    expect(createReceipt).not.toHaveBeenCalled();
     expect(knowledgeCandidates.resolve).not.toHaveBeenCalled();
     expect(runtime.snapshotCandidates).not.toHaveBeenCalled();
     expect(render).not.toHaveBeenCalled();
@@ -669,7 +627,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     );
   });
 
-  it('resolves owner-bound candidates in the worker transaction and records receipt, snapshot binding, and staged parts', async () => {
+  it('resolves owner-bound candidates in the worker transaction and records the receipt and staged parts', async () => {
     const resolve = vi.fn(
       async ({
         tx,
@@ -701,9 +659,8 @@ describe('ChatLoopService accept/worker context binding', () => {
     );
     const {
       service,
-      createSnapshot,
-      updateForAttempt,
       createReceipt,
+      updateForAttempt,
       executeAttempt,
       updateUserMessageParts,
       persistedMessage,
@@ -722,37 +679,27 @@ describe('ChatLoopService accept/worker context binding', () => {
     expect(resolveInput?.ownerUserId).toBe('user-id');
     expect(resolveInput?.allowedToolRules).toEqual(['knowledge_search']);
     expect(resolveInput?.tx).toBeDefined();
-    expect(createSnapshot).toHaveBeenCalledOnce();
-    expect(createSnapshot.mock.invocationCallOrder[0]).toBeGreaterThan(
+    expect(createReceipt).toHaveBeenCalledOnce();
+    expect(createReceipt.mock.invocationCallOrder[0]).toBeGreaterThan(
       resolve.mock.invocationCallOrder[0],
     );
-    expect(createSnapshot.mock.calls[0]?.[1]).toMatchObject({
+    expect(createReceipt.mock.calls[0]?.[0]).toMatchObject({
+      ownerUserId: 'user-id',
+      attemptId: 'attempt-id',
+      source: 'model_override',
       systemPrompt: 'Bound prompt',
-      toolAvailabilityManifest: {
-        version: 1,
-        entries: [
-          {
-            id: 'knowledge_search',
-            state: 'unavailable',
-            reason: 'knowledge_space_unavailable',
-          },
-        ],
-      },
-      toolDeclarations: [],
     });
+    expect(createReceipt.mock.calls[0]?.[0]).not.toHaveProperty(
+      'toolDeclarations',
+    );
+    expect(createReceipt.mock.calls[0]?.[0]).not.toHaveProperty(
+      'toolAvailabilityManifest',
+    );
     expect(updateForAttempt).toHaveBeenCalledWith(
       expect.any(String),
       'user-id',
       'attempt-id',
-      { modelContextSnapshotId: 'snapshot-id' },
-    );
-    expect(createReceipt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ownerUserId: 'user-id',
-        attemptId: 'attempt-id',
-        source: 'model_override',
-        systemPrompt: 'Bound prompt',
-      }),
+      { activeAttemptId: 'attempt-id' },
     );
     expect(attempt.request.system).toBe('Bound prompt');
     await attempt.result.consumeStream?.();
@@ -760,12 +707,12 @@ describe('ChatLoopService accept/worker context binding', () => {
     expect(committedParts).toBeDefined();
     expect(committedParts?.some(isContextItemPart)).toBe(true);
     expect(
-      committedParts?.some(
+      committedParts?.filter(
         (part) => isContextItemPart(part) && part.data.producer === 'temporal',
       ),
-    ).toBe(true);
-    expect(createSnapshot.mock.invocationCallOrder[0]).toBeLessThan(
-      createReceipt.mock.invocationCallOrder[0],
+    ).toHaveLength(1);
+    expect(createReceipt.mock.invocationCallOrder[0]).toBeGreaterThan(
+      updateForAttempt.mock.invocationCallOrder[0],
     );
   });
 
@@ -775,7 +722,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     const {
       service,
       dispatch,
-      createSnapshot,
+      createReceipt,
       createUserMessage,
       createRun,
       appendEvent,
@@ -796,7 +743,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       'run.created',
       expect.any(Object),
     );
-    expect(createSnapshot).not.toHaveBeenCalled();
+    expect(createReceipt).not.toHaveBeenCalled();
     expect(dispatch).toHaveBeenCalledOnce();
   });
 
@@ -812,7 +759,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       },
     ];
     const snapshotCandidates = vi.fn(() => dynamicCandidates);
-    const { service, createSnapshot, executeAttempt, runtime } = setup({
+    const { service, createReceipt, executeAttempt, runtime } = setup({
       toolsAllowed: ['mcp__web__*'],
       runtime: { snapshotCandidates },
     });
@@ -823,33 +770,30 @@ describe('ChatLoopService accept/worker context binding', () => {
 
     expect(snapshotCandidates).toHaveBeenCalledOnce();
     expect(snapshotCandidates).toHaveBeenCalledWith();
-    expect(createSnapshot).toHaveBeenCalledWith(
-      'user-id',
+    expect(createReceipt).toHaveBeenCalledWith(
       expect.objectContaining({
-        toolAvailabilityManifest: {
-          version: 1,
-          entries: [
-            {
-              id,
-              state: 'unavailable',
-              reason: 'source_disconnected',
-            },
-          ],
-        },
-        toolDeclarations: [],
+        ownerUserId: 'user-id',
+        source: 'model_override',
+        systemPrompt: 'Bound prompt',
       }),
+    );
+    expect(createReceipt.mock.calls[0]?.[0]).not.toHaveProperty(
+      'toolDeclarations',
+    );
+    expect(createReceipt.mock.calls[0]?.[0]).not.toHaveProperty(
+      'toolAvailabilityManifest',
     );
   });
 
   it('does not dispatch when run.created fails, and does not perform worker preparation at accept time', async () => {
-    const { service, createSnapshot, createRun, appendEvent, dispatch } = setup(
-      { failRunCreated: true },
-    );
+    const { service, createReceipt, createRun, appendEvent, dispatch } = setup({
+      failRunCreated: true,
+    });
 
     await expect(service.createMessageStream(input)).rejects.toThrow(
       'run.created failed',
     );
-    expect(createSnapshot).not.toHaveBeenCalled();
+    expect(createReceipt).not.toHaveBeenCalled();
     expect(createRun).toHaveBeenCalledOnce();
     expect(appendEvent).toHaveBeenCalledOnce();
     expect(dispatch).not.toHaveBeenCalled();
@@ -863,7 +807,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     const recencyDigest: RecencyDigestResolver = {
       resolveCandidate: () => Promise.reject(new Error(sensitive)),
     };
-    const { service, createSnapshot, executeAttempt } = setup({
+    const { service, createReceipt, executeAttempt } = setup({
       memory: {
         getForOwnerForBinding: () =>
           Promise.resolve({ shareRecentChats: true }),
@@ -876,7 +820,7 @@ describe('ChatLoopService accept/worker context binding', () => {
 
     expect(error).toHaveBeenCalledWith('recency_digest_resolution_failed');
     expect(JSON.stringify(error.mock.calls)).not.toContain(sensitive);
-    expect(createSnapshot).toHaveBeenCalledOnce();
+    expect(createReceipt).toHaveBeenCalledOnce();
   });
 
   it('checks the binding-time setting in the worker and discards a digest candidate when sharing is disabled', async () => {
@@ -890,7 +834,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       ChatsRepository.prototype,
       'setRecencyDigestIfAbsent',
     );
-    const { service, createSnapshot, executeAttempt, updateUserMessageParts } =
+    const { service, createReceipt, executeAttempt, updateUserMessageParts } =
       setup({
         memory: { getForOwnerForBinding },
         recencyDigest: { resolveCandidate },
@@ -902,9 +846,11 @@ describe('ChatLoopService accept/worker context binding', () => {
     expect(getForOwnerForBinding).toHaveBeenCalledOnce();
     expect(resolveCandidate).not.toHaveBeenCalled();
     expect(setBaseline).not.toHaveBeenCalled();
-    expect(createSnapshot).toHaveBeenCalledWith(
-      'user-id',
-      expect.objectContaining({ systemPrompt: 'Bound prompt' }),
+    expect(createReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerUserId: 'user-id',
+        systemPrompt: 'Bound prompt',
+      }),
     );
     await attempt.result.consumeStream?.();
     const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
@@ -1030,7 +976,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => {});
-    const { service, dispatch, createSnapshot, executeAttempt } = setup({
+    const { service, dispatch, createReceipt, executeAttempt } = setup({
       baseline: baseline(),
       systemPrompts: prompts,
     });
@@ -1042,7 +988,7 @@ describe('ChatLoopService accept/worker context binding', () => {
 
     expect(error).toHaveBeenCalledWith('recency_digest_render_failed');
     expect(JSON.stringify(error.mock.calls)).not.toContain(sensitive);
-    expect(createSnapshot).not.toHaveBeenCalled();
+    expect(createReceipt).not.toHaveBeenCalled();
     expect(dispatch).toHaveBeenCalledOnce();
   });
 
@@ -1106,16 +1052,6 @@ describe('ChatLoopService accept/worker context binding', () => {
       updateUserMessageParts,
     } = setup({
       previousRun: previousRun(),
-      previousManifest: {
-        version: 1,
-        entries: [
-          {
-            id: 'search_conversations',
-            state: 'available',
-            declarationHash: 'a'.repeat(64),
-          },
-        ],
-      },
     });
 
     await service.createMessageStream(input);
@@ -1144,24 +1080,21 @@ describe('ChatLoopService accept/worker context binding', () => {
     });
   });
 
-  it('stages a prior-snapshot tool availability delta in the worker', async () => {
+  it('compares availability with the previous successful turn state record', async () => {
     const {
       service,
       executeAttempt,
       persistedMessage,
       updateUserMessageParts,
     } = setup({
-      previousRun: previousRun({ modelId: model.id }),
-      previousManifest: {
-        version: 1,
-        entries: [
-          {
-            id: 'search_conversations',
-            state: 'available',
-            declarationHash: 'a'.repeat(64),
-          },
+      previousRun: previousRun({
+        modelId: model.id,
+        status: 'completed',
+        turnToolAvailability: [
+          { id: 'search_conversations', state: 'unavailable' },
         ],
-      },
+      }),
+      toolsAllowed: ['search_conversations'],
     });
 
     await service.createMessageStream(input);
@@ -1182,13 +1115,37 @@ describe('ChatLoopService accept/worker context binding', () => {
         payload: {
           kind: 'delta',
           added: [],
-          removed: ['search_conversations'],
+          removed: [],
           unavailable: [],
           becameUnavailable: [],
-          nowAvailable: [],
+          nowAvailable: [
+            { id: 'search_conversations', reason: 'tool_restored' },
+          ],
         },
       },
     });
+  });
+
+  it('does not use a failed prior run as the availability baseline', async () => {
+    const { service, executeAttempt, updateUserMessageParts } = setup({
+      previousRun: previousRun({
+        modelId: model.id,
+        status: 'failed',
+      }),
+      toolsAllowed: ['search_conversations'],
+    });
+
+    await service.createMessageStream(input);
+    const attempt = await executeAttempt();
+    await attempt.result.consumeStream?.();
+
+    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    expect(
+      committedParts?.filter(
+        (part) =>
+          isContextItemPart(part) && part.data.producer === 'tool-availability',
+      ),
+    ).toHaveLength(0);
   });
 
   it('starts a degraded availability epoch in the worker after retained-window compaction', async () => {
@@ -1199,11 +1156,11 @@ describe('ChatLoopService accept/worker context binding', () => {
       persistedMessage,
       updateUserMessageParts,
     } = setup({
-      previousRun: previousRun({ modelId: model.id }),
-      previousManifest: {
-        version: 1,
-        entries: [{ id, state: 'available', declarationHash: 'a'.repeat(64) }],
-      },
+      previousRun: previousRun({
+        modelId: model.id,
+        status: 'completed',
+        turnToolAvailability: [{ id, state: 'available' }],
+      }),
       activeCompaction: activeCompaction(),
       toolsAllowed: [id],
       runtime: {
@@ -1251,16 +1208,6 @@ describe('ChatLoopService accept/worker context binding', () => {
       updateUserMessageParts,
     } = setup({
       previousRun: previous,
-      previousManifest: {
-        version: 1,
-        entries: [
-          {
-            id: 'search_conversations',
-            state: 'unavailable',
-            reason: 'source_disconnected',
-          },
-        ],
-      },
       activeCompaction: activeCompaction(),
       baseline: digestBaseline,
       told: [],
@@ -1297,16 +1244,6 @@ describe('ChatLoopService accept/worker context binding', () => {
     const digestBaseline = baseline();
     const { service, executeAttempt, updateUserMessageParts } = setup({
       previousRun: previousRun({ modelId: model.id }),
-      previousManifest: {
-        version: 1,
-        entries: [
-          {
-            id: 'search_conversations',
-            state: 'unavailable',
-            reason: 'source_disconnected',
-          },
-        ],
-      },
       activeCompaction: activeCompaction(),
       baseline: digestBaseline,
       told: [],

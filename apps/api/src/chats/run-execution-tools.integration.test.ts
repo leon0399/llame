@@ -73,7 +73,7 @@ import {
 } from '../runs/run-execution.service';
 import { type DynamicToolExecutorResolver } from '../runs/snapshot-tool-execution';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { resolveEffectiveContext } from '../runs/effective-context-resolver';
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
@@ -550,17 +550,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
-  async function seedBoundRun(
-    key: string,
-    toolIds: ReadonlyArray<string> = ['search_conversations'],
-  ) {
+  async function seedBoundRun(key = `worker-${crypto.randomUUID()}`) {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const seeded = await tenantDb.runAs(userId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
         ownerUserId: userId,
-        title: 'Snapshot execution',
+        title: 'Worker execution',
       });
       const userMessage = await new MessagesRepository(tx).create({
         id: messageId,
@@ -569,60 +566,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
         senderUserId: userId,
         parts: [{ type: 'text', text: 'use the bound context' }],
       });
-      const snapshot = await seedModelContextSnapshot(tx, userId, key, toolIds);
       const run = await new RunsRepository(tx).create({
         chatId,
         messageId,
         userId,
         modelId: `test:${key}`,
       });
-      return { userMessage, snapshot, run };
+      return { userMessage, run };
     });
 
     return { chatId, messageId, key, ...seeded };
-  }
-
-  /**
-   * One content-addressed snapshot, reused by two runs whose turns differ only
-   * in the context items they carry — the exact condition under which a
-   * snapshot is reused while injected items are not, and therefore the reason
-   * the record cannot live on the snapshot.
-   *
-   * The second turn is seeded only after the first completes: per-chat
-   * single-flight forbids two non-terminal runs.
-   */
-  async function seedSharedSnapshotTurn(
-    key: string,
-    chatId: string,
-    parts: ReadonlyArray<UnknownRecord>,
-    snapshotId?: string,
-  ) {
-    return tenantDb.runAs(userId, async (tx) => {
-      await new ChatsRepository(tx).createIfAbsent({
-        id: chatId,
-        ownerUserId: userId,
-        title: 'Shared snapshot',
-      });
-      const snapshot =
-        snapshotId === undefined
-          ? await seedModelContextSnapshot(tx, userId, key, [
-              'search_conversations',
-            ])
-          : { id: snapshotId };
-      const message = await new MessagesRepository(tx).create({
-        chatId,
-        role: 'user',
-        senderUserId: userId,
-        parts: [...parts],
-      });
-      const run = await new RunsRepository(tx).create({
-        chatId,
-        messageId: message.id,
-        userId,
-        modelId: 'snapshot-target',
-      });
-      return { snapshot, message, run };
-    });
   }
 
   function recordingClient(calls: Array<ModelStreamInput>): ModelClient {
@@ -1129,7 +1082,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const seeded = await seedBoundRun(
       `timeline-then-read-${crypto.randomUUID()}`,
-      ['search_conversations', 'conversation_read'],
     );
     const service = serviceWithTools({
       allowed: ['search_conversations', 'conversation_read'],
@@ -2005,18 +1957,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
           senderUserId: userId,
           parts: [{ type: 'text', text: 'wait for cancellation' }],
         });
-        const snapshot = await seedModelContextSnapshot(
-          tx,
-          userId,
-          `cooperative-abort-write-failure-${crypto.randomUUID()}`,
-          [toolId],
-        );
         const run = await new RunsRepository(tx).create({
           chatId,
           messageId: userMessage.id,
           userId,
           modelId: 'test:cooperative-abort-write-failure',
-          modelContextSnapshotId: snapshot.id,
         });
         return { userMessage, run };
       });
@@ -2159,100 +2104,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
     },
   );
 
-  it('records per run, not per snapshot, when two runs reuse one snapshot', async () => {
-    const key = `shared-${crypto.randomUUID()}`;
-    const chatId = crypto.randomUUID();
-    const service = serviceWithTools();
-
-    const run = async (seeded: {
-      message: { id: string; seq: number; parts: Array<unknown> };
-      run: { id: string };
-    }) => {
-      const result = await service.executeRun({
-        runId: seeded.run.id,
-        chatId,
-        userId,
-        userMessage: {
-          id: seeded.message.id,
-          seq: seeded.message.seq,
-          parts: seeded.message.parts.filter(isRecord),
-        },
-        client: recordingClient([]),
-      });
-      await result.consumeStream?.();
-    };
-
-    const plain = await seedSharedSnapshotTurn(key, chatId, [
-      { type: 'text', text: 'first turn, no items' },
-    ]);
-    await run(plain);
-
-    const withItem = await seedSharedSnapshotTurn(
-      key,
-      chatId,
-      [
-        {
-          type: 'data-context',
-          data: {
-            v: 1,
-            producer: 'recency-digest',
-            form: 'snapshot',
-            runId: crypto.randomUUID(),
-            payload: {},
-          },
-        },
-        { type: 'text', text: 'second turn, carrying an item' },
-      ],
-      plain.snapshot.id,
-    );
-    await run(withItem);
-
-    const [plainRow, itemRow] = await tenantDb.runAs(userId, async (tx) => {
-      const repo = new RunsRepository(tx);
-      return Promise.all([
-        repo.findById(plain.run.id, userId),
-        repo.findById(withItem.run.id, userId),
-      ]);
-    });
-
-    // Both worker attempts resolve the same content-addressed context, while
-    // each run records the items injected into its own request.
-    expect(plainRow?.modelContextSnapshotId).toBe(
-      itemRow?.modelContextSnapshotId,
-    );
-    // The second request replays the first turn's temporal item, then records
-    // its own user item and temporal anchor. The per-run record therefore
-    // differs even though the context snapshot is reused.
-    expect(plainRow?.contextItems).toEqual([
-      {
-        producer: 'temporal',
-        form: 'snapshot',
-        residency: 'rail',
-        text: expect.any(String),
-      },
-    ]);
-    expect(itemRow?.contextItems).toEqual([
-      {
-        producer: 'temporal',
-        form: 'snapshot',
-        residency: 'rail',
-        text: expect.any(String),
-      },
-      {
-        producer: 'recency-digest',
-        form: 'snapshot',
-        residency: 'rail',
-        text: '',
-      },
-      {
-        producer: 'temporal',
-        form: 'snapshot',
-        residency: 'rail',
-        text: expect.any(String),
-      },
-    ]);
-  });
-
   it('assembles a model switch with worker context, portable visible history, and the new user text', async () => {
     const service = serviceWithTools({ allowed: ['search_conversations'] });
     const chatId = crypto.randomUUID();
@@ -2278,19 +2129,31 @@ describeIfDb('executeRun tool-loop persistence', () => {
         senderUserId: userId,
         parts: [{ type: 'text', text: 'Old visible request.' }],
       });
-      const sourceSnapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        'source-model',
-      );
       const sourceRun = await runs.create({
         chatId,
         messageId: oldUser.id,
         userId,
         modelId: 'source-model',
-        modelContextSnapshotId: sourceSnapshot.id,
       });
-      await runs.markFinished(sourceRun.id, userId, 'completed');
+      const sourceAttemptId = (await runs.markStarted(sourceRun.id, userId))
+        ?.activeAttemptId;
+      if (!sourceAttemptId) {
+        throw new Error('Failed to assign a source run attempt');
+      }
+      const sourceReceipt = await new SystemPromptReceiptsRepository(tx).create(
+        {
+          ownerUserId: userId,
+          runId: sourceRun.id,
+          attemptId: sourceAttemptId,
+          source: 'project_default',
+          systemPrompt: 'SOURCE RECEIPT SYSTEM PROMPT',
+          promptHash: 'source-receipt-prompt-hash',
+        },
+      );
+      await runs.markFinished(sourceRun.id, userId, 'completed', {
+        attemptId: sourceAttemptId,
+        turnToolAvailability: [],
+      });
       await messages.create({
         chatId,
         role: 'assistant',
@@ -2327,7 +2190,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         userId,
         modelId: 'target-model',
       });
-      return { sourceSnapshot, targetUser, targetRun };
+      return { sourceReceipt, targetUser, targetRun };
     });
 
     const calls: Array<ModelStreamInput> = [];
@@ -2441,7 +2304,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     });
 
     const providerInput = JSON.stringify(calls[0]);
-    expect(providerInput).not.toContain(seeded.sourceSnapshot.systemPrompt);
+    expect(providerInput).not.toContain(seeded.sourceReceipt.systemPrompt);
     expect(providerInput).not.toContain('SECRET REASONING ARTIFACT');
     expect(providerInput).not.toContain('PROVIDER NATIVE ARTIFACT');
     expect(providerInput).toContain('TOOL DISPLAY INPUT');
@@ -2470,21 +2333,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
     });
 
-    const run = await tenantDb.runAs(userId, async (tx) => {
-      const snapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        'system:openai:gpt-5.4-mini',
-        ['search_conversations'],
-      );
-      return new RunsRepository(tx).create({
+    const run = await tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).create({
         chatId,
         messageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-        modelContextSnapshotId: snapshot.id,
-      });
-    });
+      }),
+    );
 
     let turn = 0;
     const model = new MockLanguageModelV3({
@@ -2642,7 +2498,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const locator = `kb://${space.id}/${relativePath}:1-1`;
     const seeded = await seedBoundRun(
       `knowledge-attribution-${crypto.randomUUID()}`,
-      ['read'],
     );
 
     let turn = 0;
@@ -2875,7 +2730,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
     });
     const seeded = await seedBoundRun(
       `conversation-read-success-${crypto.randomUUID()}`,
-      ['conversation_read'],
     );
     const calls: Array<ModelStreamInput> = [];
 
@@ -2911,9 +2765,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
       await result.consumeStream?.();
 
-      expect(seeded.snapshot.toolDeclarations.map(({ id }) => id)).toEqual([
-        'conversation_read',
-      ]);
       expect(Object.keys(calls[0]?.tools ?? {})).toEqual(['conversation_read']);
 
       const events = await tenantDb.runAs(userId, (tx) =>
@@ -3064,7 +2915,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
       const seeded = await seedBoundRun(
         `conversation-read-${type}-${crypto.randomUUID()}`,
-        ['conversation_read'],
       );
 
       let turn = 0;
@@ -3137,7 +2987,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
     });
     const seeded = await seedBoundRun(
       `conversation-read-output-limit-${crypto.randomUUID()}`,
-      ['conversation_read'],
     );
 
     let turn = 0;
@@ -3230,7 +3079,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const seeded = await seedBoundRun(
       `knowledge-search-attribution-${crypto.randomUUID()}`,
-      ['knowledge_search'],
     );
 
     let turn = 0;
@@ -3421,21 +3269,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
     });
 
-    const run = await tenantDb.runAs(userId, async (tx) => {
-      const snapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        'system:openai:gpt-5.4-mini',
-        ['search_conversations'],
-      );
-      return new RunsRepository(tx).create({
+    const run = await tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).create({
         chatId,
         messageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-        modelContextSnapshotId: snapshot.id,
-      });
-    });
+      }),
+    );
 
     let turn = 0;
     const model = new MockLanguageModelV3({
@@ -3540,21 +3381,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
     });
 
-    const run = await tenantDb.runAs(userId, async (tx) => {
-      const snapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        'system:openai:gpt-5.4-mini',
-        ['search_conversations'],
-      );
-      return new RunsRepository(tx).create({
+    const run = await tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).create({
         chatId,
         messageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-        modelContextSnapshotId: snapshot.id,
-      });
-    });
+      }),
+    );
 
     let turn = 0;
     const model = new MockLanguageModelV3({

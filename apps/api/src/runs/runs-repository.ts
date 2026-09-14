@@ -9,7 +9,18 @@
  */
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, gt, isNull, lt, notInArray } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  type SQL,
+} from 'drizzle-orm';
 import {
   chats,
   messages,
@@ -92,11 +103,6 @@ export class RunsRepository {
     modelId: string;
     /** Resolved at accept time. Absent stores NULL: the run sends no effort. */
     effort?: string | undefined;
-    /**
-     * Legacy: bound at accept time; now resolved by the executing worker.
-     * New runs omit this; the worker binds its own snapshot post-preparation.
-     */
-    modelContextSnapshotId?: string;
   }): Promise<Run> {
     const values: typeof runs.$inferInsert = {
       chatId: input.chatId,
@@ -104,8 +110,6 @@ export class RunsRepository {
       userId: input.userId,
       modelId: input.modelId,
     };
-    if (input.modelContextSnapshotId !== undefined)
-      values.modelContextSnapshotId = input.modelContextSnapshotId;
     if (input.effort !== undefined) values.effort = input.effort;
     if (input.id !== undefined) values.id = input.id;
 
@@ -115,34 +119,16 @@ export class RunsRepository {
   }
 
   /**
-   * Bind an execution-time model-context snapshot to the run. Used by the
-   * worker after resolving prompt/catalog at execution time.
+   * Most recent run by triggering-message sequence, optionally bounded to
+   * triggering messages strictly before `beforeSeq` and narrowed by extra
+   * predicates. Created-at/id only break retry ties for one message; message
+   * seq remains the primary conversation order.
    */
-  async bindSnapshot(
-    runId: string,
-    userId: string,
-    snapshotId: string,
-  ): Promise<Run | undefined> {
-    const [updated] = await this.db
-      .update(runs)
-      .set({ modelContextSnapshotId: snapshotId })
-      .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
-      .returning();
-    return updated;
-  }
-
-  /**
-   * Most recent durable model selection by triggering-message sequence,
-   * optionally bounded to triggering messages strictly before `beforeSeq`
-   * (transition compaction's source-run lookup). Status is intentionally
-   * irrelevant: failed runs still establish the user's previous selection.
-   * Created-at/id only break retry ties for one message; message seq remains
-   * the primary conversation order.
-   */
-  async findMostRecentByChatMessageSequence(
+  private async findMostRecentByMessageSequence(
     chatId: string,
     userId: string,
-    options?: { beforeSeq?: number },
+    options: { beforeSeq?: number } | undefined,
+    ...extra: Array<SQL>
   ): Promise<Run | undefined> {
     const rows = await this.db
       .select({ runs })
@@ -155,6 +141,7 @@ export class RunsRepository {
         and(
           eq(runs.chatId, chatId),
           eq(runs.userId, userId),
+          ...extra,
           ...(options?.beforeSeq !== undefined
             ? [lt(messages.seq, options.beforeSeq)]
             : []),
@@ -164,6 +151,39 @@ export class RunsRepository {
       .limit(1);
 
     return rows[0]?.runs;
+  }
+
+  /**
+   * Most recent durable model selection by triggering-message sequence,
+   * optionally bounded to triggering messages strictly before `beforeSeq`
+   * (transition compaction's source-run lookup). Status is intentionally
+   * irrelevant: failed runs still establish the user's previous selection.
+   */
+  async findMostRecentByChatMessageSequence(
+    chatId: string,
+    userId: string,
+    options?: { beforeSeq?: number },
+  ): Promise<Run | undefined> {
+    return this.findMostRecentByMessageSequence(chatId, userId, options);
+  }
+
+  /**
+   * Most recent successfully completed run by triggering-message sequence.
+   * Unlike the general model-selection lookup, this excludes failed runs and
+   * requires the winning attempt link needed to read its system receipt.
+   */
+  async findMostRecentCompletedByChatMessageSequence(
+    chatId: string,
+    userId: string,
+    options?: { beforeSeq?: number },
+  ): Promise<Run | undefined> {
+    return this.findMostRecentByMessageSequence(
+      chatId,
+      userId,
+      options,
+      eq(runs.status, 'completed'),
+      isNotNull(runs.completedAttemptId),
+    );
   }
 
   /** A chat's runs, oldest-first. Owner-scoped. */

@@ -265,11 +265,6 @@ export function hashToolAvailabilityManifest(
   );
 }
 
-/** Stable database default for snapshots written before availability is observed. */
-export const TOOL_AVAILABILITY_UNOBSERVED_HASH = hashToolAvailabilityManifest(
-  TOOL_AVAILABILITY_UNOBSERVED,
-);
-
 export function hashToolDeclaration(declaration: ModelToolDeclaration): string {
   return hashWithDomain(
     'llame:tool-declaration:v1',

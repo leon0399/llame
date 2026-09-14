@@ -47,7 +47,6 @@ import { RunExecutionService } from '../runs/run-execution.service';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { type KnowledgeToolResolver } from '../tools/types';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
 import { SearchIndexService } from '../search/search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -261,13 +260,11 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       });
     });
     const run = await tenantDb.runAs(userId, async (tx) => {
-      const snapshot = await seedModelContextSnapshot(tx, userId);
       return new RunsRepository(tx).create({
         chatId,
         messageId: userMessage.id,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-        modelContextSnapshotId: snapshot.id,
       });
     });
 
@@ -347,13 +344,11 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
       });
     });
     const run = await tenantDb.runAs(userId, async (tx) => {
-      const snapshot = await seedModelContextSnapshot(tx, userId);
       return new RunsRepository(tx).create({
         chatId,
         messageId: userMessage.id,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-        modelContextSnapshotId: snapshot.id,
       });
     });
 

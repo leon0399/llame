@@ -40,6 +40,7 @@ import {
 import {
   createToolAvailabilityItem,
   deriveToolAvailabilityPayload,
+  deriveToolAvailabilityPayloadFromStates,
   isToolAvailabilityPayload,
   RECOVERY_REASON_BY_UNAVAILABLE_REASON,
   TOOL_RECOVERY_REASON_LABELS,
@@ -51,6 +52,7 @@ import {
 export {
   createToolAvailabilityItem,
   deriveToolAvailabilityPayload,
+  deriveToolAvailabilityPayloadFromStates,
   isToolAvailabilityPayload,
   RECOVERY_REASON_BY_UNAVAILABLE_REASON,
   TOOL_RECOVERY_REASON_LABELS,

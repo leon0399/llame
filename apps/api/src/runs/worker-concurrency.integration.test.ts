@@ -335,7 +335,6 @@ describeIfDb(
               messageId: seed.userMessage.id,
               userId,
               modelId: hangModel,
-              modelContextSnapshotId: seed.modelContextSnapshotId,
             }),
           );
         } catch (error) {

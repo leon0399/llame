@@ -3,6 +3,7 @@ export * from './chats';
 export * from './identity';
 export * from './knowledge-spaces';
 export * from './model-context';
+export * from './system-prompt-receipts';
 export * from './memory';
 export * from './personalization';
 export * from './pins';

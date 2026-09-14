@@ -1,10 +1,12 @@
 import { getTableConfig } from 'drizzle-orm/pg-core';
 
-import { modelContextSnapshots, runs } from './index';
+import { isRecord } from '@workspace/runtime-safety';
 
-describe('model context snapshot schema', () => {
-  it('stores immutable owner-scoped context with deterministic hashes', () => {
-    const config = getTableConfig(modelContextSnapshots);
+import { runs, systemPromptReceipts } from './index';
+
+describe('system prompt receipt schema', () => {
+  it('stores only owner-scoped system prompt fields', () => {
+    const config = getTableConfig(systemPromptReceipts);
     const columns = Object.fromEntries(
       config.columns.map((column) => [column.name, column]),
     );
@@ -13,81 +15,57 @@ describe('model context snapshot schema', () => {
     expect(columns).toMatchObject({
       id: { notNull: true },
       owner_user_id: { notNull: true },
-      availability_hash: { notNull: true },
-      content_hash: { notNull: true },
-      prompt_hash: { notNull: true },
-      tool_hash: { notNull: true },
+      run_id: { notNull: true },
+      attempt_id: { notNull: true },
       source: { notNull: true },
       system_prompt: { notNull: true },
-      tool_availability_manifest: { notNull: true },
-      tool_declarations: { notNull: true },
+      prompt_hash: { notNull: true },
       created_at: { notNull: true },
     });
-    expect(modelContextSnapshots.availabilityHash.default).toBeUndefined();
-    expect(
-      modelContextSnapshots.toolAvailabilityManifest.default,
-    ).toBeUndefined();
-
+    expect(Object.keys(columns).sort()).toEqual([
+      'attempt_id',
+      'created_at',
+      'id',
+      'owner_user_id',
+      'prompt_hash',
+      'run_id',
+      'source',
+      'system_prompt',
+    ]);
     expect(
       config.policies.map(({ name, for: operation }) => [name, operation]),
     ).toEqual([
-      ['model_context_snapshots_owner_select', 'select'],
-      ['model_context_snapshots_owner_insert', 'insert'],
+      ['system_prompt_receipts_owner_select', 'select'],
+      ['system_prompt_receipts_owner_insert', 'insert'],
     ]);
-    expect(
-      config.indexes.map((index) => ({
-        name: index.config.name,
-        unique: index.config.unique,
-        columns: index.config.columns.map((column) =>
-          'name' in column ? column.name : undefined,
-        ),
-      })),
-    ).toEqual(
-      expect.arrayContaining([
-        {
-          name: 'model_context_snapshots_id_owner_user_id_unique_idx',
-          unique: true,
-          columns: ['id', 'owner_user_id'],
-        },
-        {
-          name: 'model_context_snapshots_owner_content_avail_source_uidx',
-          unique: true,
-          columns: [
-            'owner_user_id',
-            'content_hash',
-            'availability_hash',
-            'source',
-          ],
-        },
-      ]),
-    );
-    expect(
-      config.indexes.some(
-        (index) =>
-          index.config.name ===
-          'model_context_snapshots_owner_content_source_unique_idx',
-      ),
-    ).toBe(false);
+    const hasOwnerRunAttemptIndex = config.indexes.some((index) => {
+      const indexConfig: unknown = index.config;
+      return (
+        isRecord(indexConfig) &&
+        indexConfig.name === 'system_prompt_receipts_owner_run_attempt_uidx' &&
+        indexConfig.unique === true
+      );
+    });
+    expect(hasOwnerRunAttemptIndex).toBe(true);
   });
 
-  it('keeps the run reference nullable for history but owner-constrains every binding', () => {
-    expect(runs.modelContextSnapshotId.notNull).toBe(false);
-
-    const config = getTableConfig(runs);
-    const snapshotForeignKey = config.foreignKeys.find(
+  it('owner-constrains each receipt to its run', () => {
+    const config = getTableConfig(systemPromptReceipts);
+    const receiptForeignKey = config.foreignKeys.find(
       (foreignKey) =>
-        foreignKey.getName() === 'runs_model_context_snapshot_id_user_id_fk',
+        foreignKey.getName() === 'system_prompt_receipts_run_id_user_id_fk',
     );
-    const reference = snapshotForeignKey?.reference();
+    const reference = receiptForeignKey?.reference();
 
     expect(reference?.columns.map((column) => column.name)).toEqual([
-      'model_context_snapshot_id',
-      'user_id',
-    ]);
-    expect(reference?.foreignTable).toBe(modelContextSnapshots);
-    expect(reference?.foreignColumns.map((column) => column.name)).toEqual([
-      'id',
+      'run_id',
       'owner_user_id',
     ]);
+    expect(reference?.foreignTable).toBe(runs);
+    expect(reference?.foreignColumns.map((column) => column.name)).toEqual([
+      'id',
+      'user_id',
+    ]);
+    expect(receiptForeignKey?.onDelete).toBe('cascade');
   });
 });

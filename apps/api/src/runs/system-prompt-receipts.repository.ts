@@ -3,7 +3,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import {
   systemPromptReceipts,
   type SystemPromptReceipt,
-} from '../db/schema/model-context';
+} from '../db/schema/system-prompt-receipts';
 import { type Db } from '../db/tenant-db.service';
 
 /**

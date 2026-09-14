@@ -677,7 +677,6 @@ describe('ChatsService message windows, updates and forks', () => {
       messageId: null,
       userId: ownerUserId,
       modelId: 'system:openai:public-model',
-      modelContextSnapshotId: null,
       effort: null,
       status: 'running_model',
       workerId: null,
