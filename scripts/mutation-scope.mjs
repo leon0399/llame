@@ -49,6 +49,16 @@ function mutationTooling(file) {
   );
 }
 
+// A migration states the schema every measurement already applies. It changes
+// neither which mutants exist nor which test the index credits for covering one,
+// and a scoped run re-measures its files against the checked-out schema
+// regardless. Bounding it would strand a migration pull request: a pull request
+// never writes the index, so it can only reuse its base revision's, and the base
+// revision has no migration to fingerprint.
+function migration(file) {
+  return file.startsWith("apps/api/src/db/migrations/");
+}
+
 function testSupport(file) {
   if (file.endsWith("/eval/dataset.ts")) return true;
   return /(^|\/)(__mocks__|__fixtures__|fixtures|testing)\/|(^|[./-])(test-fixture|test-helper|fixture|fake|mock|stub)([./-]|$)/u.test(
@@ -317,7 +327,8 @@ export function selectMutationScope(changes, sources, baselines = {}) {
   );
 
   for (const file of changes) {
-    if (documentation(file) || mutationTooling(file)) continue;
+    if (documentation(file) || mutationTooling(file) || migration(file))
+      continue;
     const workspace = mutationWorkspaces.find((directory) =>
       file.startsWith(`${directory}/`),
     );
@@ -408,7 +419,8 @@ export function mutationFingerprint(workspace, root = process.cwd()) {
       if (
         documentation(file) ||
         file.startsWith(".github/") ||
-        /(^|\/)\.gitignore$/u.test(file)
+        /(^|\/)\.gitignore$/u.test(file) ||
+        migration(file)
       )
         return false;
       if (file.startsWith(`${workspace}/`)) {

@@ -23,6 +23,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   can never be indexed at any revision. A missing index, or one that measured
   no mutants, remains a failed evidence check instead of a free pass.
 
+- Stop bounding or fingerprinting Drizzle migrations in the mutation gate. A
+  migration changes neither which mutants exist nor which test the index credits
+  for covering one, and a scoped run re-measures its files against the
+  checked-out schema. Treating it as an environment input stranded every pull
+  request that adds one: the plan failed with an unusable index and an unbounded
+  delta before any mutant ran, and only a trusted run writes the index a
+  migration pull request would need.
+
 # 2026-09-12
 
 - Pin the Pullfrog workflow's two action references to full commit SHAs,

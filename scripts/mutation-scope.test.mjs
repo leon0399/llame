@@ -221,6 +221,23 @@ test("unbounded test, source and runtime changes cannot schedule mutations", () 
   }
 });
 
+test("migration edits leave the API delta bounded", () => {
+  const migration = "apps/api/src/db/migrations/20260101000000_example.sql";
+  assert.deepEqual(selectMutationScope([migration], sources), {
+    "apps/api": { mode: "skip", files: [] },
+    "packages/config-interpolation": { mode: "skip", files: [] },
+    "packages/runtime-safety": { mode: "skip", files: [] },
+  });
+  assert.deepEqual(
+    selectMutationScope([migration, "apps/api/src/b.ts"], sources),
+    {
+      "apps/api": { mode: "scoped", files: ["src/b.ts"] },
+      "packages/config-interpolation": { mode: "skip", files: [] },
+      "packages/runtime-safety": { mode: "skip", files: [] },
+    },
+  );
+});
+
 test("shared runtime changes cannot claim a scoped API delta", () => {
   const result = selectMutationScope(
     ["packages/runtime-safety/src/redact.ts"],
@@ -311,6 +328,9 @@ test("baselines invalidate on environment and dependency changes, retaining nati
     "apps/api/src/example.test-fixture.ts": "export const fixture = 1;\n",
     "apps/api/src/excluded.ts": "export const excluded = 1;\n",
     "apps/api/src/prompt.md": "runtime input\n",
+    "apps/api/src/db/migrations/20260101000000_example.sql":
+      "CREATE TABLE example (id uuid);\n",
+    "apps/api/src/db/migrations/meta/20260101000000_snapshot.json": "{}\n",
     "apps/api/README.md": "documentation\n",
     "packages/runtime-safety/package.json": JSON.stringify({
       devDependencies: { "@workspace/config-typescript": "workspace:*" },
@@ -348,6 +368,8 @@ test("baselines invalidate on environment and dependency changes, retaining nati
       "apps/web/app/page.tsx",
       ".github/workflows/ci.yml",
       ".gitignore",
+      "apps/api/src/db/migrations/20260101000000_example.sql",
+      "apps/api/src/db/migrations/meta/20260101000000_snapshot.json",
     ]) {
       writeFileSync(path.join(directory, file), `${files[file]}// changed\n`);
       assert.equal(mutationFingerprint("apps/api", directory), baseline, file);
@@ -369,6 +391,16 @@ test("baselines invalidate on environment and dependency changes, retaining nati
       );
       writeFileSync(path.join(directory, file), files[file]);
     }
+    // A pull request that adds a migration must reuse the index its base
+    // revision produced; no trusted run can ever measure this fingerprint.
+    writeFileSync(
+      path.join(
+        directory,
+        "apps/api/src/db/migrations/20260101000001_added.sql",
+      ),
+      "ALTER TABLE example ADD COLUMN name text;\n",
+    );
+    assert.equal(mutationFingerprint("apps/api", directory), baseline);
     writeFileSync(path.join(directory, "new-runtime-input.txt"), "new input\n");
     assert.notEqual(mutationFingerprint("apps/api", directory), baseline);
     writeFileSync(path.join(directory, "repository-input.json"), "<deleted>");
@@ -728,6 +760,32 @@ test("cold plans skip mutation tooling but reject missing delta evidence", () =>
       assert.equal(missing.status, 1);
       assert.match(missing.stderr, /mutation delta unavailable/u);
     }
+    // A migration is not a mutation input: it never makes the delta unbounded.
+    writeFileSync(
+      path.join(directory, "apps/api/src/a.ts"),
+      "export const n = 1;\n",
+    );
+    const migrations = path.join(directory, "apps/api/src/db/migrations");
+    mkdirSync(migrations, { recursive: true });
+    writeFileSync(
+      path.join(migrations, "20260101000000_example.sql"),
+      "CREATE TABLE example (id uuid);\n",
+    );
+    const migrationOnly = run("plan", "--base", base);
+    assert.equal(migrationOnly.status, 0, migrationOnly.stderr);
+    assert.equal(JSON.parse(migrationOnly.stdout).apiMode, "skip");
+    writeFileSync(
+      path.join(directory, "apps/api/src/a.ts"),
+      "export const n = 2;\n",
+    );
+    const withSource = run("plan", "--base", base);
+    assert.equal(withSource.status, 1);
+    assert.match(
+      withSource.stderr,
+      /No compatible ancestor mutation baseline/u,
+    );
+    assert.doesNotMatch(withSource.stderr, /Impact cannot be bounded/u);
+    rmSync(migrations, { recursive: true, force: true });
     writeFileSync(
       path.join(directory, "apps/api/src/a.ts"),
       "export const n = 1;\n",
