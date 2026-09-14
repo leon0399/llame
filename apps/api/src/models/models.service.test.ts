@@ -57,6 +57,7 @@ const CATALOG: Array<SystemModelCatalogEntry> = [
     pricingUsdPer1M: { input: 2.5, cachedInput: 0.25, output: 10 },
     systemPromptTemplate: 'Internal prompt 1',
     systemPromptSource: 'project_default',
+    referencesSkills: false,
   },
   {
     id: 'system:openai:gpt-5.4',
@@ -68,6 +69,7 @@ const CATALOG: Array<SystemModelCatalogEntry> = [
     pricingUsdPer1M: { input: 1.25, cachedInput: 0.125, output: 7.5 },
     systemPromptTemplate: 'Internal prompt 2',
     systemPromptSource: 'project_default',
+    referencesSkills: false,
   },
   {
     id: 'system:openai:gpt-5.4-mini',
@@ -79,6 +81,7 @@ const CATALOG: Array<SystemModelCatalogEntry> = [
     pricingUsdPer1M: { input: 0.75, cachedInput: 0.075, output: 4.5 },
     systemPromptTemplate: 'Internal prompt 3',
     systemPromptSource: 'model_override',
+    referencesSkills: false,
   },
   {
     id: 'system:openai:gpt-5.4-nano',
@@ -90,6 +93,7 @@ const CATALOG: Array<SystemModelCatalogEntry> = [
     pricingUsdPer1M: { input: 0.1, cachedInput: 0.01, output: 0.4 },
     systemPromptTemplate: 'Internal prompt 4',
     systemPromptSource: 'project_default',
+    referencesSkills: false,
   },
   {
     id: 'system:openai:gpt-4o',
@@ -101,6 +105,7 @@ const CATALOG: Array<SystemModelCatalogEntry> = [
     pricingUsdPer1M: { input: 2.5, output: 10 },
     systemPromptTemplate: 'Internal prompt 5',
     systemPromptSource: 'project_default',
+    referencesSkills: false,
   },
   {
     id: 'system:openai:gpt-4o-mini',
@@ -111,6 +116,7 @@ const CATALOG: Array<SystemModelCatalogEntry> = [
     pricingUsdPer1M: { input: 0.15, cachedInput: 0.075, output: 0.6 },
     systemPromptTemplate: 'Internal prompt 6',
     systemPromptSource: 'project_default',
+    referencesSkills: false,
   },
 ];
 
@@ -185,6 +191,7 @@ describe('ModelsService', () => {
           contextWindowTokens: 128_000,
           systemPromptTemplate: 'Internal prompt',
           systemPromptSource: 'project_default',
+          referencesSkills: false,
         },
       ],
     });
@@ -336,6 +343,7 @@ describe('ModelsService', () => {
       contextWindowTokens: 128_000,
       systemPromptTemplate: 'Internal prompt R',
       systemPromptSource: 'project_default',
+      referencesSkills: false,
       reasoning: REASONING,
     };
     // Destructured out rather than deleted after the fact: `reasoning` is
@@ -442,6 +450,7 @@ describe('ModelsService — GET /api/v1/models contract stability (#161, provide
         compactionThresholdTokens: _ct,
         systemPromptTemplate: _spt,
         systemPromptSource: _sps,
+        referencesSkills: _rs,
         ...pub
       }) => pub,
     );

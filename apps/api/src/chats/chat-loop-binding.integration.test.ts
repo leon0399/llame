@@ -8,6 +8,7 @@
  */
 
 import { expectMessageParts, expectTemporalRow } from '../testing/support';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql as drizzleSql } from 'drizzle-orm';
 import postgres from 'postgres';
@@ -133,6 +134,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
     providerModelId: 'gpt-5.4-mini',
     systemPromptTemplate: 'Bound prompt',
     systemPromptSource: 'model_override',
+    referencesSkills: false,
   };
 
   beforeAll(() => {
@@ -179,6 +181,8 @@ describe('ChatLoopService effective-context transaction binding', () => {
       recencyDigestBaseline: options?.baseline ?? null,
       recencyDigestTold: options?.told ?? null,
       recencyDigestRebakedFrom: options?.rebakedFrom ?? null,
+      skillCatalogBaseline: null,
+      skillCatalogRebakedFrom: null,
     });
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
     vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
@@ -319,6 +323,7 @@ describe('ChatLoopService effective-context transaction binding', () => {
       options?.memory ?? memory,
       options?.recencyDigest ?? recencyDigest,
       options?.knowledgeCandidates ?? knowledgeCandidates,
+      noopSkillCatalog(),
     );
 
     return {

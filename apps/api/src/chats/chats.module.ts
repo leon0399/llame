@@ -8,6 +8,7 @@ import { PersonalizationModule } from '../personalization/personalization.module
 import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
+import { SkillsModule } from '../skills/skills.module';
 import { SystemPromptsModule } from '../system-prompts/system-prompts.module';
 import { ChatLoopService } from './chat-loop.service';
 import { RecencyDigestModule } from './recency-digest.module';
@@ -38,6 +39,7 @@ import { SharedChatsController } from './shared-chats.controller';
     MemoryModule,
     KnowledgeModule,
     RecencyDigestModule,
+    SkillsModule,
   ],
   controllers: [ChatsController, MeRunsController, SharedChatsController],
   providers: [ChatsService, ChatLoopService],

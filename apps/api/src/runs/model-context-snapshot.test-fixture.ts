@@ -20,6 +20,7 @@ export async function seedModelContextSnapshot(
     providerModelId: 'test',
     systemPromptTemplate: systemPrompt,
     systemPromptSource: 'project_default',
+    referencesSkills: false,
   };
   const context = await resolveEffectiveContext({
     model,

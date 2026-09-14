@@ -26,6 +26,7 @@ describe('seedModelContextSnapshot', () => {
       providerModelId: 'test',
       systemPromptTemplate: `Test prompt: ${key}`,
       systemPromptSource: 'project_default',
+      referencesSkills: false,
     };
     const expectedContext = await resolveEffectiveContext({
       model,

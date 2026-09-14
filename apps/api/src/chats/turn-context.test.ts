@@ -5,10 +5,16 @@ import type {
   TurnToolCandidate,
 } from '../tools/turn-tool-catalog';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import type { SystemPromptRenderInput } from '../system-prompts/system-prompts.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { Db } from '../db/tenant-db.service';
 import type { Chat, Compaction, ModelContextSnapshot, Run } from '../db/schema';
 import { ChatsRepository, CompactionsRepository } from './chats-repository';
+import {
+  SkillCatalog,
+  type SkillCatalogEntry,
+  type SkillCatalogPort,
+} from '../skills/skill-catalog';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import type { MessagePart } from './context-builder';
@@ -39,6 +45,7 @@ const model: SystemModelCatalogEntry = {
   providerModelId: 'gpt-test',
   systemPromptTemplate: 'You are a test assistant.',
   systemPromptSource: 'project_default',
+  referencesSkills: false,
 };
 
 const unavailableManifest: ToolAvailabilityManifestV1 = {
@@ -84,6 +91,8 @@ const chat = (overrides: Partial<Chat> = {}): Chat => ({
   recencyDigestBaseline: null,
   recencyDigestTold: null,
   recencyDigestRebakedFrom: null,
+  skillCatalogBaseline: null,
+  skillCatalogRebakedFrom: null,
   ...overrides,
 });
 
@@ -215,6 +224,51 @@ const deps = (): TurnContextDeps => ({
       Promise.resolve({ shareRecentChats: false }),
     ),
   },
+  skillCatalog: new SkillCatalog([]),
+});
+
+/** The same deps with a configured (non-empty) skill source and a catalog. */
+const skillDeps = (
+  entries: ReadonlyArray<SkillCatalogEntry>,
+): TurnContextDeps => ({
+  ...deps(),
+  // Keeps deps()'s tool settings so only the skill source differs.
+  instanceConfig: {
+    config: {
+      ...BUILT_IN_DEFAULTS,
+      tools: { ...BUILT_IN_DEFAULTS.tools, callTimeoutSeconds: 30 },
+      skills: { directories: ['/opt/skills'] },
+    },
+  },
+  skillCatalog: catalogOf(entries),
+});
+
+const catalogOf = (
+  entries: ReadonlyArray<SkillCatalogEntry>,
+): SkillCatalogPort => {
+  const catalog = new SkillCatalog([]);
+  vi.spyOn(catalog, 'getSnapshot').mockReturnValue({
+    available: true,
+    directories: ['/opt/skills'],
+    entries: [...entries],
+    diagnostics: [],
+  });
+  return catalog;
+};
+
+const skillEntry = (
+  name: string,
+  description: string | null,
+  overrides: Partial<SkillCatalogEntry> = {},
+): SkillCatalogEntry => ({
+  name,
+  description,
+  proactive: true,
+  sourceDirectory: '/opt/skills',
+  skillDirectory: `/opt/skills/${name}`,
+  available: true,
+  diagnostics: [],
+  ...overrides,
 });
 
 // SAFETY: repository methods are replaced before each call; no DB operation reads this value.
@@ -233,6 +287,9 @@ const installRepositorySpies = () => ({
     .mockResolvedValue(undefined),
   setBaseline: vi
     .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+    .mockResolvedValue(undefined),
+  setSkillBaseline: vi
+    .spyOn(ChatsRepository.prototype, 'setSkillCatalogBaseline')
     .mockResolvedValue(undefined),
   findById: vi
     .spyOn(ChatsRepository.prototype, 'findById')
@@ -364,6 +421,254 @@ describe('buildTurnContextAndParts', () => {
       }),
     ).rejects.toThrow('Failed to render system prompt');
     expect(errorSpy).toHaveBeenCalledWith('recency_digest_render_failed');
+  });
+});
+
+describe('the frozen skill-catalog baseline', () => {
+  beforeEach(() => {
+    repositories = installRepositorySpies();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const build = (input: {
+    deps: TurnContextDeps;
+    chat?: Chat;
+    anchorCompaction?: Compaction;
+  }) => {
+    repositories.findLatest.mockResolvedValue(input.anchorCompaction);
+    return buildTurnContextAndParts(input.deps, {
+      tx,
+      chat: input.chat ?? chat(),
+      turnInput: turnInput(),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+  };
+
+  it('writes no column when no skill source is configured', async () => {
+    await build({ deps: deps() });
+
+    expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
+  });
+
+  it('resolves the current catalog into the prompt and freezes it on the chat', async () => {
+    const rendered = vi.fn(
+      (_input: SystemPromptRenderInput) => 'Rendered test prompt',
+    );
+    const context = skillDeps([
+      skillEntry('pdf', 'Extract text'),
+      skillEntry('review', 'Review', { proactive: false }),
+      skillEntry('broken', null, { available: false }),
+    ]);
+    context.systemPrompts = { render: rendered };
+
+    await build({ deps: context });
+
+    // Only the proactively eligible, readable package reaches the projection.
+    expect(rendered).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skills: {
+          entries: [{ name: 'pdf', description: 'Extract text' }],
+          omitted: 0,
+        },
+      }),
+    );
+    expect(repositories.setSkillBaseline).toHaveBeenCalledWith({
+      chatId: CHAT_ID,
+      ownerUserId: USER_ID,
+      baseline: {
+        entries: [{ name: 'pdf', description: 'Extract text' }],
+        omitted: 0,
+      },
+      rebakedFrom: null,
+    });
+  });
+
+  it('passes an empty baseline through when the catalog admits nothing', async () => {
+    const rendered = vi.fn(
+      (_input: SystemPromptRenderInput) => 'Rendered test prompt',
+    );
+    const context = skillDeps([
+      skillEntry('review', 'Review', { proactive: false }),
+    ]);
+    context.systemPrompts = { render: rendered };
+
+    await build({ deps: context });
+
+    // The KEY is present here as an empty-but-defined object: `skillBaseline` is
+    // defined, so this layer forwards it. The gate is decided one layer deeper,
+    // in the prompt loader's `skillsContext`, where zero entries makes `skills`
+    // absent from the Handlebars context — which is what makes the default
+    // template's `{{#if skills}}` omit the whole section.
+    expect(rendered.mock.calls[0][0].skills).toEqual({
+      entries: [],
+      omitted: 0,
+    });
+    expect(repositories.setSkillBaseline).toHaveBeenCalled();
+  });
+
+  it('reuses a stored baseline within the same compaction epoch', async () => {
+    const stored = {
+      entries: [{ name: 'stored', description: 'From the baseline' }],
+      omitted: 2,
+    };
+    const rendered = vi.fn(
+      (_input: SystemPromptRenderInput) => 'Rendered test prompt',
+    );
+    const context = skillDeps([skillEntry('pdf', 'Fresh')]);
+    context.systemPrompts = { render: rendered };
+    // The catalog would resolve differently, so a live read would be visible.
+    repositories.findLatest.mockResolvedValue(
+      compaction({ id: 'compaction-1' }),
+    );
+
+    await buildTurnContextAndParts(context, {
+      tx,
+      chat: chat({
+        skillCatalogBaseline: stored,
+        skillCatalogRebakedFrom: 'compaction-1',
+      }),
+      turnInput: turnInput(),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+
+    expect(rendered).toHaveBeenCalledWith(
+      expect.objectContaining({ skills: stored }),
+    );
+    expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
+  });
+
+  it('re-resolves at the turn after a new compaction starts an epoch', async () => {
+    const context = skillDeps([skillEntry('pdf', 'Fresh')]);
+    repositories.findLatest.mockResolvedValue(
+      compaction({ id: 'compaction-2' }),
+    );
+
+    await buildTurnContextAndParts(context, {
+      tx,
+      chat: chat({
+        skillCatalogBaseline: {
+          entries: [{ name: 'stale', description: 'Old epoch' }],
+          omitted: 0,
+        },
+        skillCatalogRebakedFrom: 'compaction-1',
+      }),
+      turnInput: turnInput(),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+
+    expect(repositories.setSkillBaseline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseline: {
+          entries: [{ name: 'pdf', description: 'Fresh' }],
+          omitted: 0,
+        },
+        rebakedFrom: 'compaction-2',
+      }),
+    );
+  });
+
+  it('keeps an uncompacted chat on its first baseline', async () => {
+    const stored = {
+      entries: [{ name: 'stored', description: 'd' }],
+      omitted: 0,
+    };
+    const context = skillDeps([skillEntry('pdf', 'Fresh')]);
+    repositories.findLatest.mockResolvedValue(undefined);
+
+    await buildTurnContextAndParts(context, {
+      tx,
+      chat: chat({
+        skillCatalogBaseline: stored,
+        skillCatalogRebakedFrom: null,
+      }),
+      turnInput: turnInput(),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+
+    expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
+    expect(context.systemPrompts.render).toHaveBeenCalledWith(
+      expect.objectContaining({ skills: stored }),
+    );
+  });
+
+  it('keeps advertising a stored baseline after the source list is emptied', async () => {
+    const stored = {
+      entries: [{ name: 'stored', description: 'From the baseline' }],
+      omitted: 0,
+    };
+    const rendered = vi.fn((_input: SystemPromptRenderInput) => 'prompt');
+    // No configured source now, but the chat holds a baseline for this epoch.
+    const context: TurnContextDeps = {
+      ...deps(),
+      systemPrompts: { render: rendered },
+    };
+    repositories.findLatest.mockResolvedValue(undefined);
+
+    await buildTurnContextAndParts(context, {
+      tx,
+      chat: chat({
+        skillCatalogBaseline: stored,
+        skillCatalogRebakedFrom: null,
+      }),
+      turnInput: turnInput(),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+
+    // Reuse outranks the configured list: dropping the section here would
+    // silently unadvertise a catalog the chat is still told about, and removals
+    // are announced as notices rather than by mutating the frozen prompt.
+    expect(rendered).toHaveBeenCalledWith(
+      expect.objectContaining({ skills: stored }),
+    );
+    expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
+  });
+
+  it('writes no baseline for an unconfigured instance with no stored one', async () => {
+    repositories.findLatest.mockResolvedValue(undefined);
+    const rendered = vi.fn((_input: SystemPromptRenderInput) => 'prompt');
+    const context: TurnContextDeps = {
+      ...deps(),
+      systemPrompts: { render: rendered },
+    };
+
+    await buildTurnContextAndParts(context, {
+      tx,
+      chat: chat(),
+      turnInput: turnInput(),
+      shareRecentChats: { shareRecentChats: false },
+      digestDelta: null,
+    });
+
+    // No key at all, which is what leaves the default template's
+    // `{{#if skills}}` section unrendered.
+    expect(rendered.mock.calls[0][0].skills).toBeUndefined();
+    expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
+  });
+
+  it('reports an honest omitted count when the bound overflows', async () => {
+    const entries = Array.from({ length: 300 }, (_, i) =>
+      skillEntry(`s${String(i).padStart(3, '0')}`, 'd'),
+    );
+    const rendered = vi.fn(
+      (_input: SystemPromptRenderInput) => 'Rendered test prompt',
+    );
+    const context = skillDeps(entries);
+    context.systemPrompts = { render: rendered };
+
+    await build({ deps: context });
+
+    const passed = rendered.mock.calls[0][0].skills;
+    if (passed === undefined) throw new Error('expected a skills projection');
+    expect(passed.entries).toHaveLength(256);
+    expect(passed.omitted).toBe(44);
   });
 });
 

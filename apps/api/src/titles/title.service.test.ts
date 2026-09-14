@@ -20,6 +20,7 @@ const titleModel = {
   contextWindowTokens: 128_000,
   systemPromptTemplate: 'title prompt',
   systemPromptSource: 'project_default' as const,
+  referencesSkills: false,
 };
 const provider: ProviderConfig = {
   id: 'openai',

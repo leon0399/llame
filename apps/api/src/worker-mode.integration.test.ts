@@ -85,6 +85,7 @@ class FakeModelsService implements ModelSelectionValidator {
       providerModelId: 'test-provider-model',
       systemPromptTemplate: `Worker-mode prompt for ${modelId}`,
       systemPromptSource: 'project_default' as const,
+      referencesSkills: false,
     };
   }
 

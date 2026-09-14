@@ -21,6 +21,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 import { expectMessageParts } from '../testing/support';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -276,6 +277,7 @@ describeIfDb(
           providerModelId: modelId,
           systemPromptTemplate: systemPrompt,
           systemPromptSource: 'project_default',
+          referencesSkills: false,
         }),
         // No reasoning vocabulary on these doubles: effort always resolves
         // to "none".
@@ -323,6 +325,7 @@ describeIfDb(
         new MemoryService(tenantDb),
         new RecencyDigestService(tenantDb),
         knowledgeCandidates,
+        noopSkillCatalog(),
       );
     });
 
@@ -800,6 +803,7 @@ describeIfDb(
           providerModelId: modelId,
           systemPromptTemplate: uniquePrompt,
           systemPromptSource: 'model_override',
+          referencesSkills: false,
         }),
         // No reasoning vocabulary on these doubles: effort always resolves
         // to "none".
@@ -839,6 +843,7 @@ describeIfDb(
         new MemoryService(tenantDb),
         new RecencyDigestService(tenantDb),
         knowledgeCandidates,
+        noopSkillCatalog(),
       );
       const before = await tenantDb.runAs(userId, async (tx) => ({
         chats: (await tx.select().from(schema.chats)).length,

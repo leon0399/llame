@@ -9,6 +9,7 @@
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
@@ -103,6 +104,7 @@ describeIfDb('personalization binds per run', () => {
         providerModelId: modelId,
         systemPromptTemplate: SYSTEM_PROMPT_TEMPLATE,
         systemPromptSource: 'project_default' as const,
+        referencesSkills: false,
       }),
       // No reasoning vocabulary on this double: effort always resolves to
       // "none".
@@ -126,6 +128,7 @@ describeIfDb('personalization binds per run', () => {
       new MemoryService(tenantDb),
       new RecencyDigestService(tenantDb),
       knowledgeCandidates,
+      noopSkillCatalog(),
     );
   });
 

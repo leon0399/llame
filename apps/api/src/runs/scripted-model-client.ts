@@ -562,6 +562,7 @@ export class ScriptedModelsService implements ModelSelectionValidator {
       providerModelId: modelId,
       systemPromptTemplate: `Harness prompt for ${modelId}`,
       systemPromptSource: 'project_default' as const,
+      referencesSkills: false,
       ...(reasoning !== undefined && { reasoning }),
     };
   }

@@ -28,6 +28,7 @@ const model = {
   contextWindowTokens: 128_000,
   systemPromptTemplate: 'Test prompt',
   systemPromptSource: 'project_default' as const,
+  referencesSkills: false,
 };
 
 describe('createModelClient native OpenAI routing', () => {

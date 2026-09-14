@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 
 import { type TenantRunner } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -43,6 +44,7 @@ const model: SystemModelCatalogEntry = {
   providerModelId: 'gpt-5.4-mini',
   systemPromptTemplate: 'Bound prompt',
   systemPromptSource: 'model_override',
+  referencesSkills: false,
 };
 
 function makeService(models?: {
@@ -93,6 +95,7 @@ function makeService(models?: {
       memory,
       recencyDigest,
       knowledgeCandidates,
+      noopSkillCatalog(),
     ),
     runAs,
     validateModelSelection,

@@ -560,6 +560,7 @@ describe('operator-configured MCP production acceptance', () => {
         providerModelId: 'fixture',
         systemPromptTemplate: 'Use the configured fixture search tool.',
         systemPromptSource: 'project_default',
+        referencesSkills: false,
       };
       const context = await resolveEffectiveContext({
         model,

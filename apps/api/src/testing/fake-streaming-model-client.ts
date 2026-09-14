@@ -471,6 +471,7 @@ export class FakeModelsService implements ModelSelectionValidator {
       providerModelId: 'test-provider-model',
       systemPromptTemplate: `Test prompt for ${modelId}`,
       systemPromptSource: 'project_default' as const,
+      referencesSkills: false,
       ...(reasoning !== undefined && { reasoning }),
     };
   }

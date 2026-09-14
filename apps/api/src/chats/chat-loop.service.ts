@@ -57,6 +57,7 @@ import {
   KnowledgeToolCandidateResolver,
   type KnowledgeToolCandidateResolverPort,
 } from '../knowledge/knowledge-tool-candidate-resolver';
+import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
 import { sanitizeClientMessageParts } from './context-item';
 import {
   MemoryService,
@@ -187,6 +188,8 @@ export class ChatLoopService {
     private readonly recencyDigest: RecencyDigestResolver,
     @Inject(KnowledgeToolCandidateResolver)
     private readonly knowledgeCandidates: KnowledgeToolCandidateResolverPort,
+    @Inject(SkillCatalog)
+    private readonly skillCatalog: SkillCatalogPort,
   ) {}
 
   async createMessageStream(
@@ -265,6 +268,7 @@ export class ChatLoopService {
       instanceConfig: this.instanceConfig,
       knowledgeCandidates: this.knowledgeCandidates,
       memory: this.memory,
+      skillCatalog: this.skillCatalog,
     };
   }
 

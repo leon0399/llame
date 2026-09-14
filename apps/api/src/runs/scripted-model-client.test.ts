@@ -448,6 +448,7 @@ describe('ScriptedModelsService observable contract', () => {
       providerModelId: 'gpt-fixture',
       systemPromptTemplate: 'Harness prompt for gpt-fixture',
       systemPromptSource: 'project_default',
+      referencesSkills: false,
     });
     expect(service.resolveTitleModelConfig()).toStrictEqual({
       id: 'system:openai:gpt-5.4-nano',
