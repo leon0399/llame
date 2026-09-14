@@ -90,10 +90,10 @@ environment change discards it: that is what makes a missing baseline mean
 "measure everything", and the restore is what the plan reads to choose between a
 scoped run and the complete set.
 
-A trusted run folds its reports in once the gate it ran under passes; a complete
-run on master has no gate, but it is that sweep's own measurement. A pull request
-folds nothing, so it is always measured against master rather than against its
-own earlier pushes.
+A trusted run folds its reports in once the gate it ran under passes. A complete
+run on master has no gate, so it refreshes the baseline as the trend's own
+measurement, and a pull request folds nothing, so it is always measured against
+master rather than against its own earlier pushes.
 
 CI splits the selected API files into shards heaviest-first by measured mutant
 count when the baseline supplies counts, and by file count when it does not; the

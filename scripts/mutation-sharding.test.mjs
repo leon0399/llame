@@ -451,7 +451,7 @@ test("baseline folds reports into the index and keeps unmeasured files", () => {
         },
       }),
     ];
-    const output = path.join(directory, "mutation-baseline.json");
+    const output = path.join(directory, "nested", "mutation-baseline.json");
     const result = runTool(
       "baseline",
       "--previous",

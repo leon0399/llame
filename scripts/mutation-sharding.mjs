@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import {
   appendFileSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -511,6 +512,7 @@ function buildBaseline(arguments_) {
       ? JSON.parse(readFileSync(previousPath, "utf8"))
       : undefined;
   const baseline = mergeMutationBaseline(previous, reports);
+  mkdirSync(path.dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(baseline)}\n`);
   console.log(
     `Mutation baseline: ${Object.keys(baseline.files).length} source files from ${reports.length} reports`,
