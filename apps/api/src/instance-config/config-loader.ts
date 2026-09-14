@@ -1357,7 +1357,11 @@ function buildModelCatalogEntry(
   entry: RawModelEntry,
   display: Omit<
     RawModelEntry,
-    'contextWindowTokens' | 'compactionThresholdTokens' | 'reasoning'
+    | 'contextWindowTokens'
+    | 'compactionThresholdTokens'
+    | 'reasoning'
+    | 'systemPromptFile'
+    | 'toolPromptFiles'
   >,
   context: ModelResolutionContext,
 ): SystemModelCatalogEntry {

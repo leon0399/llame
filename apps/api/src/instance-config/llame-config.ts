@@ -339,6 +339,7 @@ export type LlameConfig = {
     /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs. Absent means packaged defaults. */
     promptFiles?: Readonly<Record<string, string>>;
   };
+  /** Operator-managed remote Streamable HTTP servers. Default: empty. */
   mcpServers: Readonly<Record<string, McpServerConfig>>;
   /** Optional process-local root for trusted Knowledge Space directories. */
   knowledge: KnowledgeConfig;

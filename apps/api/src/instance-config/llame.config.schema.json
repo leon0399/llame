@@ -514,7 +514,7 @@
         },
         "promptFiles": {
           "type": "object",
-          "description": "Optional instance-wide whole-file replacements for llame-owned tool descriptions, keyed by registered llame-owned tool id. Each file is a complete description rendered through the same template language and variable projection as system prompts. Relative paths resolve from the active llame.config.json directory; absolute paths remain absolute. A model's tools.toolPromptFiles entry for the same id wins over this one, which wins over the packaged default. Keys naming an unregistered or MCP-authored tool are rejected at boot. Missing, unreadable, or empty files fail that execution worker's startup rather than falling back.",
+          "description": "Optional instance-wide whole-file replacements for llame-owned tool descriptions, keyed by registered llame-owned tool id. Each file is a complete description rendered through the same template language and variable projection as system prompts. Relative paths resolve from the active llame.config.json directory; absolute paths remain absolute. A model's models[].toolPromptFiles entry for the same id wins over this one, which wins over the packaged default. Keys naming an unregistered or MCP-authored tool are rejected at boot. Missing, unreadable, or empty files fail that execution worker's startup rather than falling back.",
           "propertyNames": { "type": "string", "minLength": 1 },
           "additionalProperties": { "type": "string", "minLength": 1 }
         }

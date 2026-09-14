@@ -468,7 +468,7 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
     });
   });
 
-  it('leaves tools.promptFiles empty when the file omits or nulls it', () => {
+  it('leaves tools.promptFiles empty when the file omits it', () => {
     writeConfig('{ "tools": { "allowed": [] } }');
     expect(loadInstanceConfig().tools.promptFiles).toEqual({});
     writeConfig('{ "tools": { "promptFiles": {} } }');
