@@ -20,10 +20,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { mutationSourceFiles, mutationWorkspaces } from "./mutation-scope.mjs";
-import {
-  mergeMutationReports,
-  resolveStrykerCli,
-} from "./mutation-sharding.mjs";
+import { mergeMutationReports } from "./mutation-sharding.mjs";
 
 /** Ranges closer than this merge, so a hunk-per-line diff stays one argument. */
 const coalesceGap = 3;
@@ -158,6 +155,31 @@ function option(arguments_, name, fallback) {
 /** The report every workspace's Stryker configuration writes. */
 const reportFile = "reports/mutation/mutation.json";
 
+/**
+ * The pnpm arguments that mutate `mutate` in `workspace`.
+ *
+ * Through the workspace's own `test:mutation`, not the Stryker CLI: each one
+ * builds the workspace dependencies Stryker's TypeScript checker needs, and
+ * duplicating that build here would let the two drift. `pnpm run --filter`,
+ * not `pnpm --filter … --`: the latter forwards the separator itself into the
+ * script, and Stryker rejects a bare `--`.
+ */
+export function mutationArguments(workspace, mutate, root = process.cwd()) {
+  const { name } = JSON.parse(
+    readFileSync(path.join(root, workspace, "package.json"), "utf8"),
+  );
+  return [
+    "run",
+    "--filter",
+    name,
+    "test:mutation",
+    "--mutate",
+    mutate,
+    "--reporters",
+    "clear-text,html,json,progress-append-only",
+  ];
+}
+
 function main(arguments_) {
   const [command] = arguments_;
   if (command === "plan") {
@@ -187,22 +209,13 @@ function main(arguments_) {
       return;
     }
     console.log(`${workspace}: mutating ${mutate.split(",").length} ranges`);
-    const cwd = path.resolve(workspace);
-    const result = spawnSync(
-      process.execPath,
-      [
-        resolveStrykerCli(cwd),
-        "run",
-        "--mutate",
-        mutate,
-        "--reporters",
-        "clear-text,html,json,progress-append-only",
-      ],
-      { cwd, stdio: "inherit" },
-    );
+    const result = spawnSync("pnpm", mutationArguments(workspace, mutate), {
+      cwd: path.resolve("."),
+      stdio: "inherit",
+    });
     if (result.status !== 0)
       throw new Error(`${workspace}: Stryker exited with ${result.status}`);
-    gate(path.join(cwd, reportFile), threshold);
+    gate(path.join(path.resolve(workspace), reportFile), threshold);
     return;
   }
   if (command === "gate") {

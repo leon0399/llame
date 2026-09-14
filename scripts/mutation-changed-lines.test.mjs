@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   changedLineRanges,
   mutateArgument,
+  mutationArguments,
 } from "./mutation-changed-lines.mjs";
 
 const workspace = "packages/runtime-safety";
@@ -164,4 +165,31 @@ test("a new source file is mutated over its whole body", () => {
     mutateArgument(changedLineRanges("HEAD~1", directory)[workspace]),
     "src/b.ts:1-4",
   );
+});
+
+test("the run goes through the workspace script that builds its dependencies", () => {
+  const directory = repository({ [`${workspace}/src/a.ts`]: lines(5) });
+  writeFileSync(
+    path.join(directory, workspace, "package.json"),
+    JSON.stringify({
+      name: "@workspace/runtime-safety",
+      scripts: { "test:mutation": "stryker run" },
+    }),
+  );
+
+  const arguments_ = mutationArguments(workspace, "src/a.ts:1-2", directory);
+
+  // Stryker's TypeScript checker type-checks the whole program, so skipping
+  // the script's dependency build leaves it unable to resolve a workspace
+  // import and it aborts during initialization.
+  assert.deepEqual(arguments_.slice(0, 4), [
+    "run",
+    "--filter",
+    "@workspace/runtime-safety",
+    "test:mutation",
+  ]);
+  // `pnpm --filter X script -- --flag` forwards the separator into the script,
+  // and `stryker run -- --flag` exits non-zero.
+  assert.ok(!arguments_.includes("--"));
+  assert.deepEqual(arguments_.slice(4, 6), ["--mutate", "src/a.ts:1-2"]);
 });
