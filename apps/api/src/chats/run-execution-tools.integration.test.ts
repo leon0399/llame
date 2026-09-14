@@ -94,6 +94,7 @@ import {
 } from '../tools/types';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import { executeConversationRead } from '../tools/conversation-read';
+import { resolveJsonSchema } from '../tools/schema-utils';
 import { KnowledgeSpaceLocalResolver } from '../knowledge/knowledge-space.local-resolver';
 import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
@@ -984,7 +985,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const advertised = calls[0].tools?.['search_conversations'];
     expect(advertised?.description).toBe(liveTool.description);
     expect(await asSchema(advertised!.inputSchema).jsonSchema).toEqual(
-      await asSchema(liveTool.inputSchema).jsonSchema,
+      await resolveJsonSchema(liveTool.inputSchema),
     );
 
     await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;

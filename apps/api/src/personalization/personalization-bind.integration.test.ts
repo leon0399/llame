@@ -17,6 +17,7 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type ModelSelectionValidator } from '../models/models.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { MessagesRepository } from '../chats/chats-repository';
+import { isTextPart } from '../chats/context-builder';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { RunsRepository } from '../runs/runs-repository';
 import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
@@ -86,7 +87,7 @@ describeIfDb('personalization binds per run', () => {
       userMessage: {
         id: message.id,
         seq: message.seq,
-        parts: message.parts,
+        parts: message.parts.filter(isTextPart),
       },
       client: createFakeModelClient(['done']),
     });
@@ -162,7 +163,7 @@ describeIfDb('personalization binds per run', () => {
       tenantDb,
       {
         maybeCompact: async () => {},
-        compactForTransition: () => Promise.resolve(),
+        compactForTransition: () => Promise.resolve('created' as const),
       } satisfies CompactionCapability,
       { maybeGenerateTitle: async () => {} } satisfies TitleCapability,
       { config: BUILT_IN_DEFAULTS } satisfies InstanceConfigReader,
