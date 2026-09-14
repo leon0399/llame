@@ -229,9 +229,16 @@ export const MAX_OMISSION_NAMES = 32;
 export function createSkillActivationOmissionItem(input: {
   readonly runId: string;
   readonly skills: ReadonlyArray<string>;
+  /**
+   * Names an earlier notice already reported as a count rather than listing.
+   * A rebuild carries it forward: those selections are still unattempted, and
+   * rebuilding from the truncated list alone would silently drop them.
+   */
+  readonly unlisted?: number;
 }): AuthoredContextItemPart {
   const listedNames = input.skills.slice(0, MAX_OMISSION_NAMES);
-  const beyond = input.skills.length - listedNames.length;
+  const beyond =
+    input.skills.length - listedNames.length + (input.unlisted ?? 0);
   const payload: SkillActivationOmissionPayload = {
     kind: 'omission',
     skills: listedNames,

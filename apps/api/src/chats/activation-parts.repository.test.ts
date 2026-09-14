@@ -445,6 +445,71 @@ describe('ActivationPartsRepository.appendForRun', () => {
     ).toEqual(['writing']);
   });
 
+  it('keeps the unlisted count when it rebuilds a truncated remainder', async () => {
+    // The stored notice listed two names and counted five more. Resolving one
+    // listed name must not drop those five: they are still unattempted, and
+    // rebuilding from the truncated list alone would silently forget them.
+    const stored = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: { kind: 'omission', skills: ['alpha', 'beta'], beyond: 5 },
+      text: 'omitted alpha beta and 5 more not listed here',
+    });
+
+    const { writes } = await append(
+      [stored],
+      [
+        createContextItemPart({
+          producer: 'skill-activation',
+          form: 'notice',
+          runId: RUN_ID,
+          payload: { kind: 'activation', skill: 'alpha' },
+          text: 'alpha loaded',
+        }),
+      ],
+    );
+
+    const rebuilt = (writes[0] ?? []).find(
+      (part) =>
+        isContextItemPart(part) && part.data.payload['kind'] === 'omission',
+    );
+    expect(
+      isContextItemPart(rebuilt) ? rebuilt.data.payload : {},
+    ).toMatchObject({ skills: ['beta'], beyond: 5 });
+  });
+
+  it('keeps a notice alive when only its unlisted names remain', async () => {
+    const stored = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: { kind: 'omission', skills: ['alpha'], beyond: 3 },
+      text: 'omitted alpha and 3 more not listed here',
+    });
+
+    const { writes } = await append(
+      [stored],
+      [
+        createContextItemPart({
+          producer: 'skill-activation',
+          form: 'notice',
+          runId: RUN_ID,
+          payload: { kind: 'activation', skill: 'alpha' },
+          text: 'alpha loaded',
+        }),
+      ],
+    );
+
+    // Every listed name resolved, but three were never listed at all, so the
+    // accounting cannot disappear.
+    const omissions = (writes[0] ?? []).filter(
+      (part) =>
+        isContextItemPart(part) && part.data.payload['kind'] === 'omission',
+    );
+    expect(omissions).toHaveLength(1);
+  });
+
   it('lands after an activation item this message already carries', async () => {
     // Equal precedence, not higher: a second batch belongs after the first, so
     // the rail reads in the order the turn produced it.

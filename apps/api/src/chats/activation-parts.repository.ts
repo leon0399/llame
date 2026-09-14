@@ -10,7 +10,7 @@
 
 import { and, eq } from 'drizzle-orm';
 import { compareCodePoints } from '../canonical-json';
-import { isString } from '@workspace/runtime-safety';
+import { isNumber, isString } from '@workspace/runtime-safety';
 
 import { messages } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -250,8 +250,20 @@ function dropResolvedFromOmissions(
       (name) => isString(name) && !resolved.has(name),
     );
     if (remaining.length === skills.length) return [part];
-    if (remaining.length === 0) return [];
-    return [createSkillActivationOmissionItem({ runId, skills: remaining })];
+    // Names the stored notice reported as a count rather than listing are
+    // still unattempted, so they survive the rebuild. Dropping the item on an
+    // empty list would discard them silently.
+    const unlisted = part.data.payload['beyond'];
+    const stillUnlisted = isNumber(unlisted) ? unlisted : 0;
+    if (remaining.length === 0 && stillUnlisted === 0) return [];
+    if (remaining.length === 0) return [part];
+    return [
+      createSkillActivationOmissionItem({
+        runId,
+        skills: remaining,
+        unlisted: stillUnlisted,
+      }),
+    ];
   });
   const unchanged =
     rewritten.length === parts.length &&
