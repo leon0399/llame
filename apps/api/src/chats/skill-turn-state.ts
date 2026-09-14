@@ -122,7 +122,7 @@ async function startSkillEpoch(
     // and `toldFromBaseline` would throw on the missing entries — during
     // accepted-turn preparation, failing the user's turn. Render no section and
     // let the next turn retry.
-    deps.reportUnavailable?.(catalog.getSnapshot().diagnostics);
+    reportUnavailableCatalog(deps, catalog);
     return { baseline: undefined, notice: undefined };
   }
   // Both writes ride the accepted-turn transaction the caller owns, so they
@@ -177,7 +177,7 @@ function deriveCatalogNotice(input: {
       // have not happened. Skip, and let the next turn retry — but report it,
       // because the epoch-start path reports the same failure and the operator
       // would otherwise get no signal that discovery is failing mid-epoch.
-      input.deps.reportUnavailable?.(current.getSnapshot().diagnostics);
+      reportUnavailableCatalog(input.deps, current);
       return undefined;
     }
     advertised = resolved;
@@ -207,6 +207,35 @@ function deriveCatalogNotice(input: {
 
 /** The advertised set of an instance with no configured source. */
 const EMPTY_BASELINE: SkillCatalogBaseline = { entries: [], omitted: 0 };
+
+/**
+ * Report an unreadable catalog through the operator-facing channel.
+ *
+ * The catalog's diagnostics name the failing source by its absolute path, and
+ * this channel is a log line rather than the authenticated owner API that
+ * publishes source paths deliberately: resolved host paths stay out of it, per
+ * the repository's rule that server-resolved host paths remain private. The
+ * operator already supplied these directories, so the reason survives — only
+ * the path is replaced. Redaction lives here rather than at the reporter so
+ * every reporter receives diagnostics that are already path-free.
+ */
+function reportUnavailableCatalog(
+  deps: SkillTurnStateDeps,
+  catalog: SkillCatalogPort,
+): void {
+  if (deps.reportUnavailable === undefined) return;
+  // Longest first, so a nested source is replaced as a whole rather than
+  // leaving its parent's remainder behind.
+  const sources = [...deps.skillDirectories].sort(
+    (left, right) => right.length - left.length,
+  );
+  let reasons = catalog.getSnapshot().diagnostics.join(' ');
+  for (const source of sources) {
+    if (source.length > 0)
+      reasons = reasons.replaceAll(source, '<skill source>');
+  }
+  deps.reportUnavailable([reasons]);
+}
 
 /**
  * A delta that cannot be rendered within the bound is replaced by a snapshot of

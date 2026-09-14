@@ -260,6 +260,24 @@ const catalogOf = (
   return catalog;
 };
 
+/**
+ * A catalog whose read failed, carrying the diagnostic the real one produces for
+ * an unreadable or oversized source — which names that source by absolute path.
+ */
+const unavailableCatalogOf = (
+  directories: ReadonlyArray<string>,
+  diagnostic: string,
+): SkillCatalogPort => {
+  const catalog = new SkillCatalog([]);
+  vi.spyOn(catalog, 'getSnapshot').mockReturnValue({
+    available: false,
+    directories: [...directories],
+    entries: [],
+    diagnostics: [diagnostic],
+  });
+  return catalog;
+};
+
 const skillEntry = (
   name: string,
   description: string | null,
@@ -886,7 +904,12 @@ describe('the skill-catalog notice', () => {
           skills: { directories: [unreadable] },
         },
       },
-      skillCatalog: new SkillCatalog([unreadable]),
+      // The real catalog names the failing source by absolute path here — this
+      // is the `readSource` diagnostic for an unreadable or oversized source.
+      skillCatalog: unavailableCatalogOf(
+        [unreadable],
+        `Skill source ${unreadable} is missing or unreadable; the catalog is unavailable.`,
+      ),
     };
     const warned = vi.spyOn(depsWithBadSource.logger, 'warn');
     repositories.findLatest.mockResolvedValue(undefined);
@@ -899,12 +922,18 @@ describe('the skill-catalog notice', () => {
       digestDelta: null,
     });
 
-    // No section, no baseline written, and the operator gets the diagnostic.
+    // No section, no baseline written, and the operator gets the reason.
     expect(result.skillCatalogTold).toBeUndefined();
     expect(repositories.setSkillBaseline).not.toHaveBeenCalled();
-    expect(warned).toHaveBeenCalledWith(
-      expect.stringContaining('skill_catalog_unavailable'),
+    const logged = warned.mock.calls.map((call) => JSON.stringify(call));
+    expect(logged.some((line) => line.includes('missing or unreadable'))).toBe(
+      true,
     );
+    // The reason survives; the configured host path does not. A log line is not
+    // the authenticated owner API that publishes source paths deliberately, and
+    // `SkillCatalog` embeds the failing source's absolute path in this message.
+    expect(logged.some((line) => line.includes(unreadable))).toBe(false);
+    expect(logged.some((line) => line.includes('<skill source>'))).toBe(true);
     // The key is ABSENT, which is what leaves the default template's
     // `{{#if skills}}` section unrendered.
     expect(rendered.mock.calls[0][0].skills).toBeUndefined();
@@ -930,7 +959,10 @@ describe('the skill-catalog notice', () => {
           skills: { directories: [unreadable] },
         },
       },
-      skillCatalog: new SkillCatalog([unreadable]),
+      skillCatalog: unavailableCatalogOf(
+        [unreadable],
+        `Skill source ${unreadable} is missing or unreadable; the catalog is unavailable.`,
+      ),
     };
     const warned = vi.spyOn(depsWithBadSource.logger, 'warn');
     repositories.findLatest.mockResolvedValue(undefined);
@@ -962,10 +994,13 @@ describe('the skill-catalog notice', () => {
       omitted: 0,
     });
     // Mid-epoch is silent no longer: the operator sees discovery failing here
-    // exactly as they do at epoch start.
-    expect(warned).toHaveBeenCalledWith(
-      expect.stringContaining('skill_catalog_unavailable'),
+    // exactly as they do at epoch start, and without the host path either.
+    const logged = warned.mock.calls.map((call) => JSON.stringify(call));
+    expect(logged.some((line) => line.includes('missing or unreadable'))).toBe(
+      true,
     );
+    expect(logged.some((line) => line.includes(unreadable))).toBe(false);
+    expect(logged.some((line) => line.includes('<skill source>'))).toBe(true);
   });
 
   it('announces the removals when the source list is emptied mid-epoch', async () => {
