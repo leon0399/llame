@@ -73,13 +73,17 @@ because package builds exclude tests. Unknown root inputs make every workspace
 delta unavailable. PR and master CI fail before mutation execution in these
 cases; they never substitute a full-corpus sweep.
 
-Documentation/frontend changes, CI wiring, Git ignore rules, mutation tooling
-and Stryker configuration skip mutation execution. Package manifest edits skip
-only when their changes are limited to `test:mutation` command keys. Runtime
-dependencies and other command changes do not qualify. CI wiring and Git ignore
-rules do not invalidate an index; mutation engine/configuration changes still
-can. Their own checks run in CI.
-Local changed mode also includes tracked working-tree and untracked edits;
+Documentation/frontend changes, CI wiring, Git ignore rules, mutation tooling,
+lint/format configuration and Stryker configuration skip mutation execution.
+Lint and format configuration is exempt in both the scope and the environment
+fingerprint — markdownlint, oxlint and Prettier read source text and never run
+during a test, so no mutant's status can depend on them, and a root-level file
+would otherwise make every workspace's delta unavailable at once. Package
+manifest edits skip only when their changes are limited to `test:mutation`
+command keys. Runtime dependencies and other command changes do not qualify. CI
+wiring, Git ignore rules and lint/format configuration do not invalidate an
+index; mutation engine/configuration changes still can. Their own checks run in
+CI. Local changed mode also includes tracked working-tree and untracked edits;
 a missing base ref fails.
 
 The gate is a delta, not a level: a run fails when a source file it measured
@@ -88,8 +92,18 @@ editing one line of a legacy file does not fail a pull request for pre-existing
 debt. In a scoped run, files with no baseline entry have no allowance.
 A missing or incompatible baseline is a failed evidence check, not a passing
 mutation result. Restore or generate a compatible trusted baseline, or update
-the PR to a revision it covers. Unbounded-impact changes need an explicitly
-approved bypass; CI does not waive the requirement automatically.
+the PR to a revision it covers.
+
+Unbounded-impact changes need an explicitly approved bypass; CI does not waive
+the requirement automatically. The bypass is the `mutation-bypass` label on the
+pull request. Applying a label needs write access, so only an operator can
+grant it, and a push event carries no labels, so master still fails on missing
+evidence. `mutation-plan` passes `--bypass` to the plan, which resolves each
+unbounded workspace to `skip`, schedules no shards for it, and emits a
+`::warning` annotation naming every input the waiver left unmeasured — the
+waiver is recorded on the run rather than silent. A waived merge still changes
+master's environment fingerprint, so follow it with a
+`mutation-baseline.yml` dispatch to rebuild the index.
 Full-corpus mutation runs are explicit scheduled/manual work and report MSI
 without enforcing a score threshold.
 

@@ -23,6 +23,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   can never be indexed at any revision. A missing index, or one that measured
   no mutants, remains a failed evidence check instead of a free pass.
 
+- Waive an unbounded mutation delta with the `mutation-bypass` pull-request
+  label, the bypass the mutation-scope documentation already required and which
+  had no implementation. The plan resolves each unbounded workspace to `skip`,
+  schedules no shards for it, and annotates the run with every input the waiver
+  left unmeasured; a push carries no labels, so master still fails on missing
+  evidence. Lint and format configuration (markdownlint, oxlint, Prettier) is
+  now exempt from both the scope and the environment fingerprint, on the same
+  reasoning as CI wiring and Git ignore rules — a root-level lint config
+  otherwise made every workspace's delta unavailable at once.
+
 # 2026-09-12
 
 - Pin the Pullfrog workflow's two action references to full commit SHAs,
