@@ -101,8 +101,7 @@ test.describe("anonymous auth flows", () => {
       // this test then passes or fails on whether it sampled the URL before
       // that navigation, which has nothing to do with open redirects.
       await expectProtectedShell(page, account);
-      expect(page.url().startsWith(`${baseURL ?? ""}/`)).toBe(true);
-      expect(page.url()).not.toContain("evil.example");
+      expect(new URL(page.url()).origin).toBe(baseURL);
     });
   }
 
