@@ -59,19 +59,29 @@ pnpm test:mutation
 pnpm test:mutation:changed --base origin/master
 ```
 
-A mutation scope is the changed mutant source files plus every mutant file
-covered by a changed test file, resolved from the baseline's per-test coverage.
-Weakening or deleting an indexed test still selects the sources it covered.
-A changed test the baseline does not credit — a test the pull request adds, or
-one the mutation run never executes, such as an integration test the runner
-excludes — contributes nothing and is skipped: it flips no mutant the baseline
-measured, so it cannot gain an undetected mutant. A missing baseline, an index
-that measured no mutants, a recognized fixture/test double, deleted or
-excluded source, or runtime configuration change makes the delta unavailable.
-Shared runtime dependencies have unbounded API impact; their test files do not,
-because package builds exclude tests. Unknown root inputs make every workspace
-delta unavailable. PR and master CI fail before mutation execution in these
-cases; they never substitute a full-corpus sweep.
+A mutation scope is the changed mutant source files, plus every mutant file
+covered by a changed test file, plus every mutant file covered by a test that
+reads a changed input — resolved from the baseline's per-test coverage.
+Weakening or deleting an indexed test still selects the sources it covered. A
+changed test the baseline does not credit contributes nothing and is skipped: it
+flips no mutant the baseline measured, so it cannot gain an undetected mutant.
+
+An **input** is a changed file inside a workspace that the mutation run does not
+mutate: a test double, a fixture, a migration, a generated artifact, prompt
+markdown. It can only move a mutant through a test that reads it, so the readers
+are resolved transitively over the workspace's sources and the scope is what
+those readers cover; a reader the baseline credits nothing contributes nothing,
+by the same rule. An input inside `src/` that no test reaches cannot change a
+measurement, so the scope does not include it.
+
+A workspace-root input that no test reads is build or run configuration, whose
+effect cannot be bounded from the code, and stays unavailable. A missing
+baseline, an index that measured no mutants, or a runtime configuration change
+makes the delta unavailable. Shared runtime dependencies have unbounded API
+impact; their test files do not, because package builds exclude tests. Unknown
+repository-level inputs make every workspace delta unavailable. PR and master CI
+fail before mutation execution in these cases; they never substitute a
+full-corpus sweep.
 
 Documentation/frontend changes, CI wiring, Git ignore rules, mutation tooling,
 lint/format configuration and Stryker configuration skip mutation execution.
@@ -126,8 +136,16 @@ reports, a package from its own single report. The index records the measured
 Git revision. Scoped refreshes retain unmeasured files and accumulate coverage,
 so a narrower run cannot erase previously observed reachability. Full refreshes
 replace the index, removing deleted paths and their old mutant allowances.
-The plan restores the index under an environment fingerprint covering fixtures,
-excluded inputs and transitive runtime dependencies. Dependency test files are
+The plan restores the index under an environment fingerprint covering what can
+invalidate a measurement: the workspace's Stryker configuration, the Vitest
+configuration it names, its manifest, its runtime workspace dependencies, and
+unknown repository-level inputs. Fixture, test-double, migration, generated
+artifact and prompt-markdown contents are not fingerprint inputs —
+they are inputs the scope now bounds by their readers, so hashing them would
+refuse a measurement the gate can take, and source content, which moves coverage
+far more often, is not hashed either. Nor is the mutation tooling: the plan only
+reads the index, so a change to the scoping logic must not cost a full refresh.
+An engine or Stryker configuration change still can. Dependency test files are
 not fingerprint inputs. Each gate downloads the plan's immutable index artifact,
 so a concurrent master run cannot change its comparison baseline.
 An index must come from an ancestor of the checked-out revision; future or

@@ -42,7 +42,9 @@ Integration tests self-provision Postgres; `TEST_DATABASE_URL` overrides.
 Mutation testing covers API source with unit tests and the TypeScript checker.
 CI scopes mutation to changed sources and baseline-indexed test coverage,
 packs small diffs into fewer runners, and gates per-file undetected-mutant
-growth. Missing baselines and unbounded impact fail before mutation execution;
+growth. A changed input the run does not mutate — a fixture, a migration, an
+artifact, prompt markdown — is bounded by the tests that read it rather than
+refused. Missing baselines and unbounded impact fail before mutation execution;
 there is no automatic full-sweep fallback. Tooling-only changes use tooling
 checks, and lint/format configuration is exempt. An operator waives an
 unbounded delta with the `mutation-bypass@<sha12>` pull-request label, whose

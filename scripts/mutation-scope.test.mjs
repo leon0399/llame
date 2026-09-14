@@ -204,18 +204,45 @@ test("baseline reading normalizes test ids, counts and undetected mutants", () =
   });
 });
 
-test("unbounded test, source and runtime changes cannot schedule mutations", () => {
-  for (const file of [
-    "src/a.test.ts",
-    "src/deleted.ts",
-    "src/mcp/mcp-runtime.module.ts",
-    "src/prompts/chat-default.md",
-    "vitest.config.mts",
-  ]) {
+test("an unread `src` asset is inert while run configuration is unbounded", () => {
+  // No baseline, so anything credited to a reader is unbounded.
+  for (const file of ["src/a.test.ts", "src/prompts/chat-default.md"]) {
     const scope = selectMutationScope(
       [`apps/api/${file}`, "apps/api/src/a.ts"],
       sources,
     )["apps/api"];
+    assert.equal(scope.mode, "unavailable");
+    assert.deepEqual(scope.files, []);
+  }
+  // A deleted mutant source cannot regress: its mutants are gone. A module the
+  // mutation run never mutates, and an asset no mutation-run test reads, are
+  // equally inert — all previously unbounded. The empty root stands in for a
+  // revision where nothing reads them; the temp-repo test below covers a real
+  // reader.
+  const empty = mkdtempSync(path.join(tmpdir(), "llame-mutation-empty-"));
+  try {
+    for (const file of [
+      "src/deleted.ts",
+      "src/mcp/mcp-runtime.module.ts",
+      "src/db/migrations/20260913164029_x.sql",
+    ]) {
+      const scope = selectMutationScope(
+        [`apps/api/${file}`],
+        sources,
+        {},
+        empty,
+      )["apps/api"];
+      assert.equal(scope.mode, "skip");
+      assert.deepEqual(scope.files, []);
+    }
+  } finally {
+    rmSync(empty, { recursive: true, force: true });
+  }
+  // A workspace-root file is build or run configuration, and no test reads it.
+  for (const file of ["vitest.config.mts", "tsconfig.json"]) {
+    const scope = selectMutationScope([`apps/api/${file}`], sources)[
+      "apps/api"
+    ];
     assert.equal(scope.mode, "unavailable");
     assert.deepEqual(scope.files, []);
   }
@@ -280,24 +307,7 @@ test("dependency test edits do not expand API mutation scope", () => {
   });
 });
 
-test("mutated fixtures and test doubles have unavailable impact", () => {
-  for (const file of [
-    "src/runs/model-context-snapshot.test-fixture.ts",
-    "src/mcp/mcp-test-fixture.ts",
-    "src/models/fake-model-client.ts",
-    "src/search/embedding-stub.ts",
-    "src/search/chat/eval/dataset.ts",
-  ]) {
-    const result = selectMutationScope([`apps/api/${file}`], {
-      ...sources,
-      "apps/api": ["src/a.ts", file],
-    });
-    assert.equal(result["apps/api"].mode, "unavailable");
-    assert.deepEqual(result["apps/api"].files, []);
-  }
-});
-
-test("baselines invalidate on environment and dependency changes, retaining native source/test reuse", () => {
+test("baselines invalidate on configuration, not on fixture or artifact content", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-cache-"));
   const files = {
     "apps/api/package.json": JSON.stringify({
@@ -305,7 +315,9 @@ test("baselines invalidate on environment and dependency changes, retaining nati
     }),
     "apps/api/stryker.config.json": JSON.stringify({
       mutate: ["src/**/*.ts", "!src/**/*.test.ts", "!src/excluded.ts"],
+      vitest: { configFile: "vitest.mutation.config.mts" },
     }),
+    "apps/api/vitest.mutation.config.mts": "export default {};\n",
     "apps/api/src/a.ts": "export const value = 1;\n",
     "apps/api/src/a.test.ts": "test('value', () => {});\n",
     "apps/api/src/example.test-fixture.ts": "export const fixture = 1;\n",
@@ -340,10 +352,17 @@ test("baselines invalidate on environment and dependency changes, retaining nati
     }
     execFileSync("git", ["add", "."], { cwd: directory });
     const baseline = mutationFingerprint("apps/api", directory);
+    // Source, tests, docs, frontend, CI wiring, gitignore — and now every input a
+    // changed file is scoped by rather than refused: a fixture, a file outside
+    // the mutation set, and prompt markdown.
     for (const file of [
       "apps/api/src/a.ts",
       "apps/api/src/a.test.ts",
       "packages/runtime-safety/src/index.test.ts",
+      "apps/api/src/example.test-fixture.ts",
+      "apps/api/src/excluded.ts",
+      "apps/api/src/prompt.md",
+      "scripts/mutation-scope.mjs",
       "apps/api/README.md",
       "apps/web/app/page.tsx",
       ".github/workflows/ci.yml",
@@ -353,15 +372,20 @@ test("baselines invalidate on environment and dependency changes, retaining nati
       assert.equal(mutationFingerprint("apps/api", directory), baseline, file);
     }
     for (const file of [
-      "apps/api/src/example.test-fixture.ts",
-      "apps/api/src/excluded.ts",
-      "apps/api/src/prompt.md",
+      "apps/api/stryker.config.json",
+      "apps/api/vitest.mutation.config.mts",
+      "apps/api/package.json",
       "packages/runtime-safety/src/index.ts",
       "packages/config-typescript/base.json",
       "repository-input.json",
-      "scripts/mutation-scope.mjs",
     ]) {
-      writeFileSync(path.join(directory, file), `${files[file]}changed\n`);
+      // Keep JSON valid so the manifest is still parseable while probed.
+      writeFileSync(
+        path.join(directory, file),
+        file.endsWith(".json")
+          ? JSON.stringify({ ...JSON.parse(files[file]), probe: 1 })
+          : `${files[file]}changed\n`,
+      );
       assert.notEqual(
         mutationFingerprint("apps/api", directory),
         baseline,
@@ -398,17 +422,23 @@ test("unknown runtime inputs make every workspace delta unavailable", () => {
 test("a workspace reports every unbounded input, not only the last", () => {
   // A waiver records what it left unmeasured, so the reason must not collapse
   // to whichever path happened to be visited last.
+  // Workspace-root files are run configuration that no test reads, which is the
+  // remaining unbounded case.
   const scope = selectMutationScope(
     [
-      "apps/api/src/testing/first-double.ts",
-      "apps/api/src/prompts/second.md",
-      "apps/api/src/db/migrations/third.sql",
+      "apps/api/tsconfig.json",
+      "apps/api/vitest.config.mts",
+      "apps/api/tsconfig.build.json",
     ],
     sources,
   )["apps/api"];
   assert.equal(scope.mode, "unavailable");
-  for (const path of ["first-double.ts", "second.md", "third.sql"])
-    assert.match(scope.reason, new RegExp(path, "u"));
+  for (const path of [
+    "tsconfig.json",
+    "vitest.config.mts",
+    "tsconfig.build.json",
+  ])
+    assert.match(scope.reason, new RegExp(path.replace(".", "\\.", "gu"), "u"));
 });
 
 test("documentation, frontend, tooling and lint configuration need no mutation execution", () => {
@@ -699,6 +729,102 @@ test("trusted plans include changes from a cancelled predecessor run", () => {
       () => run("plan", "--base", "HEAD"),
       /mutation delta unavailable/u,
     );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a changed input is bounded by the mutation-run tests that read it", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-reader-"));
+  const git = (...args) =>
+    execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+      cwd: directory,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  const run = (...args) =>
+    spawnSync(
+      process.execPath,
+      [path.resolve("scripts/mutation-sharding.mjs"), ...args],
+      { cwd: directory, encoding: "utf8" },
+    );
+  const write = (relative, body) => {
+    mkdirSync(path.dirname(path.join(directory, relative)), {
+      recursive: true,
+    });
+    writeFileSync(path.join(directory, relative), body);
+  };
+  try {
+    git("init", "--initial-branch=master");
+    git("config", "user.name", "Mutation scope test");
+    git("config", "user.email", "mutation-scope@example.invalid");
+    for (const [workspace, files] of Object.entries(sources)) {
+      write(
+        `${workspace}/stryker.config.json`,
+        // The real config excludes tests and test support from mutation, which
+        // is what makes a fixture a bounded input rather than a source.
+        JSON.stringify({
+          mutate: ["src/**/*.ts", "!src/**/*.test.ts", "!src/testing/**"],
+        }),
+      );
+      for (const file of files)
+        write(`${workspace}/${file}`, "export const n = 1;\n");
+      write(
+        `${workspace}/package.json`,
+        JSON.stringify({ scripts: { "test:mutation:report": "command" } }),
+      );
+    }
+    write(
+      "package.json",
+      JSON.stringify({ scripts: { "test:mutation:report": "command" } }),
+    );
+    // The index is ignored, so writing it does not enter the change set.
+    write(".gitignore", "reports/\n");
+    write("apps/api/src/a.ts", "export const a = 1;\n");
+    // The fixture is read only by a.test.ts, and only through that test can a
+    // change to it move a mutant.
+    write("apps/api/src/a.test.ts", "import '../testing/fixture';\n");
+    write("apps/api/src/testing/fixture.ts", "export const f = 1;\n");
+    git("add", ".");
+    git("commit", "-m", "Base mutation inputs");
+    const base = git("rev-parse", "HEAD");
+    write(
+      "apps/api/reports/mutation-baseline.json",
+      JSON.stringify({
+        baselineVersion: 2,
+        revision: base,
+        files: {
+          "src/a.ts": {
+            mutants: 3,
+            undetected: 1,
+            coveredBy: ["src/a.test.ts"],
+          },
+        },
+      }),
+    );
+
+    write("apps/api/src/testing/fixture.ts", "export const f = 2;\n");
+    const read = run("plan", "--base", base);
+    assert.equal(read.status, 0, read.stderr);
+    const plan = JSON.parse(read.stdout);
+    assert.equal(plan.apiMode, "scoped");
+    assert.deepEqual(
+      plan.apiShards.flatMap((shard) => shard.files),
+      ["src/a.ts"],
+    );
+
+    // A fixture no mutation-run test reads cannot move anything. Fresh base, so
+    // only this file is in the change set.
+    git("add", ".");
+    git("commit", "-m", "Measured the read fixture");
+    const base2 = git("rev-parse", "HEAD");
+    write("apps/api/src/testing/unread.ts", "export const u = 1;\n");
+    git("add", ".");
+    git("commit", "-m", "Add an unread fixture");
+    write("apps/api/src/testing/unread.ts", "export const u = 2;\n");
+    const unread = run("plan", "--base", base2);
+    assert.equal(unread.status, 0, unread.stderr);
+    assert.equal(JSON.parse(unread.stdout).apiMode, "skip");
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

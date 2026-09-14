@@ -38,6 +38,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   reasoning as CI wiring and Git ignore rules — a root-level lint config
   otherwise made every workspace's delta unavailable at once.
 
+- Stop refusing a mutation delta for a changed file the run does not mutate.
+  A test double, fixture, migration, generated artifact or prompt markdown can
+  only move a mutant through a test that reads it, so the scope now resolves
+  those readers transitively and measures what they cover; a reader the
+  baseline credits nothing contributes nothing, by the same rule a changed test
+  file follows. An input inside `src/` that no test reaches is inert. This
+  replaces the previous hard failure on every such file.
+
+- Narrow the mutation environment fingerprint to what can invalidate a
+  measurement: the workspace's Stryker and Vitest configuration, its manifest,
+  its runtime workspace dependencies, and unknown repository-level inputs.
+  Fixture, migration, artifact and prompt-markdown contents no longer count, so
+  a pull request touching one can restore the index instead of being blocked for
+  want of a baseline, and a change to the scoping logic no longer costs a full
+  refresh.
+
 # 2026-09-12
 
 - Pin the Pullfrog workflow's two action references to full commit SHAs,
