@@ -136,9 +136,11 @@ export function copiedMessageRows(
     inReplyTo: message.inReplyTo
       ? (idMap.get(message.inReplyTo) ?? null)
       : null,
-    // Both forks pass all-or-nothing: an absent `createdAt` must reach the
-    // INSERT as the column default, not as an explicit null.
-    ...(message.createdAt !== undefined && { createdAt: message.createdAt }),
-    ...(message.usage !== undefined && { usage: message.usage }),
+    // Both forks pass all-or-nothing: an absent value reaches the INSERT as
+    // `undefined` and so takes the column default (`now()` for `createdAt`,
+    // NULL for `usage`) rather than an explicit null. The shared fork omits
+    // both, which is how its rows keep no time or price of their own.
+    createdAt: message.createdAt,
+    usage: message.usage,
   }));
 }

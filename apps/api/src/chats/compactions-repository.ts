@@ -169,11 +169,14 @@ function compactionInsertValues(input: {
     summary: input.summary,
     replacementHistory: input.replacementHistory,
     usage: input.usage,
-    // Only supplied values reach the INSERT: omitted, the database mints the
-    // id and stamps the time, so a fresh compaction writes the same columns it
-    // did before the fork needed to carry a source row's identity and time.
-    ...(input.id !== undefined && { id: input.id }),
-    ...(input.createdAt !== undefined && { createdAt: input.createdAt }),
+    // `id`/`createdAt` are only supplied by the owner fork
+    // (complete-owner-forks D2), which copies a source row's identity and time
+    // verbatim. Omitted, both reach the INSERT as `undefined` and take their
+    // database default — never an explicit NULL — so a fresh compaction mints
+    // its own id and stamps its own time exactly as it did before the fork
+    // needed to carry those values.
+    id: input.id,
+    createdAt: input.createdAt,
   };
 }
 
