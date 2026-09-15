@@ -1,3 +1,5 @@
+import { is, SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -757,6 +759,18 @@ describe('MessagesRepository insert payloads', () => {
     expect(calls.find((call) => call.method === 'set')?.argument).toEqual({
       parts: [{ type: 'text', text: 'edited' }],
     });
+
+    const predicate = calls.find((call) => call.method === 'where')?.argument;
+    if (!is(predicate, SQL)) {
+      throw new Error('Expected an update predicate');
+    }
+    // Dropping any scope predicate (id, chatId, role) changes this rendered
+    // text, so the rewrite cannot silently address another row.
+    const rendered = new PgDialect().sqlToQuery(predicate);
+    expect(rendered.sql).toBe(
+      '("messages"."id" = $1 and "messages"."chat_id" = $2 and "messages"."role" = $3)',
+    );
+    expect(rendered.params).toEqual([updated.id, chat.id, 'user']);
   });
 });
 

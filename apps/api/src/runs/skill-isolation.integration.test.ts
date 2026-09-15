@@ -205,7 +205,6 @@ describe('skills cannot escalate authority through the Run boundary', () => {
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
-      allowedTools: tools,
     });
     expect((await terminal(seeded.runId)).status).toBe('completed');
     return toolOutputs(seeded.runId);
@@ -227,7 +226,6 @@ describe('skills cannot escalate authority through the Run boundary', () => {
     const seeded = await seedAndDispatchRun(skillsOnlyHarness, {
       userId: skillsOnlyUserId,
       modelId,
-      allowedTools: tools,
     });
     const settled = await waitFor(
       async () => {
@@ -278,7 +276,6 @@ describe('skills cannot escalate authority through the Run boundary', () => {
     const seeded = await seedAndDispatchRun(skillsOnlyHarness, {
       userId: skillsOnlyUserId,
       modelId,
-      allowedTools: tools,
     });
     await waitFor(
       async () => {
@@ -452,7 +449,6 @@ describe('skills cannot escalate authority through the Run boundary', () => {
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
-      allowedTools: tools,
     });
     expect((await terminal(seeded.runId)).status).toBe('completed');
 

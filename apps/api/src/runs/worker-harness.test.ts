@@ -415,7 +415,7 @@ describe('dispatchRun and seedAndDispatchRun', () => {
     );
   });
 
-  it('seeds then dispatches, forwarding effort and allowedTools only when set', async () => {
+  it('seeds then dispatches, forwarding effort only when set', async () => {
     vi.spyOn(ChatsRepository.prototype, 'createIfAbsent').mockResolvedValue({
       id: 'chat-1',
       ownerUserId: 'user-1',
@@ -451,7 +451,6 @@ describe('dispatchRun and seedAndDispatchRun', () => {
       userId: 'user-1',
       modelId: 'model-1',
       effort: 'low',
-      allowedTools: ['conversation_read'],
     });
     expect(createRun.mock.calls[1]?.[0]).toMatchObject({ effort: 'low' });
     expect(enqueue).toHaveBeenCalledTimes(2);

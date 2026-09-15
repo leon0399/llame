@@ -99,7 +99,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
 
   beforeAll(async () => {
     harness = await bootWorkerHarness({
-      allowedTools: ['search_conversations', 'conversation_read'],
+      allowedTools: CONVERSATION_TOOLS,
       runsConcurrency: 2,
     });
     ownerA = await createUser(harness.db, 'conversation-acceptance-a');
@@ -189,7 +189,6 @@ describe('conversation provenance acceptance — queued lexical search and canon
       userId: ownerA,
       modelId,
       text: 'Recall the episodic acceptance source.',
-      allowedTools: CONVERSATION_TOOLS,
     });
 
     const completed = await waitFor(
@@ -347,7 +346,6 @@ describe('conversation provenance acceptance — queued lexical search and canon
       userId: ownerA,
       modelId,
       text: 'Search only my own history.',
-      allowedTools: CONVERSATION_TOOLS,
     });
     await waitFor(
       async () =>
@@ -402,7 +400,6 @@ describe('conversation provenance acceptance — queued lexical search and canon
       userId: ownerB,
       modelId: retryableSearchModelId,
       text: 'Search my history for retryable assistant content.',
-      allowedTools: CONVERSATION_TOOLS,
     });
     await waitFor(
       async () =>

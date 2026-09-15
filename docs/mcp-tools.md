@@ -118,7 +118,7 @@ MCP is not a network sandbox.
 - API and worker state may differ. Workers execute only an exact ID plus
   canonical-hash match against the attempt's admitted declaration; mismatch
   settles unavailable.
-- Provider input, manifests, receipts, persistence, and rebinding
+- Provider input, manifests, and rebinding
   contain exact admitted IDs/declarations, never wildcard config.
 - Availability reminders appear on a fresh conversation/after compaction and
   later only for changes.

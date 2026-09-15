@@ -1,5 +1,4 @@
 import type { MockInstance } from 'vitest';
-import { hashWithDomain } from '../canonical-json';
 import { Logger } from '@nestjs/common';
 import { bashTool } from '../tools/bash';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
@@ -2574,10 +2573,11 @@ describe('RunExecutionService executeRun — context preparation', () => {
     expect(spies.createReceipt).toHaveBeenCalledWith(
       expect.objectContaining({
         systemPrompt: receipt.systemPrompt,
-        promptHash: hashWithDomain(
-          'llame:model-context:prompt:v1',
-          receipt.systemPrompt,
-        ),
+        // Pinned literal for 'Stable system prompt' under
+        // llame:model-context:prompt:v1 — recomputing it with hashWithDomain
+        // would hide a separator/encoding/digest change.
+        promptHash:
+          '6a3c746e371af5eafce0e9014d20d28d3fba65d1193a594a88bc4f0de4cf7856',
       }),
     );
     expect(spies.createReceipt.mock.calls[0]?.[0]).not.toHaveProperty(

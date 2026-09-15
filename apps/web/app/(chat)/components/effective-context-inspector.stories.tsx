@@ -73,9 +73,11 @@ export const Receipt: Story = {
     ).toBeVisible();
     await expect(dialog.getByText("7f07b813")).toBeVisible();
     await expect(dialog.getByText("prepared")).toBeVisible();
-    // Tool declarations are runtime-only by contract, and the configured
-    // systemPromptFile path is server-only (README contract).
-    await expect(dialog.queryByText(/search_conversations/)).toBeNull();
+    // Tool declarations are runtime-only by contract, so nothing the client
+    // renders may be tool-labelled. A data-value query could never fail: the
+    // picked receipt type carries no tool data to render.
+    await expect(dialog.queryByText(/tool/i)).toBeNull();
+    // The configured systemPromptFile path is server-only (README contract).
     await expect(
       dialog.queryByText(/\/etc\/|systemPromptFile|host path/i),
     ).not.toBeInTheDocument();

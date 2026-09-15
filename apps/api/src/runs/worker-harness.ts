@@ -228,8 +228,6 @@ export async function seedRun(input: {
   chatId?: string;
   /** Persisted on the run exactly as the accepting API would have stored it. */
   effort?: string;
-  /** Accepted while callers move tool rules to boot configuration. */
-  allowedTools?: ReadonlyArray<string>;
 }): Promise<{
   chatId: string;
   runId: string;
@@ -311,8 +309,6 @@ export async function seedAndDispatchRun(
     chatId?: string;
     /** Persisted on the run exactly as the accepting API would have stored it. */
     effort?: string;
-    /** Accepted while callers move tool rules to boot configuration. */
-    allowedTools?: ReadonlyArray<string>;
     enqueueOptions?: EnqueueOptions;
   },
 ): Promise<{

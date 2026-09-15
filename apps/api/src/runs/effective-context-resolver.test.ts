@@ -2,7 +2,6 @@ import { Logger } from '@nestjs/common';
 import { z } from 'zod';
 import { afterEach, vi } from 'vitest';
 
-import { hashWithDomain } from '../canonical-json';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { type Tool } from '../tools/types';
 import { isRecord } from '@workspace/runtime-safety';
@@ -219,10 +218,11 @@ describe('effective context resolver', () => {
     expect(receipt.systemPrompt).toBe(prompt);
     expect(receipt.promptHash).toMatch(/^[0-9a-f]{64}$/);
 
-    // The domain tag is persisted contract: receipts minted from the same
-    // prompt must keep hashing to the same stored value.
+    // The domain tag and digest are persisted contract: pin the literal so a
+    // change to the separator, encoding, or digest fails here instead of
+    // silently rewriting every stored prompt hash.
     expect(receipt.promptHash).toBe(
-      hashWithDomain('llame:model-context:prompt:v1', prompt),
+      '8d6073494aa6d69d68f40b6bebe9c5888c2a006978de925c92e52fae8185a2f7',
     );
     const repeated = await resolveEffectiveContext({
       model: model({ providerModelId: 'other-provider-id' }),
