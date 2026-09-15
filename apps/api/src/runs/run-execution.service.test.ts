@@ -623,6 +623,56 @@ describe('RunExecutionService executeRun', () => {
     expect(resolveCandidate).toHaveBeenCalledWith(userId, chatId);
     expect(setBaseline).toHaveBeenCalledWith(chatId, userId, baseline, []);
   });
+
+  it('discards a resolved digest candidate when the chat epoch advances during resolution', async () => {
+    const baseline: RecencyDigestResolution['baseline'] = {
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-09-01',
+    };
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({ baseline, told: [], candidates: [] });
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValue({ shareRecentChats: true });
+    mockNormalExecutionRepositories();
+    // The attempt reads its own chat row, then rechecks it after candidate
+    // resolution. Here a compaction checkpoint has replaced the baseline in
+    // between, so the candidate was resolved against a superseded epoch.
+    vi.spyOn(ChatsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(chat)
+      .mockResolvedValueOnce({
+        ...chat,
+        recencyDigestRebakedFrom: '11111111-1111-4111-8111-111111111111',
+      });
+    const setBaseline = vi
+      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+      .mockResolvedValue({ ...chat, recencyDigestBaseline: baseline });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: { resolveCandidate },
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+
+    await expect(result.text).resolves.toBe('answer');
+    // The whole point of the recheck: superseded digest content never reaches
+    // the model, so nothing is committed for this attempt.
+    expect(setBaseline).not.toHaveBeenCalled();
+  });
+
   it('swallows worker digest resolution failures without exposing corpus text', async () => {
     const loggerError = vi.spyOn(Logger.prototype, 'error');
     const resolveCandidate = vi

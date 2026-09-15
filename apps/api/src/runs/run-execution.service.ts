@@ -5,7 +5,7 @@ import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
-import { compareCodePoints } from '../canonical-json';
+import { canonicalJson, compareCodePoints } from '../canonical-json';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type Chat,
@@ -2387,13 +2387,28 @@ export class RunExecutionService {
         // caught error to a log entry or execution error.
         this.logger.error('recency_digest_resolution_failed');
       }
-      // Consent is checked again after candidate resolution and before the
-      // prompt, receipt, and staged context are prepared.
+      // Consent and the chat's digest epoch are both rechecked after candidate
+      // resolution and before the prompt, receipt, and staged context are
+      // prepared. Resolution reads the owner's other chats, so a compaction
+      // checkpoint can publish a refreshed baseline in the meantime; a
+      // candidate built from the superseded baseline must not reach the target
+      // model. Compare by value: a jsonb column round-trips as a fresh object,
+      // so identity would report a change on every turn.
       shareRecentChats = await this.memory.getForOwnerForBinding(
         input.tx,
         input.input.userId,
       );
-      if (!shareRecentChats.shareRecentChats) {
+      const recheckedChat = await input.chatsRepo.findById(
+        input.input.chatId,
+        input.input.userId,
+      );
+      const epochAdvanced =
+        recheckedChat === undefined ||
+        recheckedChat.recencyDigestRebakedFrom !==
+          input.chat.recencyDigestRebakedFrom ||
+        canonicalJson(recheckedChat.recencyDigestBaseline ?? null) !==
+          canonicalJson(input.chat.recencyDigestBaseline ?? null);
+      if (!shareRecentChats.shareRecentChats || epochAdvanced) {
         digestCandidate = undefined;
       }
     }
