@@ -18,6 +18,7 @@ import type {
   PromptSkillsInput,
 } from '../models/model-catalog';
 import { isValidSkillName } from '../skills/skill-name';
+import { resolvePackagedToolDescriptionPath } from '../prompts/tool-descriptions';
 import { isRecord } from '@workspace/runtime-safety';
 
 let tmpDir: string;
@@ -1397,9 +1398,118 @@ describe('llame-owned tool description templates', () => {
     );
   });
 
+  it('rejects an instance override whose only text hides behind a user gate', () => {
+    const gatedPath = path.join(path.dirname(configPath), 'gated.md');
+    const contents = new Map([
+      [gatedPath, '{{#if user.personalization}}Honour the owner.{{/if}}'],
+    ]);
+    const access: PromptFileAccess = {
+      isFile: () => true,
+      readFile: (filePath) =>
+        contents.get(filePath) ??
+        `packaged ${path.basename(filePath)} {{model.id}}`,
+    };
+
+    expect(() =>
+      createToolPromptRenderer({
+        configPath,
+        instancePromptFiles: { bash: 'gated.md' },
+        models: [{ id: 'model' }],
+        access,
+      }),
+    ).toThrow('tools.promptFiles.bash: rendered description is empty');
+  });
+
+  it('rejects a packaged description that renders empty for every attempt', () => {
+    const packagedBash = resolvePackagedToolDescriptionPath('bash');
+    const access: PromptFileAccess = {
+      isFile: () => true,
+      readFile: (filePath) =>
+        filePath === packagedBash
+          ? '{{#if chats}}Digest framing only.{{/if}}'
+          : `packaged ${path.basename(filePath)} {{model.id}}`,
+    };
+
+    expect(() =>
+      createToolPromptRenderer({
+        configPath,
+        models: [{ id: 'model' }],
+        access,
+      }),
+    ).toThrow(
+      'packaged tool description [bash]: rendered description is empty',
+    );
+  });
+
+  it('boots a description that gates guidance on a tool that can be absent', () => {
+    const contents = new Map([
+      [
+        path.join(path.dirname(configPath), 'cross-tool.md'),
+        'Base description. {{#if tools.edit}}Prefer edit for small replacements.{{/if}}',
+      ],
+    ]);
+    const access: PromptFileAccess = {
+      isFile: () => true,
+      readFile: (filePath) =>
+        contents.get(filePath) ??
+        `packaged ${path.basename(filePath)} {{model.id}}`,
+    };
+    const renderer = createToolPromptRenderer({
+      configPath,
+      instancePromptFiles: { bash: 'cross-tool.md' },
+      models: [{ id: 'model' }],
+      access,
+    });
+
+    expect(
+      renderer.render({
+        toolId: 'bash',
+        model: { id: 'model' },
+        anchor: TEST_ANCHOR,
+        admittedToolIds: ['bash'],
+      }),
+    ).toBe('Base description. ');
+  });
+
+  it('probes every configured model, not only the first', () => {
+    // `model.name` is optional, and a nameless model leaves it absent, so a
+    // file whose only prose sits behind that gate renders for one configured
+    // model and empty for another.
+    const contents = new Map([
+      [
+        path.join(path.dirname(configPath), 'named.md'),
+        '{{#if model.name}}Assistant for {{model.name}}.{{/if}}',
+      ],
+    ]);
+    const access: PromptFileAccess = {
+      isFile: () => true,
+      readFile: (filePath) =>
+        contents.get(filePath) ??
+        `packaged ${path.basename(filePath)} {{model.id}}`,
+    };
+    const rendererFor = (
+      models: ReadonlyArray<{ id: string; name?: string }>,
+    ) =>
+      createToolPromptRenderer({
+        configPath,
+        instancePromptFiles: { bash: 'named.md' },
+        models,
+        access,
+      });
+
+    expect(() => rendererFor([{ id: 'named', name: 'Named' }])).not.toThrow();
+    expect(() =>
+      rendererFor([{ id: 'named', name: 'Named' }, { id: 'nameless' }]),
+    ).toThrow('tools.promptFiles.bash: rendered description is empty');
+  });
+
   it('renders packaged cross-tool advice only when the recommended tool is admitted', () => {
-    const renderer = createToolPromptRenderer({ configPath });
+    // A configured model, so the packaged files also clear the boot probe.
     const model = { id: 'model' };
+    const renderer = createToolPromptRenderer({
+      configPath,
+      models: [model],
+    });
     const bashWithoutEdit = renderer.render({
       toolId: 'bash',
       model,

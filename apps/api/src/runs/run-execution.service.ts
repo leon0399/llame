@@ -235,12 +235,12 @@ type AttemptPromptInputs = AttemptDigestContext & {
   compaction: Compaction | undefined;
   instanceTimezone: string;
   anchor: TemporalAnchor;
+  /** This turn's skill-catalog decision: the rendered baseline and the notice. */
+  skillState: SkillTurnState;
 };
 
 type AttemptPromptContext = AttemptPromptInputs & {
   systemPrompt: string;
-  /** This turn's skill-catalog decision: the rendered baseline and the notice. */
-  skillState: SkillTurnState;
 };
 
 type AttemptStagedContext = {

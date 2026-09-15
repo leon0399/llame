@@ -125,7 +125,14 @@ to the packaged text:
 
 - a key that is not a registered llame-owned tool id;
 - a missing, unreadable, non-regular, or empty file;
-- an unsupported construct, named in the error with its configuration path.
+- an unsupported construct, named in the error with its configuration path;
+- a file that can render empty, named in the error with its configuration path.
+  Each file is rendered once per configured model, with every combination of the
+  independent `user`, `chats`, and `skills` gates, and with no tools admitted and
+  with every tool the template names. Text hidden behind a gate an ordinary
+  attempt can fail (`{{#if user.personalization}}…{{/if}}`) fails startup;
+  guidance gated on a tool that can be absent from an attempt
+  (`{{#if tools.edit}}…{{/if}}`) does not, because another attempt renders it.
 
 Every configured entry is read, including a shadowed override and an override
 for a tool the instance does not allow. Acceptance itself neither reads nor
