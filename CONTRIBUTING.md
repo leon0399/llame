@@ -200,8 +200,20 @@ git diff --check
 
 ## Verification
 
-Run every applicable row after the final edit. Narrow evidence cannot support a
-broader claim.
+CI is the ground for full verification. The table below names the evidence a
+change carries; CI produces all of it on every push. Do not reproduce the full
+sweeps locally — the whole unit or integration project, product E2E, component
+tests, the aggregate build, mutation testing. Run the narrowest command that
+covers the surface you changed: a focused test file, the workspace lint and
+typecheck, `git diff --check`; add `pnpm lint:markdown` and the strict OpenSpec
+validation for Markdown and spec edits.
+
+Only CI's result on the published head gates a merge. A local green is not a
+substitute for it, and no row may be claimed as passed until CI reports it. Run
+a broader row locally only where CI cannot cover it — an environment it does not
+provide, or a failure it cannot attribute.
+
+Narrow evidence cannot support a broader claim.
 
 | Surface                | Evidence                                                        |
 | ---------------------- | --------------------------------------------------------------- |
