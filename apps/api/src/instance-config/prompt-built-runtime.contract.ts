@@ -43,20 +43,15 @@ if (
 
 // Verify every packaged tool description resolves from the built output.
 // loadPackagedToolDescription uses __dirname to find prompts/tools/*.md,
-// so running this from dist/ proves Nest copied the nested assets.
-import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
+// so running this from dist/ proves Nest copied the nested assets. The list
+// comes from the registry itself, so a tool added there is covered here
+// without a second edit.
+import {
+  loadPackagedToolDescription,
+  TOOL_PROMPT_IDS,
+} from '../prompts/tool-descriptions';
 
-const TOOL_IDS = [
-  'read',
-  'edit',
-  'write',
-  'bash',
-  'search_conversations',
-  'conversation_read',
-  'knowledge_search',
-] as const;
-
-for (const id of TOOL_IDS) {
+for (const id of TOOL_PROMPT_IDS) {
   const description = loadPackagedToolDescription(id);
   if (description.trim().length === 0) {
     throw new Error(
