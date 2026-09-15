@@ -69,7 +69,7 @@ Single implementation layer after this proposal. No schema change and no migrati
 
 ## Verification
 
-Three cases added to `fork-chat.integration.test.ts` under the self-provisioning suite:
+Three cases added to `fork-chat.integration.test.ts` under the self-provisioning suite, beside its existing cross-tenant cases (foreign source and foreign anchor throw and create nothing), which stay in force:
 
 - V1: A source with two compaction generations, a bound digest, and a skill baseline is forked whole; the fork and source, given identical new input, produce equal system prompts and inherited history through the real context builder and serializer, and the fork's absorbed-message count equals the source's.
 - V2: An anchor before the latest checkpoint copies the earlier checkpoint only; the fork's active checkpoint and markers point at the copied row.
