@@ -289,7 +289,7 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **THEN** the selected model receives its effective prompt normally
 - **AND** no model-switch reminder is created
 
-Failed-attempt reasoning, answers, and tool observations SHALL remain part of portable model history, participating in later model context and compaction like any other committed turn; only attempt-generated rail context stays staged and publishes with a successful turn. Transition compaction SHALL use no persisted tool declarations and SHALL follow the source system-receipt contract below.
+Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, which never replays persisted reasoning; only attempt-generated rail context stays staged and publishes with a successful turn. Transition compaction SHALL use no persisted tool declarations and SHALL follow the source system-receipt contract below.
 
 ### Requirement: Model switches use canonical persisted context text and metadata
 
