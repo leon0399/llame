@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   DropdownMenu,
@@ -184,17 +184,19 @@ function PinnedChatLabel({
   label,
   isArchived,
   isActive,
-  activeRuns,
 }: {
   pin: PinnedChat;
   label: string;
   isArchived: boolean;
   isActive: boolean;
-  activeRuns: ReturnType<typeof useOptionalActiveRuns>;
 }) {
+  // Optional: the admin shell mounts this rail without the runs provider, and
+  // there "nothing is running here" is the honest answer rather than a crash.
+  const activeRuns = useOptionalActiveRuns();
   return (
     <SidebarMenuButton
-      className="min-w-0 flex-1 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
+      className="min-w-0 flex-1"
+      variant="chromeless"
       render={<Link href={`/chat/${pin.itemId}`} />}
       isActive={isActive}
       tooltip={label}
@@ -204,7 +206,7 @@ function PinnedChatLabel({
       <MessagesSquareIcon className={cn(isArchived && "opacity-50")} />
       {/* Wrapper so the row's `[&>span:last-child]:truncate` rule lands here
           and not on the title, which fades rather than ellipses. */}
-      <span className="flex min-w-0 flex-1 items-center gap-[.35rem]">
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
         <SidebarRowTitle
           text={label}
           animateChanges
@@ -291,9 +293,6 @@ export function PinnedChatRow({
   const label = pin.item.title ?? UNTITLED_CHAT_LABEL;
   const isArchived = pin.item.archivedAt !== null;
   const isActive = pathname === `/chat/${pin.itemId}`;
-  // Optional: the admin shell mounts this rail without the runs provider, and
-  // there "nothing is running here" is the honest answer rather than a crash.
-  const activeRuns = useOptionalActiveRuns();
   const actions = usePinnedChatActions(pin, isArchived);
 
   return (
@@ -303,7 +302,6 @@ export function PinnedChatRow({
         label={label}
         isArchived={isArchived}
         isActive={isActive}
-        activeRuns={activeRuns}
       />
 
       <PinDragHandle dragControls={dragControls} />
@@ -340,7 +338,8 @@ function PinnedProjectLabel({
 }) {
   return (
     <SidebarMenuButton
-      className="min-w-0 flex-1 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
+      className="min-w-0 flex-1"
+      variant="chromeless"
       render={<Link href={`/projects/${pin.itemId}`} />}
       isActive={isActive}
       tooltip={pin.item.name}
@@ -349,7 +348,7 @@ function PinnedProjectLabel({
           `.pin-item[data-archived]` icon opacity + muted title). */}
       <FolderIcon className={cn(isArchived && "opacity-50")} />
       {/* See PinnedChatRow: wrapper takes the primitive's truncate rule. */}
-      <span className="flex min-w-0 flex-1 items-center gap-[.35rem]">
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
         <SidebarRowTitle
           text={pin.item.name}
           animateChanges
@@ -494,7 +493,12 @@ function useReorderablePins(pins: Array<PinnedItem> | undefined) {
   const reorderMutation = useReorderPins();
   const [items, setItems] = useState<Array<PinnedItem>>([]);
   const itemsRef = useRef(items);
-  itemsRef.current = items;
+  // The commit handler below reads this after a drag gesture, i.e. after a
+  // commit — never during render — so the mirror is written in a layout
+  // effect rather than while rendering.
+  useLayoutEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
   // While a grip drag is in flight, ignore pins-query mirrors so a refetch
   // (pin/unpin elsewhere, reorder settle) cannot reset the in-progress order.
   const draggingRef = useRef(false);

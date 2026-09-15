@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -388,11 +389,15 @@ function useRunCompletionEffects(params: {
 }
 
 /** Stable ref to the latest router, so effects can read it without depending
- *  on the router identity itself. */
+ *  on the router identity itself. The mirror is written in a layout effect —
+ *  reading it happens after a commit (a notification's `onView`, a run
+ *  effect), never during render, and a render-phase write is not allowed. */
 function useRouterRef(): MutableRefObject<ReturnType<typeof useRouter>> {
   const router = useRouter();
   const routerRef = useRef(router);
-  routerRef.current = router;
+  useLayoutEffect(() => {
+    routerRef.current = router;
+  }, [router]);
   return routerRef;
 }
 

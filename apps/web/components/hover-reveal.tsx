@@ -45,22 +45,22 @@ export function HoverReveal({
     <span
       data-slot="hover-reveal"
       className={cn(
-        "grid transition-[grid-template-columns] duration-150 ease-out",
+        "grid reveal-track",
         // An icon-collapsed rail has room for the icon and nothing else, so
         // trailing content is gone rather than narrow — the same rule the
         // vendored `SidebarMenuAction` carries, which this replaces.
         "group-data-[collapsible=icon]:hidden",
         atRest
-          ? "grid-cols-[1fr]"
+          ? "grid-cols-revealed"
           : [
-              "grid-cols-[0fr]",
-              "group-hover/menu-item:grid-cols-[1fr]",
-              "group-focus-within/menu-item:grid-cols-[1fr]",
-              "group-has-[[aria-expanded=true]]/menu-item:grid-cols-[1fr]",
+              "grid-cols-collapsed",
+              "group-hover/menu-item:grid-cols-revealed",
+              "group-focus-within/menu-item:grid-cols-revealed",
+              "group-has-[[aria-expanded=true]]/menu-item:grid-cols-revealed",
               // Below `md` there is no hover to reveal anything with, so the
               // content simply stays in layout — the same reason the old
               // padding needed a mobile special case, minus the special case.
-              "max-md:grid-cols-[1fr]",
+              "max-md:grid-cols-revealed",
             ],
         className,
       )}

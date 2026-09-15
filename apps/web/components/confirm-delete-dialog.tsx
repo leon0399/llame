@@ -60,7 +60,7 @@ export function ConfirmDeleteDialog({
               onConfirm();
             }}
             disabled={isPending}
-            className="bg-destructive text-white hover:bg-destructive/90"
+            variant="destructive"
           >
             {confirmLabel}
           </AlertDialogAction>

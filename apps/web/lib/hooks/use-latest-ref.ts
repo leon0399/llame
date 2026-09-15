@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type RefObject } from "react";
+import { useLayoutEffect, useRef, type RefObject } from "react";
 
 /**
  * A ref that always holds the latest render's value.
@@ -17,12 +17,19 @@ import { useRef, type RefObject } from "react";
  * the request. Bundling the assignment with the creation makes it
  * unrepresentable.
  *
- * Assigns during render on purpose: it is a plain latest-value mirror that
- * nothing reads during the same render pass, so an effect would only delay it
- * by a commit.
+ * The value is mirrored in a layout effect, not during render: reads during
+ * render are not this hook's use (nothing here is rendered), a render can be
+ * discarded or replayed, and React forbids touching refs while rendering. A
+ * layout effect runs once the commit is real — before paint, before any
+ * passive effect in the tree, and so before any event or callback could read
+ * the mirror — which keeps the guarantee the two-line form was missing: the
+ * first render already seeds the ref, and every later render is visible to
+ * whoever reads it next.
  */
 export function useLatestRef<T>(value: T): RefObject<T> {
   const ref = useRef(value);
-  ref.current = value;
+  useLayoutEffect(() => {
+    ref.current = value;
+  }, [value]);
   return ref;
 }

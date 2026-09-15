@@ -26,13 +26,12 @@ export function DisabledMenuButton({
       // Disabled ⇒ out of the tab order, like a natively disabled button.
       tabIndex={-1}
       tooltip={tooltip}
-      // aria-disabled sets pointer-events-none, which would also suppress
-      // the collapsed-rail tooltip; keep pointer events but drop the
-      // interactive hover/active fills so the item stays visibly inert.
-      className={cn(
-        "pointer-events-auto! cursor-default hover:bg-transparent! active:bg-transparent! hover:text-sidebar-foreground! active:text-sidebar-foreground!",
-        className,
-      )}
+      // `chromeless` is the inert treatment: no hover/pressed fill and no
+      // focus ring of its own, which is also what `aria-disabled` would ask
+      // for. `pointer-events-auto!` then keeps the collapsed-rail tooltip
+      // reachable, since `aria-disabled` sets pointer-events-none.
+      variant="chromeless"
+      className={cn("pointer-events-auto! cursor-default", className)}
     >
       {children}
     </SidebarMenuButton>

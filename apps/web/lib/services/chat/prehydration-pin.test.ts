@@ -38,8 +38,11 @@ describe("PREHYDRATION_PIN_SCRIPT", () => {
   }
 
   function runScript() {
-    // The shipped inline script string is the unit under test.
-    (0, eval)(PREHYDRATION_PIN_SCRIPT);
+    // The shipped inline script string is the unit under test: it is compiled
+    // and executed as-is, in this realm, so every assertion below observes the
+    // exact text that ships (a `<script>` element would run it in jsdom's own
+    // realm, whose `window` the test cannot observe).
+    new Function(PREHYDRATION_PIN_SCRIPT)();
   }
 
   it("sets __llameChatPinEscaped when the reader wheels before hydration", () => {

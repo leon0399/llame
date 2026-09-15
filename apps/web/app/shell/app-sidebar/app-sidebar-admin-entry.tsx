@@ -30,7 +30,7 @@ export function AppSidebarAdminEntry() {
   const isActive = pathname.startsWith("/admin");
 
   return (
-    <SidebarGroup className="p-2">
+    <SidebarGroup>
       <SidebarGroupContent>
         <SidebarMenu>
           <SidebarMenuItem>
