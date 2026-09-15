@@ -21,7 +21,7 @@
     "ai": "catalog:",
     "class-variance-authority": "catalog:",
     "cmdk": "^1.1.1",
-    "cnfast": "^0.0.8",
+    "cn": "0.2.6",
     "katex": "0.16.27",
     "lucide-react": "catalog:",
     "marked": "^16.4.2",
