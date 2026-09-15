@@ -27,6 +27,14 @@ hover:bg-destructive/90` on `AlertDialogAction` becomes
   marker classes that generate no CSS of their own (`not-prose`, `is-user`,
   `is-assistant`, `toaster`) are allowlisted by name.
 
+  Snapping to the scale is visible, so read a pixel diff as intended rather
+  than as a regression: type, icon, and padding sizes move at several sites.
+  Most land within a pixel (`text-[0.86rem]` -> `text-sm` is +0.24px) and many
+  are byte-identical (`px-[28px]` -> `px-7`), but the `soon` chip goes 10px ->
+  12px because `text-xs` is the smallest preset and a one-chip `text-2xs`
+  token is not worth minting. Components that had their typography or spacing
+  overridden now render at the kit's own metrics, which is the point.
+
   The rules found live defects, not only drift: `conversation-tree-graph.tsx`
   filled three node markers from `hsl(var(--warning))`, `hsl(var(--success))`,
   and `hsl(var(--primary))`, and the first two named tokens this theme never
