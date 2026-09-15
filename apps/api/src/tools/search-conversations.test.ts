@@ -580,7 +580,9 @@ describe('search_conversations', () => {
     const schema = searchConversationsTool.inputSchema;
     if (!isZodSchema(schema)) throw new Error('Expected Zod');
     const desc = searchConversationsTool.description;
-    const examples = [...desc.matchAll(/\{[^}]+\}/g)].map((m) => m[0]);
+    // The packaged description is now a Handlebars template, so only parse
+    // JSON examples that begin with a quoted object key.
+    const examples = [...desc.matchAll(/\{"[^}]+\}/g)].map((m) => m[0]);
     expect(examples.length).toBeGreaterThanOrEqual(2);
     for (const example of examples) {
       const parsed = schema.safeParse(JSON.parse(example));

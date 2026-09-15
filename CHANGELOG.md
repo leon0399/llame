@@ -38,6 +38,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   sweep, not the gate. Retires the delta gate, the baseline restore/fold/save
   on pull requests, the environment fingerprint and the eight-way pull-request
   sharding, and removes the need for an operator bypass label.
+- Render llame-owned tool descriptions from Markdown templates (#804): the
+  seven descriptions ship as files under `apps/api/src/prompts/tools/`, and an
+  operator can replace any of them instance-wide through `tools.promptFiles`
+  or per model through `models[].toolPromptFiles`, with the model entry winning
+  over the instance entry, which wins over the packaged default. Overrides are
+  whole-file and restart-applied, use the shared template subset (including a
+  conditional-only `tools.<exact-id>` membership predicate), and are validated
+  when the executing process starts: a key naming an MCP or unregistered tool,
+  or a missing, unreadable, or unsupported file, fails that startup without
+  falling back, while a template that renders empty for an attempt's admitted
+  tool set fails that attempt before the model call without dropping a tool or
+  the Run. **Breaking**: the combined `model_context_snapshots` storage is
+  replaced by system-only attempt receipts and a minimal per-successful-turn
+  availability record, so a receipt no longer carries a tool catalog or the
+  descriptions the model was shown; the cutover needs a database backup and a
+  coordinated API/worker restart on the matching revision. See
+  [docs/tool-prompts.md](docs/tool-prompts.md).
 
 - Scope mutation testing to changed sources and sources covered by changed
   tests, and gate per-file growth in survived or uncovered mutants (#830).

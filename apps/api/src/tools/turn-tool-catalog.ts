@@ -112,6 +112,24 @@ export type TurnToolCatalog = {
   readonly manifest: ToolAvailabilityManifestV1;
 };
 
+export type ToolDescriptionRenderInput = {
+  readonly id: string;
+  readonly description: string;
+  readonly source: TurnToolSource;
+  readonly admittedToolIds: ReadonlyArray<string>;
+};
+
+export type ToolDescriptionRenderer = (
+  input: ToolDescriptionRenderInput,
+) => string;
+
+export class ToolDescriptionRenderError extends Error {
+  constructor(readonly toolId: string) {
+    super(`Tool "${toolId}" description rendered empty.`);
+    this.name = 'ToolDescriptionRenderError';
+  }
+}
+
 export function hasValidTrustedTimeout(
   timeoutSeconds: number | undefined,
   callTimeoutSeconds: number,
@@ -382,16 +400,60 @@ function groupEligibleTurnToolCandidates(
   return byFoldedId;
 }
 
-export async function composeTurnToolCatalog(input: {
-  readonly allowedToolRules: ReadonlyArray<string>;
-  readonly callTimeoutSeconds: number;
-  readonly candidates: Iterable<TurnToolCandidate>;
-}): Promise<TurnToolCatalog> {
-  const byFoldedId = groupEligibleTurnToolCandidates(
-    [...input.candidates],
-    input.allowedToolRules,
-  );
+type RenderedToolDescriptions = {
+  admitted: Array<AdmittedTurnTool>;
+  entries: Array<ToolAvailabilityEntry>;
+};
 
+function renderAdmittedToolDescriptions(
+  admitted: Array<AdmittedTurnTool>,
+  entries: Array<ToolAvailabilityEntry>,
+  renderer: ToolDescriptionRenderer,
+): RenderedToolDescriptions {
+  const admittedToolIds = admitted.map(({ declaration }) => declaration.id);
+  const renderedHashes = new Map<string, string>();
+  const renderedAdmitted = admitted.map((tool) => {
+    const description = renderer({
+      id: tool.declaration.id,
+      description: tool.declaration.description,
+      source: tool.source,
+      admittedToolIds,
+    });
+    // Only a templated (code-owned) description is this check's subject. An
+    // MCP server may legitimately declare no description, and its opaque text
+    // passes through the renderer unchanged, so an empty value there is
+    // admitted by declaration-admission rather than a failed render.
+    if (tool.source.type === 'code_owned' && description.trim().length === 0) {
+      throw new ToolDescriptionRenderError(tool.declaration.id);
+    }
+    const declaration = {
+      ...tool.declaration,
+      description,
+    } satisfies ModelToolDeclaration;
+    const declarationHash = hashToolDeclaration(declaration);
+    renderedHashes.set(declaration.id, declarationHash);
+    return { ...tool, declaration, declarationHash };
+  });
+  return {
+    admitted: renderedAdmitted,
+    entries: entries.map((entry) => {
+      const declarationHash = renderedHashes.get(entry.id);
+      return declarationHash === undefined
+        ? entry
+        : { ...entry, declarationHash };
+    }),
+  };
+}
+
+type AdmittedToolResults = {
+  admitted: Array<AdmittedTurnTool>;
+  entries: Array<ToolAvailabilityEntry>;
+};
+
+async function admitEligibleToolCandidates(
+  byFoldedId: Map<string, Array<TurnToolCandidate>>,
+  callTimeoutSeconds: number,
+): Promise<AdmittedToolResults> {
   const admitted: Array<AdmittedTurnTool> = [];
   const entries: Array<ToolAvailabilityEntry> = [];
   const sortedFoldedIds = [...byFoldedId.keys()].sort(compareCodePoints);
@@ -401,21 +463,46 @@ export async function composeTurnToolCatalog(input: {
       entries.push(...collidingToolEntries(group));
       continue;
     }
-    const outcome = await admitTurnToolCandidate(
-      group[0],
-      input.callTimeoutSeconds,
-    );
+    const outcome = await admitTurnToolCandidate(group[0], callTimeoutSeconds);
     entries.push(outcome.entry);
     if (outcome.admitted) admitted.push(outcome.admitted);
   }
+  return { admitted, entries };
+}
+export async function composeTurnToolCatalog(input: {
+  readonly allowedToolRules: ReadonlyArray<string>;
+  readonly callTimeoutSeconds: number;
 
-  admitted.sort((left, right) =>
+  readonly candidates: Iterable<TurnToolCandidate>;
+  /**
+   * Called after admission has settled so every description sees the complete
+   * membership set for this attempt. MCP candidates remain opaque when the
+   * renderer returns their source description unchanged.
+   */
+  readonly descriptionRenderer?: ToolDescriptionRenderer;
+}): Promise<TurnToolCatalog> {
+  const byFoldedId = groupEligibleTurnToolCandidates(
+    [...input.candidates],
+    input.allowedToolRules,
+  );
+  const admittedResult = await admitEligibleToolCandidates(
+    byFoldedId,
+    input.callTimeoutSeconds,
+  );
+  admittedResult.admitted.sort((left, right) =>
     compareCodePoints(left.declaration.id, right.declaration.id),
   );
-  entries.sort((left, right) => compareCodePoints(left.id, right.id));
-
+  const rendered =
+    input.descriptionRenderer === undefined
+      ? admittedResult
+      : renderAdmittedToolDescriptions(
+          admittedResult.admitted,
+          admittedResult.entries,
+          input.descriptionRenderer,
+        );
+  rendered.entries.sort((left, right) => compareCodePoints(left.id, right.id));
   return {
-    admitted,
-    manifest: { version: 1, entries },
+    admitted: rendered.admitted,
+    manifest: { version: 1, entries: rendered.entries },
   };
 }

@@ -67,7 +67,8 @@ Traps:
 Specs: [instance config](../../openspec/specs/instance-config/spec.md),
 [model prompts](../../openspec/specs/model-system-prompts/spec.md),
 [models](../../openspec/specs/available-models/spec.md), and
-[personalization](../../openspec/specs/personalization/spec.md).
+[personalization](../../openspec/specs/personalization/spec.md). Operator
+procedure: [docs/tool-prompts.md](../../docs/tool-prompts.md).
 
 ## Model-context rail
 

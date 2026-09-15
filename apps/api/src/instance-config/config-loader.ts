@@ -187,9 +187,41 @@ function resolveToolsConfig(
     }),
     maxStepsPerRun: resolveToolNumber(raw, 'maxStepsPerRun', env),
     callTimeoutSeconds: resolveToolNumber(raw, 'callTimeoutSeconds', env),
+    promptFiles: resolveToolPromptFiles(raw),
   };
   if (nativeExecutorId) tools.nativeExecutorId = nativeExecutorId;
   return tools;
+}
+
+/**
+ * Resolve `tools.promptFiles` into an id -> path map. These are literal host
+ * paths, deliberately NOT `{env:...}`/`{path:...}` interpolated: the resolved
+ * file contents are visible to the chat owner, so the existing system-prompt
+ * visible-content path rule applies, and relative paths resolve at worker boot
+ * against the active config directory.
+ */
+function resolveToolPromptFiles(raw: RawInstanceConfig | undefined) {
+  const { present, raw: leaf } = readLeaf(raw, 'tools', 'promptFiles');
+  if (!present) return {};
+  if (!isRecord(leaf)) {
+    throw new InstanceConfigError('tools.promptFiles: must be an object');
+  }
+  // The config schema enforces non-empty tool ids and string/null values; the
+  // guard here narrows the untyped record without resolving host paths.
+  const files: Record<string, string | null> = {};
+  for (const [toolId, value] of Object.entries(leaf)) {
+    if (value === null) {
+      files[toolId] = null;
+      continue;
+    }
+    if (!isString(value)) {
+      throw new InstanceConfigError(
+        `tools.promptFiles.${toolId}: must be a file path string or null`,
+      );
+    }
+    files[toolId] = value;
+  }
+  return files;
 }
 
 /** Resolve one numeric `tools.*` setting with the built-in default. */
@@ -1290,37 +1322,62 @@ function resolveModelEntry(
   context: ModelResolutionContext,
 ): SystemModelCatalogEntry {
   assertValidModelEntry(entry, context);
-  const { env, promptLoader } = context;
 
-  // The remaining fields (pricingUsdPer1M, name, description, tags, icon,
-  // knowledgeCutoff, website, apiDocs, modelPage, releasedAt) are plain
-  // pass-through display metadata — schema-validated shape already
-  // guarantees they need no further resolution, so they ride along in the
-  // spread below rather than each needing its own presence check.
+  // The remaining fields ride along in the spread below: schema-validated
+  // shape already guarantees they need no further resolution. The two
+  // server-only path fields are excluded explicitly — a host path must never
+  // reach the resolved entry (and therefore the public catalog).
   const {
-    contextWindowTokens: rawContextWindowTokens,
-    compactionThresholdTokens: rawCompactionThresholdTokens,
-    systemPromptFile,
-    reasoning: rawReasoning,
+    contextWindowTokens: _rawContextWindowTokens,
+    compactionThresholdTokens: _rawCompactionThresholdTokens,
+    reasoning: _rawReasoning,
+    systemPromptFile: _systemPromptFile,
+    toolPromptFiles: _toolPromptFiles,
     ...display
   } = entry;
 
-  const reasoning = resolveModelReasoning(entry.id, rawReasoning);
-  const contextWindowTokens = resolveContextWindowTokens(
-    entry.id,
-    rawContextWindowTokens,
-    env,
-  );
-  const compactionThresholdTokens = resolveOptionalCompactionThreshold(
-    entry.id,
-    rawCompactionThresholdTokens,
-    env,
-  );
+  return buildModelCatalogEntry(entry, display, context);
+}
 
+/** Resolve the execution-critical numeric and reasoning fields of one entry. */
+function resolveModelScalars(entry: RawModelEntry, env: NodeJS.ProcessEnv) {
+  return {
+    reasoning: resolveModelReasoning(entry.id, entry.reasoning),
+    contextWindowTokens: resolveContextWindowTokens(
+      entry.id,
+      entry.contextWindowTokens,
+      env,
+    ),
+    compactionThresholdTokens: resolveOptionalCompactionThreshold(
+      entry.id,
+      entry.compactionThresholdTokens,
+      env,
+    ),
+  };
+}
+
+/** Assemble the resolved catalog entry from its validated parts. */
+function buildModelCatalogEntry(
+  entry: RawModelEntry,
+  display: Omit<
+    RawModelEntry,
+    | 'contextWindowTokens'
+    | 'compactionThresholdTokens'
+    | 'reasoning'
+    | 'systemPromptFile'
+    | 'toolPromptFiles'
+  >,
+  context: ModelResolutionContext,
+): SystemModelCatalogEntry {
+  const { env, promptLoader } = context;
+  const { reasoning, contextWindowTokens, compactionThresholdTokens } =
+    resolveModelScalars(entry, env);
   const prompt = promptLoader.resolve({
     id: entry.id,
     ...(entry.name !== undefined && { name: entry.name }),
-    ...(systemPromptFile !== undefined && { systemPromptFile }),
+    ...(entry.systemPromptFile !== undefined && {
+      systemPromptFile: entry.systemPromptFile,
+    }),
   });
 
   return {
@@ -1332,7 +1389,18 @@ function resolveModelEntry(
       compactionThresholdTokens,
     }),
     ...(reasoning !== undefined && { reasoning }),
+    ...resolveToolPromptFilesEntry(entry.toolPromptFiles),
   };
+}
+
+/**
+ * The per-tool description overrides for one model, or nothing when the entry
+ * declares none — so the field stays absent rather than present-and-undefined.
+ */
+function resolveToolPromptFilesEntry(
+  toolPromptFiles: RawModelEntry['toolPromptFiles'],
+): Pick<SystemModelCatalogEntry, 'toolPromptFiles'> | Record<string, never> {
+  return toolPromptFiles === undefined ? {} : { toolPromptFiles };
 }
 
 function resolveModels(

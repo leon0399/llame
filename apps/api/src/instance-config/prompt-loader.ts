@@ -6,6 +6,14 @@ import Handlebars from 'handlebars';
 import { sanitizeAuthoredText } from './authored-text';
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import { isString } from '@workspace/runtime-safety';
+import {
+  isToolPromptId,
+  resolvePackagedToolDescriptionPath,
+  TOOL_PROMPT_IDS,
+  type ToolPromptId,
+} from '../prompts/tool-descriptions';
+import { parseMcpToolId } from '../mcp/tool-id';
+import { isToolId } from '../tools/tool-id';
 import type {
   PromptChatDigestEntry,
   PromptChatsInput,
@@ -26,15 +34,27 @@ export type PromptFileAccess = {
   readFile(filePath: string): string;
 };
 
-type PromptModel = {
+export type ToolPromptFileMap = Readonly<
+  Record<string, string | null | undefined>
+>;
+
+export type PromptModel = {
   id: string;
   name?: string;
   systemPromptFile?: string;
+  toolPromptFiles?: ToolPromptFileMap;
 };
 
 type ModelPromptLoaderOptions = {
   configPath: string;
   defaultPromptPath?: string;
+  access?: PromptFileAccess;
+};
+
+export type ToolPromptRendererOptions = {
+  configPath: string;
+  instancePromptFiles?: ToolPromptFileMap;
+  models?: ReadonlyArray<PromptModel>;
   access?: PromptFileAccess;
 };
 
@@ -156,6 +176,23 @@ const PROMPT_GATE_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Tool predicate keys are validated as provider-safe exact ids without looking
+ * at the runtime registry. Object prototype names are not tool identities:
+ * accepting one would make a missing predicate depend on inherited properties.
+ */
+const PROMPT_TOOL_RESERVED_KEYS: ReadonlySet<string> = new Set([
+  ...Object.getOwnPropertyNames(Object.prototype),
+  'prototype',
+]);
+
+function isPromptToolId(id: string): boolean {
+  if (PROMPT_TOOL_RESERVED_KEYS.has(id) || !isToolId(id)) {
+    return false;
+  }
+  return !id.startsWith('mcp__') || parseMcpToolId(id).success;
+}
+
+/**
  * Allowlist, not a blocklist: needs no revisiting when handlebars adds a node
  * kind, and partials — forbidden by `model-system-prompts` — have three
  * spellings a blocklist would have to name one by one.
@@ -252,8 +289,19 @@ export type RenderSystemPromptInput = {
   chats?: PromptChatsInput;
   /** The frozen skill-catalog baseline; absent renders no catalog section. */
   skills?: PromptSkillsInput;
+  admittedToolIds?: ReadonlyArray<string>;
 };
 
+export type ToolPromptRenderInput = Omit<
+  RenderSystemPromptInput,
+  'template'
+> & {
+  toolId: ToolPromptId;
+};
+
+export type ToolPromptRenderer = {
+  render(input: ToolPromptRenderInput): string;
+};
 /**
  * Renders one model's complete system prompt.
  *
@@ -294,11 +342,11 @@ export type ModelPromptLoader = {
   validateProjectDefault(): void;
 };
 
-// Boot-time probe fixtures for `resolve()`'s "did the config author's gates
-// leave the template empty for someone" check — not the real render: per-user
-// and per-chat values resolve per run, so all combinations of their
-// independent gates must be exercised. The cross product is not
-// belt-and-braces.
+// Boot-time probe fixtures for the "did the config author's gates leave the
+// template empty for someone" check that both `resolve()` and the tool
+// description loader run — not the real render: per-user and per-chat values
+// resolve per run, so all combinations of their independent gates must be
+// exercised. The cross product is not belt-and-braces.
 //
 // It is tempting to argue that one probe suffices because per-user context
 // "only ever adds content" — but `unless` is an allowed helper and
@@ -394,9 +442,87 @@ const SYSTEM_PROMPT_EMPTY_RENDER_PROBES: ReadonlyArray<PromptProbeGates> = (
   { user, chats, skills: PROBE_SKILLS },
 ]);
 
+/**
+ * Whether some gate state renders the template as whitespace alone under BOTH
+ * probed tool memberships — no tools admitted and every tool the template
+ * names. Such a state is one no attempt can serve, and it fails boot. Shared
+ * by the system prompt and the tool descriptions: both render through this
+ * projection, so the two must not disagree about which templates cannot be
+ * served.
+ */
+function rendersEmptyForSomeGateState(
+  template: string,
+  model: PromptModel,
+  toolPredicateIds: ReadonlyArray<string>,
+): boolean {
+  const toolProbeMemberships: ReadonlyArray<ReadonlyArray<string>> =
+    toolPredicateIds.length === 0 ? [[]] : [[], toolPredicateIds];
+
+  // For a tool-aware template, none/all membership probes are diagnostics
+  // only. Rejecting is safe only when both memberships leave an independent
+  // user/chat/skills probe empty, so an absent tool cannot be the reason.
+  return SYSTEM_PROMPT_EMPTY_RENDER_PROBES.some(({ user, chats, skills }) =>
+    toolProbeMemberships.every(
+      (probeToolIds) =>
+        renderSystemPromptTemplate({
+          template,
+          model,
+          anchor: PROBE_ANCHOR,
+          user,
+          chats,
+          skills,
+          admittedToolIds: probeToolIds,
+        }).trim().length === 0,
+    ),
+  );
+}
+
+function assertBootPromptNonEmpty(
+  template: string,
+  model: PromptModel,
+  field: string,
+  toolPredicateIds: ReadonlyArray<string>,
+): void {
+  if (rendersEmptyForSomeGateState(template, model, toolPredicateIds)) {
+    throw new InstanceConfigError(`${field}: rendered prompt is empty`);
+  }
+}
+
+/**
+ * The same gate for one loaded description file, run against every model that
+ * can serve it — a packaged or instance-scoped file serves each configured
+ * model, and a probe renders WITH its model, so a file whose only content is a
+ * model value can be empty for one configured model and populated for another.
+ */
+function assertBootToolDescriptionNonEmpty(
+  loaded: LoadedPromptFile,
+  field: string,
+  models: ReadonlyArray<PromptModel>,
+): void {
+  for (const model of models) {
+    if (
+      rendersEmptyForSomeGateState(
+        loaded.template,
+        model,
+        loaded.toolPredicateIds,
+      )
+    ) {
+      throw new InstanceConfigError(`${field}: rendered description is empty`);
+    }
+  }
+}
+
+/** One validated prompt file: its normalized text and the boot-time facts
+ *  about it that later layers consult rather than re-derive. */
+type LoadedPromptFile = {
+  readonly template: string;
+  readonly referencesSkills: boolean;
+  readonly toolPredicateIds: ReadonlyArray<string>;
+};
+
 /** Read, validate, and cache one prompt file by its resolved path — several
  *  models may share one `systemPromptFile`, so `loadedFiles` (owned by the
- *  loader instance, threaded in) makes a repeat read-and-validate a no-op.
+ *  loader instance, threaded in) makes a repeat read-and-validate no-op.
  *  Compilation is NOT done here — the catalog carries the template as a
  *  string, and `renderSystemPromptTemplate` compiles once per distinct
  *  source on the render path. */
@@ -437,18 +563,11 @@ function loadPromptFile(
   }
   const loaded: LoadedPromptFile = {
     template: normalized,
-    referencesSkills: assertSupportedTemplate(normalized, field),
+    ...assertSupportedTemplate(normalized, field),
   };
   loadedFiles.set(resolvedPath, loaded);
   return loaded;
 }
-
-/** One validated prompt file: its normalized text and the boot-time facts
- *  about it that later layers consult rather than re-derive. */
-type LoadedPromptFile = {
-  readonly template: string;
-  readonly referencesSkills: boolean;
-};
 
 /** The state one `createModelPromptLoader` instance closes over — bundled so
  *  `resolveModelPrompt` can take it as a single parameter. */
@@ -472,21 +591,13 @@ function resolveModelPrompt(
       ? defaultPromptPath
       : path.resolve(configDirectory, override);
   const loadedPrompt = loadPromptFile(promptPath, field, access, loadedFiles);
-  const systemPromptTemplate = loadedPrompt.template;
-
-  if (
-    SYSTEM_PROMPT_EMPTY_RENDER_PROBES.some(
-      (probe) =>
-        renderSystemPromptTemplate({
-          template: systemPromptTemplate,
-          model,
-          anchor: PROBE_ANCHOR,
-          ...probe,
-        }).trim().length === 0,
-    )
-  ) {
-    throw new InstanceConfigError(`${field}: rendered prompt is empty`);
-  }
+  const { template: systemPromptTemplate, toolPredicateIds } = loadedPrompt;
+  assertBootPromptNonEmpty(
+    systemPromptTemplate,
+    model,
+    field,
+    toolPredicateIds,
+  );
 
   return {
     // The catalog carries the TEMPLATE, not a rendered string and not a
@@ -522,6 +633,186 @@ export function createModelPromptLoader(
         state.access,
         state.loadedFiles,
       );
+    },
+  };
+}
+function assertToolPromptOverrideKeys(
+  files: ToolPromptFileMap | undefined,
+  field: string,
+): void {
+  for (const id of Object.keys(files ?? {})) {
+    if (!isToolPromptId(id)) {
+      throw new InstanceConfigError(
+        `${field}: unsupported tool prompt override "${id}"`,
+      );
+    }
+  }
+}
+
+type ToolPromptFileLoadInput = {
+  files: ToolPromptFileMap | undefined;
+  field: string;
+  configDirectory: string;
+  access: PromptFileAccess;
+  loadedFiles: Map<string, LoadedPromptFile>;
+  /** Every model these files can serve; the empty-render probe runs per model. */
+  models: ReadonlyArray<PromptModel>;
+};
+
+function loadToolPromptFiles(
+  input: ToolPromptFileLoadInput,
+): Map<ToolPromptId, LoadedPromptFile> {
+  const loaded = new Map<ToolPromptId, LoadedPromptFile>();
+  for (const [id, configuredPath] of Object.entries(input.files ?? {})) {
+    if (configuredPath === null || configuredPath === undefined) {
+      continue;
+    }
+    if (!isToolPromptId(id)) {
+      throw new InstanceConfigError(
+        `${input.field}: unsupported tool prompt override "${id}"`,
+      );
+    }
+    const field = `${input.field}.${id}`;
+    const loadedFile = loadPromptFile(
+      path.resolve(input.configDirectory, configuredPath),
+      field,
+      input.access,
+      input.loadedFiles,
+    );
+    assertBootToolDescriptionNonEmpty(loadedFile, field, input.models);
+    loaded.set(id, loadedFile);
+  }
+  return loaded;
+}
+
+function loadPackagedToolPromptFiles(
+  access: PromptFileAccess,
+  loadedFiles: Map<string, LoadedPromptFile>,
+  models: ReadonlyArray<PromptModel>,
+): Map<ToolPromptId, LoadedPromptFile> {
+  const packaged = new Map<ToolPromptId, LoadedPromptFile>();
+  for (const id of TOOL_PROMPT_IDS) {
+    const field = `packaged tool description [${id}]`;
+    const loadedFile = loadPromptFile(
+      resolvePackagedToolDescriptionPath(id),
+      field,
+      access,
+      loadedFiles,
+    );
+    assertBootToolDescriptionNonEmpty(loadedFile, field, models);
+    packaged.set(id, loadedFile);
+  }
+  return packaged;
+}
+
+type ToolPromptSources = {
+  packaged: Map<ToolPromptId, LoadedPromptFile>;
+  instance: Map<ToolPromptId, LoadedPromptFile>;
+  modelOverrides: Map<string, Map<ToolPromptId, LoadedPromptFile>>;
+};
+
+function loadToolPromptSources(
+  options: ToolPromptRendererOptions,
+  access: PromptFileAccess,
+  configDirectory: string,
+  loadedFiles: Map<string, LoadedPromptFile>,
+): ToolPromptSources {
+  const models = options.models ?? [];
+  const packaged = loadPackagedToolPromptFiles(access, loadedFiles, models);
+  assertToolPromptOverrideKeys(
+    options.instancePromptFiles,
+    'tools.promptFiles',
+  );
+  const instance = loadToolPromptFiles({
+    files: options.instancePromptFiles,
+    field: 'tools.promptFiles',
+    configDirectory,
+    access,
+    loadedFiles,
+    models,
+  });
+  const modelOverrides = new Map<string, Map<ToolPromptId, LoadedPromptFile>>();
+  for (const model of models) {
+    const field = `models[${model.id}].toolPromptFiles`;
+    assertToolPromptOverrideKeys(model.toolPromptFiles, field);
+    modelOverrides.set(
+      model.id,
+      loadToolPromptFiles({
+        files: model.toolPromptFiles,
+        field,
+        configDirectory,
+        access,
+        loadedFiles,
+        models: [model],
+      }),
+    );
+  }
+  return { packaged, instance, modelOverrides };
+}
+
+function selectToolPromptSources(
+  options: ToolPromptRendererOptions,
+  sources: ToolPromptSources,
+): Map<string, ReadonlyMap<ToolPromptId, LoadedPromptFile>> {
+  const selectedByModel = new Map<
+    string,
+    ReadonlyMap<ToolPromptId, LoadedPromptFile>
+  >();
+  for (const model of options.models ?? []) {
+    const selected = new Map<ToolPromptId, LoadedPromptFile>();
+    const modelFiles = sources.modelOverrides.get(model.id);
+    for (const id of TOOL_PROMPT_IDS) {
+      const source =
+        modelFiles?.get(id) ??
+        sources.instance.get(id) ??
+        sources.packaged.get(id);
+      if (source !== undefined) {
+        selected.set(id, source);
+      }
+    }
+    selectedByModel.set(model.id, selected);
+  }
+  return selectedByModel;
+}
+
+/**
+ * Worker-owned tool description templates. All package and configured files
+ * are read and validated when this renderer is created, while rendering stays
+ * per attempt and uses the same projection as the system prompt.
+ */
+export function createToolPromptRenderer(
+  options: ToolPromptRendererOptions,
+): ToolPromptRenderer {
+  const access = options.access ?? DEFAULT_PROMPT_FILE_ACCESS;
+  const configDirectory = path.dirname(options.configPath);
+  const loadedFiles = new Map<string, LoadedPromptFile>();
+  const sources = loadToolPromptSources(
+    options,
+    access,
+    configDirectory,
+    loadedFiles,
+  );
+  const selectedByModel = selectToolPromptSources(options, sources);
+
+  return {
+    render: (input) => {
+      const source =
+        selectedByModel.get(input.model.id)?.get(input.toolId) ??
+        sources.instance.get(input.toolId) ??
+        sources.packaged.get(input.toolId);
+      if (source === undefined) {
+        throw new InstanceConfigError(
+          `tool description "${input.toolId}" has no packaged source`,
+        );
+      }
+      return renderSystemPromptTemplate({
+        template: source.template,
+        model: input.model,
+        anchor: input.anchor,
+        user: input.user,
+        chats: input.chats,
+        admittedToolIds: input.admittedToolIds,
+      });
     },
   };
 }
@@ -561,6 +852,20 @@ function isContentStatement(
   return node.type === 'ContentStatement';
 }
 
+function promptToolPredicateId(node: hbs.AST.Expression): string | undefined {
+  if (
+    !isPathExpression(node) ||
+    node.depth > 0 ||
+    node.data ||
+    node.parts.length !== 2 ||
+    node.parts[0] !== 'tools'
+  ) {
+    return undefined;
+  }
+  const id = node.parts[1];
+  return isString(id) && isPromptToolId(id) ? id : undefined;
+}
+
 /**
  * Rejects any path expression that is not reachable from `position`.
  *
@@ -580,6 +885,8 @@ function assertPath(
   }
   const expression = node;
   const key = expression.parts.join('\0');
+  const toolPredicateId =
+    position === 'conditional' ? promptToolPredicateId(expression) : undefined;
   const permitted =
     !expression.data &&
     // Inside an iteration ONLY that collection's declared item fields resolve,
@@ -588,7 +895,8 @@ function assertPath(
       ? expression.parts.length === 1 &&
         itemFields?.has(expression.parts[0]) === true
       : PROMPT_CONTEXT_KEYS.has(key) ||
-        (position === 'conditional' && PROMPT_GATE_KEYS.has(key)));
+        (position === 'conditional' &&
+          (PROMPT_GATE_KEYS.has(key) || toolPredicateId !== undefined)));
   // `depth > 0` is `../`, which climbs out of the projected context.
   if (expression.depth > 0 || !permitted) {
     throw unsupported(field, `{{${String(expression.original)}}}`);
@@ -733,6 +1041,26 @@ function assertStatements(
   }
 }
 
+function collectToolPredicateIds(
+  body: ReadonlyArray<hbs.AST.Statement>,
+  ids: Set<string>,
+): void {
+  for (const node of body) {
+    if (!isBlockStatement(node)) {
+      continue;
+    }
+    const helper = node.path.original;
+    if (helper === 'if' || helper === 'unless') {
+      const id = promptToolPredicateId(node.params[0]);
+      if (id !== undefined) {
+        ids.add(id);
+      }
+    }
+    collectToolPredicateIds(node.program?.body ?? [], ids);
+    collectToolPredicateIds(node.inverse?.body ?? [], ids);
+  }
+}
+
 /**
  * Whether any literal text exists anywhere in the template, including inside
  * conditional bodies — a prompt may legitimately consist of nothing but an
@@ -755,11 +1083,13 @@ function hasLiteralContent(body: ReadonlyArray<hbs.AST.Statement>): boolean {
 }
 
 /**
- * Validate one template and report whether it references the `skills`
- * namespace. Reuses the single parse validation already performs, so boot
- * records the answer without a second parse or a render.
+ * Validate one template and report the boot-time facts about it that later
+ * layers consult rather than re-derive: whether it references the `skills`
+ * namespace, and which tool predicates it gates on. Reuses the single parse
+ * validation already performs, so boot records both answers without a second
+ * parse or a render.
  */
-function assertSupportedTemplate(prompt: string, field: string): boolean {
+function assertSupportedTemplate(prompt: string, field: string) {
   let ast: hbs.AST.Program;
   try {
     ast = templates.parse(prompt);
@@ -773,7 +1103,12 @@ function assertSupportedTemplate(prompt: string, field: string): boolean {
     throw new InstanceConfigError(`${field}: prompt file is empty`);
   }
 
-  return referencesSkillsNamespace(ast.body);
+  const toolPredicateIds = new Set<string>();
+  collectToolPredicateIds(ast.body, toolPredicateIds);
+  return {
+    referencesSkills: referencesSkillsNamespace(ast.body),
+    toolPredicateIds: [...toolPredicateIds],
+  };
 }
 
 /**
@@ -933,11 +1268,21 @@ function skillsContext(skills: PromptSkillsInput | undefined) {
   };
 }
 
+function projectToolPredicates(
+  admittedToolIds: ReadonlyArray<string> | undefined,
+): Readonly<Record<string, boolean>> {
+  const tools = Object.fromEntries(
+    (admittedToolIds ?? []).map((id) => [id, true] as const),
+  );
+  Object.setPrototypeOf(tools, null);
+  return tools;
+}
+
 function renderPrompt(
   template: HandlebarsTemplateDelegate,
   fields: Omit<RenderSystemPromptInput, 'template'>,
 ): string {
-  const { model, anchor, user, chats, skills } = fields;
+  const { model, anchor, user, chats, skills, admittedToolIds } = fields;
   // An allowlisted path with no value renders empty rather than failing, so
   // that `{{#if model.name}}...{{model.name}}...{{/if}}` is expressible. Typos
   // still fail loudly: an unknown path is rejected in
@@ -957,6 +1302,7 @@ function renderPrompt(
     user?: typeof projectedUser;
     chats?: typeof projectedChats;
     skills?: typeof projectedSkills;
+    tools: Readonly<Record<string, boolean>>;
   };
   const renderContext: RenderPromptContext = {
     model: {
@@ -971,11 +1317,11 @@ function renderPrompt(
         escapeForPrompt(anchor.systemTimezone),
       ),
     },
+    tools: projectToolPredicates(admittedToolIds),
   };
   if (projectedUser !== undefined) renderContext.user = projectedUser;
   if (projectedChats !== undefined) renderContext.chats = projectedChats;
   if (projectedSkills !== undefined) renderContext.skills = projectedSkills;
-
   return template(renderContext);
 }
 

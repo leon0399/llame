@@ -230,6 +230,8 @@ export type RawModelEntry = {
   contextWindowTokens: unknown;
   compactionThresholdTokens?: unknown;
   systemPromptFile?: string;
+  /** Per-tool description file overrides for this model. Keys are registered llame-owned tool IDs; null falls through. */
+  toolPromptFiles?: Readonly<Record<string, string | null>>;
   pricingUsdPer1M?: SystemModelCatalogEntry['pricingUsdPer1M'];
   name?: string;
   description?: string;
@@ -334,6 +336,8 @@ export type LlameConfig = {
     maxStepsPerRun: number;
     /** Global per-tool-call timeout, in seconds (a tool may override at registration). */
     callTimeoutSeconds: number;
+    /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs; null falls through to packaged defaults. */
+    promptFiles?: Readonly<Record<string, string | null>>;
   };
   /** Operator-managed remote Streamable HTTP servers. Default: empty. */
   mcpServers: Readonly<Record<string, McpServerConfig>>;
@@ -414,6 +418,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
     permissions: {},
     maxStepsPerRun: 20,
     callTimeoutSeconds: 120,
+    promptFiles: {},
   },
   mcpServers: {},
   knowledge: {},

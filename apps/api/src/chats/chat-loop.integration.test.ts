@@ -73,10 +73,7 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from './chats-repository';
-import {
-  canonicalJson,
-  type ResolvedAttemptContext,
-} from '../runs/effective-context-resolver';
+import { canonicalJson } from '../runs/effective-context-resolver';
 import * as effectiveContextResolver from '../runs/effective-context-resolver';
 import { hashWithDomain } from '../canonical-json';
 import {
@@ -201,11 +198,16 @@ describeIfDb(
           reason: ToolUnavailableReason;
         };
 
+    type AttemptContextFixture = {
+      availabilityManifest: ToolAvailabilityManifestV1;
+      declarations: Array<ModelToolDeclaration>;
+      admittedIds: Array<string>;
+    };
+
     function availabilityContext(
       states: ReadonlyArray<AvailabilityState>,
-    ): ResolvedAttemptContext {
-      const prompt = 'Availability integration prompt';
-      const toolDeclarations: Array<ModelToolDeclaration> = states.flatMap(
+    ): AttemptContextFixture {
+      const declarations: Array<ModelToolDeclaration> = states.flatMap(
         (state) =>
           state.state === 'available'
             ? [
@@ -221,13 +223,11 @@ describeIfDb(
               ]
             : [],
       );
-      const toolAvailabilityManifest: ToolAvailabilityManifestV1 = {
+      const availabilityManifest: ToolAvailabilityManifestV1 = {
         version: 1,
         entries: states.map((state) => {
           if (state.state === 'unavailable') return state;
-          const declaration = toolDeclarations.find(
-            ({ id }) => id === state.id,
-          )!;
+          const declaration = declarations.find(({ id }) => id === state.id)!;
           return {
             id: state.id,
             state: 'available' as const,
@@ -239,11 +239,9 @@ describeIfDb(
         }),
       };
       return {
-        promptHash: hashWithDomain('llame:model-context:prompt:v1', prompt),
-        source: 'project_default',
-        systemPrompt: prompt,
-        toolAvailabilityManifest,
-        toolDeclarations,
+        availabilityManifest,
+        declarations,
+        admittedIds: declarations.map(({ id }) => id),
       };
     }
     type PersistResult = {
@@ -276,14 +274,14 @@ describeIfDb(
     const persistWithContext = async (
       chatId: string,
       text: string,
-      effectiveContext: ResolvedAttemptContext,
+      effectiveContext: AttemptContextFixture,
       modelId = 'system:openai:gpt-5.4-mini',
     ): Promise<PersistResult> => {
       // The API only persists the sanitized user message. Resolve the supplied
       // context through the actual worker preparation path, leaving terminal
       // status to each test so failed attempts cannot commit staged metadata.
       const resolve = vi
-        .spyOn(effectiveContextResolver, 'resolveEffectiveContext')
+        .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
         .mockResolvedValueOnce(effectiveContext);
       try {
         await chatLoop
@@ -1405,7 +1403,7 @@ describeIfDb(
           return touched;
         });
       const resolve = vi
-        .spyOn(effectiveContextResolver, 'resolveEffectiveContext')
+        .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
         .mockResolvedValueOnce(degraded)
         .mockResolvedValueOnce(healthy);
       const degradedMessageId = crypto.randomUUID();
@@ -1596,7 +1594,7 @@ describeIfDb(
       ]);
 
       const failedResolve = vi
-        .spyOn(effectiveContextResolver, 'resolveEffectiveContext')
+        .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
         .mockResolvedValueOnce(degraded);
       let failedRun: Run;
       try {
@@ -1618,7 +1616,7 @@ describeIfDb(
       expect(afterFailure?.recencyDigestTold).toBeNull();
 
       const successfulResolve = vi
-        .spyOn(effectiveContextResolver, 'resolveEffectiveContext')
+        .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
         .mockResolvedValueOnce(degraded);
       let successfulRun: Run;
       try {

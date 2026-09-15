@@ -322,10 +322,12 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
     },
   );
 
-  it('keeps a code-owned declaration mismatch Run-fatal even with a dynamic resolver', async () => {
+  it('keeps a code-owned schema mismatch Run-fatal even with a dynamic resolver', async () => {
     const snapshotted = makeTool();
     const declaration = await makeDeclaration(snapshotted);
-    const changed = makeTool({ description: 'Changed live declaration' });
+    const changed = makeTool({
+      inputSchema: z.object({ query: z.number() }),
+    });
 
     await expect(
       resolveBoundExecutableTools(
@@ -347,12 +349,29 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
     ).rejects.toThrow('has no registered executor');
   });
 
+  it('binds a code-owned executor whose description was rendered for this attempt', async () => {
+    const snapshotted = makeTool();
+    const declaration = await makeDeclaration(snapshotted);
+    // Descriptions are per-attempt rendered text: a different description on
+    // the trusted executor is expected and must not read as drift.
+    const live = makeTool({ description: 'Rendered for this attempt' });
+
+    const bound = await resolveBoundExecutableTools(
+      [declaration],
+      new Map([[live.id, live]]),
+      { resolveDynamicTool: () => ({ state: 'not_dynamic' }) },
+    );
+
+    expect(bound).toHaveLength(1);
+    expect(bound[0]?.executor).toBe(live);
+  });
+
   it('keeps a registered mcp-shaped code-owned declaration on the strict integrity path', async () => {
     const snapshotted = makeTool({ id: 'mcp__code__owned' });
     const declaration = await makeDeclaration(snapshotted);
     const changed = makeTool({
       id: snapshotted.id,
-      description: 'Changed registered declaration',
+      inputSchema: z.object({ query: z.number() }),
     });
     const resolveDynamicTool = vi.fn(() => ({
       state: 'unavailable' as const,

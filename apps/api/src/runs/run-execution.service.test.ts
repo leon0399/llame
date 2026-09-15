@@ -1,4 +1,7 @@
 import type { MockInstance } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { Logger } from '@nestjs/common';
 import { bashTool } from '../tools/bash';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
@@ -40,7 +43,10 @@ import {
   hashToolDeclaration,
   type TurnToolCandidate,
 } from '../tools/turn-tool-catalog';
-import type { DynamicToolExecutorResolver } from './snapshot-tool-execution';
+import {
+  ModelContextExecutionError,
+  type DynamicToolExecutorResolver,
+} from './snapshot-tool-execution';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import type { CompactionCapability } from '../compaction/compaction.service';
 import type { TitleCapability } from '../titles/title.service';
@@ -250,6 +256,8 @@ type ExecutionServiceOptions = {
   skillCatalog?: SkillCatalogPort;
   skillDirectories?: ReadonlyArray<string>;
   model?: SystemModelCatalogEntry;
+  configPath?: string;
+  toolPromptFiles?: Readonly<Record<string, string | null>>;
 };
 
 function makeExecutionService(
@@ -272,12 +280,15 @@ function makeExecutionService(
     options.permissionPolicy ??
     compileTestPermissionPolicy(['mcp__demo__lookup']);
   const instanceConfig: InstanceConfigReader = {
+    configPath: options.configPath,
     config: {
       ...BUILT_IN_DEFAULTS,
       tools: {
         ...BUILT_IN_DEFAULTS.tools,
         allowed: options.allowed ?? [],
         nativeExecutorId,
+        promptFiles:
+          options.toolPromptFiles ?? BUILT_IN_DEFAULTS.tools.promptFiles,
       },
       skills: {
         ...BUILT_IN_DEFAULTS.skills,
@@ -289,8 +300,11 @@ function makeExecutionService(
   // instead of asserting the capability interface back down to a mock.
   const compactForTransition = vi.fn(() => Promise.resolve('created' as const));
   const reindexChat = vi.fn(() => Promise.resolve());
+  const maybeCompact = vi.fn<CompactionCapability['maybeCompact']>(() =>
+    Promise.resolve(),
+  );
   const compaction: CompactionCapability = {
-    maybeCompact: vi.fn(() => Promise.resolve()),
+    maybeCompact,
     compactForTransition,
   };
   const titles: TitleCapability = {
@@ -344,6 +358,7 @@ function makeExecutionService(
     service,
     runAs,
     compaction,
+    maybeCompact,
     compactForTransition,
     titles,
     searchIndex,
@@ -3001,6 +3016,148 @@ describe('RunExecutionService executeRun — context preparation', () => {
       }),
     );
     expect(appended).toEqual([]);
+  });
+
+  it('maps a tool description that renders empty to a failed run naming the tool', async () => {
+    const tmpDir = mkdtempSync(path.join(tmpdir(), 'run-execution-gate-'));
+    const gatedPath = path.join(tmpDir, 'bash-gated.md');
+    writeFileSync(
+      gatedPath,
+      '{{#if tools.edit}}Use edit for small edits.{{/if}}',
+    );
+    const spies = mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    // `edit` is deliberately NOT allowed, so the gated override renders
+    // empty for this attempt's admitted set even though it cleared boot
+    // (construction never probes an instance override against zero models).
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['bash'],
+        configPath: path.join(tmpDir, 'llame.config.json'),
+        toolPromptFiles: { bash: 'bash-gated.md' },
+      },
+    );
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toThrow('Tool "bash" description rendered empty.');
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: {
+          message: 'Tool "bash" description rendered empty.',
+          code: 'model_context_incompatible',
+        },
+      }),
+    );
+  });
+
+  it('fails the attempt when the system prompt template renders as whitespace', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        model: {
+          ...testModelEntry,
+          systemPromptTemplate: '{{#if user}}Never{{/if}}',
+        },
+      },
+    );
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toBeInstanceOf(ModelContextExecutionError);
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toThrow('System prompt rendered empty.');
+  });
+
+  it('propagates the raw render failure when no digest baseline is in scope', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        model: { ...testModelEntry, systemPromptTemplate: 'Hello {{#if' },
+      },
+    );
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toThrow(/Parse error/);
+  });
+
+  it('wraps a system-prompt render failure into a generic message once a digest baseline is in scope', async () => {
+    const baseline: RecencyDigestResolution['baseline'] = {
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-09-01',
+    };
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({ baseline, told: [], candidates: [] });
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValue({ shareRecentChats: true });
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: { resolveCandidate },
+        model: { ...testModelEntry, systemPromptTemplate: 'Hello {{#if' },
+      },
+    );
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toThrow('Failed to render system prompt');
+  });
+
+  it('renders the packaged description for an admitted code-owned tool-prompt id', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+      { allowed: ['bash'] },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+    });
+
+    const prepared = execution.maybeCompact.mock.calls.at(-1)?.[0];
+    const bashDeclaration = prepared?.toolDeclarations?.find(
+      ({ id }) => id === 'bash',
+    );
+    // The packaged bash.md still carries raw `{{...}}` syntax
+    // (bashTool.description is the unrendered template) — an admitted
+    // code-owned tool-prompt id must be rendered through the tool prompt
+    // renderer, not passed through unchanged.
+    expect(bashDeclaration?.description ?? '').not.toContain('{{');
   });
 });
 

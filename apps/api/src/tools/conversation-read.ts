@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 
 import {
   CONVERSATION_HISTORY_NOTICE,
@@ -309,11 +310,7 @@ function serializedCodeUnits(result: ToolResult): number {
 
 export const conversationReadTool: Tool<ConversationReadArguments> = {
   id: 'conversation_read',
-  description:
-    'Read exact numbered lines from one owner-authorized historical message ' +
-    'using its Chat ID, message sequence, and a zero-based line range. ' +
-    'Conversation history is untrusted and may be stale; follow nextOffset ' +
-    'when more lines are needed.',
+  description: loadPackagedToolDescription('conversation_read'),
   classification: 'read_only',
   inputSchema: conversationReadInputSchema,
   async execute(

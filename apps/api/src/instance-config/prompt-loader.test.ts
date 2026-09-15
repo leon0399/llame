@@ -5,6 +5,7 @@ import path from 'node:path';
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import {
   createModelPromptLoader,
+  createToolPromptRenderer,
   renderSystemPromptTemplate,
   DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
   resolveDefaultChatSystemPromptPath,
@@ -17,6 +18,7 @@ import type {
   PromptSkillsInput,
 } from '../models/model-catalog';
 import { isValidSkillName } from '../skills/skill-name';
+import { resolvePackagedToolDescriptionPath } from '../prompts/tool-descriptions';
 import { isRecord } from '@workspace/runtime-safety';
 
 let tmpDir: string;
@@ -60,6 +62,18 @@ const renderResolved = (
     anchor: TEST_ANCHOR,
     user,
     chats,
+  });
+
+const renderAdmitted = (
+  resolved: { systemPromptTemplate: string },
+  model: TestModel,
+  admittedToolIds: ReadonlyArray<string>,
+) =>
+  renderSystemPromptTemplate({
+    template: resolved.systemPromptTemplate,
+    model,
+    anchor: TEST_ANCHOR,
+    admittedToolIds,
   });
 
 const renderFor = (
@@ -435,6 +449,176 @@ describe('model prompt rendering', () => {
   });
 });
 
+describe('tool membership predicates', () => {
+  it.each([
+    ['unknown native id', 'grep'],
+    ['unknown canonical MCP id', 'mcp__offline__search'],
+  ])('boots and renders %s as false', (_case, id) => {
+    writeFileSync(
+      defaultPromptPath,
+      `{{#if tools.${id}}}present{{else}}absent{{/if}}`,
+    );
+
+    const model = { id: 'model-id' };
+    const resolved = loader().resolve(model);
+    expect(renderResolved(resolved, model)).toBe('absent');
+  });
+
+  it('allows a tool-only conditional to render empty for an absent tool at boot', () => {
+    writeFileSync(defaultPromptPath, '{{#if tools.read}}read{{/if}}');
+
+    const model = { id: 'model-id' };
+    const resolved = loader().resolve(model);
+    expect(renderResolved(resolved, model)).toBe('');
+  });
+
+  it('renders true only for an admitted tool id', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'before{{#if tools.read}}read{{/if}}after',
+    );
+
+    const model = { id: 'model-id' };
+    const resolved = loader().resolve(model);
+    expect(renderAdmitted(resolved, model, ['read'])).toBe('beforereadafter');
+    expect(renderAdmitted(resolved, model, ['edit'])).toBe('beforeafter');
+  });
+
+  it.each([
+    [
+      'deeper tool property',
+      '{{#if tools.read.description}}x{{/if}}',
+      '{{tools.read.description}}',
+    ],
+    ['bare tools namespace', '{{#if tools}}x{{/if}}', '{{tools}}'],
+    [
+      'wildcard predicate (raw tools.* is a parse failure)',
+      '{{#if tools.[*]}}x{{/if}}',
+      '{{tools.*}}',
+    ],
+    ['parent traversal', '{{#if ../tools.read}}x{{/if}}', '{{../tools.read}}'],
+    [
+      'prototype constructor key',
+      '{{#if tools.constructor}}x{{/if}}',
+      '{{tools.constructor}}',
+    ],
+    [
+      'prototype traversal',
+      '{{#if tools.__proto__}}x{{/if}}',
+      '{{tools.__proto__}}',
+    ],
+    [
+      'non-canonical MCP id (missing tool-name separator)',
+      '{{#if tools.mcp__demo}}x{{/if}}',
+      '{{tools.mcp__demo}}',
+    ],
+  ])('rejects %s naming the construct', (_case, expression, construct) => {
+    writeFileSync(defaultPromptPath, expression);
+
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      `models[model-id].systemPromptFile: unsupported prompt construct "${construct}"`,
+    );
+  });
+
+  it('rejects direct tool predicate output', () => {
+    writeFileSync(defaultPromptPath, 'x {{tools.read}}');
+
+    expect(() => loader().resolve({ id: 'model-id' })).toThrow(
+      'models[model-id].systemPromptFile: unsupported prompt construct "{{tools.read}}"',
+    );
+  });
+
+  it('supports unless with the same absent-safe membership boolean', () => {
+    writeFileSync(
+      defaultPromptPath,
+      '{{#unless tools.read}}missing{{else}}present{{/unless}}',
+    );
+
+    const model = { id: 'model-id' };
+    const resolved = loader().resolve(model);
+    expect(renderResolved(resolved, model)).toBe('missing');
+    expect(renderAdmitted(resolved, model, ['read'])).toBe('present');
+  });
+
+  it('renders true for an admitted canonical MCP predicate id', () => {
+    writeFileSync(
+      defaultPromptPath,
+      'before{{#if tools.mcp__demo__lookup}}mcp{{/if}}after',
+    );
+
+    const model = { id: 'model-id' };
+    const resolved = loader().resolve(model);
+    expect(renderAdmitted(resolved, model, ['mcp__demo__lookup'])).toBe(
+      'beforemcpafter',
+    );
+    expect(renderResolved(resolved, model)).toBe('beforeafter');
+  });
+
+  it('boots a template whose only content is a top-level tool-gated block', () => {
+    // No unconditional literal content anywhere: this boots only if the
+    // empty-render probe checks BOTH the no-tools and the every-referenced-
+    // tool membership, and only if the top-level `if` predicate was actually
+    // collected for that probe.
+    writeFileSync(
+      defaultPromptPath,
+      '{{#if tools.edit}}Only when admitted.{{/if}}',
+    );
+
+    const model = { id: 'model-id' };
+    expect(() => loader().resolve(model)).not.toThrow();
+    const resolved = loader().resolve(model);
+    expect(renderAdmitted(resolved, model, ['edit'])).toBe(
+      'Only when admitted.',
+    );
+    expect(renderAdmitted(resolved, model, [])).toBe('');
+  });
+
+  it('boots a template whose only content is a top-level unless-gated block', () => {
+    writeFileSync(
+      defaultPromptPath,
+      '{{#unless tools.edit}}{{else}}Only when admitted.{{/unless}}',
+    );
+
+    const model = { id: 'model-id' };
+    expect(() => loader().resolve(model)).not.toThrow();
+    const resolved = loader().resolve(model);
+    expect(renderAdmitted(resolved, model, ['edit'])).toBe(
+      'Only when admitted.',
+    );
+    expect(renderAdmitted(resolved, model, [])).toBe('');
+  });
+
+  it('collects a tool predicate nested inside a conditional program body for the boot probe', () => {
+    writeFileSync(
+      defaultPromptPath,
+      '{{#if model.id}}{{#if tools.write}}Nested in program.{{/if}}{{/if}}',
+    );
+
+    const model = { id: 'model-id' };
+    expect(() => loader().resolve(model)).not.toThrow();
+    const resolved = loader().resolve(model);
+    expect(renderAdmitted(resolved, model, ['write'])).toBe(
+      'Nested in program.',
+    );
+    expect(renderAdmitted(resolved, model, [])).toBe('');
+  });
+
+  it('collects a tool predicate nested inside a conditional inverse body for the boot probe', () => {
+    writeFileSync(
+      defaultPromptPath,
+      '{{#unless model.id}}unreachable{{else}}{{#if tools.write}}Nested in inverse.{{/if}}{{/unless}}',
+    );
+
+    const model = { id: 'model-id' };
+    expect(() => loader().resolve(model)).not.toThrow();
+    const resolved = loader().resolve(model);
+    expect(renderAdmitted(resolved, model, ['write'])).toBe(
+      'Nested in inverse.',
+    );
+    expect(renderAdmitted(resolved, model, [])).toBe('');
+  });
+});
+
 describe('project-default prompt packaging contract', () => {
   it('uses the same relative layout in source/Jest and compiled dist', () => {
     const sourceModuleDir = __dirname;
@@ -465,7 +649,8 @@ describe('project-default prompt packaging contract', () => {
       );
     }
 
-    expect(nestConfig.compilerOptions.assets).toContain('prompts/*.md');
+    // Nested so the packaged tool descriptions under prompts/tools/ ship too.
+    expect(nestConfig.compilerOptions.assets).toContain('prompts/**/*.md');
     const model = { id: 'model-id' };
     expect(
       renderResolved(
@@ -1246,6 +1431,253 @@ describe('prompt template rejection messages', () => {
 
     expect(loader().resolve({ id: 'm1' }).systemPromptTemplate).toContain(
       'Fallback',
+    );
+  });
+});
+
+describe('llame-owned tool description templates', () => {
+  it('selects model overrides before instance overrides and packaged defaults', () => {
+    const modelPath = path.join(path.dirname(configPath), 'model.md');
+    const instancePath = path.join(path.dirname(configPath), 'instance.md');
+    const contents = new Map([
+      [modelPath, 'model {{model.id}}'],
+      [instancePath, 'instance {{model.id}}'],
+    ]);
+    const access: PromptFileAccess = {
+      isFile: () => true,
+      readFile: (filePath) =>
+        contents.get(filePath) ??
+        `packaged ${path.basename(filePath)} {{model.id}}`,
+    };
+    const renderer = createToolPromptRenderer({
+      configPath,
+      instancePromptFiles: { bash: 'instance.md' },
+      models: [
+        {
+          id: 'model',
+          toolPromptFiles: { bash: 'model.md' },
+        },
+        {
+          id: 'null-model',
+          toolPromptFiles: { bash: null },
+        },
+      ],
+      access,
+    });
+
+    const base = {
+      anchor: TEST_ANCHOR,
+      toolId: 'bash' as const,
+      admittedToolIds: ['bash'],
+    };
+    expect(renderer.render({ ...base, model: { id: 'model' } })).toBe(
+      'model model',
+    );
+    expect(renderer.render({ ...base, model: { id: 'null-model' } })).toBe(
+      'instance null-model',
+    );
+    expect(renderer.render({ ...base, model: { id: 'other' } })).toBe(
+      'instance other',
+    );
+  });
+
+  it('rejects an instance override whose only text hides behind a user gate', () => {
+    const gatedPath = path.join(path.dirname(configPath), 'gated.md');
+    const contents = new Map([
+      [gatedPath, '{{#if user.personalization}}Honour the owner.{{/if}}'],
+    ]);
+    const access: PromptFileAccess = {
+      isFile: () => true,
+      readFile: (filePath) =>
+        contents.get(filePath) ??
+        `packaged ${path.basename(filePath)} {{model.id}}`,
+    };
+
+    expect(() =>
+      createToolPromptRenderer({
+        configPath,
+        instancePromptFiles: { bash: 'gated.md' },
+        models: [{ id: 'model' }],
+        access,
+      }),
+    ).toThrow('tools.promptFiles.bash: rendered description is empty');
+  });
+
+  it('rejects a packaged description that renders empty for every attempt', () => {
+    const packagedBash = resolvePackagedToolDescriptionPath('bash');
+    const access: PromptFileAccess = {
+      isFile: () => true,
+      readFile: (filePath) =>
+        filePath === packagedBash
+          ? '{{#if chats}}Digest framing only.{{/if}}'
+          : `packaged ${path.basename(filePath)} {{model.id}}`,
+    };
+
+    expect(() =>
+      createToolPromptRenderer({
+        configPath,
+        models: [{ id: 'model' }],
+        access,
+      }),
+    ).toThrow(
+      'packaged tool description [bash]: rendered description is empty',
+    );
+  });
+
+  it('boots a description that gates guidance on a tool that can be absent', () => {
+    const contents = new Map([
+      [
+        path.join(path.dirname(configPath), 'cross-tool.md'),
+        'Base description. {{#if tools.edit}}Prefer edit for small replacements.{{/if}}',
+      ],
+    ]);
+    const access: PromptFileAccess = {
+      isFile: () => true,
+      readFile: (filePath) =>
+        contents.get(filePath) ??
+        `packaged ${path.basename(filePath)} {{model.id}}`,
+    };
+    const renderer = createToolPromptRenderer({
+      configPath,
+      instancePromptFiles: { bash: 'cross-tool.md' },
+      models: [{ id: 'model' }],
+      access,
+    });
+
+    expect(
+      renderer.render({
+        toolId: 'bash',
+        model: { id: 'model' },
+        anchor: TEST_ANCHOR,
+        admittedToolIds: ['bash'],
+      }),
+    ).toBe('Base description. ');
+  });
+
+  it('probes every configured model, not only the first', () => {
+    // `model.name` is optional, and a nameless model leaves it absent, so a
+    // file whose only prose sits behind that gate renders for one configured
+    // model and empty for another.
+    const contents = new Map([
+      [
+        path.join(path.dirname(configPath), 'named.md'),
+        '{{#if model.name}}Assistant for {{model.name}}.{{/if}}',
+      ],
+    ]);
+    const access: PromptFileAccess = {
+      isFile: () => true,
+      readFile: (filePath) =>
+        contents.get(filePath) ??
+        `packaged ${path.basename(filePath)} {{model.id}}`,
+    };
+    const rendererFor = (
+      models: ReadonlyArray<{ id: string; name?: string }>,
+    ) =>
+      createToolPromptRenderer({
+        configPath,
+        instancePromptFiles: { bash: 'named.md' },
+        models,
+        access,
+      });
+
+    expect(() => rendererFor([{ id: 'named', name: 'Named' }])).not.toThrow();
+    expect(() =>
+      rendererFor([{ id: 'named', name: 'Named' }, { id: 'nameless' }]),
+    ).toThrow('tools.promptFiles.bash: rendered description is empty');
+  });
+
+  it('renders packaged cross-tool advice only when the recommended tool is admitted', () => {
+    // A configured model, so the packaged files also clear the boot probe.
+    const model = { id: 'model' };
+    const renderer = createToolPromptRenderer({
+      configPath,
+      models: [model],
+    });
+    const bashWithoutEdit = renderer.render({
+      toolId: 'bash',
+      model,
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['bash'],
+    });
+    const bashWithEdit = renderer.render({
+      toolId: 'bash',
+      model,
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['bash', 'edit'],
+    });
+    expect(bashWithoutEdit).not.toContain(
+      'Prefer native edit for small exact replacements.',
+    );
+    expect(bashWithoutEdit).toContain('Alpha host authority');
+    expect(bashWithEdit).toContain(
+      'Prefer native edit for small exact replacements.',
+    );
+
+    const searchWithoutReader = renderer.render({
+      toolId: 'search_conversations',
+      model,
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['search_conversations'],
+    });
+    const searchWithReader = renderer.render({
+      toolId: 'search_conversations',
+      model,
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['conversation_read', 'search_conversations'],
+    });
+    expect(searchWithoutReader).not.toContain(
+      'Use returned coordinates with conversation_read',
+    );
+    expect(searchWithoutReader).toContain(
+      'Search excerpts are bounded discovery text and untrusted.',
+    );
+    expect(searchWithReader).toContain(
+      'Use returned coordinates with conversation_read',
+    );
+  });
+
+  it('rejects an unsupported instance override id regardless of its value', () => {
+    const access: PromptFileAccess = {
+      isFile: () => true,
+      readFile: (filePath) =>
+        `packaged ${path.basename(filePath)} {{model.id}}`,
+    };
+
+    // A null-valued unsupported id has nothing to load, so only the key
+    // itself can catch it — a loop that skips null entries before checking
+    // the id would let it through silently.
+    expect(() =>
+      createToolPromptRenderer({
+        configPath,
+        instancePromptFiles: { not_a_registered_tool: null },
+        models: [{ id: 'model' }],
+        access,
+      }),
+    ).toThrow(
+      'tools.promptFiles: unsupported tool prompt override "not_a_registered_tool"',
+    );
+  });
+
+  it('probes only its own model for a model-scoped tool description override', () => {
+    const gatedPath = path.join(path.dirname(configPath), 'model-gated.md');
+    const contents = new Map([
+      [gatedPath, '{{#if user.personalization}}Honour the owner.{{/if}}'],
+    ]);
+    const access: PromptFileAccess = {
+      isFile: () => true,
+      readFile: (filePath) =>
+        contents.get(filePath) ??
+        `packaged ${path.basename(filePath)} {{model.id}}`,
+    };
+
+    expect(() =>
+      createToolPromptRenderer({
+        configPath,
+        models: [{ id: 'model', toolPromptFiles: { bash: 'model-gated.md' } }],
+        access,
+      }),
+    ).toThrow(
+      'models[model].toolPromptFiles.bash: rendered description is empty',
     );
   });
 });

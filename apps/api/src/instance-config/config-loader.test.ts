@@ -447,6 +447,7 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
       permissions: BUILT_IN_DEFAULTS.tools.permissions,
       maxStepsPerRun: 20,
       callTimeoutSeconds: 120,
+      promptFiles: {},
     });
   });
 
@@ -455,6 +456,48 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
     expect(loadInstanceConfig().tools.allowed).toEqual([
       'search_conversations',
     ]);
+  });
+
+  it('resolves tools.promptFiles into an id -> path map', () => {
+    writeConfig(
+      '{ "tools": { "promptFiles": { "bash": "prompts/bash.md", "read": "/etc/llame/read.md" } } }',
+    );
+    expect(loadInstanceConfig().tools.promptFiles).toEqual({
+      bash: 'prompts/bash.md',
+      read: '/etc/llame/read.md',
+    });
+  });
+
+  it('threads a null promptFiles entry through as a packaged-default fallthrough signal', () => {
+    writeConfig(
+      '{ "tools": { "promptFiles": { "bash": null, "read": "prompts/read.md" } } }',
+    );
+    expect(loadInstanceConfig().tools.promptFiles).toEqual({
+      bash: null,
+      read: 'prompts/read.md',
+    });
+  });
+
+  it('leaves tools.promptFiles empty when the file omits it', () => {
+    writeConfig('{ "tools": { "allowed": [] } }');
+    expect(loadInstanceConfig().tools.promptFiles).toEqual({});
+    writeConfig('{ "tools": { "promptFiles": {} } }');
+    expect(loadInstanceConfig().tools.promptFiles).toEqual({});
+  });
+
+  it('rejects a malformed tools.promptFiles at the schema boundary', () => {
+    // Shape, key, and value constraints are the closed config schema's job —
+    // the resolver only narrows what the schema already accepted.
+    for (const body of [
+      '{ "tools": { "promptFiles": ["bash.md"] } }',
+      '{ "tools": { "promptFiles": { "": "bash.md" } } }',
+      '{ "tools": { "promptFiles": { "bash": 7 } } }',
+      '{ "tools": { "promptFiles": { "bash": "" } } }',
+    ]) {
+      writeConfig(body);
+      expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+      expect(() => loadInstanceConfig()).toThrow(/\/tools\/promptFiles/);
+    }
   });
 
   it('fails BOOT naming the path and the id when tools.allowed names an unregistered tool', () => {
@@ -1336,6 +1379,52 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       );
     });
 
+    it('never carries a declared host path into the resolved catalog entry', () => {
+      writePrompt('You are the override.', 'searched.md');
+      writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "model-with-override",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000,
+          "systemPromptFile": "searched.md",
+          "toolPromptFiles": { "bash": "prompts/bash.md" }
+        }]
+      }`);
+
+      const model = loadInstanceConfig().models[0];
+      // The host path is server-only: it must not survive resolution, since
+      // the resolved entry feeds the public model catalog.
+      expect(model).not.toHaveProperty('systemPromptFile');
+      // The override still took effect, proven by its rendered text.
+      expect(
+        renderSystemPromptTemplate({
+          template: model.systemPromptTemplate,
+          model,
+          anchor: TEST_ANCHOR,
+        }),
+      ).toContain('You are the override.');
+      // The worker-owned file map is internal, not client-facing.
+      expect(model.toolPromptFiles).toEqual({ bash: 'prompts/bash.md' });
+    });
+
+    it('omits toolPromptFiles entirely when the model declares no overrides', () => {
+      writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "model-without-overrides",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000
+        }]
+      }`);
+
+      expect(loadInstanceConfig().models[0]).not.toHaveProperty(
+        'toolPromptFiles',
+      );
+    });
+
     it('uses the packaged project default when the override is omitted', () => {
       writeConfig(`{
         ${SINGLE_PROVIDER_JSON},
@@ -1357,6 +1446,31 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         }),
       ).toMatch(/\S/);
       expect(model).not.toHaveProperty('systemPromptFile');
+    });
+
+    it('threads the configured model name into the boot-time empty-render probe', () => {
+      writePrompt(
+        '{{#if model.name}}Hello, {{model.name}}.{{/if}}',
+        'named.md',
+      );
+      writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "model-id",
+          "name": "Assistant",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000,
+          "systemPromptFile": "named.md"
+        }]
+      }`);
+
+      // The template has no unconditional content: if the configured name
+      // were not threaded into the boot probe, the probe would render this
+      // model as nameless and reject the template as empty at boot — even
+      // though the model does have a name and would render fine in use.
+      expect(() => loadInstanceConfig()).not.toThrow();
+      expect(renderFirstModel()).toBe('Hello, Assistant.');
     });
 
     it.each([

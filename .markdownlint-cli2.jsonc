@@ -13,6 +13,10 @@
     // Loader aliases are symlinks to the authoritative AGENTS.md files.
     "**/CLAUDE.md",
     "**/GEMINI.md",
+    // Model-facing prompt assets: content, not documentation. Markdownlint's
+    // document rules (trailing newline, inline HTML) would rewrite bytes the
+    // provider contract depends on.
+    "apps/api/src/prompts/tools/**",
   ],
   "config": {
     // Prettier owns wrapping; specification tables and code often exceed 80 columns.
