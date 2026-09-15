@@ -214,7 +214,7 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 
 ### Requirement: Committed digest baselines remain stable until compaction
 
-The digest SHALL be resolved for an initializing execution attempt with `shareRecentChats` enabled and stored as an immutable per-chat baseline only on its successful turn, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. Rendering the same baseline SHALL be deterministic, so **the digest contributes no per-turn variation to the prompt**: across runs whose other effective-context inputs are unchanged, the resulting system prompt is byte-identical and the prompt text/hash is unchanged, although each attempt has its own receipt.
+The digest SHALL be resolved for an initializing execution attempt with `shareRecentChats` enabled and stored as an immutable per-chat baseline only on its successful turn, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. Rendering the same baseline SHALL be deterministic, so **the digest contributes no per-turn variation to the prompt**: across runs whose other effective-context inputs are unchanged, the resulting system prompt is byte-identical and the prompt text/hash is unchanged, although each attempt has its own receipt. An owner fork that copied a baseline from its source SHALL continue that baseline rather than resolve a new one on its first Run.
 
 The stability claim is scoped to the digest, not the whole prompt. Current personalization and admitted membership resolve per attempt, selected model templates may differ, and worker restart may load changed files. Each prepared attempt has its own system-only receipt even when its rendered text/hash matches another attempt's. Failed initializing attempts publish no baseline, so their retries may resolve a fresh candidate.
 
@@ -251,6 +251,12 @@ Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rul
 - **WHEN** a baseline is re-resolved at compaction
 - **THEN** earlier system-only receipts still disclose any digest their system prompt actually carried
 - **AND** no earlier receipt is mutated to claim content it did not send
+
+#### Scenario: Owner continues a fork
+
+- **WHEN** the fork's first Run follows a baseline copied from the source Chat
+- **THEN** it renders that baseline without initializing a new one
+- **AND** later appends and compaction in the fork evolve its own copy only
 
 ### Requirement: Changes after the baseline are appended as events, never as a restated list
 
