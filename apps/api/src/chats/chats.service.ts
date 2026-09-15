@@ -4,12 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  type Chat,
-  type Compaction,
-  type Message,
-  type MessageRole,
-} from '../db/schema';
+import { type Chat, type Compaction, type Message } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   ChatSearchQueryEmbedder,
@@ -27,7 +22,13 @@ import {
   ChatsRepository,
   CompactionsRepository,
   MessagesRepository,
+  type ChatInheritedValues,
 } from './chats-repository';
+import {
+  copiedMessageRows,
+  inheritForkedChatState,
+  type CopyableMessage,
+} from './fork-copy';
 import { RunsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { pgErrorCode } from '../db/pg-error';
@@ -349,48 +350,30 @@ export class ChatsService {
   /**
    * Shared write side of both fork paths (`forkSharedChat` and `forkChat`
    * below): create a new chat owned by `ownerUserId` and copy `toCopy` into
-   * it in order, remapping every id (including `inReplyTo` references
-   * between the copied rows) to a freshly generated one. Ids are
-   * pre-assigned before any insert — `createMany`'s chunked bulk insert has
-   * no per-row RETURNING to learn a new id mid-batch, and a reply's
-   * `inReplyTo` only ever points to an earlier row in the same prefix
-   * (lower `seq`), so every reference is guaranteed to already be mapped.
+   * it in order, with fresh storage identities (see `copiedMessageRows`).
+   *
+   * `inherited` carries the Chat-row values the owner fork copies off its
+   * source, as `createdAt`/`usage` do per row; the shared fork passes neither,
+   * so its rows stay exactly what the public projection describes
+   * (complete-owner-forks D5).
    */
   private async copyMessagesIntoNewChat(
     tx: Db,
     ownerUserId: string,
     title: string | null,
-    toCopy: Array<{
-      id: string;
-      role: MessageRole;
-      parts: Array<unknown>;
-      senderUserId: string | null;
-      attachments: Array<unknown>;
-      inReplyTo: string | null;
-    }>,
+    toCopy: ReadonlyArray<CopyableMessage>,
+    inherited: ChatInheritedValues = {},
   ): Promise<Chat> {
-    const chatsRepo = new ChatsRepository(tx);
     // Nullable title (#78): a still-untitled chat stays untitled when forked
     // rather than forcing a title onto it.
-    const created = await chatsRepo.create({
+    const created = await new ChatsRepository(tx).create({
       ownerUserId,
       ...(title !== null && { title: forkTitle(title) }),
+      ...inherited,
     });
 
-    const idMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
     await new MessagesRepository(tx).createMany(
-      toCopy.map((message, index) => ({
-        id: idMap.get(message.id)!,
-        chatId: created.id,
-        seq: index + 1,
-        role: message.role,
-        senderUserId: message.senderUserId,
-        parts: message.parts,
-        attachments: message.attachments,
-        inReplyTo: message.inReplyTo
-          ? (idMap.get(message.inReplyTo) ?? null)
-          : null,
-      })),
+      copiedMessageRows(toCopy, created.id),
     );
 
     return created;
@@ -447,9 +430,8 @@ export class ChatsService {
           role: message.role,
           parts: message.parts,
           senderUserId: message.role === 'user' ? callerId : null,
-          // Not part of the public contract — never copied (same precedent
-          // as forkChat's usage: a fork made zero API calls and must not
-          // inherit telemetry or attachments it didn't produce).
+          // Not part of the public contract — never copied, so a fork can
+          // never disclose more than the shared view it was made from.
           attachments: [],
           inReplyTo: inReplyToById.get(message.id) ?? null,
         })),
@@ -494,19 +476,149 @@ export class ChatsService {
   }
 
   /**
-   * Fork a conversation: copy every message up to (and including)
-   * `fromMessageId` into a NEW chat owned by the caller, so an alternate
-   * direction can be explored without touching the original. When
-   * `fromMessageId` is omitted, the WHOLE conversation is copied instead —
-   * the anchor for the sidebar's "Fork" (clone) menu item, as opposed to the
-   * per-message "fork from here" action; both reuse this exact machinery.
-   * Owner-scoped and atomic (one `runAs` tx): the source chat AND the
-   * fork-point message (when given) are located ONLY within the caller's own
-   * chat (a cross-chat/cross-tenant message id simply isn't in the list → no
-   * copy); the new chat + copies INSERT under the caller's identity, so RLS
-   * makes them the caller's. `in_reply_to` is remapped to the copied user
-   * turns (satisfies the #73 integrity trigger + the one-reply-per-message
-   * index — the copy is 1:1).
+   * What the fork reads from and where it stops: the owned source Chat, plus
+   * the inclusive sequence the copied prefix ends at — the anchor message's
+   * own `seq`, or nothing for a whole-chat clone. Both are resolved within the
+   * caller's own chat, never by id alone, so an unknown chat and a
+   * cross-chat/cross-tenant anchor are both 404s here and RLS makes either
+   * indistinguishable from absent.
+   */
+  private async resolveForkBoundary(
+    tx: Db,
+    chatId: string,
+    ownerUserId: string,
+    fromMessageId: string | undefined,
+  ) {
+    const source = await new ChatsRepository(tx).findById(chatId, ownerUserId);
+    if (!source) {
+      throw new NotFoundException('Chat not found');
+    }
+    if (fromMessageId === undefined) {
+      return { source, maxSeq: undefined };
+    }
+
+    const anchor = await new MessagesRepository(tx).findById(
+      chatId,
+      ownerUserId,
+      fromMessageId,
+    );
+    if (!anchor) {
+      throw new NotFoundException('Fork-point message not found in this chat');
+    }
+    return { source, maxSeq: anchor.seq };
+  }
+
+  /**
+   * Copy the prefix's compactions into the fork, oldest-first — a parent is
+   * always inserted before the child whose `parentId` names it (the
+   * `(parent_id, chat_id)` FK is checked per row).
+   *
+   * Only storage identity moves: `parentId` follows the pre-assigned id map.
+   * `uptoSeq` copies verbatim because message sequences are already dense from
+   * 1 (allocation is `max + 1` and rows are never deleted), so the copied
+   * numbers are the source's and a copied checkpoint still covers exactly the
+   * prefix it covered before — which is what keeps the fork's absorbed-message
+   * count and replay boundary identical to its source's. `create` keeps its
+   * own write validation, so a malformed source row fails the whole fork
+   * rather than landing broken.
+   */
+  private async copyCompactionsIntoNewChat(
+    tx: Db,
+    chatId: string,
+    toCopy: ReadonlyArray<Compaction>,
+    idMap: ReadonlyMap<string, string>,
+  ): Promise<void> {
+    const compactionsRepo = new CompactionsRepository(tx);
+    for (const compaction of toCopy) {
+      await compactionsRepo.create({
+        id: idMap.get(compaction.id)!,
+        chatId,
+        uptoSeq: compaction.uptoSeq,
+        parentId: compaction.parentId
+          ? (idMap.get(compaction.parentId) ?? null)
+          : null,
+        summary: compaction.summary,
+        replacementHistory: compaction.replacementHistory,
+        usage: compaction.usage,
+        createdAt: compaction.createdAt,
+      });
+    }
+  }
+
+  /**
+   * The owner fork's whole read-and-write sequence, inside the caller's
+   * transaction: resolve the source and the prefix bound, read the prefix and
+   * the checkpoints covering it from that one snapshot, then write the
+   * destination Chat (already naming its copied checkpoints), its messages,
+   * and its compactions.
+   */
+  private async copyOwnedChat(
+    tx: Db,
+    chatId: string,
+    ownerUserId: string,
+    fromMessageId: string | undefined,
+  ): Promise<Chat> {
+    const { source, maxSeq } = await this.resolveForkBoundary(
+      tx,
+      chatId,
+      ownerUserId,
+      fromMessageId,
+    );
+
+    // Independent reads of that one snapshot — let postgres.js pipeline them
+    // on the connection, mirroring loadWindowBeforeSeq.
+    const [toCopy, compactions] = await Promise.all([
+      new MessagesRepository(tx).findByChatId(chatId, ownerUserId, { maxSeq }),
+      new CompactionsRepository(tx).findByChatId(chatId, ownerUserId, {
+        maxSeq,
+      }),
+    ]);
+
+    const { compactionIds, inherited } = inheritForkedChatState(
+      source,
+      compactions,
+    );
+    const created = await this.copyMessagesIntoNewChat(
+      tx,
+      ownerUserId,
+      source.title,
+      toCopy,
+      inherited,
+    );
+    await this.copyCompactionsIntoNewChat(
+      tx,
+      created.id,
+      compactions,
+      compactionIds,
+    );
+    return created;
+  }
+
+  /**
+   * Fork a conversation: copy the source Chat, every durable message up to
+   * (and including) `fromMessageId`, and the compactions covering that prefix
+   * into a NEW chat owned by the caller, so an alternate direction can be
+   * explored without touching the original. When `fromMessageId` is omitted,
+   * the WHOLE conversation is copied instead — the anchor for the sidebar's
+   * "Fork" (clone) menu item, as opposed to the per-message "fork from here"
+   * action; both reuse this exact machinery. Owner-scoped and atomic (one
+   * `runAs` tx): the source chat AND the fork-point message (when given) are
+   * located ONLY within the caller's own chat (a cross-chat/cross-tenant
+   * message id simply isn't in the list → no copy); the new chat + copies
+   * INSERT under the caller's identity, so RLS makes them the caller's.
+   * `in_reply_to` is remapped to the copied user turns (satisfies the #73
+   * integrity trigger + the one-reply-per-message index — the copy is 1:1).
+   *
+   * The copy is the source's LIVE state, not just its turns
+   * (complete-owner-forks D1-D3): compaction lineage, message times and usage,
+   * and the Chat row's creation time and frozen prompt baselines travel too,
+   * so the fork's next turn renders the same inherited prefix the source's
+   * next turn would — which is also what keeps that prefix eligible for
+   * provider prompt caching. Run status is never consulted: the fork takes
+   * what the source has committed, so forking mid-Run (or mid-retry) copies
+   * the accepted user message plus whatever assistant row an attempt already
+   * persisted. Only storage identifiers are rewritten, never a value inside
+   * `parts` or `usage`.
    *
    * Faithful, not bounded: a fork copies the ENTIRE prefix (or the entire
    * chat, for a whole-chat clone), however long, in one atomic transaction —
@@ -522,50 +634,18 @@ export class ChatsService {
     ownerUserId: string,
     fromMessageId?: string,
   ): Promise<Chat> {
-    const forked = await this.tenantDb.runAs(ownerUserId, async (tx) => {
-      const chatsRepo = new ChatsRepository(tx);
-      const messagesRepo = new MessagesRepository(tx);
-
-      const source = await chatsRepo.findById(chatId, ownerUserId);
-      if (!source) {
-        // Unknown/cross-tenant chat (RLS makes it indistinguishable from absent).
-        throw new NotFoundException('Chat not found');
-      }
-
-      // Absent anchor → no maxSeq bound → the whole chat (clone). A given
-      // anchor is resolved to ITS seq, scoped the same way as the chat above
-      // (owner + chat id), so a cross-chat/cross-tenant message id 404s here
-      // exactly like an unknown chat does.
-      let maxSeq: number | undefined;
-      if (fromMessageId !== undefined) {
-        const target = await messagesRepo.findById(
-          chatId,
-          ownerUserId,
-          fromMessageId,
-        );
-        if (!target) {
-          throw new NotFoundException(
-            'Fork-point message not found in this chat',
-          );
-        }
-        maxSeq = target.seq;
-      }
-
-      const toCopy = await messagesRepo.findByChatId(chatId, ownerUserId, {
-        maxSeq,
-      });
-
-      // usage is deliberately NOT copied: a fork makes ZERO API calls, so its
-      // turns must not carry cost/token telemetry — else a future usage
-      // aggregation (summed by created_at) would double-count the original
-      // spend at the fork date.
-      return this.copyMessagesIntoNewChat(
-        tx,
-        ownerUserId,
-        source.title,
-        toCopy,
-      );
-    });
+    // REPEATABLE READ: the source Chat, its messages, and its compactions must
+    // describe one instant — under the default READ COMMITTED each statement
+    // takes its own snapshot, so a turn or compaction committing between the
+    // reads would land half-copied (messages a copied `uptoSeq` no longer
+    // covers, or a checkpoint past the copied prefix). The fork writes only
+    // new rows of its own, so the stricter level costs nothing but the
+    // snapshot it is here for.
+    const forked = await this.tenantDb.runAs(
+      ownerUserId,
+      (tx) => this.copyOwnedChat(tx, chatId, ownerUserId, fromMessageId),
+      { isolationLevel: 'repeatable read' },
+    );
 
     // Index the forked chat's copied content for search (#195). Fork stays
     // async by design (grill Q4) — no model call to hide an inline rebuild

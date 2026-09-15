@@ -9,6 +9,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   script now owns the three helpers it shared with the sweep. Full-corpus runs
   stay available on a workstation through `pnpm test:mutation`.
 
+- Fork an owner's chat as a complete copy of the chosen prefix (#154). The copy
+  now carries the prefix's compaction lineage, each message's original
+  timestamp and usage, and the source Chat row's creation time and frozen
+  recency-digest and skill-catalog baselines, with both re-bake markers
+  remapped onto the copied checkpoints. A fork of a compacted chat therefore
+  continues with the same context its source would, rather than replaying the
+  whole history uncompacted under freshly resolved baselines. The
+  shared/public fork route is unchanged: it still produces a text-only public
+  projection with no compaction, baseline, usage, timestamp, or creation time.
+  Two consequences come with the copy — usage summed across an original and its
+  forks counts one execution more than once, and a fork taken at an earlier
+  point inherits today's told-sets rather than that point's, so an entry
+  disclosed after it is not announced again in the fork.
+
 # 2026-09-14
 
 - Stop collapsing a heavily edited file to a whole-file mutation scope. The

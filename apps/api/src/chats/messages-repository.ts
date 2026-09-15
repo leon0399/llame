@@ -295,6 +295,12 @@ export class MessagesRepository {
    * limit for arbitrarily large batches (a fork copies a conversation of any
    * length, #143 — no upper bound). Chunks are awaited in order, not via
    * `Promise.all`, so cross-chunk `seq` order is preserved too.
+   *
+   * `createdAt`/`usage` are the owner fork's verbatim copy of a source row's
+   * time and price (complete-owner-forks D2). The shared fork passes neither,
+   * and one call supplies both on every row or on none — so an omitted
+   * `createdAt` lands as the column's `default` (now()), never as an explicit
+   * NULL on a row that merely lacked one.
    */
   async createMany(
     rows: Array<{
@@ -306,6 +312,8 @@ export class MessagesRepository {
       parts: Array<unknown>;
       attachments: Array<unknown>;
       inReplyTo: string | null;
+      createdAt?: Date;
+      usage?: unknown;
     }>,
   ): Promise<void> {
     const CHUNK_SIZE = 500;

@@ -42,6 +42,10 @@ The current web, API, and worker processes form one installation and one Postgre
 
 Context compaction stores an RLS-scoped summary with an `upto_seq` boundary and `parent_id` lineage. Source messages remain unchanged; model context becomes a typed historical checkpoint plus retained later messages. A switch to a smaller-window model may run one bounded transition compaction with the previous executable model; an unavailable capable source fails explicitly instead of truncating or crossing an ownership boundary. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
 
+### 2.2 Owner forks
+
+An owner fork is a literal same-owner copy of a selected durable prefix: every message with its original timestamp and usage, every in-prefix compaction with its lineage, and the source Chat row's `createdAt` with its frozen recency-digest and skill-catalog baselines, told-sets, and re-bake markers remapped onto the copied checkpoints. The copy renders the same model-facing context its source would, creates no Run, and mutates no source, while the shared/public fork path stays a text-only public projection carrying no compaction, baseline, usage, timestamp, or copied creation time. See [`chats.service.ts`](apps/api/src/chats/chats.service.ts) and [`owner-chat-forks`](openspec/specs/owner-chat-forks/spec.md).
+
 ## 6. Identity and ownership
 
 Authenticated identity comes from the server-validated opaque session. Client input and model arguments never select the acting user or tenant scope.

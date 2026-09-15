@@ -503,12 +503,26 @@ describe('ChatsService message windows, updates and forks', () => {
   });
 
   describe('forkChat', () => {
+    // The Chat-row values a fork copies off its source (complete-owner-forks
+    // D3). This fixture carries no frozen baseline, so only the creation time
+    // travels and both markers stay null rather than naming a copied checkpoint.
+    const inheritedChatValues = {
+      createdAt: chat.createdAt,
+      recencyDigestBaseline: null,
+      recencyDigestTold: null,
+      recencyDigestRebakedFrom: null,
+      skillCatalogBaseline: null,
+      skillCatalogTold: null,
+      skillCatalogRebakedFrom: null,
+    };
+
     it('copies the whole chat, renumbering seq from 1 and remapping in-reply-to edges', async () => {
       const first = message(5);
       const second = message(6, {
         role: 'assistant',
         senderUserId: null,
         inReplyTo: first.id,
+        usage: { status: 'completed', totalTokens: 12 },
       });
       const created: Chat = {
         ...chat,
@@ -525,6 +539,10 @@ describe('ChatsService message windows, updates and forks', () => {
       const createMany = vi
         .spyOn(MessagesRepository.prototype, 'createMany')
         .mockResolvedValue(undefined);
+      vi.spyOn(
+        CompactionsRepository.prototype,
+        'findByChatId',
+      ).mockResolvedValue([]);
 
       await expect(
         makeService().service.forkChat(chat.id, ownerUserId),
@@ -533,6 +551,7 @@ describe('ChatsService message windows, updates and forks', () => {
       expect(create).toHaveBeenCalledWith({
         ownerUserId,
         title: 'Source (fork)',
+        ...inheritedChatValues,
       });
       expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
         maxSeq: undefined,
@@ -545,6 +564,13 @@ describe('ChatsService message windows, updates and forks', () => {
       expect(copied.map((m) => m.id)).not.toEqual([first.id, second.id]);
       expect(copied[1].inReplyTo).toBe(copied[0].id);
       expect(copied[0].inReplyTo).toBeNull();
+      // Times and usage describe the ORIGINAL turn: the fork re-prices nothing
+      // and rewrites no identifier inside a copied usage payload.
+      expect(copied.map((m) => m.createdAt)).toEqual([
+        first.createdAt,
+        second.createdAt,
+      ]);
+      expect(copied.map((m) => m.usage)).toEqual([null, second.usage]);
     });
 
     it('leaves an untitled source untitled instead of forking an empty title', async () => {
@@ -561,10 +587,17 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
         undefined,
       );
+      vi.spyOn(
+        CompactionsRepository.prototype,
+        'findByChatId',
+      ).mockResolvedValue([]);
 
       await makeService().service.forkChat(chat.id, ownerUserId);
 
-      expect(create).toHaveBeenCalledWith({ ownerUserId });
+      expect(create).toHaveBeenCalledWith({
+        ownerUserId,
+        ...inheritedChatValues,
+      });
     });
 
     it('bounds the copied prefix to the anchor message seq', async () => {
@@ -580,6 +613,9 @@ describe('ChatsService message windows, updates and forks', () => {
       const findByChatId = vi
         .spyOn(MessagesRepository.prototype, 'findByChatId')
         .mockResolvedValue([anchor]);
+      const findCompactions = vi
+        .spyOn(CompactionsRepository.prototype, 'findByChatId')
+        .mockResolvedValue([]);
       vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
         undefined,
       );
@@ -588,6 +624,11 @@ describe('ChatsService message windows, updates and forks', () => {
 
       expect(findById).toHaveBeenCalledWith(chat.id, ownerUserId, anchor.id);
       expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
+        maxSeq: 7,
+      });
+      // The lineage read shares the prefix bound: a checkpoint covering more
+      // than the anchor is outside the copy (complete-owner-forks D1).
+      expect(findCompactions).toHaveBeenCalledWith(chat.id, ownerUserId, {
         maxSeq: 7,
       });
     });

@@ -89,6 +89,29 @@ const CHAT_VECTOR_COLUMNS = {
 
 const SNIPPET_MAX = 160;
 
+/**
+ * Chat-row values a fork copies from its source (complete-owner-forks D3): the
+ * source's creation time and the frozen prompt baselines that decide what its
+ * next turn renders — both re-bake markers already remapped onto the copied
+ * compactions. Both triples travel together, never a baseline without its
+ * told-set. Derived from the row type so the column set cannot drift.
+ *
+ * `updatedAt` is deliberately absent: a fork is new activity that sorts by its
+ * own recency.
+ */
+export type ChatInheritedValues = Partial<
+  Pick<
+    Chat,
+    | 'createdAt'
+    | 'recencyDigestBaseline'
+    | 'recencyDigestTold'
+    | 'recencyDigestRebakedFrom'
+    | 'skillCatalogBaseline'
+    | 'skillCatalogTold'
+    | 'skillCatalogRebakedFrom'
+  >
+>;
+
 type ChatUpdatePatch = {
   title?: string;
   visibility?: 'private' | 'public';
@@ -507,16 +530,27 @@ export class ChatsRepository {
     return rows[0];
   }
 
-  /** Create a new chat owned by a user. Without a title it starts untitled (NULL, #78). */
-  async create(input: {
-    ownerUserId: string;
-    title?: string;
-    visibility?: 'private' | 'public';
-  }): Promise<Chat> {
+  /**
+   * Create a new chat owned by a user. Without a title it starts untitled
+   * (NULL, #78). `visibility` defaults to private, so only `update` can
+   * publish a chat.
+   *
+   * Inherited values (a fork's, if any) are spread first and the three
+   * normalized columns win, so a create that inherits nothing writes exactly
+   * the statement it always did: an absent optional column reaches the INSERT
+   * as `undefined` and takes its database default, never an explicit NULL.
+   */
+  async create(
+    input: ChatInheritedValues & {
+      ownerUserId: string;
+      title?: string;
+      visibility?: 'private' | 'public';
+    },
+  ): Promise<Chat> {
     const [created] = await this.db
       .insert(chats)
       .values({
-        ownerUserId: input.ownerUserId,
+        ...input,
         title: input.title ?? null,
         visibility: input.visibility ?? DEFAULT_CHAT_VISIBILITY,
       })
