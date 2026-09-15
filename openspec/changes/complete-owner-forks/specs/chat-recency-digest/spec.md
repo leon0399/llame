@@ -2,7 +2,7 @@
 
 ### Requirement: The digest is resolved at most once per chat and re-resolved only at compaction
 
-The digest SHALL be resolved on a chat's **first run for which `shareRecentChats` is enabled** and stored as an immutable per-chat baseline, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. An owner fork with an inherited baseline SHALL continue that baseline rather than resolve a new one on its first local Run. Copying already-bound owner history SHALL NOT resolve new corpus content or create a new disclosure epoch.
+The digest SHALL be resolved on a chat's **first run for which `shareRecentChats` is enabled** and stored as an immutable per-chat baseline, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. An owner fork that copied a baseline SHALL continue that baseline rather than resolve a new one on its first local Run. Copying an owner's own Chat SHALL NOT resolve new corpus content.
 
 Rendering the same baseline SHALL be deterministic, so **the digest contributes no per-turn variation to the prompt**: across runs whose other effective-context inputs are unchanged, the resulting system prompt is byte-identical and the snapshot is reused rather than re-minted.
 
@@ -10,7 +10,7 @@ The stability claim is scoped to the digest and SHALL NOT be read as a guarantee
 
 The baseline SHALL be re-resolved **only when that chat is compacted**. A model switch SHALL NOT re-resolve it: the stored baseline SHALL be re-rendered through the new model's template, so the prompt text changes while the listed chats do not. The rationale SHALL be documented: compaction is a context boundary at which the conversation is rewritten anyway, whereas a model switch changes only which provider reads an unchanged conversation, and refreshing the chat list there would silently change what the assistant knows about the owner as a side effect of an unrelated action.
 
-Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rule afresh, and SHALL overwrite the stored baseline. Runs already bound before re-resolution SHALL retain the prompt they actually sent, because each run's receipt is its own immutable snapshot. Boundary-specific historical state retained for owner forks SHALL likewise remain unchanged.
+Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rule afresh, and SHALL overwrite the stored baseline. Runs already bound before re-resolution SHALL retain the prompt they actually sent, because each run's receipt is its own immutable snapshot.
 
 #### Scenario: Second turn in a chat reuses the baseline
 
@@ -45,50 +45,38 @@ Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rul
 
 #### Scenario: Owner continues a fork
 
-- **WHEN** the fork's first local Run follows an inherited digest baseline
+- **WHEN** the fork's first local Run follows a copied digest baseline
 - **THEN** it renders that baseline without initializing a new one
 - **AND** ordinary future appends and local compaction use the fork's own evolving state
 
 ## ADDED Requirements
 
-### Requirement: Owner forks preserve boundary-specific digest state
+### Requirement: Owner forks copy the source's current digest state
 
-An owner fork SHALL inherit the selected boundary's baseline, told-set, and pending re-bake disclosure state together. The system SHALL retain sufficient historical state when a turn or compaction changes these values so a later historical fork cannot accidentally inherit state from excluded messages or a later compaction. It SHALL NOT recover missing structured state by parsing rendered prompts, checkpoint summaries, or reminder prose.
+An owner fork SHALL copy the source Chat's current baseline, told-set, and re-bake marker together. The re-bake marker SHALL be remapped to the copied compaction it names and SHALL be absent when that compaction was not copied. The system SHALL NOT retain per-boundary historical digest state for forks and SHALL NOT recover digest state by parsing rendered prompts, checkpoint summaries, or reminder prose.
 
-The copied told-set SHALL continue to identify the same external chats; allocating a new current Chat SHALL NOT rewrite those identities. Copying already-bound state remains permitted after consent withdrawal, consistent with non-retroactive withdrawal; resolving new baselines, appends, and re-bakes SHALL still obey current consent. No digest state SHALL cross the shared/public fork boundary.
+The copied told-set SHALL continue to identify the same external chats; allocating a new current Chat SHALL NOT rewrite those identities. Copying already-bound state remains permitted after consent withdrawal, consistent with non-retroactive withdrawal; resolving new baselines, appends, and re-bakes in the fork SHALL obey current consent. No digest state SHALL cross the shared/public fork boundary.
 
-#### Scenario: Historical fork precedes an append
+#### Scenario: Historical anchor precedes an append
 
-- **WHEN** a source chat disclosed a new digest entry after the selected message
-- **THEN** the fork inherits the earlier told-set
-- **AND** the excluded append cannot suppress an otherwise eligible future disclosure in the fork
+- **WHEN** a source chat disclosed a new digest entry after the selected anchor
+- **THEN** the fork inherits the source's current told-set, including that entry
+- **AND** the fork does not announce that entry again
 
-#### Scenario: Historical fork precedes a re-bake
+#### Scenario: Source has no digest
 
-- **WHEN** the source replaced its baseline at a later compaction
-- **THEN** the fork inherits the baseline applicable at its selected boundary
-- **AND** it does not copy the source's later baseline merely because it is currently stored on the Chat
+- **WHEN** an owner forks a Chat that carries no baseline
+- **THEN** the fork carries none
+- **AND** its first local Run initializes one under the ordinary consent and eligibility rules
 
-#### Scenario: Transition re-bake follows a selected user's acceptance
+#### Scenario: A re-bake marker names an uncopied compaction
 
-- **WHEN** `U2` was accepted with Monday's baseline and a subsequent transition compaction refreshed it before `A2` completed
-- **THEN** a fork at `U2` inherits its recorded acceptance baseline, told-set, and re-bake state
-- **AND** the later transition's digest state is excluded even though its message horizon ends at `U2`
-
-#### Scenario: Monday's pinned state is stale by Wednesday
-
-- **WHEN** the owner forks Monday's retained boundary after the source refreshed its digest on Tuesday
-- **THEN** the fork preserves Monday's pinned baseline and told-set
-- **AND** their age does not reject the fork, refresh them, or create a fork notice
-
-#### Scenario: A re-bake notice is pending at the selected boundary
-
-- **WHEN** an applicable compaction refreshed the digest but no included user turn has yet carried the corresponding supersession notice
-- **THEN** the fork retains the same pending notice state
-- **AND** its next ordinary eligible turn emits that notice once
+- **WHEN** the source's re-bake marker names a compaction whose coverage lies beyond the selected anchor
+- **THEN** the fork's marker is absent
+- **AND** no supersession notice is emitted for a compaction the fork does not hold
 
 #### Scenario: Owner disabled sharing after history was bound
 
 - **WHEN** that owner forks history that already contains a digest while sharing is disabled
-- **THEN** the inherited baseline and evidence remain intact
+- **THEN** the copied baseline and told-set remain intact
 - **AND** the fork resolves no new digest content or appends while sharing remains disabled
