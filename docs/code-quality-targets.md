@@ -53,7 +53,6 @@ pnpm test
 pnpm test:metrics
 pnpm test:coverage
 pnpm test:mutation
-pnpm test:mutation:report
 ```
 
 Before deleting a Knip finding, search package scripts and path-based entrypoint

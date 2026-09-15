@@ -15,12 +15,107 @@
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { globSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { mutationSourceFiles, mutationWorkspaces } from "./mutation-scope.mjs";
-import { mergeMutationReports } from "./mutation-sharding.mjs";
+export const mutationWorkspaces = [
+  "apps/api",
+  "packages/config-interpolation",
+  "packages/runtime-safety",
+];
+
+/** Source files a workspace's Stryker configuration mutates, in POSIX form. */
+export function mutationSourceFiles(workspace) {
+  const config = JSON.parse(
+    readFileSync(path.join(workspace, "stryker.config.json"), "utf8"),
+  );
+  const files = new Set();
+  for (const pattern of config.mutate.filter(
+    (value) => !value.startsWith("!"),
+  )) {
+    for (const file of globSync(pattern, { cwd: workspace })) files.add(file);
+  }
+  for (const pattern of config.mutate.filter((value) =>
+    value.startsWith("!"),
+  )) {
+    for (const file of globSync(pattern.slice(1), { cwd: workspace }))
+      files.delete(file);
+  }
+  const selected = [...files]
+    .map((file) => file.split(path.sep).join("/"))
+    .sort();
+  if (selected.length === 0)
+    throw new Error("Configured mutation scope is empty");
+  if (selected.some((file) => /[,!*?{}[\]()\\]/u.test(file))) {
+    throw new Error(
+      "Mutation filenames cannot contain glob metacharacters or commas",
+    );
+  }
+  return selected;
+}
+
+/** Counts and Stryker-semantics score over one or more mutation reports. */
+export function mergeMutationReports(reports) {
+  if (reports.length === 0) throw new Error("No mutation reports supplied");
+
+  const files = {};
+  const counts = {
+    killed: 0,
+    timeout: 0,
+    survived: 0,
+    noCoverage: 0,
+    compileError: 0,
+    runtimeError: 0,
+  };
+  const countByStatus = {
+    Killed: "killed",
+    Timeout: "timeout",
+    Survived: "survived",
+    NoCoverage: "noCoverage",
+    CompileError: "compileError",
+    RuntimeError: "runtimeError",
+  };
+
+  for (const report of reports) {
+    if (
+      !report ||
+      typeof report.schemaVersion !== "string" ||
+      !report.schemaVersion ||
+      !report.files ||
+      typeof report.files !== "object" ||
+      Array.isArray(report.files)
+    ) {
+      throw new Error("Invalid mutation report");
+    }
+    if (report.schemaVersion !== reports[0].schemaVersion) {
+      throw new Error("Mutation reports use different schema versions");
+    }
+    for (const [file, result] of Object.entries(report.files ?? {})) {
+      if (!result || !Array.isArray(result.mutants))
+        throw new Error(`Invalid mutant list for ${file}`);
+      if (file in files)
+        throw new Error(`Duplicate mutation report file: ${file}`);
+      files[file] = result;
+      for (const mutant of result.mutants ?? []) {
+        const key = countByStatus[mutant.status];
+        if (Object.hasOwn(countByStatus, mutant.status)) counts[key] += 1;
+        else if (mutant.status !== "Ignored")
+          throw new Error(
+            `Unfinished or unknown mutant status: ${mutant.status}`,
+          );
+      }
+    }
+  }
+
+  const detected = counts.killed + counts.timeout;
+  const valid = detected + counts.survived + counts.noCoverage;
+  return {
+    counts,
+    score: valid === 0 ? 100 : (detected / valid) * 100,
+    report: { ...reports[0], files },
+  };
+}
 
 /** Ranges closer than this merge, since a mutant needs its neighbours anyway. */
 const coalesceGap = 3;

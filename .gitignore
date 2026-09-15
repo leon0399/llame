@@ -54,6 +54,4 @@ CLAUDE.local.md
 coverage/
 .stryker-tmp/
 **/reports/mutation/
-**/reports/mutation-baseline.json
-**/reports/stryker-incremental*.json
 stryker.changed-lines.json

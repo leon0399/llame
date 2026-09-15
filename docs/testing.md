@@ -77,8 +77,9 @@ measurement, stored index, cache key or environment fingerprint is involved:
 the scope is computed from the pull request's own tree and cannot go stale.
 
 What this does not catch: coverage removed without changing a source line. A
-diff that only weakens or deletes a test changes no mutant, so the weekly sweep
-is the check that sees it. [The redesign
+diff that only weakens or deletes a test changes no mutant, so review is the
+check that sees it. A full-corpus run (`pnpm test:mutation`) is available on a
+workstation when a wider measurement is wanted. [The redesign
 record](mutation-gate-redesign.md) has the reasoning and the alternative
 considered.
 
@@ -92,11 +93,6 @@ Each package remains runnable directly; reports live under ignored workspace
 execution. Direct `test:mutation` runs report MSI over the whole corpus without
 enforcing a threshold. See the [measurements and
 alternatives](research/development-pipeline.md).
-
-The weekly sweep (`mutation-baseline.yml`) retests every mutant (`--force`),
-reports global MSI as a trend without enforcing it, and refreshes the index its
-shards are balanced on. Slow erosion surfaces there as a cleanup task rather
-than as a pull-request failure.
 
 ## CI mapping
 
