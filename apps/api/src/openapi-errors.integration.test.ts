@@ -27,19 +27,15 @@ const errorBodySchema = z.object({
 
 type ErrorBody = z.infer<typeof errorBodySchema>;
 
-const openApiPropertySchema = z
-  .object({
-    enum: z.array(z.unknown()).optional(),
-    type: z.string().optional(),
-  })
-  .passthrough();
+const openApiPropertySchema = z.looseObject({
+  enum: z.array(z.unknown()).optional(),
+  type: z.string().optional(),
+});
 
-const openApiSchemaSchema = z
-  .object({
-    properties: z.record(z.string(), openApiPropertySchema).optional(),
-    required: z.array(z.string()).optional(),
-  })
-  .passthrough();
+const openApiSchemaSchema = z.looseObject({
+  properties: z.record(z.string(), openApiPropertySchema).optional(),
+  required: z.array(z.string()).optional(),
+});
 
 const rawDocument: unknown = JSON.parse(
   readFileSync(join(__dirname, '../openapi.json'), 'utf8'),
@@ -110,14 +106,14 @@ describe('OpenAPI error schemas match real HTTP responses', () => {
       .set('Cookie', cookie)
       .send({ name: 'Root' });
     expect(root.status).toBe(201);
-    rootId = z.object({ id: z.string().uuid() }).parse(root.body).id;
+    rootId = z.object({ id: z.guid() }).parse(root.body).id;
 
     const child = await request(http)
       .post(`/api/v1/org-units/${rootId}/children`)
       .set('Cookie', cookie)
       .send({ name: 'Child' });
     expect(child.status).toBe(201);
-    childId = z.object({ id: z.string().uuid() }).parse(child.body).id;
+    childId = z.object({ id: z.guid() }).parse(child.body).id;
   });
 
   afterAll(async () => {
