@@ -568,7 +568,7 @@ Instance configuration SHALL accept `skills.directories` as an ordered array of 
 - **WHEN** `skills.directories` contains `/opt/skills` and `/opt/skills/pdf/SKILL.md` exists
 - **THEN** the `pdf` package is discovered
 - **AND** the operator does not configure `/opt/skills/pdf` for this layout; a source directory's own `SKILL.md` is not a discovered child package
-API-only processes SHALL validate configuration shape and model references without loading prompt-file contents. A process hosting a Run consumer SHALL perform file loading and executable-template validation before it consumes jobs. Tool-aware templates SHALL follow the absent-tool and actual-attempt empty-render rules in `tool-prompt-templates`; an absent tool cannot fail worker boot.
+  API-only processes SHALL validate configuration shape and model references without loading prompt-file contents. A process hosting a Run consumer SHALL perform file loading and executable-template validation before it consumes jobs. Tool-aware templates SHALL follow the absent-tool and actual-attempt empty-render rules in `tool-prompt-templates`; an absent tool cannot fail worker boot.
 
 ### Requirement: Tool prompt files support instance and model precedence
 
