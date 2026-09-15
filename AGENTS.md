@@ -131,6 +131,13 @@ deterministic; secrets never reach logs, errors, model context, or owner output.
   `pnpm lint:markdown`; lint commands reject unused disables.
 - Follow [docs/testing.md](docs/testing.md). DB suites never skip silently.
 - UI uses [DESIGN.md](DESIGN.md), shared primitives, and semantic tokens.
+  `@shadcn/lint` enforces this through oxlint: components own their color,
+  typography, spacing, shape, effects, and motion, and call sites may only add
+  layout classes. Reach for the component's `variant`/`size` before its
+  `className`, keep values on the Tailwind scale, and never add a theme token
+  to launder a raw palette color. `packages/ui/.oxlintrc.json` exempts
+  `src/components/**` from the ownership rules, since those files are the
+  design system.
 - Preserve `messages.parts` and stored order. Only declared display-only parts
   stay outside model history; compaction replaces only its explicit prefix.
   New replay transforms or omissions require a spec.
