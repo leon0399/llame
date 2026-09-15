@@ -12,7 +12,10 @@ import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 
 // Every story in this file is transcribed verbatim from the shadcn Alert docs
 // examples (https://ui.shadcn.com/docs/components/base/alert), so the file
-// carries the "shadcn-example" provenance tag on each transcribed story.
+// carries the "shadcn-example" provenance tag on each transcribed story —
+// except `Colors`, which keeps the example's subject (an emphasis tone layered
+// on through `className`) but not its raw-palette amber, forbidden by
+// DESIGN.md §2; it lifts the callout onto the `muted` surface instead.
 //
 // `alert-rtl` is skipped by convention (RTL demo). `Destructive`'s description
 // (`text-destructive/90` on the card surface) fails WCAG AA color-contrast
@@ -130,20 +133,23 @@ export const Destructive: Story = {
 };
 
 /**
- * Custom colors are applied directly via `className` (e.g.
- * `border-amber-200 bg-amber-50 text-amber-900` with dark-mode counterparts)
- * since `variant` only covers `default`/`destructive` — use this for a
- * warning tone the built-in variants don't provide.
+ * A non-destructive emphasis is applied with `className` — the default
+ * `bg-card` callout lifts onto the `muted` surface instead. There is no warning
+ * hue to reach for (DESIGN.md §2: color is data-viz and danger only), so the
+ * icon and copy carry the intent and the surface stays achromatic; `destructive`
+ * remains the only chromatic alert.
  *
- * Verbatim from [shadcn Alert › Custom Colors](https://ui.shadcn.com/docs/components/base/alert#custom-colors).
+ * Adapted from [shadcn Alert › Custom Colors](https://ui.shadcn.com/docs/components/base/alert#custom-colors),
+ * which paints a warning tone from the raw Tailwind palette (`border-amber-200
+ * bg-amber-50 text-amber-900` with dark-mode counterparts) — forbidden by
+ * DESIGN.md §2/§6.
  *
- * @summary for a custom warning tone via className
+ * @summary for a custom emphasis tone via className
  */
 export const Colors: Story = {
   tags: ["shadcn-example", "ai-generated"],
   args: {
-    className:
-      "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-50",
+    className: "bg-muted",
     children: (
       <>
         <AlertTriangleIcon />

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export type TimeOfDay = "morning" | "afternoon" | "evening" | "night";
 
@@ -18,7 +18,7 @@ export function useTimeOfDay(): TimeOfDay {
   const [hour, setHour] = useState(new Date().getHours());
 
   // Update the hour every minute
-  useMemo(() => {
+  useEffect(() => {
     const interval = setInterval(() => {
       setHour(new Date().getHours());
     }, 60_000); // Update every minute

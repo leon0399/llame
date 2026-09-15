@@ -134,7 +134,7 @@ function MatchHighlightUnderlay({
             // interface stays monochrome, only content and the chart ramp
             // carry color). Match state is already carried by the check
             // icon and the "Match" label, so no meaning rests on hue.
-            className="rounded-[3px] bg-foreground/15 text-transparent dark:bg-foreground/25"
+            className="rounded-xs bg-foreground/15 text-transparent dark:bg-foreground/25"
           >
             {segment.text}
           </mark>
@@ -457,7 +457,7 @@ export const RegexTesterProvider = ({
     // clicks inside themselves (their outside-click-closes handler), which
     // would silence tokens rendered in fullscreen; React capture still spans
     // portaled children, so scoping stays per-provider.
-    <div style={{ display: "contents" }} onClickCapture={handleClick}>
+    <div className="contents" onClickCapture={handleClick}>
       {children}
       {activeTarget ? (
         <RegexTesterOverlay

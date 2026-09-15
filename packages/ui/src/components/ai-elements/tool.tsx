@@ -88,14 +88,25 @@ const getStatusBadge = (status: ToolHeaderState) => {
     cancelled: "Cancelled",
   } satisfies Record<ToolHeaderState, string>;
 
+  // Status separates by value, not hue (DESIGN.md §2 keeps the interface
+  // achromatic): quiet ink for states that are waiting or interim, full ink for
+  // the active/settled success states, and `destructive` for the one genuinely
+  // failed outcome. Each state keeps a distinct icon, so nothing here relies on
+  // color alone.
   const icons = {
-    "input-streaming": <CircleIcon className="size-4" />,
-    "input-available": <ClockIcon className="size-4 animate-pulse" />,
-    "approval-requested": <ClockIcon className="size-4 text-yellow-600" />,
-    "approval-responded": <CheckCircleIcon className="size-4 text-blue-600" />,
-    "output-available": <CheckCircleIcon className="size-4 text-green-600" />,
-    "output-error": <XCircleIcon className="size-4 text-red-600" />,
-    "output-denied": <XCircleIcon className="size-4 text-orange-600" />,
+    "input-streaming": <CircleIcon className="size-4 text-muted-foreground" />,
+    "input-available": (
+      <ClockIcon className="size-4 animate-pulse text-foreground" />
+    ),
+    "approval-requested": (
+      <ClockIcon className="size-4 text-muted-foreground" />
+    ),
+    "approval-responded": (
+      <CheckCircleIcon className="size-4 text-muted-foreground" />
+    ),
+    "output-available": <CheckCircleIcon className="size-4 text-foreground" />,
+    "output-error": <XCircleIcon className="size-4 text-destructive" />,
+    "output-denied": <XCircleIcon className="size-4 text-muted-foreground" />,
     cancelled: <BanIcon className="size-4 text-muted-foreground" />,
   } satisfies Record<ToolHeaderState, ReactNode>;
 

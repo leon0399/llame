@@ -25,7 +25,9 @@ import { contrastKnownIssue232 } from "./known-a11y-issues.js";
 // (https://ui.shadcn.com/docs/components/base/avatar), so the file carries
 // the "shadcn-example" provenance tag on each transcribed story. `Fallback` and
 // `Squared` document states/usages upstream doesn't (initials-only, squared
-// entity avatars) and override with "ai-generated". Upstream example we
+// entity avatars) and override with "ai-generated"; `Badge` keeps the example's
+// subject but drops its raw-palette dot (`bg-green-600`), forbidden by
+// DESIGN.md §2, for a step down the achromatic value scale. Upstream example we
 // intentionally skip: RTL (excluded by convention). The base-nova examples
 // live in the shadcn-ui/ui repo under `apps/v4/examples/base/` and were pulled
 // directly from there.
@@ -135,9 +137,13 @@ export const Squared: Story = {
 
 /**
  * `AvatarBadge` adds a status/notification indicator at the bottom-right of
- * the avatar; use `className` to recolor it (e.g. green for online).
+ * the avatar; use `className` to move it along the value scale rather than
+ * into a hue — the default `bg-primary` dot is the strongest ink, and
+ * `bg-muted-foreground` steps it down for a quieter state (e.g. away/busy).
  *
- * Verbatim from [shadcn Avatar › Badge](https://ui.shadcn.com/docs/components/base/avatar#badge).
+ * Adapted from [shadcn Avatar › Badge](https://ui.shadcn.com/docs/components/base/avatar#badge),
+ * which recolors the dot with the raw Tailwind palette (`bg-green-600
+ * dark:bg-green-800`) — forbidden by DESIGN.md §2/§6.
  *
  * @summary for a status indicator on the avatar
  */
@@ -148,7 +154,7 @@ export const Badge: Story = {
       <>
         <AvatarImage src="https://github.com/shadcn.png" alt="@shadcn" />
         <AvatarFallback>CN</AvatarFallback>
-        <AvatarBadge className="bg-green-600 dark:bg-green-800" />
+        <AvatarBadge className="bg-muted-foreground" />
       </>
     ),
   },
