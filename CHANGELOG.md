@@ -28,7 +28,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   and 36% of the two native tools' combined 2048 characters. Both bounds now
   carry `.meta({ pattern: undefined })`, which keeps zod's runtime check and
   drops the regex from the emitted document; `format: "date-time"` remains,
-  and ajv-formats enforces the same acceptance from the snapshot. The
+  and ajv-formats holds the declaration's floor from the snapshot — it runs in
+  fast mode, so the tool's own parse still governs offset syntax, exactly as
+  it did while the regex was being emitted. The
   `conversation_read` chat id keeps its 92-character pattern, which documents
   `z.guid()`'s loose acceptance that a bare `format: "uuid"` would overstate.
 

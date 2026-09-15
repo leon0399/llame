@@ -108,8 +108,10 @@ export const searchConversationsInputSchema = z
     // `.meta({ pattern: undefined })` keeps zod's runtime check but drops the
     // 318-character ISO-8601 regex from the emitted declaration, where it was
     // 41% of this tool's payload. The model reads `format: "date-time"` and
-    // the description; ajv-formats enforces the same acceptance from the
-    // snapshot, including the rejection of minute precision.
+    // the description; ajv-formats holds the declaration's floor from the
+    // snapshot, rejecting non-dates, date-only strings, and minute precision.
+    // It runs in fast mode, so it admits a colonless offset that this schema
+    // rejects — the parse below governs, as it did when the regex was emitted.
     after: z.iso
       .datetime({ offset: true })
       .meta({ pattern: undefined })
