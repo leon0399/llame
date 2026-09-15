@@ -148,6 +148,9 @@ export const Destructive: Story = {
  */
 export const Colors: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // `AlertDescription`'s `muted-foreground` on the `muted` surface is the
+  // #232 token pairing the registry names, as in `Destructive` below.
+  parameters: contrastKnownIssue232,
   args: {
     className: "bg-muted",
     children: (

@@ -188,11 +188,14 @@ export const AsLink: Story = {
  */
 export const Colors: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // `destructive` renders destructive ink on `bg-destructive/10` at `text-xs`
+  // (~4:1), the #232 token pairing `Basic`/`Variants` already suppress.
+  parameters: contrastKnownIssue232,
   render: () => (
     <div className="flex flex-wrap gap-2">
       <Badge className="bg-foreground text-background">Blocker</Badge>
       <Badge className="bg-muted text-foreground">Major</Badge>
-      <Badge className="bg-muted text-muted-foreground">Minor</Badge>
+      <Badge variant="outline">Minor</Badge>
       <Badge className="text-muted-foreground" variant="ghost">
         Trivial
       </Badge>
