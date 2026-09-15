@@ -39,7 +39,6 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { SearchIndexService } from '../search/search-index.service';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import type { KnowledgeToolResolver } from '../tools/types';
-export {};
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const knowledgeResolver: KnowledgeToolResolver = {

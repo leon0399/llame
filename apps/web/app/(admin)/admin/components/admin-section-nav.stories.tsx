@@ -18,7 +18,7 @@ const meta = {
   decorators: [
     (Story) => (
       <SidebarProvider className="min-h-0 w-fit">
-        <div className="w-[16rem]">
+        <div className="w-64">
           <Story />
         </div>
       </SidebarProvider>

@@ -65,12 +65,18 @@ function deriveCompactionMeta(
   return { chipMeta, cardMeta };
 }
 
+/** The chevron's two states share one size/ink; the icons are rendered inline
+ *  rather than through a `const Icon = …` alias — an alias by that name reads
+ *  as a design-system component to the linter. */
+const CHEVRON_CLASS = "size-3.75 text-muted-foreground";
+
 /** The collapsed pill chip + its toggle — split out from
  *  `CompactionBoundary` so that component composes only state and layout. */
 function CompactionChevron({ open }: { open: boolean }) {
-  const Icon = open ? ChevronDownIcon : ChevronRightIcon;
-  return (
-    <Icon aria-hidden="true" className="size-[15px] text-muted-foreground" />
+  return open ? (
+    <ChevronDownIcon aria-hidden="true" className={CHEVRON_CLASS} />
+  ) : (
+    <ChevronRightIcon aria-hidden="true" className={CHEVRON_CLASS} />
   );
 }
 
@@ -98,7 +104,7 @@ function CompactionChip({
       >
         <LayersIcon
           aria-hidden="true"
-          className="size-[15px] text-muted-foreground"
+          className="size-3.75 text-muted-foreground"
         />
         <span className="text-sm font-medium">Context compacted</span>
         <span className="text-xs text-muted-foreground">{chipMeta}</span>
@@ -121,7 +127,7 @@ function CompactionResultCard({
   return (
     <div className="mt-2.5 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       <div className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
-        <span className="text-[0.82rem] font-semibold">Compaction result</span>
+        <span className="text-sm font-semibold">Compaction result</span>
         <span className="ml-auto font-mono text-xs text-muted-foreground">
           {cardMeta}
         </span>

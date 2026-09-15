@@ -114,8 +114,8 @@ describe("usePersonalizationDraft", () => {
     expect(result.current.dirty).toBe(true);
 
     // A refetch that resolves to the SAME server data must not clobber the
-    // in-progress edit. Flipping `useDraftState`'s `edited ? current : stored`
-    // branch fails this assertion.
+    // in-progress edit. Letting the server value win over `useDraftState`'s
+    // edits — seeding the draft from `data` alone — fails this assertion.
     await act(async () => {
       await queryClient.invalidateQueries({ queryKey: ["personalization"] });
     });

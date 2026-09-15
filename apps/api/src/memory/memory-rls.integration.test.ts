@@ -8,8 +8,6 @@
 
 import { type Sql } from 'postgres';
 
-export {};
-
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 

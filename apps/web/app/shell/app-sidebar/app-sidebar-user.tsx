@@ -44,9 +44,9 @@ function UserAvatar({
   displayInitials: string;
 }) {
   return (
-    <Avatar className="h-8 w-8 rounded-lg">
+    <Avatar className="h-8 w-8">
       {user.image && <AvatarImage src={user.image} />}
-      <AvatarFallback className="rounded-lg">{displayInitials}</AvatarFallback>
+      <AvatarFallback>{displayInitials}</AvatarFallback>
     </Avatar>
   );
 }
@@ -61,12 +61,12 @@ function AccountMenuHeader({
   displayInitials: string;
 }) {
   return (
-    <DropdownMenuLabel className="p-0 font-normal">
-      <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm h-12">
+    <DropdownMenuLabel>
+      <div className="flex items-center gap-2 text-left text-sm h-12">
         <UserAvatar user={user} displayInitials={displayInitials} />
         <div className="grid flex-1 text-left text-sm leading-tight">
           <span className="truncate font-medium">{displayName}</span>
-          <span className="truncate text-xs">{user.email}</span>
+          <span className="truncate text-xs font-normal">{user.email}</span>
         </div>
       </div>
     </DropdownMenuLabel>
@@ -116,7 +116,7 @@ function AccountMenuContent({
 }) {
   return (
     <DropdownMenuContent
-      className="w-(--anchor-width) min-w-56 rounded-lg"
+      className="w-(--anchor-width) min-w-56"
       side={isMobile ? "bottom" : "right"}
       align="end"
       sideOffset={4}

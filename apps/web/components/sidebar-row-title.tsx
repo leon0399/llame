@@ -143,28 +143,19 @@ export function SidebarRowTitle({
       ref={clipRef}
       className={cn(
         "block min-w-0 overflow-hidden text-clip whitespace-nowrap",
-        // The fade collapses to 0 by default (@property initial value), which
-        // leaves this gradient fully opaque — so it costs an unclipped title
-        // nothing.
-        //
-        // Trailing edge only. A leading fade would say "there is more this
+        // Trailing edge only, and the utilities in the theme are the trailing
+        // half for that reason: a leading fade would say "there is more this
         // way" on a side nothing can reveal — leaving the row abandons the
         // gesture, it does not scroll back — and at this type size it renders
         // as two or three half-dissolved glyphs beside the row icon. The clean
         // clip against the container edge reads as clipped content instead.
-        "[mask-image:linear-gradient(to_right,#000_calc(100%_-_var(--marquee-fade-r)),transparent_100%)]",
-        // Anything currently cut off gets the fade — including a title that
-        // only the revealed actions clip. The width comes from the same token
-        // the `marquee-tail` keyframe starts from, so the animation picks up
-        // exactly where this leaves off instead of popping.
-        "data-[clipped=true]:[--marquee-fade-r:var(--marquee-fade-max)]",
-        // The fade holds for the whole travel and leaves only once the tail
-        // has landed (`--marquee-end-ms` is the delay plus the scroll's own
-        // duration) — see the `marquee-tail` keyframes for why that is an
-        // animation and not a transition. This transition covers the return.
-        "[transition:--marquee-fade-r_150ms_ease-out]",
-        "group-hover/menu-item:data-[clipped=true]:[animation:marquee-tail_150ms_ease-out_var(--marquee-end-ms)_both]",
-        "group-focus-within/menu-item:data-[clipped=true]:[animation:marquee-tail_150ms_ease-out_var(--marquee-end-ms)_both]",
+        //
+        // The fade itself, the width it holds while clipped, and the travel's
+        // own hold: the mechanism (a mask over an `@property` length, one
+        // keyframe for the leave) lives beside these utilities in the theme.
+        "marquee-fade data-[clipped=true]:marquee-fade-clipped",
+        "group-hover/menu-item:data-[clipped=true]:marquee-fade-trailing",
+        "group-focus-within/menu-item:data-[clipped=true]:marquee-fade-trailing",
         // Nothing scrolls under reduced motion, so the fade must stay put —
         // otherwise it retreats on hover and claims the title ends there while
         // it is still clipped.

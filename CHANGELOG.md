@@ -2,6 +2,72 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-15
 
+- Adopt `@shadcn/lint`, shadcn's Tailwind design-system linter, as an oxlint JS
+  plugin with all six rules at error, and remove the 467 violations it found.
+  `DESIGN.md` has said since it was written that the interface is achromatic
+  with color only in the chart ramp and `--destructive`, that components own
+  their appearance, and that values stay on the 10px radius and spacing
+  scales. Nothing enforced it, so call sites drifted: 204 arbitrary values
+  (`text-[0.86rem]`, `gap-[0.4rem]`, `px-[1.2rem]`) and 194 overrides of a
+  component's own color, typography, spacing, shape, effects, or motion. The
+  fixes are code, not exemptions — hand-rolled `bg-destructive text-white
+hover:bg-destructive/90` on `AlertDialogAction` becomes
+  `variant="destructive"`, off-scale values snap to the scale, and
+  component-owned spacing moves to a parent's `gap` or a plain wrapper. Two
+  patterns earned a place in the design system instead: a `chromeless`
+  `SidebarMenuButton` variant for the rows where the `SidebarMenuItem` paints
+  the surface and draws one row-wide focus ring, and named
+  `marquee-fade*`/`reveal-track` utilities plus `--grid-template-columns-*`
+  theme entries for the sidebar title fade and the in-flow action reveal,
+  which had been spelled as arbitrary `[mask-image:…]` and `[animation:…]`
+  values beside CSS that already lived in `globals.css`. Ownership rules are
+  off for `packages/ui/src/components/**`, whose glob lives in that
+  workspace's config because each workspace runs oxlint from its own
+  directory; the token and class-existence rules still apply there. Four
+  marker classes that generate no CSS of their own (`not-prose`, `is-user`,
+  `is-assistant`, `toaster`) are allowlisted by name.
+
+  Snapping to the scale is visible, so read a pixel diff as intended rather
+  than as a regression: type, icon, and padding sizes move at several sites.
+  Most land within a pixel (`text-[0.86rem]` -> `text-sm` is +0.24px) and many
+  are byte-identical (`px-[28px]` -> `px-7`), but the `soon` chip goes 10px ->
+  12px because `text-xs` is the smallest preset and a one-chip `text-2xs`
+  token is not worth minting. Components that had their typography or spacing
+  overridden now render at the kit's own metrics, which is the point.
+
+  The rules found live defects, not only drift: `conversation-tree-graph.tsx`
+  filled three node markers from `hsl(var(--warning))`, `hsl(var(--success))`,
+  and `hsl(var(--primary))`, and the first two named tokens this theme never
+  declared — Chromium computed them to black, so those markers had been
+  rendering as black shapes. Two icon classes referenced the same absent
+  tokens and were dead.
+
+  Enabling the plugin required oxlint 1.80+, so the pinned pair moved 1.78.0 →
+  1.82.0 (the newest release past the seven-day resolution cooldown). That
+  bump also turned on react-compiler-derived correctness rules added in 1.79,
+  whose 27 findings are fixed the same way: `set-state-in-effect` sites derive
+  during render, seed state lazily, or re-seed a dialog body by remounting it
+  under `DialogContent`; `refs` sites move their writes to effects;
+  `static-components` sites hoist to module scope. `@shadcn/lint@0.1.0` is
+  inside the cooldown and is listed in `minimumReleaseAgeExclude`.
+
+  Three follow-on cleanups the diff made unavoidable: the Cancel + submit
+  dialog footer reached its third identical copy and is now
+  `apps/web/components/dialog-submit-footer.tsx`; `custom/text-shimmer.tsx`
+  and its story are deleted, having become byte-identical twins of the
+  vendored `ai-elements/shimmer.tsx` that every consumer already used; and
+  `app/layout.tsx` drops a `<style dangerouslySetInnerHTML>` block in favour
+  of the two font custom properties on `<html>`.
+
+- Replace `cnfast` with `cn`, shadcn's official Tailwind class-merging engine,
+  behind the unchanged `@workspace/ui/lib/utils` re-export. `cn` has the same
+  `clsx` + `tailwind-merge` API and credits `cnfast` for the argument-identity
+  cache it re-implements, so the swap is a one-line import change. Pinned to
+  0.2.6 rather than 0.3.0: it is past the release cooldown, it is the version
+  `@shadcn/lint` itself depends on, and the linter reads class groups from the
+  project's own `cn` only at 0.2.6 or newer — an older copy silently demotes
+  it to a bundled grammar.
+
 - Remove the weekly full-corpus mutation sweep, its shard planner, baseline
   index, and cache action. The pull-request gate has measured changed lines
   from the diff since the redesign, so nothing consumed the sweep's index; it

@@ -178,7 +178,8 @@ function ProjectRowLabel({
 }) {
   return (
     <SidebarMenuButton
-      className="min-w-0 flex-1 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
+      variant="chromeless"
+      className="min-w-0 flex-1"
       isActive={isActive}
       render={<Link href={`/projects/${project.id}`} />}
     >
@@ -189,7 +190,7 @@ function ProjectRowLabel({
       />
       {/* Wrapper so the row's `[&>span:last-child]:truncate` rule lands here
           and not on the name, which fades rather than ellipses. */}
-      <span className="flex min-w-0 flex-1 items-center gap-[.35rem]">
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
         <SidebarRowTitle
           text={project.name}
           animateChanges
@@ -235,34 +236,37 @@ export function ProjectItem({ project, isActive, isPinned }: ProjectItemProps) {
 
   return (
     // In-flow actions and a row-level fill, exactly as ChatItem — see
-    // HoverReveal for why the row reserves nothing while they are hidden.
-    <SidebarMenuItem
-      className={cn(projectRowClassName, isActive && "bg-sidebar-accent")}
-    >
-      <ProjectRowLabel
-        project={project}
-        isActive={isActive}
-        isArchived={isArchived}
-      />
-      <PinButton isPinned={isPinned} togglePin={togglePin} />
-      <ProjectRowMenu
-        project={project}
-        isActive={isActive}
-        isPinned={isPinned}
-        onTogglePin={togglePin}
-        onRename={dialogs.openRename}
-        onDelete={dialogs.openDelete}
-      />
-      <RenameProjectDialog
-        project={project}
-        open={dialogs.renameOpen}
-        onOpenChange={dialogs.setRenameOpen}
-      />
-      <DeleteProjectDialog
-        project={project}
-        open={dialogs.deleteOpen}
-        onOpenChange={dialogs.setDeleteOpen}
-      />
+    // HoverReveal for why the row reserves nothing while they are hidden, and
+    // ChatItemRow for why the surface is painted by this plain div instead of
+    // the `SidebarMenuItem`, which stays the list-semantics `<li>` and the
+    // `group/menu-item` scope the variants and the row's own lookups rely on.
+    <SidebarMenuItem>
+      <div className={cn(projectRowClassName, isActive && "bg-sidebar-accent")}>
+        <ProjectRowLabel
+          project={project}
+          isActive={isActive}
+          isArchived={isArchived}
+        />
+        <PinButton isPinned={isPinned} togglePin={togglePin} />
+        <ProjectRowMenu
+          project={project}
+          isActive={isActive}
+          isPinned={isPinned}
+          onTogglePin={togglePin}
+          onRename={dialogs.openRename}
+          onDelete={dialogs.openDelete}
+        />
+        <RenameProjectDialog
+          project={project}
+          open={dialogs.renameOpen}
+          onOpenChange={dialogs.setRenameOpen}
+        />
+        <DeleteProjectDialog
+          project={project}
+          open={dialogs.deleteOpen}
+          onOpenChange={dialogs.setDeleteOpen}
+        />
+      </div>
     </SidebarMenuItem>
   );
 }
@@ -453,10 +457,7 @@ export function ProjectListSidebar() {
   }
 
   return (
-    <Sidebar
-      collapsible="none"
-      className="hidden w-64 shrink-0 border-r bg-background md:flex"
-    >
+    <Sidebar collapsible="none" className="hidden w-64 shrink-0 md:flex">
       <ProjectListSidebarHeader onNewProject={() => setNewProjectOpen(true)} />
 
       <SearchFilterInput

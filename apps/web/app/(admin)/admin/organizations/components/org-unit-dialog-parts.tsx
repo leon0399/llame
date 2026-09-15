@@ -1,9 +1,9 @@
 "use client";
 
+import type { CSSProperties } from "react";
+
 import { Building2Icon } from "lucide-react";
 
-import { Button } from "@workspace/ui/components/button";
-import { DialogFooter } from "@workspace/ui/components/dialog";
 import { cn } from "@workspace/ui/lib/utils";
 
 import type {
@@ -24,37 +24,6 @@ import {
  * files; keep additions here scoped to genuinely shared dialog pieces.
  */
 
-/** The Cancel + primary-action footer every org-unit `Dialog` (create,
- *  rename, move) shares — `DeleteOrgUnitDialog`'s `AlertDialog` and
- *  `DeleteBlockedOrgUnitDialog`'s single-button footer are different shapes
- *  and stay local to those components. */
-export function OrgDialogFooter({
-  onCancel,
-  onSubmit,
-  submitLabel,
-  submitDisabled,
-}: {
-  onCancel: () => void;
-  onSubmit: () => void;
-  submitLabel: string;
-  submitDisabled: boolean;
-}) {
-  return (
-    <DialogFooter>
-      <Button variant="outline" className="text-[0.86rem]" onClick={onCancel}>
-        Cancel
-      </Button>
-      <Button
-        className="text-[0.86rem]"
-        onClick={onSubmit}
-        disabled={submitDisabled}
-      >
-        {submitLabel}
-      </Button>
-    </DialogFooter>
-  );
-}
-
 /** The child-unit type grid — only shown when creating under a parent
  *  (a root organization has no type). Split out from `CreateOrgUnitDialog`
  *  as its own self-contained control. */
@@ -67,8 +36,8 @@ export function OrgUnitTypePicker({
 }) {
   return (
     <fieldset className="m-0 space-y-2 border-0 p-0">
-      <legend className="text-[0.8rem] font-medium">Type</legend>
-      <div className="grid grid-cols-3 gap-[0.35rem]">
+      <legend className="text-xs font-medium">Type</legend>
+      <div className="grid grid-cols-3 gap-1.5">
         {CHILD_ORG_UNIT_TYPES.map((candidateType) => {
           const meta = ORG_UNIT_TYPE_META[candidateType];
           const Icon = meta.icon;
@@ -80,11 +49,11 @@ export function OrgUnitTypePicker({
               aria-pressed={selected}
               onClick={() => onTypeChange(candidateType)}
               className={cn(
-                "flex flex-col items-center gap-[0.3rem] rounded-md border px-[0.3rem] py-[0.55rem] text-[0.71rem] text-muted-foreground transition-colors hover:bg-accent",
+                "flex flex-col items-center gap-1.25 rounded-md border px-1.25 py-2.25 text-xs text-muted-foreground transition-colors hover:bg-accent",
                 selected && "border-foreground/35 bg-accent text-foreground",
               )}
             >
-              <Icon className="size-[17px]" />
+              <Icon className="size-4.25" />
               <span>{meta.label}</span>
             </button>
           );
@@ -109,12 +78,11 @@ function MoveRootOption({
       aria-selected={selected}
       onClick={onSelect}
       className={cn(
-        "flex items-center gap-2 rounded-sm px-2 py-[0.42rem] text-left text-[0.84rem] hover:bg-accent",
+        "flex items-center gap-2 rounded-sm px-2 py-1.75 text-left text-sm hover:bg-accent",
         selected && "bg-accent",
       )}
     >
-      <Building2Icon className="size-[15px] shrink-0 text-muted-foreground" />—
-      Make root organization —
+      <Building2Icon className="size-3.75 shrink-0" />— Make root organization —
     </button>
   );
 }
@@ -138,13 +106,19 @@ function MoveCandidateOption({
       role="option"
       aria-selected={selected}
       onClick={onSelect}
-      style={{ paddingLeft: `${0.5 + depth * 0.85}rem` }}
+      style={
+        // SAFETY: `--row-indent` is a CSS custom property the
+        // `pl-(--row-indent)` class below reads; React's `CSSProperties` type
+        // has no way to name a custom property, so widening to accept an
+        // arbitrary key is the only way to pass it through inline `style`.
+        { "--row-indent": `${0.5 + depth * 0.85}rem` } as CSSProperties
+      }
       className={cn(
-        "flex items-center gap-2 truncate rounded-sm py-[0.42rem] pr-2 text-left text-[0.84rem] hover:bg-accent",
+        "flex items-center gap-2 truncate rounded-sm py-1.75 pr-2 pl-(--row-indent) text-left text-sm hover:bg-accent",
         selected && "bg-accent",
       )}
     >
-      <Icon className="size-[15px] shrink-0 text-muted-foreground" />
+      <Icon className="size-3.75 shrink-0" />
       <span className="truncate">{candidate.name}</span>
     </button>
   );

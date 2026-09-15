@@ -119,24 +119,28 @@ export function MemorySection() {
           Choose whether the assistant may use details from your recent chats.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Error before loading, and both before the happy path. A failed query
-            leaves `isPending` false with `data` undefined, so a bare
-            `isPending || !data` skeleton spins forever — and because the switch
-            lives inside this branch, an owner who wanted to turn sharing OFF
-            could not reach the control at all. A privacy setting must not
-            become unreachable because a GET failed. */}
-        {isError && !data ? (
-          <MemoryLoadErrorAlert onRetry={() => void refetch()} />
-        ) : isPending || !data ? (
-          <Skeleton className="h-16 w-full" />
-        ) : (
-          <ShareRecentChatsToggle
-            shareRecentChats={data.shareRecentChats}
-            onToggle={(checked) => update.mutate({ shareRecentChats: checked })}
-            saveError={update.isError}
-          />
-        )}
+      <CardContent>
+        <div className="space-y-4">
+          {/* Error before loading, and both before the happy path. A failed query
+              leaves `isPending` false with `data` undefined, so a bare
+              `isPending || !data` skeleton spins forever — and because the switch
+              lives inside this branch, an owner who wanted to turn sharing OFF
+              could not reach the control at all. A privacy setting must not
+              become unreachable because a GET failed. */}
+          {isError && !data ? (
+            <MemoryLoadErrorAlert onRetry={() => void refetch()} />
+          ) : isPending || !data ? (
+            <Skeleton className="h-16 w-full" />
+          ) : (
+            <ShareRecentChatsToggle
+              shareRecentChats={data.shareRecentChats}
+              onToggle={(checked) =>
+                update.mutate({ shareRecentChats: checked })
+              }
+              saveError={update.isError}
+            />
+          )}
+        </div>
       </CardContent>
     </Card>
   );

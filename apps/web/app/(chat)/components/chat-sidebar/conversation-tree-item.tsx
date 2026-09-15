@@ -62,7 +62,7 @@ function conversationItemClassName({
   node,
 }: Pick<ConversationItemProps, "isSelected" | "isVisible" | "node">) {
   return cn(
-    "px-3 py-2 cursor-pointer transition-all border-l-2 flex items-center",
+    "px-3 py-2 cursor-pointer transition-all border-l-2 flex items-center h-15",
     isSelected
       ? "bg-sidebar-accent border-primary"
       : "hover:bg-sidebar-accent/50 border-transparent",
@@ -100,7 +100,6 @@ export const ConversationItem = ({
       tabIndex={0}
       aria-label={`${typeLabel}: ${preview}`}
       className={conversationItemClassName({ isSelected, isVisible, node })}
-      style={{ height: "60px" }}
       onClick={onClick}
       onKeyDown={handleKeyDown}
       onMouseEnter={() => onHover(node.id)}

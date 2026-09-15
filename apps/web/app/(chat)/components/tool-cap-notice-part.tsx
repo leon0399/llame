@@ -72,10 +72,10 @@ export function parseCapNoticePart(part: unknown): CapNoticeData | null {
  */
 export function ToolCapNoticePart({ stepsUsed, maxSteps }: CapNoticeData) {
   return (
-    <Badge
-      variant="outline"
-      className="text-muted-foreground my-1 gap-1 font-normal"
-    >
+    // The Badge's own outline treatment — hairline border, small caps-scale
+    // type, its 4px icon gap — with only the vertical margin (space the chip
+    // needs around it in a message body, which the Badge does not own) added.
+    <Badge variant="outline" className="my-1">
       <InfoIcon className="h-3 w-3 shrink-0" />
       Tool step limit reached ({stepsUsed}/{maxSteps}) — answered with what it
       had

@@ -10,10 +10,27 @@ import {
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 import { CHAT_SCROLLER_SELECTOR } from "@/lib/services/chat/prehydration-pin";
 
-// Start fetching an older page while the reader is still this many pixels away
-// from the loaded history's top, so scrolling up feels endless instead of
-// hitting an edge and waiting.
+/** Start fetching an older page while the reader is still this many pixels away
+ *  from the loaded history's top, so scrolling up feels endless instead of
+ *  hitting an edge and waiting. */
 const PREFETCH_MARGIN_PX = 800;
+
+/**
+ * Moves the transcript's scroll position through the stick-to-bottom
+ * library's `scrollTop` setter — the only supported way in, because that
+ * setter also records the write as programmatic (`ignoreScrollToTop`), so the
+ * library's scroll handler cannot misread it as reader input and unlock the
+ * bottom stick. It is written here, as a plain function over the library's own
+ * mutable state object, because that object is not a render value: both call
+ * sites below write it from an effect or a ResizeObserver callback, never
+ * during render.
+ */
+function scrollTranscriptTo(
+  state: StickToBottomState,
+  scrollTop: number,
+): void {
+  state.scrollTop = scrollTop;
+}
 
 /** Native scroll anchoring fights the manual anchor math below — keep it off. */
 function useDisableScrollAnchoring(scrollRef: RefObject<HTMLElement | null>) {
@@ -37,14 +54,11 @@ function LoadOlderSentinel({
     <div
       ref={sentinelRef}
       data-testid="chat-load-older"
-      className="flex h-8 items-center justify-center"
+      // The muted ink lives on the sentinel: the Spinner draws in
+      // `currentColor` and owns its own colour.
+      className="flex h-8 items-center justify-center text-muted-foreground"
     >
-      {isLoading && (
-        <Spinner
-          aria-label="Loading older messages"
-          className="text-muted-foreground"
-        />
-      )}
+      {isLoading && <Spinner aria-label="Loading older messages" />}
     </div>
   );
 }
@@ -128,7 +142,7 @@ function useSyncStickOnResize(
       ) {
         return;
       }
-      state.scrollTop = state.targetScrollTop;
+      scrollTranscriptTo(state, state.targetScrollTop);
     });
     observer.observe(content);
     return () => observer.disconnect();
@@ -208,8 +222,10 @@ function usePrependScrollAnchor({
     ) {
       const element = resolveAnchorElement(content, previous, previous.key);
       if (element) {
-        state.scrollTop =
-          state.scrollTop + (element.offsetTop - previous.offsetTop);
+        scrollTranscriptTo(
+          state,
+          state.scrollTop + (element.offsetTop - previous.offsetTop),
+        );
       }
     }
 

@@ -39,13 +39,13 @@ function AdminSectionMenuItem({
         <SidebarMenuButton
           render={<Link href={section.href} />}
           isActive={isActive}
-          className="h-[2.15rem] text-[0.86rem]"
+          className="h-8.5"
         >
           <section.icon />
           <span>{section.label}</span>
         </SidebarMenuButton>
       ) : (
-        <DisabledMenuButton className="h-[2.15rem] text-[0.86rem]">
+        <DisabledMenuButton className="h-8.5">
           <section.icon />
           <span className="flex flex-1 items-center truncate">
             {section.label}
@@ -69,22 +69,17 @@ export function AdminSectionNav({ host }: { host: string }) {
   const pathname = usePathname();
 
   return (
-    <Sidebar
-      collapsible="none"
-      className="hidden w-[17rem] shrink-0 border-r bg-background md:flex"
-    >
-      <div className={cn(topBarClasses, "gap-2 px-[0.9rem]")}>
-        <ShieldIcon className="size-[18px] text-foreground" />
-        <span className="text-[0.95rem] font-semibold">Administration</span>
+    <Sidebar collapsible="none" className="hidden w-68 shrink-0 md:flex">
+      <div className={cn(topBarClasses, "gap-2 px-3.5")}>
+        <ShieldIcon className="size-4.5 text-foreground" />
+        <span className="text-base font-semibold">Administration</span>
       </div>
 
       <SidebarContent>
-        <SidebarGroup className="py-[0.6rem]">
-          <SidebarGroupLabel className="h-auto px-[0.55rem] pt-[0.4rem] pb-[0.3rem] text-[0.7rem]">
-            Instance
-          </SidebarGroupLabel>
+        <SidebarGroup>
+          <SidebarGroupLabel>Instance</SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu className="gap-[0.1rem]">
+            <SidebarMenu>
               {ADMIN_SECTIONS.map((section) => (
                 <AdminSectionMenuItem
                   key={section.key}
@@ -97,7 +92,7 @@ export function AdminSectionNav({ host }: { host: string }) {
         </SidebarGroup>
       </SidebarContent>
 
-      <div className="border-t px-[1.1rem] py-[0.9rem] font-mono text-[0.72rem] tracking-[-0.01em] text-muted-foreground">
+      <div className="border-t px-4.5 py-3.5 font-mono text-xs text-muted-foreground">
         instance · {host}
       </div>
     </Sidebar>

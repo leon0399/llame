@@ -37,7 +37,7 @@ export function resolveChatActivityStatus(input: {
 // background-colored ring so the badge reads as separate from the icon
 // behind it).
 const BADGE_BASE =
-  "absolute -right-1 -bottom-[3px] size-[9px] rounded-full shadow-[0_0_0_2px_var(--sidebar)]";
+  "absolute -right-1 -bottom-0.75 size-2.25 rounded-full ring-2 ring-sidebar";
 
 export function ChatActivityIndicator({
   status,
@@ -54,7 +54,7 @@ export function ChatActivityIndicator({
       // natively — this badge IS a live status.
       <output
         aria-label="Generating response"
-        className={`${BADGE_BASE} animate-spin border-[1.5px] border-border border-t-muted-foreground bg-background`}
+        className={`${BADGE_BASE} animate-spin border-2 border-border border-t-muted-foreground bg-background`}
       />
     );
   }

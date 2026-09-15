@@ -23,20 +23,19 @@ import {
  * Neutral-ink hairline (DESIGN.md §10/D6) — a `color-mix` on `--foreground`
  * at ~20%, exactly the design's connector color. No new hue, token-derived.
  */
-const GUIDE_COLOR =
-  "bg-[color-mix(in_oklab,var(--foreground)_20%,transparent)]";
+const GUIDE_COLOR = "bg-foreground/20";
 
 function TreeGuide({ kind }: { kind: GuideKind }) {
   return (
     <span
       aria-hidden
       data-kind={kind}
-      className="relative w-[22px] shrink-0 self-stretch"
+      className="relative w-5.5 shrink-0 self-stretch"
     >
       {kind !== "blank" && (
         <span
           className={cn(
-            "absolute left-[11px] w-px",
+            "absolute left-2.75 w-px",
             GUIDE_COLOR,
             kind === "elbow" ? "top-0 h-1/2" : "top-0 bottom-0",
           )}
@@ -44,10 +43,7 @@ function TreeGuide({ kind }: { kind: GuideKind }) {
       )}
       {(kind === "tee" || kind === "elbow") && (
         <span
-          className={cn(
-            "absolute left-[11px] top-1/2 h-px w-[11px]",
-            GUIDE_COLOR,
-          )}
+          className={cn("absolute left-2.75 top-1/2 h-px w-2.75", GUIDE_COLOR)}
         />
       )}
     </span>
@@ -84,12 +80,12 @@ function RowActionButton({
         onClick();
       }}
       className={cn(
-        "flex size-[26px] shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
+        "flex size-6.5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
         danger && "hover:bg-destructive/12 hover:text-destructive",
-        dimmed && "opacity-[0.32]",
+        dimmed && "opacity-32",
       )}
     >
-      <Icon className="size-[15px]" />
+      <Icon className="size-3.75" />
     </button>
   );
 }
@@ -116,10 +112,10 @@ function TreeRowExpander({
         e.stopPropagation();
         onToggle();
       }}
-      className="flex size-5 shrink-0 items-center justify-center rounded-[5px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+      className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
     >
       <ChevronRightIcon
-        className={cn("size-[15px] transition-transform", open && "rotate-90")}
+        className={cn("size-3.75 transition-transform", open && "rotate-90")}
       />
     </button>
   );
@@ -128,11 +124,11 @@ function TreeRowExpander({
 /** The role badge + member-count meta, hidden on hover in favor of actions. */
 function TreeRowMeta({ unit }: { unit: OrgUnitResponse }) {
   return (
-    <span className="flex items-center gap-[0.45rem] transition-opacity group-focus-within/row:opacity-0 group-hover/row:opacity-0">
+    <span className="flex items-center gap-1.75 transition-opacity group-focus-within/row:opacity-0 group-hover/row:opacity-0">
       {unit.directRole && (
         <span
           className={cn(
-            "rounded-sm border px-[0.38rem] py-[0.06rem] text-[0.65rem] capitalize text-muted-foreground",
+            "rounded-sm border px-1.5 py-px text-xs capitalize text-muted-foreground",
             unit.directRole === "owner" &&
               "border-foreground/30 text-foreground",
           )}
@@ -141,7 +137,7 @@ function TreeRowMeta({ unit }: { unit: OrgUnitResponse }) {
         </span>
       )}
       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-        <UsersIcon className="size-[13px]" />
+        <UsersIcon className="size-3.25" />
         {unit.memberCount}
       </span>
     </span>
@@ -226,7 +222,7 @@ function TreeRowTrailing({
   onDelete,
 }: TreeRowTrailingProps) {
   return (
-    <span className="relative flex h-full min-w-[104px] shrink-0 items-center justify-end">
+    <span className="relative flex h-full min-w-26 shrink-0 items-center justify-end">
       {/* Hide/reveal must mirror the actions' triggers exactly (hover AND
           focus-within) — a selected row keeps focus, and an unmirrored
           trigger leaves the meta visible under the revealed actions. */}
@@ -257,7 +253,7 @@ function TreeRowLabel({
     <>
       <span
         className={cn(
-          "ml-[0.1rem] mr-[0.5rem] flex shrink-0 items-center text-muted-foreground",
+          "ml-0.5 mr-2 flex shrink-0 items-center text-muted-foreground",
           isRoot && "text-foreground",
         )}
       >
@@ -265,8 +261,8 @@ function TreeRowLabel({
       </span>
       <span
         className={cn(
-          "min-w-0 flex-1 truncate text-[0.86rem]",
-          isRoot && "text-[0.9rem] font-semibold",
+          "min-w-0 flex-1 truncate text-sm",
+          isRoot && "font-semibold",
         )}
       >
         {unit.name}
@@ -333,8 +329,8 @@ function treeRowClassName(
   isFirst: boolean,
 ): string {
   return cn(
-    "group/row relative flex h-[34px] cursor-pointer items-center rounded-md pr-[0.4rem] transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
-    selected && "bg-accent shadow-[inset_0_0_0_1px_var(--border)]",
+    "group/row relative flex h-8.5 cursor-pointer items-center rounded-md pr-1.5 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+    selected && "bg-accent inset-ring-1 inset-ring-border",
     isRoot && !isFirst && "mt-2",
   );
 }

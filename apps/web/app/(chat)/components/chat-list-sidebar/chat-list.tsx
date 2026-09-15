@@ -74,9 +74,13 @@ function PinnedChatsSection({
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel className="sticky top-0 z-10 bg-sidebar md:bg-background">
-        Pinned
-      </SidebarGroupLabel>
+      {/* The sticky backdrop lives on a plain wrapper: the label owns its own
+          appearance, and the opaque fill that hides rows scrolling under it
+          is a container concern. `bg-sidebar` matches the rail in both places
+          this list renders (mobile sheet and desktop panel). */}
+      <div className="sticky top-0 z-10 bg-sidebar">
+        <SidebarGroupLabel>Pinned</SidebarGroupLabel>
+      </div>
       <SidebarGroupContent>
         <SidebarMenu>
           {chats.map((chat) => (
@@ -157,6 +161,8 @@ export function ChatList() {
           projects={allProjects}
           onRequestNewProject={setNewProjectChatId}
           pinnedAtByChatId={pinnedAtByChatId}
+          // Rail and sheet both render on the sidebar surface.
+          surfaceClassName="bg-sidebar"
         />
       )}
       <CreateProjectForChatDialog

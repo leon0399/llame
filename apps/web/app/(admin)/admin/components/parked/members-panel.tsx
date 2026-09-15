@@ -381,13 +381,15 @@ export function MembersPanel({
           {myRoleDescription(myRoleQuery, viaUnit)}
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <GrantMembershipForm orgUnitId={orgUnitId} />
-        <MembershipRoster
-          membershipsQuery={membershipsQuery}
-          orgUnitId={orgUnitId}
-          myUserId={me?.id}
-        />
+      <CardContent>
+        <div className="space-y-4">
+          <GrantMembershipForm orgUnitId={orgUnitId} />
+          <MembershipRoster
+            membershipsQuery={membershipsQuery}
+            orgUnitId={orgUnitId}
+            myUserId={me?.id}
+          />
+        </div>
       </CardContent>
     </Card>
   );

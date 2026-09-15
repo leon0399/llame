@@ -7,10 +7,7 @@ export function ChatSidebar({ className }: { className?: string }) {
     <Sidebar
       side="right"
       collapsible="none"
-      className={cn(
-        "sticky top-0 hidden h-svh lg:flex group-data-[side=right]:border-l-0",
-        className,
-      )}
+      className={cn("sticky top-0 hidden h-svh lg:flex", className)}
       style={
         // SAFETY: `--sidebar-width` is a CSS custom property the sidebar's
         // own stylesheet reads; React's `CSSProperties` type has no way to

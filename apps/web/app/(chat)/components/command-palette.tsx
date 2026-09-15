@@ -179,7 +179,10 @@ function CommandPaletteSearchInput({
         value={query}
         onValueChange={onQueryChange}
         placeholder="Search chats, projects, memories…"
-        className={query ? "pr-16" : "pr-10"}
+        // Margin, not padding: the control owns its own spacing, and since it
+        // renders transparent the reserved strip reads the same either way —
+        // 64px clears the clear button plus the Esc hint, 40px the hint alone.
+        className={query ? "mr-16" : "mr-10"}
       />
       {query && (
         <Button
@@ -410,12 +413,14 @@ function CommandPaletteDialog(
       open={open}
       onOpenChange={setOpen}
       title="Command palette"
-      // Design's Search overlay is top-anchored (~14vh), not centered, and
-      // sits on the --popover surface (DESIGN.md §8 overlay convention) at
-      // a wider 36rem (max-w-xl) than the shadcn dialog default. No X close
-      // button — the design shows only the Esc hint, and the two would
-      // overlap in the same top-right corner.
-      className="top-[14vh] translate-y-0 bg-popover text-popover-foreground sm:max-w-xl"
+      // Design's Search overlay is top-anchored (~14vh — top-1/7 is the
+      // nearest scale fraction at 14.29%), not centered, and wider than the
+      // shadcn dialog default (max-w-xl is the 36rem the design calls for).
+      // The --popover surface comes from the Command inside, which fills the
+      // p-0 dialog content edge to edge, so this states no colour of its own.
+      // No X close button — the design shows only the Esc hint, and the two
+      // would overlap in the same top-right corner.
+      className="top-1/7 translate-y-0 sm:max-w-xl"
       showCloseButton={false}
       // Server search results are authoritative (already ILIKE-matched and
       // ordered by the api) — pass them through cmdk's filter untouched;

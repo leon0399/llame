@@ -140,7 +140,7 @@ function OrgTreeRowList({
       <div
         role="tree"
         aria-label="Organization units"
-        className="flex flex-col py-[0.15rem]"
+        className="flex flex-col py-0.5"
       >
         {nav.rows.map((row) => (
           <TreeRowView
@@ -284,11 +284,7 @@ function CreateOrgUnitButton({ onCreateRoot }: { onCreateRoot: () => void }) {
     // instance-level `root_org_creation` signal (#158) lands, it gates this
     // button from server-sourced data; until then it stays plainly
     // available.
-    <Button
-      size="sm"
-      className="gap-[0.4rem] text-[0.8rem]"
-      onClick={onCreateRoot}
-    >
+    <Button size="sm" onClick={onCreateRoot}>
       <PlusIcon />
       New organization
     </Button>
@@ -307,25 +303,22 @@ function OrgTreeToolbar({
   onCreateRoot: () => void;
 }) {
   return (
-    <CardHeader className="flex flex-row items-center gap-[0.55rem] border-b px-4 pt-[0.9rem] pb-[0.9rem]!">
-      <div className="flex items-center gap-[0.55rem]">
-        <CardTitle className="text-[0.9rem]">Organization units</CardTitle>
-        <span className="rounded-md bg-secondary px-[0.45rem] py-[0.05rem] text-[0.72rem] text-muted-foreground">
+    <CardHeader className="flex flex-row items-center">
+      <div className="flex items-center gap-2">
+        <CardTitle>Organization units</CardTitle>
+        <span className="rounded-md bg-secondary px-1.75 py-px text-xs text-muted-foreground">
           {unitCount} {unitCount === 1 ? "unit" : "units"}
         </span>
       </div>
-      <CardAction className="ml-auto flex items-center gap-[0.4rem] self-center">
-        {unitCount > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-[0.4rem] text-[0.8rem]"
-            onClick={onToggleAll}
-          >
-            {anyOpen ? "Collapse all" : "Expand all"}
-          </Button>
-        )}
-        <CreateOrgUnitButton onCreateRoot={onCreateRoot} />
+      <CardAction className="ml-auto flex items-center self-center">
+        <div className="flex items-center gap-1.5">
+          {unitCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={onToggleAll}>
+              {anyOpen ? "Collapse all" : "Expand all"}
+            </Button>
+          )}
+          <CreateOrgUnitButton onCreateRoot={onCreateRoot} />
+        </div>
       </CardAction>
     </CardHeader>
   );
@@ -333,16 +326,16 @@ function OrgTreeToolbar({
 
 function OrgUnitTypeLegend() {
   return (
-    <div className="mt-[0.95rem] flex flex-wrap gap-x-[0.95rem] gap-y-[0.35rem] px-[0.35rem]">
+    <div className="mt-3.75 flex flex-wrap gap-x-3.75 gap-y-1.5 px-1.5">
       {ORG_UNIT_TYPE_ORDER.map((type) => {
         const meta = ORG_UNIT_TYPE_META[type];
         const Icon = meta.icon;
         return (
           <span
             key={type}
-            className="flex items-center gap-[0.35rem] text-[0.73rem] text-muted-foreground"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground"
           >
-            <Icon className="size-3.5 text-foreground/55" />
+            <Icon className="size-3.5" />
             {meta.label}
           </span>
         );
@@ -353,19 +346,13 @@ function OrgUnitTypeLegend() {
 
 function OrgTreeEmptyState({ onCreateRoot }: { onCreateRoot: () => void }) {
   return (
-    <div className="px-4 py-[2.6rem] text-center">
-      <p className="mb-[0.35rem] text-[0.95rem] font-semibold">
-        No organizations yet
-      </p>
-      <p className="mx-auto mb-[1.1rem] max-w-[40ch] text-[0.84rem] leading-normal text-muted-foreground">
+    <div className="px-4 py-10.5 text-center">
+      <p className="mb-1.5 text-base font-semibold">No organizations yet</p>
+      <p className="mx-auto mb-4.5 max-w-sm text-sm leading-normal text-muted-foreground">
         An organization is the top-level container for your teams, chats, and
         members. Create one to start sharing.
       </p>
-      <Button
-        size="sm"
-        className="mx-auto gap-[0.4rem] text-[0.8rem]"
-        onClick={onCreateRoot}
-      >
+      <Button size="sm" className="mx-auto" onClick={onCreateRoot}>
         <PlusIcon />
         Create organization
       </Button>
@@ -384,12 +371,7 @@ function ManageMembersButton() {
       className="ml-auto shrink-0"
       title="Members panel is the next step — deferred to the fast-follow change (D7)."
     >
-      <Button
-        variant="outline"
-        size="sm"
-        disabled
-        className="gap-[0.4rem] text-[0.8rem] opacity-55"
-      >
+      <Button variant="outline" size="sm" disabled>
         <UsersIcon />
         Manage members
       </Button>
@@ -415,13 +397,15 @@ function OrgTreeSelectedFooter({
   const SelectedTypeIcon = ORG_UNIT_TYPE_META[selected.type].icon;
 
   return (
-    <CardFooter className="flex flex-wrap items-center gap-[0.85rem] border-t bg-muted/45 px-4 pt-[0.7rem]! pb-[0.7rem]">
-      <span className="flex min-w-0 items-center gap-[0.4rem] text-[0.82rem]">
-        <SelectedTypeIcon className="size-[15px] shrink-0 text-muted-foreground" />
-        <span className="truncate">{breadcrumb}</span>
-      </span>
-      <span className="text-xs text-muted-foreground">{roleText}</span>
-      <ManageMembersButton />
+    <CardFooter>
+      <div className="flex flex-wrap items-center gap-3.5">
+        <span className="flex min-w-0 items-center gap-1.5 text-sm">
+          <SelectedTypeIcon className="size-3.75 shrink-0 text-muted-foreground" />
+          <span className="truncate">{breadcrumb}</span>
+        </span>
+        <span className="text-xs text-muted-foreground">{roleText}</span>
+        <ManageMembersButton />
+      </div>
     </CardFooter>
   );
 }
@@ -438,7 +422,7 @@ export function OrgUnitsTree({ units }: { units: Array<OrgUnitResponse> }) {
   const hasUnits = units.length > 0;
 
   return (
-    <Card className="gap-0 overflow-hidden py-0">
+    <Card>
       {/* Flex override of CardHeader's base grid: the grid's title track is
        * `auto-rows-min` (text-height, top-pinned) while the row-spanning
        * CardAction stretches the container to button height — `items-center`
@@ -453,7 +437,7 @@ export function OrgUnitsTree({ units }: { units: Array<OrgUnitResponse> }) {
         onCreateRoot={() => dialogs.setCreateRootOpen(true)}
       />
 
-      <CardContent className="px-[0.6rem] py-[0.55rem]">
+      <CardContent>
         {hasUnits ? (
           <OrgTreeRowList nav={nav} dialogs={dialogs} />
         ) : (

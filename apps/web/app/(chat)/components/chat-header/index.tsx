@@ -91,7 +91,7 @@ function useDocumentTitleSync(settledTitle: string | null | undefined): void {
 function ChatHeaderTitle({ title }: { title: string }) {
   const display = useTypewriter(title);
   return (
-    <span className="max-w-[60ch] truncate pl-1 text-sm font-semibold">
+    <span className="max-w-md truncate pl-1 text-sm font-semibold">
       {display}
     </span>
   );

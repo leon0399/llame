@@ -5,7 +5,7 @@
 // this kind of chrome — this stays on the 10px-derived radius scale instead.
 export function SoonChip() {
   return (
-    <span className="ml-auto shrink-0 rounded-md border px-1.5 py-0 text-[10px] tracking-wide text-muted-foreground">
+    <span className="ml-auto shrink-0 rounded-md border px-1.5 py-0 text-xs tracking-wide text-muted-foreground">
       soon
     </span>
   );

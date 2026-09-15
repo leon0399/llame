@@ -178,10 +178,6 @@ export function useConversationTreeData() {
   const { nodes, selectedNodeId, setSelectedNodeId, addNode } =
     useConversation();
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const [svgDimensions, setSvgDimensions] = useState({
-    width: 120,
-    height: 600,
-  });
 
   // Initialize with sample data
   useEffect(() => {
@@ -194,11 +190,12 @@ export function useConversationTreeData() {
     [nodes],
   );
 
-  // Update SVG dimensions
-  useEffect(() => {
+  // Derived, not stored: the SVG's box follows the conversations it draws, so
+  // there is no second copy of that value to keep in step with them.
+  const svgDimensions = useMemo(() => {
     const height = conversations.length * 60 + 40;
     const uniqueBranches = new Set(conversations.map((c) => c.branch)).size;
-    setSvgDimensions({ width: 30 + uniqueBranches * 20, height });
+    return { width: 30 + uniqueBranches * 20, height };
   }, [conversations]);
 
   const visibleConversations = useMemo(
@@ -233,7 +230,16 @@ function ConversationItemList({
   leftOffset: number;
 }) {
   return (
-    <div className="relative" style={{ marginLeft: `${leftOffset}px` }}>
+    <div
+      className="relative ml-(--tree-indent)"
+      style={
+        // SAFETY: `--tree-indent` is a CSS custom property this element's own
+        // class reads; CSSProperties has no way to name a custom property, so
+        // widening to accept an arbitrary key is the only way to pass it
+        // through inline `style`.
+        { "--tree-indent": `${leftOffset}px` } as React.CSSProperties
+      }
+    >
       {conversations.map((conv, index) => (
         <ConversationItem
           key={conv.id}

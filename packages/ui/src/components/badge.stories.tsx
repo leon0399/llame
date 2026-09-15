@@ -10,7 +10,12 @@ import { Spinner } from "./spinner.js";
 // (https://ui.shadcn.com/docs/components/base/badge), so the file carries
 // the "shadcn-example" provenance tag on each transcribed story. Adaptations are
 // limited to import paths and our lucide `...Icon` naming convention; each
-// story links its docs anchor. Unlike button/switch, our badgeVariants scale
+// story links its docs anchor. The one exception is `Colors`: it keeps the
+// example's subject — a category set layered on through `className` — but not
+// its raw-palette values, which DESIGN.md §2 forbids, so it demonstrates the
+// achromatic value scale instead.
+//
+// Unlike button/switch, our badgeVariants scale
 // (default/secondary/destructive/outline/ghost/link) is a full match for the
 // docs' current `variant` API table, so no example is skipped for a
 // component/prop gap — the only exclusion is RTL, by convention. The example
@@ -168,32 +173,33 @@ export const AsLink: Story = {
 };
 
 /**
- * Badge accepts arbitrary `className` overrides, so a custom color set can be
- * layered on for domain-specific categorization without a new variant.
+ * Badge accepts `className` overrides, so a category set can be layered on for
+ * domain-specific categorization without a new variant. Categories separate by
+ * **value**, not hue: emphasis descends the ink scale (`foreground` fill →
+ * `muted` fill → outline → quiet `muted-foreground`), and `destructive` is the
+ * one chromatic note, reserved for danger (DESIGN.md §2).
  *
- * Verbatim from [shadcn Badge › Custom Colors](https://ui.shadcn.com/docs/components/base/badge#custom-colors).
+ * Adapted from [shadcn Badge › Custom Colors](https://ui.shadcn.com/docs/components/base/badge#custom-colors),
+ * which recolors badges with the raw Tailwind palette (`bg-blue-50 text-blue-700
+ * dark:bg-blue-950 dark:text-blue-300`, …) — forbidden by DESIGN.md §2/§6, and
+ * the anti-pattern this story now demonstrates the sanctioned replacement for.
  *
  * @summary for badges using custom color classes beyond the variant scale
  */
 export const Colors: Story = {
   tags: ["shadcn-example", "ai-generated"],
+  // `destructive` renders destructive ink on `bg-destructive/10` at `text-xs`
+  // (~4:1), the #232 token pairing `Basic`/`Variants` already suppress.
+  parameters: contrastKnownIssue232,
   render: () => (
     <div className="flex flex-wrap gap-2">
-      <Badge className="bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-        Blue
+      <Badge className="bg-foreground text-background">Blocker</Badge>
+      <Badge className="bg-muted text-foreground">Major</Badge>
+      <Badge variant="outline">Minor</Badge>
+      <Badge className="text-muted-foreground" variant="ghost">
+        Trivial
       </Badge>
-      <Badge className="bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300">
-        Green
-      </Badge>
-      <Badge className="bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300">
-        Sky
-      </Badge>
-      <Badge className="bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
-        Purple
-      </Badge>
-      <Badge className="bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300">
-        Red
-      </Badge>
+      <Badge variant="destructive">Regression</Badge>
     </div>
   ),
 };

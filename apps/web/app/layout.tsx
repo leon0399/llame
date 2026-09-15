@@ -138,21 +138,22 @@ export default async function RootLayout({
       lang="en"
       suppressHydrationWarning
       className={fontVariables}
-      style={{}}
+      // The active faces are resolved per request by the appearance service,
+      // so the two names the theme reads travel as CSS custom properties on
+      // the root element — the same `:root` scope an injected <style> rule
+      // would write, without shipping a stylesheet outside the design system.
+      style={
+        // SAFETY: `--font-sans`/`--font-mono` are CSS custom properties the
+        // theme's font utilities and `body`'s `font-sans` read; React's
+        // `CSSProperties` type has no way to name a custom property, so
+        // widening to accept an arbitrary key is the only way to pass them
+        // through inline `style`.
+        {
+          "--font-sans": fontCssVariables["--font-sans"],
+          "--font-mono": fontCssVariables["--font-mono"],
+        } as React.CSSProperties
+      }
     >
-      <head>
-        <style
-          dangerouslySetInnerHTML={{
-            // safe-html: next/font build-time CSS variable names from getFontCssVariables(); no request, user, or model input reaches it
-            __html: `
-            :root {
-              --font-sans: ${fontCssVariables["--font-sans"]};
-              --font-mono: ${fontCssVariables["--font-mono"]};
-            }
-          `,
-          }}
-        />
-      </head>
       <body className={cn("font-sans antialiased")}>
         <Providers>{children}</Providers>
       </body>

@@ -154,7 +154,7 @@ function ChatTranscriptErrorAlert({ error }: { error: Error }) {
     <div className="max-w-3xl mx-auto">
       <Alert variant={"destructive"} className="w-full">
         <AlertTitle>Error: {error.name}</AlertTitle>
-        <AlertDescription className="text-sm">{error.message}</AlertDescription>
+        <AlertDescription>{error.message}</AlertDescription>
       </Alert>
     </div>
   );
@@ -235,10 +235,18 @@ export function ChatTranscript(props: ChatTranscriptProps) {
             ever measures heavy, [content-visibility:auto] on message rows
             (or the virtualization #187 originally named) is the next step
             — measure before reaching for either. */}
-        <ConversationContent className="mx-auto w-full max-w-3xl space-y-4 px-5 py-12">
-          <ChatTranscriptBody {...props} />
+        <ConversationContent className="mx-auto w-full max-w-3xl">
+          {/* The message column's own rhythm: 20px gutters, 48px of air above
+              and below, 48px between rows — the 32px the primitive's gap-8
+              gave plus the 16px each row carried as a `space-y-4` margin.
+              Both now come from this wrapper's gap-12, and its negative margin
+              cancels the primitive's p-4 so the wrapper, not the component,
+              sets the inset. */}
+          <div className="-m-4 flex flex-col gap-12 px-5 py-12">
+            <ChatTranscriptBody {...props} />
+          </div>
         </ConversationContent>
-        <ConversationScrollButton className="shadow-sm" />
+        <ConversationScrollButton />
       </Conversation>
     </div>
   );

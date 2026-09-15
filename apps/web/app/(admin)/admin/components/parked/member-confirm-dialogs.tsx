@@ -30,16 +30,16 @@ import { ApiErrorMessage } from "../../organizations/components/api-error-messag
 function ConfirmAlertFooter({
   onConfirm,
   confirmLabel,
-  confirmClassName,
+  confirmVariant,
 }: {
   onConfirm: (e: React.MouseEvent) => void;
   confirmLabel: string;
-  confirmClassName?: string;
+  confirmVariant?: React.ComponentProps<typeof AlertDialogAction>["variant"];
 }) {
   return (
     <AlertDialogFooter>
       <AlertDialogCancel>Cancel</AlertDialogCancel>
-      <AlertDialogAction onClick={onConfirm} className={confirmClassName}>
+      <AlertDialogAction variant={confirmVariant} onClick={onConfirm}>
         {confirmLabel}
       </AlertDialogAction>
     </AlertDialogFooter>
@@ -204,7 +204,7 @@ function ConfirmRevokeDialog({
             );
           }}
           confirmLabel={isSelf ? "Leave" : "Revoke"}
-          confirmClassName="bg-destructive text-white hover:bg-destructive/90"
+          confirmVariant="destructive"
         />
       </AlertDialogContent>
     </AlertDialog>

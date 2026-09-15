@@ -24,6 +24,7 @@ import {
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
 
+import { DialogSubmitFooter } from "@/components/dialog-submit-footer";
 import {
   useCreateChildOrg,
   useCreateRootOrg,
@@ -37,11 +38,7 @@ import type {
 
 import { ApiErrorMessage } from "./api-error-message";
 import { descendantIdsOf } from "./org-tree-utils";
-import {
-  MoveTargetList,
-  OrgDialogFooter,
-  OrgUnitTypePicker,
-} from "./org-unit-dialog-parts";
+import { MoveTargetList, OrgUnitTypePicker } from "./org-unit-dialog-parts";
 
 const DEFAULT_CHILD_TYPE: OrgUnitType = "group";
 
@@ -56,9 +53,7 @@ function CreateOrgUnitNameField({
 }) {
   return (
     <div className="space-y-2">
-      <Label htmlFor="org-unit-name" className="text-[0.8rem]">
-        Name
-      </Label>
+      <Label htmlFor="org-unit-name">Name</Label>
       <Input
         id="org-unit-name"
         value={name}
@@ -69,7 +64,6 @@ function CreateOrgUnitNameField({
             onSubmit();
           }
         }}
-        className="px-[0.65rem] text-[0.9rem] md:text-[0.9rem]"
         // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on
         // open; this is the dialog's primary field.
         // oxlint-disable-next-line jsx-a11y/no-autofocus
@@ -81,11 +75,11 @@ function CreateOrgUnitNameField({
 
 function CreateOrgUnitHeader({ parent }: { parent?: OrgUnitResponse }) {
   return (
-    <DialogHeader className="gap-[0.35rem]">
-      <DialogTitle className="text-base">
+    <DialogHeader>
+      <DialogTitle>
         {parent ? `New unit under “${parent.name}”` : "New organization"}
       </DialogTitle>
-      <DialogDescription className="text-[0.83rem] leading-[1.45]">
+      <DialogDescription>
         {parent
           ? "Create a child unit nested under this one. Members and roles inherit down from the parent."
           : "An organization is the top-level container for your teams, chats, and members."}
@@ -158,7 +152,7 @@ export function CreateOrgUnitDialog({
 
   return (
     <Dialog open={open} onOpenChange={onDialogOpenChange}>
-      <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
+      <DialogContent className="top-3/20 translate-y-0 sm:max-w-104">
         <CreateOrgUnitHeader parent={parent} />
         <CreateOrgUnitNameField
           name={name}
@@ -167,7 +161,7 @@ export function CreateOrgUnitDialog({
         />
         {parent && <OrgUnitTypePicker type={type} onTypeChange={setType} />}
         <ApiErrorMessage error={mutation.error} />
-        <OrgDialogFooter
+        <DialogSubmitFooter
           onCancel={() => onOpenChange(false)}
           onSubmit={submit}
           submitLabel="Create"
@@ -197,7 +191,6 @@ function RenameOrgUnitField({
           onSubmit();
         }
       }}
-      className="px-[0.65rem] text-[0.9rem] md:text-[0.9rem]"
       aria-label="Name"
       // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on
       // open; this is the dialog's primary field.
@@ -225,9 +218,9 @@ function RenameOrgUnitDialogBody({
   onOpenChange: (open: boolean) => void;
 }) {
   return (
-    <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
+    <DialogContent className="top-3/20 translate-y-0 sm:max-w-104">
       <DialogHeader>
-        <DialogTitle className="text-base">Rename “{unit.name}”</DialogTitle>
+        <DialogTitle>Rename “{unit.name}”</DialogTitle>
       </DialogHeader>
       <RenameOrgUnitField
         name={name}
@@ -235,7 +228,7 @@ function RenameOrgUnitDialogBody({
         onSubmit={submit}
       />
       <ApiErrorMessage error={update.error} />
-      <OrgDialogFooter
+      <DialogSubmitFooter
         onCancel={() => onOpenChange(false)}
         onSubmit={submit}
         submitLabel="Save"
@@ -308,9 +301,9 @@ type MoveOrgUnitDialogProps = {
 
 function MoveOrgUnitHeader({ unit }: { unit: OrgUnitResponse }) {
   return (
-    <DialogHeader className="gap-[0.35rem]">
-      <DialogTitle className="text-base">Move “{unit.name}”</DialogTitle>
-      <DialogDescription className="text-[0.83rem] leading-[1.45]">
+    <DialogHeader>
+      <DialogTitle>Move “{unit.name}”</DialogTitle>
+      <DialogDescription>
         Choose a new parent, or make it a root organization. A unit can’t move
         into its own subtree.
       </DialogDescription>
@@ -350,7 +343,7 @@ export function MoveOrgUnitDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
+      <DialogContent className="top-3/20 translate-y-0 sm:max-w-104">
         <MoveOrgUnitHeader unit={unit} />
         <MoveTargetList
           candidates={candidates}
@@ -359,7 +352,7 @@ export function MoveOrgUnitDialog({
           onParentIdChange={setParentId}
         />
         <ApiErrorMessage error={update.error} />
-        <OrgDialogFooter
+        <DialogSubmitFooter
           onCancel={() => onOpenChange(false)}
           onSubmit={submit}
           submitLabel="Move"
@@ -384,29 +377,25 @@ export function DeleteOrgUnitDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
-        <AlertDialogHeader className="gap-[0.35rem]">
-          <AlertDialogTitle className="text-base">
-            Delete “{unit.name}”?
-          </AlertDialogTitle>
-          <AlertDialogDescription className="text-[0.86rem] leading-normal">
+      <AlertDialogContent className="top-3/20 translate-y-0 sm:max-w-104">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete “{unit.name}”?</AlertDialogTitle>
+          <AlertDialogDescription>
             This permanently deletes “{unit.name}” and removes every membership
             on it. This can’t be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <ApiErrorMessage error={del.error} />
         <AlertDialogFooter>
-          <AlertDialogCancel className="text-[0.86rem]">
-            Cancel
-          </AlertDialogCancel>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
+            variant="destructive"
             onClick={() => {
               // AlertDialogAction (Base UI) does not auto-close; this
               // controlled dialog stays open on failure so ApiErrorMessage
               // above can show it, and closes only on success.
               del.mutate(unit.id, { onSuccess: () => onOpenChange(false) });
             }}
-            className="bg-destructive text-[0.86rem] text-white hover:bg-destructive/90"
           >
             Delete
           </AlertDialogAction>
@@ -435,23 +424,17 @@ export function DeleteBlockedOrgUnitDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-[15vh] translate-y-0 px-[1.2rem] sm:max-w-[26rem]">
+      <DialogContent className="top-3/20 translate-y-0 sm:max-w-104">
         <DialogHeader>
-          <DialogTitle className="text-base">
-            Can’t delete “{unit.name}”
-          </DialogTitle>
+          <DialogTitle>Can’t delete “{unit.name}”</DialogTitle>
         </DialogHeader>
-        <p className="text-[0.86rem] leading-normal text-muted-foreground">
+        <p className="text-sm leading-normal text-muted-foreground">
           “{unit.name}” has {childCount} child unit
           {childCount === 1 ? "" : "s"}. Units are deleted leaf-first — move or
           delete everything nested under it first, then delete it.
         </p>
         <DialogFooter>
-          <Button
-            variant="outline"
-            className="text-[0.86rem]"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Got it
           </Button>
         </DialogFooter>

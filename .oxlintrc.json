@@ -24,8 +24,21 @@
     {
       "name": "sonarjs",
       "specifier": "eslint-plugin-sonarjs"
+    },
+    {
+      "name": "shadcn",
+      "specifier": "@shadcn/lint"
     }
   ],
+
+  // Shared components live in one workspace package; apps import them by
+  // that prefix, so the linter resolves them without per-app configuration.
+  "settings": {
+    "shadcn": {
+      "ui": "@workspace/ui/components",
+      "note": "See DESIGN.md for the UI language and approved exceptions."
+    }
+  },
 
   "rules": {
     // Repository boundaries and security.
@@ -161,6 +174,24 @@
     "react/button-has-type": "error",
     "react/exhaustive-deps": "error",
     "react/rules-of-hooks": "error",
+
+    // Design system. The shared components own their own styling, so the
+    // ownership rules are off in `packages/ui/.oxlintrc.json`.
+    "shadcn/no-arbitrary-values": "error",
+    "shadcn/no-inline-styles": "error",
+    "shadcn/no-raw-colors": "error",
+    "shadcn/no-restyle": ["error", { "allow": ["layout"] }],
+    "shadcn/no-unknown-classes": [
+      "error",
+      {
+        // Marker classes that generate no CSS themselves: other selectors
+        // match on them. `not-prose` is read by the typography plugin,
+        // `is-user`/`is-assistant` by the AI Elements message variants, and
+        // `toaster` by Sonner's own stylesheet.
+        "allow": ["not-prose", "is-user", "is-assistant", "toaster"]
+      }
+    ],
+    "shadcn/require-static-classes": "error",
 
     // Tests. Focused tests are forbidden; the other rules conflict with
     // table-driven and framework-managed assertions.

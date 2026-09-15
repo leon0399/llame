@@ -1,20 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { useRouter } from "next/navigation";
 
-import { Button } from "@workspace/ui/components/button";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog";
 import { Input } from "@workspace/ui/components/input";
 
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { DialogSubmitFooter } from "@/components/dialog-submit-footer";
 import { useDeleteChat, useRenameChat } from "@/lib/services/chat/management";
 
 const TITLE_MAX = 200;
@@ -54,27 +53,6 @@ function RenameChatField({
   );
 }
 
-function RenameChatDialogFooter({
-  onCancel,
-  onSubmit,
-  submitDisabled,
-}: {
-  onCancel: () => void;
-  onSubmit: () => void;
-  submitDisabled: boolean;
-}) {
-  return (
-    <DialogFooter>
-      <Button variant="outline" onClick={onCancel}>
-        Cancel
-      </Button>
-      <Button onClick={onSubmit} disabled={submitDisabled}>
-        Save
-      </Button>
-    </DialogFooter>
-  );
-}
-
 type RenameChatDialogProps = {
   chat: Chat;
   open: boolean;
@@ -82,15 +60,18 @@ type RenameChatDialogProps = {
 };
 
 /** The field state and submit mutation — split out from `RenameChatDialog`
- *  so that component composes only markup. */
-function useRenameChatSubmit(chat: Chat, open: boolean, onSaved: () => void) {
+ *  so that component composes only markup, and mounted with the dialog's
+ *  content: the content unmounts while the dialog is closed, so each open
+ *  re-seeds the field from the chat's current title. */
+function RenameChatForm({
+  chat,
+  onSaved,
+}: {
+  chat: Chat;
+  onSaved: () => void;
+}) {
   const rename = useRenameChat();
   const [title, setTitle] = useState(chat.title);
-
-  // Reset the field to the current title each time the dialog opens.
-  useEffect(() => {
-    if (open) setTitle(chat.title);
-  }, [open, chat.title]);
 
   const submit = () => {
     const next = title.trim();
@@ -101,7 +82,21 @@ function useRenameChatSubmit(chat: Chat, open: boolean, onSaved: () => void) {
     rename.mutate({ id: chat.id, title: next }, { onSuccess: onSaved });
   };
 
-  return { title, setTitle, submit, isPending: rename.isPending };
+  return (
+    <>
+      <RenameChatField
+        title={title}
+        onTitleChange={setTitle}
+        onSubmit={submit}
+      />
+      <DialogSubmitFooter
+        onCancel={onSaved}
+        onSubmit={submit}
+        submitLabel="Save"
+        submitDisabled={!title.trim() || rename.isPending}
+      />
+    </>
+  );
 }
 
 export function RenameChatDialog({
@@ -109,28 +104,13 @@ export function RenameChatDialog({
   open,
   onOpenChange,
 }: RenameChatDialogProps) {
-  const { title, setTitle, submit, isPending } = useRenameChatSubmit(
-    chat,
-    open,
-    () => onOpenChange(false),
-  );
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Rename chat</DialogTitle>
         </DialogHeader>
-        <RenameChatField
-          title={title}
-          onTitleChange={setTitle}
-          onSubmit={submit}
-        />
-        <RenameChatDialogFooter
-          onCancel={() => onOpenChange(false)}
-          onSubmit={submit}
-          submitDisabled={!title.trim() || isPending}
-        />
+        <RenameChatForm chat={chat} onSaved={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
   );

@@ -40,6 +40,8 @@ function ProjectChatsCard({
           projects={projects}
           onRequestNewProject={onRequestNewProject}
           pinnedAtByChatId={pinnedAtByChatId}
+          // This card sits on the page canvas, not the sidebar.
+          surfaceClassName="bg-background"
         />
       )}
     </div>
@@ -89,7 +91,7 @@ export default function ProjectPage() {
       />
 
       <div className="flex-1 overflow-y-auto px-8 py-7">
-        <div className="mx-auto max-w-[820px]">
+        <div className="mx-auto max-w-205">
           {loading ? (
             <SidebarRowSkeletons count={4} />
           ) : !project ? (
