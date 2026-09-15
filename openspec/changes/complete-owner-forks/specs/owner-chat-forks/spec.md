@@ -84,7 +84,7 @@ The fork SHALL copy every compaction whose coverage lies within the copied prefi
 
 ### Requirement: The fork renders the source's current context
 
-The fork SHALL copy the source Chat's current digest baseline, told-set, and re-bake marker, and its context origin, so that under identical continuation inputs and runtime versions the fork's inherited model-facing prefix equals the source's at the copied boundary. The re-bake marker SHALL be remapped to the copied compaction and SHALL be absent when that compaction was not copied.
+The fork SHALL copy the source Chat's current digest baseline, told-set, and re-bake marker, and its creation time, so that under identical continuation inputs and runtime versions the fork's inherited model-facing prefix equals the source's at the copied boundary. The re-bake marker SHALL be remapped to the copied compaction and SHALL be absent when that compaction was not copied.
 
 Fork creation SHALL emit no model-facing notice and SHALL NOT refresh digest content, corpus, or anchor. The fork's first turn SHALL begin an ordinary disclosure epoch for tool availability and model selection, as a new Chat does; those items follow the inherited history and do not alter it. Future model, configuration, consent, corpus, and availability changes follow ordinary behavior.
 
@@ -102,14 +102,14 @@ Fork creation SHALL emit no model-facing notice and SHALL NOT refresh digest con
 
 ### Requirement: Fork lifetime and execution are independent
 
-The destination SHALL be a new private, unarchived Chat with the existing title-copy behavior and no inherited pin or Project membership. It SHALL survive source deletion and evolve independently after commit. Fork-of-fork SHALL preserve inherited content and origin without needing any ancestor Chat.
+The destination SHALL be a new private, unarchived Chat with the existing title-copy behavior and no inherited pin or Project membership. It SHALL survive source deletion and evolve independently after commit. Fork-of-fork SHALL preserve inherited content and creation time without needing any ancestor Chat.
 
 Fork creation SHALL make no model or compaction inference call and enqueue no Run. It SHALL NOT copy Runs, event streams, active jobs, cancellation state, worker identity, or native-effect fences. Inherited receipts resolve through the original Run while it exists; after source deletion they are absent.
 
 #### Scenario: The source is deleted
 
 - **WHEN** the owner deletes the source after a successful fork
-- **THEN** the fork's history, checkpoints, digest state, and anchor remain available
+- **THEN** the fork's history, checkpoints, digest state, and creation time remain available
 - **AND** receipts for inherited turns are not found
 
 #### Scenario: An inherited tool result describes a native write
@@ -122,7 +122,7 @@ Fork creation SHALL make no model or compaction inference call and enqueue no Ru
 
 Owner identity SHALL come from authenticated server context and SHALL be enforced in datastore reads and writes. Missing identity or a foreign reference SHALL fail closed and commit nothing.
 
-The shared/public fork path SHALL continue to copy only what its existing public response allows. It SHALL receive no compaction, digest state, usage, timestamps, context origin, or source-owner metadata. Public views of an owner fork, ordinary exports, and search/recall projections SHALL retain their existing private-context exclusions.
+The shared/public fork path SHALL continue to copy only what its existing public response allows. It SHALL receive no compaction, digest state, usage, timestamps, creation time, or source-owner metadata. Public views of an owner fork, ordinary exports, and search/recall projections SHALL retain their existing private-context exclusions.
 
 #### Scenario: Another owner supplies a private source or anchor
 
@@ -134,7 +134,7 @@ The shared/public fork path SHALL continue to copy only what its existing public
 
 - **WHEN** another user forks the source through the shared/public route
 - **THEN** the copy contains only the public transcript projection
-- **AND** it has no compactions, digest state, usage, or origin
+- **AND** it has no compactions, digest state, usage, or copied creation time
 
 #### Scenario: A complete owner fork is later shared
 

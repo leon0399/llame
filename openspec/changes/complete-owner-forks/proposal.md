@@ -7,9 +7,9 @@ Owner forks currently copy message rows only. Compactions, usage, timestamps, an
 - D1: Copy the selected message prefix literally: parts, attachments, usage, timestamps, and reply links, remapping only storage identities.
 - D2: Copy every compaction whose coverage fits the copied prefix, including its parent lineage, summary, replacement history, usage, and original timestamp.
 - D3: Copy the source Chat's current digest baseline, told-set, and re-bake marker, so the fork's system prompt renders identically to the source's.
-- D4: Record the source prefix's context origin on the fork so an uncompacted fork keeps the source's temporal anchor instead of its own creation time.
+- D4: Copy the source Chat's creation time so an uncompacted fork keeps the source's temporal anchor.
 - D5: Keep the current boundary semantics: a whole-chat fork copies every durable message and an explicit anchor copies through that message. Run status does not gate a fork, no conflict response is added, and a fork mid-Run is allowed.
-- D6: Shared/public forks remain text-only and receive no compaction, digest, usage, or origin state.
+- D6: Shared/public forks remain text-only and receive no compaction, digest, usage, or creation time.
 
 Removed from the previous revision of this change: per-turn acceptance evidence, continuation revisions, pinned boundary state, usage provenance columns, a message-keyed receipt endpoint, and fork conflict responses. See design R1-R6.
 
@@ -17,16 +17,15 @@ Removed from the previous revision of this change: per-turn acceptance evidence,
 
 ### New Capabilities
 
-- `owner-chat-forks`: Literal owner-only prefix copy with compaction lineage, digest state, and context origin, and unchanged shared-fork disclosure.
+- `owner-chat-forks`: Literal owner-only prefix copy with compaction lineage, digest state, and creation time, and unchanged shared-fork disclosure.
 
 ### Modified Capabilities
 
-- `temporal-anchor`: A non-empty owner fork inherits the source prefix's context origin.
 - `chat-recency-digest`: An owner fork continues the source's current digest state rather than resolving a new baseline.
 - `durable-runs`: Copying history is not submission; a fork creates no Run.
 
 ## Impact
 
-API Chat/message copying, compaction persistence, and the temporal anchor read. One nullable column (`chats.inherited_context_origin_at`) with a generated migration. No API contract change other than the copied fields already present on message and compaction responses; no OpenAPI regeneration is expected. Existing search reindex and embedding dispatch remain post-commit projections.
+API Chat/message copying and compaction persistence. No schema change. No API contract change other than the copied fields already present on message and compaction responses; no OpenAPI regeneration is expected. Existing search reindex and embedding dispatch remain post-commit projections.
 
 Threats are cross-owner reads, copying private state through the public route, and referencing another Chat's compaction from the copied digest marker. Forced RLS, owner-scoped repository reads inside one transaction, and negative datastore/API tests are required. No production chat reset or backfill is authorized.

@@ -44,9 +44,9 @@ The copied state is whatever the source renders now. For a whole-chat fork this 
 
 A source with no digest yields a fork with none; the fork's first turn then initializes one under ordinary rules.
 
-### D4: Preserve the context origin
+### D4: Copy the creation time
 
-Add nullable `chats.inheritedContextOriginAt`. A non-empty fork copies the source's effective origin (`source.inheritedContextOriginAt ?? source.createdAt`). `resolveFrozenState` resolves the anchor as `latestCompaction?.createdAt ?? chat.inheritedContextOriginAt ?? chat.createdAt`. This keeps the system prompt's anchor identical for an uncompacted fork; a compacted fork already derives it from the copied compaction's timestamp. Fork-of-fork retains the value transitively. Ordinary Chats leave it null.
+The fork's `chats.createdAt` is the source's `createdAt`. The temporal anchor already resolves as `latestCompaction?.createdAt ?? chat.createdAt`, so an uncompacted fork renders the same anchor as its source with no new column and no change to `turn-context.ts`; a compacted fork derives it from the copied compaction's timestamp. Fork-of-fork inherits the same value. Nothing else reads a Chat's creation time to order or gate behavior: the sidebar and the digest use `updatedAt`, which the fork sets to now. The API's `createdAt` for a fork therefore reports when its context began, not when the row was inserted; that is the value this feature exists to preserve.
 
 ### D5: First-turn disclosure is ordinary new-chat behavior
 
@@ -54,7 +54,7 @@ The fork copies no Run, so its first turn has no previous Run: it starts a fresh
 
 ### D6: Public disclosure remains a separate copy contract
 
-`forkSharedChat` keeps its public response allowlist and copies text parts only. It receives no compaction, digest, usage, timestamps, origin, or source-owner identity. Public views of an owner fork, exports, search projections, and conversation locators keep their current disclosure rules.
+`forkSharedChat` keeps its public response allowlist and copies text parts only. It receives no compaction, digest, usage, timestamps, creation time, or source-owner identity. Public views of an owner fork, exports, search projections, and conversation locators keep their current disclosure rules.
 
 ## Rejected alternatives
 
@@ -74,13 +74,13 @@ The fork copies no Run, so its first turn has no previous Run: it starts a fresh
 
 ## Migration Plan
 
-Single implementation layer after this proposal. One generated Drizzle migration adding `chats.inherited_context_origin_at` (nullable, no backfill). No RLS change: the column sits on an already forced-RLS table. Rollback is dropping the column; existing forks then use their creation time as origin.
+Single implementation layer after this proposal. No schema change and no migration.
 
 ## Verification
 
 - V1: A real-DB owner fork of multi-generation compacted history produces the same inherited request prefix through the real context builder and provider serializer as the source at the same boundary, including checkpoint replacement history, ordered tool parts, timestamps, digest block, and temporal anchor. A deliberate timestamp reset, dropped checkpoint, or payload rewrite fails the comparison.
 - V2: A fork taken while a source Run is in flight contains the accepted user message and no assistant row; the Run's later settlement writes only to the source.
-- V3: Negative datastore and API checks: foreign source and anchor references are not found; the copied re-bake marker cannot reference another Chat's compaction; shared/public forks, public views, exports, and search contain no compaction, digest, usage, or origin state.
+- V3: Negative datastore and API checks: foreign source and anchor references are not found; the copied re-bake marker cannot reference another Chat's compaction; shared/public forks, public views, exports, and search contain no compaction, digest, usage, or copied creation time.
 - V4: Fork survives source deletion: history, checkpoints, digest, and anchor remain; its Run-keyed receipts for inherited turns return not found.
 - V5: Browser check: a copied checkpoint renders in the fork; inherited usage and timestamps display; continuing the fork emits no fork notice.
 
@@ -97,4 +97,4 @@ Single implementation layer after this proposal. One generated Drizzle migration
 - v2 (2026-09-12): Two independent reviews led to explicit empty-fork initialization, immutable origin IDs without source foreign keys, a concrete initial-state home and adoption horizon, same-Chat checkpoint constraints, complete-owner-copy rollback requirements, owner-visible usage classification with server-only namespaced attribution, and typed conflict responses.
 - v3 (2026-09-12): Reused the actual assistant completion predicate; moved the user completion fact onto user messages; specified `NO ACTION` constraints and deletion checks.
 - v4 (2026-09-12): Removed the proposed mutable completion mirror; only copied user anchors retained an immutable inherited-completion fact.
-- v5 (2026-09-15): Cut to the live-state copy after reviewing the v4 implementation (#816, #817): every evidence, revision, provenance, and conflict mechanism had no product reader. Boundary selection reverted to durable rows so mid-Run forks work for future subagents. Usage is copied as the conversation's price estimate; the ledger is #170. Kept: literal copy, compaction lineage, live digest copy, context origin, and the unchanged shared-fork boundary.
+- v5 (2026-09-15): Cut to the live-state copy after reviewing the v4 implementation (#816, #817): every evidence, revision, provenance, and conflict mechanism had no product reader. Boundary selection reverted to durable rows so mid-Run forks work for future subagents. Usage is copied as the conversation's price estimate; the ledger is #170. Kept: literal copy including the Chat's creation time, compaction lineage, live digest copy, and the unchanged shared-fork boundary. No schema change remains.
