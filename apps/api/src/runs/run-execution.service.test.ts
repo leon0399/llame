@@ -1,3 +1,4 @@
+import type { MockInstance } from 'vitest';
 import { hashWithDomain } from '../canonical-json';
 import { Logger } from '@nestjs/common';
 import { bashTool } from '../tools/bash';
@@ -11,6 +12,7 @@ import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 
 import type {
   Chat,
+  Compaction,
   Message,
   ModelToolDeclaration,
   Run,
@@ -32,6 +34,7 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from '../chats/chats-repository';
+import { isContextItemPart, type ContextItemPart } from '../chats/context-item';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { createModelChangeItem } from '../chats/context-item-producers';
 import {
@@ -3268,6 +3271,7 @@ describe('RunExecutionService settleTerminalRun', () => {
   });
 
   it('refuses to complete a run whose durable tool calls are still open', async () => {
+    const loggerError = vi.spyOn(Logger.prototype, 'error');
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
       ...run,
       status: 'completed',
@@ -3299,11 +3303,18 @@ describe('RunExecutionService settleTerminalRun', () => {
     ).rejects.toThrow(`Could not durably settle terminal run ${runId}.`);
     // The transaction aborts before it can publish a completion that would
     // strand the open call, so nothing at all is appended or persisted.
+    expect(loggerError).toHaveBeenCalledWith(
+      `Failed to finish run ${runId}`,
+      expect.stringContaining(
+        'cannot complete with durable tool calls still open.',
+      ),
+    );
     expect(appended).toEqual([]);
     expect(createAssistantReplyIfAbsent).not.toHaveBeenCalled();
   });
 
   it('refuses to settle durable parts against a run with no triggering message', async () => {
+    const loggerError = vi.spyOn(Logger.prototype, 'error');
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
       ...run,
       status: 'failed',
@@ -3330,6 +3341,14 @@ describe('RunExecutionService settleTerminalRun', () => {
     await expect(
       execution.service.settleTerminalRun({ userId, runId, status: 'failed' }),
     ).rejects.toThrow(`Could not durably settle terminal run ${runId}.`);
+    // The operator is told why the settlement was refused, not just that it
+    // failed.
+    expect(loggerError).toHaveBeenCalledWith(
+      `Failed to finish run ${runId}`,
+      expect.stringContaining(
+        'has durable assistant parts but no triggering message.',
+      ),
+    );
     expect(appended).toEqual([]);
     expect(createAssistantReplyIfAbsent).not.toHaveBeenCalled();
   });
@@ -3733,5 +3752,1036 @@ describe('RunExecutionService executeRun — context window and late tool result
       },
       permission: allowDecision(toolDeclaration.id),
     });
+  });
+});
+
+/**
+ * The runtime-context lifecycle of one attempt: the rail items it stages, the
+ * state it commits with a winning turn, and what it refuses to publish. The
+ * Run-bound snapshot is gone, so each case pins an observable consequence —
+ * the staged item's payload, the committed availability record, the write that
+ * never happened — rather than the call that produced it.
+ */
+const contextToolId = 'mcp__demo__lookup';
+
+/** An allowlisted tool whose source is disconnected: a real manifest entry the
+ * turn cannot use, which is what makes availability worth disclosing. */
+const disconnectedTool: TurnToolCandidate = {
+  source: { type: 'mcp', serverId: 'demo' },
+  state: 'unavailable',
+  id: contextToolId,
+  classification: 'read_only',
+  reason: 'source_disconnected',
+};
+
+const availabilityOptions = {
+  allowed: [contextToolId],
+  dynamicCandidates: [disconnectedTool],
+};
+
+/** The two disclosures one current-manifest comparison can produce. */
+const initialAvailability = {
+  kind: 'initial',
+  added: [],
+  removed: [],
+  unavailable: [{ id: contextToolId, reason: 'source_disconnected' }],
+  becameUnavailable: [],
+  nowAvailable: [],
+};
+const deltaAvailability = {
+  kind: 'delta',
+  added: [],
+  removed: [],
+  unavailable: [],
+  becameUnavailable: [{ id: contextToolId, reason: 'source_disconnected' }],
+  nowAvailable: [],
+};
+
+/** The parts write `RunExecutionService` performs on the triggering user
+ * message, and the spy `mockNormalExecutionRepositories` installs for it. */
+type UpdateUserMessageParts = MessagesRepository['updateUserMessageParts'];
+type UpdateUserMessagePartsSpy = MockInstance<UpdateUserMessageParts>;
+
+/** The staged parts the winning user message records, read from the write that
+ * replaced them — the id and chatId pin which turn's parts these are. */
+function stagedPartsOf(
+  updateUserMessageParts: UpdateUserMessagePartsSpy,
+): Array<unknown> {
+  const write = updateUserMessageParts.mock.calls.at(-1)?.[0];
+  expect(write).toMatchObject({ id: messageId, chatId });
+  return write?.parts ?? [];
+}
+
+/** The staged envelopes one producer authored this turn, in written order. */
+function stagedItemsOf(
+  updateUserMessageParts: UpdateUserMessagePartsSpy,
+  producer: string,
+): Array<ContextItemPart> {
+  return stagedPartsOf(updateUserMessageParts).filter(
+    (part): part is ContextItemPart =>
+      isContextItemPart(part) && part.data.producer === producer,
+  );
+}
+
+/** A completed predecessor run to compare this attempt against. */
+function completedPredecessor(overrides: Partial<Run> = {}): Run {
+  return {
+    ...run,
+    id: '99999999-9999-4999-8999-999999999999',
+    status: 'completed',
+    completedAttemptId: testAttemptId,
+    turnToolAvailability: [{ id: contextToolId, state: 'available' }],
+    ...overrides,
+  };
+}
+
+/** A client whose window starts too small and is widened by the transition
+ * compaction it forces, so the rebuilt request is the one that fits. */
+function makeWideningClient() {
+  let contextWindowTokens = 1;
+  const captured: CapturedStream = {};
+  const client: ModelClient = {
+    model: 'fake-model',
+    provider: 'fake',
+    get contextWindowTokens() {
+      return contextWindowTokens;
+    },
+    streamText: (options) => {
+      captured.options = options;
+      return unusedStreamResult();
+    },
+  };
+  return {
+    client,
+    widen: () => {
+      contextWindowTokens = 128_000;
+    },
+  };
+}
+
+/** A predecessor lookup that answers only within the trigger's sequence bound. */
+function lookupBefore(seq: number, candidate: Run | undefined) {
+  return (_chatId: string, _userId: string, options?: { beforeSeq?: number }) =>
+    Promise.resolve(options?.beforeSeq === seq ? candidate : undefined);
+}
+
+function activeCompaction(
+  createdAt: Date,
+  id = '77777777-7777-4777-8777-777777777777',
+): Compaction {
+  return {
+    id,
+    chatId,
+    uptoSeq: 0,
+    parentId: null,
+    summary: 'Earlier turns, summarized.',
+    replacementHistory: [
+      { role: 'user', parts: [{ type: 'text', text: 'Summarized prefix' }] },
+    ],
+    usage: null,
+    createdAt,
+  };
+}
+
+const digestBaseline: RecencyDigestResolution['baseline'] = {
+  pinned: [],
+  recent: [],
+  pinnedShown: 0,
+  pinnedTotal: 0,
+  recentShown: 0,
+  recentTotal: 0,
+  compiledOn: '2026-09-01',
+};
+
+const predecessorStartedAt = new Date('2026-09-10T00:00:00.000Z');
+
+/** One attempt against a chat whose last successful turn is `completed`, with
+ * `compaction` the active checkpoint. Runs to a committed turn. */
+async function executeAvailabilityAttempt(input: {
+  recent?: Run;
+  completed?: Run;
+  compaction?: Compaction;
+}) {
+  const repositories = mockNormalExecutionRepositories();
+  vi.spyOn(
+    RunsRepository.prototype,
+    'findMostRecentByChatMessageSequence',
+  ).mockImplementation(lookupBefore(1, input.recent));
+  vi.spyOn(
+    RunsRepository.prototype,
+    'findMostRecentCompletedByChatMessageSequence',
+  ).mockImplementation(lookupBefore(1, input.completed));
+  if (input.compaction !== undefined) {
+    vi.spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
+      .mockResolvedValueOnce(input.compaction)
+      .mockResolvedValue(input.compaction);
+  }
+  const execution = makeExecutionService(
+    createFakeModelClient(['answer']),
+    undefined,
+    undefined,
+    availabilityOptions,
+  );
+  const result = await execution.service.executeRun(
+    executionInput(execution.client),
+  );
+  await expect(result.text).resolves.toBe('answer');
+  return repositories;
+}
+
+describe('RunExecutionService runtime-context lifecycle', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('records the staged items with their form and commits the observed availability', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const updateRecencyDigestTold = vi
+      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
+      .mockResolvedValue(undefined);
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      availabilityOptions,
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    // The authority record is what a later reader replays, so both staged
+    // items land there under the form the rail renders them with.
+    const attemptWrite = repositories.updateForAttempt.mock.calls.at(-1);
+    expect(attemptWrite?.slice(0, 3)).toEqual([runId, userId, testAttemptId]);
+    const recordedItems = attemptWrite?.[3].contextItems ?? [];
+    expect(recordedItems).toContainEqual(
+      expect.objectContaining({
+        producer: 'tool-availability',
+        form: 'notice',
+        residency: 'rail',
+      }),
+    );
+    expect(recordedItems).toContainEqual(
+      expect.objectContaining({ producer: 'temporal', form: 'snapshot' }),
+    );
+    // The availability the turn observed becomes the next turn's baseline.
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'completed',
+      expect.objectContaining({
+        turnToolAvailability: [{ id: contextToolId, state: 'unavailable' }],
+      }),
+    );
+    // And the model is told what changed: no completed predecessor, so this
+    // is the epoch's initial disclosure.
+    const [availability] = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'tool-availability',
+    );
+    expect(availability?.data.payload).toMatchObject(initialAvailability);
+    // A turn that disclosed no digest advances no told state.
+    expect(updateRecencyDigestTold).not.toHaveBeenCalled();
+  });
+
+  it('prepends the staged context text to the triggering user message', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    const messages = capturing.streamOptions().messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.role).toBe('user');
+    const content = messages[0]?.content;
+    const textParts = Array.isArray(content) ? content : [];
+    expect(textParts).toHaveLength(2);
+    const [stagedText, userText] = textParts;
+    expect(stagedText?.type === 'text' ? stagedText.text : '').toContain(
+      'producer="temporal"',
+    );
+    expect(userText).toEqual({ type: 'text', text: 'hello' });
+  });
+
+  it('settles a run whose abort raced the claim before any context work', async () => {
+    const controller = new AbortController();
+    const repositories = mockNormalExecutionRepositories();
+    repositories.markStarted.mockImplementation(() => {
+      controller.abort();
+      return Promise.resolve({ ...run, activeAttemptId: testAttemptId });
+    });
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await expect(
+      execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      ),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      expect.objectContaining({
+        error: { message: 'Run was cancelled before model inference.' },
+      }),
+    );
+    // A turn that will never run prepares nothing: no receipt for the prompt
+    // it never sent, no context items recorded as its request.
+    expect(repositories.createReceipt).not.toHaveBeenCalled();
+    expect(repositories.updateForAttempt).not.toHaveBeenCalled();
+  });
+
+  it('commits no availability baseline for a turn that did not complete', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'half',
+      usage: ZERO_USAGE,
+      finishReason: 'error',
+    });
+
+    const [finishCall] = repositories.markFinished.mock.calls;
+    expect(finishCall?.[2]).toBe('failed');
+    expect(finishCall?.[3]).not.toHaveProperty('turnToolAvailability');
+  });
+
+  it('compares availability against the last successful turn while the epoch continues', async () => {
+    const repositories = await executeAvailabilityAttempt({
+      recent: completedPredecessor(),
+      completed: completedPredecessor(),
+    });
+
+    const [availability] = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'tool-availability',
+    );
+    expect(availability?.data.payload).toMatchObject(deltaAvailability);
+  });
+
+  it('starts a new disclosure epoch when a checkpoint postdates the successful turn', async () => {
+    const repositories = await executeAvailabilityAttempt({
+      recent: completedPredecessor({ createdAt: predecessorStartedAt }),
+      completed: completedPredecessor({ createdAt: predecessorStartedAt }),
+      compaction: activeCompaction(new Date('2026-09-11T00:00:00.000Z')),
+    });
+
+    const [availability] = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'tool-availability',
+    );
+    expect(availability?.data.payload).toMatchObject(initialAvailability);
+  });
+
+  it('keeps the epoch when the checkpoint predates the successful turn', async () => {
+    const repositories = await executeAvailabilityAttempt({
+      recent: completedPredecessor({ createdAt: predecessorStartedAt }),
+      completed: completedPredecessor({ createdAt: predecessorStartedAt }),
+      compaction: activeCompaction(new Date('2026-09-09T00:00:00.000Z')),
+    });
+
+    const [availability] = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'tool-availability',
+    );
+    expect(availability?.data.payload).toMatchObject(deltaAvailability);
+  });
+
+  it('keeps the epoch for a checkpoint stamped at the successful turn instant', async () => {
+    const repositories = await executeAvailabilityAttempt({
+      recent: completedPredecessor({ createdAt: predecessorStartedAt }),
+      completed: completedPredecessor({ createdAt: predecessorStartedAt }),
+      compaction: activeCompaction(predecessorStartedAt),
+    });
+
+    const [availability] = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'tool-availability',
+    );
+    expect(availability?.data.payload).toMatchObject(deltaAvailability);
+  });
+
+  it('starts an epoch when the preceding run never completed', async () => {
+    const repositories = await executeAvailabilityAttempt({
+      recent: completedPredecessor(),
+      completed: undefined,
+      compaction: activeCompaction(new Date('2026-09-11T00:00:00.000Z')),
+    });
+
+    const [availability] = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'tool-availability',
+    );
+    expect(availability?.data.payload).toMatchObject(initialAvailability);
+  });
+
+  it('stages the model-change notice only when the preceding run used another model', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findMostRecentByChatMessageSequence',
+    ).mockImplementation(
+      lookupBefore(1, completedPredecessor({ modelId: 'other-model' })),
+    );
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findMostRecentCompletedByChatMessageSequence',
+    ).mockImplementation(lookupBefore(1, undefined));
+    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    const [modelChange] = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'effective-context-change',
+    );
+    expect(modelChange?.data).toMatchObject({
+      form: 'notice',
+      payload: {
+        cause: 'model',
+        fromModelId: 'other-model',
+        toModelId: 'fake-model',
+      },
+    });
+  });
+
+  it('stages no model-change notice while the model is unchanged', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findMostRecentByChatMessageSequence',
+    ).mockImplementation(lookupBefore(1, completedPredecessor()));
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findMostRecentCompletedByChatMessageSequence',
+    ).mockImplementation(lookupBefore(1, undefined));
+    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(
+      stagedItemsOf(
+        repositories.updateUserMessageParts,
+        'effective-context-change',
+      ),
+    ).toEqual([]);
+  });
+
+  it('finds the model-switch anchor in the staged rail of a compacted switch', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findMostRecentByChatMessageSequence',
+    ).mockImplementation(
+      lookupBefore(1, completedPredecessor({ modelId: 'other-model' })),
+    );
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findMostRecentCompletedByChatMessageSequence',
+    ).mockImplementation(lookupBefore(1, undefined));
+    const widen = makeWideningClient();
+    const execution = makeExecutionService(widen.client);
+    execution.compactForTransition.mockImplementation(() => {
+      widen.widen();
+      return Promise.resolve('created' as const);
+    });
+
+    await execution.service.executeRun(executionInput(widen.client));
+
+    // The staged model change is exactly the anchor transition compaction
+    // needs; refusing for want of one would be a false negative.
+    expect(execution.compaction.compactForTransition).toHaveBeenCalledTimes(1);
+  });
+
+  it('finds the model-switch anchor in the triggering user message', async () => {
+    mockNormalExecutionRepositories();
+    const widen = makeWideningClient();
+    const execution = makeExecutionService(widen.client);
+    execution.compactForTransition.mockImplementation(() => {
+      widen.widen();
+      return Promise.resolve('created' as const);
+    });
+
+    await execution.service.executeRun({
+      ...executionInput(widen.client),
+      userMessage: {
+        id: messageId,
+        seq: 1,
+        parts: [
+          createModelChangeItem({
+            fromModelId: 'old-model',
+            toModelId: 'fake-model',
+            runId,
+          }),
+          { type: 'text', text: 'hello' },
+        ],
+      },
+    });
+
+    expect(execution.compaction.compactForTransition).toHaveBeenCalledTimes(1);
+  });
+
+  it('stages the rebake marker on the first turn of a re-baked epoch', async () => {
+    const compactionId = '77777777-7777-4777-8777-777777777777';
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      recencyDigestBaseline: digestBaseline,
+      recencyDigestTold: [],
+      recencyDigestRebakedFrom: compactionId,
+    });
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'findLatestByChatId',
+    ).mockResolvedValue(activeCompaction(now, compactionId));
+    vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
+      new Set(),
+    );
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'updateRecencyDigestTold',
+    ).mockResolvedValue(undefined);
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValue({ shareRecentChats: true });
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({
+        baseline: digestBaseline,
+        told: [],
+        candidates: [],
+      });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: { resolveCandidate },
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    // The re-bake is reported under the digest producer's snapshot form.
+    expect(
+      stagedItemsOf(repositories.updateUserMessageParts, 'recency-digest').map(
+        (item) => item.data.form,
+      ),
+    ).toContain('snapshot');
+  });
+
+  it('withholds the rebake marker from a chat with no baseline to supersede', async () => {
+    const compactionId = '77777777-7777-4777-8777-777777777777';
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      recencyDigestBaseline: null,
+      recencyDigestRebakedFrom: compactionId,
+    });
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'findLatestByChatId',
+    ).mockResolvedValue(activeCompaction(now, compactionId));
+    vi.spyOn(
+      ChatsRepository.prototype,
+      'setRecencyDigestIfAbsent',
+    ).mockResolvedValue({ ...chat, recencyDigestBaseline: digestBaseline });
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValue({ shareRecentChats: true });
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({
+        baseline: digestBaseline,
+        told: [],
+        candidates: [],
+      });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: { resolveCandidate },
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    // The chat has no disclosed baseline, so there is nothing to supersede.
+    expect(
+      stagedItemsOf(repositories.updateUserMessageParts, 'recency-digest').map(
+        (item) => item.data.form,
+      ),
+    ).not.toContain('snapshot');
+  });
+
+  it('discards a resolved digest candidate when its baseline moved underneath it', async () => {
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({
+        baseline: digestBaseline,
+        told: [],
+        candidates: [],
+      });
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValue({ shareRecentChats: true });
+    mockNormalExecutionRepositories();
+    // The chat row is re-read after resolution; here a checkpoint re-baked the
+    // baseline in between, so the candidate describes a superseded epoch.
+    vi.spyOn(ChatsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(chat)
+      .mockResolvedValueOnce({
+        ...chat,
+        recencyDigestBaseline: { ...digestBaseline, compiledOn: '2026-09-02' },
+      });
+    const setBaseline = vi
+      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+      .mockResolvedValue({ ...chat, recencyDigestBaseline: digestBaseline });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: { resolveCandidate },
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(setBaseline).not.toHaveBeenCalled();
+  });
+
+  it('discloses no digest delta for a chat with no baseline to diff against', async () => {
+    const updateRecencyDigestTold = vi
+      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
+      .mockResolvedValue(undefined);
+    const setBaseline = vi
+      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+      .mockResolvedValue({ ...chat, recencyDigestBaseline: digestBaseline });
+    vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
+      new Set(),
+    );
+    mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      recencyDigestBaseline: null,
+      recencyDigestTold: [{ chatId: 'a', pinned: true, title: 'Earlier chat' }],
+    });
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({
+        baseline: digestBaseline,
+        told: [{ chatId: 'a', pinned: true, title: 'Earlier chat' }],
+        candidates: [
+          {
+            chatId: 'b',
+            pinned: false,
+            entry: {
+              title: 'Newly active chat',
+              date: '2026-09-02',
+              messageCount: 3,
+            },
+          },
+        ],
+      });
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValue({ shareRecentChats: true });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: { resolveCandidate },
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    // The epoch still initializes from the candidate...
+    expect(setBaseline).toHaveBeenCalledWith(chatId, userId, digestBaseline, [
+      { chatId: 'a', pinned: true, title: 'Earlier chat' },
+    ]);
+    // ...but with no baseline to diff against, nothing is disclosed as a delta.
+    expect(updateRecencyDigestTold).not.toHaveBeenCalled();
+  });
+
+  it('publishes no context state from a settlement that did not complete', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
+      ...run,
+      status: 'failed',
+    });
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    const setDigest = vi
+      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+      .mockResolvedValue({ ...chat, recencyDigestBaseline: digestBaseline });
+    const updateTold = vi
+      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
+      .mockResolvedValue(undefined);
+    const setSkillBaseline = vi
+      .spyOn(ChatsRepository.prototype, 'setSkillCatalogBaseline')
+      .mockResolvedValue(undefined);
+    const updateSkillTold = vi
+      .spyOn(ChatsRepository.prototype, 'updateSkillCatalogTold')
+      .mockResolvedValue(undefined);
+    const execution = makeExecutionService();
+
+    // The settlement seam forwards every field it is handed, so this is
+    // exactly the caller the guards exist to refuse: attempt context arriving
+    // with a status that never published it.
+    const settlement = {
+      userId,
+      runId,
+      status: 'failed' as const,
+      recencyDigestInitialization: { baseline: digestBaseline, told: [] },
+      recencyDigestTold: [],
+      attemptContextParts: [{ type: 'text' as const, text: 'staged' }],
+      turnToolAvailability: [{ id: contextToolId, state: 'available' }],
+      skillCatalogWrites: {
+        freeze: { baseline: { entries: [], omitted: 0 }, rebakedFrom: null },
+        told: [],
+      },
+    };
+    await execution.service.settleTerminalRun(settlement);
+
+    const [finishCall] = repositories.markFinished.mock.calls;
+    expect(finishCall?.[2]).toBe('failed');
+    expect(finishCall?.[3]).not.toHaveProperty('turnToolAvailability');
+    expect(repositories.updateUserMessageParts).not.toHaveBeenCalled();
+    expect(setDigest).not.toHaveBeenCalled();
+    expect(updateTold).not.toHaveBeenCalled();
+    expect(setSkillBaseline).not.toHaveBeenCalled();
+    expect(updateSkillTold).not.toHaveBeenCalled();
+  });
+
+  it('writes no availability record for a completion that observed none', async () => {
+    const markFinished = vi
+      .spyOn(RunsRepository.prototype, 'markFinished')
+      .mockResolvedValue({ ...run, status: 'completed' });
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    recordAppendedEvents();
+    const execution = makeExecutionService();
+
+    await execution.service.settleTerminalRun({
+      userId,
+      runId,
+      status: 'completed',
+      runPayload: { status: 'completed' },
+    });
+
+    const [finishCall] = markFinished.mock.calls;
+    expect(finishCall?.[2]).toBe('completed');
+    expect(finishCall?.[3]).not.toHaveProperty('turnToolAvailability');
+  });
+
+  it('settles an interrupted native write with its recorded outcome and decision', async () => {
+    const writeResult: ToolResult = {
+      status: 'error',
+      type: 'cancelled',
+      message: 'The write was interrupted.',
+    };
+    const permission = allowDecision('write');
+    vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
+      ...run,
+      status: 'failed',
+    });
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      {
+        ...event,
+        sequence: 1,
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'write-call',
+          toolName: 'write',
+          input: { path: 'notes.txt', content: 'x' },
+          permission,
+        },
+      },
+      {
+        ...event,
+        sequence: 2,
+        eventType: 'native.attempt',
+        payload: {
+          toolCallId: 'write-call',
+          operation: 'write',
+          path: 'notes.txt',
+        },
+      },
+      {
+        ...event,
+        sequence: 3,
+        eventType: 'native.result',
+        payload: { toolCallId: 'write-call', result: writeResult },
+      },
+    ]);
+    const priorOutcome = vi
+      .spyOn(NativeFilesRepository.prototype, 'priorOutcome')
+      .mockResolvedValue(writeResult);
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: undefined,
+    });
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createAssistantReplyIfAbsent',
+    ).mockResolvedValue(assistantMessage);
+    const appended = recordAppendedEvents();
+    const execution = makeExecutionService();
+
+    await execution.service.settleTerminalRun({
+      userId,
+      runId,
+      status: 'failed',
+      runPayload: { status: 'failed', message: 'worker died' },
+    });
+
+    // The host may have already written the file, so the recorded outcome is
+    // what settles the call — and the decision rides along with it.
+    expect(priorOutcome).toHaveBeenCalledWith(runId, 'write-call');
+    expect(appended[0]).toStrictEqual({
+      type: 'tool.completed',
+      payload: {
+        toolCallId: 'write-call',
+        toolName: 'write',
+        status: 'error',
+        output: writeResult,
+        permission,
+      },
+    });
+  });
+
+  it('carries the settlement telemetry onto a reconstructed turn', async () => {
+    const telemetry = {
+      inputTokens: 4,
+      cachedInputTokens: 0,
+      outputTokens: 2,
+      totalTokens: 6,
+      modelId: 'fake-model',
+      latencyMs: 12,
+      finishReason: null,
+      status: 'error' as const,
+      costUsd: null,
+      runId,
+    };
+    vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
+      ...run,
+      status: 'failed',
+    });
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      {
+        ...event,
+        sequence: 1,
+        eventType: 'model.delta',
+        payload: { text: 'x' },
+      },
+    ]);
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: undefined,
+    });
+    const createAssistantReplyIfAbsent = vi
+      .spyOn(MessagesRepository.prototype, 'createAssistantReplyIfAbsent')
+      .mockResolvedValue(assistantMessage);
+    recordAppendedEvents();
+    const execution = makeExecutionService();
+
+    await execution.service.settleTerminalRun({
+      userId,
+      runId,
+      status: 'failed',
+      telemetry,
+      runPayload: { status: 'failed', message: 'worker died' },
+    });
+
+    expect(createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({ usage: telemetry }),
+    );
+  });
+
+  it('fails the attempt when its chat vanished before context preparation', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
+      undefined,
+    );
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toThrow(`Chat ${chatId} was deleted before context preparation.`);
+  });
+
+  it('reports an unreadable skill catalog to the operator, path-redacted', async () => {
+    const loggerWarn = vi.spyOn(Logger.prototype, 'warn');
+    mockNormalExecutionRepositories();
+    const skillCatalog: SkillCatalogPort = {
+      getSnapshot: () => ({
+        available: false,
+        directories: ['/opt/skills'],
+        entries: [],
+        diagnostics: ['cannot read /opt/skills', 'source unreadable'],
+      }),
+    };
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      { skillCatalog, skillDirectories: ['/opt/skills'] },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(loggerWarn).toHaveBeenCalledWith(
+      'skill_catalog_unavailable: cannot read <skill source> source unreadable',
+    );
+  });
+
+  it('renders no skill section when the attempt resolved no catalog baseline', async () => {
+    const render = vi.spyOn(SystemPromptsService.prototype, 'render');
+    mockNormalExecutionRepositories();
+    const execution = makeExecutionService();
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    // "No catalog this turn" is expressed by the key's absence, not by an
+    // explicit undefined: absent is what renders no catalog section.
+    const [renderInput] = render.mock.calls[0] ?? [];
+    expect(renderInput).not.toHaveProperty('skills');
+  });
+
+  it('reports a digest render failure without exposing the renderer error', async () => {
+    const loggerError = vi.spyOn(Logger.prototype, 'error');
+    mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      recencyDigestBaseline: digestBaseline,
+    });
+    vi.spyOn(SystemPromptsService.prototype, 'render').mockImplementation(
+      () => {
+        throw new Error('owner digest text');
+      },
+    );
+    const execution = makeExecutionService();
+
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).rejects.toThrow('Failed to render system prompt');
+    expect(loggerError).toHaveBeenCalledWith('recency_digest_render_failed');
+  });
+
+  it('lets a renderer error through untouched when no digest is rendered', async () => {
+    const loggerError = vi.spyOn(Logger.prototype, 'error');
+    mockNormalExecutionRepositories();
+    vi.spyOn(SystemPromptsService.prototype, 'render').mockImplementation(
+      () => {
+        throw new Error('renderer exploded');
+      },
+    );
+    const execution = makeExecutionService();
+
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).rejects.toThrow('renderer exploded');
+    expect(loggerError).not.toHaveBeenCalledWith(
+      'recency_digest_render_failed',
+    );
+  });
+
+  it('re-binds the attempt before publishing the prompt receipt', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(RunsRepository.prototype, 'updateForAttempt').mockImplementation(
+      (_runId, _userId, attemptId, set) =>
+        Promise.resolve(
+          set.activeAttemptId === attemptId || 'contextItems' in set
+            ? { ...run }
+            : undefined,
+        ),
+    );
+    const createReceipt = vi
+      .spyOn(SystemPromptReceiptsRepository.prototype, 'create')
+      .mockResolvedValue({
+        id: 'receipt-1',
+        ownerUserId: userId,
+        runId,
+        attemptId: testAttemptId,
+        source: 'project_default',
+        systemPrompt: receipt.systemPrompt,
+        promptHash: receipt.promptHash,
+        createdAt: now,
+      });
+    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    // The fence admits the receipt: the attempt still owns the Run.
+    expect(createReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses to publish a receipt for a reclaimed attempt', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    repositories.updateForAttempt
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue({ ...run });
+    const execution = makeExecutionService();
+
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).rejects.toThrow(`Run ${runId} was reclaimed before receipt publication.`);
+    expect(repositories.createReceipt).not.toHaveBeenCalled();
+    const finishCall = repositories.markFinished.mock.calls.at(-1);
+    expect(finishCall?.slice(0, 3)).toEqual([runId, userId, 'failed']);
+    const failure = finishCall?.[3]?.error;
+    expect(
+      isRecord(failure) && isString(failure['message'])
+        ? failure['message']
+        : '',
+    ).toContain('reclaimed');
   });
 });

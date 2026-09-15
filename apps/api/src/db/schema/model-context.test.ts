@@ -1,4 +1,4 @@
-import { getTableConfig } from 'drizzle-orm/pg-core';
+import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core';
 
 import { isRecord } from '@workspace/runtime-safety';
 
@@ -67,5 +67,31 @@ describe('system prompt receipt schema', () => {
       'user_id',
     ]);
     expect(receiptForeignKey?.onDelete).toBe('cascade');
+  });
+
+  it('scopes every policy clause to the current owner', () => {
+    const dialect = new PgDialect();
+    const policies = getTableConfig(systemPromptReceipts).policies.map(
+      (policy) =>
+        [
+          policy.name,
+          [policy.using, policy.withCheck].flatMap((clause) =>
+            clause === undefined ? [] : [dialect.sqlToQuery(clause).sql],
+          ),
+        ] as const,
+    );
+
+    // A policy that lost its predicate would read or write every owner's
+    // receipts, so the clause itself — not just the policy name — is asserted.
+    expect(policies).toEqual([
+      [
+        'system_prompt_receipts_owner_select',
+        ["owner_user_id = current_setting('app.current_user_id', true)"],
+      ],
+      [
+        'system_prompt_receipts_owner_insert',
+        ["owner_user_id = current_setting('app.current_user_id', true)"],
+      ],
+    ]);
   });
 });

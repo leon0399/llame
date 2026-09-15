@@ -281,6 +281,59 @@ describe('RunsRepository', () => {
     expect(sets[4]).toMatchObject({ status: 'completed' });
     expect(sets[4]).not.toHaveProperty('error');
   });
+
+  it('records the completed attempt and availability only for a completed run', async () => {
+    const availability = [
+      {
+        id: 'tool-a',
+        state: 'available' as const,
+        declarationHash: 'a'.repeat(64),
+      },
+    ];
+    const { db, calls } = makeDb({ update: [[run], [run]] });
+    const repository = new RunsRepository(db);
+
+    await expect(
+      repository.markFinished(run.id, run.userId, 'completed', {
+        attemptId: 'attempt-1',
+        turnToolAvailability: availability,
+      }),
+    ).resolves.toBe(run);
+    await expect(
+      repository.markFinished(run.id, run.userId, 'failed', {
+        attemptId: 'attempt-2',
+        turnToolAvailability: availability,
+      }),
+    ).resolves.toBe(run);
+
+    const sets = calls
+      .filter(({ method }) => method === 'set')
+      .map(({ args }) => args[0]);
+    expect(sets[0]).toMatchObject({
+      status: 'completed',
+      completedAttemptId: 'attempt-1',
+      turnToolAvailability: availability,
+    });
+    // A terminal non-success must not claim an attempt or a baseline record:
+    // the next attempt diffs against the last *successful* turn.
+    expect(sets[1]).toMatchObject({ status: 'failed' });
+    expect(sets[1]).not.toHaveProperty('completedAttemptId');
+    expect(sets[1]).not.toHaveProperty('turnToolAvailability');
+  });
+
+  it('fences the terminal update on the caller attempt when one is supplied', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new RunsRepository(db)
+      .markFinished(run.id, run.userId, 'completed', {
+        attemptId: 'attempt-1',
+      })
+      .catch(() => undefined);
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]?.sql).toContain('"runs"."active_attempt_id" = $');
+    expect(queries[0]?.params).toContain('attempt-1');
+  });
 });
 
 describe('RunEventsRepository', () => {

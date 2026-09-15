@@ -737,6 +737,27 @@ describe('MessagesRepository insert payloads', () => {
       usage: { status: 'completed' },
     });
   });
+
+  it('rewrites the parts of the addressed user row', async () => {
+    const db: Db = drizzle.mock({ schema });
+    const calls: Array<ChainCall> = [];
+    const updated = message(1);
+    vi.spyOn(db, 'update').mockImplementation(() =>
+      asQuery(recordingQuery([updated], calls)),
+    );
+
+    await expect(
+      new MessagesRepository(db).updateUserMessageParts({
+        id: updated.id,
+        chatId: chat.id,
+        parts: [{ type: 'text', text: 'edited' }],
+      }),
+    ).resolves.toBe(updated);
+
+    expect(calls.find((call) => call.method === 'set')?.argument).toEqual({
+      parts: [{ type: 'text', text: 'edited' }],
+    });
+  });
 });
 
 describe('MessagesRepository read shapes', () => {

@@ -117,6 +117,14 @@ describe('RunsController context receipt', () => {
     );
   });
 
+  it('reports a run the owner cannot see as missing by id', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(undefined);
+
+    await expect(
+      controller().getContextReceipt('owner', run.id),
+    ).rejects.toThrow(`Run ${run.id} not found`);
+  });
+
   it('returns an owned run', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
 
