@@ -257,6 +257,18 @@ The owner SHALL be able to retrieve an immutable context receipt for each new Ru
 - **THEN** the API responds as though the receipt does not exist
 - **AND** no model, prompt, tool, availability, endpoint, or path metadata is disclosed
 
+#### Scenario: Queued receipt is pending
+
+- **WHEN** an owner inspects a Run before any attempt has prepared its system prompt
+- **THEN** the response identifies it as not yet resolved with no fabricated prompt or tool data
+- **AND** a non-owner requesting the same Run receives not found
+
+#### Scenario: Retry renders different personalization
+
+- **WHEN** a retry renders a different system prompt from an earlier failed attempt
+- **THEN** both prepared attempts have separate immutable system-only receipts
+- **AND** only the winning attempt's eligible context may enter committed model history
+
 #### Scenario: Skill activation does not mutate the enqueue receipt
 
 - **WHEN** a skill activation publishes its package directory and resolved file path after the Run is claimed

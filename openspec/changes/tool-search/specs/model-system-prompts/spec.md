@@ -116,3 +116,15 @@ Operator skill source/package/file paths intentionally published under `agent-sk
 - **WHEN** a skill activation publishes its package directory and resolved file path after the Run is claimed
 - **THEN** the immutable enqueue receipt stays unchanged and the separate executed-context record contains the final activation text
 - **AND** the skill path exception does not expose Knowledge backing paths or private prompt configuration
+
+#### Scenario: Queued receipt is pending
+
+- **WHEN** an owner inspects a Run before any attempt has prepared its system prompt
+- **THEN** the response identifies it as not yet resolved with no fabricated prompt or tool data
+- **AND** a non-owner requesting the same Run receives not found
+
+#### Scenario: Retry renders different personalization
+
+- **WHEN** a retry renders a different system prompt from an earlier failed attempt
+- **THEN** both prepared attempts have separate immutable system-only receipts
+- **AND** only the winning attempt's eligible context may enter committed model history

@@ -133,22 +133,28 @@ Pinned entries SHALL be drawn only from pins whose item type is `chat`; pins tar
 - **THEN** the rendered pinned ratio counts 9, not 12
 - **AND** the same exclusions that removed those three from the list removed them from the count, so the ratio never names a pinned chat the digest could not have shown
 
-### Requirement: Per-chat digest state is two fields with different lifecycles
+### Requirement: Digest baseline and disclosure state publish with the successful attempt
 
 Each chat SHALL carry two distinct pieces of digest state, and they SHALL NOT be conflated:
 
-- The **rendered baseline** — the capped, ordered entries that appear in the system prompt. It is written once, on the chat's first run with the setting enabled, and is **immutable until re-resolution**, which is what makes the prompt byte-identical across the chat's turns.
-- The **told-set** — every chat this conversation has been told about, whether through the baseline or a later append, with the pin state last communicated for each. It **grows** with every append.
+- The **rendered baseline** — the capped, ordered entries available to both prompt surfaces. It is written once, with the chat's first successful turn whose attempt prepared it with the setting enabled, and is **immutable until re-resolution**, which keeps the digest contribution stable across the chat's turns.
+- The **told-set** — every chat this conversation has been told about in successful model context, whether through a rendered baseline in either prompt surface or a later append, with the pin state last communicated for each. It **grows** with every append.
 
-Both SHALL be reset together when the baseline is re-resolved at compaction, so a new epoch begins with the told-set matching exactly what the fresh baseline states.
+Both SHALL be reset together when the baseline is re-resolved at compaction. The new epoch's told-set SHALL include only entries actually disclosed by a successful target request; a post-success refresh awaiting its first request starts with no newly disclosed entries.
 
-The told-set SHALL record only chats the model actually received. Initialization SHALL therefore derive it from the **rendered** baseline bound to the run, not merely from the fact that baseline state was written: an operator template that omits the digest block leaves the baseline unrendered, and marking those chats told would suppress their later appends and disclose them never. A chat whose baseline entry was never rendered SHALL remain untold, so it enters through the ordinary append path if and when the template does render the digest.
+The told-set SHALL record only chats the model actually received. Initialization SHALL therefore derive it from the baseline actually **rendered** in the winning attempt's system prompt or admitted tool descriptions, not merely from the fact that baseline state was written: operator templates that omit the digest from both surfaces leave the baseline unrendered, and marking those chats told would suppress their later appends and disclose them never. A chat whose baseline entry was never rendered SHALL remain untold, so it enters through the ordinary append path when the ordinary append rules make it eligible.
+
+Both prompt renders SHALL return private disclosure metadata alongside text, keyed to the trusted digest candidates. Record entry ids only when their entry values are actually emitted along the executed template branch, not when a collection is tested/iterated or only aggregate counts are emitted. Use the existing validated renderer's emission path, not string matching, reparsing rendered text, or a second template engine. These ids SHALL not become new template variables or stored tool-description metadata. Use the union of prior told state and the current render's actual baseline disclosure when deriving this attempt's appends; commit that union plus successful digest appends only with the winning turn.
+
+A post-success compaction refresh SHALL reset the new epoch's told-set without pre-marking unrendered entries; the next successful attempt accounts for actual baseline disclosure. Unrendered entries remain eligible under the ordinary append rules.
 
 The told-set SHALL identify chats by their chat id. Storing an identifier for bookkeeping is not in tension with omitting identifiers from the rendered output: the two serve different purposes, and no stored id is ever rendered.
 
-The setting value that governs production SHALL be the one observed **inside the binding transaction**, not the one read while resolving the candidate. Resolution happens before that transaction opens, so an owner who disables sharing in between would otherwise have a baseline or append committed under a setting that was already false. A candidate resolved under a setting value that no longer holds at commit SHALL be discarded rather than bound.
+The worker SHALL recheck the owner setting and chat digest epoch under tenant scope immediately before preparing the final request and system-only receipt, after candidate resolution. If sharing was disabled during resolution, discard the new baseline/append candidate and proceed without newly produced digest content. This check SHALL occur before target-model I/O, not after disclosure. Existing baseline retention on withdrawal remains unchanged.
 
-Baseline and told-set initialization SHALL commit **atomically with the accepted Run's binding** — the same transaction that persists the user message, the Run, and its effective-context snapshot. A request that fails to bind, or that loses a concurrent race, SHALL leave no baseline behind. **At most one** baseline epoch SHALL exist per chat at any time; a chat that has never had an initializing run has none, which is a valid state rather than a violated invariant. Two concurrent initializing sends SHALL NOT produce divergent baselines or divergent first snapshots: the loser SHALL abort or retry against the winner's baseline rather than bind a snapshot rendered from its own pre-resolved candidate.
+Baseline/told-set initialization, append advancement, and pre-request transition-compaction refreshes SHALL be staged for the attempt and committed atomically with its successful turn and persisted context text. Post-success full-current compaction SHALL publish its checkpoint and refreshed baseline in its own fenced atomic transaction under `model-system-prompts`; it SHALL not pretend the new baseline was already disclosed by the source turn. Failed, cancelled, or superseded attempts SHALL leave the committed digest state unchanged. At most one baseline epoch SHALL exist per chat; existing single-flight and attempt/epoch fencing SHALL prevent competing initialization or a stale compaction candidate from overwriting current state.
+
+A setting change after request preparation applies to later attempts; it cannot undo content already sent. Successful publication SHALL record the actual prepared disclosure rather than pretending a later withdrawal prevented it. Receipts and committed content retain the existing non-erasure contract.
 
 Detecting events SHALL NOT require re-reading the chat's persisted message parts to reconstruct what was already announced; the told-set is the record. The told-set SHALL be advanced **in the same transaction as the append it accounts for**, so a run that fails to persist cannot leave the conversation marked as having been told something it never received.
 
@@ -161,61 +167,72 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 #### Scenario: Re-resolution resets both
 
 - **WHEN** the baseline is re-resolved at compaction
-- **THEN** the told-set is reset to exactly the chats the fresh baseline states
-- **AND** a chat announced before the re-bake that is still eligible is not re-announced immediately afterwards
+- **THEN** the new epoch replaces the old told-set and records only actual successful disclosure of the fresh baseline
+- **AND** the next preparation accounts for entries rendered in either prompt surface before deriving appends, so that same request does not re-announce them
 
 #### Scenario: Concurrent initializing sends produce one baseline
 
 - **WHEN** two initializing sends for the same chat race, both with the setting enabled
 - **THEN** exactly one baseline epoch exists afterwards
-- **AND** the losing request aborts or retries against the winner's baseline rather than binding a snapshot rendered from its own candidate
+- **AND** the losing request aborts or retries against the winner's baseline rather than publishing a competing baseline from its own candidate
 
 #### Scenario: Owner re-enables the setting for a chat that has no baseline
 
 - **WHEN** an owner turns `shareRecentChats` back on for an ongoing chat whose runs all happened while it was off
-- **THEN** the next accepted Run initializes the baseline and told-set atomically
+- **THEN** the next successful turn prepared with sharing enabled initializes the baseline and told-set atomically
 - **AND** no append is emitted before that baseline exists
 
-#### Scenario: The setting is disabled between resolution and commit
+#### Scenario: The setting is disabled between resolution and request preparation
 
-- **WHEN** an owner disables `shareRecentChats` after a request has resolved a baseline candidate but before that request's binding transaction commits
-- **THEN** the candidate is discarded and no baseline or append is bound
+- **WHEN** an owner disables `shareRecentChats` after the worker has resolved a baseline candidate but before its final pre-request owner-setting check
+- **THEN** the candidate is discarded and no new baseline or append is sent or committed
 - **AND** the run proceeds without digest content rather than failing
 
-#### Scenario: A failed bind leaves no baseline
+#### Scenario: A failed attempt leaves no baseline
 
-- **WHEN** a first send resolves a baseline but its binding transaction does not commit
+- **WHEN** an initializing attempt resolves a baseline but does not successfully complete
 - **THEN** no baseline or told-set state persists for that chat
-- **AND** the next send resolves the baseline afresh
+- **AND** a permitted retry or later Run resolves the baseline afresh
 
 #### Scenario: A failed run does not advance the told-set
 
-- **WHEN** an append is authored but its transaction does not commit
+- **WHEN** an append is prepared but its attempt fails before successful publication
 - **THEN** the told-set is unchanged
 - **AND** the same event is detected again on the next run
 
-### Requirement: The digest is resolved at most once per chat and re-resolved only at compaction
+#### Scenario: A tool description is the only baseline disclosure
 
-The digest SHALL be resolved on a chat's **first run for which `shareRecentChats` is enabled** and stored as an immutable per-chat baseline, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. Rendering the same baseline SHALL be deterministic, so **the digest contributes no per-turn variation to the prompt**: across runs whose other effective-context inputs are unchanged, the resulting system prompt is byte-identical and the snapshot is reused rather than re-minted.
+- **WHEN** the successful attempt's system template omits the digest but an admitted tool description renders it
+- **THEN** the told-set accounts for the baseline entries actually disclosed through that description
+- **AND** the tool description itself is not persisted in a receipt
 
-The stability claim is scoped to the digest and SHALL NOT be read as a guarantee over the whole prompt. Personalization resolves per run, the selected model supplies the template, the operator may reload a prompt file, and the tool-availability manifest is part of the snapshot's identity — so any of those changing legitimately mints a new snapshot, exactly as `model-system-prompts` requires. What this requirement forbids is the digest itself being the thing that changes.
+#### Scenario: Sharing is withdrawn after the prepared request
+
+- **WHEN** sharing is disabled after the attempt's pre-request check and that attempt succeeds
+- **THEN** successful publication records the digest actually sent under the checked setting
+- **AND** later attempts obey withdrawal without rewriting existing receipts or committed content
+
+### Requirement: Committed digest baselines remain stable until compaction
+
+The digest SHALL be resolved for an initializing execution attempt with `shareRecentChats` enabled and stored as an immutable per-chat baseline only on its successful turn, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. Rendering the same baseline SHALL be deterministic, so **the digest contributes no per-turn variation to the prompt**: across runs whose other effective-context inputs are unchanged, the resulting system prompt is byte-identical and the prompt text/hash is unchanged, although each attempt has its own receipt.
+
+The stability claim is scoped to the digest, not the whole prompt. Current personalization and admitted membership resolve per attempt, selected model templates may differ, and worker restart may load changed files. Each prepared attempt has its own system-only receipt even when its rendered text/hash matches another attempt's. Failed initializing attempts publish no baseline, so their retries may resolve a fresh candidate.
 
 The baseline SHALL be re-resolved **only when that chat is compacted**. A model switch SHALL NOT re-resolve it: the stored baseline SHALL be re-rendered through the new model's template, so the prompt text changes while the listed chats do not. The rationale SHALL be documented — compaction is a context boundary at which the conversation is rewritten anyway, whereas a model switch changes only which provider reads an unchanged conversation, and refreshing the chat list there would silently change what the assistant knows about the owner as a side effect of an unrelated action.
 
-Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rule afresh, and SHALL overwrite the stored baseline. Runs already bound before re-resolution SHALL retain the prompt they actually sent, because each run's receipt is its own immutable snapshot.
+Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rule afresh, and SHALL overwrite the stored baseline. Earlier attempts SHALL retain their immutable system-only receipts. Runtime-only tool descriptions cannot be recovered from those receipts.
 
 #### Scenario: Second turn in a chat reuses the baseline
 
-- **WHEN** a second run is enqueued in a chat whose owner has since created and titled another chat, and **every other effective-context input is unchanged** — the same rendered prompt inputs, the same advertised tool declarations, the same source kind, and the same availability manifest
-- **THEN** the rendered system prompt is byte-identical to the first run's
-- **AND** the run binds the same effective-context snapshot rather than a new one
-- **AND** the precondition is stated as "every other input unchanged" rather than as a list of named inputs, because an enumeration silently omits the ones it forgets — an operator prompt reload and a changed tool declaration both invalidate reuse without changing the model, the personalization, or the availability manifest
+- **WHEN** a second attempt executes in a chat with a committed baseline and every other rendered system-prompt input is unchanged
+- **THEN** its rendered system prompt is byte-identical to the earlier attempt's
+- **AND** its distinct attempt receipt carries the same system-prompt text/hash
 
-#### Scenario: A changed non-digest input still mints a new snapshot
+#### Scenario: A changed non-digest input has a fresh receipt
 
-- **WHEN** any non-digest effective-context input changes between two runs of a chat carrying a baseline — the owner edits their personalization, switches models, the operator reloads that model's prompt file, an advertised tool declaration changes, or the availability manifest changes
-- **THEN** the new run binds its own snapshot, because those inputs are part of the prompt and of the snapshot's identity
-- **AND** the digest block within it still renders the same stored baseline, since only compaction re-resolves it
+- **WHEN** owner inputs, the selected model template, or admitted membership changes between attempts
+- **THEN** the worker renders from those current inputs and creates that attempt's system-only receipt
+- **AND** the digest uses the same stored baseline until compaction
 
 #### Scenario: Compaction refreshes the listed chats
 
@@ -232,8 +249,8 @@ Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rul
 #### Scenario: An earlier run's receipt is not rewritten
 
 - **WHEN** a baseline is re-resolved at compaction
-- **THEN** runs bound before that point still disclose the digest they actually sent
-- **AND** no earlier snapshot is mutated to claim content it did not send
+- **THEN** earlier system-only receipts still disclose any digest their system prompt actually carried
+- **AND** no earlier receipt is mutated to claim content it did not send
 
 ### Requirement: Changes after the baseline are appended as events, never as a restated list
 
@@ -336,7 +353,7 @@ This framing SHALL be documented as **advisory rather than structurally enforced
 
 - **WHEN** a listed chat's title or excerpt contains text instructing the assistant to ignore prior instructions
 - **THEN** it renders as content inside the block
-- **AND** the advertised and executable tool set for that run is identical to the same run without the digest
+- **AND** admitted tool ids, schemas, classifications, and execution authority are unchanged by digest text; templated description wording may differ
 
 #### Scenario: An excerpt attempts to close the block
 
@@ -348,7 +365,7 @@ This framing SHALL be documented as **advisory rather than structurally enforced
 
 - **WHEN** the digest renders for any owner
 - **THEN** framing prose precedes the block and a restatement of instruction-following follows it
-- **AND** both are present in the owner's receipt
+- **AND** both appear in the system-only receipt when rendered in the system prompt; descriptions remain runtime-only
 
 ### Requirement: The digest is owner-scoped, and the setting gates production of digest state
 
@@ -360,9 +377,9 @@ For a chat that carries **no** baseline — every chat of an owner who has never
 
 Compaction of a chat whose owner has since disabled the setting SHALL leave the existing baseline and told-set untouched rather than re-resolving or clearing them, so the chat continues to send exactly what it was already sending.
 
-Re-enabling SHALL be defined rather than left to interpretation. For a chat that **already has** a baseline, re-enabling resumes appends and compaction re-bakes against the existing epoch. For a chat that has **no** baseline — one whose runs all happened while the setting was off — the next accepted Run after re-enabling SHALL initialize the baseline and told-set atomically, exactly as an ordinary initializing run does. Appends SHALL NOT be emitted for a chat with no baseline, since there is no told-set to diff against; the gate on appends is therefore the setting **and** the existence of a baseline, not the setting alone.
+Re-enabling SHALL be defined rather than left to interpretation. For a chat that **already has** a baseline, re-enabling resumes appends and compaction re-bakes against the existing epoch. For a chat that has **no** baseline — one whose runs all happened while the setting was off — the next successful turn whose attempt prepares a baseline with sharing enabled SHALL initialize the baseline and told-set atomically, exactly as an ordinary initializing run does. Appends SHALL NOT be emitted for a chat with no baseline, since there is no told-set to diff against; the gate on appends is therefore the setting **and** the existence of a baseline, not the setting alone.
 
-Appends SHALL be gated by the setting together with the existence of a baseline, and by nothing else. The system SHALL NOT inspect the active prompt template to determine whether the digest block rendered; an operator template that omits the block while the setting is enabled SHALL still receive appends, and this consequence SHALL be documented rather than mitigated, consistent with the existing rule that a prompt referencing no per-user path silently forgoes that content.
+Appends SHALL be gated by the setting together with the existence of a baseline, and by nothing else. The system SHALL NOT gate appends on whether either prompt surface rendered the digest; operator templates that omit the block from both surfaces while the setting is enabled SHALL still receive appends, and this consequence SHALL be documented rather than mitigated, consistent with the existing rule that a prompt referencing no per-user path silently forgoes that content.
 
 #### Scenario: Setting is disabled and the chat has no baseline
 
@@ -390,19 +407,27 @@ Appends SHALL be gated by the setting together with the existence of a baseline,
 
 #### Scenario: Operator template omits the block
 
-- **WHEN** an owner with the setting enabled uses a model whose prompt references no digest path
+- **WHEN** an owner with the setting enabled uses system and tool templates that reference no digest path
 - **THEN** the run executes normally with no digest in the prompt
 - **AND** appends are still emitted, and nothing reports the mismatch
 
-### Requirement: The owner can see exactly what the digest sent
+### Requirement: The owner can inspect system-prompt digest text and committed appends
 
-The rendered digest SHALL appear verbatim in the owner's effective-context receipt for every run that carried it, because it is part of that run's bound system prompt. Appends SHALL be inspectable as parts of the owner's own messages. No digest content SHALL be exposed to any identity other than the owner, and none SHALL be written to operator logs or error messages; a failure to resolve or render SHALL record the failure kind without recording titles or excerpts.
+The owner's system-only receipt SHALL contain the exact digest text included in that attempt's system prompt, including an attempt that later failed. Successful appends SHALL be inspectable as parts of the owner's own messages. Digest variables MAY also render in tool descriptions, but those descriptions SHALL remain runtime-only: receipts SHALL neither expose a stored description nor claim to reconstruct its historical wording. Document this inspection boundary.
+
+No digest content SHALL be exposed to any identity other than the owner, or written to operator logs or error messages. Resolution/render failures SHALL record safe failure kinds without titles or excerpts.
 
 #### Scenario: Owner inspects a run's receipt
 
-- **WHEN** an owner requests the effective-context receipt for a run whose prompt carried the digest
-- **THEN** the receipt contains the rendered digest exactly as sent
+- **WHEN** an owner requests a system-only receipt whose system prompt carried the digest
+- **THEN** it contains that rendered digest exactly as sent
 - **AND** it exposes no host path, provider internal, or credential
+
+#### Scenario: Digest appears only in a tool description
+
+- **WHEN** a tool description rendered the digest but the system prompt did not
+- **THEN** the receipt does not contain or reconstruct the tool description
+- **AND** the documented receipt scope makes that limitation explicit
 
 #### Scenario: Digest resolution fails
 

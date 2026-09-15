@@ -38,7 +38,7 @@ Each item SHALL occupy its **own text content block** within that message rather
   `checkpoint`, while the stored record is not a `data-context` part and replays
   without metadata reconstruction
 
-Worker-attempt contributions intended for conversation history SHALL be staged in memory before target-model I/O and published in the triggering message only with successful turn completion. Failed or superseded attempts SHALL not append such parts. Legitimate accepted-message facts remain persisted-literal; accepting a user message is not publishing a failed attempt's context. Committed parts retain the exact prepared text and existing envelope/order.
+Worker-attempt contributions intended for conversation history SHALL be staged in memory before target-model I/O and published in the triggering message only with successful turn completion. Failed or superseded attempts SHALL not publish those staged rail parts; the attempt's own persisted output remains part of the record as the user saw it and enters later model context like any other committed turn. Legitimate accepted-message facts remain persisted-literal; accepting a user message is not publishing a failed attempt's context. Committed parts retain the exact prepared text and existing envelope/order.
 
 ### Requirement: Co-occurring items have a total author-time order
 
@@ -85,7 +85,7 @@ that capability's placement rule rather than this attached-item list.
 - **THEN** new items follow the new authoring order
 - **AND** existing messages remain in their original stored order
 
-When worker preparation adds attempt-owned items beside already persisted message facts, the final request SHALL apply this same producer order while preserving each producer's internal order and all user-authored content. Successful publication SHALL store that final ordering atomically; a failed attempt SHALL store no attempt-owned message parts.
+When worker preparation adds attempt-owned items beside already persisted message facts, the final request SHALL apply this same producer order while preserving each producer's internal order and all user-authored content. Successful publication SHALL store that final ordering atomically; a failed attempt SHALL publish no staged rail items, while its own assistant output persists as the record of that turn.
 
 ### Requirement: Compaction is the rail's re-baseline boundary
 
@@ -148,7 +148,7 @@ An attempt-generated item intended for later conversation history SHALL be stage
 
 ### Requirement: Worker-attempt cutover preserves existing conversation state
 
-The new successful-attempt publication and failed-attempt exclusion rules SHALL
+The new successful-attempt publication rule and the retention of failed-attempt output SHALL
 apply to attempts executed after the coordinated runtime cutover. Cutover SHALL
 preserve existing messages and reminders, active summaries/checkpoints, and
 digest baseline/told-set state without rebuilding, clearing, or adding
@@ -167,7 +167,7 @@ remains required and SHALL NOT authorize rewriting conversation state.
 #### Scenario: A post-cutover attempt fails in an existing Chat
 
 - **WHEN** a newly prepared attempt fails after cutover
-- **THEN** its pending output, context, and digest updates do not publish to model history or advance the comparison baseline
+- **THEN** its persisted partial output remains part of the record, while its staged rail items and digest updates do not publish and the comparison baseline does not advance
 - **AND** pre-existing conversation state is not retrospectively filtered or reset
 
 ### Requirement: Successful Runs record the winning attempt's injected items

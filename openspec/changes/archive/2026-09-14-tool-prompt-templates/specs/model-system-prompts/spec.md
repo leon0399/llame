@@ -289,7 +289,7 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **THEN** the selected model receives its effective prompt normally
 - **AND** no model-switch reminder is created
 
-Failed-attempt reasoning, answers, tool observations, and attempt-generated context SHALL remain excluded from portable model history even when retained for operational/UI replay. Transition compaction SHALL use no persisted tool declarations and SHALL follow the source system-receipt contract below.
+Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, which never replays persisted reasoning; only attempt-generated rail context stays staged and publishes with a successful turn. Transition compaction SHALL use no persisted tool declarations and SHALL follow the source system-receipt contract below.
 
 ### Requirement: Model switches use canonical persisted context text and metadata
 
@@ -510,7 +510,7 @@ than silently discard or regenerate history.
 
 Transition compaction SHALL stage replacement history, digest/anchor refresh, context epoch, and supersession items in memory during target request preparation. It SHALL finalize the target prompts and receipt after that preparation and publish staged state only with target-turn success. Failure or supersession SHALL discard the staged state. Ordinary full-current compaction occurs after a successful turn and SHALL instead publish checkpoint and refreshed context state in its own atomic transaction, fenced by that successful source Run, covered message range, and expected epoch; stale work SHALL not alter a prepared live attempt's context.
 
-Later model-switch transition compaction SHALL use the successful source Run's system-prompt receipt and model/effort, SHALL omit tool declarations, and SHALL estimate the request actually sent. It SHALL NOT load, reconstruct, or persist a historical tool catalog. Tool execution remains disabled in both modes. Post-cutover failed-attempt output and context SHALL not enter ordinary or transition compaction input. Existing history and checkpoints SHALL retain the preservation boundary defined by `context-injection`.
+Later model-switch transition compaction SHALL use the successful source Run's system-prompt receipt and model/effort, SHALL omit tool declarations, and SHALL estimate the request actually sent. It SHALL NOT load, reconstruct, or persist a historical tool catalog. Tool execution remains disabled in both modes. Post-cutover failed-attempt output SHALL remain part of the record and enter ordinary and transition compaction input like any other committed turn; only its staged rail items withhold until a successful turn. Existing history and checkpoints SHALL retain the preservation boundary defined by `context-injection`.
 
 ### Requirement: Owners can inspect the exact effective context without seeing host paths
 
@@ -592,7 +592,7 @@ Operator skill source/package/file paths intentionally published under `agent-sk
 
 - **WHEN** a retry renders a different system prompt from an earlier failed attempt
 - **THEN** both prepared attempts have separate immutable system-only receipts
-- **AND** only the winning attempt's eligible context may enter committed model history
+- **AND** only the winning attempt's staged context items may enter committed model history
 
 #### Scenario: Skill activation does not mutate the enqueue receipt
 

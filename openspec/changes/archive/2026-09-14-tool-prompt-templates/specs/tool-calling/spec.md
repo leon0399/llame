@@ -174,7 +174,7 @@ Comparing an attempt-local MCP source declaration against its current source SHA
 
 ### Requirement: Tool observations survive into later turns as stored UI parts
 
-The prospective cutover boundary in `context-injection` SHALL govern failed-attempt exclusion; existing conversation state SHALL not be retrospectively filtered or rebuilt. For post-cutover attempts, these model-history rules apply only to observations from successfully committed attempts. Failed, cancelled, expired, or superseded attempts may retain operational/UI records, but their output and context SHALL not enter a retry, later model turn, recall projection, or compaction. An individual failed tool call within a successfully committed attempt SHALL still retain its normal paired failure observation.
+The prospective cutover boundary in `context-injection` SHALL govern failed-attempt retention; existing conversation state SHALL not be retrospectively filtered or rebuilt. A failed, cancelled, expired, or superseded attempt keeps its partial output and context as the user saw them, and that record participates in later model context and compaction like any other committed turn. An individual failed tool call within a successfully committed attempt SHALL still retain its normal paired failure observation.
 
 A round's tool activity SHALL remain available to the model in later turns
 within the bounded replay contract below. What a tool was asked and what it
@@ -262,7 +262,7 @@ that produced them.
 #### Scenario: A cancelled call is projected as cancelled
 
 - **WHEN** a prior call was settled by unsuccessful Run termination
-- **THEN** operational/UI replay reports its matching `cancelled` result, while that failed attempt is excluded from model history
+- **THEN** operational/UI replay reports its matching `cancelled` result, and that failed attempt's persisted output remains part of model history like any other committed turn
 - **AND** it remains distinguishable from a tool-produced error
 
 #### Scenario: A tool call made during reasoning is projected
@@ -367,7 +367,7 @@ that produced them.
 
 ### Requirement: No mid-run tool-state checkpointing (read-only slice; write-tool landmine)
 
-The existing read-only loop may retry a claimable Run from its first step with freshly resolved worker context. It SHALL not reuse the failed attempt's model history, prompt, or catalog, and SHALL compare availability against the same previous committed turn. A Run
+The existing read-only loop may retry a claimable Run from its first step with freshly resolved worker context. A retry SHALL re-resolve its own prompt and its own attempt-local catalog rather than reuse the failed attempt's preparation, and SHALL compare availability against the same previous committed turn. The failed attempt's persisted output remains part of the committed record that later turns load. A Run
 that has executed an alpha native `edit` or `write` SHALL NOT automatically
 replay that mutation after a worker failure, timeout, or unknown settlement.
 The host SHALL settle the mutation as `outcome_unknown` or fail the containing
@@ -731,7 +731,7 @@ At authoring time, the reminder SHALL instruct the model not to simulate removed
 
 - **WHEN** an attempt prepares an availability transition but fails
 - **THEN** a retry or later turn compares against the preceding successful committed turn
-- **AND** the failed attempt's reminder does not enter model history
+- **AND** the failed attempt's staged availability reminder does not publish into model history, while the attempt's own persisted output remains part of the record
 
 #### Scenario: Unchanged outage emits no reminder
 
@@ -794,7 +794,7 @@ At authoring time, the reminder SHALL instruct the model not to simulate removed
 
 - **WHEN** the previous committed message had grep available, an attempt sees it unavailable and fails, and its retry sees it available again
 - **THEN** the retry emits no restoration notice because it compares with the previous committed message
-- **AND** the failed attempt changes neither the comparison record nor model history
+- **AND** the failed attempt changes neither the comparison record nor the published reminder, while its own persisted output remains part of the record
 
 #### Scenario: Baseline publication is atomic and fenced
 
