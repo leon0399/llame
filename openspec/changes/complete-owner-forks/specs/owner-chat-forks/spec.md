@@ -50,13 +50,19 @@ The fork SHALL copy every compaction whose coverage lies within the copied prefi
 
 ### Requirement: The fork's Chat row carries the source's frozen context
 
-The fork SHALL copy the source Chat's `createdAt` and every frozen prompt baseline stored on the Chat row: the recency-digest baseline, told-set, and re-bake marker, and the skill-catalog baseline, told names, and re-bake marker. Each marker SHALL be remapped to the copied compaction it names and SHALL be null when that compaction was not copied. The fork SHALL NOT resolve a new baseline, refresh the anchor, or emit a fork notice; under identical continuation inputs and runtime versions, its inherited model-facing prefix SHALL equal the source's at the copied boundary. The fork's first turn SHALL begin an ordinary disclosure epoch for tool availability and model selection, as a new Chat does.
+The fork SHALL copy the source Chat's `createdAt` and every frozen prompt baseline stored on the Chat row: the recency-digest baseline, told-set, and re-bake marker, and the skill-catalog baseline, told names, and re-bake marker. Each marker SHALL be remapped to the copied compaction it names; when that compaction was not copied, the marker SHALL name the copied active compaction, or be null when none was copied, so a copied baseline stays bound to the copied checkpoint. At an anchor before the source's latest turn, the copied told-sets are the source's current ones; entries disclosed after the anchor are not announced again in the fork. The fork SHALL NOT resolve a new baseline, refresh the anchor, or emit a fork notice; under identical continuation inputs and runtime versions, its inherited model-facing prefix SHALL equal the source's at the copied boundary. The fork's first turn SHALL begin an ordinary disclosure epoch for tool availability and model selection, as a new Chat does.
 
 #### Scenario: The first local turn renders the source's prefix
 
 - **WHEN** the fork and its source receive identical new input under identical continuation conditions
 - **THEN** their system prompts and inherited history are equal through the ordinary context builder and serializer
 - **AND** no difference arises from the fork's storage identities or the time it was created
+
+#### Scenario: The anchor precedes the checkpoint that re-baked a baseline
+
+- **WHEN** the source's skill baseline was re-resolved at checkpoint `C2` and the owner selects an anchor that copies only `C1`
+- **THEN** the fork's skill marker names the copied `C1`
+- **AND** the fork's first turn reuses the copied baseline instead of resolving the live catalog
 
 #### Scenario: Source has no baseline
 
