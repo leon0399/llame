@@ -468,6 +468,16 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
     });
   });
 
+  it('threads a null promptFiles entry through as a packaged-default fallthrough signal', () => {
+    writeConfig(
+      '{ "tools": { "promptFiles": { "bash": null, "read": "prompts/read.md" } } }',
+    );
+    expect(loadInstanceConfig().tools.promptFiles).toEqual({
+      bash: null,
+      read: 'prompts/read.md',
+    });
+  });
+
   it('leaves tools.promptFiles empty when the file omits it', () => {
     writeConfig('{ "tools": { "allowed": [] } }');
     expect(loadInstanceConfig().tools.promptFiles).toEqual({});
@@ -1399,6 +1409,22 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       expect(model.toolPromptFiles).toEqual({ bash: 'prompts/bash.md' });
     });
 
+    it('omits toolPromptFiles entirely when the model declares no overrides', () => {
+      writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "model-without-overrides",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000
+        }]
+      }`);
+
+      expect(loadInstanceConfig().models[0]).not.toHaveProperty(
+        'toolPromptFiles',
+      );
+    });
+
     it('uses the packaged project default when the override is omitted', () => {
       writeConfig(`{
         ${SINGLE_PROVIDER_JSON},
@@ -1420,6 +1446,31 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         }),
       ).toMatch(/\S/);
       expect(model).not.toHaveProperty('systemPromptFile');
+    });
+
+    it('threads the configured model name into the boot-time empty-render probe', () => {
+      writePrompt(
+        '{{#if model.name}}Hello, {{model.name}}.{{/if}}',
+        'named.md',
+      );
+      writeConfig(`{
+        ${SINGLE_PROVIDER_JSON},
+        "models": [{
+          "id": "model-id",
+          "name": "Assistant",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000,
+          "systemPromptFile": "named.md"
+        }]
+      }`);
+
+      // The template has no unconditional content: if the configured name
+      // were not threaded into the boot probe, the probe would render this
+      // model as nameless and reject the template as empty at boot — even
+      // though the model does have a name and would render fine in use.
+      expect(() => loadInstanceConfig()).not.toThrow();
+      expect(renderFirstModel()).toBe('Hello, Assistant.');
     });
 
     it.each([
