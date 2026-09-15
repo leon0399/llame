@@ -73,7 +73,7 @@ function ChatItemTitleBlock({
 }) {
   return (
     <span className="flex min-w-0 flex-1 flex-col">
-      <span className="flex min-w-0 items-center gap-[.35rem]">
+      <span className="flex min-w-0 items-center gap-1.5">
         {/* A title cut short fades and scrolls to its end on hover; the
             excerpt keeps an ellipsis — the rest of it belongs to the chat,
             not to this row (DESIGN.md §3, "Overflow"). */}
@@ -117,7 +117,8 @@ function ChatItemLink({
 }) {
   return (
     <SidebarMenuButton
-      className="h-auto min-w-0 flex-1 py-1.5 hover:bg-transparent focus-visible:ring-0 active:bg-transparent data-active:bg-transparent"
+      variant="chromeless"
+      className="h-auto min-w-0 flex-1"
       isActive={isActive}
       render={<Link href={`/chat/${chat.id}`} />}
     >
@@ -144,15 +145,25 @@ function ChatItemRow({
     // A flex line, not the primitive's overlay: the actions below are real
     // layout, so the text shrinks by exactly their width and the row reserves
     // nothing while they are hidden (see HoverReveal). The hover/active fill
-    // moves with that — it belongs to the whole row, and the button no longer
-    // spans it — so the row paints it and the button hands it back.
-    <SidebarMenuItem
-      className={cn(
-        "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
-        isActive && "bg-sidebar-accent",
-      )}
-    >
-      {children}
+    // belongs to the whole row — its button is `chromeless`, so nothing inside
+    // doubles it.
+    //
+    // That fill, the radius, the per-row trailing inset and the one row-wide
+    // focus ring sit on this plain div, NOT on the `SidebarMenuItem`: the
+    // `<li>` is list semantics plus the `group/menu-item` scope, while the
+    // painted surface is this app's own treatment (see HoverReveal for why the
+    // actions are in flow at all). The `<li>` stays an ancestor of the row, so
+    // `group-*` variants and SidebarRowTitle's `[data-sidebar=menu-item]`
+    // lookup resolve exactly as before.
+    <SidebarMenuItem>
+      <div
+        className={cn(
+          "flex items-center rounded-md pr-1 hover:bg-sidebar-accent has-[a:focus-visible]:inset-ring-2 has-[a:focus-visible]:inset-ring-sidebar-ring",
+          isActive && "bg-sidebar-accent",
+        )}
+      >
+        {children}
+      </div>
     </SidebarMenuItem>
   );
 }

@@ -7,7 +7,6 @@ import { cn } from "@workspace/ui/lib/utils";
 import {
   CORNER_RADIUS,
   MessageType,
-  type MessageTypeValue,
   NODE_HEIGHT,
   NODE_WIDTH,
   OPACITY,
@@ -63,7 +62,7 @@ function MergeNodeMarker({ x, y, isSelected, baseProps }: NodeMarkerProps) {
     <g>
       <path
         d={`M ${x} ${y + NODE_HEIGHT / 2} L ${x - NODE_WIDTH / 2} ${y - NODE_HEIGHT / 2} L ${x + NODE_WIDTH / 2} ${y - NODE_HEIGHT / 2} Z`}
-        fill="hsl(var(--warning))"
+        fill="var(--color-secondary)"
         stroke={nodeStroke(isSelected)}
         strokeWidth="1.5"
         {...baseProps}
@@ -74,7 +73,7 @@ function MergeNodeMarker({ x, y, isSelected, baseProps }: NodeMarkerProps) {
         width={NODE_WIDTH}
         height={NODE_HEIGHT}
       >
-        <div className="flex items-center justify-center w-4 h-4 text-warning-foreground">
+        <div className="flex items-center justify-center w-4 h-4 text-secondary-foreground">
           <MergeIcon />
         </div>
       </foreignObject>
@@ -95,7 +94,7 @@ function AgentWorkingNodeMarker({
         y={y - NODE_HEIGHT / 2}
         width={NODE_WIDTH}
         height={NODE_HEIGHT}
-        fill="hsl(var(--success))"
+        fill="var(--color-accent)"
         stroke={nodeStroke(isSelected)}
         strokeWidth="1.5"
         rx="2"
@@ -110,7 +109,7 @@ function AgentWorkingNodeMarker({
         width={NODE_WIDTH}
         height={NODE_HEIGHT}
       >
-        <div className="flex items-center justify-center w-4 h-4 text-success-foreground">
+        <div className="flex items-center justify-center w-4 h-4 text-accent-foreground">
           <AgentIcon />
         </div>
       </foreignObject>
@@ -123,7 +122,7 @@ function ToolNodeMarker({ x, y, isSelected, baseProps }: NodeMarkerProps) {
     <g>
       <path
         d={`M ${x} ${y - NODE_HEIGHT / 2} L ${x + NODE_WIDTH / 2} ${y} L ${x} ${y + NODE_HEIGHT / 2} L ${x - NODE_WIDTH / 2} ${y} Z`}
-        fill="hsl(var(--primary))"
+        fill="var(--color-primary)"
         stroke={nodeStroke(isSelected)}
         strokeWidth="1.5"
         {...baseProps}
@@ -203,18 +202,27 @@ export interface GraphNodeProps {
 }
 
 /**
- * The marker a node type renders. Types absent here fall through to
- * DefaultNodeMarker, which is the only one that also needs the node itself.
+ * The marker a node type renders — a static switch so every component it
+ * reaches is written where React can see it, never looked up during render.
+ * Types absent here fall through to DefaultNodeMarker, which is the only one
+ * that also needs the node itself.
  */
-const NODE_MARKERS = new Map<
-  MessageTypeValue,
-  (props: NodeMarkerProps) => React.ReactNode
->([
-  [MessageType.MERGE, MergeNodeMarker],
-  [MessageType.AGENT_WORKING, AgentWorkingNodeMarker],
-  [MessageType.TOOL_CALL, ToolNodeMarker],
-  [MessageType.TOOL_RESULT, ToolNodeMarker],
-]);
+function renderNodeMarker(
+  node: ConversationNode,
+  markerProps: NodeMarkerProps,
+): React.ReactNode {
+  switch (node.type) {
+    case MessageType.MERGE:
+      return <MergeNodeMarker {...markerProps} />;
+    case MessageType.AGENT_WORKING:
+      return <AgentWorkingNodeMarker {...markerProps} />;
+    case MessageType.TOOL_CALL:
+    case MessageType.TOOL_RESULT:
+      return <ToolNodeMarker {...markerProps} />;
+    default:
+      return <DefaultNodeMarker {...markerProps} node={node} />;
+  }
+}
 
 // Enhanced node component
 export const GraphNode = ({
@@ -238,11 +246,7 @@ export const GraphNode = ({
     },
   };
 
-  const Marker = NODE_MARKERS.get(node.type);
-  if (Marker) {
-    return <Marker {...markerProps} />;
-  }
-  return <DefaultNodeMarker {...markerProps} node={node} />;
+  return renderNodeMarker(node, markerProps);
 };
 
 export interface BranchLineProps {

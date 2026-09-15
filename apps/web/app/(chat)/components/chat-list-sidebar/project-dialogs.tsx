@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, type ReactNode } from "react";
 
-import { Button } from "@workspace/ui/components/button";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog";
 import { Input } from "@workspace/ui/components/input";
 
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { DialogSubmitFooter } from "@/components/dialog-submit-footer";
 import {
   useCreateProject,
   useDeleteProject,
@@ -57,73 +56,29 @@ function NameEntryInput({
   );
 }
 
-function NameEntryDialogFooter({
-  onCancel,
-  onSubmit,
-  submitLabel,
-  submitDisabled,
-}: {
-  onCancel: () => void;
-  onSubmit: () => void;
-  submitLabel: string;
-  submitDisabled: boolean;
-}) {
-  return (
-    <DialogFooter>
-      <Button variant="outline" onClick={onCancel}>
-        Cancel
-      </Button>
-      <Button onClick={onSubmit} disabled={submitDisabled}>
-        {submitLabel}
-      </Button>
-    </DialogFooter>
-  );
-}
-
-/** The Dialog+Input+Cancel/Submit shape `NewProjectDialog` and
- *  `RenameProjectDialog` both need — split out so each owns only its own
- *  submit logic, not a second copy of this markup. */
-type NameEntryDialogProps = {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  title: string;
-  name: string;
-  onNameChange: (name: string) => void;
-  onSubmit: () => void;
-  submitLabel: string;
-  submitDisabled: boolean;
-  placeholder?: string;
-};
-
+/** The Dialog frame `NewProjectDialog` and `RenameProjectDialog` both need —
+ *  split out so each owns only its own field and submit logic. The body is a
+ *  child rather than a prop set, so each form's field state lives BELOW
+ *  `DialogContent`: the content unmounts while the dialog is closed, which
+ *  re-seeds the field on every open without a mount-time reset. */
 function NameEntryDialog({
   open,
   onOpenChange,
   title,
-  name,
-  onNameChange,
-  onSubmit,
-  submitLabel,
-  submitDisabled,
-  placeholder,
-}: NameEntryDialogProps) {
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  children: ReactNode;
+}) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <NameEntryInput
-          name={name}
-          onNameChange={onNameChange}
-          onSubmit={onSubmit}
-          placeholder={placeholder}
-        />
-        <NameEntryDialogFooter
-          onCancel={() => onOpenChange(false)}
-          onSubmit={onSubmit}
-          submitLabel={submitLabel}
-          submitDisabled={submitDisabled}
-        />
+        {children}
       </DialogContent>
     </Dialog>
   );
@@ -139,13 +94,31 @@ export function NewProjectDialog({
   /** Follow-up on the created project (e.g. file the requesting chat into it). */
   onCreated?: (project: ProjectResponse) => void;
 }) {
+  return (
+    <NameEntryDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New project"
+    >
+      <NewProjectForm
+        onClose={() => onOpenChange(false)}
+        onCreated={onCreated}
+      />
+    </NameEntryDialog>
+  );
+}
+
+/** The field and mutation, mounted together with the dialog's content — so a
+ *  reopened dialog is a fresh mount whose field starts blank. */
+function NewProjectForm({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated?: (project: ProjectResponse) => void;
+}) {
   const create = useCreateProject();
   const [name, setName] = useState("");
-
-  // Start from a blank field every time the dialog opens.
-  useEffect(() => {
-    if (open) setName("");
-  }, [open]);
 
   const submit = () => {
     const next = name.trim();
@@ -154,24 +127,27 @@ export function NewProjectDialog({
     if (!next || create.isPending) return;
     create.mutate(next, {
       onSuccess: (project) => {
-        onOpenChange(false);
+        onClose();
         onCreated?.(project);
       },
     });
   };
 
   return (
-    <NameEntryDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title="New project"
-      name={name}
-      onNameChange={setName}
-      onSubmit={submit}
-      submitLabel="Create"
-      submitDisabled={!name.trim() || create.isPending}
-      placeholder="Project name"
-    />
+    <>
+      <NameEntryInput
+        name={name}
+        onNameChange={setName}
+        onSubmit={submit}
+        placeholder="Project name"
+      />
+      <DialogSubmitFooter
+        onCancel={onClose}
+        onSubmit={submit}
+        submitLabel="Create"
+        submitDisabled={!name.trim() || create.isPending}
+      />
+    </>
   );
 }
 
@@ -221,38 +197,51 @@ export function RenameProjectDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const rename = useUpdateProject();
-  const [name, setName] = useState(project.name);
-
-  // Reset the field to the current name each time the dialog opens.
-  useEffect(() => {
-    if (open) setName(project.name);
-  }, [open, project.name]);
-
-  const submit = () => {
-    if (rename.isPending) return; // Enter bypasses the disabled Save button
-    const next = name.trim();
-    if (!next || next === project.name) {
-      onOpenChange(false);
-      return;
-    }
-    rename.mutate(
-      { id: project.id, name: next },
-      { onSuccess: () => onOpenChange(false) },
-    );
-  };
-
   return (
     <NameEntryDialog
       open={open}
       onOpenChange={onOpenChange}
       title="Rename project"
-      name={name}
-      onNameChange={setName}
-      onSubmit={submit}
-      submitLabel="Save"
-      submitDisabled={!name.trim() || rename.isPending}
-    />
+    >
+      <RenameProjectForm
+        project={project}
+        onClose={() => onOpenChange(false)}
+      />
+    </NameEntryDialog>
+  );
+}
+
+/** Seeded from the project's name at mount — i.e. each time the dialog opens. */
+function RenameProjectForm({
+  project,
+  onClose,
+}: {
+  project: ProjectRef;
+  onClose: () => void;
+}) {
+  const rename = useUpdateProject();
+  const [name, setName] = useState(project.name);
+
+  const submit = () => {
+    if (rename.isPending) return; // Enter bypasses the disabled Save button
+    const next = name.trim();
+    if (!next || next === project.name) {
+      onClose();
+      return;
+    }
+    rename.mutate({ id: project.id, name: next }, { onSuccess: onClose });
+  };
+
+  return (
+    <>
+      <NameEntryInput name={name} onNameChange={setName} onSubmit={submit} />
+      <DialogSubmitFooter
+        onCancel={onClose}
+        onSubmit={submit}
+        submitLabel="Save"
+        submitDisabled={!name.trim() || rename.isPending}
+      />
+    </>
   );
 }
 

@@ -16,22 +16,9 @@ import { useCommandPalette } from "../command-palette";
 const SHORTCUT_KEY_NEW_CHAT = "o";
 const SHORTCUT_KEY_SEARCH = "k";
 
-function ShortcutKeyLabel({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
+function ShortcutKeyLabel({ children }: { children: React.ReactNode }) {
   return (
-    <Kbd
-      className={cn(
-        // bg-muted matches the button's hover:bg-sidebar-accent in this theme, so
-        // give the cap a hairline border + surface fill to stay legible on hover.
-        "ml-auto border bg-background transition-opacity group-data-[collapsible=icon]:hidden",
-        className,
-      )}
-    >
+    <Kbd className="ml-auto group-data-[collapsible=icon]:hidden">
       {children}
     </Kbd>
   );
@@ -72,9 +59,7 @@ export function AppSidebarActions() {
         >
           <SquarePenIcon />
           <span>New&nbsp;Chat</span>
-          <ShortcutKeyLabel className="opacity-0 group-hover/button:opacity-100">
-            {newChatShortcut}
-          </ShortcutKeyLabel>
+          <ShortcutKeyLabel>{newChatShortcut}</ShortcutKeyLabel>
         </SidebarMenuButton>
       </SidebarMenuItem>
 
@@ -86,9 +71,7 @@ export function AppSidebarActions() {
         >
           <SearchIcon />
           <span>Search</span>
-          <ShortcutKeyLabel className="opacity-0 group-hover/button:opacity-100">
-            {searchShortcut}
-          </ShortcutKeyLabel>
+          <ShortcutKeyLabel>{searchShortcut}</ShortcutKeyLabel>
         </SidebarMenuButton>
       </SidebarMenuItem>
     </SidebarMenu>

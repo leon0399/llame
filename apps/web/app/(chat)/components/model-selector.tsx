@@ -34,7 +34,7 @@ const EMPTY_MODELS: Array<AvailableModel> = [];
 
 // Loading-placeholder rows: the title width cycles so the list doesn't read as
 // a uniform grid, and every other row gets a second (description) line.
-const SKELETON_LINE_WIDTHS = ["w-28", "w-20", "w-32", "w-24"] as const;
+const SKELETON_LINE_WIDTH_CYCLE = 4;
 const MODEL_SKELETON_ROW_COUNT = 6;
 
 type ModelSelectorTriggerProps = {
@@ -80,25 +80,17 @@ function ModelSelectorTrigger({
           // hard failure (no reachable catalog) locks the trigger.
           disabled={isError}
           // ButtonGroup owns corner rounding, border collapsing, and the
-          // focus-ring lift — this cell states none of it.
-          className={cn(
-            // No px here: size="default" already sets px-2.5, and it also
-            // carries conditional icon padding that a duplicate px would
-            // override. Only genuine overrides of the variant belong here.
-            "gap-1 text-[0.8125rem] font-medium text-foreground",
-            className,
-          )}
+          // focus-ring lift — this cell states none of it, and its gap,
+          // size, weight, and ink are the Button's own defaults.
+          className={className}
         />
       }
     >
       {isPending ? (
         // A skeleton exactly one line-height tall (resolved against this
-        // button's font size) — swapping it for the real name causes no
-        // vertical layout shift.
-        <Skeleton
-          className="h-[1lh] w-24 rounded-sm"
-          aria-label="Loading models"
-        />
+        // button's text-sm/1.25rem leading) — swapping it for the real name
+        // causes no vertical layout shift.
+        <Skeleton className="h-5 w-24" aria-label="Loading models" />
       ) : (
         <>
           {selectedLabel}
@@ -110,16 +102,17 @@ function ModelSelectorTrigger({
 }
 
 function ModelSkeletonRow({ index }: { index: number }) {
+  const cycle = index % SKELETON_LINE_WIDTH_CYCLE;
+  // A ternary over literal widths, not an index into an array of them: the
+  // class has to be statically readable (shadcn/require-static-classes).
+  const lineWidth =
+    cycle === 0 ? "w-28" : cycle === 1 ? "w-20" : cycle === 2 ? "w-32" : "w-24";
+
   return (
     <div className="flex items-center gap-2 px-2 py-2">
-      <Skeleton className="size-7 shrink-0 rounded-lg" />
+      <Skeleton className="size-7 shrink-0" />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <Skeleton
-          className={cn(
-            "h-3",
-            SKELETON_LINE_WIDTHS[index % SKELETON_LINE_WIDTHS.length],
-          )}
-        />
+        <Skeleton className={cn("h-3", lineWidth)} />
         {index % 2 === 0 && <Skeleton className="h-2.5 w-40" />}
       </div>
     </div>
@@ -161,7 +154,7 @@ function ModelOption({
           and nested-interactive a11y violation. */}
       <div className="gap-2 group/item flex flex-row items-center w-full">
         <Avatar>
-          <AvatarFallback className="bg-muted text-muted-foreground">
+          <AvatarFallback>
             <BotIcon className="size-4" />
           </AvatarFallback>
         </Avatar>
@@ -205,24 +198,34 @@ function useDefaultModelSeed(
 }
 
 /** The model shown in the preview card — the selection by default, or
- *  whatever option is under the pointer while browsing the list. */
+ *  whatever option is under the pointer while browsing the list. The hover
+ *  override is stored together with the selection it was made against, so
+ *  choosing a model reverts the preview to the new selection by derivation:
+ *  a `useEffect` that mirrored `value` back into this state only re-rendered
+ *  one commit late (and could flash the old model). */
 function usePreviewModel(
   models: Array<AvailableModel>,
   value: string | undefined,
 ) {
-  const [previewModelId, setPreviewModelId] = React.useState<
-    string | undefined
-  >(value);
-  React.useEffect(() => {
-    setPreviewModelId(value);
-  }, [value]);
+  const [hover, setHover] = React.useState<{
+    modelId: string;
+    selection: string | undefined;
+  } | null>(null);
+
+  const setHoveredModelId = React.useCallback(
+    (modelId: string) => setHover({ modelId, selection: value }),
+    [value],
+  );
+
+  const previewModelId =
+    hover !== null && hover.selection === value ? hover.modelId : value;
 
   const previewModel = React.useMemo(
     () => models.find((model) => model.id === previewModelId),
     [models, previewModelId],
   );
 
-  return { previewModel, setPreviewModelId };
+  return { previewModel, setHoveredModelId };
 }
 
 // Rendered only once loaded (isPending shows a skeleton instead).
@@ -299,12 +302,17 @@ function ModelPickerPanel({
       // accessible name (axe aria-dialog-name) — the trigger's label does
       // not carry over to it.
       aria-label="Model picker"
-      className={cn("p-0", previewModel ? "w-[36rem]" : "w-72")}
+      // w-144 is 36rem: the two 18rem panes side by side.
+      className={previewModel ? "w-144" : "w-72"}
       align="end"
       side="top"
     >
-      <div className="relative flex flex-row divide-x divide-border">
-        <Command className="rounded-e-none w-72">
+      {/* The popover's own p-2.5 frame is cancelled by the negative margin so
+          the two panes stay flush with the popover edge, exactly as they were
+          when the padding was zeroed — the picker is a split view, not an
+          inset card, and the divider has to run edge to edge. */}
+      <div className="relative -m-2.5 flex flex-row divide-x divide-border">
+        <Command className="w-72">
           <CommandInput placeholder="Search model..." className="h-9" />
           <CommandList>
             <ModelCommandResults
@@ -340,7 +348,7 @@ export function ModelSelector({ className }: { className?: string }) {
   const models = data?.models ?? EMPTY_MODELS;
 
   useDefaultModelSeed(data, models, value, setValue);
-  const { previewModel, setPreviewModelId } = usePreviewModel(models, value);
+  const { previewModel, setHoveredModelId } = usePreviewModel(models, value);
 
   // Fall back to the catalog default during render so the label/checkmark
   // never flash "Select a model" in the frame before the seeding effect above
@@ -370,7 +378,7 @@ export function ModelSelector({ className }: { className?: string }) {
         effectiveValue={effectiveValue}
         previewModel={previewModel}
         onSelect={handleSelect}
-        onHover={setPreviewModelId}
+        onHover={setHoveredModelId}
       />
     </Popover>
   );

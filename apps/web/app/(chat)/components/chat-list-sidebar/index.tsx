@@ -34,10 +34,7 @@ export function ChatListSidebar() {
   }
 
   return (
-    <Sidebar
-      collapsible="none"
-      className="hidden w-64 shrink-0 border-r bg-background md:flex"
-    >
+    <Sidebar collapsible="none" className="hidden w-64 shrink-0 md:flex">
       <div className={cn(topBarClasses, "gap-2 pr-1.5 pl-3")}>
         <span className="flex-1 text-sm font-semibold">Chats</span>
         <Tooltip>

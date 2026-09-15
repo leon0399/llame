@@ -170,9 +170,11 @@ function PersonalizationTextFieldRow({
         invalid={invalid}
         onChange={onChange}
       />
-      <FieldDescription className="flex min-w-0 justify-between gap-4">
-        <span className="min-w-0">{field.description}</span>
-        <CharacterCount value={value} cap={cap} />
+      <FieldDescription>
+        <span className="flex min-w-0 justify-between gap-4">
+          <span className="min-w-0">{field.description}</span>
+          <CharacterCount value={value} cap={cap} />
+        </span>
       </FieldDescription>
     </Field>
   );
@@ -367,10 +369,12 @@ function PersonalizationSkeleton() {
   return (
     <Card className="lg:max-w-2xl">
       <PersonalizationCardHeader description="What the assistant knows about you, and how you want it to answer." />
-      <CardContent className="space-y-4">
-        <Skeleton className="h-9 w-full" />
-        <Skeleton className="h-20 w-full" />
-        <Skeleton className="h-20 w-full" />
+      <CardContent>
+        <div className="space-y-4">
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-full" />
+        </div>
       </CardContent>
     </Card>
   );
@@ -484,25 +488,28 @@ function PersonalizationForm({
     <Card className="lg:max-w-2xl">
       <PersonalizationCardHeader description="What the assistant knows about you, and how you want it to answer. Everything here is sent with every message you write." />
 
-      {/* pb-2 on top of Card's own padding: the closing footnote is 12px type
-          and sits right against the card edge without it. */}
-      <CardContent className="space-y-6 pb-2">
-        <PersonalizationFieldsSection
-          enabled={enabled}
-          draft={draft}
-          {...state}
-        />
+      {/* The wrapper carries the section rhythm and the extra bottom padding
+          the closing footnote needs (12px type would otherwise sit right
+          against the card edge): CardContent owns its own spacing. */}
+      <CardContent>
+        <div className="space-y-6 pb-2">
+          <PersonalizationFieldsSection
+            enabled={enabled}
+            draft={draft}
+            {...state}
+          />
 
-        <Separator />
+          <Separator />
 
-        <PersonalizationIdentitySection
-          enabled={enabled}
-          shareAccountIdentity={data.shareAccountIdentity}
-          update={state.update}
-          preview={state.preview}
-          previewOpen={state.previewOpen}
-          setPreviewOpen={state.setPreviewOpen}
-        />
+          <PersonalizationIdentitySection
+            enabled={enabled}
+            shareAccountIdentity={data.shareAccountIdentity}
+            update={state.update}
+            preview={state.preview}
+            previewOpen={state.previewOpen}
+            setPreviewOpen={state.setPreviewOpen}
+          />
+        </div>
       </CardContent>
     </Card>
   );

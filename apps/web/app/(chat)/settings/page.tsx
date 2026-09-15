@@ -162,26 +162,28 @@ function AppearanceSection() {
   return (
     <Card className="lg:max-w-2xl">
       {appearanceCardHeader}
-      <CardContent className="space-y-6">
-        <SettingRow label="Theme" description="Select the theme for the app.">
-          <ThemeDropdown theme={theme} setTheme={setTheme} />
-        </SettingRow>
-        <FontSettingRow
-          label="Interface Font"
-          description="Select the font for the interface."
-          Switcher={InterfaceFontSwitcher}
-          options={fontStyleOptions}
-          currentValue={fontStyle}
-          onValueChange={setFontStyle}
-        />
-        <FontSettingRow
-          label="Code Font"
-          description="Select the font for code blocks."
-          Switcher={CodeFontSwitcher}
-          options={monoFontStyleOptions}
-          currentValue={monoFontStyle}
-          onValueChange={setMonoFontStyle}
-        />
+      <CardContent>
+        <div className="space-y-6">
+          <SettingRow label="Theme" description="Select the theme for the app.">
+            <ThemeDropdown theme={theme} setTheme={setTheme} />
+          </SettingRow>
+          <FontSettingRow
+            label="Interface Font"
+            description="Select the font for the interface."
+            Switcher={InterfaceFontSwitcher}
+            options={fontStyleOptions}
+            currentValue={fontStyle}
+            onValueChange={setFontStyle}
+          />
+          <FontSettingRow
+            label="Code Font"
+            description="Select the font for code blocks."
+            Switcher={CodeFontSwitcher}
+            options={monoFontStyleOptions}
+            currentValue={monoFontStyle}
+            onValueChange={setMonoFontStyle}
+          />
+        </div>
       </CardContent>
     </Card>
   );

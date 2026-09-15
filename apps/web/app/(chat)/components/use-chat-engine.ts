@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  type RefObject,
 } from "react";
 
 import { useChat } from "@ai-sdk/react";
@@ -72,6 +73,24 @@ export function useChatModelSelection(
   return { availableModels, modelSendUnavailableReason, modelReadyForSend };
 }
 
+/** The model and effort a request must carry, read from the transport's
+ *  latest-value mirrors when a request is prepared — that read happens in an
+ *  event-time callback, never while the component renders, which is why it
+ *  lives here and not inside the options object the transport is built from. */
+function resolveSendSelections(
+  modelRef: RefObject<string | undefined>,
+  effortRef: RefObject<string | undefined>,
+) {
+  const modelId = modelRef.current;
+  if (modelId === undefined) {
+    // Unreachable in practice (both send affordances are gated on
+    // modelReadyForSend), but this narrows undefined → string so a request can
+    // never be built without a model.
+    throw new Error(NO_MODEL_SELECTED_ERROR);
+  }
+  return { modelId, effort: effortRef.current };
+}
+
 /** The `DefaultChatTransport` instance, id-stable per `chatId`. */
 export function useChatSendTransport(
   chatId: string,
@@ -100,17 +119,11 @@ export function useChatSendTransport(
         api: buildChatMessagesUrl(chatId),
         credentials: "include",
         fetch: authAwareFetch,
-        prepareSendMessagesRequest: (options) => {
-          const modelId = selectedModelRef.current;
-          const effort = selectedEffortRef.current;
-          if (modelId === undefined) {
-            // Unreachable in practice (both send affordances are gated on
-            // modelReadyForSend), but this narrows undefined → string so a
-            // request can never be built without a model.
-            throw new Error(NO_MODEL_SELECTED_ERROR);
-          }
-          return prepareSendMessagesRequest({ ...options, modelId, effort });
-        },
+        prepareSendMessagesRequest: (options) =>
+          prepareSendMessagesRequest({
+            ...options,
+            ...resolveSendSelections(selectedModelRef, selectedEffortRef),
+          }),
         prepareReconnectToStreamRequest,
       }),
     // The two refs are listed for the exhaustive-deps rule's benefit only: a

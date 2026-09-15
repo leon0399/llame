@@ -25,18 +25,15 @@ import type { EffortLevelResponse } from "@/lib/api/generated/models";
  * larger handle — expressed here, through the primitive's `data-slot` hooks,
  * so no other Slider in the app inherits the emphasis.
  *
- * Achromatic on purpose: `bg-primary` is Ink in light mode and near-white in
- * dark. DESIGN.md §12.1 records "no brand hue" as an INTENTIONALLY UNDECIDED
- * question, so painting this control blue would resolve a documented open
- * decision by drift. Boldness here comes from weight and contrast instead.
+ * The emphasis is carried by SIZE alone — a 10px rail against the primitive's
+ * 4px, a 20px thumb against its 12px. Fill, border, and shadow stay the
+ * primitive's own: the Slider owns those, and DESIGN.md §12.1 keeps "no brand
+ * hue" as an INTENTIONALLY UNDECIDED question — the contrast this control
+ * needs already comes from the Ink range on the card behind it.
  */
 const BOLD_SLIDER_CLASS = cn(
   "[&_[data-slot=slider-track]]:h-2.5!",
-  "[&_[data-slot=slider-track]]:bg-muted",
   "[&_[data-slot=slider-thumb]]:size-5!",
-  "[&_[data-slot=slider-thumb]]:border-2",
-  "[&_[data-slot=slider-thumb]]:border-primary",
-  "[&_[data-slot=slider-thumb]]:shadow-sm",
 );
 
 type EffortSelection = {
@@ -136,7 +133,8 @@ function EffortSelectorTrigger({
           aria-expanded={open}
           // No corner, border, or focus-lift classes: ButtonGroup owns all
           // three for every cell, so restating them here is how cells drift.
-          className={cn("gap-1 font-normal", className)}
+          // Its gap and weight are the Button's own defaults.
+          className={className}
         >
           <span
             className={cn("text-xs", activeHasLabel ? undefined : "font-mono")}
@@ -164,7 +162,7 @@ function EffortSelectorStops({
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-between px-[0.4rem]"
+      className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-between px-1.5"
     >
       {levels.map((level, index) => (
         <span
@@ -237,7 +235,8 @@ function EffortSelectorPopoverContent({
       aria-label="Reasoning effort"
       side="top"
       align="end"
-      className="w-64 p-3"
+      // Width only: PopoverContent's own p-2.5 is the padding.
+      className="w-64"
     >
       <div className="flex flex-col gap-2">
         <div className="text-muted-foreground flex items-center justify-between text-xs">

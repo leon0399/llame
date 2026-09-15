@@ -13,7 +13,7 @@ const meta = {
       // (see chat-sidebar/index.tsx); SidebarProvider is the required
       // ancestor for the sidebar primitives this component composes.
       <SidebarProvider className="min-h-0 w-fit">
-        <div className="w-[20rem] p-2">
+        <div className="w-80 p-2">
           <Story />
         </div>
       </SidebarProvider>

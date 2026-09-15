@@ -56,8 +56,8 @@ function loadChatMarkdownRenderers(): Promise<ChatMarkdownRenderers> {
 }
 
 function useChatMarkdownLoad(): ChatMarkdownLoadState {
-  const [renderers, setRenderers] = useState<ChatMarkdownRenderers | null>(
-    () => (loadOverride ? null : cachedRenderers),
+  const [loaded, setLoaded] = useState<ChatMarkdownRenderers | null>(() =>
+    loadOverride ? null : cachedRenderers,
   );
   const [failed, setFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -68,15 +68,18 @@ function useChatMarkdownLoad(): ChatMarkdownLoadState {
     setLoadAttempt((attempt) => attempt + 1);
   }, []);
 
+  // The tab-lifetime cache is filled outside React, so it is read during
+  // render rather than mirrored in with a mount-effect setState: a warm cache
+  // is a valid current value on any render, including the one a retry causes.
+  // `loadOverride` (tests) bypasses the cache exactly as it always has.
+  const renderers = loadOverride ? loaded : (loaded ?? cachedRenderers);
+
   useEffect(() => {
-    if (!loadOverride && cachedRenderers) {
-      setRenderers(cachedRenderers);
-      return;
-    }
+    if (!loadOverride && cachedRenderers) return;
     let cancelled = false;
     void loadChatMarkdownRenderers().then(
-      (loaded) => {
-        if (!cancelled) setRenderers(loaded);
+      (loadedRenderers) => {
+        if (!cancelled) setLoaded(loadedRenderers);
       },
       // The failure is a chunk fetch (deploy skew, offline); nothing in it is
       // shown, so only the fact is kept and the cached promise is dropped on

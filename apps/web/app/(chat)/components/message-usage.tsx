@@ -315,28 +315,41 @@ export function buildUsageLine(
 // Shared typography/spacing (matches the design's `.tel-badge`) — the
 // negative left margin is an optical alignment trick so the badge's own
 // padding doesn't visually indent past the message content's left edge.
+// Every value is on the Tailwind scale (the design file's rem values snapped
+// to the nearest quarter step).
 const badgeTypographyClassName =
-  "text-muted-foreground -ml-[0.45rem] mt-1 inline-flex w-fit items-center gap-[0.3rem] rounded-md px-[0.45rem] py-[0.2rem] font-mono text-[0.72rem]";
+  "text-muted-foreground -ml-1.75 mt-1 inline-flex w-fit items-center gap-1.25 rounded-md px-1.75 py-0.75 font-mono text-xs";
 
 /** One Performance/Tokens/Cost & model column of the hover card's breakdown. */
 function UsageSectionColumn({ section }: { section: UsageSection }) {
   return (
-    <div className="flex min-w-[7rem] flex-col gap-[0.32rem]">
-      <div className="text-[0.66rem] font-semibold tracking-wider text-muted-foreground uppercase">
+    <div className="flex min-w-28 flex-col gap-1.25">
+      <div className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
         {section.header}
       </div>
       {section.rows.map((row) => (
         <div
           key={row.label}
           className={cn(
-            "flex items-center justify-between gap-[1.1rem] text-xs",
+            "flex items-center justify-between gap-4.5 text-xs",
             (row.label === "of which cached" || row.label === "at effort") &&
-              "pl-[0.85rem]",
+              "pl-3.5",
           )}
         >
           <span className="text-muted-foreground">{row.label}</span>
           <b className="font-mono font-medium text-foreground">{row.value}</b>
         </div>
+      ))}
+    </div>
+  );
+}
+
+/** The hover card's per-section columns, side by side on one row. */
+function UsageBreakdown({ sections }: { sections: Array<UsageSection> }) {
+  return (
+    <div className="flex flex-nowrap gap-7.5">
+      {sections.map((section) => (
+        <UsageSectionColumn key={section.header} section={section} />
       ))}
     </div>
   );
@@ -383,13 +396,12 @@ export function MessageUsage({
         align="start"
         // HoverCardContent already ships the popover-surfaced card treatment
         // DESIGN.md specifies for these overlays (bg-popover, border,
-        // shadow-md, no arrow) — just widen it past the default w-64/p-4 for
-        // this card's 3-column table layout.
-        className="flex w-fit max-w-none flex-nowrap gap-[1.9rem] p-[0.8rem]"
+        // shadow-md, no arrow) — just widen it past the default w-64 for
+        // this card's 3-column table layout. The primitive's own p-2.5 is
+        // the padding; the column gap belongs on the plain row below it.
+        className="w-fit max-w-none"
       >
-        {line.sections.map((section) => (
-          <UsageSectionColumn key={section.header} section={section} />
-        ))}
+        <UsageBreakdown sections={line.sections} />
       </HoverCardContent>
     </HoverCard>
   );

@@ -97,7 +97,7 @@ const meta = {
       // only its own hover/active states; min-h-0 w-fit stops SidebarProvider's
       // min-h-svh/w-full from inflating the canvas.
       <SidebarProvider className="min-h-0 w-fit">
-        <div className="w-[17rem] p-2">
+        <div className="w-68 p-2">
           <SidebarMenu>
             <Story />
           </SidebarMenu>

@@ -8,7 +8,7 @@ import { Button } from "@workspace/ui/components/button";
 //   SelectTrigger,
 //   SelectValue,
 // } from '@workspace/ui/components/select';
-import { Textarea } from "@workspace/ui/components/textarea";
+import { InputGroupTextarea } from "@workspace/ui/components/input-group";
 import { cn } from "@workspace/ui/lib/utils";
 import { useAutoResizeTextarea } from "@workspace/ui/hooks/use-autoresize-textarea";
 import { Children } from "react";
@@ -30,7 +30,9 @@ export const PromptInput = ({ className, ...props }: PromptInputProps) => (
   />
 );
 
-export type PromptInputTextareaProps = ComponentProps<typeof Textarea> & {
+export type PromptInputTextareaProps = ComponentProps<
+  typeof InputGroupTextarea
+> & {
   minHeight?: number;
   maxHeight?: number;
   submitBehavior?: "enter" | "shift-enter";
@@ -62,14 +64,17 @@ export const PromptInputTextarea = ({
   };
 
   return (
-    <Textarea
+    // InputGroupTextarea is the design system's chromeless multi-line control:
+    // it is the same control this file was hand-stripping (no radius, no
+    // border, no ring, no shadow, no dark fill) for a container that owns the
+    // chrome — the `PromptInput` form above. Nothing is restyled here; only
+    // the auto-resize, submit-on-enter behaviour, and the caller's own classes
+    // are added.
+    <InputGroupTextarea
       name="message"
       placeholder={placeholder}
       ref={textareaRef}
-      className={cn(
-        "w-full resize-none rounded-none border-none p-3 shadow-none outline-none ring-0 focus-visible:ring-0",
-        className,
-      )}
+      className={className}
       onChange={onChange}
       onKeyDown={handleKeyDown}
       {...props}
@@ -109,11 +114,10 @@ export const PromptInputButton = ({
       type="button"
       variant={variant}
       size={newSize}
-      className={cn(
-        "shrink-0 gap-1.5 text-muted-foreground",
-        newSize === "default" && "px-3",
-        className,
-      )}
+      // Only `shrink-0`: the Button's own size and variant supply the gap,
+      // the padding, and the ink (the variant list has no muted treatment,
+      // so the toolbar's icons read as the Button's default ink).
+      className={cn("shrink-0", className)}
       {...props}
     />
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { useMeOptional } from "@/lib/services/auth/queries";
 import { useUpdatePersonalizationMutation } from "@/lib/services/personalization/mutations";
@@ -51,27 +51,28 @@ const toPatch = (draft: Draft): Partial<Personalization> =>
     typedKeys(draft).map((key) => [key, draft[key]?.trim() || null]),
   );
 
-/** Keeps `draft` in sync with the server value without ever clobbering an edit. */
+/**
+ * The owner's edits, laid over whatever the server currently holds.
+ *
+ * Nothing is copied into state when the query resolves, so there is no copy to
+ * keep in step: a refetch — this tab's own save, another tab's, a toggle —
+ * shows through on every field the owner has not typed into, while a field
+ * they HAVE typed into keeps their keystrokes until a save lands. Overwriting
+ * one would eat the owner's keystrokes mid-edit.
+ */
 function useDraftState(data: Personalization | undefined) {
-  const [draft, setDraft] = useState<Draft | undefined>();
+  const [edits, setEdits] = useState<Partial<Draft>>({});
 
-  // Adopt the server value on first load AND on any later refetch that finds
-  // the draft clean — otherwise a save from another tab leaves this one showing
-  // stale text indefinitely. A DIRTY draft is never touched: overwriting it
-  // would eat the owner's keystrokes mid-edit.
-  useEffect(() => {
-    if (!data) return;
-    setDraft((current) => {
-      if (!current) return toDraft(data);
-      const stored = toDraft(data);
-      const edited = typedKeys(stored).some(
-        (key) => (stored[key] ?? "") !== (current[key] ?? ""),
-      );
-      return edited ? current : stored;
-    });
-  }, [data]);
-
-  return [draft, setDraft] as const;
+  return {
+    draft: data ? { ...toDraft(data), ...edits } : undefined,
+    setField: (key: PersonalizationTextField, value: string) =>
+      setEdits((current) => ({ ...current, [key]: value })),
+    // A save that returns is no longer an edit: the mutation has already
+    // patched the query cache with exactly the payload it sent, so dropping
+    // them makes the field read back as the server's own value — trimmed, per
+    // `toPatch`.
+    acceptSaved: () => setEdits({}),
+  };
 }
 
 /** Validation/display flags derived from the current data + draft snapshot. */
@@ -133,7 +134,7 @@ export function usePersonalizationDraft() {
   const { data, isPending } = usePersonalizationQuery();
   const me = useMeOptional();
   const update = useUpdatePersonalizationMutation();
-  const [draft, setDraft] = useDraftState(data);
+  const { draft, setField, acceptSaved } = useDraftState(data);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const { dirty, overCap, isSaving, preview } = usePersonalizationDerived(
@@ -143,14 +144,9 @@ export function usePersonalizationDraft() {
     update,
   );
 
-  const setField = (key: PersonalizationTextField, value: string) =>
-    setDraft((current) => (current ? { ...current, [key]: value } : current));
-
   const save = () => {
     if (!draft) return;
-    update.mutate(toPatch(draft), {
-      onSuccess: (saved) => setDraft(toDraft(saved)),
-    });
+    update.mutate(toPatch(draft), { onSuccess: acceptSaved });
   };
 
   return {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { isServer } from "@tanstack/react-query";
 import { CheckIcon, CopyIcon } from "lucide-react";
@@ -24,7 +24,7 @@ type ShareableChat = {
   visibility: "private" | "public";
 };
 
-function useShareChatDialog(chat: ShareableChat, open: boolean) {
+function useShareChatDialog(chat: ShareableChat) {
   const setVisibility = useSetChatVisibility();
   const [copied, setCopied] = useState(false);
   // While the toggle mutation is in flight, reflect its target value instead
@@ -36,14 +36,6 @@ function useShareChatDialog(chat: ShareableChat, open: boolean) {
   const link = isServer
     ? `/shared/${chat.id}`
     : `${window.location.origin}/shared/${chat.id}`;
-
-  // A stale "copied" checkmark from a previous link must not survive into a
-  // reopened dialog or a different chat's share link.
-  useEffect(() => {
-    if (open) {
-      setCopied(false);
-    }
-  }, [open, chat.id]);
 
   const toggleVisibility = (next: boolean) =>
     setVisibility.mutate({
@@ -111,7 +103,6 @@ function ShareLinkRow({
         readOnly
         value={link}
         aria-label="Share link"
-        className="text-xs"
         onFocus={(e) => e.target.select()}
       />
       <Button
@@ -146,29 +137,46 @@ export function ShareChatDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { isPublic, isPending, link, copied, toggleVisibility, copyLink } =
-    useShareChatDialog(chat, open);
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Share chat</DialogTitle>
         </DialogHeader>
-        <PublicVisibilityToggle
-          isPublic={isPublic}
-          isPending={isPending}
-          onToggle={toggleVisibility}
-        />
-        {isPublic && (
-          <ShareLinkRow link={link} copied={copied} onCopy={copyLink} />
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Done
-          </Button>
-        </DialogFooter>
+        <ShareChatBody chat={chat} onDone={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The dialog's body, mounted with its content: a reopened dialog — or one
+ *  opened for another chat — is a fresh mount, so the previous link's
+ *  "copied" checkmark can never survive into it. */
+function ShareChatBody({
+  chat,
+  onDone,
+}: {
+  chat: ShareableChat;
+  onDone: () => void;
+}) {
+  const { isPublic, isPending, link, copied, toggleVisibility, copyLink } =
+    useShareChatDialog(chat);
+
+  return (
+    <>
+      <PublicVisibilityToggle
+        isPublic={isPublic}
+        isPending={isPending}
+        onToggle={toggleVisibility}
+      />
+      {isPublic && (
+        <ShareLinkRow link={link} copied={copied} onCopy={copyLink} />
+      )}
+      <DialogFooter>
+        <Button variant="outline" onClick={onDone}>
+          Done
+        </Button>
+      </DialogFooter>
+    </>
   );
 }

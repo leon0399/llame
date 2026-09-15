@@ -58,10 +58,12 @@ function ChatTimeGroup({
     <SidebarGroup>
       {/* Sticky scroll anchor. The surface differs per container: the
           mobile sheet paints bg-sidebar, the desktop panel bg-background
-          — the md: split matches exactly where each one renders. */}
-      <SidebarGroupLabel className="sticky top-0 z-10 bg-sidebar md:bg-background">
-        {chatGroupTitles[period]}
-      </SidebarGroupLabel>
+          — the md: split matches exactly where each one renders, and it is
+          painted by this wrapper (the label primitive owns its own color)
+          so the rows still scroll underneath it. */}
+      <div className="sticky top-0 z-10 bg-sidebar md:bg-background">
+        <SidebarGroupLabel>{chatGroupTitles[period]}</SidebarGroupLabel>
+      </div>
       <SidebarGroupContent>
         <SidebarMenu>
           {chats.map((chat) => (

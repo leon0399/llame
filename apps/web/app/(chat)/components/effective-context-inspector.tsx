@@ -49,7 +49,12 @@ function EffectiveContextError() {
 
 function EffectiveContextMetadata({ data }: { data: RunContextReceipt }) {
   return (
-    <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+    // Three tracks, with every value spanning two of them: the label column
+    // used to be `max-content`, which the scale cannot express, so it is
+    // pinned at a third of the panel instead — comfortably wider than the
+    // longest label in both the default face and the wide
+    // dyslexia-friendly ones, and still leaving the values two thirds.
+    <dl className="grid grid-cols-3 gap-x-4 gap-y-2 text-sm [&>dd]:col-span-2">
       <dt className="text-muted-foreground">Model</dt>
       <dd className="break-all font-mono">{data.modelId}</dd>
       {data.effort !== undefined ? (
@@ -87,7 +92,7 @@ function AttemptReceipt({
 }) {
   return (
     <article className="border p-3">
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+      <dl className="grid grid-cols-3 gap-x-4 gap-y-1 text-sm [&>dd]:col-span-2">
         <dt className="text-muted-foreground">Attempt</dt>
         <dd className="break-all font-mono text-xs">{receipt.attemptId}</dd>
         <dt className="text-muted-foreground">Source</dt>
@@ -156,7 +161,7 @@ export function EffectiveContextInspector({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="overflow-auto sm:max-w-lg">
-        <SheetHeader className="px-4">
+        <SheetHeader>
           <SheetTitle>System prompt receipt</SheetTitle>
           <SheetDescription>
             The rendered system prompt each execution attempt prepared.
