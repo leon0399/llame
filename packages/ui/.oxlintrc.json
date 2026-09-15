@@ -5,6 +5,17 @@
   "ignorePatterns": ["dist/**"],
   "overrides": [
     {
+      // These components define the design system, so they own their own
+      // classes, arbitrary values, and variant maps. Glob is workspace-local
+      // because each workspace runs oxlint from its own directory.
+      "files": ["src/components/**"],
+      "rules": {
+        "shadcn/no-arbitrary-values": "off",
+        "shadcn/no-restyle": "off",
+        "shadcn/require-static-classes": "off"
+      }
+    },
+    {
       // Regenerated shadcn and AI Elements sources. Keep exceptions here so
       // regeneration does not erase them; custom/** remains fully linted.
       "files": [
