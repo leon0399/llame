@@ -16,7 +16,7 @@ const tool = (id: string, overrides?: Partial<Tool>): Tool => ({
   id,
   description: `Description for ${id}`,
   classification: 'read_only',
-  inputSchema: z.object({ value: z.string() }).strict(),
+  inputSchema: z.strictObject({ value: z.string() }),
   execute: () => ({ status: 'success' }),
   ...overrides,
 });

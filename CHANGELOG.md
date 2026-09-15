@@ -2,6 +2,49 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-15
 
+- Upgrade zod from 3.25.76 to 4.6.5 and move every schema onto the v4 API. The
+  catalog pin was a 3.25 line whose bare `zod` import still resolved to the v3
+  API, so 38 files were writing v3 idioms against a package that had shipped v4
+  for a year: `z.object({...}).strict()`, `.passthrough()`, `z.string().uuid()`,
+  `.datetime()`, `.superRefine()`, `z.ZodIssueCode.custom`, and `z.ZodTypeAny`
+  (which no longer exists at runtime in v4). These are now `z.strictObject`,
+  `z.looseObject`, `z.guid()`, `z.iso.datetime()`, `.check()` with
+  `ctx.issues.push({ code: 'custom', ... })`, and `z.ZodType`. Three
+  consequences are worth knowing. `z.guid()` rather than `z.uuid()`: v4's
+  `z.uuid()` enforces RFC 9562 version and variant bits and rejects this
+  repo's own fixtures, while v3's `.uuid()` accepted any 8-4-4-4-12 hex string,
+  which is what these Postgres `uuid` values actually are. `z.ZodType` resolves
+  to `unknown` where `z.ZodTypeAny` resolved to `any`, which retired two
+  `as FlexibleSchema<unknown>` assertions in `tools/schema-utils.ts` and a
+  file-wide `no-unsafe-return` disable in the search tool's tests. And ISO
+  datetime parsing is genuinely stricter — v4 rejects minute precision
+  (`2026-01-01T00:00Z`) and a colonless offset (`+0200`), which no fixture,
+  tool description, or e2e input in the repo uses.
+
+  Tool declarations shrank rather than grew. v4 emits JSON Schema through
+  zod's own converter, which restates a string format as a `pattern` beside
+  it: the two time bounds on `search_conversations` arrived carrying a
+  318-character ISO-8601 regex each, 41% of that tool's declaration payload
+  and 36% of the two native tools' combined 2048 characters. Both bounds now
+  carry `.meta({ pattern: undefined })`, which keeps zod's runtime check and
+  drops the regex from the emitted document; `format: "date-time"` remains,
+  and ajv-formats holds the declaration's floor from the snapshot — it runs in
+  fast mode, so the tool's own parse still governs offset syntax, exactly as
+  it did while the regex was being emitted. The
+  `conversation_read` chat id keeps its 92-character pattern, which documents
+  `z.guid()`'s loose acceptance that a bare `format: "uuid"` would overstate.
+
+  `z.compile()` and `.validate()` are deliberately not adopted. Measured on
+  this machine against the real schemas: compiling saves 386 ns per tool-call
+  argument parse, 619 ns per search-result coordinate parse, and 100 ns per
+  provider stream chunk, which is 0.2 ms across a 2000-chunk response against
+  a 1.3 ms one-time compile per schema — noise beside a model round trip, and
+  `zod/compile` builds its parsers with `new Function` in the process that
+  executes model-directed tools. `.validate()` is 40x faster than
+  `safeParse().success` on rejection (75 ns against 2966 ns) but has no call
+  site here: all 16 parse sites either consume `.data` or need the `ZodError`
+  for an `invalid_input` result.
+
 - Adopt `@shadcn/lint`, shadcn's Tailwind design-system linter, as an oxlint JS
   plugin with all six rules at error, and remove the 467 violations it found.
   `DESIGN.md` has said since it was written that the interface is achromatic

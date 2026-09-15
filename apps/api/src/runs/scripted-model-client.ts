@@ -90,7 +90,7 @@ const conversationSearchOutputSchema = z.object({
   results: z.array(
     z.object({
       kind: z.literal('content'),
-      chatId: z.string().uuid(),
+      chatId: z.guid(),
       messageSeq: z.number().int().positive(),
       offset: z.number().int().nonnegative(),
       limit: z.number().int().positive().max(2000),

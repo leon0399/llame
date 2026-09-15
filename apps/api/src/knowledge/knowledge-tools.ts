@@ -40,21 +40,19 @@ export const KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS = 15_000;
 
 export { KNOWLEDGE_CONTENT_NOTICE } from './knowledge-content-notice';
 
-const knowledgeSpaceIdSchema = z.string().uuid();
+const knowledgeSpaceIdSchema = z.guid();
 
-const knowledgeSearchInputSchema = z
-  .object({
-    query: z
-      .string()
-      .min(1)
-      .refine((query) => Array.from(query).length <= 200, {
-        message: 'The search query is too long.',
-      }),
-    limit: z.number().int().min(1).max(10).default(5),
-    knowledgeSpaceId: knowledgeSpaceIdSchema.optional(),
-    cursor: z.string().optional(),
-  })
-  .strict();
+const knowledgeSearchInputSchema = z.strictObject({
+  query: z
+    .string()
+    .min(1)
+    .refine((query) => Array.from(query).length <= 200, {
+      message: 'The search query is too long.',
+    }),
+  limit: z.number().int().min(1).max(10).default(5),
+  knowledgeSpaceId: knowledgeSpaceIdSchema.optional(),
+  cursor: z.string().optional(),
+});
 
 type KnowledgeSearchArguments = {
   readonly query: string;

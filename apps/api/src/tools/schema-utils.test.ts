@@ -1,3 +1,4 @@
+import { asSchema } from 'ai';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -172,13 +173,21 @@ describe('toFlexibleSchema', () => {
     expect(result).not.toBeNull();
   });
 
-  it('wraps a JSON Schema with ajv validation', () => {
+  it('wraps a JSON Schema with ajv validation that actually rejects', async () => {
     const schema: JsonSchemaDocument = {
       type: 'object',
       properties: { query: { type: 'string' } },
+      required: ['query'],
     };
     const result = toFlexibleSchema(schema);
-    expect(result).not.toBeNull();
+    if (result === null) throw new Error('Expected a schema');
+
+    // The wiring is the point: without `validate`, the SDK's tool-call
+    // parsing admits every argument shape (#214 D3).
+    const rejected = await asSchema(result).validate?.({ query: 7 });
+    expect(rejected?.success).toBe(false);
+    const accepted = await asSchema(result).validate?.({ query: 'ok' });
+    expect(accepted?.success).toBe(true);
   });
 
   it('returns null for an unsupported dialect', () => {

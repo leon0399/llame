@@ -59,6 +59,13 @@ minimumReleaseAgeExclude:
   # its own `cn` dependency (0.2.6) is already past the cooldown. Remove
   # this exclusion once a version has been on the registry past the window.
   - "@shadcn/lint@0.1.0"
+  # Released 2026-09-13, inside the 7-day resolution cooldown. Taken for
+  # 4.6.0's fix to the recursive-schema memory retention that 4.5 regressed
+  # (an OOM on long-lived schemas) and for `.validate()` as a method, plus
+  # the 4.6.1-4.6.5 fixes to defaulted discriminators, prefault outputs, and
+  # recursive object inference. Remove this exclusion once 4.6.5 has been on
+  # the registry past the window.
+  - zod@4.6.5
 
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.
@@ -120,7 +127,11 @@ catalog:
   "@vitest/coverage-v8": 4.1.10
   "@barney-media/crap-typescript": 0.5.1
   vitest: ^4.1.11
-  zod: ^3.25.76
+  # Exact, not a range: 4.6.5 is inside the resolution cooldown (excluded
+  # above), and the 4.6.x line is still settling — 4.6.3 reverted 4.6.0's
+  # standalone z.properties() and 4.6.4 landed a z.url() rewrite. Widen to a
+  # caret once 4.6 has aged past the window.
+  zod: 4.6.5
 
 # Successor to onlyBuiltDependencies (v10.26+; the only mechanism in pnpm 11).
 # Packages not listed are blocked from running install scripts. Every entry
