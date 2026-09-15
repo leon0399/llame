@@ -529,9 +529,16 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 /**
- * Style variants for `SidebarMenuButton`: `variant` chooses flat (`default`)
- * or bordered (`outline`) styling; `size` sets row height/density
- * (`default`, `sm`, `lg`).
+ * Style variants for `SidebarMenuButton`: `variant` chooses flat (`default`),
+ * bordered (`outline`), or chrome-less (`chromeless`) styling; `size` sets row
+ * height/density (`default`, `sm`, `lg`).
+ *
+ * `chromeless` drops the button's own fill, focus ring, and hover/pressed
+ * surfaces for a button placed inside a row that paints those itself — a
+ * `SidebarMenuItem` holding the button plus trailing actions lights up as one
+ * surface, and a second set of surfaces inside it would double the chrome.
+ * `data-active:font-medium` and `data-active:text-sidebar-accent-foreground`
+ * still apply, so an active row reads as active through weight and ink.
  */
 const sidebarMenuButtonVariants = cva(
   "peer/menu-button group/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-open:hover:bg-sidebar-accent data-open:hover:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:font-medium data-active:text-sidebar-accent-foreground [&_svg]:size-4 [&_svg]:shrink-0 [&>span:last-child]:truncate",
@@ -541,6 +548,12 @@ const sidebarMenuButtonVariants = cva(
         default: "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         outline:
           "bg-background shadow-[0_0_0_1px_var(--sidebar-border)] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_var(--sidebar-accent)]",
+        // `focus-visible:ring-0!` carries the `!` because Tailwind emits the
+        // bare `focus-visible:ring-0` utility BEFORE `focus-visible:ring-2`, so
+        // without it the base ring would win the cascade (the other overrides
+        // here are emitted after their base counterparts and win on order).
+        chromeless:
+          "hover:bg-transparent hover:text-sidebar-foreground focus-visible:ring-0! active:bg-transparent active:text-sidebar-foreground data-active:bg-transparent data-open:hover:bg-transparent data-open:hover:text-sidebar-foreground",
       },
       size: {
         default: "h-8 text-sm",

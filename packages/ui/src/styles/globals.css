@@ -58,6 +58,10 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  /* The collapsing reveal track (DESIGN.md §3 "Row actions hidden"): trailing
+     row actions occupy no width until they are revealed. */
+  --grid-template-columns-collapsed: 0fr;
+  --grid-template-columns-revealed: 1fr;
 }
 
 :root {
@@ -157,6 +161,47 @@
   to {
     --marquee-fade-r: 0px;
   }
+}
+
+/* The three halves of scroll-to-reveal text, named so a call site reads as the
+   mechanism instead of as the CSS behind it. */
+
+/* The trailing fade itself: gradient on the edge that can be reached, and the
+   transition that covers its return. The fade collapses to 0 at rest (the
+   `@property` initial value above), which leaves this gradient fully opaque —
+   so an unclipped title pays nothing for it. */
+@utility marquee-fade {
+  mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - var(--marquee-fade-r)),
+    transparent 100%
+  );
+  transition: --marquee-fade-r 150ms ease-out;
+}
+
+/* Anything currently cut off gets the fade — including a title that only the
+   revealed actions clip. The width comes from the same token `marquee-tail`
+   starts from, so the animation picks up exactly where this leaves off instead
+   of popping. */
+@utility marquee-fade-clipped {
+  --marquee-fade-r: var(--marquee-fade-max);
+}
+
+/* The fade holds for the travel and leaves only once the tail has landed —
+   `--marquee-end-ms` is the scroll delay plus the scroll's own duration. */
+@utility marquee-fade-trailing {
+  animation: marquee-tail 150ms ease-out var(--marquee-end-ms) both;
+}
+
+/* The collapsing reveal track (DESIGN.md §3, "Row actions showing"): the row
+   actions expand over 150ms. Bundled like `marquee-fade` because there is no
+   non-arbitrary spelling for the property — Tailwind has no
+   `--transition-property-*` theme namespace — and `transition-all` would
+   animate the revealed child's own properties too. `--ease-out` is
+   cubic-bezier(0, 0, 0.2, 1), the curve of Tailwind's `ease-out` utility;
+   `--default-transition-timing-function` carries ease-in-out's instead. */
+@utility reveal-track {
+  transition: grid-template-columns 150ms var(--ease-out);
 }
 
 @layer base {
