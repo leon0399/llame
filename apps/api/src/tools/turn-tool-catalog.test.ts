@@ -825,4 +825,28 @@ describe('composeTurnToolCatalog description rendering', () => {
       }),
     ).rejects.toThrow('Tool "bash" description rendered empty.');
   });
+
+  it('admits an MCP declaration that carries no description', async () => {
+    // An MCP server may omit `description`, and declaration-admission records
+    // an empty one deliberately. The opaque text passes through the renderer
+    // unchanged, so an empty value here is admitted rather than a failed
+    // render: rejecting it failed every Run on an instance that allowlisted
+    // such a tool.
+    const catalog = await composeTurnToolCatalog({
+      allowedToolRules: ['mcp__web__search'],
+      callTimeoutSeconds: 30,
+      candidates: [
+        {
+          source: { type: 'mcp', serverId: 'web' },
+          state: 'available',
+          tool: tool('mcp__web__search', { description: '' }),
+        },
+      ],
+      descriptionRenderer: ({ description }) => description,
+    });
+
+    expect(catalog.admitted.map(({ declaration }) => declaration)).toEqual([
+      expect.objectContaining({ id: 'mcp__web__search', description: '' }),
+    ]);
+  });
 });

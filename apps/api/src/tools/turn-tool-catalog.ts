@@ -419,7 +419,11 @@ function renderAdmittedToolDescriptions(
       source: tool.source,
       admittedToolIds,
     });
-    if (description.trim().length === 0) {
+    // Only a templated (code-owned) description is this check's subject. An
+    // MCP server may legitimately declare no description, and its opaque text
+    // passes through the renderer unchanged, so an empty value there is
+    // admitted by declaration-admission rather than a failed render.
+    if (tool.source.type === 'code_owned' && description.trim().length === 0) {
       throw new ToolDescriptionRenderError(tool.declaration.id);
     }
     const declaration = {
