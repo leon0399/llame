@@ -12,8 +12,8 @@ Create a new local UTF-8 file, or replace an existing file's contents with repla
 <output>
 - Line-number prefixes are navigation metadata, never file bytes.
 - Model-facing results are standard JSON text; decode JSON escapes before copying source into {{#if tools.edit}}edit oldText{{else}}a later exact replacement{{/if}}.
-</output>
+</output>{{#if tools.edit}}
 
 <critical>
-{{#if tools.edit}}- Use edit for a partial change.
-{{/if}}</critical>
+- Use edit for a partial change.
+</critical>{{/if}}
