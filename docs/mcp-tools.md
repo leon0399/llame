@@ -116,8 +116,9 @@ MCP is not a network sandbox.
 - Complete discovery replaces remembered IDs; no stale declaration/executor is
   retained.
 - API and worker state may differ. Workers execute only an exact ID plus
-  canonical-hash match from the Run snapshot; mismatch settles unavailable.
-- Provider input, manifests, receipts, snapshots, persistence, and rebinding
+  canonical-hash match against the attempt's admitted declaration; mismatch
+  settles unavailable.
+- Provider input, manifests, and rebinding
   contain exact admitted IDs/declarations, never wildcard config.
 - Availability reminders appear on a fresh conversation/after compaction and
   later only for changes.
@@ -131,7 +132,7 @@ absence before adding more.
 
 Before an availability-writer migration, stop API writers and drain accepted
 Runs on compatible workers. Apply the migration, then restart every process on
-the matching revision. Rollback stops new authoring, drains bound Runs on
+the matching revision. Rollback stops new authoring, drains accepted Runs on
 compatible workers, then reverses the schema and binary order.
 
 ## Troubleshooting

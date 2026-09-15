@@ -18,7 +18,7 @@ import { timestamptz } from '../columns';
 import { sql } from 'drizzle-orm';
 import { users } from './auth';
 import { projects } from './projects';
-import { modelContextSnapshots } from './model-context';
+import { type TurnToolAvailabilityEntry } from './model-context';
 
 export type RecencyDigestEntry = {
   title: string;
@@ -363,10 +363,6 @@ export const runs = pgTable(
     // Opaque llame model id captured at enqueue time. Required: changing the
     // system default later must not silently alter an already queued run.
     modelId: text('model_id').notNull(),
-    // Nullable only for pre-migration history. RunsRepository.create requires
-    // this for every new run; the owner-constrained FK below prevents binding
-    // another tenant's snapshot.
-    modelContextSnapshotId: uuid('model_context_snapshot_id'),
     status: runStatus('status').notNull().default('queued'),
     // Trusted native executor identity, bound by the first native file call.
     // Retained across queue claims so physical paths cannot move to another host.
@@ -385,11 +381,8 @@ export const runs = pgTable(
     // bind-time item is not reproducible at all. This column is therefore the
     // authority for what a past run injected.
     //
-    // Deliberately NOT in `model_context_snapshots`: that table is
-    // content-addressed and reused across runs whose prompt, declarations,
-    // source, and availability manifest are identical, while injected items
-    // vary per turn under exactly those conditions. Owner-only by
-    // construction — `runs` carries `runs_owner` and no public-read policy.
+    // Owner-only by construction — `runs` carries `runs_owner` and no
+    // public-read policy.
     //
     // An item whose content originates outside this chat is not erasable
     // through that content's own source: deleting the source, or withdrawing
@@ -413,11 +406,25 @@ export const runs = pgTable(
     // `model_id`, which execution cannot proceed without): a run that predates
     // the feature genuinely had no effort.
     effort: text('effort'),
+    // Fresh UUID assigned atomically by each queue-authorized claim/reclaim.
+    // Distinct from workerId (native executor trust) — this is the attempt
+    // identity for fencing receipts, invocation admission, and publication.
+    activeAttemptId: uuid('active_attempt_id'),
+    // Recorded on successful finalization to identify the winning attempt.
+    completedAttemptId: uuid('completed_attempt_id'),
+    // Minimal availability record for this successfully committed turn:
+    // sorted tool ids and their available/unavailable state. Written only
+    // in successful-turn finalization. Empty `[]` means observed-all-absent;
+    // null means no committed observation (pre-cutover or failed run).
+    turnToolAvailability: jsonb('turn_tool_availability').$type<
+      Array<TurnToolAvailabilityEntry>
+    >(),
   },
   (t) => [
     index('runs_chat_created_idx').on(t.chatId, t.createdAt),
     index('runs_user_status_idx').on(t.userId, t.status),
-    index('runs_model_context_snapshot_idx').on(t.modelContextSnapshotId),
+    // Composite target for owner-matching system prompt receipts.
+    uniqueIndex('runs_id_user_id_unique_idx').on(t.id, t.userId),
     foreignKey({
       name: 'runs_chat_id_user_id_fk',
       columns: [t.chatId, t.userId],
@@ -427,14 +434,6 @@ export const runs = pgTable(
       name: 'runs_message_id_chat_id_fk',
       columns: [t.messageId, t.chatId],
       foreignColumns: [messages.id, messages.chatId],
-    }),
-    foreignKey({
-      name: 'runs_model_context_snapshot_id_user_id_fk',
-      columns: [t.modelContextSnapshotId, t.userId],
-      foreignColumns: [
-        modelContextSnapshots.id,
-        modelContextSnapshots.ownerUserId,
-      ],
     }),
     // Per-chat single-flight (#48): at most one non-terminal run per chat —
     // the DB-level guarantee against concurrent double model calls (#73).

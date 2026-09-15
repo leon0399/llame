@@ -1,16 +1,16 @@
 /**
- * This turn's skill-catalog state: the baseline the prompt renders from, and
- * the notice the rail carries (system-provided-skills D4/D6).
+ * This turn's skill-catalog state: the baseline the prompt renders from, the
+ * notice the rail carries, and the chat-row writes the turn establishes
+ * (system-provided-skills D4/D6).
  *
- * Split from `turn-context.ts` because it owns a complete decision — reuse
+ * Split from the prompt assembly because it owns a complete decision — reuse
  * within a compaction epoch, resolve a new one, and diff the advertised set
- * against what the chat was last told — and because that decision has a
- * transaction of its own to join rather than a place in the prompt assembly.
+ * against what the chat was last told — and because the writes that decision
+ * produces belong to the attempt's own terminal transaction rather than to
+ * prompt assembly.
  */
 
-import { type Db } from '../db/tenant-db.service';
 import { type Chat, type SkillCatalogBaseline } from '../db/schema';
-import { ChatsRepository } from './chats-repository';
 import { type AuthoredContextItemPart } from './context-item';
 import {
   createSkillCatalogNoticeItem,
@@ -44,29 +44,46 @@ export type SkillCatalogNotice = {
 export type SkillTurnState = {
   readonly baseline: SkillCatalogBaseline | undefined;
   readonly notice: SkillCatalogNotice | undefined;
+  /**
+   * The baseline this turn freezes on the chat, present only when it starts an
+   * epoch. Resolving it here and writing it there keeps the decision inside the
+   * attempt that renders it: the write rides the attempt's OWN fenced terminal
+   * transaction, so a losing attempt can never freeze a prompt the winner never
+   * showed.
+   */
+  readonly freeze?: {
+    readonly baseline: SkillCatalogBaseline;
+    readonly rebakedFrom: string | null;
+  };
+  /**
+   * The catalog names this turn leaves the chat told about, present only when
+   * the turn advances that state — a started epoch, or a rendered notice. An
+   * opted-out model or an unchanged catalog leaves it exactly where it was.
+   */
+  readonly told?: ReadonlyArray<string>;
 };
 
 /**
- * The baseline to render and the notice to emit.
+ * The baseline to render, the notice to emit, and the writes that follow.
  *
  * Reuse is checked before the configured list: a stored baseline is this epoch's
  * frozen advertisement, and emptying the source list must not silently
  * unadvertise a catalog the chat is still told about. Only resolving a NEW
  * baseline requires a configured source.
+ *
+ * Touches no database: the caller holds the chat row it passes in and applies
+ * whatever `freeze`/`told` it gets back.
  */
-export async function resolveTurnSkillState(
+export function resolveTurnSkillState(
   deps: SkillTurnStateDeps,
   input: {
-    readonly tx: Db;
     readonly chat: Chat;
-    readonly chatId: string;
-    readonly ownerUserId: string;
     readonly runId: string;
     readonly latestCompactionId: string | null;
     /** Whether this turn's bound model template renders the catalog at all. */
     readonly modelReferencesSkills: boolean;
   },
-): Promise<SkillTurnState> {
+): SkillTurnState {
   const stored = input.chat.skillCatalogBaseline;
   if (
     stored !== null &&
@@ -80,36 +97,37 @@ export async function resolveTurnSkillState(
     // discloses only what changed since the chat was last told. A chat whose
     // baseline predates this layer has no recorded told state, and adopting the
     // baseline for it is correct — its prompt already showed that catalog.
+    const notice = deriveCatalogNotice({
+      deps,
+      told: input.chat.skillCatalogTold ?? toldFromBaseline(stored),
+      runId: input.runId,
+      modelReferencesSkills: input.modelReferencesSkills,
+    });
     return {
       baseline: stored,
-      notice: deriveCatalogNotice({
-        deps,
-        told: input.chat.skillCatalogTold ?? toldFromBaseline(stored),
-        runId: input.runId,
-        modelReferencesSkills: input.modelReferencesSkills,
-      }),
+      notice,
+      ...(notice !== undefined && { told: notice.told }),
     };
   }
   return startSkillEpoch(deps, input);
 }
 
 /**
- * Start a new epoch: resolve the catalog, freeze it on the chat, and reset the
- * told state to that baseline.
+ * Start a new epoch: resolve the catalog and hand back the baseline to freeze.
  *
  * No delta is computed across the boundary — the baseline is itself what the
  * model is now shown, and the told state it establishes is what a later turn
- * compares against, so old notices are never replayed.
+ * compares against, so old notices are never replayed. Both writes are the
+ * caller's: it applies them in the attempt's own terminal transaction, together
+ * with the turn they belong to.
  */
-async function startSkillEpoch(
+function startSkillEpoch(
   deps: SkillTurnStateDeps,
   input: {
-    readonly tx: Db;
-    readonly chatId: string;
-    readonly ownerUserId: string;
+    readonly chat: Chat;
     readonly latestCompactionId: string | null;
   },
-): Promise<SkillTurnState> {
+): SkillTurnState {
   const catalog = deps.skillCatalog;
   if (catalog === undefined || deps.skillDirectories.length === 0) {
     return { baseline: undefined, notice: undefined };
@@ -125,19 +143,14 @@ async function startSkillEpoch(
     reportUnavailableCatalog(deps, catalog);
     return { baseline: undefined, notice: undefined };
   }
-  // Both writes ride the accepted-turn transaction the caller owns, so they
-  // commit with the message and Run or not at all.
-  const chats = new ChatsRepository(input.tx);
-  await chats.setSkillCatalogBaseline({
-    chatId: input.chatId,
-    ownerUserId: input.ownerUserId,
+  return {
     baseline,
-    rebakedFrom: input.latestCompactionId,
-  });
-  await chats.updateSkillCatalogTold(input.chatId, input.ownerUserId, [
-    ...toldFromBaseline(baseline),
-  ]);
-  return { baseline, notice: undefined };
+    notice: undefined,
+    freeze: { baseline, rebakedFrom: input.latestCompactionId },
+    // The frozen advertisement is what this epoch's later turns diff against,
+    // so the told state starts there rather than at whatever preceded it.
+    told: toldFromBaseline(baseline),
+  };
 }
 
 /**

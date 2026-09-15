@@ -1,17 +1,17 @@
-import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
 import {
-  type ModelContextSnapshot,
   type Run,
   type RunEvent,
+  type SystemPromptReceipt,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunsController } from './runs.controller';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
+import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 
 type RunEventRequest = Parameters<RunsController['streamRunEvents']>[3];
 type RunEventResponse = Parameters<RunsController['streamRunEvents']>[4];
@@ -23,8 +23,10 @@ describe('RunsController context receipt', () => {
     messageId: '33333333-3333-4333-8333-333333333333',
     userId: 'owner',
     modelId: 'system:openai:public-model',
-    modelContextSnapshotId: '44444444-4444-4444-8444-444444444444',
     effort: null,
+    activeAttemptId: null,
+    completedAttemptId: null,
+    turnToolAvailability: null,
     status: 'completed',
     workerId: null,
     cancelRequestedAt: null,
@@ -34,38 +36,14 @@ describe('RunsController context receipt', () => {
     startedAt: new Date('2026-07-18T10:00:01.000Z'),
     finishedAt: new Date('2026-07-18T10:00:02.000Z'),
   };
-  const snapshot: ModelContextSnapshot = {
-    id: run.modelContextSnapshotId!,
+  const promptReceipt: SystemPromptReceipt = {
+    id: '55555555-5555-4555-8555-555555555555',
     ownerUserId: 'owner',
-    availabilityHash:
-      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    contentHash: 'content-hash',
-    promptHash: 'prompt-hash-must-not-leak',
-    toolHash: 'tool-hash-must-not-leak',
+    runId: run.id,
+    attemptId: '66666666-6666-4666-8666-666666666666',
     source: 'model_override',
     systemPrompt: 'Complete effective prompt',
-    toolAvailabilityManifest: {
-      version: 1,
-      entries: [
-        {
-          id: 'search_conversations',
-          state: 'available',
-          declarationHash:
-            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-        },
-      ],
-    },
-    toolDeclarations: [
-      {
-        id: 'search_conversations',
-        description: 'Search your conversations',
-        inputSchema: {
-          type: 'object',
-          properties: { query: { type: 'string' } },
-          required: ['query'],
-        },
-      },
-    ],
+    promptHash: 'prompt-hash',
     createdAt: new Date('2026-07-18T09:59:59.000Z'),
   };
 
@@ -111,40 +89,40 @@ describe('RunsController context receipt', () => {
     return { value, writes, status, setHeader, flushHeaders, write, end };
   }
 
-  it('returns only the owner-visible immutable effective-context fields', async () => {
+  it('returns owner-visible system-prompt receipt fields', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
     vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
+      SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
-    ).mockResolvedValue(snapshot);
+    ).mockResolvedValue([promptReceipt]);
 
     const receipt = await controller().getContextReceipt('owner', run.id);
 
     expect(receipt).toEqual({
       modelId: 'system:openai:public-model',
-      promptSource: 'model_override',
-      systemPrompt: 'Complete effective prompt',
-      tools: snapshot.toolDeclarations,
-      availabilityHash:
-        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      toolAvailability: {
-        version: 1,
-        entries: [
-          {
-            id: 'search_conversations',
-            state: 'available',
-            declarationHash:
-              'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-            label: 'available',
-          },
-        ],
-      },
-      contentHash: 'content-hash',
-      createdAt: new Date('2026-07-18T09:59:59.000Z'),
+      state: 'prepared',
+      receipts: [
+        {
+          attemptId: promptReceipt.attemptId,
+          promptSource: 'model_override',
+          systemPrompt: 'Complete effective prompt',
+          promptHash: 'prompt-hash',
+          createdAt: promptReceipt.createdAt,
+        },
+      ],
+      createdAt: run.createdAt,
     });
     expect(JSON.stringify(receipt)).not.toMatch(
-      /providerModelId|credential|executor|authorization|ownerUserId|snapshotId|promptHash|toolHash|path/i,
+      /providerModelId|credential|executor|authorization|ownerUserId|runId|path/i,
     );
+  });
+
+  it('reports a run the owner cannot see as missing by id', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(undefined);
+
+    await expect(
+      controller().getContextReceipt('owner', run.id),
+    ).rejects.toThrow(`Run ${run.id} not found`);
   });
 
   it('returns an owned run', async () => {
@@ -234,87 +212,81 @@ describe('RunsController context receipt', () => {
     ).resolves.toMatchObject({ id: run.id, status: 'running_model' });
   });
 
-  it('reports migrated v0 availability only as unobserved', async () => {
+  it('returns not-produced for a terminal run without a prompt receipt', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
     vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
+      SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
-    ).mockResolvedValue({
-      ...snapshot,
-      availabilityHash:
-        '8c150f84f99edb30ec7fb866968b27db1bfc2d26e1be8a7e94ee61e565adf11e',
-      toolAvailabilityManifest: { version: 0, state: 'unobserved' },
-    });
+    ).mockResolvedValue([]);
 
     const receipt = await controller().getContextReceipt('owner', run.id);
 
-    expect(receipt.toolAvailability).toEqual({
-      version: 0,
-      state: 'unobserved',
+    expect(receipt).toEqual({
+      modelId: run.modelId,
+      state: 'not_produced',
+      receipts: [],
+      createdAt: run.createdAt,
     });
-    expect(receipt.toolAvailability).not.toHaveProperty('entries');
   });
 
-  it('maps unavailable reasons to static labels without source diagnostics', async () => {
-    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
-    const snapshotWithDiagnostics = {
-      ...snapshot,
-      toolAvailabilityManifest: {
-        version: 1 as const,
-        entries: [
-          {
-            id: 'mcp__web__search',
-            state: 'unavailable' as const,
-            reason: 'source_disconnected' as const,
-          },
-        ],
-      },
-      sourceDiagnostics: {
-        url: 'https://private.example/mcp',
-        error: 'AUTHORIZATION-SENTINEL',
-      },
+  it('returns active and completed attempt identities with receipts', async () => {
+    const attemptedRun: Run = {
+      ...run,
+      activeAttemptId: promptReceipt.attemptId,
+      completedAttemptId: promptReceipt.attemptId,
     };
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(
+      attemptedRun,
+    );
     vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
+      SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
-    ).mockResolvedValue(snapshotWithDiagnostics);
+    ).mockResolvedValue([promptReceipt]);
 
-    const receipt = await controller().getContextReceipt('owner', run.id);
+    const receipt = await controller().getContextReceipt(
+      'owner',
+      attemptedRun.id,
+    );
 
-    expect(receipt.toolAvailability).toEqual({
-      version: 1,
-      entries: [
+    expect(receipt).toEqual({
+      modelId: attemptedRun.modelId,
+      activeAttemptId: promptReceipt.attemptId,
+      completedAttemptId: promptReceipt.attemptId,
+      state: 'prepared',
+      receipts: [
         {
-          id: 'mcp__web__search',
-          state: 'unavailable',
-          reason: 'source_disconnected',
-          label: 'server disconnected',
+          attemptId: promptReceipt.attemptId,
+          promptSource: promptReceipt.source,
+          systemPrompt: promptReceipt.systemPrompt,
+          promptHash: promptReceipt.promptHash,
+          createdAt: promptReceipt.createdAt,
         },
       ],
+      createdAt: attemptedRun.createdAt,
     });
-    expect(JSON.stringify(receipt)).not.toMatch(
-      /private\.example|AUTHORIZATION-SENTINEL|sourceDiagnostics|url|error/i,
+  });
+
+  it('returns pending for a nonterminal run without a prompt receipt', async () => {
+    const pendingRun: Run = { ...run, status: 'queued' };
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(
+      pendingRun,
     );
-  });
-
-  it('returns not-found when the run is missing or belongs to another owner', async () => {
-    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(undefined);
-
-    await expect(
-      controller().getContextReceipt('other-user', run.id),
-    ).rejects.toBeInstanceOf(NotFoundException);
-  });
-
-  it('returns not-found for a legacy run without an owned snapshot', async () => {
-    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
     vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
+      SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue([]);
 
-    await expect(
-      controller().getContextReceipt('owner', run.id),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    const receipt = await controller().getContextReceipt(
+      'owner',
+      pendingRun.id,
+    );
+
+    expect(receipt).toEqual({
+      modelId: pendingRun.modelId,
+      state: 'pending',
+      receipts: [],
+      createdAt: pendingRun.createdAt,
+    });
   });
 
   it('streams a completed run tail and closes with DONE', async () => {

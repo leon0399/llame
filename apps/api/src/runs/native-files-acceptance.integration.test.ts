@@ -96,7 +96,6 @@ describe('native files through the model loop and durable worker', () => {
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
-      allowedTools: tools,
     });
     expect((await terminal(seeded.runId)).status).toBe('completed');
     expect(await readFile(path, 'utf8')).toBe('before\nBar\nafter\n');
@@ -157,7 +156,6 @@ describe('native files through the model loop and durable worker', () => {
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
-      allowedTools: tools,
     });
     expect((await terminal(seeded.runId)).status).toBe('completed');
     expect(await readFile(path, 'utf8')).toBe('replaced bytes\n');
@@ -219,7 +217,6 @@ describe('native files through the model loop and durable worker', () => {
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
-      allowedTools: tools,
     });
     expect((await terminal(seeded.runId)).status).toBe('completed');
     expect(await readFile(note, 'utf8')).toBe('replaced\n');
@@ -266,7 +263,6 @@ describe('native files through the model loop and durable worker', () => {
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
-      allowedTools: tools,
     });
     expect((await terminal(seeded.runId)).status).toBe('failed');
     expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
@@ -293,7 +289,6 @@ describe('native files through the model loop and durable worker', () => {
         tenantDb: harness.tenantDb,
         userId,
         modelId,
-        allowedTools: tools,
       });
       const deliverySequence = await harness.tenantDb.runAs(
         userId,
@@ -342,7 +337,6 @@ describe('native files through the model loop and durable worker', () => {
       tenantDb: harness.tenantDb,
       userId,
       modelId,
-      allowedTools: tools,
     });
     const settled = {
       status: 'success',
@@ -441,7 +435,6 @@ describe('native files through the model loop and durable worker', () => {
       tenantDb: harness.tenantDb,
       userId,
       modelId,
-      allowedTools: tools,
     });
     // The stored result already carries the Knowledge envelope, so the replay
     // returns it without re-resolving the Space or touching the filesystem.
@@ -540,7 +533,6 @@ describe('native files through the model loop and durable worker', () => {
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
-      allowedTools: tools,
     });
     expect((await terminal(seeded.runId)).status).toBe('completed');
     expect(await readFile(note, 'utf8')).toBe('not yours\n');
@@ -593,7 +585,6 @@ describe('native files through the model loop and durable worker', () => {
       tenantDb: harness.tenantDb,
       userId,
       modelId,
-      allowedTools: tools,
     });
     const deliverySequence = await harness.tenantDb.runAs(
       userId,

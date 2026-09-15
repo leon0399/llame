@@ -47,7 +47,6 @@ import { RunDispatchService } from './run-dispatch.service';
 import { type RunUserMessage } from './run-execution.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
 import { RunsRepository } from './runs-repository';
-import { seedModelContextSnapshot } from './model-context-snapshot.test-fixture';
 import { ScriptedModelsService } from './scripted-model-client';
 
 // ---- Harness boot ----------------------------------------------------------
@@ -76,7 +75,7 @@ type HarnessOverrides = {
   runsConcurrency?: number;
   timeoutSeconds?: number;
   heartbeatSeconds?: number;
-  /** Explicit code-owned tool rules for snapshots seeded by this harness. */
+  /** Explicit tool rules used to configure the worker boot. */
   allowedTools?: ReadonlyArray<string>;
   /**
    * Extra permission groups merged OVER the permissive allow-all this harness
@@ -229,12 +228,9 @@ export async function seedRun(input: {
   chatId?: string;
   /** Persisted on the run exactly as the accepting API would have stored it. */
   effort?: string;
-  /** Exact code-owned tool rules captured by the run's immutable snapshot. */
-  allowedTools?: ReadonlyArray<string>;
 }): Promise<{
   chatId: string;
   runId: string;
-  modelContextSnapshotId: string;
   userMessage: RunUserMessage;
 }> {
   const chatId = input.chatId ?? crypto.randomUUID();
@@ -258,24 +254,16 @@ export async function seedRun(input: {
       senderUserId: input.userId,
       parts,
     });
-    const snapshot = await seedModelContextSnapshot(
-      tx,
-      input.userId,
-      input.modelId,
-      input.allowedTools ?? [],
-    );
     const run = await new RunsRepository(tx).create({
       chatId,
       messageId: message.id,
       userId: input.userId,
       modelId: input.modelId,
       ...(input.effort !== undefined && { effort: input.effort }),
-      modelContextSnapshotId: snapshot.id,
     });
     return {
       chatId,
       runId: run.id,
-      modelContextSnapshotId: snapshot.id,
       userMessage: {
         id: message.id,
         seq: message.seq,
@@ -321,14 +309,11 @@ export async function seedAndDispatchRun(
     chatId?: string;
     /** Persisted on the run exactly as the accepting API would have stored it. */
     effort?: string;
-    /** Exact code-owned tool rules captured by the run's immutable snapshot. */
-    allowedTools?: ReadonlyArray<string>;
     enqueueOptions?: EnqueueOptions;
   },
 ): Promise<{
   chatId: string;
   runId: string;
-  modelContextSnapshotId: string;
   userMessage: RunUserMessage;
 }> {
   const seed = await seedRun({
@@ -338,9 +323,6 @@ export async function seedAndDispatchRun(
     text: input.text,
     chatId: input.chatId,
     ...(input.effort !== undefined && { effort: input.effort }),
-    ...(input.allowedTools !== undefined && {
-      allowedTools: input.allowedTools,
-    }),
   });
   await dispatchRun({
     queue: harness.queue,

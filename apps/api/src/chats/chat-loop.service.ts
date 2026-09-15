@@ -19,7 +19,6 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
-import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,
@@ -38,41 +37,10 @@ import {
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { stuckRunThresholdMs } from '../runs/run-queues';
 import {
-  PersonalizationService,
-  type PromptUserResolver,
-} from '../personalization/personalization.service';
-import {
   RunDispatchService,
   type RunDispatcher,
 } from '../runs/run-dispatch.service';
-import {
-  SystemPromptsService,
-  type SystemPromptRenderInput,
-} from '../system-prompts/system-prompts.service';
-import { type EffectiveContextSnapshotInput } from '../runs/effective-context-resolver';
-import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
-import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
-import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import {
-  KnowledgeToolCandidateResolver,
-  type KnowledgeToolCandidateResolverPort,
-} from '../knowledge/knowledge-tool-candidate-resolver';
-import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
 import { sanitizeClientMessageParts } from './context-item';
-import {
-  MemoryService,
-  type MemorySettingsBindingResolver,
-  type MemorySettingsResolver,
-} from '../memory/memory.service';
-import {
-  RecencyDigestService,
-  type RecencyDigestDelta,
-  type RecencyDigestResolution,
-  type RecencyDigestResolver,
-} from './recency-digest.service';
-import { resolveTurnContext, type TurnContextDeps } from './turn-context';
-
-type RuntimeCatalogSnapshotter = Pick<McpRuntimeService, 'snapshotCandidates'>;
 
 /**
  * Narrows a read-back message's `unknown[]` JSONB `parts` to `MessagePart[]`:
@@ -103,6 +71,12 @@ export type ChatMessageInput = {
   parts: Array<MessagePart>;
 };
 
+/**
+ * Accept-time inputs for the binding transaction: user identity, chat,
+ * selected model/effort, and the sanitized message. Prompt rendering,
+ * tool-catalog composition, and context-item derivation are resolved by
+ * the executing worker at attempt time, not here.
+ */
 export type PersistUserMessageAndRunInput = {
   chatId: string;
   userId: string;
@@ -111,11 +85,6 @@ export type PersistUserMessageAndRunInput = {
   effort: string | undefined;
   message: ChatMessageInput;
   targetRunId: string;
-  model: SystemModelCatalogEntry;
-  user: SystemPromptRenderInput['user'];
-  allowedToolRules: ReadonlyArray<string>;
-  dynamicCandidates: ReadonlyArray<TurnToolCandidate>;
-  digestCandidate?: RecencyDigestResolution;
 };
 
 type ChatMessageStream = Pick<
@@ -152,9 +121,9 @@ type CreateMessageStreamInput = {
 /**
  * ChatLoopService — the API side of a message turn (SPEC §9.5): validate,
  * store the message, create the run, enqueue it, and answer with the
- * run-event stream bridge. Execution happens exclusively in the queue
- * consumer (RunsWorkerService → RunExecutionService); there is no inline
- * request-thread execution path.
+ * run-event stream bridge. Prompt rendering, tool-catalog composition,
+ * and context-item derivation are deferred to the executing worker —
+ * this service persists only the accepted user message and Run identity.
  */
 @Injectable()
 export class ChatLoopService {
@@ -176,20 +145,6 @@ export class ChatLoopService {
     private readonly aborts: RunAborter,
     @Inject(RunDispatchService)
     private readonly dispatch: RunDispatcher,
-    @Inject(PersonalizationService)
-    private readonly personalization: PromptUserResolver,
-    private readonly systemPrompts: SystemPromptsService,
-    @Inject(McpRuntimeService)
-    private readonly mcpRuntime: RuntimeCatalogSnapshotter,
-    @Inject(MemoryService)
-    private readonly memory: MemorySettingsResolver &
-      MemorySettingsBindingResolver,
-    @Inject(RecencyDigestService)
-    private readonly recencyDigest: RecencyDigestResolver,
-    @Inject(KnowledgeToolCandidateResolver)
-    private readonly knowledgeCandidates: KnowledgeToolCandidateResolverPort,
-    @Inject(SkillCatalog)
-    private readonly skillCatalog: SkillCatalogPort,
   ) {}
 
   async createMessageStream(
@@ -200,41 +155,19 @@ export class ChatLoopService {
     // reported without the effort ever being considered.
     const effort = this.models.resolveEffortSelection(model, input.effort);
     // Validate BEFORE any database work: a rejected message must not cost a
-    // personalization transaction, and a personalization read that fails
-    // must not turn a 400 into a 500 for input that was invalid anyway.
+    // transaction, and input that was invalid anyway stays a 400.
     const message = this.sanitizeAndValidateMessage(input.message);
 
-    // Read the owner's per-user context in its own short transaction, out here
-    // rather than inside the binding transaction below: that one holds the chat
-    // row for its whole duration (see the lock-order note in
-    // run-execution.service.ts#finishRun), and widening it to cover this read
-    // would extend the hold for nothing. The cost is that an edit committed
-    // between this read and the bind applies only to the next run — specified
-    // and accepted.
-    const user = await this.personalization.resolvePromptUser(input.userId);
-    const digestCandidate = await this.resolveDigestCandidate(
-      input.userId,
-      input.chatId,
-    );
-    const allowedToolRules = this.instanceConfig.config.tools.allowed;
-    // This is a pure process-local projection of the last atomically published
-    // runtime catalog. It neither waits for nor initiates remote I/O, and it is
-    // intentionally resolved before the tenant binding transaction opens.
-    const dynamicCandidates: ReadonlyArray<TurnToolCandidate> =
-      this.mcpRuntime.snapshotCandidates();
     const targetRunId = randomUUID();
 
     const { runId, userMessage, supersededRunIds } =
       await this.persistUserMessageAndRun({
-        ...input,
-        message,
+        chatId: input.chatId,
+        userId: input.userId,
+        modelId: input.modelId,
         effort,
+        message,
         targetRunId,
-        model,
-        user,
-        allowedToolRules,
-        dynamicCandidates,
-        digestCandidate,
       });
 
     return this.finalizeAcceptedRun({
@@ -259,33 +192,6 @@ export class ChatLoopService {
       throw new BadRequestException('Message must contain a text part');
     }
     return sanitized;
-  }
-
-  private turnContextDeps(): TurnContextDeps {
-    return {
-      logger: this.logger,
-      systemPrompts: this.systemPrompts,
-      instanceConfig: this.instanceConfig,
-      knowledgeCandidates: this.knowledgeCandidates,
-      memory: this.memory,
-      skillCatalog: this.skillCatalog,
-    };
-  }
-
-  /** Best-effort: a failed digest resolution must not fail the turn it decorates. */
-  private async resolveDigestCandidate(
-    userId: string,
-    chatId: string,
-  ): Promise<RecencyDigestResolution | undefined> {
-    try {
-      if ((await this.memory.getForOwner(userId)).shareRecentChats === true) {
-        return await this.recencyDigest.resolveCandidate(userId, chatId);
-      }
-    } catch {
-      // Do not expose corpus text through diagnostics; only the failure class is useful.
-      this.logger.error('recency_digest_resolution_failed');
-    }
-    return undefined;
   }
 
   /**
@@ -332,39 +238,38 @@ export class ChatLoopService {
     };
   }
 
+  /**
+   * Accepted-turn binding transaction: chat admission, single-flight,
+   * user-message persistence, Run creation, and the run.created event.
+   * Prompt rendering and tool-catalog composition are deferred to the
+   * worker — this transaction establishes only the accepted user/model/effort
+   * identity and the durable Run record.
+   */
   private async persistUserMessageAndRun(
     input: PersistUserMessageAndRunInput,
   ): Promise<PersistUserMessageAndRunResult> {
-    // Accepted-turn binding transaction. The prior accepted Run, active
-    // compaction boundary, durable availability delta, frozen digest baseline,
-    // rendered effective context, user message, immutable snapshot, Run, and
-    // run.created event are bound here atomically. A rollback establishes no
-    // digest or availability baseline. Compaction resets only this model-facing
-    // comparison epoch; it never mutates the process-resident tool catalog.
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
       const eventsRepo = new RunEventsRepository(tx);
       const runsRepo = new RunsRepository(tx);
 
-      const { chat, userMessage: admittedMessage } = await this.admitTurn(
+      const { userMessage: admittedMessage } = await this.admitTurn(
         chatsRepo,
         messagesRepo,
         input,
       );
-      let userMessage = admittedMessage;
       await this.clearActiveRunSlot({ runsRepo, eventsRepo, ...input });
 
-      const turnContext = await resolveTurnContext(
-        this.turnContextDeps(),
-        { tx, chatsRepo, chat },
+      // The user message is persisted with only the caller's sanitized text
+      // parts. Context-rail items (model-switch, availability, digest,
+      // temporal) are resolved by the executing worker and published
+      // atomically with the successful assistant turn.
+      const userMessage = await this.persistUserMessageIfAbsent(
+        messagesRepo,
+        admittedMessage,
         input,
-      );
-      userMessage = await this.finalizeTurnMessage(
-        { messagesRepo, chatsRepo },
-        userMessage,
-        input,
-        turnContext,
+        input.message.parts,
       );
 
       // Durable run (#48): every accepted user message becomes exactly one run
@@ -376,7 +281,6 @@ export class ChatLoopService {
         tx,
         input,
         userMessage,
-        turnContext.effectiveContext,
       );
 
       return {
@@ -391,14 +295,10 @@ export class ChatLoopService {
    * Resolve/create the chat and admit the turn: refuse an archived chat and
    * a reused message id (a turn already carrying a user or assistant
    * message). Serializes predecessor reads for an accepted turn on a
-   * pre-existing chat — the availability and model-switch reminders compare
-   * against the immediately preceding Run, so two transactions must not both
-   * read the same baseline and then commit in sequence. A freshly inserted
-   * chat already carries this transaction's row lock; an existing chat is
-   * locked here (by the activity update) before any predecessor state is
-   * read, taking the post-lock row rather than the pre-lock snapshot above —
-   * this transaction may have waited behind a compaction or a preceding turn
-   * that changed the very digest columns read downstream.
+   * pre-existing chat — the chat row lock ensures two transactions do not
+   * both commit against the same baseline. A freshly inserted chat already
+   * carries this transaction's row lock; an existing chat is locked here
+   * (by the activity update) before any downstream state is read.
    */
   private async admitTurn(
     chatsRepo: ChatsRepository,
@@ -471,44 +371,32 @@ export class ChatLoopService {
   }
 
   /**
-   * Materialize the user message row (or accept the one `admitTurn` already
-   * found — a retry of an already-persisted turn) and, if this turn resolved
-   * a digest delta, persist the told-set it discloses. The two are bound
-   * together deliberately: the told-set update must not race a message that
-   * never actually got created.
+   * The Run row, atomically with canceling any (defensively impossible, but
+   * legacy-data-tolerant) stale active runs on this same message, and the
+   * `run.created` event. No snapshot is bound — the worker resolves
+   * prompt/catalog at execution time.
    */
-  private async finalizeTurnMessage(
-    repos: { messagesRepo: MessagesRepository; chatsRepo: ChatsRepository },
-    existing: Message | undefined,
-    input: PersistUserMessageAndRunInput,
-    turnContext: {
-      messageParts: Array<MessagePart>;
-      digestDelta: RecencyDigestDelta | null;
-      skillCatalogTold?: ReadonlyArray<string>;
-    },
-  ): Promise<Message> {
-    const userMessage = await this.persistUserMessageIfAbsent(
-      repos.messagesRepo,
-      existing,
-      input,
-      turnContext.messageParts,
+  private async createRunForMessage(
+    tx: Db,
+    input: CreateRunForMessageInput,
+    userMessage: Message,
+  ): Promise<CreateRunForMessageResult> {
+    const runsRepo = new RunsRepository(tx);
+    const eventsRepo = new RunEventsRepository(tx);
+    const superseded = await this.cancelSupersededRuns(
+      runsRepo,
+      eventsRepo,
+      userMessage,
+      input.userId,
     );
-    if (turnContext.digestDelta) {
-      await repos.chatsRepo.updateRecencyDigestTold(
-        input.chatId,
-        input.userId,
-        turnContext.digestDelta.told,
-      );
-    }
-    // Advanced only when a notice actually disclosed something, and only after
-    // the message carrying that notice exists — so a retry cannot record a
-    // told state for a notice the chat never received.
-    if (turnContext.skillCatalogTold !== undefined) {
-      await repos.chatsRepo.updateSkillCatalogTold(input.chatId, input.userId, [
-        ...turnContext.skillCatalogTold,
-      ]);
-    }
-    return userMessage;
+
+    const run = await this.createRunRow(tx, input, userMessage);
+    await eventsRepo.append(run.id, 'run.created', {
+      chatId: input.chatId,
+      messageId: userMessage.id,
+    });
+
+    return { run, supersededRunIds: superseded.map((stale) => stale.id) };
   }
 
   /**
@@ -535,39 +423,6 @@ export class ChatLoopService {
   }
 
   /**
-   * The Run row + its context snapshot, atomically with canceling any
-   * (defensively impossible, but legacy-data-tolerant) stale active runs on
-   * this same message, and the `run.created` event.
-   */
-  private async createRunForMessage(
-    tx: Db,
-    input: CreateRunForMessageInput,
-    userMessage: Message,
-    effectiveContext: EffectiveContextSnapshotInput,
-  ): Promise<CreateRunForMessageResult> {
-    const snapshot = await new ModelContextSnapshotsRepository(
-      tx,
-    ).createOrReuse(input.userId, effectiveContext);
-
-    const runsRepo = new RunsRepository(tx);
-    const eventsRepo = new RunEventsRepository(tx);
-    const superseded = await this.cancelSupersededRuns(
-      runsRepo,
-      eventsRepo,
-      userMessage,
-      input.userId,
-    );
-
-    const run = await this.createRunRow(tx, input, userMessage, snapshot.id);
-    await eventsRepo.append(run.id, 'run.created', {
-      chatId: input.chatId,
-      messageId: userMessage.id,
-    });
-
-    return { run, supersededRunIds: superseded.map((stale) => stale.id) };
-  }
-
-  /**
    * The Run row itself, in a savepoint (nested tx) so the single-flight
    * unique violation it may raise cannot poison the outer accepted-turn
    * transaction — `clearActiveRunSlot` above still needs it live.
@@ -576,7 +431,6 @@ export class ChatLoopService {
     tx: Db,
     input: CreateRunForMessageInput,
     userMessage: Message,
-    snapshotId: string,
   ): Promise<Run> {
     try {
       return await tx.transaction((inner) =>
@@ -587,7 +441,6 @@ export class ChatLoopService {
           userId: input.userId,
           modelId: input.modelId,
           effort: input.effort,
-          modelContextSnapshotId: snapshotId,
         }),
       );
     } catch (error) {
@@ -632,7 +485,7 @@ export class ChatLoopService {
       blocking.id,
       input.userId,
       'expired',
-      { message },
+      { error: { message } },
     );
     if (expired) {
       await input.eventsRepo.append(blocking.id, 'run.expired', {

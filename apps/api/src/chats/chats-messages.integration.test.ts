@@ -248,7 +248,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           )
         ) {
           await repo.markFinished(leftover.id, userAId, 'cancelled', {
-            message: 'test cleanup',
+            error: { message: 'test cleanup' },
           });
         }
       }

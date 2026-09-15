@@ -162,7 +162,7 @@ describe('chat schema metadata', () => {
     expect(indexNames(runs)).toEqual([
       'runs_chat_created_idx',
       'runs_user_status_idx',
-      'runs_model_context_snapshot_idx',
+      'runs_id_user_id_unique_idx',
       'runs_chat_inflight_unique',
     ]);
     expect(policyNames(runs)).toEqual(['runs_owner']);

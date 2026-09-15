@@ -191,7 +191,6 @@ describe('skill package references and scripts through the model loop', () => {
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
-      allowedTools: tools,
     });
     expect((await terminal(seeded.runId)).status).toBe('completed');
 

@@ -9,7 +9,6 @@
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
@@ -17,42 +16,82 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type ModelSelectionValidator } from '../models/models.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
+import { MessagesRepository } from '../chats/chats-repository';
+import { isTextPart } from '../chats/context-builder';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { RunsRepository } from '../runs/runs-repository';
-import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
-import { PersonalizationRepository } from './personalization-repository';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { PersonalizationService } from './personalization.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import { createFakeModelClient } from '../models/fake-model-client';
+import type { InstanceConfigReader } from '../instance-config/instance-config.service';
+import type { CompactionCapability } from '../compaction/compaction.service';
+import type { TitleCapability } from '../titles/title.service';
+import { RunExecutionService } from '../runs/run-execution.service';
+import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { MemoryService } from '../memory/memory.service';
 import { RecencyDigestService } from '../chats/recency-digest.service';
-import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
-import { TOOL_REGISTRY } from '../tools/registry';
 
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
+import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
+import { SearchIndexService } from '../search/search-index.service';
+import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import type { KnowledgeToolResolver } from '../tools/types';
 export {};
 
-const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
-  resolve: () =>
-    Promise.resolve(
-      [...TOOL_REGISTRY.values()].map((tool) => ({
-        source: { type: 'code_owned' as const },
-        state: 'available' as const,
-        tool,
-      })),
-    ),
+const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+const knowledgeResolver: KnowledgeToolResolver = {
+  listForOwnerPage: () => Promise.resolve({ spaces: [] }),
+  resolveBindingForOwnerById: () => Promise.resolve(undefined),
+  createAdapter: () => ({
+    search: () => Promise.resolve([]),
+    resolveHostPath: () =>
+      Promise.reject(new Error('Knowledge adapter is not exercised')),
+    isInsideSpace: () => Promise.resolve(true),
+  }),
 };
 
-const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () => Promise.resolve([]),
+};
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 describeIfDb('personalization binds per run', () => {
   let sql: Sql;
   let tenantDb: TenantDbService;
   let chatLoop: ChatLoopService;
+  let runExecution: RunExecutionService;
   let personalization: PersonalizationService;
   let userAId: string;
   let userBId: string;
 
-  // A real template, rendered by the production SystemPromptsService — so this
+  /** Execute the accepted queued run through worker-owned context preparation. */
+  const execute = async (userId: string, chatId: string, messageId: string) => {
+    const { run, message } = await tenantDb.runAs(userId, async (tx) => {
+      const [run] = await new RunsRepository(tx).findByChatId(chatId, userId);
+      const message = await new MessagesRepository(tx).findById(
+        chatId,
+        userId,
+        messageId,
+      );
+      return { run, message };
+    });
+    if (!run || !message) throw new Error('Failed to load accepted run');
+    const result = await runExecution.executeRun({
+      runId: run.id,
+      chatId,
+      userId,
+      userMessage: {
+        id: message.id,
+        seq: message.seq,
+        parts: message.parts.filter(isTextPart),
+      },
+      client: createFakeModelClient(['done']),
+    });
+    await result.consumeStream?.();
+  };
   // test exercises the actual renderer (including its trim-means-absent rule)
   // rather than a stub that has to re-implement it and can drift from it.
   const SYSTEM_PROMPT_TEMPLATE =
@@ -69,18 +108,24 @@ describeIfDb('personalization binds per run', () => {
       message: { id: messageId, parts: [{ type: 'text', text: 'hello' }] },
     });
 
-  /** The system prompt actually bound to that chat's run. */
-  const boundSnapshot = async (userId: string, chatId: string) =>
+  /** The system prompt actually recorded for that chat's winning attempt. */
+  const boundReceipt = async (userId: string, chatId: string) =>
     tenantDb.runAs(userId, async (tx) => {
       const [run] = await new RunsRepository(tx).findByChatId(chatId, userId);
-      const snapshot = await new ModelContextSnapshotsRepository(
+      if (!run?.completedAttemptId) {
+        throw new Error('Expected a completed attempt receipt');
+      }
+      const receipt = await new SystemPromptReceiptsRepository(
         tx,
-      ).findByOwnedRun(run.id, userId);
-      return snapshot!;
+      ).findByAttempt(run.id, run.completedAttemptId, userId);
+      if (!receipt) {
+        throw new Error('Expected a system prompt receipt');
+      }
+      return receipt;
     });
 
   const boundPrompt = async (userId: string, chatId: string) =>
-    (await boundSnapshot(userId, chatId)).systemPrompt;
+    (await boundReceipt(userId, chatId)).systemPrompt;
 
   beforeAll(async () => {
     const postgres = await import('postgres');
@@ -114,21 +159,34 @@ describeIfDb('personalization binds per run', () => {
     chatLoop = new ChatLoopService(
       tenantDb,
       models,
-      // Every value this test needs IS the built-in default, so use them
-      // rather than restating a config that would silently drift from them.
       { config: BUILT_IN_DEFAULTS },
-      // Typed, no cast: ChatLoopService depends on the method, not the class.
-      // This test never consumes the response — it asserts on what was BOUND.
       { createUiMessageStreamResponse: () => new Response(null) },
       new RunAbortRegistry(),
       { dispatch: () => Promise.resolve() },
-      personalization,
+    );
+    runExecution = new RunExecutionService(
+      tenantDb,
+      {
+        maybeCompact: async () => {},
+        compactForTransition: () => Promise.resolve('created' as const),
+      } satisfies CompactionCapability,
+      { maybeGenerateTitle: async () => {} } satisfies TitleCapability,
+      { config: BUILT_IN_DEFAULTS } satisfies InstanceConfigReader,
+      new SearchIndexService(tenantDb),
+      noopReindexDispatch(),
+      knowledgeResolver,
+      noopSkillCatalog(),
+      noopEmbedDispatch(),
+      noopQueryEmbedder(),
+      compileTestPermissionPolicy(),
+      models,
       new SystemPromptsService(),
+      personalization,
+      knowledgeCandidates,
       { snapshotCandidates: () => [] },
       new MemoryService(tenantDb),
       new RecencyDigestService(tenantDb),
-      knowledgeCandidates,
-      noopSkillCatalog(),
+      undefined,
     );
   });
 
@@ -151,9 +209,12 @@ describeIfDb('personalization binds per run', () => {
 
     const chatA = crypto.randomUUID();
     const chatB = crypto.randomUUID();
-    await send(userAId, chatA, crypto.randomUUID());
-    await send(userBId, chatB, crypto.randomUUID());
-
+    const messageA = crypto.randomUUID();
+    const messageB = crypto.randomUUID();
+    await send(userAId, chatA, messageA);
+    await send(userBId, chatB, messageB);
+    await execute(userAId, chatA, messageA);
+    await execute(userBId, chatB, messageB);
     const promptA = await boundPrompt(userAId, chatA);
     const promptB = await boundPrompt(userBId, chatB);
 
@@ -167,25 +228,26 @@ describeIfDb('personalization binds per run', () => {
     expect(promptB).not.toContain('A private about text');
   });
 
-  it('an edit after enqueue does not change the already-bound run', async () => {
+  it('an edit after enqueue is observed when the worker prepares the attempt', async () => {
     await personalization.updateForOwner(userAId, { preferredName: 'Before' });
 
     const chatId = crypto.randomUUID();
-    await send(userAId, chatId, crypto.randomUUID());
-    const bound = await boundPrompt(userAId, chatId);
-    expect(bound).toContain('Name: Before');
+    const messageId = crypto.randomUUID();
+    await send(userAId, chatId, messageId);
 
-    // The owner edits immediately after enqueue…
+    // The owner edits after enqueue but before worker execution.
     await personalization.updateForOwner(userAId, { preferredName: 'After' });
+    await execute(userAId, chatId, messageId);
 
-    // …and the run keeps what it bound. Retry reuses this snapshot, so the
-    // answer stays reproducible.
-    expect(await boundPrompt(userAId, chatId)).toBe(bound);
-    expect(await boundPrompt(userAId, chatId)).not.toContain('After');
+    const bound = await boundPrompt(userAId, chatId);
+    expect(bound).toContain('Name: After');
+    expect(bound).not.toContain('Name: Before');
 
-    // The NEXT run picks the new value up.
+    // The NEXT run also picks the current value up.
     const nextChat = crypto.randomUUID();
-    await send(userAId, nextChat, crypto.randomUUID());
+    const nextMessage = crypto.randomUUID();
+    await send(userAId, nextChat, nextMessage);
+    await execute(userAId, nextChat, nextMessage);
     expect(await boundPrompt(userAId, nextChat)).toContain('Name: After');
   });
 
@@ -195,14 +257,18 @@ describeIfDb('personalization binds per run', () => {
       shareAccountIdentity: false,
     });
     const withheldChat = crypto.randomUUID();
-    await send(userAId, withheldChat, crypto.randomUUID());
+    const withheldMessage = crypto.randomUUID();
+    await send(userAId, withheldChat, withheldMessage);
+    await execute(userAId, withheldChat, withheldMessage);
     expect(await boundPrompt(userAId, withheldChat)).not.toContain('Email:');
 
     await personalization.updateForOwner(userAId, {
       shareAccountIdentity: true,
     });
     const sharedChat = crypto.randomUUID();
-    await send(userAId, sharedChat, crypto.randomUUID());
+    const sharedMessage = crypto.randomUUID();
+    await send(userAId, sharedChat, sharedMessage);
+    await execute(userAId, sharedChat, sharedMessage);
     expect(await boundPrompt(userAId, sharedChat)).toContain(
       `Email: bind-a-${userAId}@test.com`,
     );
@@ -215,7 +281,9 @@ describeIfDb('personalization binds per run', () => {
     });
 
     const chatId = crypto.randomUUID();
-    await send(userAId, chatId, crypto.randomUUID());
+    const messageId = crypto.randomUUID();
+    await send(userAId, chatId, messageId);
+    await execute(userAId, chatId, messageId);
     const bound = await boundPrompt(userAId, chatId);
 
     expect(bound).toBe('Base prompt.');
@@ -223,35 +291,5 @@ describeIfDb('personalization binds per run', () => {
     expect(bound).not.toContain('Email:');
 
     await personalization.updateForOwner(userAId, { enabled: true });
-  });
-
-  it('an owner with nothing to render binds the same prompt as no owner at all', async () => {
-    // Content-addressed snapshots must keep deduping, or every unpersonalized
-    // run writes a fresh full-prompt row.
-    const emptyUserId = crypto.randomUUID();
-    await sql`INSERT INTO users (id, name, email) VALUES (${emptyUserId}, 'Empty', ${`empty-${emptyUserId}@test.com`})`;
-
-    const chatId = crypto.randomUUID();
-    await send(emptyUserId, chatId, crypto.randomUUID());
-    const first = await boundSnapshot(emptyUserId, chatId);
-    expect(first.systemPrompt).toBe('Base prompt.');
-
-    await tenantDb.runAs(emptyUserId, (tx) =>
-      new PersonalizationRepository(tx).upsertForOwner(emptyUserId, {
-        about: '   ',
-      }),
-    );
-    const secondChat = crypto.randomUUID();
-    await send(emptyUserId, secondChat, crypto.randomUUID());
-    const second = await boundSnapshot(emptyUserId, secondChat);
-
-    // Identical TEXT would pass even if dedup broke and a fresh row were
-    // written per run, so assert the content address itself: same hash means
-    // the same snapshot row was reused.
-    expect(second.systemPrompt).toBe('Base prompt.');
-    expect(second.contentHash).toBe(first.contentHash);
-    expect(second.id).toBe(first.id);
-
-    await sql`DELETE FROM users WHERE id = ${emptyUserId}`;
   });
 });

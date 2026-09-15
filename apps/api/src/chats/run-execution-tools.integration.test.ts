@@ -61,7 +61,10 @@ import {
 } from './context-builder';
 import { toChatMessageResponse } from './dto/chats.dto';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import type { ModelSelectionValidator } from '../models/models.service';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { CompactionCapability } from '../compaction/compaction.service';
 import type { TitleCapability } from '../titles/title.service';
 import {
@@ -70,7 +73,8 @@ import {
 } from '../runs/run-execution.service';
 import { type DynamicToolExecutorResolver } from '../runs/snapshot-tool-execution';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
+import { resolveEffectiveContext } from '../runs/effective-context-resolver';
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { SearchIndexService } from '../search/search-index.service';
 import {
@@ -79,13 +83,18 @@ import {
   TOOL_REGISTRY,
   unregisterTestOnlyTool,
 } from '../tools/registry';
-import { hashToolDeclaration } from '../tools/turn-tool-catalog';
+import {
+  hashToolDeclaration,
+  type TurnToolCandidate,
+} from '../tools/turn-tool-catalog';
 import {
   type KnowledgeToolResolver,
   type Tool,
   type ToolContext,
 } from '../tools/types';
+import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import { executeConversationRead } from '../tools/conversation-read';
+import { resolveJsonSchema } from '../tools/schema-utils';
 import { KnowledgeSpaceLocalResolver } from '../knowledge/knowledge-space.local-resolver';
 import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
@@ -94,6 +103,8 @@ import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import { turnTelemetryLogger } from './turn-telemetry';
 import { createModelChangeItem } from './context-item-producers';
 
+import { MemoryService } from '../memory/memory.service';
+import { RecencyDigestService } from './recency-digest.service';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
@@ -108,6 +119,28 @@ const knowledgeResolver: KnowledgeToolResolver = {
       Promise.reject(new Error('Knowledge adapter is not exercised')),
     isInsideSpace: () => Promise.resolve(true),
   }),
+};
+
+const testModelEntry: SystemModelCatalogEntry = {
+  id: 'mock',
+  source: 'system',
+  contextWindowTokens: 100_000,
+  provider: 'mock',
+  providerModelId: 'mock',
+  systemPromptTemplate: 'Test prompt',
+  systemPromptSource: 'project_default',
+  referencesSkills: false,
+};
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
 };
 
 /**
@@ -419,9 +452,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
     searchIndex?: ChatSearchIndexer;
     reindexDispatch?: ChatReindexDispatcher;
     knowledgeResolver?: KnowledgeToolResolver;
-
     embedDispatch?: ChatEmbedDispatcher;
     dynamicToolResolver?: DynamicToolExecutorResolver;
+    dynamicCandidates?: ReadonlyArray<TurnToolCandidate>;
   }): RunExecutionService {
     const noopCompaction: CompactionCapability = {
       maybeCompact: async () => {},
@@ -447,6 +480,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
         },
       },
     };
+    const models: ModelSelectionValidator = {
+      validateModelSelection: vi.fn().mockReturnValue(testModelEntry),
+      resolveEffortSelection: vi.fn().mockReturnValue(undefined),
+    };
     return new RunExecutionService(
       tenantDb,
       noopCompaction,
@@ -463,6 +500,13 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ...getRegisteredToolIds(),
         ...(overrides?.allowed ?? []),
       ]),
+      models,
+      new SystemPromptsService(),
+      { resolvePromptUser: vi.fn().mockResolvedValue(undefined) },
+      knowledgeCandidates,
+      { snapshotCandidates: () => overrides?.dynamicCandidates ?? [] },
+      new MemoryService(tenantDb),
+      new RecencyDigestService(tenantDb),
       overrides?.dynamicToolResolver,
     );
   }
@@ -506,17 +550,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
-  async function seedBoundRun(
-    key: string,
-    toolIds: ReadonlyArray<string> = ['search_conversations'],
-  ) {
+  async function seedBoundRun(key = `worker-${crypto.randomUUID()}`) {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const seeded = await tenantDb.runAs(userId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
         ownerUserId: userId,
-        title: 'Snapshot execution',
+        title: 'Worker execution',
       });
       const userMessage = await new MessagesRepository(tx).create({
         id: messageId,
@@ -525,62 +566,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
         senderUserId: userId,
         parts: [{ type: 'text', text: 'use the bound context' }],
       });
-      const snapshot = await seedModelContextSnapshot(tx, userId, key, toolIds);
       const run = await new RunsRepository(tx).create({
         chatId,
         messageId,
         userId,
         modelId: `test:${key}`,
-        modelContextSnapshotId: snapshot.id,
       });
-      return { userMessage, snapshot, run };
+      return { userMessage, run };
     });
 
     return { chatId, messageId, key, ...seeded };
-  }
-
-  /**
-   * One content-addressed snapshot, reused by two runs whose turns differ only
-   * in the context items they carry — the exact condition under which a
-   * snapshot is reused while injected items are not, and therefore the reason
-   * the record cannot live on the snapshot.
-   *
-   * The second turn is seeded only after the first completes: per-chat
-   * single-flight forbids two non-terminal runs.
-   */
-  async function seedSharedSnapshotTurn(
-    key: string,
-    chatId: string,
-    parts: ReadonlyArray<UnknownRecord>,
-    snapshotId?: string,
-  ) {
-    return tenantDb.runAs(userId, async (tx) => {
-      await new ChatsRepository(tx).createIfAbsent({
-        id: chatId,
-        ownerUserId: userId,
-        title: 'Shared snapshot',
-      });
-      const snapshot =
-        snapshotId === undefined
-          ? await seedModelContextSnapshot(tx, userId, key, [
-              'search_conversations',
-            ])
-          : { id: snapshotId };
-      const message = await new MessagesRepository(tx).create({
-        chatId,
-        role: 'user',
-        senderUserId: userId,
-        parts: [...parts],
-      });
-      const run = await new RunsRepository(tx).create({
-        chatId,
-        messageId: message.id,
-        userId,
-        modelId: `test:${key}`,
-        modelContextSnapshotId: snapshot.id,
-      });
-      return { snapshot, message, run };
-    });
   }
 
   function recordingClient(calls: Array<ModelStreamInput>): ModelClient {
@@ -924,8 +919,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
-  it('uses the bound prompt and exact snapshotted tool declaration without re-intersecting the mutable operator allowlist', async () => {
-    const service = serviceWithTools({ allowed: [] });
+  it('uses the worker prompt and live registry declaration under the configured allowlist', async () => {
+    const service = serviceWithTools({ allowed: ['search_conversations'] });
     const seeded = await seedBoundRun(`bound-${crypto.randomUUID()}`);
     const calls: Array<ModelStreamInput> = [];
 
@@ -933,15 +928,17 @@ describeIfDb('executeRun tool-loop persistence', () => {
     await result.consumeStream?.();
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].system).toBe(seeded.snapshot.systemPrompt);
-    expect(calls[0].system).toBe(`Test prompt: ${seeded.key}`);
+    expect(calls[0].system).toBe('Test prompt');
     expect(Object.keys(calls[0].tools ?? {})).toEqual(['search_conversations']);
 
-    const snapshotDeclaration = seeded.snapshot.toolDeclarations[0];
+    const liveTool = TOOL_REGISTRY.get('search_conversations');
+    if (!liveTool) {
+      throw new Error('search_conversations must exist in the test registry');
+    }
     const advertised = calls[0].tools?.['search_conversations'];
-    expect(advertised?.description).toBe(snapshotDeclaration.description);
+    expect(advertised?.description).toBe(liveTool.description);
     expect(await asSchema(advertised!.inputSchema).jsonSchema).toEqual(
-      snapshotDeclaration.inputSchema,
+      await resolveJsonSchema(liveTool.inputSchema),
     );
 
     await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
@@ -1037,7 +1034,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
           messageId: user.id,
           userId,
           modelId: 'test:canonical-replay',
-          modelContextSnapshotId: seeded.snapshot.id,
         });
         return { user, run };
       });
@@ -1086,7 +1082,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const seeded = await seedBoundRun(
       `timeline-then-read-${crypto.randomUUID()}`,
-      ['search_conversations', 'conversation_read'],
     );
     const service = serviceWithTools({
       allowed: ['search_conversations', 'conversation_read'],
@@ -1249,13 +1244,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
       inputSchema: z.object({ query: z.string().min(1) }).strict(),
       execute: seedExecute,
     };
-    registerTestOnlyTool(seedTool);
     let seeded: Awaited<ReturnType<typeof seedBoundRun>> | undefined;
 
     try {
-      seeded = await seedBoundRun(`dynamic-${crypto.randomUUID()}`, [toolId]);
-      unregisterTestOnlyTool(toolId);
-      const declaration = seeded.snapshot.toolDeclarations[0];
+      seeded = await seedBoundRun(`dynamic-${crypto.randomUUID()}`);
       const execute = vi.fn((context: ToolContext, args: UnknownRecord) => ({
         status: 'success' as const,
         evidence: `${String(args['query'])}: current`,
@@ -1263,6 +1255,25 @@ describeIfDb('executeRun tool-loop persistence', () => {
         receivedAbortSignal: context.abortSignal instanceof AbortSignal,
       }));
       const liveTool: Tool = { ...seedTool, execute };
+      const dynamicCandidates: Array<TurnToolCandidate> = [
+        {
+          source: { type: 'mcp', serverId: 'web' },
+          state: 'available',
+          tool: liveTool,
+        },
+      ];
+      const resolved = await resolveEffectiveContext({
+        model: testModelEntry,
+        systemPrompt: testModelEntry.systemPromptTemplate,
+        allowedToolRules: [toolId],
+        callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
+        candidates: [],
+        dynamicCandidates,
+      });
+      const declaration = resolved.toolDeclarations[0];
+      if (!declaration) {
+        throw new Error('dynamic test declaration was not resolved');
+      }
       const dynamicToolResolver: DynamicToolExecutorResolver = {
         resolveDynamicTool: (id) =>
           id === toolId
@@ -1288,6 +1299,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
       const service = serviceWithTools({
         allowed: [toolId],
+        dynamicCandidates,
         dynamicToolResolver,
       });
       const result = await executeSeeded(
@@ -1340,7 +1352,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
           messageId: userMessage.id,
           userId,
           modelId: 'test:dynamic-replay',
-          modelContextSnapshotId: seeded!.snapshot.id,
         });
         return { userMessage, run };
       });
@@ -1379,15 +1390,17 @@ describeIfDb('executeRun tool-loop persistence', () => {
       inputSchema: z.object({ query: z.string() }).strict(),
       execute: remoteExecute,
     };
-    registerTestOnlyTool(remoteTool);
+    const dynamicCandidates: Array<TurnToolCandidate> = [
+      {
+        source: { type: 'mcp', serverId: 'offline' },
+        state: 'available',
+        tool: remoteTool,
+      },
+    ];
     let seeded: Awaited<ReturnType<typeof seedBoundRun>> | undefined;
 
     try {
-      seeded = await seedBoundRun(`withdrawn-${crypto.randomUUID()}`, [
-        toolId,
-        'search_conversations',
-      ]);
-      unregisterTestOnlyTool(toolId);
+      seeded = await seedBoundRun(`withdrawn-${crypto.randomUUID()}`);
       const resolveDynamicTool = vi.fn((id: string) =>
         id === toolId
           ? ({ state: 'unavailable' } as const)
@@ -1419,6 +1432,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         seeded,
         serviceWithTools({
           allowed: [toolId, 'search_conversations'],
+          dynamicCandidates,
           dynamicToolResolver: { resolveDynamicTool },
         }),
         createMockModelClient(model),
@@ -1448,7 +1462,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
       expect(events.map((event) => event.eventType)).toContain('run.completed');
     } finally {
-      unregisterTestOnlyTool(toolId);
       if (seeded !== undefined) {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
       }
@@ -1507,25 +1520,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
           senderUserId: userId,
           parts: [{ type: 'text', text: 'look up alpha' }],
         });
-        const snapshot = await seedModelContextSnapshot(
-          tx,
-          userId,
-          `json-schema-${crypto.randomUUID()}`,
-          [validToolId, malformedToolId],
-        );
         const run = await new RunsRepository(tx).create({
           chatId,
           messageId: userMessage.id,
           userId,
           modelId: 'test:json-schema',
-          modelContextSnapshotId: snapshot.id,
         });
-        return { userMessage, snapshot, run };
+        return { userMessage, run };
       });
-
-      expect(seeded.snapshot.toolDeclarations.map(({ id }) => id)).toEqual([
-        validToolId,
-      ]);
 
       let turn = 0;
       const model = new MockLanguageModelV3({
@@ -1600,7 +1602,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
           messageId: userMessage.id,
           userId,
           modelId: 'test:json-schema',
-          modelContextSnapshotId: seeded.snapshot.id,
         });
         return { userMessage, run };
       });
@@ -1624,7 +1625,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       expect(replayedHistory).toContain(`"toolName":"${validToolId}"`);
       expect(replayedHistory).toContain('"query":"alpha"');
       expect(replayedHistory).toContain('\\\"echo\\\":\\\"alpha\\\"');
-      expect(replayedHistory).not.toContain(malformedToolId);
+      expect(replayedHistory).toContain(malformedToolId);
     } finally {
       unregisterTestOnlyTool(validToolId);
       unregisterTestOnlyTool(malformedToolId);
@@ -1664,18 +1665,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
           senderUserId: userId,
           parts: [{ type: 'text', text: 'count this value' }],
         });
-        const snapshot = await seedModelContextSnapshot(
-          tx,
-          userId,
-          `json-schema-invalid-${crypto.randomUUID()}`,
-          [toolId],
-        );
         const run = await new RunsRepository(tx).create({
           chatId,
           messageId: userMessage.id,
           userId,
           modelId: 'test:json-schema-invalid',
-          modelContextSnapshotId: snapshot.id,
         });
         return { userMessage, run };
       });
@@ -1806,18 +1800,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
           senderUserId: userId,
           parts: [{ type: 'text', text: 'wait for cancellation' }],
         });
-        const snapshot = await seedModelContextSnapshot(
-          tx,
-          userId,
-          `cooperative-abort-${crypto.randomUUID()}`,
-          [toolId],
-        );
         const run = await new RunsRepository(tx).create({
           chatId,
           messageId: userMessage.id,
           userId,
           modelId: 'test:cooperative-abort',
-          modelContextSnapshotId: snapshot.id,
         });
         return { userMessage, run };
       });
@@ -1970,18 +1957,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
           senderUserId: userId,
           parts: [{ type: 'text', text: 'wait for cancellation' }],
         });
-        const snapshot = await seedModelContextSnapshot(
-          tx,
-          userId,
-          `cooperative-abort-write-failure-${crypto.randomUUID()}`,
-          [toolId],
-        );
         const run = await new RunsRepository(tx).create({
           chatId,
           messageId: userMessage.id,
           userId,
           modelId: 'test:cooperative-abort-write-failure',
-          modelContextSnapshotId: snapshot.id,
         });
         return { userMessage, run };
       });
@@ -2080,9 +2060,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
       }),
     },
   ])(
-    'fails before the provider call when the trusted executor is $name',
+    'uses live worker registry state when the tool is $name',
     async ({ mutate }) => {
-      const service = serviceWithTools();
+      const service = serviceWithTools({
+        allowed: ['search_conversations'],
+      });
       const seeded = await seedBoundRun(`drift-${crypto.randomUUID()}`);
       const calls: Array<ModelStreamInput> = [];
       const original = TOOL_REGISTRY.get('search_conversations');
@@ -2098,20 +2080,23 @@ describeIfDb('executeRun tool-loop persistence', () => {
       }
 
       try {
-        await expect(
-          executeSeeded(seeded, service, recordingClient(calls)),
-        ).rejects.toThrow(/snapshot|tool|context/i);
-        expect(calls).toHaveLength(0);
-        const failed = await tenantDb.runAs(userId, (tx) =>
+        const result = await executeSeeded(
+          seeded,
+          service,
+          recordingClient(calls),
+        );
+        await result.consumeStream?.();
+
+        expect(calls).toHaveLength(1);
+        expect(Object.keys(calls[0]?.tools ?? {})).toEqual(
+          changed?.classification === 'read_only'
+            ? ['search_conversations']
+            : [],
+        );
+        const completed = await tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(seeded.run.id, userId),
         );
-        expect(failed?.status).toBe('failed');
-        const events = await tenantDb.runAs(userId, (tx) =>
-          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
-        );
-        expect(
-          events.filter((event) => event.eventType === 'run.failed'),
-        ).toHaveLength(1);
+        expect(completed?.status).toBe('completed');
       } finally {
         registerTestOnlyTool(original);
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
@@ -2119,80 +2104,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
     },
   );
 
-  it('records per run, not per snapshot, when two runs reuse one snapshot', async () => {
-    const key = `shared-${crypto.randomUUID()}`;
-    const chatId = crypto.randomUUID();
-    const service = serviceWithTools();
-
-    const run = async (seeded: {
-      message: { id: string; seq: number; parts: Array<unknown> };
-      run: { id: string };
-    }) => {
-      const result = await service.executeRun({
-        runId: seeded.run.id,
-        chatId,
-        userId,
-        userMessage: {
-          id: seeded.message.id,
-          seq: seeded.message.seq,
-          parts: seeded.message.parts.filter(isRecord),
-        },
-        client: recordingClient([]),
-      });
-      await result.consumeStream?.();
-    };
-
-    const plain = await seedSharedSnapshotTurn(key, chatId, [
-      { type: 'text', text: 'first turn, no items' },
-    ]);
-    await run(plain);
-
-    const withItem = await seedSharedSnapshotTurn(
-      key,
-      chatId,
-      [
-        {
-          type: 'data-context',
-          data: {
-            v: 1,
-            producer: 'recency-digest',
-            form: 'snapshot',
-            runId: crypto.randomUUID(),
-            payload: {},
-          },
-        },
-        { type: 'text', text: 'second turn, carrying an item' },
-      ],
-      plain.snapshot.id,
-    );
-    await run(withItem);
-
-    const [plainRow, itemRow] = await tenantDb.runAs(userId, async (tx) => {
-      const repo = new RunsRepository(tx);
-      return Promise.all([
-        repo.findById(plain.run.id, userId),
-        repo.findById(withItem.run.id, userId),
-      ]);
-    });
-
-    // Both bound the SAME content-addressed snapshot; only the second injected
-    // an item. A record living on the snapshot could not represent both.
-    expect(plainRow?.modelContextSnapshotId).toBe(
-      itemRow?.modelContextSnapshotId,
-    );
-    expect(plainRow?.contextItems ?? []).toEqual([]);
-    expect(itemRow?.contextItems).toEqual([
-      {
-        producer: 'recency-digest',
-        form: 'snapshot',
-        residency: 'rail',
-        text: expect.any(String),
-      },
-    ]);
-  });
-
-  it('assembles a model switch as target snapshot context, portable visible history, reminder, then new user text', async () => {
-    const service = serviceWithTools({ allowed: [] });
+  it('assembles a model switch with worker context, portable visible history, and the new user text', async () => {
+    const service = serviceWithTools({ allowed: ['search_conversations'] });
     const chatId = crypto.randomUUID();
     const targetRunId = crypto.randomUUID();
     const switchPart = createModelChangeItem({
@@ -2216,19 +2129,31 @@ describeIfDb('executeRun tool-loop persistence', () => {
         senderUserId: userId,
         parts: [{ type: 'text', text: 'Old visible request.' }],
       });
-      const sourceSnapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        'source-model',
-      );
       const sourceRun = await runs.create({
         chatId,
         messageId: oldUser.id,
         userId,
         modelId: 'source-model',
-        modelContextSnapshotId: sourceSnapshot.id,
       });
-      await runs.markFinished(sourceRun.id, userId, 'completed');
+      const sourceAttemptId = (await runs.markStarted(sourceRun.id, userId))
+        ?.activeAttemptId;
+      if (!sourceAttemptId) {
+        throw new Error('Failed to assign a source run attempt');
+      }
+      const sourceReceipt = await new SystemPromptReceiptsRepository(tx).create(
+        {
+          ownerUserId: userId,
+          runId: sourceRun.id,
+          attemptId: sourceAttemptId,
+          source: 'project_default',
+          systemPrompt: 'SOURCE RECEIPT SYSTEM PROMPT',
+          promptHash: 'source-receipt-prompt-hash',
+        },
+      );
+      await runs.markFinished(sourceRun.id, userId, 'completed', {
+        attemptId: sourceAttemptId,
+        turnToolAvailability: [],
+      });
       await messages.create({
         chatId,
         role: 'assistant',
@@ -2258,21 +2183,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
         senderUserId: userId,
         parts: [switchPart, { type: 'text', text: 'Continue on target.' }],
       });
-      const targetSnapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        'target-model',
-        ['search_conversations'],
-      );
       const targetRun = await runs.create({
         id: targetRunId,
         chatId,
         messageId: targetUser.id,
         userId,
         modelId: 'target-model',
-        modelContextSnapshotId: targetSnapshot.id,
       });
-      return { sourceSnapshot, targetUser, targetRun, targetSnapshot };
+      return { sourceReceipt, targetUser, targetRun };
     });
 
     const calls: Array<ModelStreamInput> = [];
@@ -2290,7 +2208,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     await result.consumeStream?.();
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].system).toBe(seeded.targetSnapshot.systemPrompt);
+    expect(calls[0].system).toBe('Test prompt');
     expect(Object.keys(calls[0].tools ?? {})).toEqual(['search_conversations']);
     expect(calls[0].messages).toEqual([
       {
@@ -2321,6 +2239,22 @@ describeIfDb('executeRun tool-loop persistence', () => {
       {
         role: 'user',
         content: [
+          {
+            type: 'text',
+            text: expect.stringContaining(
+              'You are now running as model "snapshot-target".',
+            ),
+          },
+          {
+            type: 'text',
+            text: expect.stringContaining(
+              'The available tools were changed since the last turn:',
+            ),
+          },
+          {
+            type: 'text',
+            text: expect.stringContaining('Message received:'),
+          },
           { type: 'text', text: switchPart.data.text },
           { type: 'text', text: 'Continue on target.' },
         ],
@@ -2340,15 +2274,37 @@ describeIfDb('executeRun tool-loop persistence', () => {
         residency: 'rail',
         text: switchPart.data.text,
       },
+      {
+        producer: 'effective-context-change',
+        form: 'notice',
+        residency: 'rail',
+        text: expect.stringContaining(
+          'You are now running as model "snapshot-target".',
+        ),
+      },
+      {
+        producer: 'tool-availability',
+        form: 'notice',
+        residency: 'rail',
+        text: expect.stringContaining(
+          'The available tools were changed since the last turn:',
+        ),
+      },
+      {
+        producer: 'temporal',
+        form: 'snapshot',
+        residency: 'rail',
+        text: expect.any(String),
+      },
     ]);
     const sentBlocks = calls[0].messages.at(-1)?.content;
-    expect(Array.isArray(sentBlocks) && sentBlocks[0]).toMatchObject({
+    expect(Array.isArray(sentBlocks) && sentBlocks[3]).toMatchObject({
       type: 'text',
       text: recorded?.contextItems?.[0].text,
     });
 
     const providerInput = JSON.stringify(calls[0]);
-    expect(providerInput).not.toContain(seeded.sourceSnapshot.systemPrompt);
+    expect(providerInput).not.toContain(seeded.sourceReceipt.systemPrompt);
     expect(providerInput).not.toContain('SECRET REASONING ARTIFACT');
     expect(providerInput).not.toContain('PROVIDER NATIVE ARTIFACT');
     expect(providerInput).toContain('TOOL DISPLAY INPUT');
@@ -2377,21 +2333,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
     });
 
-    const run = await tenantDb.runAs(userId, async (tx) => {
-      const snapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        'system:openai:gpt-5.4-mini',
-        ['search_conversations'],
-      );
-      return new RunsRepository(tx).create({
+    const run = await tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).create({
         chatId,
         messageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-        modelContextSnapshotId: snapshot.id,
-      });
-    });
+      }),
+    );
 
     let turn = 0;
     const model = new MockLanguageModelV3({
@@ -2549,7 +2498,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const locator = `kb://${space.id}/${relativePath}:1-1`;
     const seeded = await seedBoundRun(
       `knowledge-attribution-${crypto.randomUUID()}`,
-      ['read'],
     );
 
     let turn = 0;
@@ -2782,7 +2730,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
     });
     const seeded = await seedBoundRun(
       `conversation-read-success-${crypto.randomUUID()}`,
-      ['conversation_read'],
     );
     const calls: Array<ModelStreamInput> = [];
 
@@ -2818,9 +2765,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
       await result.consumeStream?.();
 
-      expect(seeded.snapshot.toolDeclarations.map(({ id }) => id)).toEqual([
-        'conversation_read',
-      ]);
       expect(Object.keys(calls[0]?.tools ?? {})).toEqual(['conversation_read']);
 
       const events = await tenantDb.runAs(userId, (tx) =>
@@ -2971,7 +2915,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
       const seeded = await seedBoundRun(
         `conversation-read-${type}-${crypto.randomUUID()}`,
-        ['conversation_read'],
       );
 
       let turn = 0;
@@ -3044,7 +2987,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
     });
     const seeded = await seedBoundRun(
       `conversation-read-output-limit-${crypto.randomUUID()}`,
-      ['conversation_read'],
     );
 
     let turn = 0;
@@ -3137,7 +3079,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const seeded = await seedBoundRun(
       `knowledge-search-attribution-${crypto.randomUUID()}`,
-      ['knowledge_search'],
     );
 
     let turn = 0;
@@ -3328,21 +3269,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
     });
 
-    const run = await tenantDb.runAs(userId, async (tx) => {
-      const snapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        'system:openai:gpt-5.4-mini',
-        ['search_conversations'],
-      );
-      return new RunsRepository(tx).create({
+    const run = await tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).create({
         chatId,
         messageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-        modelContextSnapshotId: snapshot.id,
-      });
-    });
+      }),
+    );
 
     let turn = 0;
     const model = new MockLanguageModelV3({
@@ -3447,21 +3381,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
     });
 
-    const run = await tenantDb.runAs(userId, async (tx) => {
-      const snapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        'system:openai:gpt-5.4-mini',
-        ['search_conversations'],
-      );
-      return new RunsRepository(tx).create({
+    const run = await tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).create({
         chatId,
         messageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-        modelContextSnapshotId: snapshot.id,
-      });
-    });
+      }),
+    );
 
     let turn = 0;
     const model = new MockLanguageModelV3({

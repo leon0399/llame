@@ -26,25 +26,10 @@ import {
 import { RunDispatchService } from './run-dispatch.service';
 import { RUNS_QUEUE } from './run-queues';
 import { RunsRepository } from './runs-repository';
-import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
 import { ScriptedModelsService } from './scripted-model-client';
-import { type ModelContextSnapshot } from '../db/schema';
 import { type Queue } from '../queue/queue';
 
 const now = new Date('2026-09-03T00:00:00.000Z');
-const snapshot: ModelContextSnapshot = {
-  id: 'snapshot-1',
-  ownerUserId: 'user-1',
-  availabilityHash: 'availability',
-  contentHash: 'content',
-  promptHash: 'prompt',
-  toolHash: 'tool',
-  source: 'project_default',
-  systemPrompt: 'Test prompt: default',
-  toolAvailabilityManifest: { version: 1, entries: [] },
-  toolDeclarations: [],
-  createdAt: now,
-};
 
 const message: Message = {
   id: 'message-1',
@@ -65,7 +50,9 @@ const run: Run = {
   messageId: message.id,
   userId: 'user-1',
   modelId: 'model-1',
-  modelContextSnapshotId: snapshot.id,
+  activeAttemptId: null,
+  completedAttemptId: null,
+  turnToolAvailability: null,
   status: 'queued',
   workerId: null,
   cancelRequestedAt: null,
@@ -336,9 +323,6 @@ describe('seedRun', () => {
     const createMessage = vi
       .spyOn(MessagesRepository.prototype, 'create')
       .mockResolvedValue(message);
-    const createOrReuse = vi
-      .spyOn(ModelContextSnapshotsRepository.prototype, 'createOrReuse')
-      .mockResolvedValue(snapshot);
     const createRun = vi
       .spyOn(RunsRepository.prototype, 'create')
       .mockImplementation((input) =>
@@ -348,10 +332,9 @@ describe('seedRun', () => {
           chatId: input.chatId,
           messageId: input.messageId,
           effort: input.effort ?? null,
-          modelContextSnapshotId: input.modelContextSnapshotId,
         }),
       );
-    return { createIfAbsent, createMessage, createOrReuse, createRun };
+    return { createIfAbsent, createMessage, createRun };
   }
 
   it('creates a titled chat, default hello part, and omits effort when unset', async () => {
@@ -377,9 +360,8 @@ describe('seedRun', () => {
     expect(seeded.userMessage.parts).toEqual(parts);
   });
 
-  it('reuses an existing chat, forwards text, effort, and exact allowed tools', async () => {
-    const { createIfAbsent, createMessage, createOrReuse, createRun } =
-      stubSeedRepos();
+  it('reuses an existing chat, forwards text and effort', async () => {
+    const { createIfAbsent, createMessage, createRun } = stubSeedRepos();
 
     await seedRun({
       tenantDb: fakeTenantDb().tenantDb,
@@ -388,7 +370,6 @@ describe('seedRun', () => {
       chatId: 'existing-chat',
       text: 'ping',
       effort: 'high',
-      allowedTools: ['search_conversations'],
     });
 
     expect(createIfAbsent).not.toHaveBeenCalled();
@@ -397,12 +378,6 @@ describe('seedRun', () => {
       parts: [{ type: 'text', text: 'ping' }],
     });
     expect(createRun.mock.calls[0]?.[0]).toMatchObject({ effort: 'high' });
-    expect(createOrReuse).toHaveBeenCalledWith(
-      'user-1',
-      expect.objectContaining({
-        source: 'project_default',
-      }),
-    );
   });
 });
 
@@ -440,7 +415,7 @@ describe('dispatchRun and seedAndDispatchRun', () => {
     );
   });
 
-  it('seeds then dispatches, forwarding effort and allowedTools only when set', async () => {
+  it('seeds then dispatches, forwarding effort only when set', async () => {
     vi.spyOn(ChatsRepository.prototype, 'createIfAbsent').mockResolvedValue({
       id: 'chat-1',
       ownerUserId: 'user-1',
@@ -458,10 +433,6 @@ describe('dispatchRun and seedAndDispatchRun', () => {
       skillCatalogTold: null,
     });
     vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(message);
-    vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
-      'createOrReuse',
-    ).mockResolvedValue(snapshot);
     const createRun = vi
       .spyOn(RunsRepository.prototype, 'create')
       .mockResolvedValue(run);
@@ -480,7 +451,6 @@ describe('dispatchRun and seedAndDispatchRun', () => {
       userId: 'user-1',
       modelId: 'model-1',
       effort: 'low',
-      allowedTools: ['conversation_read'],
     });
     expect(createRun.mock.calls[1]?.[0]).toMatchObject({ effort: 'low' });
     expect(enqueue).toHaveBeenCalledTimes(2);

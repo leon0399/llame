@@ -576,6 +576,27 @@ export class MessagesRepository {
     );
   }
 
+  /** Replace a persisted user turn's parts within the owner-scoped transaction. */
+  async updateUserMessageParts(input: {
+    id: string;
+    chatId: string;
+    parts: Array<unknown>;
+  }): Promise<Message | undefined> {
+    const [updated] = await this.db
+      .update(messages)
+      .set({ parts: input.parts })
+      .where(
+        and(
+          eq(messages.id, input.id),
+          eq(messages.chatId, input.chatId),
+          eq(messages.role, 'user'),
+        ),
+      )
+      .returning();
+
+    return updated;
+  }
+
   private async insertWithChatSequence(
     values: MessageInsertWithoutSequence,
     insert: (tx: Db, row: MessageInsert) => Promise<Message | undefined>,

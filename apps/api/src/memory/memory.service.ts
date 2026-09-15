@@ -13,8 +13,7 @@ import {
 
 export type ResolvedMemorySettings = Pick<MemorySettings, 'shareRecentChats'>;
 
-/** The narrow capability future history consumers are allowed to depend on. */
-export type MemorySettingsResolver = Pick<MemoryService, 'getForOwner'>;
+/** The narrow capability the worker's per-attempt digest binding depends on. */
 export type MemorySettingsBindingResolver = Pick<
   MemoryService,
   'getForOwnerForBinding'

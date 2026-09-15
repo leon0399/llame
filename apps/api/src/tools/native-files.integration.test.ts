@@ -17,7 +17,6 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunsRepository, RunEventsRepository } from '../runs/runs-repository';
 import { NativeFilesRepository } from '../runs/native-files-repository';
-import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
 import {
   nativeReadTool,
   nativeEditTool,
@@ -66,18 +65,12 @@ describe('native file authority and durable effects', () => {
         role: 'user',
         parts: [{ type: 'text', text: 'Edit the native file.' }],
       });
-      const snapshot = await seedModelContextSnapshot(tx, owner, chatId, [
-        'read',
-        'edit',
-        'write',
-      ]);
       const runs = new RunsRepository(tx);
       const run = await runs.create({
         chatId,
         userId: owner,
         messageId: message.id,
         modelId: 'native-test',
-        modelContextSnapshotId: snapshot.id,
       });
       await runs.markStarted(run.id, owner);
       const started = await new RunEventsRepository(tx).append(
@@ -735,18 +728,12 @@ describe('kb:// mutations under real owner binding', () => {
         role: 'user',
         parts: [{ type: 'text', text: 'Edit the note.' }],
       });
-      const snapshot = await seedModelContextSnapshot(tx, owner, chatId, [
-        'read',
-        'edit',
-        'write',
-      ]);
       const runs = new RunsRepository(tx);
       const created = await runs.create({
         chatId,
         userId: owner,
         messageId: message.id,
         modelId: 'kb-test',
-        modelContextSnapshotId: snapshot.id,
       });
       await runs.markStarted(created.id, owner);
       const started = await new RunEventsRepository(tx).append(

@@ -197,12 +197,6 @@ export function createToolAvailabilityItem(input: {
   });
 }
 
-function entriesById(
-  manifest: ToolAvailabilityManifestV1,
-): ReadonlyMap<string, ToolAvailabilityEntry> {
-  return new Map(manifest.entries.map((entry) => [entry.id, entry]));
-}
-
 /**
  * Derive durable semantic metadata from immutable Run manifests, or `null`
  * when nothing changed — an unchanged outage emits no item, including while
@@ -251,6 +245,58 @@ function deriveInitialToolAvailabilityPayload(
   };
 }
 
+function entriesById(
+  manifest: ToolAvailabilityManifestV1,
+): ReadonlyMap<string, ToolAvailabilityEntry> {
+  return new Map(
+    manifest.entries.map((entry): readonly [string, ToolAvailabilityEntry] => [
+      entry.id,
+      entry,
+    ]),
+  );
+}
+
+export type ToolAvailabilityState =
+  | {
+      readonly id: string;
+      readonly state: 'available';
+    }
+  | {
+      readonly id: string;
+      readonly state: 'unavailable';
+    };
+
+function statesById(
+  states: ReadonlyArray<ToolAvailabilityState>,
+): ReadonlyMap<string, ToolAvailabilityState> {
+  return new Map(
+    states.map((entry): readonly [string, ToolAvailabilityState] => [
+      entry.id,
+      entry,
+    ]),
+  );
+}
+
+/**
+ * Derive a delta from the current attempt's observed manifest and the
+ * preceding successful turn's minimal id/state record. The prior record has
+ * no failure reason, so recovery uses the existing generic `tool_restored`
+ * reason rather than asserting a cause that was not stored.
+ */
+export function deriveToolAvailabilityPayloadFromStates(input: {
+  readonly current: ToolAvailabilityManifestV1;
+  readonly previous: ReadonlyArray<ToolAvailabilityState>;
+}): ToolAvailabilityPayload | null {
+  const current = parseToolAvailabilityManifest(input.current);
+  if (current.version !== 1) {
+    throw new TypeError('Current tool availability must be observed');
+  }
+  return deriveToolAvailabilityDeltaFromMaps(
+    statesById(input.previous),
+    entriesById(current),
+  );
+}
+
 type ToolTransitionBuckets = {
   added: Array<string>;
   removed: Array<string>;
@@ -259,10 +305,9 @@ type ToolTransitionBuckets = {
   nowAvailable: Array<RecoveryTransition>;
 };
 
-/** Classify one id's before/after state and push it into its transition bucket. */
 function applyToolTransition(
   id: string,
-  prior: ToolAvailabilityEntry | undefined,
+  prior: ToolAvailabilityEntry | ToolAvailabilityState | undefined,
   next: ToolAvailabilityEntry | undefined,
   buckets: ToolTransitionBuckets,
 ): void {
@@ -275,21 +320,23 @@ function applyToolTransition(
   } else if (prior?.state === 'available' && next?.state === 'unavailable') {
     buckets.becameUnavailable.push({ id, reason: next.reason });
   } else if (prior?.state === 'unavailable' && next?.state === 'available') {
+    const priorReason =
+      prior !== undefined && 'reason' in prior ? prior.reason : undefined;
     buckets.nowAvailable.push({
       id,
-      reason: RECOVERY_REASON_BY_UNAVAILABLE_REASON[prior.reason],
+      reason:
+        priorReason === undefined
+          ? 'tool_restored'
+          : RECOVERY_REASON_BY_UNAVAILABLE_REASON[priorReason],
     });
   }
 }
 
-/** Diff two observed manifests into the five transition categories. */
-function deriveToolAvailabilityDelta(
-  previous: ToolAvailabilityManifestV1,
-  current: ToolAvailabilityManifestV1,
+function deriveToolAvailabilityDeltaFromMaps(
+  previous: ReadonlyMap<string, ToolAvailabilityEntry | ToolAvailabilityState>,
+  current: ReadonlyMap<string, ToolAvailabilityEntry>,
 ): ToolAvailabilityPayload | null {
-  const before = entriesById(previous);
-  const after = entriesById(current);
-  const ids = [...new Set([...before.keys(), ...after.keys()])].sort(
+  const ids = [...new Set([...previous.keys(), ...current.keys()])].sort(
     compareCodePoints,
   );
 
@@ -301,7 +348,7 @@ function deriveToolAvailabilityDelta(
     nowAvailable: [],
   };
   for (const id of ids) {
-    applyToolTransition(id, before.get(id), after.get(id), buckets);
+    applyToolTransition(id, previous.get(id), current.get(id), buckets);
   }
 
   const { added, removed, unavailable, becameUnavailable, nowAvailable } =
@@ -317,6 +364,17 @@ function deriveToolAvailabilityDelta(
   }
 
   return { kind: 'delta', ...buckets };
+}
+
+/** Diff two observed manifests into the five transition categories. */
+function deriveToolAvailabilityDelta(
+  previous: ToolAvailabilityManifestV1,
+  current: ToolAvailabilityManifestV1,
+): ToolAvailabilityPayload | null {
+  return deriveToolAvailabilityDeltaFromMaps(
+    entriesById(previous),
+    entriesById(current),
+  );
 }
 
 function renderIds(ids: ReadonlyArray<string>): Array<string> {

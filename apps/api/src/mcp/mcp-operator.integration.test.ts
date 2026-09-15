@@ -23,6 +23,8 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
+import type { ModelSelectionValidator } from '../models/models.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -31,7 +33,7 @@ import {
   canonicalJson,
   resolveEffectiveContext,
 } from '../runs/effective-context-resolver';
-import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { resolveBoundExecutableTools } from '../runs/snapshot-tool-execution';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { RunExecutionService } from '../runs/run-execution.service';
@@ -54,6 +56,10 @@ import {
 import { McpRuntimeService } from './mcp-runtime.service';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 import { type KnowledgeToolResolver } from '../tools/types';
+import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { MemoryService } from '../memory/memory.service';
+import { RecencyDigestService } from '../chats/recency-digest.service';
+import { TOOL_REGISTRY } from '../tools/registry';
 import {
   createMcpTestFixture,
   mcpStreamableHttpInitialize,
@@ -75,6 +81,31 @@ const knowledgeResolver: KnowledgeToolResolver = {
       Promise.reject(new Error('Knowledge adapter is not exercised')),
     isInsideSpace: () => Promise.resolve(true),
   }),
+};
+
+const executionModels: ModelSelectionValidator = {
+  validateModelSelection: (modelId: string): SystemModelCatalogEntry => ({
+    id: modelId,
+    source: 'system',
+    contextWindowTokens: 100_000,
+    provider: 'fixture',
+    providerModelId: modelId,
+    systemPromptTemplate: 'Use the configured fixture search tool.',
+    systemPromptSource: 'project_default',
+    referencesSkills: false,
+  }),
+  resolveEffortSelection: () => undefined,
+};
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
 };
 
 type SqlClient = ReturnType<typeof postgres>;
@@ -281,10 +312,16 @@ function executionService(
     noopReindexDispatch(),
     knowledgeResolver,
     noopSkillCatalog(),
-
     noopEmbedDispatch(),
     noopQueryEmbedder(),
     compileTestPermissionPolicy(['mcp__web__search']),
+    executionModels,
+    new SystemPromptsService(),
+    { resolvePromptUser: () => Promise.resolve(undefined) },
+    knowledgeCandidates,
+    runtime,
+    new MemoryService(tenantDb),
+    new RecencyDigestService(tenantDb),
     runtime,
   );
 }
@@ -562,7 +599,7 @@ describe('operator-configured MCP production acceptance', () => {
         systemPromptSource: 'project_default',
         referencesSkills: false,
       };
-      const context = await resolveEffectiveContext({
+      const receiptInput = await resolveEffectiveContext({
         model,
         systemPrompt: model.systemPromptTemplate,
         allowedToolRules: ['mcp__web__*'],
@@ -570,8 +607,15 @@ describe('operator-configured MCP production acceptance', () => {
         candidates: [],
         dynamicCandidates: api.runtime.snapshotCandidates(),
       });
-      expect(context.toolDeclarations.map(({ id }) => id)).toEqual([TOOL_ID]);
-      expect(canonicalJson(context)).not.toContain('mcp__web__*');
+      expect(
+        apiCatalog.admitted.map(({ declaration }) => declaration.id),
+      ).toEqual([TOOL_ID]);
+      expect(receiptInput).toMatchObject({
+        source: 'project_default',
+        systemPrompt: model.systemPromptTemplate,
+      });
+      expect(receiptInput.promptHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(canonicalJson(receiptInput)).not.toContain('mcp__web__*');
       chatId = crypto.randomUUID();
       const userMessageParts: Array<TextPart> = [
         { type: 'text', text: 'Find the fixture evidence.' },
@@ -588,17 +632,13 @@ describe('operator-configured MCP production acceptance', () => {
           senderUserId: userId,
           parts: userMessageParts,
         });
-        const snapshot = await new ModelContextSnapshotsRepository(
-          tx,
-        ).createOrReuse(userId, context);
         const run = await new RunsRepository(tx).create({
           chatId: chatId!,
           messageId: userMessage.id,
           userId,
           modelId: model.id,
-          modelContextSnapshotId: snapshot.id,
         });
-        return { run, snapshot, userMessage };
+        return { run, userMessage };
       });
 
       const providerInputs: Array<unknown> = [];
@@ -643,7 +683,6 @@ describe('operator-configured MCP production acceptance', () => {
           messageId: userMessage.id,
           userId,
           modelId: model.id,
-          modelContextSnapshotId: seeded.snapshot.id,
         });
         return { run, userMessage };
       });
@@ -672,7 +711,7 @@ describe('operator-configured MCP production acceptance', () => {
         async (tx) => [
           await new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
           await new MessagesRepository(tx).findByChatId(chatId!, userId),
-          await new ModelContextSnapshotsRepository(tx).findByOwnedRun(
+          await new SystemPromptReceiptsRepository(tx).findByOwnedRun(
             seeded.run.id,
             userId,
           ),

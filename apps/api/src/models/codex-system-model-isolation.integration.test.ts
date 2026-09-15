@@ -14,7 +14,6 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
 import { RunsRepository } from '../runs/runs-repository';
 import { searchConversationsTool } from '../tools/search-conversations';
 import { ModelsService } from './models.service';
@@ -118,17 +117,11 @@ describeIfDb('Codex system-model owner isolation', () => {
         senderUserId: firstOwnerId,
         parts: [{ type: 'text', text: 'Codex isolation secret' }],
       });
-      const snapshot = await seedModelContextSnapshot(
-        tx,
-        firstOwnerId,
-        'codex-isolation',
-      );
       const run = await new RunsRepository(tx).create({
         chatId,
         messageId: message.id,
         userId: firstOwnerId,
         modelId: CODEX_MODEL_ID,
-        modelContextSnapshotId: snapshot.id,
       });
       return { run };
     });

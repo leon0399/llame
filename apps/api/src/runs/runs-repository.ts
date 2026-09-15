@@ -7,8 +7,20 @@
  * policies). run_events is append-only — there are deliberately no
  * update/delete methods.
  */
+import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, gt, isNull, lt, notInArray } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  type SQL,
+} from 'drizzle-orm';
 import {
   chats,
   messages,
@@ -18,13 +30,71 @@ import {
   type RunContextItem,
   type RunEvent,
   type RunStatus,
+  type TurnToolAvailabilityEntry,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
+
+type TerminalRunStatus = Extract<
+  RunStatus,
+  'completed' | 'failed' | 'cancelled' | 'expired'
+>;
+
+type MarkFinishedOptions = {
+  error?: unknown;
+  attemptId?: string;
+  turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
+};
+
+type MarkFinishedUpdate = {
+  status: TerminalRunStatus;
+  finishedAt: Date;
+  error?: unknown;
+  completedAttemptId?: string;
+  turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
+};
+
+function markFinishedUpdate(
+  status: TerminalRunStatus,
+  options: MarkFinishedOptions | undefined,
+): MarkFinishedUpdate {
+  const update: MarkFinishedUpdate = {
+    status,
+    finishedAt: new Date(),
+  };
+  if (options?.error !== undefined) update.error = options.error;
+  if (status === 'completed' && options?.attemptId !== undefined) {
+    update.completedAttemptId = options.attemptId;
+  }
+  if (status === 'completed' && options?.turnToolAvailability !== undefined) {
+    update.turnToolAvailability = options.turnToolAvailability;
+  }
+  return update;
+}
+
+/**
+ * Keep first-writer-wins and attempt fencing in one owner-scoped predicate.
+ */
+function markFinishedPredicate(
+  runId: string,
+  userId: string,
+  attemptId: string | undefined,
+) {
+  return and(
+    eq(runs.id, runId),
+    eq(runs.userId, userId),
+    isNull(runs.finishedAt),
+    notInArray(runs.status, ['completed', 'failed', 'cancelled', 'expired']),
+    ...(attemptId === undefined ? [] : [eq(runs.activeAttemptId, attemptId)]),
+  );
+}
 
 export class RunsRepository {
   constructor(private readonly db: Db) {}
 
-  /** Create a queued run for a user message. */
+  /**
+   * Create a queued run for a user message. The worker resolves
+   * prompt/catalog context at execution time, so no snapshot is required.
+   */
   async create(input: {
     id?: string;
     chatId: string;
@@ -33,14 +103,12 @@ export class RunsRepository {
     modelId: string;
     /** Resolved at accept time. Absent stores NULL: the run sends no effort. */
     effort?: string | undefined;
-    modelContextSnapshotId: string;
   }): Promise<Run> {
     const values: typeof runs.$inferInsert = {
       chatId: input.chatId,
       messageId: input.messageId,
       userId: input.userId,
       modelId: input.modelId,
-      modelContextSnapshotId: input.modelContextSnapshotId,
     };
     if (input.effort !== undefined) values.effort = input.effort;
     if (input.id !== undefined) values.id = input.id;
@@ -51,17 +119,16 @@ export class RunsRepository {
   }
 
   /**
-   * Most recent durable model selection by triggering-message sequence,
-   * optionally bounded to triggering messages strictly before `beforeSeq`
-   * (transition compaction's source-run lookup). Status is intentionally
-   * irrelevant: failed runs still establish the user's previous selection.
-   * Created-at/id only break retry ties for one message; message seq remains
-   * the primary conversation order.
+   * Most recent run by triggering-message sequence, optionally bounded to
+   * triggering messages strictly before `beforeSeq` and narrowed by extra
+   * predicates. Created-at/id only break retry ties for one message; message
+   * seq remains the primary conversation order.
    */
-  async findMostRecentByChatMessageSequence(
+  private async findMostRecentByMessageSequence(
     chatId: string,
     userId: string,
-    options?: { beforeSeq?: number },
+    options: { beforeSeq?: number } | undefined,
+    ...extra: Array<SQL>
   ): Promise<Run | undefined> {
     const rows = await this.db
       .select({ runs })
@@ -74,6 +141,7 @@ export class RunsRepository {
         and(
           eq(runs.chatId, chatId),
           eq(runs.userId, userId),
+          ...extra,
           ...(options?.beforeSeq !== undefined
             ? [lt(messages.seq, options.beforeSeq)]
             : []),
@@ -83,6 +151,39 @@ export class RunsRepository {
       .limit(1);
 
     return rows[0]?.runs;
+  }
+
+  /**
+   * Most recent durable model selection by triggering-message sequence,
+   * optionally bounded to triggering messages strictly before `beforeSeq`
+   * (transition compaction's source-run lookup). Status is intentionally
+   * irrelevant: failed runs still establish the user's previous selection.
+   */
+  async findMostRecentByChatMessageSequence(
+    chatId: string,
+    userId: string,
+    options?: { beforeSeq?: number },
+  ): Promise<Run | undefined> {
+    return this.findMostRecentByMessageSequence(chatId, userId, options);
+  }
+
+  /**
+   * Most recent successfully completed run by triggering-message sequence.
+   * Unlike the general model-selection lookup, this excludes failed runs and
+   * requires the winning attempt link needed to read its system receipt.
+   */
+  async findMostRecentCompletedByChatMessageSequence(
+    chatId: string,
+    userId: string,
+    options?: { beforeSeq?: number },
+  ): Promise<Run | undefined> {
+    return this.findMostRecentByMessageSequence(
+      chatId,
+      userId,
+      options,
+      eq(runs.status, 'completed'),
+      isNotNull(runs.completedAttemptId),
+    );
   }
 
   /** A chat's runs, oldest-first. Owner-scoped. */
@@ -196,12 +297,14 @@ export class RunsRepository {
     options?: { workerId?: string },
   ): Promise<Run | undefined> {
     const workerId = options?.workerId;
+    const attemptId = randomUUID();
 
     const [updated] = await this.db
       .update(runs)
       .set({
         status: 'running_model' satisfies RunStatus,
         startedAt: new Date(),
+        activeAttemptId: attemptId,
         ...(workerId !== undefined && { workerId }),
       })
       .where(
@@ -312,24 +415,36 @@ export class RunsRepository {
   async markFinished(
     runId: string,
     userId: string,
-    status: Extract<
-      RunStatus,
-      'completed' | 'failed' | 'cancelled' | 'expired'
-    >,
-    error?: unknown,
+    status: TerminalRunStatus,
+    options?: MarkFinishedOptions,
   ): Promise<Run | undefined> {
     const [updated] = await this.db
       .update(runs)
-      .set({
-        status,
-        finishedAt: new Date(),
-        ...(error !== undefined && { error }),
-      })
+      .set(markFinishedUpdate(status, options))
+      .where(markFinishedPredicate(runId, userId, options?.attemptId))
+      .returning();
+    return updated;
+  }
+
+  /**
+   * Conditionally update a non-terminal run only when the caller's attempt
+   * is still the active one. Returns the updated row, or undefined when the
+   * run was reclaimed, terminal, or not owned.
+   */
+  async updateForAttempt(
+    runId: string,
+    userId: string,
+    attemptId: string,
+    set: Partial<typeof runs.$inferInsert>,
+  ): Promise<Run | undefined> {
+    const [updated] = await this.db
+      .update(runs)
+      .set(set)
       .where(
         and(
           eq(runs.id, runId),
           eq(runs.userId, userId),
-          isNull(runs.finishedAt),
+          eq(runs.activeAttemptId, attemptId),
           notInArray(runs.status, [
             'completed',
             'failed',
@@ -339,7 +454,6 @@ export class RunsRepository {
         ),
       )
       .returning();
-
     return updated;
   }
 }
@@ -446,7 +560,7 @@ export async function failRunTransactionally(
       job.runId,
       job.userId,
       'failed',
-      { message },
+      { error: { message } },
     );
     if (failed) {
       await new RunEventsRepository(tx).append(job.runId, 'run.failed', {

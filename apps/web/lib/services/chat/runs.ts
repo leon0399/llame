@@ -6,25 +6,18 @@ import {
 } from "@tanstack/react-query";
 
 import { getRunContextReceipt, updateRun } from "../../api/generated/runs/runs";
-import type {
-  ContextReceiptResponse,
-  ContextReceiptToolResponse,
-} from "../../api/generated/models";
+import type { ContextReceiptResponse } from "../../api/generated/models";
 import { getApiErrorStatus } from "../../api/errors";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 
-export type ContextReceiptTool = ContextReceiptToolResponse;
 export type RunContextReceipt = Pick<
   ContextReceiptResponse,
   | "modelId"
-  // Optional on the wire: absent when the run carried no effort. Listed here
-  // deliberately — this Pick is an allowlist, so a new receipt field reaches
-  // the UI only by being named.
   | "effort"
-  | "promptSource"
-  | "systemPrompt"
-  | "tools"
-  | "contentHash"
+  | "activeAttemptId"
+  | "completedAttemptId"
+  | "state"
+  | "receipts"
   | "createdAt"
 >;
 

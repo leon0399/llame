@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -13,23 +12,13 @@ import {
 } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { noopSkillCatalog } from '../skills/skill-catalog.stub';
-import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
-import {
-  type MemorySettingsBindingResolver,
-  type MemorySettingsResolver,
-} from '../memory/memory.service';
-import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { type ModelSelectionValidator } from '../models/models.service';
-import { type PromptUserResolver } from '../personalization/personalization.service';
 import { type RunAborter } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { stuckRunThresholdMs } from '../runs/run-queues';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
-import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
-import { TOOL_REGISTRY } from '../tools/registry';
 import { ChatLoopService } from './chat-loop.service';
 import { isInflightUniqueViolation } from './inflight-unique-violation';
 import {
@@ -37,8 +26,8 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from './chats-repository';
-import { type RecencyDigestResolver } from './recency-digest.service';
 
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
 const model: SystemModelCatalogEntry = {
   id: 'system:openai:gpt-5.4-mini',
   source: 'system',
@@ -88,9 +77,11 @@ const run: Run = {
   messageId: userMessage.id,
   userId: chat.ownerUserId,
   modelId: model.id,
-  modelContextSnapshotId: 'snapshot-id',
   status: 'queued',
   workerId: null,
+  activeAttemptId: null,
+  completedAttemptId: null,
+  turnToolAvailability: null,
   cancelRequestedAt: null,
   error: null,
   contextItems: null,
@@ -98,17 +89,6 @@ const run: Run = {
   startedAt: null,
   finishedAt: null,
   effort: null,
-};
-
-const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
-  resolve: () =>
-    Promise.resolve(
-      [...TOOL_REGISTRY.values()].map((tool) => ({
-        source: { type: 'code_owned' as const },
-        state: 'available' as const,
-        tool,
-      })),
-    ),
 };
 
 const input = {
@@ -135,11 +115,7 @@ function fakeTx(): Db {
   return tx;
 }
 
-function makeService(options?: {
-  memory?: MemorySettingsResolver & MemorySettingsBindingResolver;
-  recencyDigest?: RecencyDigestResolver;
-  streamResponse?: Response;
-}) {
+function makeService(options?: { streamResponse?: Response }) {
   const tx = fakeTx();
   const tenantDb: TenantRunner = new TenantDbService({
     transaction: async <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
@@ -164,18 +140,6 @@ function makeService(options?: {
   const aborts: RunAborter = { abort };
   const dispatchRun = vi.fn(async () => {});
   const dispatch: RunDispatcher = { dispatch: dispatchRun };
-  const personalization: PromptUserResolver = {
-    resolvePromptUser: () => Promise.resolve(undefined),
-  };
-  const memory: MemorySettingsResolver & MemorySettingsBindingResolver =
-    options?.memory ?? {
-      getForOwner: () => Promise.resolve({ shareRecentChats: false }),
-      getForOwnerForBinding: () => Promise.resolve({ shareRecentChats: false }),
-    };
-  const recencyDigest: RecencyDigestResolver = options?.recencyDigest ?? {
-    resolveCandidate: () => Promise.reject(new Error('unexpected digest read')),
-  };
-  const snapshotCandidates = vi.fn(() => []);
 
   const findById = vi
     .spyOn(ChatsRepository.prototype, 'findById')
@@ -186,16 +150,6 @@ function makeService(options?: {
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
     .mockResolvedValue(chat);
-  const updateRecencyDigestTold = vi
-    .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
-    .mockResolvedValue(undefined);
-  vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
-    new Set(),
-  );
-  vi.spyOn(
-    ChatsRepository.prototype,
-    'setRecencyDigestIfAbsent',
-  ).mockResolvedValue(chat);
   vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
     userMessage: undefined,
     assistantMessage: undefined,
@@ -233,7 +187,6 @@ function makeService(options?: {
         messageId: runInput.messageId,
         userId: runInput.userId,
         modelId: runInput.modelId,
-        modelContextSnapshotId: runInput.modelContextSnapshotId,
         effort: runInput.effort ?? null,
       }),
     );
@@ -246,26 +199,6 @@ function makeService(options?: {
       payload: null,
       createdAt: now,
     });
-  vi.spyOn(
-    ModelContextSnapshotsRepository.prototype,
-    'findByOwnedRun',
-  ).mockResolvedValue(undefined);
-  vi.spyOn(
-    ModelContextSnapshotsRepository.prototype,
-    'createOrReuse',
-  ).mockResolvedValue({
-    id: 'snapshot-id',
-    ownerUserId: chat.ownerUserId,
-    availabilityHash: 'availability-hash',
-    contentHash: 'content-hash',
-    promptHash: 'prompt-hash',
-    toolHash: 'tool-hash',
-    source: 'model_override',
-    systemPrompt: 'Bound prompt',
-    toolAvailabilityManifest: { version: 1, entries: [] },
-    toolDeclarations: [],
-    createdAt: now,
-  });
 
   const service = new ChatLoopService(
     tenantDb,
@@ -274,13 +207,6 @@ function makeService(options?: {
     bridge,
     aborts,
     dispatch,
-    personalization,
-    new SystemPromptsService(),
-    { snapshotCandidates },
-    memory,
-    recencyDigest,
-    knowledgeCandidates,
-    noopSkillCatalog(),
   );
 
   return {
@@ -293,15 +219,12 @@ function makeService(options?: {
     findById,
     createIfAbsent,
     touch,
-    updateRecencyDigestTold,
     createUserMessageIfAbsent,
     findActiveByChatId,
     cancelActiveRunsForMessage,
     markFinished,
     createRun,
     appendEvent,
-    snapshotCandidates,
-    recencyDigest,
   };
 }
 
@@ -485,135 +408,6 @@ describe('ChatLoopService.createMessageStream', () => {
     );
   });
 
-  it('resolves a recency digest only when the owner has opted in', async () => {
-    const resolveCandidate = vi.fn(() =>
-      Promise.resolve({
-        baseline: {
-          pinned: [],
-          recent: [],
-          pinnedShown: 0,
-          pinnedTotal: 0,
-          recentShown: 0,
-          recentTotal: 0,
-          compiledOn: '2026-09-03T00:00:00.000Z',
-        },
-        told: [],
-        candidates: [],
-      }),
-    );
-    const { service } = makeService({
-      memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
-        getForOwnerForBinding: () =>
-          Promise.resolve({ shareRecentChats: true }),
-      },
-      recencyDigest: { resolveCandidate },
-    });
-
-    await service.createMessageStream(input);
-
-    expect(resolveCandidate).toHaveBeenCalledWith(chat.ownerUserId, chat.id);
-  });
-
-  it('swallows digest resolution failures without exposing corpus text', async () => {
-    const error = vi.spyOn(Logger.prototype, 'error');
-    const { service } = makeService({
-      memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
-        getForOwnerForBinding: () =>
-          Promise.resolve({ shareRecentChats: false }),
-      },
-      recencyDigest: {
-        resolveCandidate: () => Promise.reject(new Error('secret excerpt')),
-      },
-    });
-
-    await service.createMessageStream(input);
-
-    expect(error).toHaveBeenCalledWith('recency_digest_resolution_failed');
-    expect(error.mock.calls.flat().join(' ')).not.toContain('secret excerpt');
-  });
-
-  it('does not persist a digest told-set when this turn disclosed no delta', async () => {
-    const { service, updateRecencyDigestTold } = makeService();
-
-    await service.createMessageStream(input);
-
-    expect(updateRecencyDigestTold).not.toHaveBeenCalled();
-  });
-
-  it('persists the disclosed digest told-set with the user message', async () => {
-    const baseline = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-08-13',
-    };
-    const chatWithDigest: Chat = {
-      ...chat,
-      recencyDigestBaseline: baseline,
-      recencyDigestTold: [],
-    };
-    const told = [
-      {
-        chatId: 'resurfaced',
-        pinned: false,
-        title: 'Resurfaced through activity',
-      },
-    ];
-    const { service, findById, touch, updateRecencyDigestTold } = makeService({
-      memory: {
-        getForOwner: () => Promise.resolve({ shareRecentChats: true }),
-        getForOwnerForBinding: () =>
-          Promise.resolve({ shareRecentChats: true }),
-      },
-      recencyDigest: {
-        resolveCandidate: () =>
-          Promise.resolve({
-            baseline: {
-              ...baseline,
-              recent: [
-                {
-                  title: 'Resurfaced through activity',
-                  date: '2026-08-13',
-                  messageCount: 2,
-                  excerpt: 'opening',
-                },
-              ],
-              recentShown: 1,
-              recentTotal: 1,
-            },
-            told,
-            candidates: [
-              {
-                chatId: 'resurfaced',
-                pinned: false,
-                entry: {
-                  title: 'Resurfaced through activity',
-                  date: '2026-08-13',
-                  messageCount: 2,
-                  excerpt: 'opening',
-                },
-              },
-            ],
-          }),
-      },
-    });
-    findById.mockResolvedValue(chatWithDigest);
-    touch.mockResolvedValue(chatWithDigest);
-
-    await service.createMessageStream(input);
-
-    expect(updateRecencyDigestTold).toHaveBeenCalledWith(
-      chat.id,
-      chat.ownerUserId,
-      told,
-    );
-  });
-
   it('conflicts when createUserMessageIfAbsent loses the insert race', async () => {
     const { service, createUserMessageIfAbsent } = makeService();
     createUserMessageIfAbsent.mockResolvedValue(undefined);
@@ -689,8 +483,10 @@ describe('ChatLoopService.createMessageStream', () => {
       chat.ownerUserId,
       'expired',
       {
-        message:
-          'Expired by a new message: run stuck with no execution progress.',
+        error: {
+          message:
+            'Expired by a new message: run stuck with no execution progress.',
+        },
       },
     );
     expect(appendEvent).toHaveBeenCalledWith(blocking.id, 'run.expired', {

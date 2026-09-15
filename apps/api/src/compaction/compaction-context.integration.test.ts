@@ -9,11 +9,12 @@ import { MockLanguageModelV3 } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 
-import * as schema from '../db/schema';
 import {
   type CompactionReplacementMessage,
   type ModelToolDeclaration,
+  type SystemPromptReceipt,
 } from '../db/schema';
+import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import {
@@ -31,7 +32,11 @@ import {
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
-import { type ModelClientFactory } from '../models/models.service';
+import {
+  type ModelClientFactory,
+  type ModelSelectionValidator,
+} from '../models/models.service';
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { MemoryService } from '../memory/memory.service';
 import { SearchIndexService } from '../search/search-index.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
@@ -61,17 +66,17 @@ import {
   RunExecutionService,
   RunNotRunnableError,
 } from '../runs/run-execution.service';
-import { seedModelContextSnapshot } from '../runs/model-context-snapshot.test-fixture';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import {
   COMPACTION_INSTRUCTION,
   TRANSITION_COMPACTION_INSTRUCTION,
 } from './compaction';
-import {
-  CompactionService,
-  TransitionCompactionError,
-} from './compaction.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
+import { CompactionService } from './compaction.service';
 import { type KnowledgeToolResolver } from '../tools/types';
+import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { TOOL_REGISTRY } from '../tools/registry';
 import {
   isRecord,
   isString,
@@ -99,6 +104,31 @@ const knowledgeResolver: KnowledgeToolResolver = {
       Promise.reject(new Error('Knowledge adapter is not exercised')),
     isInsideSpace: () => Promise.resolve(true),
   }),
+};
+
+const executionModels: ModelSelectionValidator = {
+  validateModelSelection: (modelId: string): SystemModelCatalogEntry => ({
+    id: modelId,
+    source: 'system',
+    contextWindowTokens: 128_000,
+    provider: 'fake',
+    providerModelId: modelId,
+    systemPromptTemplate: 'Test prompt: default',
+    systemPromptSource: 'project_default',
+    referencesSkills: false,
+  }),
+  resolveEffortSelection: () => undefined,
+};
+
+const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
+  resolve: () =>
+    Promise.resolve(
+      [...TOOL_REGISTRY.values()].map((tool) => ({
+        source: { type: 'code_owned' as const },
+        state: 'available' as const,
+        tool,
+      })),
+    ),
 };
 
 function replacementHistoryFor(
@@ -796,7 +826,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   async function seedSwitch(options?: {
     sourceRun?: boolean;
-    incompatibleSourceSchema?: boolean;
     switchMarker?: boolean;
     toolObservation?: boolean;
     /** Effort persisted on the SOURCE run, as its accepting API stored it. */
@@ -814,48 +843,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         senderUserId: userId,
         parts: [{ type: 'text', text: `OLD REQUEST ${'x'.repeat(1200)}` }],
       });
-      let sourceSnapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        // The seeded prompt carries both standing-context blocks: the replayed
-        // prefix remains byte-identical while the trailing instruction forbids
-        // freezing either owner's profile or another chat's excerpt.
-        `<user_personalization>Preferred name: Ana</user_personalization> <user_chat_history>Other chat: private excerpt</user_chat_history> transition-source-${chat.id}`,
-        ['search_conversations'],
-      );
-      if (options?.incompatibleSourceSchema) {
-        const [legacySnapshot] = await tx
-          .insert(schema.modelContextSnapshots)
-          .values({
-            ownerUserId: userId,
-            availabilityHash:
-              '8c150f84f99edb30ec7fb866968b27db1bfc2d26e1be8a7e94ee61e565adf11e',
-            contentHash: `legacy-content-${chat.id}`,
-            promptHash: sourceSnapshot.promptHash,
-            toolHash: `legacy-tools-${chat.id}`,
-            source: sourceSnapshot.source,
-            systemPrompt: sourceSnapshot.systemPrompt,
-            toolAvailabilityManifest: {
-              version: 0,
-              state: 'unobserved',
-            },
-            toolDeclarations: [
-              {
-                id: 'legacy_tool',
-                description: 'Persisted before this dialect was understood',
-                inputSchema: {
-                  $schema: 'https://legacy.invalid/unsupported-schema',
-                  type: 'object',
-                },
-              },
-            ],
-          })
-          .returning();
-        if (!legacySnapshot) {
-          throw new Error('Failed to seed the legacy model-context snapshot');
-        }
-        sourceSnapshot = legacySnapshot;
-      }
+      const sourcePrompt = `<user_personalization>Preferred name: Ana</user_personalization> <user_chat_history>Other chat: private excerpt</user_chat_history> transition-source-${chat.id}`;
+      let sourceReceipt: SystemPromptReceipt | undefined;
       if (options?.sourceRun !== false) {
         const sourceRun = await runs.create({
           chatId: chat.id,
@@ -865,9 +854,26 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           ...(options?.sourceEffort !== undefined && {
             effort: options.sourceEffort,
           }),
-          modelContextSnapshotId: sourceSnapshot.id,
         });
-        await runs.markFinished(sourceRun.id, userId, 'completed');
+        const started = await runs.markStarted(sourceRun.id, userId);
+        const attemptId = started?.activeAttemptId;
+        if (!attemptId) {
+          throw new Error('Failed to assign a source run attempt');
+        }
+        sourceReceipt = await new SystemPromptReceiptsRepository(tx).create({
+          ownerUserId: userId,
+          runId: sourceRun.id,
+          attemptId,
+          source: 'project_default',
+          systemPrompt: sourcePrompt,
+          promptHash: `transition-source-prompt-${chat.id}`,
+        });
+        await runs.markFinished(sourceRun.id, userId, 'completed', {
+          attemptId,
+          turnToolAvailability: [
+            { id: 'search_conversations', state: 'available' },
+          ],
+        });
       }
       await messages.create({
         chatId: chat.id,
@@ -906,27 +912,19 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         senderUserId: userId,
         parts: targetUserParts,
       });
-      const targetSnapshot = await seedModelContextSnapshot(
-        tx,
-        userId,
-        `transition-target-${chat.id}`,
-        ['search_conversations'],
-      );
       const targetRun = await runs.create({
         id: targetRunId,
         chatId: chat.id,
         messageId: targetUser.id,
         userId,
         modelId: 'target-model',
-        modelContextSnapshotId: targetSnapshot.id,
       });
       return {
         chat,
-        sourceSnapshot,
+        sourceReceipt,
         switchPart,
         targetUser,
         targetUserParts,
-        targetSnapshot,
         targetRun,
       };
     });
@@ -937,51 +935,32 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       tenantDb,
       compaction,
       { maybeGenerateTitle: async () => {} },
-      { config: BUILT_IN_DEFAULTS },
+      {
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          tools: {
+            ...BUILT_IN_DEFAULTS.tools,
+            allowed: ['search_conversations'],
+          },
+        },
+      },
       new SearchIndexService(tenantDb),
       noopReindexDispatch(),
       knowledgeResolver,
       noopSkillCatalog(),
-
       noopEmbedDispatch(),
       noopQueryEmbedder(),
       compileTestPermissionPolicy(),
+      executionModels,
+      new SystemPromptsService(),
+      { resolvePromptUser: () => Promise.resolve(undefined) },
+      knowledgeCandidates,
+      { snapshotCandidates: () => [] },
+      new MemoryService(tenantDb),
+      new RecencyDigestService(tenantDb),
+      undefined,
     );
   }
-
-  it('fails transition compaction closed when a legacy snapshot schema cannot be rebound', async () => {
-    const seeded = await seedSwitch({ incompatibleSourceSchema: true });
-    const sourceCalls: Array<ModelStreamInput> = [];
-    const service = createCompactionService({
-      createClient: vi.fn(() =>
-        compactionClient({ model: 'source-model', calls: sourceCalls }),
-      ),
-    });
-
-    await expect(
-      service.compactForTransition({
-        chatId: seeded.chat.id,
-        userId,
-        triggeringUserSeq: seeded.targetUser.seq,
-        reservedOutputTokens: null,
-      }),
-    ).rejects.toMatchObject({
-      name: TransitionCompactionError.name,
-      message:
-        'Source-model transition compaction returned no valid text summary.',
-    });
-
-    expect(sourceCalls).toHaveLength(0);
-    await expect(
-      tenantDb.runAs(userId, (tx) =>
-        new CompactionsRepository(tx).findLatestByChatId(
-          seeded.chat.id,
-          userId,
-        ),
-      ),
-    ).resolves.toBeUndefined();
-    await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;
-  });
 
   // Compaction inherits effort for ONE reason: it reproduces the finished
   // turn's system prompt and message prefix so the call lands on the
@@ -1030,7 +1009,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   });
 
   // A9: transition compaction reuses the SOURCE model and the SOURCE
-  // snapshot's system prompt, so the source run's effort is the one whose
+  // receipt's system prompt, so the source run's effort is the one whose
   // cache is at stake. The incoming turn's effort is not part of that prefix,
   // and was validated against a different model's declared levels entirely.
   it('sends the source run effort on transition compaction, not the incoming turn effort', async () => {
@@ -1046,7 +1025,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['target response'], 800);
+    const targetDelegate = createFakeModelClient(['target response'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1077,7 +1056,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     expect(persisted?.usage).toMatchObject({ effort: 'high' });
   });
 
-  it('uses one source-snapshot transition checkpoint before invoking the smaller target', async () => {
+  it('uses one source-receipt transition checkpoint before invoking the smaller target', async () => {
     const seeded = await seedSwitch({ toolObservation: true });
     const sourceCalls: Array<ModelStreamInput> = [];
     const targetCalls: Array<ModelStreamInput> = [];
@@ -1094,11 +1073,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       createClient: createSourceClient,
     });
     // Synthetic bound, sized to fit exactly one transition checkpoint plus the
-    // switch item. Raised from 500 when the unified envelope added a measured
-    // ~17 tokens to a checkpoint and ~24 to a notice (attributes plus the
-    // one-line provenance statement) — the budget was calibrated to the old
-    // per-producer delimiters, not to a behaviour change.
-    const targetDelegate = createFakeModelClient(['target response'], 800);
+    // switch item and the live worker-admitted search declaration. The budget
+    // is deliberately below the un-compacted history, so this still exercises
+    // one transition checkpoint.
+    const targetDelegate = createFakeModelClient(['target response'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1123,17 +1101,15 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
     expect(sourceCalls).toHaveLength(1);
     expect(createSourceClient).toHaveBeenCalledWith('source-model');
-    expect(sourceCalls[0].system).toBe(seeded.sourceSnapshot.systemPrompt);
+    expect(sourceCalls[0].system).toBe(seeded.sourceReceipt?.systemPrompt);
     expect(sourceCalls[0].toolChoice).toBe('none');
-    expect(Object.keys(sourceCalls[0].tools ?? {})).toEqual([
-      'search_conversations',
-    ]);
+    expect(sourceCalls[0].tools).toBeUndefined();
     expect(sourceCalls[0].messages.at(-1)).toEqual({
       role: 'user',
       content: TRANSITION_COMPACTION_INSTRUCTION,
     });
 
-    // D7: a run whose bound prompt carried personalization still compacts, the
+    // D7: a run whose source receipt carried personalization still compacts, the
     // owner text is replayed VERBATIM (the prefix must stay byte-identical or
     // the whole call goes cold), and the exclusion rides in the trailing
     // instruction — the only part outside the cached prefix.
@@ -1156,7 +1132,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     );
 
     expect(targetCalls).toHaveLength(1);
-    expect(targetCalls[0].system).toBe(seeded.targetSnapshot.systemPrompt);
+    expect(targetCalls[0].system).toBe('Test prompt: default');
     expect(Object.keys(targetCalls[0].tools ?? {})).toEqual([
       'search_conversations',
     ]);
@@ -1174,15 +1150,17 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       ],
     });
     expect(contentText(targetCalls[0].messages[0].content)).toContain(summary);
-    expect(targetCalls[0].messages.at(-1)).toEqual({
-      role: 'user',
-      content: [
-        { type: 'text', text: seeded.switchPart.data.text },
-        { type: 'text', text: 'CURRENT TRIGGER' },
-      ],
-    });
+    const targetTrigger = targetCalls[0].messages.at(-1);
+    expect(targetTrigger?.role).toBe('user');
+    const targetTriggerText = contentText(targetTrigger?.content ?? '');
+    expect(targetTriggerText).toContain(seeded.switchPart.data.text);
+    expect(targetTriggerText).toContain('Message received:');
+    expect(targetTriggerText).toContain(
+      'You are now running as model "target-model".',
+    );
+    expect(targetTriggerText).toMatch(/CURRENT TRIGGER$/u);
     expect(JSON.stringify(targetCalls[0])).not.toContain(
-      seeded.sourceSnapshot.systemPrompt,
+      seeded.sourceReceipt?.systemPrompt ?? '',
     );
     expect(JSON.stringify(targetCalls[0].messages)).toContain(
       'transition-tool-call',
@@ -1224,7 +1202,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         compactionClient({ model: 'source-model', calls: sourceCalls }),
       ),
     });
-    const targetDelegate = createFakeModelClient(['must not run'], 700);
+    const targetDelegate = createFakeModelClient(['must not run'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1286,7 +1264,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['must not run'], 700);
+    const targetDelegate = createFakeModelClient(['must not run'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1355,7 +1333,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['target response'], 700);
+    const targetDelegate = createFakeModelClient(['target response'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1428,7 +1406,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const compaction = createCompactionService({
       createClient: vi.fn(() => sourceClient),
     });
-    const targetDelegate = createFakeModelClient(['target response'], 700);
+    const targetDelegate = createFakeModelClient(['target response'], 1000);
     const targetClient: ModelClient = {
       ...targetDelegate,
       model: 'target-model',
@@ -1528,7 +1506,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     async ({ sourceRun, switchMarker, models }) => {
       const seeded = await seedSwitch({ sourceRun, switchMarker });
       const targetCalls: Array<ModelStreamInput> = [];
-      const target = createFakeModelClient(['must not run'], 700);
+      const target = createFakeModelClient(['must not run'], 1000);
       const targetClient: ModelClient = {
         ...target,
         model: 'target-model',

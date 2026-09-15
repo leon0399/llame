@@ -1,5 +1,4 @@
 import { BadRequestException } from '@nestjs/common';
-import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 
 import { type TenantRunner } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -10,31 +9,11 @@ import {
   ModelNotAvailableError,
   type ModelSelectionValidator,
 } from '../models/models.service';
-import { type PromptUserResolver } from '../personalization/personalization.service';
-import {
-  type MemorySettingsBindingResolver,
-  type MemorySettingsResolver,
-} from '../memory/memory.service';
 import { type RunAborter } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { ChatLoopService } from './chat-loop.service';
-import { type RecencyDigestResolver } from './recency-digest.service';
-import { SystemPromptsService } from '../system-prompts/system-prompts.service';
-import { type KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
-import { TOOL_REGISTRY } from '../tools/registry';
-
-const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
-  resolve: () =>
-    Promise.resolve(
-      [...TOOL_REGISTRY.values()].map((tool) => ({
-        source: { type: 'code_owned' as const },
-        state: 'available' as const,
-        tool,
-      })),
-    ),
-};
 
 const model: SystemModelCatalogEntry = {
   id: 'system:openai:gpt-5.4-mini',
@@ -70,16 +49,6 @@ function makeService(models?: {
   };
   const aborts: RunAborter = { abort: vi.fn() };
   const dispatch: RunDispatcher = { dispatch: dispatchRun };
-  const personalization: PromptUserResolver = {
-    resolvePromptUser: () => Promise.resolve(undefined),
-  };
-  const memory: MemorySettingsResolver & MemorySettingsBindingResolver = {
-    getForOwner: () => Promise.resolve({ shareRecentChats: false }),
-    getForOwnerForBinding: () => Promise.resolve({ shareRecentChats: false }),
-  };
-  const recencyDigest: RecencyDigestResolver = {
-    resolveCandidate: () => Promise.reject(new Error('unexpected digest read')),
-  };
 
   return {
     service: new ChatLoopService(
@@ -89,13 +58,6 @@ function makeService(models?: {
       bridge,
       aborts,
       dispatch,
-      personalization,
-      new SystemPromptsService(),
-      { snapshotCandidates: () => [] },
-      memory,
-      recencyDigest,
-      knowledgeCandidates,
-      noopSkillCatalog(),
     ),
     runAs,
     validateModelSelection,

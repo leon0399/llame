@@ -381,14 +381,9 @@ d('queue-executed runs behind the stream bridge', () => {
     );
 
     // Hand-craft a non-terminal run occupying the single-flight slot.
-    const {
-      messageId: seededMessageId,
-      modelContextSnapshotId: seededSnapshotId,
-    } = seededRun;
-    if (seededMessageId === null || seededSnapshotId === null) {
-      throw new Error(
-        'Expected the seeded run to carry a message and snapshot id',
-      );
+    const { messageId: seededMessageId } = seededRun;
+    if (seededMessageId === null) {
+      throw new Error('Expected the seeded run to carry a message id');
     }
     const blocker = await tenantDb.runAs(userId, async (tx) => {
       const repo = new RunsRepository(tx);
@@ -397,7 +392,6 @@ d('queue-executed runs behind the stream bridge', () => {
         messageId: seededMessageId,
         userId,
         modelId: 'system:openai:gpt-5.4-mini',
-        modelContextSnapshotId: seededSnapshotId,
       });
       await repo.markStarted(run.id, userId);
       return run;

@@ -15,19 +15,19 @@ const useRunContextReceipt = vi.mocked(runs.useRunContextReceipt, {
 
 const RECEIPT = {
   modelId: "custom:anthropic:sonnet",
-  promptSource: "model_override" as const,
-  systemPrompt: "You are the complete model-specific prompt.",
-  tools: [
+  effort: undefined,
+  activeAttemptId: "a1b2c3d4-0000-0000-0000-000000000001",
+  completedAttemptId: "a1b2c3d4-0000-0000-0000-000000000001",
+  state: "prepared" as const,
+  receipts: [
     {
-      id: "search_conversations",
-      description: "Search the owner's conversations.",
-      inputSchema: {
-        type: "object",
-        properties: { query: { type: "string" } },
-      },
+      attemptId: "a1b2c3d4-0000-0000-0000-000000000001",
+      promptSource: "model_override" as const,
+      systemPrompt: "You are the complete model-specific prompt.",
+      promptHash: "7f07b813",
+      createdAt: "2026-07-18T12:34:56.000Z",
     },
   ],
-  contentHash: "7f07b813",
   createdAt: "2026-07-18T12:34:56.000Z",
 };
 
@@ -52,27 +52,31 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * The owner auditing exactly what a run saw: the complete receipt (prompt
- * source, full system prompt, advertised tools, content hash) with the
- * server-only host path structurally absent — never leaked to the client.
+ * The owner auditing what the attempt sent: the system-only receipt (attempt
+ * id, prompt source, prompt hash, and the complete rendered system prompt)
+ * with advertised tool declarations and server-only host paths structurally
+ * absent — never persisted or leaked to the client.
  *
- * @summary complete owner receipt without a host path
+ * @summary system-only attempt receipt without a host path
  */
 export const Receipt: Story = {
   tags: ["ai-generated"],
   play: async () => {
     const dialog = within(
       await within(document.body).findByRole("dialog", {
-        name: "Effective context",
+        name: "System prompt receipt",
       }),
     );
     await expect(dialog.getByText("Model-specific override")).toBeVisible();
     await expect(
       dialog.getByText("You are the complete model-specific prompt."),
     ).toBeVisible();
-    await expect(dialog.getByText("search_conversations")).toBeVisible();
-    await expect(dialog.getByText(/"query"/)).toBeVisible();
     await expect(dialog.getByText("7f07b813")).toBeVisible();
+    await expect(dialog.getByText("prepared")).toBeVisible();
+    // Tool declarations are runtime-only by contract, so nothing the client
+    // renders may be tool-labelled. A data-value query could never fail: the
+    // picked receipt type carries no tool data to render.
+    await expect(dialog.queryByText(/tool/i)).toBeNull();
     // The configured systemPromptFile path is server-only (README contract).
     await expect(
       dialog.queryByText(/\/etc\/|systemPromptFile|host path/i),

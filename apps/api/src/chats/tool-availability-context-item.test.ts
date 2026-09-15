@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createToolAvailabilityItem,
   deriveToolAvailabilityPayload,
+  deriveToolAvailabilityPayloadFromStates,
   isToolAvailabilityPayload,
   type ToolAvailabilityPayload,
 } from './tool-availability-context-item';
@@ -429,5 +430,33 @@ describe('createToolAvailabilityItem rendering', () => {
     expect(() =>
       createToolAvailabilityItem({ runId: RUN_ID, payload: payload() }),
     ).toThrow('Invalid server-authored tool availability metadata');
+  });
+});
+
+describe('deriveToolAvailabilityPayloadFromStates', () => {
+  it('refuses an unobserved current manifest before diffing a stored record', () => {
+    expect(() =>
+      deriveToolAvailabilityPayloadFromStates({
+        // @ts-expect-error Exercise the runtime guard for a persisted v0 value.
+        current: TOOL_AVAILABILITY_UNOBSERVED,
+        previous: [{ id: 'down_tool', state: 'unavailable' }],
+      }),
+    ).toThrow('Current tool availability must be observed');
+  });
+
+  it('restores a tool whose stored record carries no failure reason', () => {
+    expect(
+      deriveToolAvailabilityPayloadFromStates({
+        current: manifest([available('kept_tool'), available('back_tool')]),
+        previous: [
+          { id: 'back_tool', state: 'unavailable' },
+          { id: 'kept_tool', state: 'available' },
+        ],
+      }),
+    ).toStrictEqual(
+      // The minimal record stores no reason, so the recovery may only claim
+      // the generic restoration rather than a cause it never observed.
+      payload({ nowAvailable: [{ id: 'back_tool', reason: 'tool_restored' }] }),
+    );
   });
 });

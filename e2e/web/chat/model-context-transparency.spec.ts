@@ -21,7 +21,6 @@ const EXPECTED_TARGET_PROMPT = `# E2E context target
 
 This complete model-specific prompt contains e2epromptcitrine.
 You are E2E Context Target with public id ${TARGET_MODEL_ID}.`;
-const TOOL_DESCRIPTION = "keyword search for bounded discovery excerpts";
 
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -124,25 +123,24 @@ test.describe("model-context transparency (browser, full stack)", () => {
     ).toBe(true);
 
     await switchBoundary.click();
+    // The expanded boundary card's own button names the target run; the
+    // per-message actions share the shorter "System prompt" label, so this
+    // selector is the unambiguous one.
     await page.getByRole("button", { name: "View effective context" }).click();
 
-    const receipt = page.getByRole("dialog", { name: "Effective context" });
+    const receipt = page.getByRole("dialog", {
+      name: "System prompt receipt",
+    });
     await expect(receipt).toBeVisible();
     await expect(
-      receipt.getByRole("heading", { name: "Complete system prompt" }),
+      receipt.getByRole("heading", { name: /System prompt receipts/ }),
     ).toBeVisible();
-    await expect(
-      receipt
-        .getByRole("heading", { name: "Complete system prompt" })
-        .locator("..")
-        .locator("pre"),
-    ).toHaveText(EXPECTED_TARGET_PROMPT);
-
-    const tool = receipt
-      .getByRole("heading", { name: "search_conversations" })
-      .locator("..");
-    await expect(tool).toContainText(TOOL_DESCRIPTION);
-    await expect(tool.locator("pre")).toContainText('"maxLength": 200');
+    // The receipt is system-prompt-only by contract: the rendered prompt is the
+    // evidence it carries, and advertised tool declarations are deliberately
+    // absent from it (they stay runtime-only in the worker).
+    await expect(receipt.locator("pre").first()).toHaveText(
+      EXPECTED_TARGET_PROMPT,
+    );
 
     await page.keyboard.press("Escape");
     await expect(receipt).not.toBeVisible();

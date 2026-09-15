@@ -5,12 +5,29 @@ import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { tool, type ToolSet } from 'ai';
 
+import { canonicalJson, compareCodePoints } from '../canonical-json';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
+  type Chat,
+  type Compaction,
   type Message,
   type ModelToolDeclaration,
+  type Run,
+  type RunContextItem,
   type RunStatus,
+  type SkillCatalogBaseline,
+  type TurnToolAvailabilityEntry,
 } from '../db/schema';
+import {
+  buildContext,
+  partsToText,
+  type BuiltContext,
+  type MessagePart,
+} from '../chats/context-builder';
+import {
+  type PromptUserInput,
+  type SystemModelCatalogEntry,
+} from '../models/model-catalog';
 import { type ModelClient } from '../models/model-client';
 import {
   ChatsRepository,
@@ -38,11 +55,16 @@ import {
   type ChatReindexDispatcher,
 } from '../search/search-reindex-dispatch.service';
 import {
-  buildContext,
-  partsToText,
-  type MessagePart,
-} from '../chats/context-builder';
-import { isModelChangeItem } from '../chats/context-item-producers';
+  isModelChangeItem,
+  createModelChangeItem,
+  createRecencyDigestDeltaItem,
+  createRecencyDigestSupersessionItem,
+  createToolAvailabilityItem,
+  createTemporalItem,
+  deriveToolAvailabilityPayload,
+  deriveToolAvailabilityPayloadFromStates,
+} from '../chats/context-item-producers';
+import { isContextItemPart, resolveForm } from '../chats/context-item';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { createDeltaBuffer } from './delta-buffer';
 import {
@@ -90,6 +112,7 @@ import {
   RunsRepository,
   type RunEventType,
 } from './runs-repository';
+import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
   buildTurnTelemetry,
@@ -97,18 +120,60 @@ import {
   turnTelemetryLogger,
   type TurnTelemetry,
 } from '../chats/turn-telemetry';
-import { ModelContextSnapshotsRepository } from './model-context-snapshots.repository';
 import {
   ContextIncompatibleError,
   DYNAMIC_TOOL_EXECUTOR_RESOLVER,
+  type BoundExecutableTool,
   type DynamicToolExecutorResolver,
   ModelContextExecutionError,
   resolveBoundExecutableTools,
 } from './snapshot-tool-execution';
-
+import {
+  resolveEffectiveContext,
+  type ResolvedAttemptContext,
+  type SystemPromptReceiptInput,
+} from './effective-context-resolver';
+import {
+  SystemPromptsService,
+  type SystemPromptRenderInput,
+} from '../system-prompts/system-prompts.service';
+import {
+  PersonalizationService,
+  type PromptUserResolver,
+} from '../personalization/personalization.service';
+import {
+  ModelsService,
+  type ModelSelectionValidator,
+} from '../models/models.service';
+import {
+  KnowledgeToolCandidateResolver,
+  type KnowledgeToolCandidateResolverPort,
+} from '../knowledge/knowledge-tool-candidate-resolver';
+import { McpRuntimeService } from '../mcp/mcp-runtime.service';
+import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
+import {
+  MemoryService,
+  type MemorySettingsBindingResolver,
+  type ResolvedMemorySettings,
+} from '../memory/memory.service';
+import {
+  RecencyDigestService,
+  deriveRecencyDigestDelta,
+  type RecencyDigestDelta,
+  type RecencyDigestResolution,
+  type RecencyDigestResolver,
+} from '../chats/recency-digest.service';
+import {
+  resolveTurnSkillState,
+  type SkillTurnState,
+} from '../chats/skill-turn-state';
+import {
+  formatTemporalAnchor,
+  resolveInstanceTimezone,
+  type TemporalAnchor,
+} from '../prompts/temporal-anchor';
 type AssistantTurnTelemetry = TurnTelemetry & { runId: string };
 
-/** One turn's assistant reply, as handed to the terminal write and its post-work. */
 type AssistantTurnPersistence = {
   chatId: string;
   inReplyTo: string;
@@ -120,13 +185,86 @@ type AssistantTurnWrite = AssistantTurnPersistence & {
   telemetry: AssistantTurnTelemetry;
 };
 
+type SkillCatalogFreeze = NonNullable<SkillTurnState['freeze']>;
+
+/**
+ * The skill-catalog writes a turn establishes, applied by the terminal
+ * transaction of the attempt that completes it: the baseline to freeze when the
+ * turn starts an epoch, and the names it leaves the chat told about. Both are
+ * optional because most turns establish neither.
+ */
+type SkillCatalogWrites = {
+  readonly freeze?: SkillCatalogFreeze;
+  readonly told?: NonNullable<Chat['skillCatalogTold']>;
+};
+
+/** Context resolved inside the worker transaction before the model request. */
+type PreparedAttemptContext = BuiltContext & {
+  /** Resolved prompt identity plus the attempt-local catalog. */
+  effectiveContext: ResolvedAttemptContext;
+  stagedParts: Array<MessagePart>;
+  recencyDigestInitialization?: RecencyDigestInitialization;
+  recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
+  /** The skill-catalog writes this turn establishes; see `SkillCatalogWrites`. */
+  skillCatalogWrites: SkillCatalogWrites;
+  untitled: boolean;
+};
+type AttemptDigestContext = {
+  shareRecentChats: ResolvedMemorySettings;
+  promptDigestBaseline: Chat['recencyDigestBaseline'];
+  recencyDigestInitialization?: RecencyDigestInitialization;
+  digestDelta: RecencyDigestDelta | null;
+};
+
+type AttemptPromptContext = AttemptDigestContext & {
+  chat: Chat;
+  model: SystemModelCatalogEntry;
+  user: PromptUserInput | undefined;
+  compaction: Compaction | undefined;
+  instanceTimezone: string;
+  systemPrompt: string;
+  /** This turn's skill-catalog decision: the rendered baseline and the notice. */
+  skillState: SkillTurnState;
+};
+
+type AttemptStagedContext = {
+  stagedParts: Array<MessagePart>;
+  recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
+  skillCatalogTold?: NonNullable<Chat['skillCatalogTold']>;
+};
+
+type FinishRunInput = {
+  userId: string;
+  runId: string;
+  status: TerminalRunStatus;
+  attemptId?: string;
+  modelCompleted?: {
+    usage: unknown;
+    finishReason: unknown;
+    telemetry?: TurnTelemetry;
+  };
+  runPayload?: unknown;
+  error?: unknown;
+  assistantTurn?: AssistantTurnWrite;
+  synthesizedTurnTelemetry?: AssistantTurnTelemetry;
+  attemptContextParts?: ReadonlyArray<MessagePart>;
+  recencyDigestInitialization?: RecencyDigestInitialization;
+  recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
+  skillCatalogWrites?: SkillCatalogWrites;
+  turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
+};
+
+type FinishRunResult =
+  | { outcome: 'won' | 'errored'; assistantMessage?: Message }
+  | { outcome: 'lost'; finalStatus?: string; assistantMessage?: Message };
+
 /** The assembled context+tools an execution attempt runs against. */
 type PreparedExecutionContext = {
   system: string;
-  messages: ReturnType<typeof buildContext>['messages'];
+  messages: BuiltContext['messages'];
   untitled: boolean;
   toolDeclarations: Array<ModelToolDeclaration>;
-  tools: Awaited<ReturnType<typeof resolveBoundExecutableTools>>;
+  tools: Array<BoundExecutableTool>;
 };
 
 type ExecuteRunInput = {
@@ -184,6 +322,35 @@ type TerminalRunStatus = Extract<
   RunStatus,
   'completed' | 'failed' | 'cancelled' | 'expired'
 >;
+
+type RecencyDigestInitialization = {
+  baseline: NonNullable<Chat['recencyDigestBaseline']>;
+  told: NonNullable<Chat['recencyDigestTold']>;
+};
+function toRunContextItems(
+  parts: ReadonlyArray<MessagePart>,
+): Array<RunContextItem> {
+  return parts.flatMap((part) => {
+    if (!isContextItemPart(part)) return [];
+    const form = resolveForm(part);
+    return [
+      {
+        producer: part.data.producer,
+        ...(form !== undefined && { form }),
+        residency: 'rail' as const,
+        text: part.data.text ?? '',
+      },
+    ];
+  });
+}
+
+function toTurnToolAvailability(
+  manifest: ResolvedAttemptContext['toolAvailabilityManifest'],
+): Array<TurnToolAvailabilityEntry> {
+  return [...manifest.entries]
+    .map(({ id, state }) => ({ id, state }))
+    .sort((left, right) => compareCodePoints(left.id, right.id));
+}
 
 /** A durably recorded tool request, with safe decision metadata once admitted. */
 type ToolRequestedEventPayload = {
@@ -246,13 +413,26 @@ export class RunExecutionService {
     private readonly knowledgeResolver: KnowledgeToolResolver,
     @Inject(SkillCatalog)
     private readonly skillCatalog: SkillCatalogPort,
-
     @Inject(SearchEmbedDispatchService)
     private readonly embedDispatch: ChatEmbedDispatcher,
     @Inject(ChatSearchQueryEmbedder)
     private readonly queryEmbedder: QueryEmbedderPort,
     @Inject(TOOL_PERMISSION_POLICY)
     private readonly permissionPolicy: CompiledPolicy,
+    // --- Worker-owned prompt/catalog resolution dependencies ---
+    @Inject(ModelsService)
+    private readonly models: ModelSelectionValidator,
+    private readonly systemPrompts: SystemPromptsService,
+    @Inject(PersonalizationService)
+    private readonly personalization: PromptUserResolver,
+    @Inject(KnowledgeToolCandidateResolver)
+    private readonly knowledgeCandidates: KnowledgeToolCandidateResolverPort,
+    @Inject(McpRuntimeService)
+    private readonly mcpRuntime: Pick<McpRuntimeService, 'snapshotCandidates'>,
+    @Inject(MemoryService)
+    private readonly memory: MemorySettingsBindingResolver,
+    @Inject(RecencyDigestService)
+    private readonly recencyDigest: RecencyDigestResolver,
     @Optional()
     @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
     private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
@@ -268,6 +448,8 @@ export class RunExecutionService {
     userId: string;
     runId: string;
     status: TerminalRunStatus;
+    /** Fence the terminal write by this attempt when one is known. */
+    attemptId?: string;
     runPayload?: unknown;
     error?: unknown;
     telemetry?: AssistantTurnTelemetry;
@@ -317,7 +499,7 @@ export class RunExecutionService {
           input.runId,
           input.userId,
           status,
-          { message: this.abortedRunMessage(status) },
+          { error: { message: this.abortedRunMessage(status) } },
         );
         if (finished) {
           await events.append(input.runId, `run.${status}`, {
@@ -354,7 +536,10 @@ export class RunExecutionService {
         started.workerId != null &&
         (await new NativeFilesRepository(tx).hasMutation(input.runId))
       ) {
-        return { nativeRecovery: true };
+        return {
+          nativeRecovery: true as const,
+          attemptId: started.activeAttemptId!,
+        };
       }
 
       // The claim returns the persisted effort rather than setting an outer
@@ -367,6 +552,7 @@ export class RunExecutionService {
       const startedEvent = await events.append(input.runId, 'run.started');
       return {
         effort: started.effort ?? undefined,
+        attemptId: started.activeAttemptId!,
         nativeDeliverySequence: startedEvent.sequence,
       };
     });
@@ -380,14 +566,15 @@ export class RunExecutionService {
         userId: input.userId,
         runId: input.runId,
         status: 'failed',
+        attemptId: claim.attemptId,
         error: { code: 'outcome_unknown', message },
         runPayload: { code: 'outcome_unknown', message },
       });
       throw new RunNotRunnableError(input.runId);
     }
-    const { effort } = claim;
+    const { effort, attemptId } = claim;
     if (input.abortSignal?.aborted) {
-      await this.settleAbortedRun(input);
+      await this.settleAbortedRun(input, attemptId);
     }
 
     // Explicit `$skill` activation runs BEFORE context assembly, because the
@@ -400,49 +587,46 @@ export class RunExecutionService {
       claim.nativeDeliverySequence,
     );
 
-    // Context assembly happens at execution time (not enqueue time): the run
-    // reads the chat as it exists when it starts — compaction summary + live
-    // window up to the triggering message (SPEC §9.5 puts this worker-side).
+    // Prompt/catalog resolution: the worker resolves both prompt surfaces
+    // from the current owner state, admitted catalog, and boot-loaded
+    // templates. This replaces the accept-time snapshot binding.
     let prepared: PreparedExecutionContext;
+    let attemptStagedParts: Array<MessagePart> = [];
+    let attemptRecencyDigestTold:
+      | NonNullable<Chat['recencyDigestTold']>
+      | undefined;
+    let attemptRecencyDigestInitialization:
+      | RecencyDigestInitialization
+      | undefined;
+    let attemptSkillCatalogWrites: SkillCatalogWrites | undefined;
+    let attemptToolAvailability: Array<TurnToolAvailabilityEntry> = [];
     try {
-      const context = await this.tenantDb.runAs(input.userId, async (tx) => {
-        // Titling gate (#78): read the title as of execution start — the
-        // common already-titled turn must not pay a post-turn title model
-        // call. The atomic \`title IS NULL\` write guard still decides races.
-        const chat = await new ChatsRepository(tx).findById(
-          input.chatId,
-          input.userId,
-        );
+      const context = await this.prepareAttemptContext(input, attemptId);
+      attemptStagedParts = context.stagedParts;
+      attemptRecencyDigestTold = context.recencyDigestTold;
+      attemptRecencyDigestInitialization = context.recencyDigestInitialization;
+      attemptSkillCatalogWrites = context.skillCatalogWrites;
+      attemptToolAvailability = toTurnToolAvailability(
+        context.effectiveContext.toolAvailabilityManifest,
+      );
 
-        const snapshot = await new ModelContextSnapshotsRepository(
-          tx,
-        ).findByOwnedRun(input.runId, input.userId);
-        if (!snapshot) {
-          throw new ModelContextExecutionError(
-            `Run ${input.runId} has no owned model-context snapshot.`,
-          );
-        }
+      // Inject staged context items into the model request: prepend their
+      // rendered text to the triggering user message. Uses the same rendering
+      // path as userPartsToModelContent — context item parts carry data.text.
+      const contextMessages = context.messages;
+      this.prependStagedContextItems(contextMessages, attemptStagedParts);
 
-        const built = await this.rebuildContextForChat(
-          tx,
-          input,
-          snapshot.systemPrompt,
-        );
-
-        return {
-          ...built,
-          snapshot,
-          untitled: chat?.title === null,
-        };
-      });
-      let contextItems = context.contextItems;
+      let contextItems = [
+        ...context.contextItems,
+        ...toRunContextItems(attemptStagedParts),
+      ];
       prepared = {
         system: context.system,
-        messages: context.messages,
+        messages: contextMessages,
         untitled: context.untitled,
-        toolDeclarations: context.snapshot.toolDeclarations,
+        toolDeclarations: context.effectiveContext.toolDeclarations,
         tools: await resolveBoundExecutableTools(
-          context.snapshot.toolDeclarations,
+          context.effectiveContext.toolDeclarations,
           undefined,
           this.dynamicToolResolver,
         ),
@@ -454,17 +638,19 @@ export class RunExecutionService {
       contextItems = await this.ensureRequestFitsContextWindow(
         prepared,
         contextItems,
+        attemptStagedParts,
         input,
       );
       // Recorded only once the request is final: before this point a
       // transition compaction can still replace it, and a preparation failure
       // means no request was ever made. Recording earlier would durably assert
-      // a request the model never received.
+      // a request the model never received. Fenced by activeAttemptId.
       const recorded = await this.tenantDb.runAs(input.userId, (tx) =>
-        new RunsRepository(tx).recordContextItems(
+        new RunsRepository(tx).updateForAttempt(
           input.runId,
           input.userId,
-          contextItems,
+          attemptId,
+          { contextItems },
         ),
       );
       // A miss means the owner-scoped row is gone — the chat was deleted out
@@ -476,14 +662,19 @@ export class RunExecutionService {
       }
     } catch (error) {
       if (input.abortSignal?.aborted) {
-        await this.settleAbortedRun(input);
+        await this.settleAbortedRun(input, attemptId);
       }
       if (error instanceof ModelContextExecutionError) {
         const message = error.message;
+        // Fenced by the claim: the failure that ends preparation may BE the
+        // reclaim (`persistAttemptPromptReceipt` refuses a stale attempt), and
+        // an unfenced write here would let that stale attempt mark a run
+        // another attempt is actively executing as failed.
         await this.finishRun({
           userId: input.userId,
           runId: input.runId,
           status: 'failed',
+          attemptId,
           runPayload: { status: 'failed', message, code: error.code },
           error: { message, code: error.code },
         });
@@ -493,7 +684,7 @@ export class RunExecutionService {
     const { system, messages, untitled, tools: executableTools } = prepared;
 
     if (input.abortSignal?.aborted) {
-      await this.settleAbortedRun(input);
+      await this.settleAbortedRun(input, attemptId);
     }
 
     const streamStartedAt = Date.now();
@@ -713,7 +904,7 @@ export class RunExecutionService {
       shouldSettle: (toolName: string) => boolean = () => true,
     ) => {
       // recordToolCompleted deletes the current key; removing the entry being
-      // visited is well-defined for a Map iterator, so no snapshot is needed.
+      // visited is well-defined for a Map iterator.
       for (const [toolCallId, { toolName, toolInput }] of openToolCalls) {
         if (!shouldSettle(toolName)) continue;
         recordToolCompleted(
@@ -730,7 +921,7 @@ export class RunExecutionService {
     // surfaced to the stream/worker instead of becoming a detached rejection.
     let parentAbortSettlement: Promise<void> | undefined;
 
-    // The immutable snapshot is the authority for what the model sees. The
+    // The attempt-local catalog is the authority for what the model sees. The
     // registry supplied compatible executor functions above. Native calls also
     // recheck trusted host authority; the mutable allowlist is not re-applied.
     const toolSet: ToolSet = Object.fromEntries(
@@ -849,6 +1040,7 @@ export class RunExecutionService {
           await this.failRunProgressPersistence({
             userId: input.userId,
             runId: input.runId,
+            attemptId,
           });
           return;
         }
@@ -857,6 +1049,7 @@ export class RunExecutionService {
             userId: input.userId,
             runId: input.runId,
             status,
+            attemptId,
             runPayload: { status, message },
             error: { message },
           });
@@ -864,6 +1057,7 @@ export class RunExecutionService {
           await this.failRunProgressPersistence({
             userId: input.userId,
             runId: input.runId,
+            attemptId,
           });
         }
       })();
@@ -987,6 +1181,7 @@ export class RunExecutionService {
             await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
+              attemptId,
               telemetry: assistantTelemetry,
             });
             return;
@@ -1010,6 +1205,7 @@ export class RunExecutionService {
             await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
+              attemptId,
               telemetry: assistantTelemetry,
             });
             return;
@@ -1029,6 +1225,7 @@ export class RunExecutionService {
             userId: input.userId,
             runId: input.runId,
             status,
+            attemptId,
             runPayload: {
               status,
               message,
@@ -1088,6 +1285,7 @@ export class RunExecutionService {
             await this.settleProgressWriteFailure({
               userId: input.userId,
               runId: input.runId,
+              attemptId,
               telemetry: assistantTelemetry,
             });
             return;
@@ -1117,6 +1315,7 @@ export class RunExecutionService {
               await this.settleProgressWriteFailure({
                 userId: input.userId,
                 runId: input.runId,
+                attemptId,
                 telemetry: assistantTelemetry,
               });
               return;
@@ -1132,6 +1331,7 @@ export class RunExecutionService {
             userId: input.userId,
             runId: input.runId,
             status,
+            attemptId,
             modelCompleted: {
               usage,
               finishReason,
@@ -1141,6 +1341,19 @@ export class RunExecutionService {
               telemetry: assistantTelemetry,
             },
             assistantTurn: turn,
+            ...(status === 'completed' && {
+              attemptContextParts: attemptStagedParts,
+              ...(attemptRecencyDigestInitialization !== undefined && {
+                recencyDigestInitialization: attemptRecencyDigestInitialization,
+              }),
+              ...(attemptRecencyDigestTold !== undefined && {
+                recencyDigestTold: attemptRecencyDigestTold,
+              }),
+              ...(attemptSkillCatalogWrites !== undefined && {
+                skillCatalogWrites: attemptSkillCatalogWrites,
+              }),
+              turnToolAvailability: attemptToolAvailability,
+            }),
           });
 
           await this.afterAssistantTurn(
@@ -1207,13 +1420,16 @@ export class RunExecutionService {
       // any callback can fire) would otherwise strand the claimed run at
       // 'running_model' until the deadman sweep expires it — fail it now.
       if (input.abortSignal?.aborted) {
-        await this.settleAbortedRun(input);
+        await this.settleAbortedRun(input, attemptId);
       }
       const message = error instanceof Error ? error.message : String(error);
+      // This attempt holds the claim; a reclaim during the synchronous throw
+      // must reject this write rather than let the superseded attempt publish.
       await this.finishRun({
         userId: input.userId,
         runId: input.runId,
         status: 'failed',
+        attemptId,
         runPayload: { status: 'failed', message },
         error: { message },
       });
@@ -1416,6 +1632,7 @@ export class RunExecutionService {
   private async ensureRequestFitsContextWindow(
     prepared: PreparedExecutionContext,
     contextItems: ReturnType<typeof buildContext>['contextItems'],
+    stagedParts: ReadonlyArray<MessagePart>,
     input: ExecuteRunInput,
   ): Promise<ReturnType<typeof buildContext>['contextItems']> {
     const reservedOutputTokens =
@@ -1431,7 +1648,10 @@ export class RunExecutionService {
     ) {
       return contextItems;
     }
-    if (!input.userMessage.parts.some(isModelChangeItem)) {
+    if (
+      !stagedParts.some(isModelChangeItem) &&
+      !input.userMessage.parts.some(isModelChangeItem)
+    ) {
       throw new ContextIncompatibleError(
         'The complete request exceeds the target model context window and no model-switch source context is available.',
       );
@@ -1440,6 +1660,7 @@ export class RunExecutionService {
       prepared,
       input,
       reservedOutputTokens,
+      stagedParts,
     );
   }
 
@@ -1454,6 +1675,7 @@ export class RunExecutionService {
     prepared: PreparedExecutionContext,
     input: ExecuteRunInput,
     reservedOutputTokens: number | null,
+    stagedParts: ReadonlyArray<MessagePart>,
   ): Promise<ReturnType<typeof buildContext>['contextItems']> {
     try {
       await this.compaction.compactForTransition({
@@ -1473,6 +1695,7 @@ export class RunExecutionService {
     const rebuilt = await this.tenantDb.runAs(input.userId, (tx) =>
       this.rebuildContextForChat(tx, input, prepared.system),
     );
+    this.prependStagedContextItems(rebuilt.messages, stagedParts);
     prepared.messages = rebuilt.messages;
     if (
       !requestFitsContextWindow({
@@ -1487,7 +1710,7 @@ export class RunExecutionService {
         'The complete request still exceeds the target model context window after one transition compaction.',
       );
     }
-    return rebuilt.contextItems;
+    return [...rebuilt.contextItems, ...toRunContextItems(stagedParts)];
   }
 
   private abortedRunMessage(
@@ -1501,18 +1724,24 @@ export class RunExecutionService {
   }
 
   /** Settle an observed abort before streaming and suppress queue retries only
-   * after the terminal state + matching event are durably visible. */
-  private async settleAbortedRun(input: {
-    userId: string;
-    runId: string;
-    abortSignal?: AbortSignal;
-  }): Promise<never> {
+   * after the terminal state + matching event are durably visible. Fenced by
+   * `attemptId`: only the attempt that observed the abort may settle it, so a
+   * reclaimed attempt's late abort cannot cancel the live attempt's run. */
+  private async settleAbortedRun(
+    input: {
+      userId: string;
+      runId: string;
+      abortSignal?: AbortSignal;
+    },
+    attemptId: string,
+  ): Promise<never> {
     const status = classifyAbortedRun(input.abortSignal);
     const message = this.abortedRunMessage(status);
     const finish = await this.finishRun({
       userId: input.userId,
       runId: input.runId,
       status,
+      attemptId,
       runPayload: { status, message },
       error: { message },
     });
@@ -1536,6 +1765,7 @@ export class RunExecutionService {
   private async settleProgressWriteFailure(input: {
     userId: string;
     runId: string;
+    attemptId: string;
     telemetry: AssistantTurnTelemetry;
   }): Promise<void> {
     const message = 'Run progress could not be persisted.';
@@ -1543,6 +1773,7 @@ export class RunExecutionService {
       userId: input.userId,
       runId: input.runId,
       status: 'failed',
+      attemptId: input.attemptId,
       telemetry: input.telemetry,
       runPayload: { status: 'failed', message },
       error: { message },
@@ -1552,6 +1783,7 @@ export class RunExecutionService {
   private async failRunProgressPersistence(input: {
     userId: string;
     runId: string;
+    attemptId: string;
   }): Promise<void> {
     const message = 'Run progress could not be persisted.';
     try {
@@ -1559,6 +1791,7 @@ export class RunExecutionService {
         userId: input.userId,
         runId: input.runId,
         status: 'failed',
+        attemptId: input.attemptId,
         runPayload: { status: 'failed', message },
         error: { message },
       });
@@ -1612,174 +1845,11 @@ export class RunExecutionService {
    * the accepted cost. What it replaces is worse: a run reporting an answer it
    * never stored, equally unrecoverable and, unlike this, on the normal path.
    */
-  private async finishRun(input: {
-    userId: string;
-    runId: string;
-    status: TerminalRunStatus;
-    modelCompleted?: {
-      usage: unknown;
-      finishReason: unknown;
-      telemetry?: TurnTelemetry;
-    };
-    runPayload?: unknown;
-    error?: unknown;
-    assistantTurn?: AssistantTurnWrite;
-    synthesizedTurnTelemetry?: AssistantTurnTelemetry;
-  }): Promise<
-    | { outcome: 'won' | 'errored'; assistantMessage?: Message }
-    | { outcome: 'lost'; finalStatus?: string; assistantMessage?: Message }
-  > {
+  private async finishRun(input: FinishRunInput): Promise<FinishRunResult> {
     try {
-      return await this.tenantDb.runAs(input.userId, async (tx) => {
-        // LOCK ORDER — the run row first, then the message row, and no
-        // EXCLUSIVE lock on the chat row (its activity bump moved to
-        // afterAssistantTurn for exactly this reason). The chat is the one row
-        // other writers contend on from both directions:
-        // `chat-loop.service.ts` takes it BEFORE this chat's run (send),
-        // `chats.service.ts#deleteChat` takes it AFTER (cancel, then delete) —
-        // so holding it for update here would close a cycle with one of them
-        // whichever order this transaction picked.
-        //
-        // Inserting the assistant message DOES take a FOR KEY SHARE lock on the
-        // chat row, through the messages.chat_id foreign key, and that is safe
-        // for one specific reason: FOR KEY SHARE conflicts ONLY with FOR
-        // UPDATE. The send path holds that chat row for its whole transaction —
-        // from its activity touch through the run insert that waits on us — but
-        // an UPDATE of a non-key column takes FOR NO KEY UPDATE, which a KEY
-        // SHARE request does not wait on, so the cycle never closes. That rule
-        // is the entire premise here, so it is pinned by a test rather than
-        // asserted ("a concurrent chat touch does not block the finalizer's
-        // message write" in worker-concurrency.integration.test.ts).
-        //
-        // deleteChat is the other direction (runs, then chats): its first act
-        // (requestCancel) blocks on the run row below, so it never reaches its
-        // chat DELETE — the one lock that WOULD block us — while this
-        // transaction is open. Every other writer takes the run row before any
-        // message row of ours, and per-turn message rows are disjoint, so this
-        // order waits on no one who waits on us.
-        const runsRepo = new RunsRepository(tx);
-        const finished = await runsRepo.markFinished(
-          input.runId,
-          input.userId,
-          input.status,
-          input.error,
-        );
-        if (!finished) {
-          const current = await runsRepo.findById(input.runId, input.userId);
-          // Message persistence is independent of who won the bookkeeping race,
-          // EXCEPT when another writer finished the run with intent: cancelled
-          // (user stop / supersede — the newer attempt owns the turn, and a
-          // completed reply here would make its own persist a no-op) or a
-          // dual-fire that already recorded it. An 'expired' loss still keeps
-          // what streamed — expiry is a liveness misjudgment, not user intent.
-          //
-          // This branch is SALVAGE, and deliberately outside the atomicity
-          // guarantee above: the terminal event was published by someone else
-          // (dead-letter expiry) before this worker knew, so no transaction
-          // here can be atomic with a commit that already happened. Making it
-          // so would mean the expiry writer holding the streamed parts, which
-          // live only in this process's memory. What this recovers is a partial
-          // answer for a run already declared dead; the run this worker itself
-          // finishes — every normal turn — is atomic.
-          const assistantMessage =
-            current?.status === 'expired'
-              ? await this.persistAssistantMessage(
-                  tx,
-                  input.userId,
-                  input.assistantTurn,
-                )
-              : undefined;
-          return {
-            outcome: 'lost' as const,
-            finalStatus: current?.status,
-            assistantMessage,
-          };
-        }
-
-        const events = new RunEventsRepository(tx);
-        const durable = reconstructDurableAssistant(
-          await events.listByRunId(input.runId, input.userId),
-        );
-        for (const [
-          toolCallId,
-          { toolName, toolInput, permission },
-        ] of durable.openToolCalls) {
-          if (input.status === 'completed') {
-            throw new Error(
-              `Run ${input.runId} cannot complete with durable tool calls still open.`,
-            );
-          }
-          const nativeResult =
-            toolName === 'edit' || toolName === 'write' || toolName === 'bash'
-              ? await new NativeFilesRepository(tx).priorOutcome(
-                  input.runId,
-                  toolCallId,
-                )
-              : undefined;
-          const result =
-            nativeResult ?? toolTerminationResult(input.status, toolName);
-          // One transaction owns the run row before reaching here. Appending
-          // settlement, projecting its assistant part, and publishing the
-          // terminal event therefore form one fail-closed ordering domain.
-          const completedPayload: ToolCompletedEventPayload = {
-            toolCallId,
-            toolName,
-            status: result.status,
-            output: result,
-          };
-          if (permission !== undefined)
-            completedPayload.permission = permission;
-          await events.append(input.runId, 'tool.completed', completedPayload);
-          durable.collector.tool(
-            toolActivityPart({
-              toolCallId,
-              toolName,
-              input: toolInput,
-              result,
-              permission,
-            }),
-          );
-        }
-        if (input.modelCompleted) {
-          await events.append(
-            input.runId,
-            'model.completed',
-            input.modelCompleted,
-          );
-        }
-        const durableParts = durable.collector.parts();
-        let assistantTurn: AssistantTurnPersistence | undefined =
-          input.assistantTurn;
-        if (!assistantTurn && durableParts.length > 0) {
-          if (!finished.messageId) {
-            throw new Error(
-              `Run ${input.runId} has durable assistant parts but no triggering message.`,
-            );
-          }
-          assistantTurn = {
-            chatId: finished.chatId,
-            inReplyTo: finished.messageId,
-            parts: durableParts,
-            ...(input.synthesizedTurnTelemetry && {
-              telemetry: input.synthesizedTurnTelemetry,
-            }),
-          };
-        }
-        const assistantMessage = await this.persistAssistantMessage(
-          tx,
-          input.userId,
-          assistantTurn,
-        );
-        await events.append(
-          input.runId,
-          `run.${input.status}`,
-          input.runPayload,
-        );
-        return {
-          outcome: 'won' as const,
-          assistantMessage,
-        };
-      });
+      return await this.tenantDb.runAs(input.userId, (tx) =>
+        this.finishRunInTransaction(tx, input),
+      );
     } catch (error) {
       this.logger.error(
         `Failed to finish run ${input.runId}`,
@@ -1798,6 +1868,219 @@ export class RunExecutionService {
         assistantMessage: await this.salvageAssistantMessage(input),
       };
     }
+  }
+
+  /** Execute terminal bookkeeping within the caller's tenant transaction. */
+  private async finishRunInTransaction(
+    tx: Db,
+    input: FinishRunInput,
+  ): Promise<FinishRunResult> {
+    const runsRepo = new RunsRepository(tx);
+    const finished = await runsRepo.markFinished(
+      input.runId,
+      input.userId,
+      input.status,
+      {
+        error: input.error,
+        attemptId: input.attemptId,
+        ...(input.status === 'completed' &&
+          input.turnToolAvailability !== undefined && {
+            turnToolAvailability: input.turnToolAvailability,
+          }),
+      },
+    );
+    if (!finished) {
+      return this.handleLostFinish(tx, input, runsRepo);
+    }
+
+    const events = new RunEventsRepository(tx);
+    const durable = reconstructDurableAssistant(
+      await events.listByRunId(input.runId, input.userId),
+    );
+    await this.settleDurableOpenTools(tx, input, durable, events);
+    if (input.modelCompleted) {
+      await events.append(input.runId, 'model.completed', input.modelCompleted);
+    }
+    await this.persistFinishedContext(tx, input, finished);
+
+    const assistantTurn = this.buildAssistantTurnForFinish(
+      input,
+      finished,
+      durable.collector.parts(),
+    );
+    const assistantMessage = await this.persistAssistantMessage(
+      tx,
+      input.userId,
+      assistantTurn,
+    );
+    await events.append(input.runId, `run.${input.status}`, input.runPayload);
+    return {
+      outcome: 'won',
+      assistantMessage,
+    };
+  }
+
+  /**
+   * A terminal race can still salvage streamed content after an expiry. A
+   * cancellation or an already-recorded answer intentionally does not.
+   */
+  private async handleLostFinish(
+    tx: Db,
+    input: FinishRunInput,
+    runsRepo: RunsRepository,
+  ): Promise<FinishRunResult> {
+    const current = await runsRepo.findById(input.runId, input.userId);
+    const assistantMessage =
+      current?.status === 'expired'
+        ? await this.persistAssistantMessage(
+            tx,
+            input.userId,
+            input.assistantTurn,
+          )
+        : undefined;
+    return {
+      outcome: 'lost',
+      finalStatus: current?.status,
+      assistantMessage,
+    };
+  }
+
+  private async settleDurableOpenTools(
+    tx: Db,
+    input: FinishRunInput,
+    durable: ReturnType<typeof reconstructDurableAssistant>,
+    events: RunEventsRepository,
+  ): Promise<void> {
+    for (const [
+      toolCallId,
+      { toolName, toolInput, permission },
+    ] of durable.openToolCalls) {
+      if (input.status === 'completed') {
+        throw new Error(
+          `Run ${input.runId} cannot complete with durable tool calls still open.`,
+        );
+      }
+      const nativeResult =
+        toolName === 'edit' || toolName === 'write' || toolName === 'bash'
+          ? await new NativeFilesRepository(tx).priorOutcome(
+              input.runId,
+              toolCallId,
+            )
+          : undefined;
+      const result =
+        nativeResult ?? toolTerminationResult(input.status, toolName);
+      const completedPayload: ToolCompletedEventPayload = {
+        toolCallId,
+        toolName,
+        status: result.status,
+        output: result,
+      };
+      if (permission !== undefined) completedPayload.permission = permission;
+      await events.append(input.runId, 'tool.completed', completedPayload);
+      durable.collector.tool(
+        toolActivityPart({
+          toolCallId,
+          toolName,
+          input: toolInput,
+          result,
+          permission,
+        }),
+      );
+    }
+  }
+
+  private async persistFinishedContext(
+    tx: Db,
+    input: FinishRunInput,
+    finished: Run,
+  ): Promise<void> {
+    const chatsRepo = new ChatsRepository(tx);
+    if (
+      input.status === 'completed' &&
+      input.recencyDigestInitialization !== undefined
+    ) {
+      await chatsRepo.setRecencyDigestIfAbsent(
+        finished.chatId,
+        input.userId,
+        input.recencyDigestInitialization.baseline,
+        input.recencyDigestInitialization.told,
+      );
+    }
+    if (
+      input.status === 'completed' &&
+      input.attemptContextParts?.length &&
+      finished.messageId
+    ) {
+      const messagesRepo = new MessagesRepository(tx);
+      const turn = await messagesRepo.findTurnState(
+        finished.chatId,
+        input.userId,
+        finished.messageId,
+      );
+      if (turn.userMessage) {
+        await messagesRepo.updateUserMessageParts({
+          id: turn.userMessage.id,
+          chatId: finished.chatId,
+          parts: [...input.attemptContextParts, ...turn.userMessage.parts],
+        });
+      }
+    }
+    if (input.status === 'completed' && input.recencyDigestTold !== undefined) {
+      await chatsRepo.updateRecencyDigestTold(
+        finished.chatId,
+        input.userId,
+        input.recencyDigestTold,
+      );
+    }
+    // The skill-catalog state advances with the turn that showed it: a turn
+    // that started an epoch freezes the baseline its prompt rendered, and a
+    // turn that carried a notice records the names it disclosed. Both land in
+    // this attempt-fenced terminal transaction, so a losing attempt can never
+    // freeze a catalog the winner never rendered.
+    if (
+      input.status === 'completed' &&
+      input.skillCatalogWrites !== undefined
+    ) {
+      const { freeze, told } = input.skillCatalogWrites;
+      if (freeze !== undefined) {
+        await chatsRepo.setSkillCatalogBaseline({
+          chatId: finished.chatId,
+          ownerUserId: input.userId,
+          baseline: freeze.baseline,
+          rebakedFrom: freeze.rebakedFrom,
+        });
+      }
+      if (told !== undefined) {
+        await chatsRepo.updateSkillCatalogTold(
+          finished.chatId,
+          input.userId,
+          told,
+        );
+      }
+    }
+  }
+
+  private buildAssistantTurnForFinish(
+    input: FinishRunInput,
+    finished: Run,
+    durableParts: Array<MessagePart>,
+  ): AssistantTurnPersistence | undefined {
+    if (input.assistantTurn || durableParts.length === 0) {
+      return input.assistantTurn;
+    }
+    if (!finished.messageId) {
+      throw new Error(
+        `Run ${input.runId} has durable assistant parts but no triggering message.`,
+      );
+    }
+    return {
+      chatId: finished.chatId,
+      inReplyTo: finished.messageId,
+      parts: durableParts,
+      ...(input.synthesizedTurnTelemetry && {
+        telemetry: input.synthesizedTurnTelemetry,
+      }),
+    };
   }
 
   /** Best-effort standalone persist after the terminal transaction rolled back. */
@@ -1956,5 +2239,461 @@ export class RunExecutionService {
       usage: write.telemetry,
       inReplyTo: write.inReplyTo,
     });
+  }
+
+  /**
+   * Resolve prompt, catalog, receipt, context items, and message history for
+   * one execution attempt. Runs inside a single tenant transaction.
+   */
+  private async prepareAttemptContext(
+    input: ExecuteRunInput,
+    attemptId: string,
+  ): Promise<PreparedAttemptContext> {
+    return this.tenantDb.runAs(input.userId, (tx) =>
+      this.prepareAttemptContextInTransaction(tx, input, attemptId),
+    );
+  }
+  /** Resolve and persist the receipt for the complete attempt context. */
+  private async prepareAttemptContextInTransaction(
+    tx: Db,
+    input: ExecuteRunInput,
+    attemptId: string,
+  ): Promise<PreparedAttemptContext> {
+    const prompt = await this.resolveAttemptPrompt(tx, input);
+    const effectiveContext = await this.resolveAttemptEffectiveContext(
+      tx,
+      input,
+      prompt,
+    );
+    await this.persistAttemptPromptReceipt(
+      tx,
+      input,
+      attemptId,
+      effectiveContext,
+    );
+    const staged = await this.deriveAttemptStagedContext({
+      tx,
+      input,
+      prompt,
+      effectiveContext,
+    });
+    const built = await this.rebuildContextForChat(
+      tx,
+      input,
+      prompt.systemPrompt,
+    );
+    return {
+      ...built,
+      effectiveContext,
+      stagedParts: staged.stagedParts,
+      recencyDigestInitialization: prompt.recencyDigestInitialization,
+      recencyDigestTold: staged.recencyDigestTold,
+      skillCatalogWrites: {
+        ...(prompt.skillState.freeze !== undefined && {
+          freeze: prompt.skillState.freeze,
+        }),
+        ...(staged.skillCatalogTold !== undefined && {
+          told: staged.skillCatalogTold,
+        }),
+      },
+      untitled: prompt.chat.title === null,
+    };
+  }
+
+  private async resolveAttemptPrompt(
+    tx: Db,
+    input: ExecuteRunInput,
+  ): Promise<AttemptPromptContext> {
+    const chatsRepo = new ChatsRepository(tx);
+    const chat = await chatsRepo.findById(input.chatId, input.userId);
+    if (!chat) {
+      throw new ModelContextExecutionError(
+        `Chat ${input.chatId} was deleted before context preparation.`,
+      );
+    }
+    const model = this.models.validateModelSelection(input.client.model);
+    const user = await this.personalization.resolvePromptUser(input.userId);
+    const compaction = await new CompactionsRepository(tx).findLatestByChatId(
+      input.chatId,
+      input.userId,
+    );
+    const digest = await this.resolveAttemptDigest({
+      tx,
+      input,
+      chatsRepo,
+      chat,
+    });
+    const instanceTimezone = resolveInstanceTimezone(this.logger);
+    const anchor = formatTemporalAnchor(
+      compaction?.createdAt ?? chat.createdAt,
+      instanceTimezone,
+    );
+    const skillState = resolveTurnSkillState(
+      {
+        skillCatalog: this.skillCatalog,
+        skillDirectories: this.instanceConfig.config.skills.directories,
+        // Operator-only: an unreadable catalog is logged, never shown to the
+        // model.
+        reportUnavailable: (diagnostics) =>
+          this.logger.warn(
+            `skill_catalog_unavailable: ${diagnostics.join(' ')}`,
+          ),
+      },
+      {
+        chat,
+        runId: input.runId,
+        latestCompactionId: compaction?.id ?? null,
+        modelReferencesSkills: model.referencesSkills,
+      },
+    );
+    const systemPrompt = this.renderAttemptSystemPrompt({
+      model,
+      anchor,
+      user,
+      chats: digest.promptDigestBaseline,
+      skills: skillState.baseline,
+    });
+    return {
+      ...digest,
+      chat,
+      model,
+      user,
+      compaction,
+      instanceTimezone,
+      systemPrompt,
+      skillState,
+    };
+  }
+
+  private async resolveAttemptDigest(input: {
+    tx: Db;
+    input: ExecuteRunInput;
+    chatsRepo: ChatsRepository;
+    chat: Chat;
+  }): Promise<AttemptDigestContext> {
+    let shareRecentChats = await this.memory.getForOwnerForBinding(
+      input.tx,
+      input.input.userId,
+    );
+    let digestCandidate: RecencyDigestResolution | undefined;
+    if (shareRecentChats.shareRecentChats) {
+      try {
+        digestCandidate = await this.recencyDigest.resolveCandidate(
+          input.input.userId,
+          input.input.chatId,
+        );
+      } catch {
+        // Candidate titles and excerpts are owner content; do not attach the
+        // caught error to a log entry or execution error.
+        this.logger.error('recency_digest_resolution_failed');
+      }
+      // Consent and the chat's digest epoch are both rechecked after candidate
+      // resolution and before the prompt, receipt, and staged context are
+      // prepared. Resolution reads the owner's other chats, so a compaction
+      // checkpoint can publish a refreshed baseline in the meantime; a
+      // candidate built from the superseded baseline must not reach the target
+      // model. Compare by value: a jsonb column round-trips as a fresh object,
+      // so identity would report a change on every turn.
+      shareRecentChats = await this.memory.getForOwnerForBinding(
+        input.tx,
+        input.input.userId,
+      );
+      const recheckedChat = await input.chatsRepo.findById(
+        input.input.chatId,
+        input.input.userId,
+      );
+      const epochAdvanced =
+        recheckedChat === undefined ||
+        recheckedChat.recencyDigestRebakedFrom !==
+          input.chat.recencyDigestRebakedFrom ||
+        canonicalJson(recheckedChat.recencyDigestBaseline ?? null) !==
+          canonicalJson(input.chat.recencyDigestBaseline ?? null);
+      if (!shareRecentChats.shareRecentChats || epochAdvanced) {
+        digestCandidate = undefined;
+      }
+    }
+
+    const hadDigestBaseline = input.chat.recencyDigestBaseline !== null;
+    let promptDigestBaseline = input.chat.recencyDigestBaseline;
+    let recencyDigestInitialization: RecencyDigestInitialization | undefined;
+    if (
+      input.chat.recencyDigestBaseline === null &&
+      digestCandidate !== undefined &&
+      shareRecentChats.shareRecentChats
+    ) {
+      promptDigestBaseline = digestCandidate.baseline;
+      recencyDigestInitialization = {
+        baseline: digestCandidate.baseline,
+        told: digestCandidate.told,
+      };
+    }
+
+    let digestDelta: RecencyDigestDelta | null = null;
+    if (
+      hadDigestBaseline &&
+      digestCandidate !== undefined &&
+      input.chat.recencyDigestTold !== null &&
+      shareRecentChats.shareRecentChats
+    ) {
+      digestDelta = deriveRecencyDigestDelta({
+        candidate: digestCandidate,
+        told: input.chat.recencyDigestTold,
+        pinnedChatIds: await input.chatsRepo.findPinnedChatIds(
+          input.input.userId,
+          input.chat.recencyDigestTold.map(({ chatId }) => chatId),
+        ),
+      });
+    }
+    return {
+      shareRecentChats,
+      promptDigestBaseline,
+      recencyDigestInitialization,
+      digestDelta,
+    };
+  }
+
+  private renderAttemptSystemPrompt(input: {
+    model: SystemModelCatalogEntry;
+    anchor: TemporalAnchor;
+    user: PromptUserInput | undefined;
+    chats: Chat['recencyDigestBaseline'];
+    /** The frozen catalog baseline; undefined renders no skill section. */
+    skills: SkillCatalogBaseline | undefined;
+  }): string {
+    const renderInput: SystemPromptRenderInput = {
+      model: input.model,
+      anchor: input.anchor,
+      user: input.user,
+      chats: input.chats ?? undefined,
+      ...(input.skills !== undefined && { skills: input.skills }),
+    };
+    if (input.chats === null) {
+      return this.systemPrompts.render(renderInput);
+    }
+    try {
+      return this.systemPrompts.render(renderInput);
+    } catch {
+      this.logger.error('recency_digest_render_failed');
+      // Do not let a renderer error carry the owner's digest text out of
+      // this boundary.
+      throw new Error('Failed to render system prompt');
+    }
+  }
+
+  private async resolveAttemptEffectiveContext(
+    tx: Db,
+    input: ExecuteRunInput,
+    prompt: AttemptPromptContext,
+  ): Promise<ResolvedAttemptContext> {
+    const allowedToolRules = this.instanceConfig.config.tools.allowed;
+    const callTimeoutSeconds =
+      this.instanceConfig.config.tools.callTimeoutSeconds;
+    const codeOwnedCandidates = await this.knowledgeCandidates.resolve({
+      tx,
+      ownerUserId: input.userId,
+      allowedToolRules,
+    });
+    const dynamicCandidates: ReadonlyArray<TurnToolCandidate> =
+      this.mcpRuntime.snapshotCandidates();
+    return resolveEffectiveContext({
+      model: prompt.model,
+      systemPrompt: prompt.systemPrompt,
+      allowedToolRules,
+      callTimeoutSeconds,
+      codeOwnedCandidates,
+      dynamicCandidates,
+    });
+  }
+
+  private async persistAttemptPromptReceipt(
+    tx: Db,
+    input: ExecuteRunInput,
+    attemptId: string,
+    receipt: SystemPromptReceiptInput,
+  ): Promise<void> {
+    // Keep the receipt publication behind the same owner/active-attempt fence
+    // as every other attempt-owned write. Reassigning the identical UUID is a
+    // deliberate no-op update that still makes a stale attempt return no row.
+    const bound = await new RunsRepository(tx).updateForAttempt(
+      input.runId,
+      input.userId,
+      attemptId,
+      { activeAttemptId: attemptId },
+    );
+    if (!bound) {
+      throw new ModelContextExecutionError(
+        `Run ${input.runId} was reclaimed before receipt publication.`,
+      );
+    }
+    await new SystemPromptReceiptsRepository(tx).create({
+      ownerUserId: input.userId,
+      runId: input.runId,
+      attemptId,
+      source: receipt.source,
+      systemPrompt: receipt.systemPrompt,
+      promptHash: receipt.promptHash,
+    });
+  }
+
+  private async deriveAttemptStagedContext(input: {
+    tx: Db;
+    input: ExecuteRunInput;
+    prompt: AttemptPromptContext;
+    effectiveContext: ResolvedAttemptContext;
+  }): Promise<AttemptStagedContext> {
+    const previousRun = await new RunsRepository(
+      input.tx,
+    ).findMostRecentByChatMessageSequence(
+      input.input.chatId,
+      input.input.userId,
+      {
+        beforeSeq: input.input.userMessage.seq,
+      },
+    );
+
+    // The baseline is the most recent *successful* turn, not merely the most
+    // recent one: a failed run publishes no context and never establishes an
+    // epoch baseline, so a failed run between two successful turns must not
+    // discard the availability state those turns established — nor may it
+    // mask a compaction that landed after the last successful turn. No prior
+    // run at all implies no completed predecessor, so the second lookup is
+    // skipped rather than issued for an answer it cannot have.
+    const previousCompletedRun =
+      previousRun === undefined
+        ? undefined
+        : await new RunsRepository(
+            input.tx,
+          ).findMostRecentCompletedByChatMessageSequence(
+            input.input.chatId,
+            input.input.userId,
+            { beforeSeq: input.input.userMessage.seq },
+          );
+
+    // Every newly active compaction checkpoint starts a new disclosure epoch;
+    // the newly active boundary is judged against that same successful-turn
+    // baseline, so a failed attempt after the checkpoint cannot silently keep
+    // the run inside the pre-compaction epoch.
+    const startsEpoch =
+      previousCompletedRun === undefined ||
+      (input.prompt.compaction !== undefined &&
+        input.prompt.compaction.createdAt > previousCompletedRun.createdAt);
+    // The marker reports the re-bake to the first attempt that can publish
+    // after it — the new epoch's first turn — so it rides the same boundary.
+    const digestRebaked =
+      startsEpoch &&
+      input.prompt.chat.recencyDigestRebakedFrom ===
+        input.prompt.compaction?.id;
+
+    const stagedParts: Array<MessagePart> = [];
+    // Model selection is established by any run (failed runs included), so the
+    // switch item keeps reading the immediately preceding run, not the
+    // successful baseline the availability/epoch comparison uses.
+    if (previousRun && previousRun.modelId !== input.input.client.model) {
+      stagedParts.push(
+        createModelChangeItem({
+          fromModelId: previousRun.modelId,
+          toModelId: input.input.client.model,
+          runId: input.input.runId,
+        }),
+      );
+    }
+    const previousSuccessfulAvailability = startsEpoch
+      ? undefined
+      : (previousCompletedRun?.turnToolAvailability ?? undefined);
+    const availabilityPayload =
+      previousSuccessfulAvailability === undefined
+        ? deriveToolAvailabilityPayload({
+            current: input.effectiveContext.toolAvailabilityManifest,
+          })
+        : deriveToolAvailabilityPayloadFromStates({
+            current: input.effectiveContext.toolAvailabilityManifest,
+            previous: previousSuccessfulAvailability,
+          });
+    if (availabilityPayload) {
+      stagedParts.push(
+        createToolAvailabilityItem({
+          runId: input.input.runId,
+          payload: availabilityPayload,
+        }),
+      );
+    }
+    // Between tool availability and the digest disclosures, which is where the
+    // rail's producer precedence places the catalog notice.
+    const skillNotice = input.prompt.skillState.notice;
+    if (skillNotice !== undefined) {
+      stagedParts.push(skillNotice.item);
+    }
+    if (
+      digestRebaked &&
+      input.prompt.chat.recencyDigestBaseline !== null &&
+      input.prompt.shareRecentChats.shareRecentChats
+    ) {
+      stagedParts.push(
+        createRecencyDigestSupersessionItem({ runId: input.input.runId }),
+      );
+    }
+    if (input.prompt.digestDelta) {
+      stagedParts.push(
+        createRecencyDigestDeltaItem({
+          runId: input.input.runId,
+          payload: {
+            entries: input.prompt.digestDelta.entries,
+            pinChanges: input.prompt.digestDelta.pinChanges,
+          },
+        }),
+      );
+    }
+    stagedParts.push(
+      createTemporalItem({
+        runId: input.input.runId,
+        instant: new Date(),
+        timeZone: input.prompt.instanceTimezone,
+      }),
+    );
+    return {
+      stagedParts,
+      recencyDigestTold: input.prompt.digestDelta?.told,
+      ...(input.prompt.skillState.told !== undefined && {
+        // The decision hands back a readonly list; the column holds a mutable
+        // array, so the value is copied rather than shared.
+        skillCatalogTold: [...input.prompt.skillState.told],
+      }),
+    };
+  }
+  /**
+   * Prepend staged context-item text to the triggering user message in the
+   * model request. Extracts `data.text` from each `AuthoredContextItemPart`
+   * and unshifts it into the last user message's content array.
+   */
+
+  private prependStagedContextItems(
+    messages: ReturnType<typeof buildContext>['messages'],
+    stagedParts: ReadonlyArray<MessagePart>,
+  ): void {
+    const textParts = stagedParts.flatMap((p) => {
+      if (!isContextItemPart(p)) return [];
+      const text = p.data.text;
+      if (text === undefined || text.length === 0) return [];
+      return [{ type: 'text' as const, text }];
+    });
+    if (textParts.length === 0) return;
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== 'user') continue;
+      if (Array.isArray(msg.content)) {
+        msg.content.unshift(...textParts);
+      } else {
+        // User content was a plain string; replace in-place with the text
+        // parts array the SDK equally accepts.
+        const original = msg.content;
+        const combined = [
+          ...textParts,
+          { type: 'text' as const, text: original },
+        ];
+        Object.assign(msg, { content: combined });
+      }
+      return;
+    }
   }
 }

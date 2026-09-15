@@ -100,9 +100,9 @@ source chat does not erase copies in prompts, appends, or receipts.
 
 ## Tool schemas and MCP
 
-- Preserve raw JSON Schema and `$schema`; compile before the immutable Run
-  snapshot. Invalid tools fail individually. SDK validation is primary; local
-  parse is defense in depth.
+- Preserve raw JSON Schema and `$schema`; compile while the executing worker
+  composes the attempt's tool catalog. Invalid tools fail individually. SDK
+  validation is primary; local parse is defense in depth.
 - Every OpenAI function/dynamic tool is lowered with `strict: false`; do this at
   the provider boundary, never by rewriting persisted schemas.
 - Queue retry restarts the tool loop, so write-capable tools require checkpoint

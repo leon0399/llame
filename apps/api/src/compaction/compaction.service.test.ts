@@ -5,9 +5,9 @@ import type {
   Chat,
   Compaction,
   Message,
-  ModelContextSnapshot,
   ModelToolDeclaration,
   Run,
+  SystemPromptReceipt,
 } from '../db/schema';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -19,7 +19,7 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from '../chats/chats-repository';
-import { ModelContextSnapshotsRepository } from '../runs/model-context-snapshots.repository';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import type { MemorySettingsBindingResolver } from '../memory/memory.service';
 import type {
@@ -82,13 +82,16 @@ const compaction: Compaction = {
   createdAt: now,
 };
 
+const sourceAttemptId = '22222222-2222-4222-8222-222222222222';
 const sourceRun: Run = {
   id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
   chatId,
   messageId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
   userId: ownerId,
   modelId: 'model-1',
-  modelContextSnapshotId: '11111111-1111-4111-8111-111111111111',
+  activeAttemptId: null,
+  completedAttemptId: sourceAttemptId,
+  turnToolAvailability: [],
   status: 'completed',
   workerId: null,
   cancelRequestedAt: null,
@@ -100,17 +103,14 @@ const sourceRun: Run = {
   effort: null,
 };
 
-const sourceSnapshot: ModelContextSnapshot = {
-  id: sourceRun.modelContextSnapshotId!,
+const sourceReceipt: SystemPromptReceipt = {
+  id: '11111111-1111-4111-8111-111111111111',
   ownerUserId: ownerId,
-  contentHash: 'source-content-hash',
-  availabilityHash: 'source-availability-hash',
-  promptHash: 'source-prompt-hash',
-  toolHash: 'source-tool-hash',
+  runId: sourceRun.id,
+  attemptId: sourceAttemptId,
   source: 'project_default',
   systemPrompt: 'system',
-  toolAvailabilityManifest: { version: 1, entries: [] },
-  toolDeclarations: [],
+  promptHash: 'source-prompt-hash',
   createdAt: now,
 };
 
@@ -206,12 +206,15 @@ function mockTransitionRead(options?: {
     .spyOn(MessagesRepository.prototype, 'findByChatId')
     .mockResolvedValue(options?.messages ?? [message(1, 'assistant')]);
   const findRun = vi
-    .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
+    .spyOn(
+      RunsRepository.prototype,
+      'findMostRecentCompletedByChatMessageSequence',
+    )
     .mockResolvedValue(options?.run ?? sourceRun);
   vi.spyOn(
-    ModelContextSnapshotsRepository.prototype,
-    'findByOwnedRun',
-  ).mockResolvedValue(sourceSnapshot);
+    SystemPromptReceiptsRepository.prototype,
+    'findByAttempt',
+  ).mockResolvedValue(sourceReceipt);
   const commit = vi
     .spyOn(CompactionsRepository.prototype, 'createIfCutoffAbsent')
     .mockResolvedValue(compaction);
@@ -738,7 +741,7 @@ describe('CompactionService compactForTransition', () => {
     ]);
     vi.spyOn(
       RunsRepository.prototype,
-      'findMostRecentByChatMessageSequence',
+      'findMostRecentCompletedByChatMessageSequence',
     ).mockResolvedValue(undefined);
     await expect(
       noPlan.service.compactForTransition({
@@ -760,7 +763,7 @@ describe('CompactionService compactForTransition', () => {
     ]);
     vi.spyOn(
       RunsRepository.prototype,
-      'findMostRecentByChatMessageSequence',
+      'findMostRecentCompletedByChatMessageSequence',
     ).mockResolvedValue(undefined);
     await expect(
       noSource.service.compactForTransition({
@@ -782,12 +785,12 @@ describe('CompactionService compactForTransition', () => {
     ]);
     vi.spyOn(
       RunsRepository.prototype,
-      'findMostRecentByChatMessageSequence',
+      'findMostRecentCompletedByChatMessageSequence',
     ).mockResolvedValue(sourceRun);
     vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
-      'findByOwnedRun',
-    ).mockResolvedValue(sourceSnapshot);
+      SystemPromptReceiptsRepository.prototype,
+      'findByAttempt',
+    ).mockResolvedValue(sourceReceipt);
     const failingModels = makeService();
     failingModels.models.createClient.mockImplementation(() => {
       throw new Error('model unavailable');
@@ -813,12 +816,12 @@ describe('CompactionService compactForTransition', () => {
     ]);
     vi.spyOn(
       RunsRepository.prototype,
-      'findMostRecentByChatMessageSequence',
+      'findMostRecentCompletedByChatMessageSequence',
     ).mockResolvedValue(sourceRun);
     vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
-      'findByOwnedRun',
-    ).mockResolvedValue(sourceSnapshot);
+      SystemPromptReceiptsRepository.prototype,
+      'findByAttempt',
+    ).mockResolvedValue(sourceReceipt);
     await expect(
       empty.service.compactForTransition({
         chatId,
@@ -838,12 +841,12 @@ describe('CompactionService compactForTransition', () => {
     ]);
     vi.spyOn(
       RunsRepository.prototype,
-      'findMostRecentByChatMessageSequence',
+      'findMostRecentCompletedByChatMessageSequence',
     ).mockResolvedValue(sourceRun);
     vi.spyOn(
-      ModelContextSnapshotsRepository.prototype,
-      'findByOwnedRun',
-    ).mockResolvedValue(sourceSnapshot);
+      SystemPromptReceiptsRepository.prototype,
+      'findByAttempt',
+    ).mockResolvedValue(sourceReceipt);
     await expect(
       superseded.service.compactForTransition({
         chatId,
@@ -865,7 +868,7 @@ describe('CompactionService compactForTransition', () => {
     ]);
     vi.spyOn(
       RunsRepository.prototype,
-      'findMostRecentByChatMessageSequence',
+      'findMostRecentCompletedByChatMessageSequence',
     ).mockResolvedValue(undefined);
     await expect(
       noPlan.service.compactForTransition({
@@ -891,7 +894,7 @@ describe('CompactionService compactForTransition', () => {
     ]);
     vi.spyOn(
       RunsRepository.prototype,
-      'findMostRecentByChatMessageSequence',
+      'findMostRecentCompletedByChatMessageSequence',
     ).mockResolvedValue(undefined);
     await expect(
       noSource.service.compactForTransition({

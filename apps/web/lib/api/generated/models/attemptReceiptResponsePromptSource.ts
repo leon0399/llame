@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1
  */
 
-export type ContextReceiptResponsePromptSource =
-  (typeof ContextReceiptResponsePromptSource)[keyof typeof ContextReceiptResponsePromptSource];
+export type AttemptReceiptResponsePromptSource =
+  (typeof AttemptReceiptResponsePromptSource)[keyof typeof AttemptReceiptResponsePromptSource];
 
-export const ContextReceiptResponsePromptSource = {
+export const AttemptReceiptResponsePromptSource = {
   project_default: "project_default",
   model_override: "model_override",
 } as const;
