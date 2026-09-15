@@ -93,6 +93,7 @@ file fails — correct, and the reason `noCoverage` must count as undetected.
   covered one in the same pull request.
 - **B3** Decide whether to take the test-weakening hole described above, and
   whether to add its mitigation.
-- **B4** Keep the weekly full sweep as a non-failing trend.
+- **B4** Keep the weekly full sweep as a non-failing trend (later removed; see
+  above).
 - **B5** Retire #840 and #842, and remove the parts of #831 that exist only to
   serve the index.

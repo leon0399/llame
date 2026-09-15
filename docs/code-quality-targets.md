@@ -38,7 +38,7 @@ and config interpolation are below 25; the coverage scripts enforce 42 until the
 shared ceiling can move down. Stryker covers API, config interpolation and
 runtime safety through package-owned tasks. PR and master checks mutate the
 lines the diff changed and require 80% of the mutants on them to be detected;
-a diff with no mutable line runs nothing. Scheduled/manual full runs report
+a diff with no mutable line runs nothing. A manual full run reports
 global MSI without a level gate; see [testing.md](testing.md).
 
 ```bash
