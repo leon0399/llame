@@ -699,7 +699,7 @@ A worker SHALL acknowledge a drained model stream only after the owner-scoped Ru
 
 ### Requirement: Tool observations survive into later turns as stored UI parts
 
-The prospective cutover boundary in `context-injection` SHALL govern failed-attempt exclusion; existing conversation state SHALL not be retrospectively filtered or rebuilt. For post-cutover attempts, these model-history rules apply only to observations from successfully committed attempts. Failed, cancelled, expired, or superseded attempts may retain operational/UI records, but their output and context SHALL not enter a retry, later model turn, recall projection, or compaction. An individual failed tool call within a successfully committed attempt SHALL still retain its normal paired failure observation.
+The prospective cutover boundary in `context-injection` SHALL govern failed-attempt retention; existing conversation state SHALL not be retrospectively filtered or rebuilt. A failed, cancelled, expired, or superseded attempt keeps its partial output and context as the user saw them, and that record participates in later model context and compaction like any other committed turn. An individual failed tool call within a successfully committed attempt SHALL still retain its normal paired failure observation.
 
 A round's tool activity SHALL remain available to the model in later turns
 within the bounded replay contract below. What a tool was asked and what it
