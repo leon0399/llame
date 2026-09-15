@@ -62,7 +62,6 @@ import {
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import { TOOL_REGISTRY } from '../tools/registry';
-import type { KnowledgeToolResolver, Tool, ToolResult } from '../tools/types';
 
 /**
  * classifyAbortedRun unit tests (durable-run-workers D7): the in-process
@@ -218,10 +217,7 @@ const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
     ),
 };
 
-const skillEntry = (
-  name: string,
-  description: string,
-): SkillCatalogEntry => ({
+const skillEntry = (name: string, description: string): SkillCatalogEntry => ({
   name,
   description,
   proactive: true,

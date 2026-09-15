@@ -14,7 +14,6 @@
 import { type Chat } from '../db/schema';
 import {
   type SkillCatalogEntry,
-  type SkillCatalogPort,
   type SkillCatalogSnapshot,
 } from '../skills/skill-catalog';
 import {
@@ -61,11 +60,13 @@ const chat = (overrides: Partial<Chat> = {}): Chat => ({
   ...overrides,
 });
 
-const snapshot = (overrides: Partial<SkillCatalogSnapshot> = {}) => ({
+const snapshot = (
+  overrides: Partial<SkillCatalogSnapshot> = {},
+): SkillCatalogSnapshot => ({
   available: true,
   directories: [SOURCE],
-  entries: [] as ReadonlyArray<SkillCatalogEntry>,
-  diagnostics: [] as ReadonlyArray<string>,
+  entries: [],
+  diagnostics: [],
   ...overrides,
 });
 
@@ -241,7 +242,13 @@ describe('a delta too large to render', () => {
         skillCatalog: { getSnapshot: () => snapshot({ entries }) },
       }),
       chat({
-        skillCatalogBaseline: { entries: [...entries], omitted: 0 },
+        skillCatalogBaseline: {
+          entries: entries.map(({ name }) => ({
+            name,
+            description: `${name} description`,
+          })),
+          omitted: 0,
+        },
         skillCatalogTold: told,
       }),
     );
@@ -489,7 +496,8 @@ describe('the skill-catalog notice', () => {
     const state = resolve(
       deps({
         skillCatalog: {
-          getSnapshot: () => snapshot({ entries: [entry('pdf', 'Extract text')] }),
+          getSnapshot: () =>
+            snapshot({ entries: [entry('pdf', 'Extract text')] }),
         },
       }),
       chat({
@@ -513,7 +521,8 @@ describe('the skill-catalog notice', () => {
     const state = resolve(
       deps({
         skillCatalog: {
-          getSnapshot: () => snapshot({ entries: [entry('pdf', 'Extract text')] }),
+          getSnapshot: () =>
+            snapshot({ entries: [entry('pdf', 'Extract text')] }),
         },
       }),
       chat({
@@ -586,7 +595,8 @@ describe('the skill-catalog notice', () => {
     const state = resolve(
       deps({
         skillCatalog: {
-          getSnapshot: () => snapshot({ entries: [entry('pdf', 'Extract text')] }),
+          getSnapshot: () =>
+            snapshot({ entries: [entry('pdf', 'Extract text')] }),
         },
       }),
       chat({
@@ -624,7 +634,8 @@ describe('the skill-catalog notice', () => {
     const state = resolve(
       deps({
         skillCatalog: {
-          getSnapshot: () => snapshot({ entries: [entry('pdf', 'Extract text')] }),
+          getSnapshot: () =>
+            snapshot({ entries: [entry('pdf', 'Extract text')] }),
         },
       }),
       chat({
@@ -697,14 +708,16 @@ describe('the skill-catalog notice', () => {
   it('supersedes with a snapshot when the delta cannot fit the bound', () => {
     // 300 removals plus one addition is past the 256-entry bound, so the delta
     // cannot be rendered honestly and the bounded current set replaces it.
-    const told = Array.from({ length: 300 }, (_, index) =>
-      `gone-${String(index).padStart(3, '0')}`,
+    const told = Array.from(
+      { length: 300 },
+      (_, index) => `gone-${String(index).padStart(3, '0')}`,
     );
 
     const state = resolve(
       deps({
         skillCatalog: {
-          getSnapshot: () => snapshot({ entries: [entry('pdf', 'Extract text')] }),
+          getSnapshot: () =>
+            snapshot({ entries: [entry('pdf', 'Extract text')] }),
         },
       }),
       chat({

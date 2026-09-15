@@ -187,6 +187,17 @@ type AssistantTurnWrite = AssistantTurnPersistence & {
 
 type SkillCatalogFreeze = NonNullable<SkillTurnState['freeze']>;
 
+/**
+ * The skill-catalog writes a turn establishes, applied by the terminal
+ * transaction of the attempt that completes it: the baseline to freeze when the
+ * turn starts an epoch, and the names it leaves the chat told about. Both are
+ * optional because most turns establish neither.
+ */
+type SkillCatalogWrites = {
+  readonly freeze?: SkillCatalogFreeze;
+  readonly told?: NonNullable<Chat['skillCatalogTold']>;
+};
+
 /** Context resolved inside the worker transaction before the model request. */
 type PreparedAttemptContext = BuiltContext & {
   /** Resolved prompt identity plus the attempt-local catalog. */
@@ -194,13 +205,8 @@ type PreparedAttemptContext = BuiltContext & {
   stagedParts: Array<MessagePart>;
   recencyDigestInitialization?: RecencyDigestInitialization;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
-  /**
-   * The skill-catalog writes this turn establishes, applied by the terminal
-   * transaction of the attempt that completes it: the baseline to freeze when
-   * the turn starts an epoch, and the names it leaves the chat told about.
-   */
-  skillCatalogFreeze?: SkillCatalogFreeze;
-  skillCatalogTold?: NonNullable<Chat['skillCatalogTold']>;
+  /** The skill-catalog writes this turn establishes; see `SkillCatalogWrites`. */
+  skillCatalogWrites: SkillCatalogWrites;
   untitled: boolean;
 };
 type AttemptDigestContext = {
@@ -244,8 +250,7 @@ type FinishRunInput = {
   attemptContextParts?: ReadonlyArray<MessagePart>;
   recencyDigestInitialization?: RecencyDigestInitialization;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
-  skillCatalogFreeze?: SkillCatalogFreeze;
-  skillCatalogTold?: NonNullable<Chat['skillCatalogTold']>;
+  skillCatalogWrites?: SkillCatalogWrites;
   turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
 };
 
@@ -593,18 +598,14 @@ export class RunExecutionService {
     let attemptRecencyDigestInitialization:
       | RecencyDigestInitialization
       | undefined;
-    let attemptSkillCatalogFreeze: SkillCatalogFreeze | undefined;
-    let attemptSkillCatalogTold:
-      | NonNullable<Chat['skillCatalogTold']>
-      | undefined;
+    let attemptSkillCatalogWrites: SkillCatalogWrites | undefined;
     let attemptToolAvailability: Array<TurnToolAvailabilityEntry> = [];
     try {
       const context = await this.prepareAttemptContext(input, attemptId);
       attemptStagedParts = context.stagedParts;
       attemptRecencyDigestTold = context.recencyDigestTold;
       attemptRecencyDigestInitialization = context.recencyDigestInitialization;
-      attemptSkillCatalogFreeze = context.skillCatalogFreeze;
-      attemptSkillCatalogTold = context.skillCatalogTold;
+      attemptSkillCatalogWrites = context.skillCatalogWrites;
       attemptToolAvailability = toTurnToolAvailability(
         context.effectiveContext.toolAvailabilityManifest,
       );
@@ -1348,11 +1349,8 @@ export class RunExecutionService {
               ...(attemptRecencyDigestTold !== undefined && {
                 recencyDigestTold: attemptRecencyDigestTold,
               }),
-              ...(attemptSkillCatalogFreeze !== undefined && {
-                skillCatalogFreeze: attemptSkillCatalogFreeze,
-              }),
-              ...(attemptSkillCatalogTold !== undefined && {
-                skillCatalogTold: attemptSkillCatalogTold,
+              ...(attemptSkillCatalogWrites !== undefined && {
+                skillCatalogWrites: attemptSkillCatalogWrites,
               }),
               turnToolAvailability: attemptToolAvailability,
             }),
@@ -2039,20 +2037,26 @@ export class RunExecutionService {
     // turn that carried a notice records the names it disclosed. Both land in
     // this attempt-fenced terminal transaction, so a losing attempt can never
     // freeze a catalog the winner never rendered.
-    if (input.status === 'completed' && input.skillCatalogFreeze !== undefined) {
-      await chatsRepo.setSkillCatalogBaseline({
-        chatId: finished.chatId,
-        ownerUserId: input.userId,
-        baseline: input.skillCatalogFreeze.baseline,
-        rebakedFrom: input.skillCatalogFreeze.rebakedFrom,
-      });
-    }
-    if (input.status === 'completed' && input.skillCatalogTold !== undefined) {
-      await chatsRepo.updateSkillCatalogTold(
-        finished.chatId,
-        input.userId,
-        input.skillCatalogTold,
-      );
+    if (
+      input.status === 'completed' &&
+      input.skillCatalogWrites !== undefined
+    ) {
+      const { freeze, told } = input.skillCatalogWrites;
+      if (freeze !== undefined) {
+        await chatsRepo.setSkillCatalogBaseline({
+          chatId: finished.chatId,
+          ownerUserId: input.userId,
+          baseline: freeze.baseline,
+          rebakedFrom: freeze.rebakedFrom,
+        });
+      }
+      if (told !== undefined) {
+        await chatsRepo.updateSkillCatalogTold(
+          finished.chatId,
+          input.userId,
+          told,
+        );
+      }
     }
   }
 
@@ -2284,12 +2288,14 @@ export class RunExecutionService {
       stagedParts: staged.stagedParts,
       recencyDigestInitialization: prompt.recencyDigestInitialization,
       recencyDigestTold: staged.recencyDigestTold,
-      ...(prompt.skillState.freeze !== undefined && {
-        skillCatalogFreeze: prompt.skillState.freeze,
-      }),
-      ...(staged.skillCatalogTold !== undefined && {
-        skillCatalogTold: staged.skillCatalogTold,
-      }),
+      skillCatalogWrites: {
+        ...(prompt.skillState.freeze !== undefined && {
+          freeze: prompt.skillState.freeze,
+        }),
+        ...(staged.skillCatalogTold !== undefined && {
+          told: staged.skillCatalogTold,
+        }),
+      },
       untitled: prompt.chat.title === null,
     };
   }
