@@ -266,10 +266,12 @@ describe('ChatsService message windows, updates and forks', () => {
     const tenantDb = new TenantDbService({
       transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
     });
-    vi.spyOn(tenantDb, 'runAs').mockImplementation(
-      async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-        callback(db),
-    );
+    const runAs = vi
+      .spyOn(tenantDb, 'runAs')
+      .mockImplementation(
+        async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+          callback(db),
+      );
     vi.spyOn(tenantDb, 'runAsPublic').mockImplementation(
       async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
     );
@@ -283,6 +285,7 @@ describe('ChatsService message windows, updates and forks', () => {
         noopQueryEmbedder(),
       ),
       aborts,
+      runAs,
     };
   }
 
@@ -503,12 +506,26 @@ describe('ChatsService message windows, updates and forks', () => {
   });
 
   describe('forkChat', () => {
+    // The Chat-row values a fork copies off its source (complete-owner-forks
+    // D3). This fixture carries no frozen baseline, so only the creation time
+    // travels and both markers stay null rather than naming a copied checkpoint.
+    const inheritedChatValues = {
+      createdAt: chat.createdAt,
+      recencyDigestBaseline: null,
+      recencyDigestTold: null,
+      recencyDigestRebakedFrom: null,
+      skillCatalogBaseline: null,
+      skillCatalogTold: null,
+      skillCatalogRebakedFrom: null,
+    };
+
     it('copies the whole chat, renumbering seq from 1 and remapping in-reply-to edges', async () => {
       const first = message(5);
       const second = message(6, {
         role: 'assistant',
         senderUserId: null,
         inReplyTo: first.id,
+        usage: { status: 'completed', totalTokens: 12 },
       });
       const created: Chat = {
         ...chat,
@@ -525,6 +542,10 @@ describe('ChatsService message windows, updates and forks', () => {
       const createMany = vi
         .spyOn(MessagesRepository.prototype, 'createMany')
         .mockResolvedValue(undefined);
+      vi.spyOn(
+        CompactionsRepository.prototype,
+        'findByChatId',
+      ).mockResolvedValue([]);
 
       await expect(
         makeService().service.forkChat(chat.id, ownerUserId),
@@ -533,6 +554,7 @@ describe('ChatsService message windows, updates and forks', () => {
       expect(create).toHaveBeenCalledWith({
         ownerUserId,
         title: 'Source (fork)',
+        ...inheritedChatValues,
       });
       expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
         maxSeq: undefined,
@@ -545,6 +567,13 @@ describe('ChatsService message windows, updates and forks', () => {
       expect(copied.map((m) => m.id)).not.toEqual([first.id, second.id]);
       expect(copied[1].inReplyTo).toBe(copied[0].id);
       expect(copied[0].inReplyTo).toBeNull();
+      // Times and usage describe the ORIGINAL turn: the fork re-prices nothing
+      // and rewrites no identifier inside a copied usage payload.
+      expect(copied.map((m) => m.createdAt)).toEqual([
+        first.createdAt,
+        second.createdAt,
+      ]);
+      expect(copied.map((m) => m.usage)).toEqual([null, second.usage]);
     });
 
     it('leaves an untitled source untitled instead of forking an empty title', async () => {
@@ -561,10 +590,17 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
         undefined,
       );
+      vi.spyOn(
+        CompactionsRepository.prototype,
+        'findByChatId',
+      ).mockResolvedValue([]);
 
       await makeService().service.forkChat(chat.id, ownerUserId);
 
-      expect(create).toHaveBeenCalledWith({ ownerUserId });
+      expect(create).toHaveBeenCalledWith({
+        ownerUserId,
+        ...inheritedChatValues,
+      });
     });
 
     it('bounds the copied prefix to the anchor message seq', async () => {
@@ -580,6 +616,9 @@ describe('ChatsService message windows, updates and forks', () => {
       const findByChatId = vi
         .spyOn(MessagesRepository.prototype, 'findByChatId')
         .mockResolvedValue([anchor]);
+      const findCompactions = vi
+        .spyOn(CompactionsRepository.prototype, 'findByChatId')
+        .mockResolvedValue([]);
       vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
         undefined,
       );
@@ -589,6 +628,117 @@ describe('ChatsService message windows, updates and forks', () => {
       expect(findById).toHaveBeenCalledWith(chat.id, ownerUserId, anchor.id);
       expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
         maxSeq: 7,
+      });
+      // The lineage read shares the prefix bound: a checkpoint covering more
+      // than the anchor is outside the copy (complete-owner-forks D1).
+      expect(findCompactions).toHaveBeenCalledWith(chat.id, ownerUserId, {
+        maxSeq: 7,
+      });
+    });
+
+    it('copies the whole compaction lineage, oldest-first, remapping each parent to its copy', async () => {
+      const parent: Compaction = {
+        id: 'compaction-parent',
+        chatId: chat.id,
+        uptoSeq: 4,
+        parentId: null,
+        summary: 'turns 1-4 summarized',
+        replacementHistory: [
+          { role: 'user', parts: [{ type: 'text', text: 'earlier turns' }] },
+        ],
+        usage: { status: 'completed', totalTokens: 7 },
+        createdAt: new Date('2026-08-28T00:01:00.000Z'),
+      };
+      const child: Compaction = {
+        id: 'compaction-child',
+        chatId: chat.id,
+        uptoSeq: 9,
+        parentId: parent.id,
+        summary: 'turns 1-9 summarized',
+        replacementHistory: [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'even earlier turns' }],
+          },
+        ],
+        usage: { status: 'completed', totalTokens: 11 },
+        createdAt: new Date('2026-08-28T00:02:00.000Z'),
+      };
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+      vi.spyOn(ChatsRepository.prototype, 'create').mockResolvedValue({
+        ...chat,
+        id: 'chat-fork',
+      });
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        message(1),
+        message(2),
+      ]);
+      vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
+        undefined,
+      );
+      vi.spyOn(
+        CompactionsRepository.prototype,
+        'findByChatId',
+      ).mockResolvedValue([parent, child]);
+      const create = vi
+        .spyOn(CompactionsRepository.prototype, 'create')
+        .mockResolvedValue(parent);
+
+      await makeService().service.forkChat(chat.id, ownerUserId);
+
+      const copied = create.mock.calls.map(([input]) => input);
+      expect(copied.map((c) => c.chatId)).toEqual(['chat-fork', 'chat-fork']);
+      // Ascending uptoSeq is also parent-before-child: a two-generation chain
+      // is the shortest one where a copied row has a parent to name.
+      expect(copied.map((c) => c.uptoSeq)).toEqual([4, 9]);
+      // Fresh storage identities: the child's lineage points at the COPIED
+      // parent, never at the source's row and never at no row at all.
+      expect(copied.map((c) => c.id)).not.toEqual([parent.id, child.id]);
+      expect(copied[0].parentId).toBeNull();
+      expect(copied[1].parentId).toBe(copied[0].id);
+      expect(copied[1].parentId).not.toBe(parent.id);
+      // Summaries, replay payloads, times and prices describe the ORIGINAL
+      // checkpoints: only storage identity is rewritten.
+      expect(copied.map((c) => c.summary)).toEqual([
+        parent.summary,
+        child.summary,
+      ]);
+      expect(copied.map((c) => c.replacementHistory)).toEqual([
+        parent.replacementHistory,
+        child.replacementHistory,
+      ]);
+      expect(copied.map((c) => c.usage)).toEqual([parent.usage, child.usage]);
+      expect(copied.map((c) => c.createdAt)).toEqual([
+        parent.createdAt,
+        child.createdAt,
+      ]);
+    });
+
+    it('reads the source and writes its copy in one repeatable-read transaction', async () => {
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+      vi.spyOn(ChatsRepository.prototype, 'create').mockResolvedValue({
+        ...chat,
+        id: 'chat-fork',
+      });
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+        [],
+      );
+      vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
+        undefined,
+      );
+      vi.spyOn(
+        CompactionsRepository.prototype,
+        'findByChatId',
+      ).mockResolvedValue([]);
+
+      const { service, runAs } = makeService();
+      await service.forkChat(chat.id, ownerUserId);
+
+      // READ COMMITTED would give the Chat, the messages, and the compactions
+      // a snapshot each, letting a turn or compaction committed mid-fork land
+      // half-copied; the fork needs one instant for all three.
+      expect(runAs).toHaveBeenCalledWith(ownerUserId, expect.any(Function), {
+        isolationLevel: 'repeatable read',
       });
     });
 

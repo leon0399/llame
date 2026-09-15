@@ -10,7 +10,7 @@
  * RLS is the primary isolation guarantee; these filters are the seatbelt.
  */
 
-import { and, desc, eq, lt, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, lt, lte } from 'drizzle-orm';
 import {
   type Compaction,
   type CompactionReplacementMessage,
@@ -62,9 +62,48 @@ export class CompactionsRepository {
   }
 
   /**
+   * Every compaction covering part of a chat's prefix, oldest-first, optionally
+   * bounded by an inclusive `maxSeq` — the owner fork's lineage read
+   * (complete-owner-forks D2), which copies a source's whole checkpoint chain
+   * rather than only its latest row, because `parentId` and the previous
+   * checkpoint's `uptoSeq` are what the checkpoint UI derives the absorbed
+   * count from. Ascending `uptoSeq` is also parent-before-child insert order.
+   * Owner-scoped as defense-in-depth, mirroring `findLatestByChatId`: the join
+   * requires the chat to be owned by `ownerUserId`; RLS remains the primary
+   * guarantee.
+   */
+  async findByChatId(
+    chatId: string,
+    ownerUserId: string,
+    options?: { maxSeq?: number },
+  ): Promise<Array<Compaction>> {
+    const predicates = [
+      eq(compactions.chatId, chatId),
+      eq(chats.ownerUserId, ownerUserId),
+    ];
+
+    if (options?.maxSeq !== undefined) {
+      predicates.push(lte(compactions.uptoSeq, options.maxSeq));
+    }
+
+    const rows = await this.db
+      .select()
+      .from(compactions)
+      .innerJoin(chats, eq(compactions.chatId, chats.id))
+      .where(and(...predicates))
+      .orderBy(asc(compactions.uptoSeq));
+
+    return rows.map((r) => r.compactions);
+  }
+
+  /**
    * Record a compaction (#57). Write ownership is enforced by RLS: the
    * `compactions_owner` policy's implicit WITH CHECK rejects an insert whose
    * chat_id is not owned by the current app.current_user_id.
+   *
+   * `id` and `createdAt` exist for the owner fork (complete-owner-forks D2),
+   * which copies a source row's identity and time verbatim. Both stay optional
+   * so recording a fresh compaction still lets the database mint them.
    */
   async create(input: {
     chatId: string;
@@ -73,6 +112,8 @@ export class CompactionsRepository {
     summary: string;
     replacementHistory: Array<CompactionReplacementMessage>;
     usage?: unknown;
+    id?: string;
+    createdAt?: Date;
   }): Promise<Compaction> {
     assertCompactionWrite(input.summary, input.replacementHistory);
 
@@ -118,6 +159,8 @@ function compactionInsertValues(input: {
   summary: string;
   replacementHistory: Array<CompactionReplacementMessage>;
   usage?: unknown;
+  id?: string;
+  createdAt?: Date;
 }) {
   return {
     chatId: input.chatId,
@@ -126,6 +169,14 @@ function compactionInsertValues(input: {
     summary: input.summary,
     replacementHistory: input.replacementHistory,
     usage: input.usage,
+    // `id`/`createdAt` are only supplied by the owner fork
+    // (complete-owner-forks D2), which copies a source row's identity and time
+    // verbatim. Omitted, both reach the INSERT as `undefined` and take their
+    // database default — never an explicit NULL — so a fresh compaction mints
+    // its own id and stamps its own time exactly as it did before the fork
+    // needed to carry those values.
+    id: input.id,
+    createdAt: input.createdAt,
   };
 }
 
