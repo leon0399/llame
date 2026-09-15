@@ -15,14 +15,10 @@ export function AdminHeader() {
   const section = activeAdminSection(pathname);
 
   return (
-    <header
-      className={cn(topBarClasses, "gap-[0.45rem] bg-background px-[0.85rem]")}
-    >
-      <span className="text-[0.8rem] text-muted-foreground">
-        Administration
-      </span>
+    <header className={cn(topBarClasses, "gap-1.75 bg-background px-3.5")}>
+      <span className="text-xs text-muted-foreground">Administration</span>
       <ChevronRightIcon className="size-3.5 text-muted-foreground" />
-      <span className="text-[0.92rem] font-semibold">{section.label}</span>
+      <span className="text-sm font-semibold">{section.label}</span>
     </header>
   );
 }
