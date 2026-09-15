@@ -120,10 +120,19 @@ export function mergeMutationReports(reports) {
 /** Ranges closer than this merge, since a mutant needs its neighbours anyway. */
 const coalesceGap = 3;
 
+/**
+ * `execFileSync` caps child stdout at 1 MiB; a branch's diff has no such bound.
+ * One that archives a few specs or carries migration snapshots takes the
+ * `--unified=0` diff past the cap, and `git diff` is killed with `ENOBUFS`
+ * before any mutant is measured — so this buffer is not a limit either.
+ */
+const gitStdoutMaxBuffer = Number.MAX_SAFE_INTEGER;
+
 function git(arguments_, cwd) {
   return execFileSync("git", arguments_, {
     cwd,
     encoding: "utf8",
+    maxBuffer: gitStdoutMaxBuffer,
     stdio: ["ignore", "pipe", "pipe"],
   });
 }
