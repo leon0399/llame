@@ -1,5 +1,14 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-15
+
+- Remove the weekly full-corpus mutation sweep, its shard planner, baseline
+  index, and cache action. The pull-request gate has measured changed lines
+  from the diff since the redesign, so nothing consumed the sweep's index; it
+  cost about 6.5 runner-hours a week for a global score no one read. The gate
+  script now owns the three helpers it shared with the sweep. Full-corpus runs
+  stay available on a workstation through `pnpm test:mutation`.
+
 # 2026-09-14
 
 - Stop collapsing a heavily edited file to a whole-file mutation scope. The

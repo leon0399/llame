@@ -61,16 +61,17 @@ configuration, fixtures, generated artifacts, prompt markdown, integration tests
 mechanism, because nothing remains that would need waiving. A pull request that
 touches only such files has no mutants to measure and skips.
 
-The weekly `mutation-baseline.yml` full sweep stays, as a non-failing trend
-metric. It stops gating anything.
+The weekly `mutation-baseline.yml` full sweep was kept at first as a
+non-failing trend metric, then removed: eight API shards cost about 6.5
+runner-hours a week for a score nobody consulted, and an unsharded run would
+not fit GitHub's six-hour job limit.
 
 ## What it deliberately gives up
 
 **Coverage removed without changing a source line.** A pull request that weakens
 or deletes test cases changes no source line, so there are no mutants to measure
 and the gate skips it. The current design catches this explicitly. The trade is
-taken knowingly: it is the expensive part of the design, and both review and the
-weekly trend also catch it.
+taken knowingly: it is the expensive part of the design, and review catches it.
 
 The narrow mitigation if it is wanted later: when the diff touches a test file,
 also mutate the changed source lines since the base. That catches _“removed a
@@ -92,6 +93,7 @@ file fails — correct, and the reason `noCoverage` must count as undetected.
   covered one in the same pull request.
 - **B3** Decide whether to take the test-weakening hole described above, and
   whether to add its mitigation.
-- **B4** Keep the weekly full sweep as a non-failing trend.
+- **B4** Keep the weekly full sweep as a non-failing trend (later removed; see
+  above).
 - **B5** Retire #840 and #842, and remove the parts of #831 that exist only to
   serve the index.

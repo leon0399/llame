@@ -126,8 +126,7 @@ jobs:
   # stored index, no baseline restore, no environment fingerprint: the scope is
   # computed from the diff against the pull request's own tree, so it cannot go
   # stale and cannot refuse for want of a prior measurement. `coverageAnalysis:
-  # perTest` already runs only the tests covering each mutant, which is what
-  # kept the sharded full-corpus run affordable. See
+  # perTest` runs only the tests covering each mutant. See
   # docs/mutation-gate-redesign.md.
   mutation:
     name: Mutation testing (${{ matrix.name }})

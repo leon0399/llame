@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import {
   changedLineRanges,
+  mergeMutationReports,
   mutateRanges,
   mutationArguments,
+  mutationSourceFiles,
   writeScopeConfig,
 } from "./mutation-changed-lines.mjs";
 
@@ -223,4 +231,118 @@ test("the scope travels in a config file, so no argv element can reach E2BIG", (
     "json",
     "progress-append-only",
   ]);
+});
+
+test("canonical Stryker exclusions apply to the changed-lines scope", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "llame-mutation-source-"));
+  try {
+    mkdirSync(path.join(directory, "src/testing"), { recursive: true });
+    mkdirSync(path.join(directory, "src/mcp"), { recursive: true });
+    for (const file of [
+      "a.ts",
+      "a.test.ts",
+      "testing/support.ts",
+      "mcp/mcp-runtime.module.ts",
+    ]) {
+      writeFileSync(
+        path.join(directory, "src", file),
+        "export const value = 1;\n",
+      );
+    }
+    writeFileSync(
+      path.join(directory, "stryker.config.json"),
+      JSON.stringify({
+        mutate: [
+          "src/**/*.ts",
+          "!src/**/*.test.ts",
+          "!src/testing/**",
+          "!src/mcp/mcp-runtime.module.ts",
+        ],
+      }),
+    );
+    assert.deepEqual(mutationSourceFiles(directory), ["src/a.ts"]);
+    writeFileSync(
+      path.join(directory, "src/a,b.ts"),
+      "export const value = 2;\n",
+    );
+    assert.throws(
+      () => mutationSourceFiles(directory),
+      /glob metacharacters or commas/u,
+    );
+    writeFileSync(
+      path.join(directory, "stryker.config.json"),
+      JSON.stringify({ mutate: ["missing/**/*.ts"] }),
+    );
+    assert.throws(
+      () => mutationSourceFiles(directory),
+      /Configured mutation scope is empty/u,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("unfinished mutants cannot turn an incomplete run into a passing score", () => {
+  for (const status of ["Pending", "NotRun", "Unknown", "toString"]) {
+    assert.throws(
+      () =>
+        mergeMutationReports([
+          {
+            schemaVersion: "1.0",
+            files: { "src/a.ts": { mutants: [{ status }] } },
+          },
+        ]),
+      /Unfinished or unknown mutant status/u,
+    );
+  }
+  assert.throws(
+    () => mergeMutationReports([{ schemaVersion: "1.0" }]),
+    /Invalid mutation report/u,
+  );
+});
+
+test("mergeMutationReports uses Stryker's mutation score semantics", () => {
+  const report = (file, statuses) => ({
+    schemaVersion: "1.0",
+    files: {
+      [file]: {
+        language: "typescript",
+        source: "export const value = 1;",
+        mutants: statuses.map((status, id) => ({ id: String(id), status })),
+      },
+    },
+  });
+
+  const result = mergeMutationReports([
+    report("src/a.ts", ["Killed", "Timeout", "Survived"]),
+    report("src/b.ts", [
+      "NoCoverage",
+      "CompileError",
+      "RuntimeError",
+      "Ignored",
+    ]),
+  ]);
+
+  assert.deepEqual(result.counts, {
+    killed: 1,
+    timeout: 1,
+    survived: 1,
+    noCoverage: 1,
+    compileError: 1,
+    runtimeError: 1,
+  });
+  assert.equal(result.score, 50);
+  assert.deepEqual(Object.keys(result.report.files), ["src/a.ts", "src/b.ts"]);
+});
+
+test("mergeMutationReports rejects duplicate source files", () => {
+  const report = {
+    schemaVersion: "1.0",
+    files: { "src/a.ts": { mutants: [] } },
+  };
+
+  assert.throws(
+    () => mergeMutationReports([report, report]),
+    /Duplicate mutation report file: src\/a\.ts/u,
+  );
 });
