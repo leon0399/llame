@@ -2,75 +2,66 @@
 
 See [proposal.md](proposal.md) for scope and issue ownership.
 
-`ChatsService.forkChat` copies message rows with new IDs and dense sequence numbers. It drops timestamps and usage and copies no compactions or digest state. `buildContext` already replays a stored compaction's `replacementHistory` followed by its retained tail; that projector is shared with ordinary continuation and is unchanged here.
+`ChatsService.forkChat` copies message rows with new IDs and dense sequence numbers. It drops timestamps and usage and copies no compactions or Chat-row baselines. `buildContext` already replays a stored compaction's `replacementHistory` followed by its retained tail; that projector is shared with ordinary continuation and is unchanged here.
 
-The fork exists to continue a conversation with the same model-facing context. Provider prompt caches key on an exact request prefix, so every inherited byte matters: the system prompt (digest, temporal anchor), the checkpoint replacement history, and the ordered retained messages. Anything that differs between source and fork at the copied boundary voids the cache from that point on and changes what the model believes.
+The fork exists to continue a conversation with the same model-facing context. Provider prompt caches key on an exact request prefix, so every inherited byte matters: the system prompt (temporal anchor, recency digest, skill catalog), the checkpoint replacement history, and the ordered retained messages. Anything that differs between source and fork at the copied boundary voids the cache from that point on and changes what the model believes.
 
-The v2-v4 design tried to also preserve state at historical boundaries (which digest was live when message 15 was accepted) and source-independent receipts. That required per-turn evidence rows, a revision counter, and boundary selection logic; nothing in the product reads them (see R1-R6). v5 copies what is live on the source Chat now.
+The v2-v4 design also tried to preserve state at historical boundaries and source-independent receipts. That required per-turn evidence rows, a revision counter, and boundary selection; nothing in the product reads them (R1-R6). v5+ copies what is on the source rows now.
 
 ## Goals / Non-Goals
 
-Copy the selected prefix and the source Chat's live context so the fork's next turn serializes the same inherited prefix the source's next turn would. Keep the copy one database transaction with the existing post-commit search projection dispatch. Add no per-turn writes anywhere else.
+Copy the selected prefix and the source Chat row's frozen context so the fork's next turn serializes the same inherited prefix the source's next turn would. Keep the copy one database transaction with the existing post-commit search projection dispatch. Add no columns and no writes outside the fork.
 
 Not a provider-state archive, a Run clone, a message-revision graph, or a usage ledger. Do not copy Runs, queue jobs, Run event streams, cancellation state, worker assignments, native-file operation records, mutation fences, or external resources referenced by tool output. Historical tool results survive verbatim; future tool calls use current authorization.
 
 ## Decisions
 
-### D1: The boundary is what is durable, not what is settled
+### D1: The boundary is what is durable
 
-A whole-chat fork copies every durable message in the source. An explicit `fromMessageId` copies through that message inclusively, user or assistant. Run status is not consulted: the assistant row is written only at Run settlement (`RunExecutionService.persistAssistantMessage`), so a mid-Run source holds its accepted user message and nothing partial, and copying that user message is correct for a fork taken during a Run. Later subagent forking depends on this: a child forks the parent's context mid-turn, exactly as a tool call would.
+A whole-chat fork copies every durable message. An explicit `fromMessageId` copies through that message inclusively. Run status is not consulted: the fork takes what the source has committed, which for an in-flight first attempt is the accepted user message and for a retry is that message plus its retryable assistant row. Later subagent forking depends on this: a child forks the parent's context mid-turn. No conflict response is introduced; unknown, cross-chat, and foreign-owner identifiers keep not-found behavior.
 
-Unknown, cross-chat, and foreign-owner identifiers retain not-found behavior. No conflict response is introduced. Forking does not settle, cancel, retry, or otherwise mutate the source.
+Read the Chat, its messages, and its compactions under one `REPEATABLE READ` transaction (`TenantDbService.runAs` accepts isolation options) and insert the destination in the same transaction.
 
-Read the source Chat, its messages, and its compactions under one `REPEATABLE READ` transaction (`TenantDbService.runAs` already accepts isolation options) and perform the destination inserts in the same transaction, so the copied compactions and messages come from one snapshot.
+### D2: Copy messages and compactions literally; remap only storage identity
 
-### D2: Copy content literally; remap only storage identity
+Messages: new IDs, dense sequences from 1 in copied order as `conversation-reads` requires, `inReplyTo` remapped, and `role`, `parts`, `attachments`, `senderUserId`, `createdAt`, `usage` verbatim. Source sequences are already dense from 1 (allocation is `max + 1` and rows are never deleted), so copied sequences equal source sequences and compaction `uptoSeq` copies verbatim.
 
-Preassign destination message and compaction UUIDs. Sequences stay dense from 1 in copied order, as `conversation-reads` requires; source sequences are dense in practice, so `uptoSeq` maps through the same old-to-new sequence map. Remap exactly: Chat IDs, message IDs, `inReplyTo`, compaction `parentId`, compaction `uptoSeq`, and the digest re-bake marker (D3). A missing required mapping is an integrity failure, not permission to shorten history.
+Compactions: every row with `uptoSeq` within the copied prefix, new IDs, `parentId` remapped to the copied parent, everything else verbatim. The whole lineage is copied rather than only the latest because `computeAbsorbedMessageCount` (`chats.service.ts`) reads `parentId` and the previous checkpoint's `uptoSeq` for the checkpoint UI; one map lookup per row keeps that exact. `CompactionsRepository.create` already runs `assertCompactionWrite`, so a malformed row fails the transaction without new code.
 
-Copy message roles, parts, attachments, sender attribution, `createdAt`, and `usage` verbatim. Copy compaction `summary`, `replacementHistory`, `usage`, and `createdAt` verbatim. Never rewrite IDs inside parts or tool payloads; tool-call IDs, resource locators, quoted Chat IDs, and stored context text remain as stored.
+Never rewrite values inside parts or usage. A copied assistant message keeps its original Run ID in `usage.runId`; the existing Run-keyed receipt endpoint is owner-scoped, so the receipt resolves while the source Run exists and is not found after source deletion. Usage is copied because it is the price of the copied message; cross-Chat attribution is [#170](https://github.com/leon0399/llame/issues/170).
 
-Usage is copied because a message's usage is the price of producing that message, and the fork contains that message. The prior "do not copy usage to avoid double counting" rule assumed usage was a spend ledger; it is a per-conversation estimate. Cross-chat spend accounting is [#170](https://github.com/leon0399/llame/issues/170) and owns its own attribution.
+### D3: Copy the Chat row's frozen context
 
-Copied assistant messages keep their original Run ID in `usage`/metadata. The existing Run-keyed receipt endpoint therefore resolves an inherited turn's receipt while the source Run exists, under the same owner. After source deletion the receipt is gone; that is accepted.
+Extend `ChatsRepository.create` to accept `createdAt`, `recencyDigestBaseline`, `recencyDigestTold`, `recencyDigestRebakedFrom`, `skillCatalogBaseline`, `skillCatalogTold`, and `skillCatalogRebakedFrom`, and insert the fork row once after the compaction ID map exists. Both `*RebakedFrom` markers map through that ID map and become null when their compaction was not copied. The skill marker must be remapped: `baselineMatchesEpoch` reuses the stored skill baseline only when the marker equals the latest compaction ID, so an unmapped marker would re-resolve the live catalog and change the system prompt. The digest marker is compared only after a compaction newer than the previous Run, which in a fork happens only after a local compaction rewrites it; it is remapped by the same rule for uniformity.
 
-The destination is a new private, unarchived, unpinned Chat outside any Project, with the existing title-copy convention.
+`createdAt` is copied because the temporal anchor resolves as `latestCompaction?.createdAt ?? chat.createdAt`; nothing else orders or gates on a Chat's creation time (the sidebar and digest use `updatedAt`, which the fork sets to now). The fork's `createdAt` therefore reports when its context began.
 
-### D3: Copy the live digest state
+Copied baselines are whatever the source renders now, not the state at a historical anchor. Copying already-bound digest state is permitted after consent withdrawal, consistent with non-retroactive withdrawal; new baselines, appends, and re-bakes in the fork obey current consent. A source with no baseline yields a fork with none.
 
-After inserting messages and compactions, copy `recencyDigestBaseline`, `recencyDigestTold`, and `recencyDigestRebakedFrom` from the source row through the existing `ChatsRepository.setRecencyDigest`. The re-bake marker maps through the compaction ID map and becomes null when its compaction was not copied; a null marker withholds the one-shot supersession notice, which is the existing fail-safe reading of that column.
+### D4: First-turn disclosure is ordinary new-chat behavior
 
-The copied state is whatever the source renders now. For a whole-chat fork this is exact. For an anchor earlier than the latest turn, the fork may list a chat the source disclosed after that anchor; the digest is framed as untrusted data, so this changes wording only. Copying already-bound state is permitted after consent withdrawal, consistent with non-retroactive withdrawal; new baselines, appends, and re-bakes in the fork obey current consent.
+The fork copies no Run, so its first turn has no previous Run and starts a fresh disclosure epoch (full tool-availability listing, no model-switch notice). Those items live on the context rail inside the new user turn, after the inherited history, so the cached inherited prefix is unaffected.
 
-A source with no digest yields a fork with none; the fork's first turn then initializes one under ordinary rules.
+### D5: The shared path is unchanged
 
-### D4: Copy the creation time
-
-The fork's `chats.createdAt` is the source's `createdAt`. The temporal anchor already resolves as `latestCompaction?.createdAt ?? chat.createdAt`, so an uncompacted fork renders the same anchor as its source with no new column and no change to `turn-context.ts`; a compacted fork derives it from the copied compaction's timestamp. Fork-of-fork inherits the same value. Nothing else reads a Chat's creation time to order or gate behavior: the sidebar and the digest use `updatedAt`, which the fork sets to now. The API's `createdAt` for a fork therefore reports when its context began, not when the row was inserted; that is the value this feature exists to preserve.
-
-### D5: First-turn disclosure is ordinary new-chat behavior
-
-The fork copies no Run, so its first turn has no previous Run: it starts a fresh disclosure epoch (full tool-availability listing, no model-switch notice), like a new Chat. These items live on the context rail inside the new user turn, after the inherited history, so they do not alter the cached inherited prefix. No fallback resolver over inherited evidence is added.
-
-### D6: Public disclosure remains a separate copy contract
-
-`forkSharedChat` keeps its public response allowlist and copies text parts only. It receives no compaction, digest, usage, timestamps, creation time, or source-owner identity. Public views of an owner fork, exports, search projections, and conversation locators keep their current disclosure rules.
+`forkSharedChat` keeps its public allowlist and copies text parts only. Its `toCopy` rows carry no `createdAt` or `usage`, and it copies no compaction or Chat-row baseline. The owner copy must not route through a shared helper in a way that changes that.
 
 ## Rejected alternatives
 
-- R1: Per-turn `message_turn_contexts` evidence with a Chat-local `contextRevision` and pinned continuation state on compactions and Chats (v2-v4 D3-D4). It required a write on every accepted turn and every execution, an adoption backfill, and boundary-selection logic; its only readers were the fork copy itself and an endpoint nothing called. Provider caches expire within hours, so a historical boundary's exact digest is never cache-hot when forked.
-- R2: `messages.inheritedTurnComplete` and `409 fork_context_unavailable` / `fork_boundary_unsettled`. Completion proof only bounded R1's evidence copy; with D1 there is nothing to bound, and rejecting a mid-Run fork breaks the subagent use case.
-- R3: Usage provenance columns (`usageOriginKind`, `usageOriginId`, `usageProvenance`) and a DTO field. No consumer; the ledger is #170.
-- R4: A message-keyed context-receipt endpoint. Duplicates the Run-keyed endpoint for the source-deleted case only; the web client never called it.
-- R5: Setting copied timestamps to fork time. Loses evidence and changes the temporal prefix.
-- R6: A compaction staleness guard on `contextRevision`. It fixes a pre-existing race in which an accepted turn's told-set append is overwritten by a concurrent compaction re-bake. Real but unrelated to forks and narrow (a duplicate announcement). Not carried; revisit with the compaction storage refactor ([#806](https://github.com/leon0399/llame/issues/806)).
+- R1: Per-turn `message_turn_contexts` evidence with a Chat-local `contextRevision` and pinned continuation state (v2-v4 D3-D4). Required a write on every accepted turn and execution, an adoption backfill, and boundary selection; its only readers were the fork copy and an endpoint nothing called. Provider caches expire within hours, so a historical boundary's exact digest is never cache-hot when forked.
+- R2: `messages.inheritedTurnComplete` and `409 fork_context_unavailable` / `fork_boundary_unsettled`. Completion proof only bounded R1; rejecting a mid-Run fork breaks the subagent use case.
+- R3: Usage provenance columns and a DTO field. No consumer; the ledger is #170.
+- R4: A message-keyed context-receipt endpoint. Duplicated the Run-keyed endpoint for the source-deleted case only; the web client never called it.
+- R5: A `chats.inheritedContextOriginAt` column. Copying `createdAt` gives the same anchor with no schema change.
+- R6: A compaction staleness guard on `contextRevision`. Fixes a pre-existing race in which an accepted turn's told-set append is overwritten by a concurrent re-bake; unrelated to forks and narrow. Revisit with the compaction storage refactor ([#806](https://github.com/leon0399/llame/issues/806)).
+- R7: Copy only the latest compaction with `parentId` null. Smaller, but `computeAbsorbedMessageCount` would report the whole coverage as absorbed by that checkpoint, changing what the fork's checkpoint UI shows.
 
-## Risks / Trade-offs
+## Trade-offs
 
-- R7: Historical anchors inherit today's digest, not the digest at that boundary. Accepted; see D3.
-- R8: Inherited receipts depend on the source Run's existence. Accepted; see D2.
-- R9: Large histories increase transaction duration. Keep chunked inserts and complete-copy semantics; no message cap or partial response.
-- R10: Usage summed across an original and its forks counts one execution more than once. Intended; #170 owns dedup.
+- T1: Historical anchors inherit today's baselines, not the baselines at that boundary.
+- T2: Inherited receipts depend on the source Run's existence.
+- T3: Usage summed across an original and its forks counts one execution more than once. Intended; #170 owns dedup.
+- T4: Large histories lengthen the transaction. Keep chunked inserts; no message cap or partial response.
 
 ## Migration Plan
 
@@ -78,17 +69,19 @@ Single implementation layer after this proposal. No schema change and no migrati
 
 ## Verification
 
-- V1: A real-DB owner fork of multi-generation compacted history produces the same inherited request prefix through the real context builder and provider serializer as the source at the same boundary, including checkpoint replacement history, ordered tool parts, timestamps, digest block, and temporal anchor. A deliberate timestamp reset, dropped checkpoint, or payload rewrite fails the comparison.
-- V2: A fork taken while a source Run is in flight contains the accepted user message and no assistant row; the Run's later settlement writes only to the source.
-- V3: Negative datastore and API checks: foreign source and anchor references are not found; the copied re-bake marker cannot reference another Chat's compaction; shared/public forks, public views, exports, and search contain no compaction, digest, usage, or copied creation time.
-- V4: Fork survives source deletion: history, checkpoints, digest, and anchor remain; its Run-keyed receipts for inherited turns return not found.
-- V5: Browser check: a copied checkpoint renders in the fork; inherited usage and timestamps display; continuing the fork emits no fork notice.
+Three cases added to `fork-chat.integration.test.ts` under the self-provisioning suite:
+
+- V1: A source with two compaction generations, a bound digest, and a skill baseline is forked whole; the fork and source, given identical new input, produce equal system prompts and inherited history through the real context builder and serializer, and the fork's absorbed-message count equals the source's.
+- V2: An anchor before the latest checkpoint copies the earlier checkpoint only; the fork's active checkpoint and markers point at the copied row.
+- V3: `forkSharedChat` of the V1 source yields no compaction, baseline, usage, or copied creation time.
+
+Plus a manual check in the running app that the copied checkpoint renders in the fork ([#154](https://github.com/leon0399/llame/issues/154) acceptance).
 
 ## Sources
 
-- S1: `apps/api/src/chats/chats.service.ts` (`forkChat`, `forkSharedChat`, `copyMessagesIntoNewChat`), `messages-repository.ts` (`findByChatId`, `createMany`), `compactions-repository.ts` (`findLatestByChatId`, `create`), `chats-repository.ts` (`create`, `setRecencyDigest`), `turn-context.ts` (`resolveFrozenState`, `resolveDisclosureEpoch`).
-- S2: `apps/api/src/runs/run-execution.service.ts` (`persistAssistantMessage` is called only from terminal paths).
-- S3: `apps/api/src/db/schema/chats.ts`: `chats.recencyDigest*`, `compactions`, `runs`.
+- S1: `apps/api/src/chats/chats.service.ts` (`forkChat`, `forkSharedChat`, `copyMessagesIntoNewChat`, `computeAbsorbedMessageCount`), `messages-repository.ts` (`findByChatId`, `createMany`, sequence allocation), `compactions-repository.ts` (`findLatestByChatId`, `create`, `assertCompactionWrite`), `chats-repository.ts` (`create`), `turn-context.ts` (`resolveFrozenState`, `resolveDisclosureEpoch`).
+- S2: `apps/api/src/chats/skill-turn-state.ts` and `apps/api/src/skills/skill-prompt-baseline.ts` (`baselineMatchesEpoch`): the skill baseline is reused only when its marker equals the latest compaction ID.
+- S3: `apps/api/src/runs/run-execution.service.ts` (`persistAssistantMessage` call sites), `apps/api/src/db/schema/chats.ts` (`chats` frozen columns, `compactions`, `runs`), `apps/api/src/db/tenant-db.service.ts` (`runAs` isolation options).
 - S4: [OpenAI prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching) and [Anthropic prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching): matching request prefixes are relevant; application equality does not guarantee a hit.
 
 ## Revision history
@@ -97,4 +90,5 @@ Single implementation layer after this proposal. No schema change and no migrati
 - v2 (2026-09-12): Two independent reviews led to explicit empty-fork initialization, immutable origin IDs without source foreign keys, a concrete initial-state home and adoption horizon, same-Chat checkpoint constraints, complete-owner-copy rollback requirements, owner-visible usage classification with server-only namespaced attribution, and typed conflict responses.
 - v3 (2026-09-12): Reused the actual assistant completion predicate; moved the user completion fact onto user messages; specified `NO ACTION` constraints and deletion checks.
 - v4 (2026-09-12): Removed the proposed mutable completion mirror; only copied user anchors retained an immutable inherited-completion fact.
-- v5 (2026-09-15): Cut to the live-state copy after reviewing the v4 implementation (#816, #817): every evidence, revision, provenance, and conflict mechanism had no product reader. Boundary selection reverted to durable rows so mid-Run forks work for future subagents. Usage is copied as the conversation's price estimate; the ledger is #170. Kept: literal copy including the Chat's creation time, compaction lineage, live digest copy, and the unchanged shared-fork boundary. No schema change remains.
+- v5 (2026-09-15): Cut to the live-state copy after reviewing the v4 implementation (#816, #817): every evidence, revision, provenance, and conflict mechanism had no product reader. Boundary selection reverted to durable rows so mid-Run forks work for future subagents. Usage is copied as the conversation's price estimate. Copied `createdAt` replaced an origin column.
+- v6 (2026-09-15): Review round 1 (two independent reviewers). Both found the skill-catalog baseline (`skillCatalog*` columns, same lifecycle as the digest) uncopied, which would re-resolve the catalog on the fork's first turn and change the system prompt; D3 now copies every frozen Chat-row column with one marker-remap rule. Dropped the false "no assistant row mid-Run" claim (retry attempts keep a retryable row). Replaced `setRecencyDigest` (non-nullable marker) with an extended `create`. Deleted the `durable-runs` delta (master already creates no Run on fork) and restored the digest delta to the base text plus one sentence. Cut spec scenarios and tasks that restated master or verified untouched code. Rejected copying only the latest compaction (R7). `uptoSeq` copies verbatim.

@@ -2,26 +2,24 @@
 
 ### Requirement: The digest is resolved at most once per chat and re-resolved only at compaction
 
-The digest SHALL be resolved on a chat's **first run for which `shareRecentChats` is enabled** and stored as an immutable per-chat baseline, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. An owner fork that copied a baseline SHALL continue that baseline rather than resolve a new one on its first local Run. Copying an owner's own Chat SHALL NOT resolve new corpus content.
+The digest SHALL be resolved on a chat's **first run for which `shareRecentChats` is enabled** and stored as an immutable per-chat baseline, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. An owner fork that copied a baseline from its source SHALL continue that baseline rather than resolve a new one on its first Run. Rendering the same baseline SHALL be deterministic, so **the digest contributes no per-turn variation to the prompt**: across runs whose other effective-context inputs are unchanged, the resulting system prompt is byte-identical and the snapshot is reused rather than re-minted.
 
-Rendering the same baseline SHALL be deterministic, so **the digest contributes no per-turn variation to the prompt**: across runs whose other effective-context inputs are unchanged, the resulting system prompt is byte-identical and the snapshot is reused rather than re-minted.
+The stability claim is scoped to the digest and SHALL NOT be read as a guarantee over the whole prompt. Personalization resolves per run, the selected model supplies the template, the operator may reload a prompt file, and the tool-availability manifest is part of the snapshot's identity — so any of those changing legitimately mints a new snapshot, exactly as `model-system-prompts` requires. What this requirement forbids is the digest itself being the thing that changes.
 
-The stability claim is scoped to the digest and SHALL NOT be read as a guarantee over the whole prompt. Personalization resolves per run, the selected model supplies the template, the operator may reload a prompt file, and the tool-availability manifest is part of the snapshot's identity, so any of those changing legitimately mints a new snapshot, exactly as `model-system-prompts` requires. What this requirement forbids is the digest itself being the thing that changes.
-
-The baseline SHALL be re-resolved **only when that chat is compacted**. A model switch SHALL NOT re-resolve it: the stored baseline SHALL be re-rendered through the new model's template, so the prompt text changes while the listed chats do not. The rationale SHALL be documented: compaction is a context boundary at which the conversation is rewritten anyway, whereas a model switch changes only which provider reads an unchanged conversation, and refreshing the chat list there would silently change what the assistant knows about the owner as a side effect of an unrelated action.
+The baseline SHALL be re-resolved **only when that chat is compacted**. A model switch SHALL NOT re-resolve it: the stored baseline SHALL be re-rendered through the new model's template, so the prompt text changes while the listed chats do not. The rationale SHALL be documented — compaction is a context boundary at which the conversation is rewritten anyway, whereas a model switch changes only which provider reads an unchanged conversation, and refreshing the chat list there would silently change what the assistant knows about the owner as a side effect of an unrelated action.
 
 Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rule afresh, and SHALL overwrite the stored baseline. Runs already bound before re-resolution SHALL retain the prompt they actually sent, because each run's receipt is its own immutable snapshot.
 
 #### Scenario: Second turn in a chat reuses the baseline
 
-- **WHEN** a second run is enqueued in a chat whose owner has since created and titled another chat, and **every other effective-context input is unchanged**: the same rendered prompt inputs, the same advertised tool declarations, the same source kind, and the same availability manifest
+- **WHEN** a second run is enqueued in a chat whose owner has since created and titled another chat, and **every other effective-context input is unchanged** — the same rendered prompt inputs, the same advertised tool declarations, the same source kind, and the same availability manifest
 - **THEN** the rendered system prompt is byte-identical to the first run's
 - **AND** the run binds the same effective-context snapshot rather than a new one
-- **AND** the precondition is stated as "every other input unchanged" rather than as an exhaustive list, because an operator prompt reload and a changed tool declaration both invalidate reuse without changing the model, the personalization, or the availability manifest
+- **AND** the precondition is stated as "every other input unchanged" rather than as a list of named inputs, because an enumeration silently omits the ones it forgets — an operator prompt reload and a changed tool declaration both invalidate reuse without changing the model, the personalization, or the availability manifest
 
 #### Scenario: A changed non-digest input still mints a new snapshot
 
-- **WHEN** any non-digest effective-context input changes between two runs of a chat carrying a baseline: the owner edits their personalization, switches models, the operator reloads that model's prompt file, an advertised tool declaration changes, or the availability manifest changes
+- **WHEN** any non-digest effective-context input changes between two runs of a chat carrying a baseline — the owner edits their personalization, switches models, the operator reloads that model's prompt file, an advertised tool declaration changes, or the availability manifest changes
 - **THEN** the new run binds its own snapshot, because those inputs are part of the prompt and of the snapshot's identity
 - **AND** the digest block within it still renders the same stored baseline, since only compaction re-resolves it
 
@@ -45,38 +43,6 @@ Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rul
 
 #### Scenario: Owner continues a fork
 
-- **WHEN** the fork's first local Run follows a copied digest baseline
+- **WHEN** the fork's first Run follows a baseline copied from the source Chat
 - **THEN** it renders that baseline without initializing a new one
-- **AND** ordinary future appends and local compaction use the fork's own evolving state
-
-## ADDED Requirements
-
-### Requirement: Owner forks copy the source's current digest state
-
-An owner fork SHALL copy the source Chat's current baseline, told-set, and re-bake marker together. The re-bake marker SHALL be remapped to the copied compaction it names and SHALL be absent when that compaction was not copied. The system SHALL NOT retain per-boundary historical digest state for forks and SHALL NOT recover digest state by parsing rendered prompts, checkpoint summaries, or reminder prose.
-
-The copied told-set SHALL continue to identify the same external chats; allocating a new current Chat SHALL NOT rewrite those identities. Copying already-bound state remains permitted after consent withdrawal, consistent with non-retroactive withdrawal; resolving new baselines, appends, and re-bakes in the fork SHALL obey current consent. No digest state SHALL cross the shared/public fork boundary.
-
-#### Scenario: Historical anchor precedes an append
-
-- **WHEN** a source chat disclosed a new digest entry after the selected anchor
-- **THEN** the fork inherits the source's current told-set, including that entry
-- **AND** the fork does not announce that entry again
-
-#### Scenario: Source has no digest
-
-- **WHEN** an owner forks a Chat that carries no baseline
-- **THEN** the fork carries none
-- **AND** its first local Run initializes one under the ordinary consent and eligibility rules
-
-#### Scenario: A re-bake marker names an uncopied compaction
-
-- **WHEN** the source's re-bake marker names a compaction whose coverage lies beyond the selected anchor
-- **THEN** the fork's marker is absent
-- **AND** no supersession notice is emitted for a compaction the fork does not hold
-
-#### Scenario: Owner disabled sharing after history was bound
-
-- **WHEN** that owner forks history that already contains a digest while sharing is disabled
-- **THEN** the copied baseline and told-set remain intact
-- **AND** the fork resolves no new digest content or appends while sharing remains disabled
+- **AND** later appends and compaction in the fork evolve its own copy only
