@@ -81,3 +81,8 @@ assessment.
 28. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
 29. [ELAI](./elai.md) — Archived architecture and measurement discipline
 30. [Loki Agent](./loki.md) — Rebranded Hermes fork; managed connector gateway degradation and retry contract
+31. [pi-mono](./pi-mono.md) — Lane-as-branch session tree, composable provider session headers, and a fail-open hook registry
+32. [Kilo Code](./kilocode.md) — Provider-gated header tiers, hard permission rulesets, and a fail-closed headless subagent guard
+33. [MiMo Code](./mimo-code.md) — Frozen prefix snapshots, parent-grant inheritance for subagents, and local dream/distill self-improvement
+34. [Kimi Code](./kimi-code.md) — Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass
+35. [jcode](./jcode.md) — Host-detected gateway headers, per-instance session identity, and a bash-only risk gate

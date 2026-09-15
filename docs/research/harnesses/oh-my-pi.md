@@ -46,6 +46,8 @@ sources:
 OMP is llame's primary implementation reference for coding capabilities and tool
 behavior. Consult it first for coding-specific decisions; [OpenClaw](./openclaw.md)
 remains the broad alpha capability reference. llame's specs remain authoritative.
+OMP forks [pi-mono](./pi-mono.md), which covers the inherited session tree,
+provider wrappers, and hook registry.
 
 `oh-my-pi` is useful implementation prior art for a durable agent session, provider-boundary transformations, and stream-time policy. Its session tree keeps append-only entries behind a mutable leaf pointer. Compaction records an explicit `firstKeptEntryId`; rebuilding context replays entries from that boundary, so the source transcript and model view remain distinct. That is directly comparable to llame's stored `messages.parts` and explicit compaction boundary.
 
