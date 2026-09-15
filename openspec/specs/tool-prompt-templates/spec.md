@@ -108,7 +108,7 @@ reasons, never prompt contents, owner values, or private host paths.
 
 - **WHEN** an infrastructure retry starts on a worker with newer boot-loaded templates or a different current catalog
 - **THEN** it freshly resolves and renders its own attempt context
-- **AND** it neither reads a persisted tool catalog nor reuses failed-attempt model context
+- **AND** it neither reads a persisted tool catalog nor reuses the failed attempt's prepared attempt context
 
 #### Scenario: File edit without restart
 

@@ -181,13 +181,13 @@ The final assistant message written for a run SHALL be an ordered projection of 
 
 The prospective cutover boundary in `context-injection` SHALL govern these publication rules; existing conversation state SHALL not be retrospectively filtered or rebuilt.
 
-Operational and UI replay SHALL remain distinct from model-context publication. Only the successfully committed attempt's assistant output and context SHALL become model history. Failed/cancelled/expired or superseded attempt projections may remain displayable in their original part order but SHALL be excluded from retry input, later model history, model-facing recall, and compaction. Within a successful attempt, an individually failed tool call remains a normal paired observation.
+Operational and UI replay SHALL retain a failed attempt's observed part order, and that persisted record SHALL become model history. A failed, cancelled, expired, or superseded attempt keeps the partial assistant turn the user saw, entering later model context, model-facing recall, and compaction like any other committed turn. Only attempt-owned staged rail context withholds until a successful turn publishes it. Within a successful attempt, an individually failed tool call remains a normal paired observation.
 
-#### Scenario: Failed attempt output is visible but not model history
+#### Scenario: Failed attempt output stays visible and is model history
 
 - **WHEN** an attempt streams reasoning, text, or tool results and then fails
 - **THEN** operational/UI replay retains the observed order
-- **AND** a retry and subsequent model-context consumers exclude that attempt's output and context
+- **AND** that partial output remains part of the record and enters later model context, recall, and compaction like any other committed turn, while its staged rail items never publish
 
 #### Scenario: Fresh retry succeeds after an earlier failure
 
