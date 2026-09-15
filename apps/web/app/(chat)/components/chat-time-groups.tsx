@@ -14,6 +14,7 @@ import {
   SidebarGroupLabel,
   SidebarMenu,
 } from "@workspace/ui/components/sidebar";
+import { cn } from "@workspace/ui/lib/utils";
 
 import { ChatItem } from "./chat-list-sidebar/chat-item";
 
@@ -49,19 +50,21 @@ function ChatTimeGroup({
   period,
   chats,
   rowProps,
+  surfaceClassName,
 }: {
   period: ChatGroupPeriod;
   chats: Array<ChatResponse>;
   rowProps: ChatRowProps;
+  surfaceClassName: string;
 }) {
   return (
     <SidebarGroup>
-      {/* Sticky scroll anchor. The surface differs per container: the
-          mobile sheet paints bg-sidebar, the desktop panel bg-background
-          — the md: split matches exactly where each one renders, and it is
-          painted by this wrapper (the label primitive owns its own color)
-          so the rows still scroll underneath it. */}
-      <div className="sticky top-0 z-10 bg-sidebar md:bg-background">
+      {/* Sticky scroll anchor. It has to paint the surface it scrolls over,
+          and this list renders on two of them — the sidebar rail and sheet,
+          and the project page — so the surface comes from the caller rather
+          than a breakpoint guess here. It is painted by this wrapper because
+          the label primitive owns its own color. */}
+      <div className={cn("sticky top-0 z-10", surfaceClassName)}>
         <SidebarGroupLabel>{chatGroupTitles[period]}</SidebarGroupLabel>
       </div>
       <SidebarGroupContent>
@@ -98,8 +101,15 @@ export function ChatTimeGroups({
   projects,
   onRequestNewProject,
   pinnedAtByChatId,
+  surfaceClassName,
 }: {
   chats: Array<ChatResponse>;
+  /**
+   * The background the sticky group headings scroll over — `bg-sidebar` in
+   * the rail and sheet, `bg-background` on the project page. Required, so a
+   * new caller cannot inherit someone else's surface by accident.
+   */
+  surfaceClassName: string;
 } & ChatRowProps) {
   const groupedChats = React.useMemo(
     () => groupChatsByTimePeriod(chats),
@@ -125,6 +135,7 @@ export function ChatTimeGroups({
             period={period as ChatGroupPeriod}
             chats={groupChats}
             rowProps={rowProps}
+            surfaceClassName={surfaceClassName}
           />
         ))}
     </>

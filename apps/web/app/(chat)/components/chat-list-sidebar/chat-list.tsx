@@ -161,6 +161,8 @@ export function ChatList() {
           projects={allProjects}
           onRequestNewProject={setNewProjectChatId}
           pinnedAtByChatId={pinnedAtByChatId}
+          // Rail and sheet both render on the sidebar surface.
+          surfaceClassName="bg-sidebar"
         />
       )}
       <CreateProjectForChatDialog

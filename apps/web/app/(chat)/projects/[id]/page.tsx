@@ -40,6 +40,8 @@ function ProjectChatsCard({
           projects={projects}
           onRequestNewProject={onRequestNewProject}
           pinnedAtByChatId={pinnedAtByChatId}
+          // This card sits on the page canvas, not the sidebar.
+          surfaceClassName="bg-background"
         />
       )}
     </div>
