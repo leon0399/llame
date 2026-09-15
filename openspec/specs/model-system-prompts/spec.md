@@ -656,6 +656,7 @@ fields SHALL be removed rather than rebuilt from current configuration.
 - **WHEN** a skill activation publishes its package directory and resolved file path after the Run is claimed
 - **THEN** the immutable enqueue receipt stays unchanged and the separate executed-context record contains the final activation text
 - **AND** the skill path exception does not expose Knowledge backing paths or private prompt configuration
+
 #### Scenario: Queued receipt is pending
 
 - **WHEN** an owner inspects a Run before any attempt has prepared its system prompt

@@ -149,7 +149,7 @@ The executing worker's restart-applied allowlist SHALL filter exact ids and decl
 
 #### Scenario: Unlisted tool is refused
 
-- **WHEN** the model requests a tool that matches neither an exact entry nor an MCP namespace wildcard bound into the Run
+- **WHEN** the model requests a tool that matches neither an exact entry nor an MCP namespace wildcard in the current attempt's validated allowlist
 - **THEN** the call is refused with a recorded, non-fatal tool error and the run continues
 
 #### Scenario: Unknown tool id in the allowlist fails boot
