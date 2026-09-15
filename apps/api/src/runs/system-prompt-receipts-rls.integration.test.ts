@@ -25,10 +25,6 @@ import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunsRepository } from './runs-repository';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 
-// Keep this file a module so its top-level TEST_DB_URL/describeIfDb/SqlClient
-// stay module-scoped, not globals that collide with the sibling *-rls suites.
-export {};
-
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
