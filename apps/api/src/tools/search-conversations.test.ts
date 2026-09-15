@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { ZodError } from 'zod';
 
@@ -574,6 +572,28 @@ describe('search_conversations', () => {
     expect(jsonSchema).not.toHaveProperty('not');
     expect(jsonSchema).not.toHaveProperty('enum');
     expect(jsonSchema).not.toHaveProperty('const');
+  });
+
+  it('declares the time bounds by format, without restating them as a regex', async () => {
+    const jsonSchema = await resolveJsonSchema(
+      searchConversationsTool.inputSchema,
+    );
+    const properties = jsonSchema['properties'];
+    if (!isRecord(properties)) throw new Error('Expected a properties object');
+
+    for (const bound of ['after', 'before']) {
+      const field = properties[bound];
+      if (!isRecord(field)) throw new Error(`Expected a ${bound} schema`);
+      expect(field['format']).toBe('date-time');
+      expect(field).not.toHaveProperty('pattern');
+    }
+
+    const schema = searchConversationsTool.inputSchema;
+    if (!isZodSchema(schema)) throw new Error('Expected Zod');
+    expect(
+      schema.safeParse({ mode: 'timeline', after: '2026-01-01T00:00Z' })
+        .success,
+    ).toBe(false);
   });
 
   it('few-shot calls in the tool description parse successfully (task 2.2)', () => {

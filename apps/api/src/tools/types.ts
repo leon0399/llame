@@ -14,7 +14,7 @@ import { type CompiledPolicy } from './permissions/types';
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
  * external sources (D2: "accepted as the source ships it"). Distinct from
- * `z.ZodTypeAny` which is the code-authored schema form.
+ * `z.ZodType` which is the code-authored schema form.
  */
 export type JsonSchemaDocument = UnknownRecord;
 
@@ -126,6 +126,6 @@ export interface Tool<TArgs = UnknownRecord> {
   readonly description: string;
   readonly classification: ToolClassification;
   readonly timeoutSeconds?: number;
-  readonly inputSchema: z.ZodTypeAny | JsonSchemaDocument;
+  readonly inputSchema: z.ZodType | JsonSchemaDocument;
   execute(context: ToolContext, args: TArgs): ToolResult | Promise<ToolResult>;
 }
