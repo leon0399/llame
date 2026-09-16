@@ -15,7 +15,10 @@ const PHONE_WIDTH = 500;
  * viewport (no viewport addon is installed), so a story that opts in through
  * `parameters.mobileViewport` shadows that single measurement — before the
  * `SidebarProvider` rendered here reads it — and puts the real one back when
- * the story unmounts.
+ * the story unmounts. Restoring means reinstating the original property
+ * descriptor: deleting the override instead would leave `innerWidth`
+ * undefined for every later story in this file, which reads as a desktop
+ * viewport and hides a real regression.
  */
 function MobileViewport({
   active,
@@ -24,7 +27,13 @@ function MobileViewport({
   active: boolean;
   children: React.ReactNode;
 }) {
+  const originalWidth = React.useRef<PropertyDescriptor | undefined>(undefined);
+
   if (active) {
+    originalWidth.current ??= Object.getOwnPropertyDescriptor(
+      window,
+      "innerWidth",
+    );
     Object.defineProperty(window, "innerWidth", {
       value: PHONE_WIDTH,
       configurable: true,
@@ -37,6 +46,13 @@ function MobileViewport({
     }
 
     return () => {
+      const original = originalWidth.current;
+
+      if (original) {
+        Object.defineProperty(window, "innerWidth", original);
+        return;
+      }
+
       Reflect.deleteProperty(window, "innerWidth");
     };
   }, [active]);

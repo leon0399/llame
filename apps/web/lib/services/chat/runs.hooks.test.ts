@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 
-import { runQueryKeys, useRunContextReceipt } from "./runs";
+import { useRunContextReceipt } from "./runs";
 import { jsonResponse, stubFetch } from "../../test-support/fetch-stub";
 import {
   newTestQueryClient,
@@ -65,9 +65,12 @@ describe("useRunContextReceipt", () => {
       wrapper: wrapperWithClient(queryClient),
     });
 
+    // Literal, not runQueryKeys.contextReceipt(): the factory is duplicated in
+    // the Storybook __mocks__ copy, so deriving the expectation from it would
+    // let both drift together and still pass.
     await waitFor(() =>
       expect(
-        queryClient.getQueryData(runQueryKeys.contextReceipt("run-1")),
+        queryClient.getQueryData(["runs", "run-1", "context-receipt"]),
       ).toEqual(receipt),
     );
   });

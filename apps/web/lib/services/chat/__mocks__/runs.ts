@@ -9,7 +9,7 @@ import type { RunContextReceipt } from "../runs";
 // controllable spy so the effective-context-inspector stories can present a
 // receipt without a backend; the remaining exports are inert stand-ins so any
 // other storied component importing this module stays off the network. The
-// hook's own query gating is covered by lib/services/chat/runs.test.ts.
+// hook's own query gating is covered by lib/services/chat/runs.hooks.test.ts.
 
 // Mirrors the real factory exactly — a drifted key here would make a story
 // seed a cache entry the component never reads.
