@@ -31,7 +31,7 @@ Results SHALL carry the logical locator, selected source, absolute `resolvedPath
 - **THEN** the read returns a bounded refusal naming explicit selection without opening the file
 - **AND** `skill://` does not list `review`
 
-#### Scenario: Escaping link fails
+#### Scenario: Special-file resource link fails
 
 - **WHEN** a resource symlink resolves to a special file rather than a regular file or directory
 - **THEN** the read fails `not_regular_file` without opening the target, because the followed target's kind is checked before any open

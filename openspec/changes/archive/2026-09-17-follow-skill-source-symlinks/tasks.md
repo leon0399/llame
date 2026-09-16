@@ -44,6 +44,6 @@ separate authority.
 
 ## 4. Finalize layer
 
-- [ ] 4.1 After implementation and delivery gates pass, run `$openspec-sync-specs` for `agent-skills` and `native-file-tools`; verify the modified requirements replace their canonical blocks, the added real-path requirement is present, and unrelated scenarios are preserved; then rename the canonical scenario "Escaping link fails" to "Special-file resource link fails" directly in `openspec/specs/native-file-tools/spec.md`, and run strict spec/all validation.
-- [ ] 4.2 Record completed implementation/verification tasks and run `$openspec-archive-change`; verify archived artifacts exist and the active change is absent.
-- [ ] 4.3 Run strict spec/all validation, Markdown lint, formatting, and diff checks on the finalize layer; verify stack bases and tracking/publication state before handoff. Merge remains subject to Leo's explicit permission.
+- [x] 4.1 After implementation and delivery gates pass, run `$openspec-sync-specs` for `agent-skills` and `native-file-tools`; verify the modified requirements replace their canonical blocks, the added real-path requirement is present, and unrelated scenarios are preserved; then rename the canonical scenario "Escaping link fails" to "Special-file resource link fails" directly in `openspec/specs/native-file-tools/spec.md`, and run strict spec/all validation.
+- [x] 4.2 Record completed implementation/verification tasks and run `$openspec-archive-change`; verify archived artifacts exist and the active change is absent.
+- [x] 4.3 Run strict spec/all validation, Markdown lint, formatting, and diff checks on the finalize layer; verify stack bases and tracking/publication state before handoff. Merge remains subject to Leo's explicit permission.
