@@ -4,7 +4,7 @@
 
 The system SHALL discover immediate skill directories beneath configured operator sources, with later sources overriding earlier sources by package name. Each package SHALL contain valid Agent Skills frontmatter with a name matching its directory and a non-empty description. Invalid winning packages SHALL be unavailable with an operator diagnostic and SHALL NOT fall back to earlier packages of the same name. Unrelated valid packages SHALL remain available. Discovery SHALL NOT implicitly include personal, workspace, bundled, or remote sources. An unreadable or oversized source SHALL make discovery unavailable rather than resolve precedence from an incomplete scan.
 
-A configured source SHALL be trusted by being configured. Discovery and skill reads SHALL apply ordinary operating-system link semantics and SHALL NOT resolve, verify, or contain symbolic links: an immediate child of a source that is a symbolic link is a package when it resolves to a directory holding `SKILL.md`, wherever that directory lies; links inside a package are followed wherever they point; a child link that cannot be resolved SHALL be an unavailable entry with a diagnostic naming the unresolved link, and a child link that resolves to something other than a directory SHALL be an unavailable entry with a diagnostic naming the non-directory target where its kind is known, where today such a link inside a configured source is silently not a package. Package paths SHALL be published as discovered beneath the configured source, not as resolved real paths.
+A configured source SHALL be trusted by being configured. Discovery and skill reads SHALL apply ordinary operating-system link semantics and SHALL NOT resolve, verify, or contain symbolic links: an immediate child of a source that is a symbolic link is a package when it resolves to a directory holding `SKILL.md`, wherever that directory lies; links inside a package are followed wherever they point; a child link that cannot be resolved SHALL be an unavailable entry with a diagnostic naming the unresolved link, and a child link that resolves to something other than a directory SHALL be an unavailable entry with a diagnostic naming the target kind where it is known, where today such a link inside a configured source is silently not a package. Package paths SHALL be published as discovered beneath the configured source, not as resolved real paths.
 
 #### Scenario: Directory contains several packages
 
@@ -37,7 +37,7 @@ A configured source SHALL be trusted by being configured. Discovery and skill re
 #### Scenario: Dangling package symlink
 
 - **WHEN** a configured source contains a symbolic link whose target does not exist, or one that resolves to a regular file
-- **THEN** the entry is unavailable with a diagnostic naming the unresolved link or the non-directory target
+- **THEN** the entry is unavailable with a diagnostic naming the unresolved link or the target kind
 - **AND** other packages in the source remain available
 
 ### Requirement: References and scripts retain ordinary execution authority
