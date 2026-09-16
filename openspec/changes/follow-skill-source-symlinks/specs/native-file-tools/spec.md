@@ -34,7 +34,7 @@ Results SHALL carry the logical locator, selected source, absolute `resolvedPath
 #### Scenario: Escaping link fails
 
 - **WHEN** a resource symlink resolves to a special file rather than a regular file or directory
-- **THEN** the read fails without opening it
+- **THEN** the read fails `not_regular_file` without opening the target, because the followed target's kind is checked before any open
 
 #### Scenario: Mutation is unsupported
 
@@ -59,7 +59,8 @@ dangling link SHALL show its raw link text because it cannot resolve. A
 `kb://` listing SHALL render every symbolic link as the bare `- name@` with no
 target kind and no target, because a Knowledge result exposes no resolved host
 path. Rendering a link SHALL read its metadata and target path only, SHALL do
-so only for entries that are rendered, and SHALL NOT open it. Symbolic links
+so only for the entries the listing assembles (the requested level and the
+capped head of each child directory), and SHALL NOT open it. Symbolic links
 found as entries SHALL NOT be descended whatever their target kind, and
 special entries SHALL NOT be opened or followed. A link whose target is a
 directory SHALL order among non-directory entries by name, as a link does
@@ -128,7 +129,7 @@ prefixes.
 
 ### Requirement: Reads through symbolic links report the real path
 
-When a file `read` on an absolute host path opens a file whose canonical absolute path differs from the path as given, because the path or any component of it is a symbolic link, the result SHALL carry that canonical path as `realPath`. The header and line numbering SHALL remain those of the path as given; `realPath` SHALL count against the result bound like every other result field and SHALL be present before the result is measured, and SHALL be absent when the two paths are equal. `kb://` and `skill://` reads SHALL NOT carry `realPath`. A `skill://` result SHALL instead carry the real package directory as `realSkillDirectory` in its envelope when it differs from `skillDirectory`, reserved before content exactly as the other envelope fields are.
+When a file `read` on an absolute host path opens a file whose canonical absolute path differs from the normalized path as given, because the path or any component of it is a symbolic link, the result SHALL carry that canonical path as `realPath`. A directory listing SHALL NOT carry `realPath`; its header is the path as given and its link entries carry their own targets. The header and line numbering SHALL remain those of the path as given; `realPath` SHALL count against the result bound like every other result field and SHALL be present before the result is measured, and SHALL be absent when the two paths are equal. `kb://` and `skill://` reads SHALL NOT carry `realPath`. A `skill://` result SHALL instead carry the real package directory as `realSkillDirectory` in its envelope when it differs from `skillDirectory`, reserved before content exactly as the other envelope fields are; when the real directory cannot be resolved the field is omitted and the read is otherwise unaffected.
 
 #### Scenario: File read through a linked directory
 
@@ -138,7 +139,7 @@ When a file `read` on an absolute host path opens a file whose canonical absolut
 
 #### Scenario: Ordinary read carries no real path
 
-- **WHEN** the model reads a file whose path contains no symbolic link
+- **WHEN** the model reads a file whose normalized path contains no symbolic link, including one written with `..` segments
 - **THEN** the result carries no `realPath`
 
 #### Scenario: Skill result names both directories
