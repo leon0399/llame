@@ -64,6 +64,74 @@ Traps:
   `instance-config/authored-text.ts` and keep the web mirror byte-identical.
 - `SafeString("")` is truthy; omit absent/trimmed-empty keys.
 
+Packaged prompt templates are the model-facing bodies llame authors and ships,
+and no operator can replace one. They live at
+`apps/api/src/<module>/prompts/<surface-name>.md`, one file per distinct body,
+named for the surface as the model sees it, and load through exactly one
+module-level constant beside the render function:
+`loadPackagedTemplate(__dirname, '<surface-name>')` from
+`apps/api/src/prompts/template-engine.ts`. Variants inside one body are
+branches on producer-derived booleans in that one file. Exported names keep
+their kind and arity so identity comparisons and call sites elsewhere are
+untouched: a string constant stays a string rendered from its template, and a
+function keeps its parameters.
+
+- `apps/api/src/prompts/tools/` holds operator-replaceable tool descriptions;
+  `apps/api/src/tools/prompts/` holds packaged templates the module owns and
+  no operator can replace. They are one transposition apart.
+  `apps/api/src/prompts/` holds only the replaceable defaults
+  (`chat-default.md` and `tools/*.md`); that directory split is what states
+  which files an operator may replace.
+- Adding a colocated `prompts/` directory is three edits: the directory; one
+  glob in `.markdownlint-cli2.jsonc`
+  (`apps/api/src/<module>/prompts/**`, the `**` form, because a bare directory
+  path does not match in micromatch); and the same directory in
+  `.prettierignore` in gitignore directory form. Never a globstar such as
+  `apps/api/src/**/prompts/**`: it also swallows
+  `apps/api/src/prompts/chat-default.md` and drops its MD033 override. Also add
+  one import per colocated directory to
+  `apps/api/src/instance-config/prompt-built-runtime.contract.ts`, so a
+  directory the `**/prompts/**/*.md` asset rule misses fails the build rather
+  than a deployed worker.
+- A template renders from its producer's own payload plus view values the
+  producer derives in the same module: booleans for closed kinds, labels for
+  closed reason codes, pluralized or joined strings. The engine has no
+  comparison helper, so every comparison happens in TypeScript first. Derive an
+  explicit boolean rather than relying on Handlebars truthiness for a number,
+  since zero must be falsy and a `SafeString` wrapping an empty string is
+  truthy.
+- `user`, `chats`, `skills`, `model`, `context`, and `tools` are reserved names
+  and are never supplied to a packaged rail template; the operator surfaces
+  keep those projections. A rail item is frozen into `messages.parts`, so
+  personalization must never be rendered into one.
+- Packaged templates compile with `noEscape`: the engine escapes nothing and
+  every mustache renders raw. The producer keeps calling
+  `sanitizeAuthoredText` on exactly the values it neutralizes today, before the
+  value reaches the template, and keeps grammar-safe identifiers and published
+  paths raw. Never write `{{{ }}}`; it is redundant under `noEscape` and a
+  false signal.
+- The envelope is not template content. `renderContextItem` owns
+  `<system-reminder producer= form=>` and `CONTEXT_ITEM_PROVENANCE`; templates
+  are body-only.
+- Every migrated or new surface needs an exact-output test or a literal pin
+  before its constant is deleted: a mistyped variable renders empty silently.
+  Precedence and path-guidance sentences differ between producers by design and
+  are never copied from one template into another; the exact-output tests, not
+  similarity, decide.
+
+Template whitespace:
+
+- The engine strips only whitespace after the last content in the file, so a
+  file-final newline is harmless and nothing else is.
+- A repeated line carries its separator as a leading newline, and the
+  `{{/each}}` sits at the end of the last content line.
+- A standalone closing block tag consumes its own line terminator, so a blank
+  line that must follow a block needs an extra empty line or an inline
+  `{{/if}}`.
+- Use `{{~/if}}` only where the block ends the body; no `~` fix is mechanical,
+  so re-render and re-diff after every change.
+- A plain mustache alone on a line is never standalone-stripped.
+
 Specs: [instance config](../../openspec/specs/instance-config/spec.md),
 [model prompts](../../openspec/specs/model-system-prompts/spec.md),
 [models](../../openspec/specs/available-models/spec.md), and

@@ -59,3 +59,18 @@ for (const id of TOOL_PROMPT_IDS) {
     );
   }
 }
+
+// Verify the chats producers' packaged bodies resolve from the built output.
+// Every template constant there calls `loadPackagedTemplate` EAGERLY at module
+// initialization, so the eager load is the proof: it reads
+// `chats/prompts/*.md` through `__dirname`, and running this from dist/ means
+// a missing, empty, or unshipped template throws before the import completes.
+// Rendering one body keeps the import load-bearing for a bundler, which could
+// otherwise drop a module imported for its side effect alone.
+import { renderCompactionCheckpoint } from '../chats/context-item-producers';
+
+const checkpoint = renderCompactionCheckpoint('Built runtime contract.');
+
+if (!checkpoint.includes('historical context')) {
+  throw new Error('Built runtime failed to load a packaged chats template');
+}

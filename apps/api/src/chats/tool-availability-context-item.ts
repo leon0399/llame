@@ -7,6 +7,7 @@
  */
 import { type AuthoredContextItemPart } from './context-item';
 import { compareCodePoints } from '../canonical-json';
+import { loadPackagedTemplate } from '../prompts/template-engine';
 import { isToolId } from '../tools/tool-id';
 import {
   parseToolAvailabilityManifest,
@@ -377,46 +378,48 @@ function deriveToolAvailabilityDelta(
   );
 }
 
-function renderIds(ids: ReadonlyArray<string>): Array<string> {
-  return ids.map((id) => `- \`${id}\``);
-}
+/** One reason-bearing entry with its closed reason code already resolved to the
+ *  model-facing label, so the body compares nothing. */
+type ToolAvailabilityViewEntry = {
+  readonly id: string;
+  readonly label: string;
+};
 
-function renderReasons<TReason extends string>(
+function labeledEntries<TReason extends string>(
   entries: ReadonlyArray<{ id: string; reason: TReason }>,
   labels: Readonly<Record<TReason, string>>,
-): Array<string> {
-  return entries.map(({ id, reason }) => `- \`${id}\`: "${labels[reason]}"`);
+): Array<ToolAvailabilityViewEntry> {
+  return entries.map(({ id, reason }) => ({ id, label: labels[reason] }));
 }
 
+/** The tool-availability body: the opening sentence branches on the payload
+ *  kind, and each of the five transition groups emits only when the producer
+ *  derived entries for it. */
+const renderToolAvailabilityTemplate = loadPackagedTemplate<{
+  initial: boolean;
+  added: ReadonlyArray<string>;
+  removed: ReadonlyArray<string>;
+  unavailable: ReadonlyArray<ToolAvailabilityViewEntry>;
+  becameUnavailable: ReadonlyArray<ToolAvailabilityViewEntry>;
+  nowAvailable: ReadonlyArray<ToolAvailabilityViewEntry>;
+}>(__dirname, 'tool-availability');
+
 function renderToolAvailability(payload: ToolAvailabilityPayload): string {
-  const lines = [
-    payload.kind === 'initial'
-      ? 'Some eligible tools are unavailable for this turn:'
-      : 'The available tools were changed since the last turn:',
-  ];
-  const groups: Array<[string, Array<string>]> = [
-    ['Added tools:', renderIds(payload.added)],
-    ['Removed tools:', renderIds(payload.removed)],
-    [
-      'Unavailable tools:',
-      renderReasons(payload.unavailable, TOOL_UNAVAILABLE_REASON_LABELS),
-    ],
-    [
-      'Became unavailable:',
-      renderReasons(payload.becameUnavailable, TOOL_UNAVAILABLE_REASON_LABELS),
-    ],
-    [
-      'Now available:',
-      renderReasons(payload.nowAvailable, TOOL_RECOVERY_REASON_LABELS),
-    ],
-  ];
-  for (const [heading, entries] of groups) {
-    if (entries.length === 0) continue;
-    lines.push('', heading, ...entries);
-  }
-  lines.push(
-    '',
-    'Do not simulate removed or unavailable tools or invent their results.',
-  );
-  return lines.join('\n');
+  return renderToolAvailabilityTemplate({
+    initial: payload.kind === 'initial',
+    added: payload.added,
+    removed: payload.removed,
+    unavailable: labeledEntries(
+      payload.unavailable,
+      TOOL_UNAVAILABLE_REASON_LABELS,
+    ),
+    becameUnavailable: labeledEntries(
+      payload.becameUnavailable,
+      TOOL_UNAVAILABLE_REASON_LABELS,
+    ),
+    nowAvailable: labeledEntries(
+      payload.nowAvailable,
+      TOOL_RECOVERY_REASON_LABELS,
+    ),
+  });
 }
