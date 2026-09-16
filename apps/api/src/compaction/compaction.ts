@@ -19,6 +19,7 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { buildCompactionToolReplacementRecords } from '../chats/tool-observation-part';
+import { loadPackagedTemplate } from '../prompts/template-engine';
 import { isString } from '@workspace/runtime-safety';
 import type { CompactionReplacementMessage } from '../db/schema';
 import { isCompletedAssistantTurn } from '../chats/chats-repository';
@@ -46,21 +47,10 @@ export const DEFAULT_KEEP_RECENT_MESSAGES = 8;
  * (OpenAI-style strict prefix matching) covers the absorbed bulk; only this
  * trailing instruction is uncached. What the summary must preserve comes from
  * #57: objective, constraints, decisions, pending items — working state, not
- * prose.
+ * prose. The section headings the summary must use are literal text in each
+ * instruction template; `compaction.test.ts` authors its own heading list and
+ * asserts it against the rendered instruction.
  */
-export const COMPACTION_SECTION_HEADINGS = [
-  'Objective',
-  'Constraints and Preferences',
-  'Decisions and Rationale',
-  'Established Facts',
-  'Current State',
-  'Open Questions and Next Steps',
-  'Critical References',
-] as const;
-
-const COMPACTION_MARKDOWN_SECTIONS = COMPACTION_SECTION_HEADINGS.map(
-  (heading) => `## ${heading}`,
-).join('\n');
 
 /**
  * Keeps the owner's standing profile out of the persisted checkpoint
@@ -89,32 +79,25 @@ const COMPACTION_MARKDOWN_SECTIONS = COMPACTION_SECTION_HEADINGS.map(
  * MESSAGE, already outside the byte-identical prefix. Stripping the block from
  * the replayed system prompt would work too and is rejected: that changes the
  * prefix and makes the whole (deliberately large) call cold.
+ *
+ * The sentence is literal text in `prompts/instruction.md` and, in its own
+ * copy, in `prompts/instruction-transition.md`: D3 makes distinct bodies
+ * distinct files, so the two modes carry the exclusion themselves rather than
+ * sharing one interpolated constant, and the test pins it against both.
  */
-const STANDING_CONTEXT_EXCLUSION = `Do not carry any content out of the <user_personalization> or <user_chat_history> blocks into the summary, and do not carry any content out of a <system-reminder> block whose producer attribute is "recency-digest". Do not carry the system-supplied temporal context line (the line stating context as of a date) into the summary either. These describe standing context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Dates, deadlines, or intervals the user or assistant established within the conversation itself still belong in the summary.`;
+const renderCompactionInstructionTemplate = loadPackagedTemplate<
+  Record<string, never>
+>(__dirname, 'instruction');
 
-export const COMPACTION_INSTRUCTION = `Create a concise operational handoff for a future model continuing this conversation.
+export const COMPACTION_INSTRUCTION = renderCompactionInstructionTemplate({});
 
-Preserve the user's objective, hard constraints and preferences, decisions and their rationale, established facts, completed work, current unresolved state, already-established next steps, and exact critical references such as file paths, commands, identifiers, errors, and URLs. Fold any earlier checkpoint into this one without losing still-relevant information. Drop greetings, filler, and obsolete chatter.
+/** The transition-up-to instruction: a distinct body, fixed text, no values. */
+const renderTransitionCompactionInstructionTemplate = loadPackagedTemplate<
+  Record<string, never>
+>(__dirname, 'instruction-transition');
 
-Use exactly these Markdown section headings, in this order:
-
-${COMPACTION_MARKDOWN_SECTIONS}
-
-${STANDING_CONTEXT_EXCLUSION}
-
-Write "None" for an empty section. Output only the summary under those headings, with no preamble or closing commentary.`;
-
-export const TRANSITION_COMPACTION_INSTRUCTION = `Create a concise operational handoff for the conversation prefix above. A newer user message follows this summarized prefix but is intentionally not visible to you.
-
-Preserve established objectives, hard constraints and preferences, decisions and their rationale, facts, completed work, current unresolved state, and exact critical references such as file paths, commands, identifiers, errors, and URLs. Fold any earlier checkpoint into this one without losing still-relevant information. Do not invent a next step, recommendation, or user intent that was not already established in the visible prefix.
-
-Use exactly these Markdown section headings, in this order:
-
-${COMPACTION_MARKDOWN_SECTIONS}
-
-${STANDING_CONTEXT_EXCLUSION}
-
-Under "Open Questions and Next Steps", include only questions and next steps already established in the visible prefix. Write "None" for an empty section. Output only the summary under those headings, with no preamble or closing commentary.`;
+export const TRANSITION_COMPACTION_INSTRUCTION =
+  renderTransitionCompactionInstructionTemplate({});
 
 /** Accept only non-empty text from a compaction inference. */
 export function normalizeCompactionSummary(value: unknown): string | null {
