@@ -14,44 +14,46 @@ master
 ```
 
 The proposal layer owns only these OpenSpec artifacts. Engine owns the shared
-template engine extraction and the asset glob (#863, closed by its PR). Rail
-owns the eleven producer bodies and the checkpoint body plus the authoring
-convention. Instructions owns both summarization instructions and the title
-prompt. Notices owns the four untrusted-content notices; its PR closes #864
-and #862 after the complete change satisfies acceptance. Earlier layers
-reference #862 and #864 without closing them. Finalize owns canonical spec
-sync and archive. Implementation branches require approval of the reviewed
-proposal; publication and merging require separate authority.
+template engine extraction, the asset rule, and the lint and formatter
+exemptions (#863, closed by its PR). Rail owns the ten producer bodies and the
+checkpoint body plus the authoring convention. Instructions owns both
+summarization instructions and both title prompts. Notices owns the three
+untrusted-content notices, the search-result notice, and the skill path
+instruction; its PR closes #864 and #862 after the complete change satisfies
+acceptance. Earlier layers reference #862 and #864 without closing them.
+Finalize owns canonical spec sync and archive. Implementation branches require
+approval of the reviewed proposal; publication and merging require separate
+authority.
 
-- [ ] 1.1 Link this change to #862, #863, and #864; verify the acceptance criteria reflect D1-D8 and that no operator configuration key is introduced.
+- [ ] 1.1 Link this change to #862, #863, and #864; verify the acceptance criteria reflect D1-D9 and that no operator configuration key is introduced.
 - [ ] 1.2 Review the complete draft with at least two independent reviewers and resolve verified substantive findings; run strict OpenSpec validation, Markdown lint, formatting, and diff checks, then obtain Leo's approval of the reviewed revision.
-- [ ] 1.3 Before implementation, inspect the current stack/base and reconcile any landed change to `prompt-loader.ts`, the producers, or `compaction.ts` since the proposal was written.
+- [ ] 1.3 Before implementation, inspect the current stack/base and reconcile any landed change to `prompt-loader.ts`, the producers, `compaction.ts`, `title.ts`, or `search-conversations.ts` since the proposal was written.
 
 ## 2. Engine layer
 
-- [ ] 2.1 Move the Handlebars environment, compile cache, file read and normalization, value escaping, and core-scope projection out of `prompt-loader.ts` into one shared module the loader imports; verify `prompt-loader.test.ts`, `chat-default.test.ts`, `tool-descriptions.test.ts`, and `run-execution-tools.integration.test.ts` pass unmodified.
-- [ ] 2.2 Add `loadPackagedTemplate(directory, name)` that reads `<directory>/prompts/<name>.md` at module initialization, normalizes it, compiles with `noEscape`, and returns a render function; verify with a throwaway template that it renders from `dist` after `pnpm --filter api build`, then delete the throwaway.
-- [ ] 2.3 Widen `nest-cli.json` assets to `**/*.md`; verify the build output still contains `prompts/chat-default.md` and `prompts/tools/*.md` and that `prompt-built-runtime.contract.ts` passes.
-- [ ] 2.4 Capture rendered system prompt and all seven tool descriptions for a fixed input before and after the extraction and include the byte comparison in the PR; verify the shared module has no import from `instance-config` allowlists.
+- [ ] 2.1 Move the Handlebars environment, compile cache, file read and normalization, and escaping helpers out of `prompt-loader.ts` into one shared module the loader imports, leaving the projection and validator in place; key the cache by source and escape regime or keep one map per regime; verify `apps/api/src/instance-config/prompt-loader.test.ts`, `apps/api/src/prompts/chat-default.test.ts`, and `apps/api/src/prompts/tool-descriptions.test.ts` pass unmodified under the unit project and `apps/api/src/chats/run-execution-tools.integration.test.ts` passes under `pnpm --filter api test:integration`.
+- [ ] 2.2 Add `loadPackagedTemplate(directory, name)` that reads `<directory>/prompts/<name>.md` at module initialization, normalizes it, compiles with `noEscape`, and returns a render function; verify with a throwaway template that it renders from `dist` after `pnpm --filter api build`, that a value containing `<&>"'` renders raw, and that the same source compiled for the operator path still escapes; then delete the throwaway.
+- [ ] 2.3 Add `**/prompts/**/*.md` to `nest-cli.json` assets; add `apps/api/src/**/prompts/**` to `.markdownlint-cli2.jsonc` ignores and `.prettierignore` with the same justification comment the `tools/` entries carry; verify the build output contains `prompts/chat-default.md` and `prompts/tools/*.md`, contains no `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, or `BASELINE.md`, and that `prompt-built-runtime.contract.ts` passes.
+- [ ] 2.4 Capture the rendered system prompt and all seven tool descriptions for a fixed input before and after the extraction and include the byte comparison in the PR; verify the shared module has no import from `instance-config` allowlists.
 
 ## 3. Rail layer
 
-- [ ] 3.1 Move `temporal`, `effective-context-change`, `recency-digest` delta and supersession, and `compaction` checkpoint bodies to `chats/prompts/*.md`, each rendered through one module-level template constant; verify `context-item-producers.test.ts`, `context-item-producers.behavior.test.ts`, `context-item-temporal.test.ts`, and `context-builder.test.ts` pass unmodified.
-- [ ] 3.2 Move the `tool-availability` body to `chats/prompts/tool-availability.md`; verify `tool-availability-context-item.test.ts` passes unmodified.
-- [ ] 3.3 Move the `skill-catalog` notice and snapshot and the three `skill-activation` bodies to `chats/prompts/*.md`, keeping the `<skill_instructions>` delimiter and path guidance as authored; verify `skill-catalog-item.test.ts`, `skill-activation-item.test.ts`, `skill-turn-state.test.ts`, and `activation-parts.repository.test.ts` pass unmodified.
-- [ ] 3.4 Confirm producers still call `sanitizeAuthoredText` on the same values as before and pass llame-authored identifiers raw; verify the reserved-delimiter tests in the files above still pass and that no template uses `{{{ }}}`.
-- [ ] 3.5 Add the packaged-template authoring convention (D2-D6) to `apps/api/AGENTS.md`; verify `pnpm lint:markdown` passes.
+- [ ] 3.1 Move `temporal`, `effective-context-change`, `recency-digest` delta and supersession, and `compaction` checkpoint bodies to `apps/api/src/chats/prompts/*.md`, each rendered through one module-level template constant; verify `context-item-producers.test.ts`, `context-item-producers.behavior.test.ts`, `context-item-temporal.test.ts`, and `context-builder.test.ts` in `apps/api/src/chats/` pass unmodified.
+- [ ] 3.2 Move the `tool-availability` body to `apps/api/src/chats/prompts/tool-availability.md`, deriving the `initial` boolean and the reason labels in the producer before rendering; verify `apps/api/src/chats/tool-availability-context-item.test.ts` passes unmodified.
+- [ ] 3.3 Move the `skill-catalog` notice and snapshot and the three `skill-activation` bodies to `apps/api/src/chats/prompts/*.md`, deriving pluralized and joined strings and failure labels in the producer, keeping the `<skill_instructions>` delimiter, path guidance, and precedence sentences as literal template text; verify `skill-catalog-item.test.ts`, `skill-activation-item.test.ts`, `skill-turn-state.test.ts`, and `activation-parts.repository.test.ts` in `apps/api/src/chats/` pass unmodified.
+- [ ] 3.4 Confirm producers still call `sanitizeAuthoredText` on the same values as before, pass grammar-safe identifiers and the two skill paths raw, and supply no `user`, `chats`, `skills`, `model`, `context`, or `tools` value; verify the reserved-delimiter tests in the files above still pass and that no template uses `{{{ }}}`.
+- [ ] 3.5 Add the packaged-template authoring convention (D2-D6, D9) to `apps/api/AGENTS.md`; verify `pnpm lint:markdown` passes with the new exemption in place.
 
 ## 4. Instructions layer
 
-- [ ] 4.1 Move `COMPACTION_INSTRUCTION` and `TRANSITION_COMPACTION_INSTRUCTION` to `compaction/prompts/instruction.md` and `instruction-transition.md` with the standing-context exclusion and headings inline; delete `COMPACTION_SECTION_HEADINGS` and `COMPACTION_MARKDOWN_SECTIONS`; verify `compaction.test.ts`, `compaction.service.test.ts`, and `compaction-context.integration.test.ts` pass, with the heading assertion reading the rendered instruction only.
-- [ ] 4.2 Move `TITLE_SYSTEM_PROMPT` to `titles/prompts/system.md`; verify the title tests pass unmodified and the request still uses the packaged prompt rather than the chat model's effective prompt.
+- [ ] 4.1 Move `COMPACTION_INSTRUCTION` and `TRANSITION_COMPACTION_INSTRUCTION` to `apps/api/src/compaction/prompts/instruction.md` and `instruction-transition.md` with the standing-context exclusion and headings inline; delete `COMPACTION_SECTION_HEADINGS` and `COMPACTION_MARKDOWN_SECTIONS`; in `compaction.test.ts` remove the constant's import and identity assertion, keep the heading loop over the rendered instruction, and add a literal pin of the exclusion sentence naming `<system-reminder>` and `recency-digest` for both modes; verify `compaction.test.ts`, `compaction.service.test.ts`, and `compaction-context.integration.test.ts` in `apps/api/src/compaction/` pass.
+- [ ] 4.2 Move `TITLE_SYSTEM_PROMPT` to `apps/api/src/titles/prompts/system.md` and `titleUserPrompt` to `apps/api/src/titles/prompts/user.md`; add literal pins of both rendered texts; verify the title tests pass and the request still uses the packaged prompts rather than the chat model's effective prompt.
 
 ## 5. Notices layer
 
-- [ ] 5.1 Move `UNTRUSTED_LABEL` and `CONVERSATION_HISTORY_NOTICE` (with its two halves) to `chats/prompts/tool-output-untrusted.md` and `conversation-history-notice.md`; verify `tool-observation-part.test.ts`, `tool-observation-part.behavior.test.ts`, `conversation-evidence.test.ts`, and `conversation-read.test.ts` pass unmodified.
-- [ ] 5.2 Move `KNOWLEDGE_CONTENT_NOTICE` to `knowledge/prompts/content-notice.md` and `SKILL_PATH_INSTRUCTION` to `skills/prompts/path-instruction.md`; verify `knowledge-tools.test.ts`, `native-files.test.ts`, and the skill-target tests pass unmodified.
-- [ ] 5.3 Search the touched modules for remaining model-facing string literals; verify only `renderToolObservationOmission` and tool-result error strings remain, and record that list in the PR body.
+- [ ] 5.1 Move `UNTRUSTED_LABEL` to `apps/api/src/chats/prompts/tool-output-untrusted.md` and `CONVERSATION_HISTORY_NOTICE` to `apps/api/src/chats/prompts/conversation-history-notice.md`; move `SEARCH_CONVERSATIONS_CANONICAL_NOTICE` to `apps/api/src/tools/prompts/search-conversations-notice.md`; delete `CONVERSATION_HISTORY_UNTRUSTED_NOTICE` and `CONVERSATION_HISTORY_AUTHORITY_NOTICE`; add literal pins for the two notices that lack one; verify `tool-observation-part.test.ts`, `tool-observation-part.behavior.test.ts`, `conversation-evidence.test.ts` in `apps/api/src/chats/` and `conversation-read.test.ts`, `search-conversations.test.ts` in `apps/api/src/tools/` pass.
+- [ ] 5.2 Move `KNOWLEDGE_CONTENT_NOTICE` to `apps/api/src/knowledge/prompts/content-notice.md` and `SKILL_PATH_INSTRUCTION` to `apps/api/src/skills/prompts/path-instruction.md`; add literal pins; verify `apps/api/src/knowledge/knowledge-tools.test.ts`, `apps/api/src/tools/native-files.test.ts`, and `apps/api/src/skills/skill-target.test.ts` pass.
+- [ ] 5.3 Sweep `apps/api/src` and `packages/runtime-safety` for remaining model-facing string literals; verify the residue is exactly `renderToolObservationOmission`, tool-result payload text (error messages, permission rejections, settlement and truncation notices), the closed reason-code label maps, and `CONTEXT_ITEM_PROVENANCE`, and record that list in the PR body.
 - [ ] 5.4 Verify the integrated change with the affected workspace lint, typecheck, and focused tests, `pnpm --filter api build`, strict OpenSpec validation, Markdown lint, formatting, and diff checks; add the `CHANGELOG.md` entry. Publish only with authority, then complete self-review and the repository's ready-PR monitoring contract.
 
 ## 6. Finalize layer

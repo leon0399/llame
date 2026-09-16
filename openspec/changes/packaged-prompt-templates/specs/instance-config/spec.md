@@ -2,9 +2,9 @@
 
 ### Requirement: Prompt-file rules govern replaceable files only
 
-The prompt-file requirements of this capability, namely boot-time Handlebars validation, the permitted node kinds, the context-path allowlist, bounded iteration, and the value-escaping regime, SHALL govern configured prompt files and the packaged defaults an operator may replace through `systemPromptFile`, `tools.promptFiles`, or `models[].toolPromptFiles`. A packaged template that no configuration can select or replace SHALL be outside those requirements; its rendering rules are owned by the capability that renders it, under `context-injection` and `model-system-prompts`.
+The prompt-file requirements of this capability, namely boot-time Handlebars validation, the permitted node kinds, the context-path allowlist, bounded iteration, and the value-escaping regime under "Model prompt files are dedicated visible-content configuration" and "Tool prompt files support instance and model precedence", SHALL govern configured prompt files and the packaged defaults an operator may replace through `systemPromptFile`, `tools.promptFiles`, or `models[].toolPromptFiles`. A packaged template that no configuration can select or replace SHALL be outside those requirements; its rendering rules are owned by the capability that renders it: `context-injection` for rail item bodies, `model-system-prompts` for summarization instructions and title prompts, and the capability owning a tool result for a notice carried in that result.
 
-The reserved-delimiter neutralization rules this capability defines for owner-authored values SHALL continue to apply wherever a producer neutralizes a foreign value, regardless of which template renders it.
+The reserved-delimiter neutralization rules this capability defines for owner-authored values SHALL continue to apply wherever a producer neutralizes untrusted text, regardless of which template renders it. The shared template engine's default escaping SHALL remain unused by every template.
 
 #### Scenario: A packaged internal template uses a producer-specific variable
 
@@ -23,3 +23,9 @@ The reserved-delimiter neutralization rules this capability defines for owner-au
 - **WHEN** a producer renders an owner-authored value through a packaged template
 - **THEN** the value is neutralized under the same reserved-delimiter rules as a configured prompt would apply
 - **AND** the rendered output is not re-evaluated as a template
+
+#### Scenario: One source text compiled under both regimes
+
+- **WHEN** identical template text is compiled once for a configured prompt file and once for a packaged template
+- **THEN** each render uses the compilation for its own regime
+- **AND** neither regime's escaping behavior leaks into the other through a shared compile cache

@@ -4,7 +4,7 @@
 
 Each producer's model-facing body MUST be authored as a packaged template file owned by that producer and shipped with the executing process, rendered once when the item is authored or staged, and persisted under the existing persisted-literal rule. Packaged item templates SHALL NOT be operator configuration: no configuration key SHALL select, replace, or disable one, and an edit SHALL take effect only for items authored by a process built from the edited source.
 
-Packaged item templates are outside the boot-time validation, path allowlist, and value escaping that `instance-config` defines for configured prompt files. The producer SHALL remain responsible for neutralizing every value it did not author before that value is rendered, using the reserved-delimiter rules `instance-config` defines, and the engine SHALL add no escaping of its own, so that rendered bytes are exactly what the producer prepared.
+Packaged item templates are outside the boot-time validation, path allowlist, and value escaping that `instance-config` defines for configured prompt files. The producer SHALL remain responsible for neutralizing untrusted text before it is rendered, using the reserved-delimiter rules `instance-config` defines and covering exactly the values it neutralizes before this change: owner-authored text, other chats' titles and excerpts, operator-authored catalog descriptions and instruction bodies, summarizing-model output, and tool result text. Grammar-constrained identifiers and published host paths SHALL continue to render as they do today. The engine SHALL add no escaping of its own, so that rendered bytes are exactly what the producer prepared.
 
 The rail envelope, its `producer` and `form` attributes, and the provenance statement SHALL remain produced by the rail around the rendered body; a packaged item template SHALL render the body only.
 
@@ -14,9 +14,9 @@ The rail envelope, its `producer` and `form` attributes, and the provenance stat
 - **THEN** the persisted item text is byte-identical to the previous rendering
 - **AND** the envelope and provenance statement are unchanged
 
-#### Scenario: A foreign value carries a reserved delimiter
+#### Scenario: Untrusted text carries a reserved delimiter
 
-- **WHEN** a payload value the producer did not author contains the rail's reserved delimiter name as a tag
+- **WHEN** an untrusted text value the producer neutralizes today contains the rail's reserved delimiter name as a tag
 - **THEN** the rendered body carries it neutralized exactly as before the template migration
 - **AND** the rendered body contains one envelope
 
@@ -32,18 +32,26 @@ The rail envelope, its `producer` and `form` attributes, and the provenance stat
 - **THEN** startup rejects the unknown key under the closed schema
 - **AND** no producer body is read from an operator path
 
-### Requirement: Persisted-literal items render from a core-only context
+### Requirement: Packaged item templates render from producer-owned values only
 
-The shared context available to a packaged item template SHALL expose only the selected model's public id and name, the chat's temporal anchor, and admitted-tool predicates, together with the producer's own payload. Per-user personalization, account identity, and the chat recency digest SHALL NOT be exposed to a packaged item template, so that no persisted-literal item can carry a copy of owner personal data or another chat's title or excerpt beyond what the producer's own payload already contains under its capability's rules.
+A packaged item template SHALL render from its producer's own payload together with the view values that producer derives from the payload in the same module, such as booleans for closed kinds, human labels for closed reason codes, and pluralized or joined strings. No other value SHALL be supplied to it. In particular, per-user personalization, account identity, chat recency-digest collections and scalars, and the skill-catalog projection SHALL NOT be supplied, so that no persisted-literal item can carry a copy of owner personal data or another chat's title or excerpt beyond what the producer's own payload already contains under its capability's rules.
+
+The names `model`, `context`, and `tools` SHALL be reserved and SHALL NOT be used as producer value names. The temporal item SHALL render from its own stored instant and zone, never from the prefix temporal anchor.
 
 #### Scenario: Owner personalization is not renderable in an item
 
 - **WHEN** a packaged item template references a per-user personalization or account-identity path
-- **THEN** the reference resolves to nothing at render time
+- **THEN** the reference renders empty because no such value is supplied
 - **AND** no persisted item text contains the owner's personalization or identity values
 
 #### Scenario: The recency digest is not renderable in an item
 
 - **WHEN** a packaged item template references a recency-digest collection or scalar
-- **THEN** the reference resolves to nothing at render time
+- **THEN** the reference renders empty because no such value is supplied
 - **AND** digest content reaches the rail only through the recency-digest producer's own payload
+
+#### Scenario: A closed reason code renders its label
+
+- **WHEN** a producer's payload carries a closed reason code with a human label today
+- **THEN** the rendered body carries the same label as before the template migration
+- **AND** the code itself does not appear in the body
