@@ -94,6 +94,9 @@ catalog:
   "@types/react": ^19.0.10
   "@types/react-dom": ^19.0.4
   "@typescript/native-preview": 7.0.0-dev.20260703.1
+  # apps/storybook and apps/web both run stories as browser-mode tests, so
+  # the addon and the browser provider are shared.
+  "@storybook/addon-vitest": ^10.5.0
   "@storybook/nextjs-vite": ^10.5.0
   "@stryker-mutator/core": 9.6.1
   "@stryker-mutator/typescript-checker": 9.6.1
@@ -124,6 +127,7 @@ catalog:
   # Exact, not a range: vitest warns and may misbehave when the
   # coverage provider's version differs from its own, and vitest
   # itself is lockfile-pinned at 4.1.10.
+  "@vitest/browser-playwright": ^4.1.10
   "@vitest/coverage-v8": 4.1.10
   "@barney-media/crap-typescript": 0.5.1
   vitest: ^4.1.11

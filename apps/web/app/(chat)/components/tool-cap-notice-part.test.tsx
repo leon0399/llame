@@ -1,15 +1,14 @@
-// @vitest-environment jsdom
+/**
+ * Pure `parseCapNoticePart` shape handling only — the chip's rendered state
+ * lives in tool-cap-notice-part.stories.tsx (docs/testing.md rule 5). Both
+ * wire paths hand this function the same persisted `{ type, data }` part:
+ * `toChatUiMessages` passes parts through verbatim, asserted in
+ * lib/services/chat/history.test.ts.
+ */
 
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { toChatUiMessages } from "@/lib/services/chat/history";
-
-import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
-
-afterEach(() => {
-  cleanup();
-});
+import { parseCapNoticePart } from "./tool-cap-notice-part";
 
 describe("parseCapNoticePart", () => {
   it("reads the SDK-native nested data-part shape", () => {
@@ -41,51 +40,5 @@ describe("parseCapNoticePart", () => {
     ).toBeNull();
     expect(parseCapNoticePart(null)).toBeNull();
     expect(parseCapNoticePart("not-an-object")).toBeNull();
-  });
-});
-
-// The chip's rendered state lives in tool-cap-notice-part.stories.tsx
-// (docs/testing.md rule 5); the parity check below stays jsdom because it
-// compares two renders' HTML byte-for-byte — not expressible as a story.
-
-describe("live vs. historical rendering parity", () => {
-  it("renders the identical cap-notice chip whether the part came from the live stream or a reloaded history response", () => {
-    const livePart = {
-      type: "data-cap-notice" as const,
-      id: "cap-1",
-      data: { stepsUsed: 8, maxSteps: 8 },
-    };
-
-    const [historyMessage] = toChatUiMessages({
-      messages: [
-        {
-          id: "assistant-message",
-          chatId: "chat-1",
-          seq: 2,
-          role: "assistant",
-          senderUserId: null,
-          parts: [livePart],
-          attachments: [],
-          usage: null,
-          inReplyTo: "user-message",
-          createdAt: "2026-07-11T12:00:00.000Z",
-        },
-      ],
-    });
-    const historicalPart = historyMessage?.parts[0];
-
-    const liveData = parseCapNoticePart(livePart);
-    const historicalData = parseCapNoticePart(historicalPart);
-    expect(historicalData).toEqual(liveData);
-    if (!liveData || !historicalData) {
-      throw new Error("expected both parses to succeed");
-    }
-
-    const liveRender = render(<ToolCapNoticePart {...liveData} />);
-    const liveHtml = liveRender.container.innerHTML;
-    liveRender.unmount();
-
-    const historicalRender = render(<ToolCapNoticePart {...historicalData} />);
-    expect(historicalRender.container.innerHTML).toBe(liveHtml);
   });
 });

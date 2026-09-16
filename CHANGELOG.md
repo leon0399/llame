@@ -2,6 +2,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-16
 
+- Move six apps/web component suites out of jsdom and into their Storybook
+  stories, which already run as Vitest Browser Mode tests in Chromium:
+  `chat-item`, `effort-selector`, `effective-context-inspector`,
+  `tool-cap-notice-part`, `memory-section`, and `app-sidebar-admin-entry`.
+  1,035 lines of duplicate jsdom rendering are gone; 13 new story tests and
+  one headless hook test for the run-receipt query gate take their place, and
+  assertions that only pinned implementation details were dropped rather than
+  translated. apps/web's Vitest config now runs two projects — `unit` and
+  `stories` — in one invocation, so a single coverage report spans logic and
+  rendered components; the ratchet moves from 88%/86% to 90%/85% lines and
+  statements. `pnpm --filter web test` stays browser-free; its coverage gate
+  needs a browser and so runs in CI's Playwright image alongside the Storybook
+  suite. Background:
+  [docs/research/testing/2026-09-16-vitest-browser-mode.md](docs/research/testing/2026-09-16-vitest-browser-mode.md).
+
 - Raise the built-in Run caps: `tools.maxStepsPerRun` from 20 to 100 and
   `runs.timeoutSeconds` from 300 to 900. The old defaults were set before the
   tool loop existed and bound an ordinary multi-step Run well below peer

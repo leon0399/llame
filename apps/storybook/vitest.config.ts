@@ -33,6 +33,11 @@ export default defineConfig({
         ],
         test: {
           name: "storybook",
+          // apps/web's stories are displayed here (main.ts globs them) but
+          // run from apps/web, where their coverage counts towards that
+          // workspace's gate. Running them in both places would execute every
+          // web story twice per CI run.
+          exclude: ["../web/**"],
           browser: {
             enabled: true,
             headless: true,

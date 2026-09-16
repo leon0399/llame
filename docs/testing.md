@@ -10,6 +10,14 @@
 | Product E2E | full user flow                  | `e2e/<surface>/*.spec.ts`          | `pnpm test:e2e`                      |
 | Eval        | model-graded quality            | `apps/api/evals/*.test.ts`         | `pnpm --filter api test:evals`       |
 
+Component tests are Vitest Browser Mode: `@storybook/addon-vitest` turns each
+story into a Chromium test. `packages/ui`'s stories run from apps/storybook
+(`pnpm test:component`); `apps/web`'s stories are a `stories` project in that
+workspace (`pnpm --filter web test:stories`), so one `test:coverage` run
+measures its logic and its rendered components together. A browser is
+therefore required for `pnpm --filter web test:coverage` but not for
+`pnpm --filter web test`, which runs the `unit` project alone.
+
 Use unit/integration when a function or repository call proves behavior; use a
 story for one browser component and product E2E for a cross-app user flow.
 Tooling guards may live in the owning workspace's test directory.
@@ -100,19 +108,24 @@ alternatives](research/development-pipeline.md).
 typecheck ----> integration ----------------+
 typecheck + unit ----> build ----------------+-> product e2e
 typecheck + unit ----> mutation
-typecheck + unit ----> storybook
+typecheck + unit ----> storybook + web
 ```
 
 - Lint workflow: Oxlint, formatting, anti-slop rules, Markdown, OpenAPI, Knip,
   jscpd, and Halstead difficulty.
 - Workflow lint: actionlint, zizmor, pinact.
 - CI: typecheck; unit/coverage/CRAP; build plus generated-diff check;
-  Testcontainers integration; mutation; Storybook; production Playwright.
+  Testcontainers integration; mutation; Storybook plus apps/web's two-project
+  coverage gate in the Playwright image; production Playwright.
 - Evals never run in CI.
 
 ## Tracked follow-ups
 
-- Move story-eligible web component tests under rule 5; delete jsdom coverage
-  only after equivalent story assertions exist.
+- Move the remaining story-eligible web component tests under rule 5; delete
+  jsdom coverage only after equivalent story assertions exist. Six pairs are
+  done (`chat-item`, `effort-selector`, `effective-context-inspector`,
+  `tool-cap-notice-part`, `memory-section`, `app-sidebar-admin-entry`); the
+  next candidates need a story written first, and `useFileChat` needs a
+  preview mock before `chat-item`'s project-filing assertions can move.
 - Remove dead in-file DB guards when touching those suites.
 - Enable remaining Vitest style rules one at a time and repair their scope.

@@ -7,8 +7,8 @@
  * items, and NOT present in the user/profile dropdown menu at all.
  *
  * useIsMobile and useMe run for real: the mobile hook reads window.matchMedia
- * /innerWidth (same technique as app-sidebar-admin-entry.test.tsx — replacing
- * it would only prove a stub returned false), and useMe hits a stubbed
+ * /innerWidth (replacing it would only prove a stub returned false), and
+ * useMe hits a stubbed
  * globalThis.fetch (GET /auth/v1/me). usePins/usePinItem/useUnpinItem are NOT
  * mocked here — AppSidebar's own tree never calls them, only
  * AppSidebarPinned's does, and that subtree stays stubbed (see its own

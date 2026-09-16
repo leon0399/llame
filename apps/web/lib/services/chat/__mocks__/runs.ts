@@ -7,9 +7,9 @@ import type { RunContextReceipt } from "../runs";
 // Storybook manual mock for the run helpers (registered globally via
 // `sb.mock` in .storybook/preview.tsx). `useRunContextReceipt` is a
 // controllable spy so the effective-context-inspector stories can present a
-// receipt without a backend (mirrors effective-context-inspector.test.tsx's
-// vi.mock seam); the remaining exports are inert stand-ins so any other
-// storied component importing this module stays off the network.
+// receipt without a backend; the remaining exports are inert stand-ins so any
+// other storied component importing this module stays off the network. The
+// hook's own query gating is covered by lib/services/chat/runs.hooks.test.ts.
 
 // Mirrors the real factory exactly — a drifted key here would make a story
 // seed a cache entry the component never reads.

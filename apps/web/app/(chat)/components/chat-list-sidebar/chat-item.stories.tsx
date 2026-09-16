@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
 import { SidebarMenu, SidebarProvider } from "@workspace/ui/components/sidebar";
-import { expect, screen, userEvent, within } from "storybook/test";
+import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test";
 import { vi } from "vitest";
 
 // Import the mocked context via the REAL specifier (not the __mocks__ file
@@ -12,11 +12,19 @@ import { vi } from "vitest";
 // the override would never reach the component and the status dot never shows).
 import * as activeRunsContext from "@/contexts/active-runs-context";
 import { emptyActiveRuns } from "@/contexts/__mocks__/active-runs-context";
-// Import the pins hook via the REAL specifier: sb.mock (preview.tsx) redirects
-// it to the __mocks__ module. The stable `pinMutate` control is imported from
-// that manual mock and injected into the redirected hook in `beforeEach`.
+// Import the pins hooks via the REAL specifier: sb.mock (preview.tsx) redirects
+// them to the __mocks__ module. The stable `pinMutate`/`unpinMutate` controls
+// are imported from that manual mock and injected into the redirected hooks in
+// `beforeEach`.
 import * as pinsMutations from "@/lib/services/pins/mutations";
-import { pinMutate } from "@/lib/services/pins/__mocks__/mutations";
+import {
+  pinMutate,
+  unpinMutate,
+} from "@/lib/services/pins/__mocks__/mutations";
+// Same for the fork mutation: sb.mock redirects the real specifier to the
+// manual mock exposing the stable `forkMutate` control.
+import * as fork from "@/lib/services/chat/fork";
+import { forkMutate } from "@/lib/services/chat/__mocks__/fork";
 import type { ChatResponse } from "@/lib/services/chat/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import { ChatItem } from "./chat-item";
@@ -24,9 +32,25 @@ import { ChatItem } from "./chat-item";
 // The real-specifier hooks are redirected to Storybook mocks. Injecting the
 // typed control spy keeps the component and story on the same call instance.
 const usePinItem = vi.mocked(pinsMutations.usePinItem, { partial: true });
+const useUnpinItem = vi.mocked(pinsMutations.useUnpinItem, { partial: true });
+const useForkChat = vi.mocked(fork.useForkChat, { partial: true });
 const useActiveRuns = vi.mocked(activeRunsContext.useActiveRuns, {
   partial: true,
 });
+
+// The row's whole-chat fork opens the copy through the router. nextjs-vite
+// provides `useRouter()` from the story's own `nextjs.router` parameter, so a
+// story can hand the framework this spy and then assert the destination.
+const routerPush = fn().mockName("router.push");
+
+// Separate guard rather than an inline `typeof`: the mutation's success
+// callback is destructured from a mock call, and the repo forbids runtime
+// typeof outside a type guard.
+function isForkCallback(
+  value: unknown,
+): value is (forked: { id: string }) => void {
+  return typeof value === "function";
+}
 
 const baseChat: ChatResponse = {
   id: "chat-1",
@@ -130,11 +154,19 @@ const menuPortalA11y = {
 
 /**
  * The default chat row: icon, title, and last-message excerpt, with the pin +
- * kebab controls revealed on hover.
+ * kebab controls revealed on hover — and no activity dot, since chat-1 is
+ * neither generating nor carrying an unseen reply (see the meta `beforeEach`).
  *
- * @summary the default two-line chat row
+ * @summary the default two-line chat row, with no activity dot
  */
-export const Basic: Story = { tags: ["ai-generated"] };
+export const Basic: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByLabelText("Generating response")).toBeNull();
+    await expect(canvas.queryByLabelText("Unread reply")).toBeNull();
+  },
+};
 
 /**
  * The row for the chat currently open — highlighted, and its kebab stays
@@ -189,15 +221,33 @@ export const Unread: Story = {
 
 /**
  * A pinned chat: the pin control stays visible (filled) even without hover, so
- * the pinned state is legible at rest. It sits at the row's edge because the
- * hidden kebab occupies no width at all, and slides over as the kebab takes its
- * own width on hover.
+ * the pinned state is legible at rest — and, being in layout, it is clickable
+ * as it stands: selecting it unpins the chat through the unified pins resource.
+ * It sits at the row's edge because the hidden kebab occupies no width at all,
+ * and slides over as the kebab takes its own width on hover.
  *
- * @summary a pinned chat row
+ * @summary a pinned chat row whose visible pin control unpins it
  */
 export const Pinned: Story = {
   args: { isPinned: true },
   tags: ["ai-generated"],
+  // Runs after meta.beforeEach, so this override wins for this story only.
+  beforeEach: () => {
+    unpinMutate.mockClear();
+    useUnpinItem.mockReturnValue({ mutate: unpinMutate, isPending: false });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Unpin" }));
+
+    // The unpin names the same unified-resource key the pin does: itemType +
+    // itemId, and nothing else.
+    await expect(unpinMutate).toHaveBeenCalledTimes(1);
+    await expect(unpinMutate).toHaveBeenCalledWith({
+      itemType: "chat",
+      itemId: "chat-1",
+    });
+  },
 };
 
 /**
@@ -339,22 +389,46 @@ export const ArchivedPinned: Story = {
 /**
  * Pinning requests a pin through the unified pins resource, synthesizing a card
  * from the on-screen chat so the rail can render it before the server responds.
- * Asserted via the row menu's Pin item (the quick-action mirrors it).
+ * Both entry points do it: the always-available quick control on the row and
+ * the row menu's Pin item.
  *
- * @summary the Pin action fires the pin mutation with a synthesized card
+ * @summary both Pin controls fire the pin mutation with a synthesized card
  */
 export const Pin: Story = {
   parameters: { ...menuPortalA11y },
   tags: ["ai-generated"],
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, step }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
-    // Radix menus portal to the document body — query from screen, not canvas.
-    await userEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
-    await expect(pinMutate).toHaveBeenCalledWith({
-      itemType: "chat",
-      itemId: "chat-1",
-      card: { id: "chat-1", title: "Acme relaunch plan", archivedAt: null },
+    // The card the row synthesizes from the chat already on screen.
+    const synthesizedCard = {
+      id: "chat-1",
+      title: "Acme relaunch plan",
+      archivedAt: null,
+    };
+
+    await step("the row's quick pin control pins the chat", async () => {
+      await userEvent.click(canvas.getByRole("button", { name: "Pin" }));
+      await expect(pinMutate).toHaveBeenCalledTimes(1);
+      await expect(pinMutate).toHaveBeenCalledWith({
+        itemType: "chat",
+        itemId: "chat-1",
+        card: synthesizedCard,
+      });
+    });
+
+    await step("the menu's Pin item does the same", async () => {
+      pinMutate.mockClear();
+      await userEvent.click(canvas.getByRole("button", { name: /more/i }));
+      // Radix menus portal to the document body — query from screen, not canvas.
+      await userEvent.click(
+        await screen.findByRole("menuitem", { name: "Pin" }),
+      );
+      await expect(pinMutate).toHaveBeenCalledTimes(1);
+      await expect(pinMutate).toHaveBeenCalledWith({
+        itemType: "chat",
+        itemId: "chat-1",
+        card: synthesizedCard,
+      });
     });
   },
 };
@@ -385,12 +459,170 @@ export const RowMenu: Story = {
 };
 
 /**
- * The move-to-project submenu is a searchable radio list; typing narrows the
- * projects (client-side filter over the caller's project list).
+ * Selecting Fork clones the WHOLE chat — no fork-point message, unlike the
+ * per-message "fork from here" action — and opens the copy once the server
+ * returns it.
  *
- * @summary filtering the move-to-project submenu
+ * @summary the Fork item clones the chat and opens the copy
+ */
+export const Fork: Story = {
+  // nextjs-vite resolves useRouter() from this parameter, so the push the row
+  // performs on success is observable here.
+  parameters: {
+    ...menuPortalA11y,
+    nextjs: { router: { push: routerPush } },
+  },
+  tags: ["ai-generated"],
+  // Runs after meta.beforeEach, so this override wins for this story only.
+  beforeEach: () => {
+    forkMutate.mockClear();
+    routerPush.mockClear();
+    useForkChat.mockReturnValue({ mutate: forkMutate, isPending: false });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Fork" }),
+    );
+
+    // Direct call inspection instead of expect.any(Function): browser-mode
+    // matchers instanceof-check against the wrong realm's Function.
+    // SAFETY: forkChatHandler always calls `mutate` with these two positional
+    // arguments — asserted immediately below by shape and type.
+    const [variables, { onSuccess }] = forkMutate.mock.calls[0] as [
+      { chatId: string },
+      { onSuccess: (forked: { id: string }) => void },
+    ];
+    // The clone carries no anchor message: that is the difference between the
+    // whole-chat Fork and the per-message action's fromMessageId.
+    await expect(forkMutate).toHaveBeenCalledTimes(1);
+    await expect(variables).toEqual({ chatId: "chat-1" });
+    await expect(isForkCallback(onSuccess)).toBe(true);
+
+    // Driving the mutation's success opens the new chat.
+    onSuccess({ id: "forked-chat-9" });
+    await expect(routerPush).toHaveBeenCalledWith("/chat/forked-chat-9");
+  },
+};
+
+/**
+ * The move-to-project submenu is a searchable radio list: typing narrows the
+ * projects (client-side filter over the caller's project list), a query that
+ * matches nothing says so instead of emptying the list, and the field's clear
+ * affordance brings the full list back.
+ *
+ * @summary filtering the move-to-project submenu: narrowing, empty, clear
  */
 export const ProjectMenuFilter: Story = {
+  args: { projects },
+  parameters: { ...menuPortalA11y },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement, step }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
+    await userEvent.hover(
+      await screen.findByRole("menuitem", { name: "Add to project" }),
+    );
+    const filter = await screen.findByPlaceholderText("Search projects…");
+
+    await step("typing narrows the list to matching projects", async () => {
+      await userEvent.type(filter, "res");
+      await expect(
+        await screen.findByRole("menuitemradio", { name: "Research" }),
+      ).toBeInTheDocument();
+      await expect(
+        screen.queryByRole("menuitemradio", { name: "Work" }),
+      ).toBeNull();
+    });
+
+    await step("a query matching nothing says so", async () => {
+      await userEvent.type(filter, "zzz");
+      await expect(
+        await screen.findByText("No projects found"),
+      ).toBeInTheDocument();
+      await expect(screen.queryByRole("menuitemradio")).toBeNull();
+    });
+
+    await step("clearing the field brings the full list back", async () => {
+      await userEvent.click(
+        screen.getByRole("button", { name: "Clear search" }),
+      );
+      await expect(
+        await screen.findByRole("menuitemradio", { name: "Work" }),
+      ).toBeInTheDocument();
+      await expect(
+        screen.queryByRole("button", { name: "Clear search" }),
+      ).toBeNull();
+    });
+  },
+};
+
+/**
+ * A chat already in a project: the submenu trigger reads "Change project" and
+ * the current project carries the radio check, so the submenu also shows where
+ * the chat is now, not just where it could go.
+ *
+ * @summary the move-to-project submenu of a filed chat
+ */
+export const ProjectMenuFiled: Story = {
+  args: { chat: { ...baseChat, projectId: "p1" }, projects },
+  parameters: { ...menuPortalA11y },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
+    await userEvent.hover(
+      await screen.findByRole("menuitem", { name: "Change project" }),
+    );
+
+    await expect(
+      await screen.findByRole("menuitemradio", { name: "Work" }),
+    ).toHaveAttribute("aria-checked", "true");
+    await expect(
+      screen.getByRole("menuitemradio", { name: "Research" }),
+    ).toHaveAttribute("aria-checked", "false");
+    // Unfiling is re-picking the checked project (the radio group's toggle-off),
+    // so there is deliberately no separate "Remove from project" item.
+    await expect(
+      screen.queryByRole("menuitem", { name: /remove from project/i }),
+    ).toBeNull();
+  },
+};
+
+/**
+ * "New project" hands off to the caller's single shared create-project dialog —
+ * the row owns no dialog of its own. Selecting it asks the caller, one tick
+ * later so the request doesn't race the menu's own close, and files the chat
+ * into whatever project that dialog creates.
+ *
+ * @summary the New project item asks the caller to open its dialog
+ */
+export const ProjectMenuNewProject: Story = {
+  args: { onNewProject: fn(), projects },
+  parameters: { ...menuPortalA11y },
+  tags: ["ai-generated"],
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
+    await userEvent.hover(
+      await screen.findByRole("menuitem", { name: "Add to project" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "New project" }),
+    );
+
+    await waitFor(() => expect(args.onNewProject).toHaveBeenCalledTimes(1));
+  },
+};
+
+/**
+ * Without a caller handler the item is disabled rather than a dead click: the
+ * row never owns the create-project dialog itself.
+ *
+ * @summary the New project item disabled when the caller owns no dialog
+ */
+export const ProjectMenuNewProjectDisabled: Story = {
   args: { projects },
   parameters: { ...menuPortalA11y },
   tags: ["ai-generated"],
@@ -400,13 +632,9 @@ export const ProjectMenuFilter: Story = {
     await userEvent.hover(
       await screen.findByRole("menuitem", { name: "Add to project" }),
     );
-    const filter = await screen.findByPlaceholderText("Search projects…");
-    await userEvent.type(filter, "res");
+
     await expect(
-      await screen.findByRole("menuitemradio", { name: "Research" }),
-    ).toBeInTheDocument();
-    await expect(
-      screen.queryByRole("menuitemradio", { name: "Work" }),
-    ).toBeNull();
+      await screen.findByRole("menuitem", { name: "New project" }),
+    ).toHaveAttribute("aria-disabled", "true");
   },
 };
