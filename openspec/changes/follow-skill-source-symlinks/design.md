@@ -20,7 +20,8 @@ See proposal.md for motivation. The state that shapes the approach:
 - Per-source link configuration; Agent Plugins (#784) may introduce a contained source class later.
 - Deduplication of two differently named entries that resolve to one directory; override-by-name covers the shared-name case.
 - Any change to `kb://` link refusal, `bash` cwd resolution, or directory-listing traversal (#714).
-- Cycle detection; discovery does not recurse.
+- Cycle detection; discovery does not recurse and listings do not descend links.
+- `tree`-style box-drawing glyphs in listings.
 
 ## Decisions
 
@@ -32,6 +33,10 @@ See proposal.md for motivation. The state that shapes the approach:
 
 **D4 `agent-skills` owns the rule.** The read tool's skill-locator requirement keeps only what a read does (envelope, selectors, special-file refusal) and defers link semantics to discovery.
 
+**D6 Listings say where a link leads.** `- name@/ -> /real/target` (directory target), `- name@ -> /real/target` (file target), `- name@? -> raw-link-text` (dangling or special). The target is canonical (`readlink -f`), because a model with no shell cannot chain a multi-hop link itself (a Nix home-manager link resolves store path then dotfiles). One `realpath` per link, display only; links are still never descended, since `read <link>` already lists the target. Alternative A: raw link text as `ls -l` shows; rejected, leaves the second hop unknowable. Alternative B: opt-in descent with a visited set (#714 as written); rejected, no reference harness exposes descent to a model and the root-target rule already gives the model the same information on request. The bullet shape is kept: OMP renders the identical indented `- name/` form, box-drawing glyphs cost tokens on every line, and vertical rails make a line's bytes depend on its siblings, which breaks the listing's determinism rule.
+
+**D7 Reads report the real path in details.** A host file read whose canonical path differs from the path given carries `realPath` in details; content, header, and numbering are those of the path as given, so every content pin stays byte-identical. `kb://` never carries it (links refused). The `skill://` envelope keeps link-path `skillDirectory` and `resolvedPath` (D2) and adds the real directory in details, so the model can reach the real location for Git or shell work without a listing. This is the one `realpath` in the skills read path and it is display only.
+
 **D5 Deletion, not replacement.** No containment helper is introduced; nothing remains to consolidate, and the Knowledge Space check stays the single implementation of its own rule. One implementation layer.
 
 ## Risks / Trade-offs
@@ -42,7 +47,7 @@ See proposal.md for motivation. The state that shapes the approach:
 
 ## Migration Plan
 
-One implementation layer: delete the containment code and the `realPath` port, switch the reader, invert the four refusal tests, retarget the two real-path tests to link paths, update `docs/skills.md` and `CHANGELOG.md`. No data or configuration migration. An operator who added real roots as a workaround may remove them.
+Two implementation layers. Skills: delete the containment code and the `realPath` port, switch the reader, invert the four refusal tests, retarget the two real-path tests to link paths, update `docs/skills.md` and `CHANGELOG.md`. No data or configuration migration. Listing and details: render target kind and canonical target in the shared listing renderer, add `realPath` to host read details and the real directory to the skill envelope details, update the listing tests for `@` entries. No data or configuration migration. An operator who added real roots as a workaround may remove them.
 
 ## Open Questions
 
