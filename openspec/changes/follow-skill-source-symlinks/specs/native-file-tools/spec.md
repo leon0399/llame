@@ -31,6 +31,12 @@ Results SHALL carry the logical locator, selected source, absolute `resolvedPath
 - **THEN** the read returns a bounded refusal naming explicit selection without opening the file
 - **AND** `skill://` does not list `review`
 
+#### Scenario: Escaping link fails
+
+- **WHEN** a resource symlink resolves to a special file rather than a regular file or directory
+- **THEN** the read fails without opening it
+- **AND** a link that resolves to a regular file or directory anywhere on the host is followed
+
 #### Scenario: Mutation is unsupported
 
 - **WHEN** an edit or write targets `skill://pdf/SKILL.md`

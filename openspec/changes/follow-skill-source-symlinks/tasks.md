@@ -31,6 +31,6 @@ publication and merging require separate authority.
 
 ## 3. Finalize layer
 
-- [ ] 3.1 After implementation and delivery gates pass, run `$openspec-sync-specs` for `agent-skills` and `native-file-tools`; verify the modified requirements replace their canonical blocks, the "Escaping link fails" scenario is gone, and unrelated scenarios are preserved, then run strict spec/all validation.
+- [ ] 3.1 After implementation and delivery gates pass, run `$openspec-sync-specs` for `agent-skills` and `native-file-tools`; verify the modified requirements replace their canonical blocks, the "Escaping link fails" scenario now covers only special files, and unrelated scenarios are preserved, then run strict spec/all validation.
 - [ ] 3.2 Record completed implementation/verification tasks and run `$openspec-archive-change`; verify archived artifacts exist and the active change is absent.
 - [ ] 3.3 Run strict spec/all validation, Markdown lint, formatting, and diff checks on the finalize layer; verify stack bases and tracking/publication state before handoff. Merge remains subject to Leo's explicit permission.

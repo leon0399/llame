@@ -7,7 +7,7 @@ The skill catalog refuses a package that is a symbolic link unless its real dire
 - Skill discovery and `skill://` reads apply ordinary operating-system link semantics and perform no symbolic-link resolution, verification, or containment. A configured source is trusted by being configured.
 - A symlinked immediate child of a source is a package when it resolves to a directory holding `SKILL.md`, wherever that directory lies. Links inside a package are followed wherever they point, including a `SKILL.md` that is itself a link. A child link that cannot be resolved or is not a directory stays an unavailable entry with a diagnostic.
 - Published `skillDirectory` and `resolvedPath` are the paths as discovered beneath the configured source (the link path), not resolved real paths. A source root that is itself a link publishes its link path too.
-- **BREAKING** for a spec scenario, not for any user: the "Escaping link fails" scenario and the "resource symlink SHALL resolve only within the selected real package" rule are removed, along with the root-union containment and the `realPath` catalog port. Nothing else about skills, `kb://` (which keeps refusing every link), `bash`, or directory listings changes.
+- The "resource symlink SHALL resolve only within the selected real package" rule, the root-union containment, and the `realPath` catalog port are removed; the "Escaping link fails" scenario narrows to the retained special-file refusal. Nothing else about skills, `kb://` (which keeps refusing every link), `bash`, or directory listings changes.
 
 ## Capabilities
 
