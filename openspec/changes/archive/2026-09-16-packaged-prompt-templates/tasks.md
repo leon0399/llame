@@ -57,6 +57,6 @@ separate authority.
 
 ## 6. Finalize layer
 
-- [ ] 6.1 After implementation and delivery gates pass, run `$openspec-sync-specs` for `context-injection`, `model-system-prompts`, `tool-calling`, and `instance-config`; verify the added requirements appear in the canonical specs and unrelated scenarios are preserved, then run strict spec/all validation.
-- [ ] 6.2 Record completed implementation/verification tasks and run `$openspec-archive-change`; verify archived artifacts exist and the active change is absent.
-- [ ] 6.3 Run strict spec/all validation, Markdown lint, formatting, and diff checks on the finalize layer; verify stack bases and tracking/publication state before handoff. Merge remains subject to Leo's explicit permission.
+- [x] 6.1 After implementation and delivery gates pass, run `$openspec-sync-specs` for `context-injection`, `model-system-prompts`, `tool-calling`, and `instance-config`; verify the added requirements appear in the canonical specs and unrelated scenarios are preserved, then run strict spec/all validation.
+- [x] 6.2 Record completed implementation/verification tasks and run `$openspec-archive-change`; verify archived artifacts exist and the active change is absent.
+- [x] 6.3 Run strict spec/all validation, Markdown lint, formatting, and diff checks on the finalize layer; verify stack bases and tracking/publication state before handoff. Merge remains subject to Leo's explicit permission.
