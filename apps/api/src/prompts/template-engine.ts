@@ -187,11 +187,13 @@ export type PackagedTemplateRenderer<TValues extends object> = (
  * Loads one packaged prompt template: `<directory>/prompts/<name>.md`, where
  * `directory` is the producing module's `__dirname`.
  *
- * Reads and compiles EAGERLY, so a missing, empty, or malformed template fails
- * at import rather than as a silently empty model-facing body on the first
- * render. It does not go through the strict validator, take an override, or run
- * a boot probe: llame authors both the file and the values it renders, and no
- * configuration can replace it.
+ * Reads, parses, and compiles EAGERLY, so a missing, empty, or malformed
+ * template fails at import rather than as a silently empty model-facing body on
+ * the first render. The parse is explicit because handlebars' `compile` defers
+ * parsing into the delegate it returns, so compiling alone would leave a syntax
+ * error to surface on the first render. It does not go through the strict
+ * validator, take an override, or run a boot probe: llame authors both the file
+ * and the values it renders, and no configuration can replace it.
  */
 export function loadPackagedTemplate<TValues extends object>(
   directory: string,
@@ -199,6 +201,7 @@ export function loadPackagedTemplate<TValues extends object>(
 ): PackagedTemplateRenderer<TValues> {
   const filePath = path.resolve(directory, 'prompts', `${name}.md`);
   const source = readPackagedSource(filePath, name);
+  parsePromptTemplate(source);
   const template = compileSource(source, 'packaged');
   return (values) => template(values);
 }

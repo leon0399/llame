@@ -90,4 +90,19 @@ describe('loadPackagedTemplate', () => {
       `Packaged prompt template empty: ${emptyPath}`,
     );
   });
+
+  it('fails at load time, not on the first render, when the syntax is malformed', () => {
+    // handlebars' `compile` defers parsing into the delegate it returns, so
+    // without an explicit parse a broken template would render once, fail, and
+    // only then reveal itself.
+    writeTemplate('unclosed', 'value={{#if value}}no close');
+    writeTemplate('mismatched', '{{#if value}}a{{/unless}}');
+
+    expect(() => loadPackagedTemplate(directory, 'unclosed')).toThrow(
+      /Parse error/u,
+    );
+    expect(() => loadPackagedTemplate(directory, 'mismatched')).toThrow(
+      /doesn't match/u,
+    );
+  });
 });
