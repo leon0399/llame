@@ -39,6 +39,10 @@ export function skillResultEnvelope(target: ResolvedSkillTarget) {
     sourceDirectory: target.sourceDirectory,
     resolvedPath: target.hostPath,
     skillDirectory: target.skillDirectory,
+    ...(target.realSkillDirectory !== undefined &&
+      target.realSkillDirectory !== target.skillDirectory && {
+        realSkillDirectory: target.realSkillDirectory,
+      }),
     skillPathInstruction: SKILL_PATH_INSTRUCTION,
   };
 }

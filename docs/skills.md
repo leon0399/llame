@@ -68,9 +68,17 @@ YAML keys and malformed metadata make the package unavailable.
 Discovery reads one level of immediate children, bounded at 10,000 child entries
 per source. A source that cannot be read, or a source that exceeds its bound,
 makes the whole catalog unavailable rather than resolving package precedence
-from an incomplete scan. A configured root symlink is followed to its real
-directory; a child package symlink is admissible only when its real target stays
-inside a configured source root.
+from an incomplete scan.
+
+A configured source is trusted by being configured: a source may link to a
+package anywhere on the host, and discovery and skill reads apply ordinary
+operating-system link semantics with no link resolution, verification, or
+containment. The operator is trusted for every link reachable from a configured
+source. A published package path is the link path as discovered beneath the
+configured source; the real package directory is published beside it as
+`realSkillDirectory` when it differs. A child link that cannot be resolved is an
+unavailable entry naming the unresolved link, and a child link resolving to
+something other than a directory is an unavailable entry naming the target kind.
 
 ## Invocation controls
 

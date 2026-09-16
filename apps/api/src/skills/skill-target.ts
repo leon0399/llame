@@ -1,4 +1,4 @@
-import { lstat, realpath } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { type ToolResult } from '@workspace/runtime-safety';
@@ -44,13 +44,18 @@ export const NO_SKILL_SELECTION: SkillSelection = new Set<string>();
 
 export type ResolvedSkillTarget = {
   readonly catalog?: false;
-  /** The real absolute path the reader opens. */
+  /** The absolute path the reader opens, as discovered beneath the configured
+   *  source; it may traverse symbolic links. */
   readonly hostPath: string;
   /** The canonical logical locator, selector excluded. */
   readonly locator: string;
   readonly name: string;
-  /** The package's real absolute directory. */
+  /** The package's absolute directory, as discovered beneath the configured
+   *  source; it may traverse symbolic links. */
   readonly skillDirectory: string;
+  /** `skillDirectory` canonicalized, absent when it is already canonical or
+   *  the host cannot resolve it. Display only: the read opens `hostPath`. */
+  readonly realSkillDirectory?: string;
   /** The configured source the winning package came from. */
   readonly sourceDirectory: string;
   readonly selector?: string;
@@ -73,8 +78,8 @@ export function isSkillCatalogResult(
 /**
  * Resolve one `skill://` locator against the current catalog. Discovery runs on
  * every call, so a removed or newly invalid package fails immediately. Nothing
- * is opened here; the caller opens the returned real path with symlinks
- * refused.
+ * is opened here; the caller opens the returned path under ordinary host
+ * symbolic-link semantics.
  */
 export async function resolveSkillLocator(
   catalog: SkillCatalogPort,
@@ -143,19 +148,21 @@ async function resolveWithinPackage(
     }
   }
 
-  const containment = await containIntoPackage(skillDirectory, targetPath);
-  if ('status' in containment) return containment;
-
+  // No containment step follows: a configured source is trusted by being
+  // configured, so the validated segments join the discovered package
+  // directory as it stands and a link is followed wherever it leads.
+  const realSkillDirectory = await realPackageDirectory(skillDirectory);
   const target: ResolvedSkillTarget = {
     // The separator rides along so the reader's own open applies the native
     // rule: a directory resolves, a file is `ENOTDIR` and reports `not_found`.
     hostPath:
       parsed.trailingSeparator === true
-        ? `${containment.hostPath}${path.sep}`
-        : containment.hostPath,
+        ? `${targetPath}${path.sep}`
+        : targetPath,
     locator: formatSkillLocator(parsed),
     name: entry.name,
     skillDirectory,
+    ...(realSkillDirectory !== undefined && { realSkillDirectory }),
     sourceDirectory: entry.sourceDirectory ?? skillDirectory,
   };
   return parsed.selector === undefined
@@ -166,55 +173,20 @@ async function resolveWithinPackage(
 const SKILL_DOCUMENT_FILENAME = 'SKILL.md';
 
 /**
- * Resolve a target to its real path and refuse anything landing outside the
- * selected real package, so no link can redirect a read elsewhere. A resource
- * symlink that stays inside the package resolves; one that leaves it does not.
- *
- * A missing target still has to be contained: its *existing* ancestor is what
- * the reader would list for sibling suggestions, and an escaping intermediate
- * symlink would put that ancestor outside the package. The unresolved path is
- * handed back there so the reader's own `not_found` (with sibling suggestions)
- * stays authoritative; it opens with symlinks refused either way.
+ * The package directory as the host resolves it, or `undefined` when it is
+ * already that canonical path or cannot be resolved at all. Display only: the
+ * read opens the discovered path, so a failed resolution never fails the read.
  */
-async function containIntoPackage(
-  packageDirectory: string,
-  targetPath: string,
-): Promise<{ readonly hostPath: string } | ToolResult> {
-  const existing = await nearestExistingAncestor(targetPath);
-  if (existing === undefined) return notFoundResult();
+async function realPackageDirectory(
+  skillDirectory: string,
+): Promise<string | undefined> {
   let real: string;
   try {
-    real = await realpath(existing);
+    real = await realpath(skillDirectory);
   } catch {
-    return notFoundResult();
+    return undefined;
   }
-  if (!isInside(packageDirectory, real)) return notFoundResult();
-  // An existing target resolves to its real path, so a contained link is
-  // followed; a missing one keeps its literal spelling for the reader's own
-  // miss handling.
-  return { hostPath: existing === targetPath ? real : targetPath };
-}
-
-/** The deepest ancestor of `targetPath`, inclusive, that exists; `undefined`
- *  when even the filesystem root cannot be resolved. */
-async function nearestExistingAncestor(
-  targetPath: string,
-): Promise<string | undefined> {
-  let candidate = targetPath;
-  for (;;) {
-    try {
-      await lstat(candidate);
-      return candidate;
-    } catch {
-      const parent = path.dirname(candidate);
-      if (parent === candidate) return undefined;
-      candidate = parent;
-    }
-  }
-}
-
-function isInside(root: string, candidate: string): boolean {
-  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+  return real === skillDirectory ? undefined : real;
 }
 
 function invalidPathResult(): ToolResult {

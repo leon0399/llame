@@ -761,6 +761,84 @@ describe("native reads resolved by a scheme owner", () => {
     ).toMatchObject({ status: "error", type: "not_found" });
   });
 
+  it("reads a linked SKILL.md when the caller follows links", async () => {
+    const realDirectory = join(directory, "real");
+    const packageDirectory = join(directory, "package");
+    await mkdir(realDirectory);
+    await mkdir(packageDirectory);
+    await writeFile(join(realDirectory, "SKILL.md"), "# Skill\n");
+    const link = join(packageDirectory, "SKILL.md");
+    await symlink(join(realDirectory, "SKILL.md"), link);
+
+    const result = await readResolvedFile(link, {
+      displayPath: "skill://pdf/SKILL.md",
+      followSymlinks: true,
+    });
+    assertFileSuccess(result);
+    expect(result.content).toBe("1: # Skill\n");
+  });
+
+  it("lists a linked directory when the caller follows links", async () => {
+    const realDirectory = join(directory, "real");
+    await mkdir(realDirectory);
+    await writeFile(join(realDirectory, "notes.md"), "notes");
+    const link = join(directory, "linked");
+    await symlink(realDirectory, link);
+
+    expect(
+      await readResolvedFile(link, {
+        displayPath: "skill://pdf/",
+        followSymlinks: true,
+      }),
+    ).toStrictEqual({
+      status: "success",
+      kind: "directory",
+      path: "skill://pdf/",
+      content: "skill://pdf/\n  - notes.md\n",
+      truncated: false,
+    });
+  });
+
+  it("suggests siblings through a linked parent when the caller follows links", async () => {
+    const parent = join(directory, "parent");
+    await mkdir(parent);
+    await writeFile(join(parent, "notes.md"), "unchanged");
+    const linked = join(directory, "linked-parent");
+    await symlink(parent, linked);
+
+    expect(
+      await readResolvedFile(join(linked, "notes.txt"), {
+        displayPath: "skill://pdf/notes.txt",
+        followSymlinks: true,
+      }),
+    ).toStrictEqual({
+      status: "error",
+      type: "not_found",
+      message: "File not found. Similar names in the same directory: notes.md.",
+    });
+  });
+
+  it.runIf(process.platform !== "win32")(
+    "refuses a linked FIFO before opening it when the caller follows links",
+    async () => {
+      const fifo = join(directory, "pipe");
+      // Node cannot create a FIFO, so the host's own `mkfifo` does; the guard
+      // keeps the case off platforms that have neither.
+      await promisify(execFile)("mkfifo", [fifo]);
+      const link = join(directory, "linked.md");
+      await symlink(fifo, link);
+
+      const opened = vi.spyOn(filesystem, "open");
+      expect(
+        await readResolvedFile(link, {
+          displayPath: "skill://pdf/linked.md",
+          followSymlinks: true,
+        }),
+      ).toMatchObject({ status: "error", type: "not_regular_file" });
+      expect(opened).not.toHaveBeenCalled();
+    },
+  );
+
   it("withholds the reserved envelope room from the shared cap", async () => {
     const line = "x".repeat(200);
     await writeFile(path, `${line}\n`.repeat(200));

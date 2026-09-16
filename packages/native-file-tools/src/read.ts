@@ -1,4 +1,4 @@
-import { lstat, opendir, open } from "node:fs/promises";
+import { lstat, opendir, open, stat } from "node:fs/promises";
 import {
   applySelectorSuffix,
   isNodeError,
@@ -43,15 +43,23 @@ type ReadOutcome =
  * envelope the resolver wraps the result in, so the shared cap still holds for
  * what the model receives.
  *
- * A resolved target is always opened with `O_NOFOLLOW` and a symbolic link is
- * always refused. A scheme owner authorized one specific entry, so following a
- * link would serve a different one, and there is no caller for whom that is
- * correct.
+ * By default the target is opened with `O_NOFOLLOW` and a symbolic link at the
+ * leaf is refused: the resolver authorized one specific entry, and a link is a
+ * different one. `followSymlinks` opts a caller into ordinary link semantics
+ * instead: a followed link is classified from its own `stat`, and a target
+ * that is neither a regular file nor a directory fails `not_regular_file`
+ * before any open, so a link to a FIFO or device is never opened.
+ *
+ * `linkTargets` applies to directory listings only: when it is false the
+ * renderer omits where a link leads, which is what keeps a resolved host path
+ * out of a Knowledge listing.
  */
 export type NativeReadOptions = {
   readonly displayPath: string;
   readonly selector?: string;
   readonly reserveCodeUnits?: number;
+  readonly followSymlinks?: boolean;
+  readonly linkTargets?: boolean;
   readonly signal?: AbortSignal | undefined;
 };
 
@@ -101,23 +109,27 @@ export async function readResolvedFile(
   hostPath: string,
   options: NativeReadOptions,
 ): Promise<ReadOutcome> {
+  const followSymlinks = options.followSymlinks ?? false;
   try {
     const target = await resolveResolvedTarget(hostPath, options);
     return target.directory
       ? await runListing(hostPath, target)
       : await streamFileWindow(target, {
           hostPath,
-          followSymlinks: false,
+          followSymlinks,
           signal: options.signal,
         });
   } catch (error) {
-    return readFailure(error, hostPath, options.displayPath, false);
+    return readFailure(error, hostPath, options.displayPath, followSymlinks);
   }
 }
 
 /**
- * The host path is used verbatim here: no literal-path probe, no scheme
- * parsing, and a symbolic link is never a directory when links are refused.
+ * The host path is used verbatim here: no literal-path probe and no scheme
+ * parsing. A link leaf is refused unless the caller opted into following it;
+ * one that is followed is classified from its own `stat`, never from the
+ * link's, so a target that is neither a regular file nor a directory fails
+ * `not_regular_file` before the open.
  */
 async function resolveResolvedTarget(
   hostPath: string,
@@ -126,9 +138,16 @@ async function resolveResolvedTarget(
   const target = applySelectorSuffix(options.displayPath, options.selector);
   if (options.reserveCodeUnits !== undefined)
     target.reserveCodeUnits = options.reserveCodeUnits;
+  if (options.linkTargets !== undefined)
+    target.linkTargets = options.linkTargets;
   const stats = await lstat(hostPath);
-  if (stats.isSymbolicLink()) throw new NativeFileError("not_found");
-  return stats.isDirectory() ? { ...target, directory: true } : target;
+  if (!stats.isSymbolicLink())
+    return stats.isDirectory() ? { ...target, directory: true } : target;
+  if (!options.followSymlinks) throw new NativeFileError("not_found");
+  const followed = await stat(hostPath);
+  if (followed.isDirectory()) return { ...target, directory: true };
+  if (followed.isFile()) return target;
+  throw new NativeFileError("not_regular_file");
 }
 
 function runListing(
@@ -155,6 +174,8 @@ function runListing(
   }
   if (target.reserveCodeUnits !== undefined)
     options.reserveCodeUnits = target.reserveCodeUnits;
+  if (target.linkTargets !== undefined)
+    options.linkTargets = target.linkTargets;
   return listDirectory(hostPath, NODE_DIRECTORY_PORT, options);
 }
 

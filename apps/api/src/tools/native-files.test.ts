@@ -2,6 +2,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -787,7 +788,7 @@ describe('skill locator resolution', () => {
     });
   });
 
-  it('refuses an escaping resource symlink without opening it', async () => {
+  it('reads a resource symlink resolving outside the package', async () => {
     const outside = await mkdtemp(join(tmpdir(), 'skill-outside-'));
     await writeFile(join(outside, 'secret.md'), 'secret');
     await symlink(
@@ -802,20 +803,20 @@ describe('skill locator resolution', () => {
       5,
     );
 
-    expect(result).toMatchObject({ status: 'error', type: 'not_found' });
-    expect(JSON.stringify(result)).not.toContain('secret');
+    expect(result).toMatchObject({ status: 'success', kind: 'file' });
+    expect(JSON.stringify(result)).toContain('secret');
 
     await rm(outside, { recursive: true, force: true });
   });
 
-  it('never lists an outside directory through an escaping symlink', async () => {
+  it('suggests siblings from a linked directory on a miss', async () => {
     const outside = await mkdtemp(join(tmpdir(), 'skill-suggest-'));
     await mkdir(join(outside, 'D'));
     await writeFile(join(outside, 'D', 'leaked-secret.txt'), 'secret');
     await symlink(join(outside), join(packageDirectory, 'notes'), 'dir');
 
-    // The leaf is missing, so the reader would normally suggest sibling names
-    // from its parent — which an escaping intermediate link points outside.
+    // The leaf is missing, so the reader suggests sibling names from its
+    // parent — reached by following the intermediate link.
     const result = await runTool(
       nativeReadTool,
       { path: 'skill://pdf/notes/D/leaked-secret.tx' },
@@ -824,7 +825,51 @@ describe('skill locator resolution', () => {
     );
 
     expect(result).toMatchObject({ status: 'error', type: 'not_found' });
-    expect(JSON.stringify(result)).not.toContain('leaked-secret');
+    expect(JSON.stringify(result)).toContain('leaked-secret.txt');
+
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  it('publishes the link paths beside the real package directory', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'skill-outside-'));
+    const realPackage = join(outside, 'octocat');
+    await mkdir(realPackage);
+    await writeFile(
+      join(realPackage, 'SKILL.md'),
+      `---\nname: octocat\ndescription: The octocat skill.\n---\n# octocat instructions\n`,
+    );
+    await writeFile(join(realPackage, 'notes.md'), '# Notes\n');
+    const linkedDirectory = join(source, 'octocat');
+    await symlink(realPackage, linkedDirectory, 'dir');
+    const realDirectory = await realpath(realPackage);
+
+    const root = await runTool(
+      nativeReadTool,
+      { path: 'skill://octocat' },
+      skillContext(),
+      5,
+    );
+    expect(root).toMatchObject({
+      status: 'success',
+      skillDirectory: linkedDirectory,
+      resolvedPath: join(linkedDirectory, 'SKILL.md'),
+      realSkillDirectory: realDirectory,
+    });
+    expect(JSON.stringify(root)).toContain('# octocat instructions');
+
+    const resource = await runTool(
+      nativeReadTool,
+      { path: 'skill://octocat/notes.md' },
+      skillContext(),
+      5,
+    );
+    expect(resource).toMatchObject({
+      status: 'success',
+      skillDirectory: linkedDirectory,
+      resolvedPath: join(linkedDirectory, 'notes.md'),
+      realSkillDirectory: realDirectory,
+    });
+    expect(JSON.stringify(resource)).toContain('# Notes');
 
     await rm(outside, { recursive: true, force: true });
   });

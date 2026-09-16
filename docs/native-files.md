@@ -114,15 +114,15 @@ effect.
 
 `<name>` follows the Agent Skills name grammar (1-64 lowercase letters, digits,
 and hyphens, with no leading, trailing, or consecutive hyphen). `<path>`
-follows the same component and bounds rules as a `kb://` path. Package symlinks
-resolve only within a configured real source root, and resource symlinks — plus
-`SKILL.md` and the invocation sidecars — resolve only within the package's real
-directory; anything landing outside returns `not_found` without opening it.
-Every call re-reads the catalog, so a removed or newly invalid package fails
-immediately rather than serving stale bytes.
+follows the same component and bounds rules as a `kb://` path. Every call
+re-reads the catalog, so a removed or newly invalid package fails immediately
+rather than serving stale bytes.
 
-Every successful result carries `locator`, `sourceDirectory`,
-absolute `resolvedPath`, absolute `skillDirectory`, and `skillPathInstruction`.
+Every successful result carries `locator`, `sourceDirectory`, absolute
+`resolvedPath`, absolute `skillDirectory`, and `skillPathInstruction`; the
+envelope also carries `realSkillDirectory` when the real package directory
+differs from `skillDirectory`. Package-relative paths still resolve against
+`skillDirectory`, not `realSkillDirectory`.
 Unlike `kb://`, these paths are published deliberately: a skill's script and
 reference instructions are usable only once the agent can turn them into
 absolute paths. Resolve package-relative references against `skillDirectory`,

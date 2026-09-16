@@ -49,6 +49,9 @@ export type DirectoryListingOptions = {
   displayPath?: string;
   /** Room withheld from the shared cap for a caller's envelope. */
   reserveCodeUnits?: number;
+  /** Whether a link entry names its target; absent means true. The renderer
+   *  reads it once link rendering lands. */
+  linkTargets?: boolean;
 };
 
 export type DirectoryFailure = {

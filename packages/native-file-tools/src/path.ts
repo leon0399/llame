@@ -44,6 +44,9 @@ export type ReadTarget = {
   directory?: boolean;
   /** Room withheld from the shared result cap for a caller's envelope. */
   reserveCodeUnits?: number;
+  /** Listing only: whether a link entry may name its target. Absent means the
+   *  listing default, which is to name it. */
+  linkTargets?: boolean;
   /**
    * Comma request: merged requested intervals, zero-based. Absent for
    * single-range reads, whose `offset`/`limit` window is unchanged.

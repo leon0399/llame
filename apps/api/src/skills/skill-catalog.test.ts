@@ -1,7 +1,6 @@
 import {
   mkdirSync,
   mkdtempSync,
-  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -310,7 +309,7 @@ describe('SkillCatalog discovery', () => {
     },
   );
 
-  it('follows a configured source root symlink to its real directory', () => {
+  it('publishes a configured source root symlink as given', () => {
     const real = temporaryDirectory('real');
     createPackage(real, 'pdf');
     const link = path.join(temporaryDirectory('link-parent'), 'source');
@@ -320,11 +319,11 @@ describe('SkillCatalog discovery', () => {
 
     expect(snapshot.available).toBe(true);
     expect(entryNamed(snapshot, 'pdf').skillDirectory).toBe(
-      realpathSync(path.join(link, 'pdf')),
+      path.join(link, 'pdf'),
     );
   });
 
-  it('refuses a child symlink resolving outside every configured source', () => {
+  it('admits a child symlink resolving outside every configured source', () => {
     const source = temporaryDirectory('source');
     const outside = temporaryDirectory('outside');
     createPackage(source, 'pdf');
@@ -339,8 +338,8 @@ describe('SkillCatalog discovery', () => {
 
     expect(entryNamed(snapshot, 'pdf').available).toBe(true);
     const linked = entryNamed(snapshot, 'linked');
-    expect(linked.available).toBe(false);
-    expect(linked.diagnostics.join(' ')).toContain('outside');
+    expect(linked.available).toBe(true);
+    expect(linked.skillDirectory).toBe(path.join(source, 'linked'));
   });
 
   it('admits a child symlink whose real target is inside a configured source', () => {
@@ -358,9 +357,31 @@ describe('SkillCatalog discovery', () => {
     const entry = entryNamed(snapshot, 'shared-skill');
     expect(entry.available).toBe(true);
     expect(entry.sourceDirectory).toBe(source);
-    expect(entry.skillDirectory).toBe(
-      realpathSync(path.join(shared, 'shared-skill')),
-    );
+    expect(entry.skillDirectory).toBe(path.join(source, 'shared-skill'));
+  });
+
+  it('reports a child symlink resolving to a regular file as an unavailable entry', () => {
+    const source = temporaryDirectory('linked-file');
+    const target = temporaryDirectory('linked-file-target');
+    writeFileSync(path.join(target, 'notes.md'), '# Notes\n');
+    symlinkSync(path.join(target, 'notes.md'), path.join(source, 'linked'));
+
+    const entry = entryNamed(snapshotOf(source), 'linked');
+    expect(entry.available).toBe(false);
+    expect(entry.skillDirectory).toBe(path.join(source, 'linked'));
+    expect(entry.diagnostics.join(' ')).toContain('regular file');
+  });
+
+  it('reports a dangling child symlink as an unavailable entry naming the link', () => {
+    const source = temporaryDirectory('dangling-child');
+    const linkPath = path.join(source, 'linked');
+    symlinkSync(path.join(source, 'absent-target'), linkPath, 'dir');
+
+    const entry = entryNamed(snapshotOf(source), 'linked');
+    expect(entry.available).toBe(false);
+    expect(entry.skillDirectory).toBe(linkPath);
+    expect(entry.diagnostics.join(' ')).toContain(linkPath);
+    expect(entry.diagnostics.join(' ')).toContain('could not be resolved');
   });
 
   it('reports a dangling SKILL.md symlink as an unavailable entry', () => {
@@ -374,7 +395,7 @@ describe('SkillCatalog discovery', () => {
     expect(entry.diagnostics.join(' ')).toContain('readable');
   });
 
-  it('refuses a SKILL.md symlink that resolves outside its package directory', () => {
+  it('admits a SKILL.md symlink that resolves outside its package directory', () => {
     const source = temporaryDirectory('escape-skill');
     const outside = temporaryDirectory('outside-target');
     writeFileSync(
@@ -389,11 +410,11 @@ describe('SkillCatalog discovery', () => {
     );
 
     const entry = entryNamed(snapshotOf(source), 'pdf');
-    expect(entry.available).toBe(false);
-    expect(entry.diagnostics.join(' ')).toContain('outside');
+    expect(entry.available).toBe(true);
+    expect(entry.description).toBe('Stolen content.');
   });
 
-  it('refuses a sidecar symlink that resolves outside its package directory', () => {
+  it('admits a sidecar symlink that resolves outside its package directory', () => {
     const source = temporaryDirectory('escape-sidecar');
     const outside = temporaryDirectory('outside-sidecar');
     writeFileSync(
@@ -409,8 +430,8 @@ describe('SkillCatalog discovery', () => {
     );
 
     const entry = entryNamed(snapshotOf(source), 'pdf');
-    expect(entry.available).toBe(false);
-    expect(entry.diagnostics.join(' ')).toContain('invocation control');
+    expect(entry.available).toBe(true);
+    expect(entry.proactive).toBe(false);
   });
 });
 
