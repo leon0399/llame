@@ -41,7 +41,7 @@ const CONVERSATION_TOOLS = ['search_conversations', 'conversation_read'];
 
 const canonicalContentResultSchema = z.object({
   kind: z.literal('content'),
-  chatId: z.string().uuid(),
+  chatId: z.guid(),
   messageSeq: z.number().int().positive().safe(),
   offset: z.number().int().nonnegative().safe(),
   limit: z.number().int().positive().max(2000),
@@ -58,7 +58,7 @@ const readToolPartSchema = z.object({
   type: z.literal('tool-conversation_read'),
   output: z.object({
     status: z.literal('success'),
-    chatId: z.string().uuid(),
+    chatId: z.guid(),
     messageSeq: z.number().int().positive().safe(),
     notice: z.string(),
     content: z.string(),

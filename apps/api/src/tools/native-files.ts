@@ -399,7 +399,7 @@ export const nativeReadTool: Tool<{ path: string }> = {
   id: 'read',
   classification: 'read_only',
   description: loadPackagedToolDescription('read'),
-  inputSchema: z.object({ path: z.string().min(1) }).strict(),
+  inputSchema: z.strictObject({ path: z.string().min(1) }),
   execute: (context, input) =>
     executeNative(context, { operation: 'read', input }),
 };
@@ -412,13 +412,11 @@ export const nativeEditTool: Tool<{
   id: 'edit',
   classification: 'write_low_risk',
   description: loadPackagedToolDescription('edit'),
-  inputSchema: z
-    .object({
-      path: z.string().min(1),
-      oldText: z.string().min(1),
-      newText: z.string(),
-    })
-    .strict(),
+  inputSchema: z.strictObject({
+    path: z.string().min(1),
+    oldText: z.string().min(1),
+    newText: z.string(),
+  }),
   execute: (context, input) =>
     executeNative(context, { operation: 'edit', input }),
 };
@@ -431,13 +429,11 @@ export const nativeWriteTool: Tool<{
   id: 'write',
   classification: 'write_low_risk',
   description: loadPackagedToolDescription('write'),
-  inputSchema: z
-    .object({
-      path: z.string().min(1),
-      content: z.string(),
-      replace: z.boolean().optional(),
-    })
-    .strict(),
+  inputSchema: z.strictObject({
+    path: z.string().min(1),
+    content: z.string(),
+    replace: z.boolean().optional(),
+  }),
   execute: (context, input) =>
     executeNative(context, { operation: 'write', input }),
 };

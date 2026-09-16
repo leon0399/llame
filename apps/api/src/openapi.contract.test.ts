@@ -4,65 +4,55 @@ import { z } from 'zod';
 
 const HTTP_METHODS = ['delete', 'get', 'patch', 'post', 'put'] as const;
 
-const schemaObjectSchema = z
-  .object({
-    discriminator: z.unknown().optional(),
-    enum: z.array(z.unknown()).optional(),
-    items: z.unknown().optional(),
-    nullable: z.boolean().optional(),
-    oneOf: z.array(z.unknown()).optional(),
-    properties: z.record(z.string(), z.unknown()).optional(),
-    required: z.array(z.string()).optional(),
-    type: z.string().optional(),
-  })
-  .passthrough();
+const schemaObjectSchema = z.looseObject({
+  discriminator: z.unknown().optional(),
+  enum: z.array(z.unknown()).optional(),
+  items: z.unknown().optional(),
+  nullable: z.boolean().optional(),
+  oneOf: z.array(z.unknown()).optional(),
+  properties: z.record(z.string(), z.unknown()).optional(),
+  required: z.array(z.string()).optional(),
+  type: z.string().optional(),
+});
 
-const responseObjectSchema = z
-  .object({
-    $ref: z.string().optional(),
-    content: z
-      .record(z.string(), z.object({ schema: z.unknown().optional() }))
-      .optional(),
-  })
-  .passthrough();
+const responseObjectSchema = z.looseObject({
+  $ref: z.string().optional(),
+  content: z
+    .record(z.string(), z.object({ schema: z.unknown().optional() }))
+    .optional(),
+});
 
 const referenceObjectSchema = z.object({ $ref: z.string() });
 
-const pinnedItemSchema = z
-  .object({
-    discriminator: z.object({
-      mapping: z.object({
-        chat: z.literal('#/components/schemas/ChatPinnedItemResponse'),
-        project: z.literal('#/components/schemas/ProjectPinnedItemResponse'),
-      }),
-      propertyName: z.literal('itemType'),
+const pinnedItemSchema = z.looseObject({
+  discriminator: z.object({
+    mapping: z.object({
+      chat: z.literal('#/components/schemas/ChatPinnedItemResponse'),
+      project: z.literal('#/components/schemas/ProjectPinnedItemResponse'),
     }),
-    oneOf: z.array(referenceObjectSchema),
-  })
-  .passthrough();
+    propertyName: z.literal('itemType'),
+  }),
+  oneOf: z.array(referenceObjectSchema),
+});
 
 const pinnedListSchema = z.object({
   items: pinnedItemSchema,
   type: z.literal('array'),
 });
 
-const operationObjectSchema = z
-  .object({
-    operationId: z.string().optional(),
-    responses: z.record(z.string(), responseObjectSchema),
-    tags: z.array(z.string()).optional(),
-  })
-  .passthrough();
+const operationObjectSchema = z.looseObject({
+  operationId: z.string().optional(),
+  responses: z.record(z.string(), responseObjectSchema),
+  tags: z.array(z.string()).optional(),
+});
 
-const pathItemObjectSchema = z
-  .object({
-    delete: operationObjectSchema.optional(),
-    get: operationObjectSchema.optional(),
-    patch: operationObjectSchema.optional(),
-    post: operationObjectSchema.optional(),
-    put: operationObjectSchema.optional(),
-  })
-  .passthrough();
+const pathItemObjectSchema = z.looseObject({
+  delete: operationObjectSchema.optional(),
+  get: operationObjectSchema.optional(),
+  patch: operationObjectSchema.optional(),
+  post: operationObjectSchema.optional(),
+  put: operationObjectSchema.optional(),
+});
 
 const openApiObjectSchema = z.object({
   components: z
@@ -333,7 +323,7 @@ describe('committed OpenAPI contract', () => {
       .array(
         z.object({
           name: z.string(),
-          schema: z.object({ type: z.string() }).passthrough(),
+          schema: z.looseObject({ type: z.string() }),
         }),
       )
       .parse(operation('get', '/api/v1/knowledge-spaces').parameters);

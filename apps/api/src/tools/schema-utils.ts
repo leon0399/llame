@@ -14,8 +14,8 @@ import { type JsonSchemaDocument } from './types';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
 export function isZodSchema(
-  schema: z.ZodTypeAny | JsonSchemaDocument,
-): schema is z.ZodTypeAny {
+  schema: z.ZodType | JsonSchemaDocument,
+): schema is z.ZodType {
   if (
     schema === null ||
     typeof schema !== 'object' ||
@@ -154,7 +154,7 @@ export type ToolSchemaAdmission =
  * limited to validator lookup and never mutates or rewrites `$schema`.
  */
 export async function admitToolInputSchema(
-  schema: z.ZodTypeAny | JsonSchemaDocument,
+  schema: z.ZodType | JsonSchemaDocument,
 ): Promise<ToolSchemaAdmission> {
   if (isZodSchema(schema)) {
     const generatedSchema = await asSchema(schema).jsonSchema;
@@ -180,21 +180,14 @@ export async function admitToolInputSchema(
  * compile — the tool must remain unavailable rather than run unvalidated.
  */
 export function toFlexibleSchema(
-  schema: z.ZodTypeAny | JsonSchemaDocument,
+  schema: z.ZodType | JsonSchemaDocument,
 ): FlexibleSchema<unknown> | null {
   if (isZodSchema(schema)) {
-    // SAFETY: schema is the umbrella z.ZodTypeAny, so asSchema<OBJECT>'s
-    // OBJECT type parameter can't infer this function's own `unknown`
-    // contract; this erases it to match toFlexibleSchema's declared return.
-    return asSchema(schema) as FlexibleSchema<unknown>;
+    return asSchema(schema);
   }
   const validator = buildJsonSchemaValidator(schema);
   if (!validator) return null;
-  // SAFETY: jsonSchema<OBJECT>'s OBJECT type parameter defaults to unknown
-  // when uninferred here, matching toFlexibleSchema's declared return, but
-  // Schema<unknown> and FlexibleSchema<unknown> still need this assertion to
-  // line up structurally.
-  return jsonSchema(schema, { validate: validator }) as FlexibleSchema<unknown>;
+  return jsonSchema(schema, { validate: validator });
 }
 
 /**
@@ -203,7 +196,7 @@ export function toFlexibleSchema(
  * documents (ajv-backed). Task 3.3: keep the existing check, widened.
  */
 export function safeParseArgs(
-  schema: z.ZodTypeAny | JsonSchemaDocument,
+  schema: z.ZodType | JsonSchemaDocument,
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- this whole function's body IS `args`'s validation (see the doc comment above: "Defense-in-depth argument validation"), dispatching through `schema.safeParse(args)` or the ajv validator depending on schema kind; the first statement checks `schema`'s type, not `args` directly, so the structural exemption doesn't fire even though this function is definitionally `args`'s validator.
   args: unknown,
 ): { success: true; data: unknown } | { success: false } {
@@ -227,7 +220,7 @@ export function safeParseArgs(
  * are already in the target form.
  */
 export async function resolveJsonSchema(
-  schema: z.ZodTypeAny | JsonSchemaDocument,
+  schema: z.ZodType | JsonSchemaDocument,
 ): Promise<JsonSchemaDocument> {
   if (isZodSchema(schema)) {
     const generatedSchema = await asSchema(schema).jsonSchema;

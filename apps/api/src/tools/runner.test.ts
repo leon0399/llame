@@ -29,7 +29,7 @@ const echoTool: Tool<{ value: string }> = {
   id: 'echo',
   description: 'echoes the input',
   classification: 'read_only',
-  inputSchema: z.object({ value: z.string() }).strict(),
+  inputSchema: z.strictObject({ value: z.string() }),
   execute: (_ctx, { value }) => ({ status: 'success', value }),
 };
 
@@ -397,7 +397,7 @@ describe('runTool permission gate', () => {
   it('matches submitted values, not schema defaults', async () => {
     const tool: Tool = {
       ...echoTool,
-      inputSchema: z.object({ value: z.string().default('default') }).strict(),
+      inputSchema: z.strictObject({ value: z.string().default('default') }),
     };
     const result = await runTool(
       tool,
@@ -414,9 +414,9 @@ describe('runTool permission gate', () => {
     const execute = vi.fn(() => ({ status: 'success' as const }));
     const tool: Tool = {
       ...echoTool,
-      inputSchema: z
-        .object({ value: z.string().transform((value) => value.toUpperCase()) })
-        .strict(),
+      inputSchema: z.strictObject({
+        value: z.string().transform((value) => value.toUpperCase()),
+      }),
       execute,
     };
     const result = await runTool(

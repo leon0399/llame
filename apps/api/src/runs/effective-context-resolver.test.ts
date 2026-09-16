@@ -51,7 +51,7 @@ describe('effective context resolver', () => {
       candidates: [
         tool(
           'z_tool',
-          z.object({ zebra: z.string(), alpha: z.number() }).strict(),
+          z.strictObject({ zebra: z.string(), alpha: z.number() }),
         ),
         tool('write_tool', z.object({ value: z.string() }), {
           classification: 'write_low_risk',

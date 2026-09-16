@@ -130,8 +130,8 @@ catalogs:
       specifier: ^4.1.11
       version: 4.1.11
     zod:
-      specifier: ^3.25.76
-      version: 3.25.76
+      specifier: 4.6.5
+      version: 4.6.5
 
 patchedDependencies:
   '@orval/fetch@8.24.0': 1ebfacbe145a6ce224b9398136911f17d949732b2510a5a78c211ed7a51b0231
@@ -199,16 +199,16 @@ importers:
     dependencies:
       '@ai-sdk/mcp':
         specifier: 'catalog:'
-        version: 1.0.71(zod@3.25.76)
+        version: 1.0.71(zod@4.6.5)
       '@ai-sdk/openai':
         specifier: 3.0.97
-        version: 3.0.97(zod@3.25.76)
+        version: 3.0.97(zod@4.6.5)
       '@knaadh/nestjs-drizzle-postgres':
         specifier: ^1.2.0
         version: 1.2.0(@nestjs/common@11.1.29(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.1)(supports-color@8.1.1))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.6.1)(pg@8.22.0)(postgres@3.4.7))(postgres@3.4.7)
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
-        version: 1.29.0(supports-color@8.1.1)(zod@3.25.76)
+        version: 1.29.0(supports-color@8.1.1)(zod@4.6.5)
       '@nestjs/common':
         specifier: ^11.1.29
         version: 11.1.29(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.1)(supports-color@8.1.1)
@@ -244,7 +244,7 @@ importers:
         version: link:../../packages/runtime-safety
       ai:
         specifier: 'catalog:'
-        version: 6.0.256(zod@3.25.76)
+        version: 6.0.256(zod@4.6.5)
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -295,14 +295,14 @@ importers:
         version: 2.9.0
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@ai-sdk/provider':
         specifier: 3.0.15
         version: 3.0.15
       '@ai-sdk/provider-utils':
         specifier: 4.0.46
-        version: 4.0.46(zod@3.25.76)
+        version: 4.0.46(zod@4.6.5)
       '@barney-media/crap-typescript':
         specifier: 'catalog:'
         version: 0.5.1
@@ -486,13 +486,13 @@ importers:
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/browser-playwright@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0)(supports-color@8.1.1))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.2)(tsx@4.23.12)(yaml@2.9.0))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   apps/web:
     dependencies:
       '@ai-sdk/react':
         specifier: 3.0.259
-        version: 3.0.259(react@19.2.7)(zod@3.25.76)
+        version: 3.0.259(react@19.2.7)(zod@4.6.5)
       '@hookform/resolvers':
         specifier: 'catalog:'
         version: 5.1.1(react-hook-form@7.59.0(react@19.2.7))
@@ -510,7 +510,7 @@ importers:
         version: link:../../packages/ui
       ai:
         specifier: 'catalog:'
-        version: 6.0.256(zod@3.25.76)
+        version: 6.0.256(zod@4.6.5)
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
@@ -543,7 +543,7 @@ importers:
         version: 1.1.1(react@19.2.7)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@barney-media/crap-typescript':
         specifier: 'catalog:'
@@ -755,7 +755,7 @@ importers:
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.16.5)(@vitest/coverage-v8@4.1.10)(jsdom@28.1.0(@noble/hashes@1.8.0)(supports-color@8.1.1))(vite@6.4.3(@types/node@22.16.5)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.49.2)(tsx@4.23.12)(yaml@2.9.0))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   packages/ui:
     dependencies:
@@ -782,7 +782,7 @@ importers:
         version: 0.5.16(tailwindcss@4.3.2)
       ai:
         specifier: 'catalog:'
-        version: 6.0.256(zod@3.25.76)
+        version: 6.0.256(zod@4.6.5)
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -848,7 +848,7 @@ importers:
         version: 1.1.1(react@19.2.7)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@storybook/nextjs-vite':
         specifier: 'catalog:'
@@ -9787,6 +9787,9 @@ packages:
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
@@ -9796,42 +9799,42 @@ snapshots:
 
   '@adobe/css-tools@4.5.0': {}
 
-  '@ai-sdk/gateway@3.0.174(zod@3.25.76)':
+  '@ai-sdk/gateway@3.0.174(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 3.0.15
-      '@ai-sdk/provider-utils': 4.0.46(zod@3.25.76)
+      '@ai-sdk/provider-utils': 4.0.46(zod@4.6.5)
       '@vercel/oidc': 3.2.0
-      zod: 3.25.76
+      zod: 4.6.5
 
-  '@ai-sdk/mcp@1.0.71(zod@3.25.76)':
+  '@ai-sdk/mcp@1.0.71(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 3.0.15
-      '@ai-sdk/provider-utils': 4.0.46(zod@3.25.76)
+      '@ai-sdk/provider-utils': 4.0.46(zod@4.6.5)
       pkce-challenge: 5.0.1
-      zod: 3.25.76
+      zod: 4.6.5
 
-  '@ai-sdk/openai@3.0.97(zod@3.25.76)':
+  '@ai-sdk/openai@3.0.97(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 3.0.15
-      '@ai-sdk/provider-utils': 4.0.46(zod@3.25.76)
-      zod: 3.25.76
+      '@ai-sdk/provider-utils': 4.0.46(zod@4.6.5)
+      zod: 4.6.5
 
-  '@ai-sdk/provider-utils@4.0.46(zod@3.25.76)':
+  '@ai-sdk/provider-utils@4.0.46(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 3.0.15
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.1.0
       undici: 6.28.0
-      zod: 3.25.76
+      zod: 4.6.5
 
   '@ai-sdk/provider@3.0.15':
     dependencies:
       json-schema: 0.4.0
 
-  '@ai-sdk/react@3.0.259(react@19.2.7)(zod@3.25.76)':
+  '@ai-sdk/react@3.0.259(react@19.2.7)(zod@4.6.5)':
     dependencies:
-      '@ai-sdk/provider-utils': 4.0.46(zod@3.25.76)
-      ai: 6.0.256(zod@3.25.76)
+      '@ai-sdk/provider-utils': 4.0.46(zod@4.6.5)
+      ai: 6.0.256(zod@4.6.5)
       react: 19.2.7
       swr: 2.3.4(react@19.2.7)
       throttleit: 2.1.0
@@ -11114,6 +11117,28 @@ snapshots:
       raw-body: 3.0.2
       zod: 3.25.76
       zod-to-json-schema: 3.25.2(zod@3.25.76)
+    transitivePeerDependencies:
+      - supports-color
+
+  '@modelcontextprotocol/sdk@1.29.0(supports-color@8.1.1)(zod@4.6.5)':
+    dependencies:
+      '@hono/node-server': 1.19.17(hono@4.13.7)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      content-type: 1.0.5
+      cors: 2.8.6
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.0
+      express: 5.2.1(supports-color@8.1.1)
+      express-rate-limit: 8.5.2(express@5.2.1(supports-color@8.1.1))
+      hono: 4.13.7
+      jose: 6.2.3
+      json-schema-typed: 8.0.2
+      pkce-challenge: 5.0.1
+      raw-body: 3.0.2
+      zod: 4.6.5
+      zod-to-json-schema: 3.25.2(zod@4.6.5)
     transitivePeerDependencies:
       - supports-color
 
@@ -13742,13 +13767,13 @@ snapshots:
 
   agent-base@7.1.3: {}
 
-  ai@6.0.256(zod@3.25.76):
+  ai@6.0.256(zod@4.6.5):
     dependencies:
-      '@ai-sdk/gateway': 3.0.174(zod@3.25.76)
+      '@ai-sdk/gateway': 3.0.174(zod@4.6.5)
       '@ai-sdk/provider': 3.0.15
-      '@ai-sdk/provider-utils': 4.0.46(zod@3.25.76)
+      '@ai-sdk/provider-utils': 4.0.46(zod@4.6.5)
       '@opentelemetry/api': 1.9.1
-      zod: 3.25.76
+      zod: 4.6.5
 
   ajv-draft-04@1.0.0(ajv@8.20.0):
     optionalDependencies:
@@ -16626,7 +16651,7 @@ snapshots:
 
   mutation-server-protocol@0.4.1:
     dependencies:
-      zod: 4.4.3
+      zod: 4.6.5
 
   mutation-testing-elements@3.7.3: {}
 
@@ -18980,8 +19005,14 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
+  zod-to-json-schema@3.25.2(zod@4.6.5):
+    dependencies:
+      zod: 4.6.5
+
   zod@3.25.76: {}
 
   zod@4.4.3: {}
+
+  zod@4.6.5: {}
 
   zwitch@2.0.4: {}

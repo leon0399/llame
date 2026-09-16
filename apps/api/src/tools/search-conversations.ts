@@ -92,7 +92,7 @@ const TIMELINE_LIMIT_MAX = 50;
 const TIMELINE_LIMIT_DEFAULT = 20;
 
 export const searchConversationsInputSchema = z
-  .object({
+  .strictObject({
     mode: z
       .enum(['content', 'timeline'])
       .describe(
@@ -105,14 +105,21 @@ export const searchConversationsInputSchema = z
       .max(200)
       .optional()
       .describe('Keywords (content mode only).'),
-    after: z
-      .string()
+    // `.meta({ pattern: undefined })` keeps zod's runtime check but drops the
+    // 318-character ISO-8601 regex from the emitted declaration, where it was
+    // 41% of this tool's payload. The model reads `format: "date-time"` and
+    // the description; ajv-formats holds the declaration's floor from the
+    // snapshot, rejecting non-dates, date-only strings, and minute precision.
+    // It runs in fast mode, so it admits a colonless offset that this schema
+    // rejects — the parse below governs, as it did when the regex was emitted.
+    after: z.iso
       .datetime({ offset: true })
+      .meta({ pattern: undefined })
       .optional()
       .describe('Inclusive lower bound (ISO 8601 with offset).'),
-    before: z
-      .string()
+    before: z.iso
       .datetime({ offset: true })
+      .meta({ pattern: undefined })
       .optional()
       .describe('Exclusive upper bound (ISO 8601 with offset).'),
     constraint: z
@@ -129,107 +136,110 @@ export const searchConversationsInputSchema = z
         'Max results. content: 1-10, default 5. timeline: 1-50, default 20.',
       ),
   })
-  .strict()
-  .superRefine(validateModeRules);
+  .check(validateModeRules);
+
+/**
+ * Record one mode-rule rejection. Every call site needs the identical
+ * `custom`-code, single-segment-path envelope, and `.check` requires the
+ * offending input on each raw issue.
+ */
+function rejectField(
+  ctx: z.core.ParsePayload<unknown>,
+  field: string,
+  message: string,
+): void {
+  ctx.issues.push({
+    code: 'custom',
+    message,
+    path: [field],
+    input: ctx.value,
+  });
+}
 
 function validateModeRules(
-  data: {
+  ctx: z.core.ParsePayload<{
     mode: string;
     query?: string;
     after?: string;
     before?: string;
     constraint?: string;
     limit?: number;
-  },
-  ctx: z.RefinementCtx,
+  }>,
 ): void {
+  const data = ctx.value;
   if (data.mode === 'content') {
-    validateContentMode(data, ctx);
+    validateContentMode(ctx);
   }
   if (data.mode === 'timeline') {
-    validateTimelineMode(data, ctx);
+    validateTimelineMode(ctx);
   }
-  if (data.after !== undefined && data.before !== undefined) {
-    if (new Date(data.after) >= new Date(data.before)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'after must be before before',
-        path: ['after'],
-      });
-    }
+  if (
+    data.after !== undefined &&
+    data.before !== undefined &&
+    new Date(data.after) >= new Date(data.before)
+  ) {
+    rejectField(ctx, 'after', 'after must be before before');
   }
 }
 
 function validateContentMode(
-  data: {
+  ctx: z.core.ParsePayload<{
     query?: string;
     after?: string;
     before?: string;
     constraint?: string;
     limit?: number;
-  },
-  ctx: z.RefinementCtx,
+  }>,
 ): void {
+  const data = ctx.value;
   if (!data.query) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'content mode requires a query',
-      path: ['query'],
-    });
+    rejectField(ctx, 'query', 'content mode requires a query');
   }
   if (data.limit !== undefined && data.limit > CONTENT_LIMIT_MAX) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `content mode limit must be at most ${CONTENT_LIMIT_MAX}`,
-      path: ['limit'],
-    });
+    rejectField(
+      ctx,
+      'limit',
+      `content mode limit must be at most ${CONTENT_LIMIT_MAX}`,
+    );
   }
   const hasBound = data.after !== undefined || data.before !== undefined;
   if (hasBound && data.constraint === undefined) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'constraint is required when a time bound is present',
-      path: ['constraint'],
-    });
+    rejectField(
+      ctx,
+      'constraint',
+      'constraint is required when a time bound is present',
+    );
   }
   if (!hasBound && data.constraint !== undefined) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'constraint without a time bound has no effect',
-      path: ['constraint'],
-    });
+    rejectField(
+      ctx,
+      'constraint',
+      'constraint without a time bound has no effect',
+    );
   }
 }
 
 function validateTimelineMode(
-  data: {
+  ctx: z.core.ParsePayload<{
     query?: string;
     after?: string;
     before?: string;
     constraint?: string;
-  },
-  ctx: z.RefinementCtx,
+  }>,
 ): void {
+  const data = ctx.value;
   if (data.query !== undefined) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'timeline mode does not accept a query',
-      path: ['query'],
-    });
+    rejectField(ctx, 'query', 'timeline mode does not accept a query');
   }
   if (data.constraint !== undefined) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'timeline mode does not accept a constraint',
-      path: ['constraint'],
-    });
+    rejectField(
+      ctx,
+      'constraint',
+      'timeline mode does not accept a constraint',
+    );
   }
   if (data.after === undefined && data.before === undefined) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'timeline mode requires at least one time bound',
-      path: ['after'],
-    });
+    rejectField(ctx, 'after', 'timeline mode requires at least one time bound');
   }
 }
 

@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { ZodError } from 'zod';
 
@@ -576,6 +574,28 @@ describe('search_conversations', () => {
     expect(jsonSchema).not.toHaveProperty('const');
   });
 
+  it('declares the time bounds by format, without restating them as a regex', async () => {
+    const jsonSchema = await resolveJsonSchema(
+      searchConversationsTool.inputSchema,
+    );
+    const properties = jsonSchema['properties'];
+    if (!isRecord(properties)) throw new Error('Expected a properties object');
+
+    for (const bound of ['after', 'before']) {
+      const field = properties[bound];
+      if (!isRecord(field)) throw new Error(`Expected a ${bound} schema`);
+      expect(field['format']).toBe('date-time');
+      expect(field).not.toHaveProperty('pattern');
+    }
+
+    const schema = searchConversationsTool.inputSchema;
+    if (!isZodSchema(schema)) throw new Error('Expected Zod');
+    expect(
+      schema.safeParse({ mode: 'timeline', after: '2026-01-01T00:00Z' })
+        .success,
+    ).toBe(false);
+  });
+
   it('few-shot calls in the tool description parse successfully (task 2.2)', () => {
     const schema = searchConversationsTool.inputSchema;
     if (!isZodSchema(schema)) throw new Error('Expected Zod');
@@ -617,7 +637,7 @@ describe('search_conversations', () => {
     for (const input of cases) {
       const result = await searchConversationsTool.execute(
         ctx,
-        // SAFETY: intentionally invalid inputs to test superRefine rejection
+        // SAFETY: intentionally invalid inputs to test the mode-rule checks
         // eslint-disable-next-line typescript/no-unsafe-type-assertion
         input as never,
       );
@@ -628,6 +648,94 @@ describe('search_conversations', () => {
     }
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  it('blames one named field per mode rule, and admits the boundary cases', () => {
+    const schema = searchConversationsTool.inputSchema;
+    if (!isZodSchema(schema)) throw new Error('Expected Zod');
+    const early = '2026-01-01T00:00:00Z';
+    const late = '2026-02-01T00:00:00Z';
+
+    // `safeParse` takes `unknown`, and these inputs are deliberately invalid.
+    const rejections: ReadonlyArray<[unknown, string, string]> = [
+      [{ mode: 'content' }, 'query', 'content mode requires a query'],
+      [
+        { mode: 'content', query: 'x', limit: 11 },
+        'limit',
+        'content mode limit must be at most 10',
+      ],
+      [
+        { mode: 'content', query: 'x', after: early },
+        'constraint',
+        'constraint is required when a time bound is present',
+      ],
+      [
+        { mode: 'content', query: 'x', constraint: 'required' },
+        'constraint',
+        'constraint without a time bound has no effect',
+      ],
+      [
+        { mode: 'timeline', query: 'x', after: early },
+        'query',
+        'timeline mode does not accept a query',
+      ],
+      [
+        { mode: 'timeline', constraint: 'required', after: early },
+        'constraint',
+        'timeline mode does not accept a constraint',
+      ],
+      [
+        { mode: 'timeline' },
+        'after',
+        'timeline mode requires at least one time bound',
+      ],
+      [
+        {
+          mode: 'content',
+          query: 'x',
+          constraint: 'required',
+          after: late,
+          before: early,
+        },
+        'after',
+        'after must be before before',
+      ],
+      [
+        {
+          mode: 'content',
+          query: 'x',
+          constraint: 'required',
+          after: early,
+          before: early,
+        },
+        'after',
+        'after must be before before',
+      ],
+    ];
+
+    for (const [input, field, message] of rejections) {
+      const result = schema.safeParse(input);
+      expect(
+        result.error?.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+        `Expected a single ${field} rejection for ${JSON.stringify(input)}`,
+      ).toEqual([{ path: field, message }]);
+    }
+
+    // Each bound satisfies the timeline requirement on its own, and the
+    // content limit ceiling is inclusive.
+    for (const accepted of [
+      { mode: 'timeline', after: early },
+      { mode: 'timeline', before: early },
+      { mode: 'content', query: 'x', limit: 10 },
+    ]) {
+      expect(
+        schema.safeParse(accepted).success,
+        `Expected ${JSON.stringify(accepted)} to be admitted`,
+      ).toBe(true);
+    }
   });
 
   it('success results carry no diagnostic keys (task 2.6)', async () => {

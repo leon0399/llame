@@ -108,13 +108,11 @@ export const bashTool: Tool<{
   id: 'bash',
   classification: 'execute_code',
   description: loadPackagedToolDescription('bash'),
-  inputSchema: z
-    .object({
-      command: z.string().min(1),
-      cwd: z.string().optional(),
-      env: z.record(z.string(), z.string()).optional(),
-    })
-    .strict(),
+  inputSchema: z.strictObject({
+    command: z.string().min(1),
+    cwd: z.string().optional(),
+    env: z.record(z.string(), z.string()).optional(),
+  }),
   execute: async (context, input): Promise<ToolResult> => {
     const { runId, userId, nativeExecutorId, toolCallId } = context;
     if (!runId || !nativeExecutorId || !toolCallId) {

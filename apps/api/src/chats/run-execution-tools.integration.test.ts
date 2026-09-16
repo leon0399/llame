@@ -1269,7 +1269,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       id: toolId,
       description: 'Search current fixture evidence.',
       classification: 'read_only',
-      inputSchema: z.object({ query: z.string().min(1) }).strict(),
+      inputSchema: z.strictObject({ query: z.string().min(1) }),
       execute: seedExecute,
     };
     let seeded: Awaited<ReturnType<typeof seedBoundRun>> | undefined;
@@ -1413,7 +1413,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       id: toolId,
       description: 'Search the offline fixture.',
       classification: 'read_only',
-      inputSchema: z.object({ query: z.string() }).strict(),
+      inputSchema: z.strictObject({ query: z.string() }),
       execute: remoteExecute,
     };
     const dynamicCandidates: Array<TurnToolCandidate> = [
@@ -2082,7 +2082,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       name: 'input-schema drift',
       mutate: (original: Tool): Tool => ({
         ...original,
-        inputSchema: z.object({ changed: z.string() }).strict(),
+        inputSchema: z.strictObject({ changed: z.string() }),
       }),
     },
   ])(

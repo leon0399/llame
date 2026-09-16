@@ -19,7 +19,7 @@ import { createOpenAIModelClient } from './openai-model-client';
 
 const tools = {
   echo: tool({
-    inputSchema: z.object({ value: z.string() }).strict(),
+    inputSchema: z.strictObject({ value: z.string() }),
     execute: ({ value }) => value,
   }),
 };
@@ -196,7 +196,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
       mcp__web__search: tool({
         inputSchema: z.object({
           query: z.string(),
-          knowledgeSpaceId: z.string().uuid().optional(),
+          knowledgeSpaceId: z.guid().optional(),
         }),
       }),
     };

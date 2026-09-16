@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const conversationSourceChatIdSchema = z.string().uuid();
+export const conversationSourceChatIdSchema = z.guid();
 
 export const conversationSourceMessageSeqSchema = z
   .number()
@@ -32,14 +32,12 @@ export const conversationSourceLimitSchema = z
  * conversation_read tool. This is deliberately not a tool declaration: the
  * reader owns that public input surface and composes this exact contract.
  */
-export const conversationSourceCoordinatesSchema = z
-  .object({
-    chatId: conversationSourceChatIdSchema,
-    messageSeq: conversationSourceMessageSeqSchema,
-    offset: conversationSourceOffsetSchema,
-    limit: conversationSourceLimitSchema,
-  })
-  .strict();
+export const conversationSourceCoordinatesSchema = z.strictObject({
+  chatId: conversationSourceChatIdSchema,
+  messageSeq: conversationSourceMessageSeqSchema,
+  offset: conversationSourceOffsetSchema,
+  limit: conversationSourceLimitSchema,
+});
 
 export type ConversationSourceCoordinates = z.infer<
   typeof conversationSourceCoordinatesSchema
