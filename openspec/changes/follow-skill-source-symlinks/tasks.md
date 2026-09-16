@@ -29,7 +29,7 @@ publication and merging require separate authority.
 - [ ] 2.3 In `apps/api/src/tools/native-files.ts` `executeSkill`, read through the link-following reader with the same `displayPath`, envelope reserve, and selector handling; verify `native-files.test.ts` skill cases pass unmodified and a `SKILL.md` that is itself a link reads successfully.
 - [ ] 2.4 Add one test that a package linked from a source to a directory outside every source is discovered, available, and readable through `skill://<name>` and `skill://<name>/<resource>` with `skillDirectory` and `resolvedPath` equal to the link paths; verify a dangling child link is still an unavailable entry with its diagnostic.
 - [ ] 2.5 Update `docs/skills.md` (sources may link to packages anywhere on the host; links are followed without verification; the operator is trusted for them; published paths are the configured link paths); verify `pnpm lint:markdown` passes.
-- [ ] 2.6 Verify with the affected workspace lint, typecheck, and the focused skill and native-files test files, strict OpenSpec validation, formatting, and diff checks; confirm no `realpath` call remains under `apps/api/src/skills`. Publish only with authority, then complete self-review and the repository's ready-PR monitoring contract.
+- [ ] 2.6 Verify with the affected workspace lint, typecheck, and the focused skill and native-files test files, strict OpenSpec validation, formatting, and diff checks; confirm the only `realpath` under `apps/api/src/skills` is the display-only one that fills the real-directory result field (D7), and none participates in resolution or containment. Publish only with authority, then complete self-review and the repository's ready-PR monitoring contract.
 
 ## 3. Listing layer
 
