@@ -11,7 +11,6 @@
 
 import {
   COMPACTION_INSTRUCTION,
-  COMPACTION_SECTION_HEADINGS,
   COMPACTION_WINDOW_RATIO,
   TRANSITION_COMPACTION_INSTRUCTION,
   buildCompactionRequest,
@@ -406,9 +405,9 @@ describe('buildCompactionRequest', () => {
   });
 
   it('requests the stable operational-handoff Markdown sections', () => {
-    // Authored independently of COMPACTION_SECTION_HEADINGS (#57's acceptance
-    // criteria). Iterating the implementation's own array would shrink with it,
-    // so a dropped section would still pass.
+    // Authored independently of prompts/instruction.md (#57's acceptance
+    // criteria). Reading the headings out of the template would let a dropped
+    // section still pass.
     const EXPECTED_HEADINGS = [
       'Objective',
       'Constraints and Preferences',
@@ -418,7 +417,6 @@ describe('buildCompactionRequest', () => {
       'Open Questions and Next Steps',
       'Critical References',
     ];
-    expect(COMPACTION_SECTION_HEADINGS).toEqual(EXPECTED_HEADINGS);
     for (const heading of EXPECTED_HEADINGS) {
       expect(COMPACTION_INSTRUCTION).toContain(`## ${heading}`);
     }
@@ -758,6 +756,23 @@ describe('personalization exclusion (add-user-personalization D7)', () => {
     // Says WHY, so the reason survives a later paraphrase of the wording.
     expect(instruction).toMatch(/re-supplied on every request/i);
   });
+
+  // Pinned independently, as literal text, because this sentence is the
+  // instruction's only defense against personalization leaking into a persisted
+  // checkpoint; the assertions above match fragments and would survive a
+  // rewritten clause.
+  const STANDING_CONTEXT_EXCLUSION_SENTENCE =
+    'Do not carry any content out of the <user_personalization> or <user_chat_history> blocks into the summary, and do not carry any content out of a <system-reminder> block whose producer attribute is "recency-digest". Do not carry the system-supplied temporal context line (the line stating context as of a date) into the summary either. These describe standing context rather than this conversation, are re-supplied on every request, and must not be frozen into this checkpoint. Dates, deadlines, or intervals the user or assistant established within the conversation itself still belong in the summary.';
+
+  it.each([
+    ['COMPACTION_INSTRUCTION', COMPACTION_INSTRUCTION],
+    ['TRANSITION_COMPACTION_INSTRUCTION', TRANSITION_COMPACTION_INSTRUCTION],
+  ])(
+    '%s carries the standing-context exclusion sentence verbatim',
+    (_label, instruction) => {
+      expect(instruction).toContain(STANDING_CONTEXT_EXCLUSION_SENTENCE);
+    },
+  );
 
   it.each([
     ['COMPACTION_INSTRUCTION', COMPACTION_INSTRUCTION],

@@ -1,5 +1,7 @@
 import { jsonSchema } from 'ai';
 
+import { loadPackagedTemplate } from '../prompts/template-engine';
+
 /**
  * Chat title generation (#78) — pure logic.
  *
@@ -14,26 +16,18 @@ import { jsonSchema } from 'ai';
  * sanitation below still guards against models that add quotes or markdown.
  */
 
-export const TITLE_SYSTEM_PROMPT = `You are tasked with generating a concise, descriptive title for a conversation between a user and an AI assistant. The title should capture the main topic or purpose of the conversation.
+/**
+ * The title system prompt, packaged as `prompts/system.md` and rendered once at
+ * module scope. It stays a frozen string rather than a render function because
+ * `FakeStreamingModelClient` recognizes a title request by strict identity
+ * against it (`input.system === TITLE_SYSTEM_PROMPT`).
+ */
+const renderTitleSystemTemplate = loadPackagedTemplate<Record<string, never>>(
+  __dirname,
+  'system',
+);
 
-Guidelines for title generation:
-- Keep titles extremely short (ideally 2-5 words)
-- Write the title in the same language as the conversation
-- Focus on the main topic or goal of the conversation
-- Use natural, readable language
-- Avoid unnecessary articles (a, an, the) when possible
-- Do not include quotes or special characters
-- Capitalize important words
-
-Examples of titles:
-- 📉 Stock Market Trends
-- 🍪 완벽한 초콜릿 칩 레시피
-- 流媒体音乐的演变
-- Советы по повышению производительности удаленной работы
-- Künstliche Intelligenz im Gesundheitswesen
-- 🎮 ビデオゲーム開発の洞察
-
-Output ONLY the title text — no prefixes like "Title:", no quotes, no markdown.`;
+export const TITLE_SYSTEM_PROMPT = renderTitleSystemTemplate({});
 
 /**
  * Schema for structured title generation — the pre-cutover generator forced a
@@ -68,17 +62,19 @@ export const TITLE_OBJECT_SCHEMA = jsonSchema<GeneratedTitle>({
   additionalProperties: false,
 });
 
+const renderTitleUserTemplate = loadPackagedTemplate<{ readonly text: string }>(
+  __dirname,
+  'user',
+);
+
 /**
  * Wraps the (already length-bounded) user text as tagged conversation data,
  * mirroring the pre-cutover generator's user prompt: the text is something to
- * title, not instructions to follow (SPEC §28.2 trust boundary).
+ * title, not instructions to follow (SPEC §28.2 trust boundary). The text is
+ * placed as authored — bounding is `titlePromptInput`'s job, in the caller.
  */
 export function titleUserPrompt(boundedText: string): string {
-  return `Based on the following conversation, generate a very short and descriptive title for:
-
-<user>
-${boundedText}
-</user>`;
+  return renderTitleUserTemplate({ text: boundedText });
 }
 
 /** Hard cap on persisted title length — the sidebar is not a paragraph. */
