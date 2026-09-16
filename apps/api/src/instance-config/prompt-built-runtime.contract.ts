@@ -59,3 +59,13 @@ for (const id of TOOL_PROMPT_IDS) {
     );
   }
 }
+
+// Verify the chats producers' packaged bodies resolve from the built output.
+// Every template constant there calls `loadPackagedTemplate` EAGERLY at module
+// initialization, so importing the module IS the proof: it reads
+// `chats/prompts/*.md` through `__dirname`, and running this from dist/ means a
+// missing, empty, or malformed template throws before the import completes.
+// Nothing is called here on purpose — a rendered assertion would add branches
+// no test can reach, and this file is a build step, not a unit under test. The
+// build is plain `tsc` output with no bundler, so a side-effect import stands.
+import '../chats/context-item-producers';
