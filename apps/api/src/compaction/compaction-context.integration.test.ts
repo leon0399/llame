@@ -898,8 +898,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       });
       const targetRunId = crypto.randomUUID();
       const switchPart = createModelChangeItem({
-        fromModelId: 'source-model',
-        toModelId: 'target-model',
+        oldModel: { id: 'source-model' },
+        newModel: { id: 'target-model' },
         runId: targetRunId,
       });
       const targetUserParts: Array<MessagePart> = [
@@ -1155,8 +1155,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const targetTriggerText = contentText(targetTrigger?.content ?? '');
     expect(targetTriggerText).toContain(seeded.switchPart.data.text);
     expect(targetTriggerText).toContain('Message received:');
+    // The run-derived item names the model the catalog resolves for the
+    // target client (`executionModels` echoes the requested id through).
     expect(targetTriggerText).toContain(
-      'You are now running as model "target-model".',
+      'You are now target-model (internal ID `target-model`, provider ID `target-model`).',
     );
     expect(targetTriggerText).toMatch(/CURRENT TRIGGER$/u);
     expect(JSON.stringify(targetCalls[0])).not.toContain(

@@ -282,7 +282,7 @@ const renderActivationTemplate = loadPackagedTemplate<{
   readonly skillDirectory: string;
   readonly instructionsPath: string;
   readonly hasTruncation: boolean;
-  readonly truncationNotice: string;
+  readonly truncationNotice: string | undefined;
   readonly instructions: string;
 }>(__dirname, 'skill-activation');
 
@@ -296,7 +296,7 @@ function renderActivation(
     skillDirectory: payload.skillDirectory,
     instructionsPath: payload.instructionsPath,
     hasTruncation: truncationNotice !== undefined,
-    truncationNotice: truncationNotice ?? '',
+    truncationNotice,
     // Operator-authored, and it sits inside an element of its own: the sanitizer
     // is what keeps the body from closing that element or opening another
     // envelope. Applied here rather than by the caller so every path into this

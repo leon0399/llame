@@ -15,7 +15,7 @@ See proposal.md for motivation. The current state that shapes the approach:
 **Goals:**
 
 - One engine for every template, two validation regimes: strict for replaceable files, none for packaged ones.
-- Byte-identical output on every migrated surface. Where an exact-output test exists it passes unmodified; where a surface has only self-referential coverage, a literal pin is authored independently before the constant is deleted.
+- Byte-identical output on every migrated surface except the one deliberate body change of the rail layer: the `effective-context-change` body names both models, as the `model-system-prompts` delta specifies. Where an exact-output test exists it passes unmodified except that body's; where a surface has only self-referential coverage, a literal pin is authored independently before the constant is deleted.
 - Adding a model-facing body later means adding one `.md` file, one render call, one literal pin, and one built-runtime contract import.
 
 **Non-Goals:**
@@ -23,7 +23,7 @@ See proposal.md for motivation. The current state that shapes the approach:
 - Operator overrides for any new surface.
 - A surface registry, descriptor type, string ids, or index.
 - Any post-render formatter (blank-line collapsing, table compaction) of the kind oh-my-pi applies; it would break byte identity.
-- Changing what any body says. Wording changes are separate, producer-owned work.
+- Changing what any body says, other than the one deliberate `effective-context-change` rendering change this change carries. Wording changes are otherwise separate, producer-owned work.
 - Result content composed by tool implementations, the permission layer, or result truncation (error messages, permission rejections, settlement and truncation notices), and the `renderToolObservationOmission` sentinel.
 - Compaction storage (#806, #865) and compaction request-path unification (#866).
 
@@ -37,7 +37,7 @@ See proposal.md for motivation. The current state that shapes the approach:
 
 **D4 Engine extraction, no validation for packaged files.** The environment, compile cache, file read and normalization, and escaping helpers move to one shared module; the operator loader imports it and keeps its projection and validator. The compile cache is keyed by source and escape regime, or split into one map per regime, because `noEscape` is baked in at compile time and one source-keyed map would return whichever compilation came first. Packaged files load at module initialization through `loadPackagedTemplate(directory, name)`, compile with `noEscape`, and render with no allowlist, probe, or strict mode. Alternative A: run packaged files through the strict validator with per-surface allowlists declared as data. Rejected as speculative structure: the allowlist exists to bound what an operator can reach, and no operator reaches these files; the exact-output tests catch a mistyped variable. Alternative B: Handlebars `strict: true` as a typo guard. Rejected: unverified interaction with `{{#if optional}}`, which most rail bodies use, for a guard the tests already provide.
 
-**D5 Producers own neutralization; the engine escapes nothing.** Producers keep calling `sanitizeAuthoredText` on exactly the values they neutralize today (digest titles and excerpts, catalog descriptions, instruction bodies, the checkpoint summary, and the whole composed tool-output framing) and keep passing grammar-safe identifiers and the two published skill paths raw. Alternative: route every value through `escapeForPrompt` as the system prompt does. Rejected: `context-builder.test.ts` pins `"target<&>"'"` rendered raw in the model-change body; engine escaping would change those bytes and every test like it, for no boundary gain since developers author both sides.
+**D5 Producers own neutralization; the engine escapes nothing.** Producers keep calling `sanitizeAuthoredText` on exactly the values they neutralize today (digest titles and excerpts, catalog descriptions, instruction bodies, the checkpoint summary, and the whole composed tool-output framing) and keep passing grammar-safe identifiers and the two published skill paths raw. Alternative: route every value through `escapeForPrompt` as the system prompt does. Rejected: `context-builder.test.ts` pins `"target<&>"'"` rendered raw in the model-change body; engine escaping would change those bytes and every test like it, for no boundary gain since developers author both sides. The model-switch body is the one producer that gains a neutralized value class: the display names and provider model ids it now names are operator-authored, while the public model ids it renders stay raw.
 
 **D6 Envelope stays in code.** `renderContextItem` keeps the `<system-reminder producer= form=>` envelope and `CONTEXT_ITEM_PROVENANCE`; templates are body-only. Alternative: author the envelope in each file as oh-my-pi does. Rejected: `producer` and `form` are rail identity with escaped attributes, and `context-injection` makes the envelope the rail's, not the producer's.
 
@@ -51,7 +51,7 @@ See proposal.md for motivation. The current state that shapes the approach:
 
 ## Risks / Trade-offs
 
-- [Handlebars whitespace shifts a newline and breaks byte identity] → D10 rules in `apps/api/AGENTS.md`; each layer PR includes the rendered-bytes diff for every variant; the exact-output tests are the gate and are not re-pinned.
+- [Handlebars whitespace shifts a newline and breaks byte identity] → D10 rules in `apps/api/AGENTS.md`; each layer PR includes the rendered-bytes diff for every variant; the exact-output tests are the gate, and only the deliberate model-switch body's expectation is re-pinned.
 - [A mistyped variable renders empty silently] → Every migrated surface has an exact-output test or gains a literal pin before its constant is deleted; a new surface must add one before it ships.
 - [The engine extraction touches security-relevant allowlist code] → Its PR carries a before/after byte comparison for the system prompt and every tool description, and a review focused on whether any previously rejected construct is now accepted.
 - [Markdownlint or Prettier rewrites template bytes, or the exemption swallows `chat-default.md`] → Each colocated directory is exempted by name from the engine layer onward; task 2.3 verifies `chat-default.md` is still linted and its MD033 override still applies.
@@ -61,14 +61,14 @@ See proposal.md for motivation. The current state that shapes the approach:
 
 ## Migration Plan
 
-Four implementation layers, strictly serial, one PR each, all byte-identical:
+Four implementation layers, strictly serial, one PR each, all byte-identical except the one deliberate model-switch body change of the rail layer:
 
 1. Engine extraction, asset rule, lint and formatter exemptions (#863).
-2. Rail producers: ten bodies plus the checkpoint body (#864 layer 1). Adds the authoring convention to `apps/api/AGENTS.md`.
+2. Rail producers: ten bodies plus the checkpoint body (#864 layer 1). Adds the authoring convention to `apps/api/AGENTS.md`. Carries the one deliberate body change: `effective-context-change` names both models, with display names and provider model ids resolved from the configured model catalog at authoring time.
 3. Summarization instructions and both title prompts (#864 layer 2).
 4. Tool-output framing and the four closed result notices (#864 layer 3).
 
-No data migration, no config change, no rollback beyond reverting a layer; nothing persisted changes shape or bytes.
+No data migration, no config change, no rollback beyond reverting a layer; nothing persisted changes shape, stored text replays unchanged, and only the model-switch body's text differs for items authored after the change.
 
 ## Open Questions
 

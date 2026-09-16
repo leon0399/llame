@@ -538,20 +538,24 @@ describe('buildContext', () => {
   describe('trusted model-switch boundary', () => {
     const switchPart = createModelChangeItem({
       runId: '11111111-1111-4111-8111-111111111111',
-      fromModelId: 'PREVIOUS_MODEL_MUST_STAY_METADATA_ONLY',
-      toModelId: `target<&>"'`,
+      oldModel: {
+        id: 'system:openai:previous-model',
+        name: 'Previous Model',
+      },
+      newModel: { id: `target<&>"'` },
     });
     const reminder = [
       '<system-reminder producer="effective-context-change" form="notice">',
       'Inserted by llame; not written by the user.',
       'The active model changed before this user message.',
-      'You are now running as model "target<&>"\'".',
+      'You were running as Previous Model (internal ID `system:openai:previous-model`).',
+      'You are now target<&>"\' (internal ID `target<&>"\'`).',
       'Follow the current system instructions and continue the existing conversation.',
       'Do not restart, reintroduce yourself, or mention the model change unless the user asks.',
       '</system-reminder>',
     ].join('\n');
 
-    it('renders the exact current-model-only XML reminder immediately before the triggering user text', () => {
+    it('renders the exact both-models XML reminder immediately before the triggering user text', () => {
       const switched = msg({
         seq: 20,
         role: 'user',
@@ -573,9 +577,13 @@ describe('buildContext', () => {
           ],
         },
       ]);
-      expect(JSON.stringify(result)).not.toContain(
-        'PREVIOUS_MODEL_MUST_STAY_METADATA_ONLY',
-      );
+      // The body is text, not markup: an operator-authored id is carried
+      // verbatim, and the persisted payload still holds the ids alone.
+      expect(switchPart.data.payload).toEqual({
+        cause: 'model',
+        fromModelId: 'system:openai:previous-model',
+        toModelId: `target<&>"'`,
+      });
     });
 
     it('preserves the semantic boundary on later reconstructions', () => {
@@ -723,8 +731,8 @@ describe('buildContext', () => {
   describe('per-run record of injected items', () => {
     const switchItem = createModelChangeItem({
       runId: '11111111-1111-4111-8111-111111111111',
-      fromModelId: 'system:openai:old',
-      toModelId: 'system:openai:new',
+      oldModel: { id: 'system:openai:old' },
+      newModel: { id: 'system:openai:new' },
     });
 
     it('records each rendered item with its producer, form, and residency', () => {
@@ -881,8 +889,8 @@ describe('buildContext', () => {
   describe('trusted runtime tool-availability boundary', () => {
     const modelSwitchPart = createModelChangeItem({
       runId: '11111111-1111-4111-8111-111111111111',
-      fromModelId: 'system:openai:old-model',
-      toModelId: 'system:openai:new-model',
+      oldModel: { id: 'system:openai:old-model' },
+      newModel: { id: 'system:openai:new-model' },
     });
     const availabilityPart = createToolAvailabilityItem({
       runId: '11111111-1111-4111-8111-111111111111',
@@ -901,7 +909,8 @@ describe('buildContext', () => {
       '<system-reminder producer="effective-context-change" form="notice">',
       'Inserted by llame; not written by the user.',
       'The active model changed before this user message.',
-      'You are now running as model "system:openai:new-model".',
+      'You were running as system:openai:old-model (internal ID `system:openai:old-model`).',
+      'You are now system:openai:new-model (internal ID `system:openai:new-model`).',
       'Follow the current system instructions and continue the existing conversation.',
       'Do not restart, reintroduce yourself, or mention the model change unless the user asks.',
       '</system-reminder>',

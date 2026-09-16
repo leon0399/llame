@@ -2135,8 +2135,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const chatId = crypto.randomUUID();
     const targetRunId = crypto.randomUUID();
     const switchPart = createModelChangeItem({
-      fromModelId: 'source-model',
-      toModelId: 'target-model',
+      oldModel: { id: 'source-model' },
+      newModel: { id: 'target-model' },
       runId: targetRunId,
     });
 
@@ -2268,7 +2268,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
           {
             type: 'text',
             text: expect.stringContaining(
-              'You are now running as model "snapshot-target".',
+              // The suite's `validateModelSelection` mock answers with
+              // `testModelEntry`, the entry the catalog would key by the
+              // requesting client's id.
+              'You are now mock (internal ID `mock`, provider ID `mock`).',
             ),
           },
           {
@@ -2305,7 +2308,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         form: 'notice',
         residency: 'rail',
         text: expect.stringContaining(
-          'You are now running as model "snapshot-target".',
+          'You are now mock (internal ID `mock`, provider ID `mock`).',
         ),
       },
       {

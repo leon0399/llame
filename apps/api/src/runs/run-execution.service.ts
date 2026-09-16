@@ -2660,10 +2660,17 @@ export class RunExecutionService {
     // switch item keeps reading the immediately preceding run, not the
     // successful baseline the availability/epoch comparison uses.
     if (previousRun && previousRun.modelId !== input.input.client.model) {
+      // The previous run records the selected id alone, and the body names the
+      // model that id belonged to, so it is resolved against the operator
+      // catalog this service already reads at construction. A model the
+      // catalog no longer carries is named by its bare id.
+      const previousModel = this.instanceConfig.config.models.find(
+        (model) => model.id === previousRun.modelId,
+      );
       stagedParts.push(
         createModelChangeItem({
-          fromModelId: previousRun.modelId,
-          toModelId: input.input.client.model,
+          oldModel: previousModel ?? { id: previousRun.modelId },
+          newModel: input.prompt.model,
           runId: input.input.runId,
         }),
       );

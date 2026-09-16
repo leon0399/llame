@@ -2669,8 +2669,8 @@ describe('RunExecutionService executeRun — context preparation', () => {
         seq: 1,
         parts: [
           createModelChangeItem({
-            fromModelId: 'old-model',
-            toModelId: 'fake-model',
+            oldModel: { id: 'old-model' },
+            newModel: { id: 'fake-model' },
             runId,
           }),
         ],
@@ -2692,8 +2692,8 @@ describe('RunExecutionService executeRun — context preparation', () => {
           ...userMessage,
           parts: [
             createModelChangeItem({
-              fromModelId: 'old-model',
-              toModelId: 'fake-model',
+              oldModel: { id: 'old-model' },
+              newModel: { id: 'fake-model' },
               runId,
             }),
             { type: 'text', text: 'rebuilt turn' },
@@ -2731,8 +2731,8 @@ describe('RunExecutionService executeRun — context preparation', () => {
         seq: 1,
         parts: [
           createModelChangeItem({
-            fromModelId: 'old-model',
-            toModelId: 'fake-model',
+            oldModel: { id: 'old-model' },
+            newModel: { id: 'fake-model' },
             runId,
           }),
         ],
@@ -2785,8 +2785,8 @@ describe('RunExecutionService executeRun — context preparation', () => {
           seq: 1,
           parts: [
             createModelChangeItem({
-              fromModelId: 'old-model',
-              toModelId: 'fake-model',
+              oldModel: { id: 'old-model' },
+              newModel: { id: 'fake-model' },
               runId,
             }),
           ],
@@ -2828,8 +2828,8 @@ describe('RunExecutionService executeRun — context preparation', () => {
           seq: 1,
           parts: [
             createModelChangeItem({
-              fromModelId: 'old-model',
-              toModelId: 'fake-model',
+              oldModel: { id: 'old-model' },
+              newModel: { id: 'fake-model' },
               runId,
             }),
           ],
@@ -2867,8 +2867,8 @@ describe('RunExecutionService executeRun — context preparation', () => {
           seq: 1,
           parts: [
             createModelChangeItem({
-              fromModelId: 'old-model',
-              toModelId: 'fake-model',
+              oldModel: { id: 'old-model' },
+              newModel: { id: 'fake-model' },
               runId,
             }),
           ],
@@ -4380,8 +4380,8 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         seq: 1,
         parts: [
           createModelChangeItem({
-            fromModelId: 'old-model',
-            toModelId: 'fake-model',
+            oldModel: { id: 'old-model' },
+            newModel: { id: 'fake-model' },
             runId,
           }),
           { type: 'text', text: 'hello' },

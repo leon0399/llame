@@ -96,8 +96,8 @@ describe('author-time context rendering', () => {
   it('stores a complete canonical envelope for every persisted producer', () => {
     const items = [
       createModelChangeItem({
-        fromModelId: 'system:old',
-        toModelId: 'system:new',
+        oldModel: { id: 'system:old' },
+        newModel: { id: 'system:new' },
         runId: RUN_ID,
       }),
       createToolAvailabilityItem({

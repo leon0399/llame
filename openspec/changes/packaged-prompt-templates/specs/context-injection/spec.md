@@ -14,6 +14,12 @@ The rail envelope, its `producer` and `form` attributes, and the provenance stat
 - **THEN** the persisted item text is byte-identical to the previous rendering
 - **AND** the envelope and provenance statement are unchanged
 
+#### Scenario: The one body this change re-specifies
+
+- **WHEN** the `effective-context-change` body renders after this change
+- **THEN** it names both models, as `model-system-prompts` requires
+- **AND** it is the only surface whose rendered bytes differ from before this change
+
 #### Scenario: Untrusted text carries a reserved delimiter
 
 - **WHEN** an untrusted text value the producer neutralizes today contains the rail's reserved delimiter name as a tag

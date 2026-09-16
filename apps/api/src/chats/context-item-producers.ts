@@ -102,15 +102,34 @@ export function isModelChangePayload(
   );
 }
 
+/**
+ * One side of a model change, as the model-facing body names it.
+ *
+ * A producer-derived view value, never persisted state: `ModelChangePayload`
+ * keeps the two ids exactly as it always has, so an item written when the body
+ * named only the destination still validates, still gates transition
+ * compaction, and never depends on the catalog that authored its prose.
+ *
+ * `name` and `providerModelId` are read from the operator model catalog when
+ * the body is authored. Both are operator-authored, so both are neutralized
+ * before they reach the template; a model the catalog no longer carries
+ * degrades to its id alone.
+ */
+export type ModelChangeModel = {
+  readonly id: string;
+  readonly name?: string;
+  readonly providerModelId?: string;
+};
+
 export function createModelChangeItem(input: {
-  readonly fromModelId: string;
-  readonly toModelId: string;
+  readonly oldModel: ModelChangeModel;
+  readonly newModel: ModelChangeModel;
   readonly runId: string;
 }): AuthoredContextItemPart {
   const payload: ModelChangePayload = {
     cause: 'model',
-    fromModelId: input.fromModelId,
-    toModelId: input.toModelId,
+    fromModelId: input.oldModel.id,
+    toModelId: input.newModel.id,
   };
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the non-empty and distinct-id invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isModelChangePayload(payload)) {
@@ -121,7 +140,7 @@ export function createModelChangeItem(input: {
     form: 'notice',
     runId: input.runId,
     payload,
-    body: renderModelChange(payload),
+    body: renderModelChange(input.oldModel, input.newModel),
   });
 }
 
@@ -134,17 +153,57 @@ export function isModelChangeItem(value: unknown): value is ContextItemPart {
   );
 }
 
-const renderModelChangeTemplate = loadPackagedTemplate<{ toModelId: string }>(
-  __dirname,
-  'effective-context-change',
-);
+/** One model as the template sees it: neutralized name, raw id, optional provider id. */
+type ModelChangeModelView = {
+  readonly name: string;
+  readonly id: string;
+  readonly providerId?: string;
+};
+
+const renderModelChangeTemplate = loadPackagedTemplate<{
+  readonly oldModel: ModelChangeModelView;
+  readonly newModel: ModelChangeModelView;
+}>(__dirname, 'effective-context-change');
 
 /**
- * The prior model is deliberately omitted from model-facing prose while the
- * persisted payload retains both ids for owner-visible provenance.
+ * A model name and a provider model id are operator-authored catalog text, so
+ * each is neutralized exactly as the skill catalog neutralizes an
+ * operator-authored description. The llame-internal id is llame's own opaque
+ * identifier and passes through raw, as it always has.
+ *
+ * A model the catalog does not carry, or carries without a usable name, keeps
+ * its id in the name slot: deterministic and never ungrammatical, at the cost
+ * of one conditional per model rather than two.
  */
-function renderModelChange(payload: ModelChangePayload): string {
-  return renderModelChangeTemplate({ toModelId: payload.toModelId });
+function toModelChangeModelView(model: ModelChangeModel): ModelChangeModelView {
+  const name = model.name?.trim() ?? '';
+  const providerModelId = model.providerModelId?.trim() ?? '';
+  return {
+    name: name.length > 0 ? sanitizeAuthoredText(name) : model.id,
+    id: model.id,
+    ...(providerModelId.length > 0 && {
+      providerId: sanitizeAuthoredText(providerModelId),
+    }),
+  };
+}
+
+/**
+ * The prose names both models, the one the turn left included: the change IS
+ * the transition, and naming only the destination would leave the model to
+ * infer what it had been running as.
+ *
+ * The persisted payload still carries the two ids alone. The names are read
+ * from the operator catalog when the body is authored, and recording them
+ * would let a later catalog edit rewrite what a historical turn rendered.
+ */
+function renderModelChange(
+  oldModel: ModelChangeModel,
+  newModel: ModelChangeModel,
+): string {
+  return renderModelChangeTemplate({
+    oldModel: toModelChangeModelView(oldModel),
+    newModel: toModelChangeModelView(newModel),
+  });
 }
 
 /* ------------------------------------------------------------------ *
