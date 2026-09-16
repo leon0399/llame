@@ -54,35 +54,38 @@ assessment.
 1. [OpenClaw](./openclaw.md) — Primary alpha implementation reference for capabilities and behavior
 2. [oh-my-pi](./oh-my-pi.md) — Primary coding implementation reference for capabilities and tool behavior
 3. [qwen-audio-agent](./qwen-audio-agent.md) — Host-owned sessions with ACP/A2A peer execution
-4. [OpenCode](./opencode.md) — TypeScript coding harness; provider, session, and permission boundaries
-5. [Codex CLI](./codex-cli.md) — Native peer lifecycle protocol and observable compaction
-6. [SoL-Pi](./sol-pi.md) — Evidence-preserving tool-result projections and compaction economics
-7. [Spotify Shunt](./spotify-shunt.md) — Question-focused bulk-read delegation and cost-routing boundaries
-8. [goose](./goose.md) — ACP peer integration and tool approval boundaries
-9. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
-10. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
-11. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
-12. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
-13. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
-14. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
-15. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
-16. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
-17. [agent-memory](./agent-memory.md) — Derived memory indexes and federated retrieval
-18. [gbrain](./gbrain.md) — File-backed knowledge and provenance-aware recall
-19. [Graphify](./graphify.md) — Derived graph provenance, extraction caches, and MCP query boundaries
-20. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
-21. [beads](./beads.md) — Dependency-aware work tracking, claims, and trace retention
-22. [Fabric](./fabric.md) — File-based prompt composition and drift checks
-23. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
-24. [OKF (Open Knowledge Format)](./open-knowledge-format.md) — Optional authorship, verification, and freshness metadata
-25. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
-26. [Buzz](./buzz.md) — Formal isolation models to compare with runtime enforcement
-27. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
-28. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
-29. [ELAI](./elai.md) — Archived architecture and measurement discipline
-30. [Loki Agent](./loki.md) — Rebranded Hermes fork; managed connector gateway degradation and retry contract
-31. [pi-mono](./pi-mono.md) — Lane-as-branch session tree, composable provider session headers, and a fail-open hook registry
-32. [Kilo Code](./kilocode.md) — Provider-gated header tiers, hard permission rulesets, and a fail-closed headless subagent guard
-33. [MiMo Code](./mimo-code.md) — Frozen prefix snapshots, parent-grant inheritance for subagents, and local dream/distill self-improvement
-34. [Kimi Code](./kimi-code.md) — Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass
-35. [jcode](./jcode.md) — Host-detected gateway headers, per-instance session identity, and a bash-only risk gate
+4. [Orca](./orca.md) — Two-tier peer-agent adapters (SDK/app-server versus PTY), durable session records with provider-native resume, and a bypass-by-default permission posture
+5. [OpenCode](./opencode.md) — TypeScript coding harness; provider, session, and permission boundaries
+6. [Codex CLI](./codex-cli.md) — Native peer lifecycle protocol and observable compaction
+7. [SoL-Pi](./sol-pi.md) — Evidence-preserving tool-result projections and compaction economics
+8. [Spotify Shunt](./spotify-shunt.md) — Question-focused bulk-read delegation and cost-routing boundaries
+9. [parsec](./parsec.md) — In-loop re-read and command-loop gates, byte-stable cache-safe history splicing, and measured rather than modeled token savings
+10. [goose](./goose.md) — ACP peer integration and tool approval boundaries
+11. [Rowboat](./rowboat.md) — Per-person local agent behind a thin shared Space server, agent-authored Markdown memory, ACP peer executors, and classifier-based auto-approval
+12. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
+13. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
+14. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
+15. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
+16. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
+17. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
+18. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
+19. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
+20. [agent-memory](./agent-memory.md) — Derived memory indexes and federated retrieval
+21. [gbrain](./gbrain.md) — File-backed knowledge and provenance-aware recall
+22. [Graphify](./graphify.md) — Derived graph provenance, extraction caches, and MCP query boundaries
+23. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
+24. [beads](./beads.md) — Dependency-aware work tracking, claims, and trace retention
+25. [Fabric](./fabric.md) — File-based prompt composition and drift checks
+26. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
+27. [OKF (Open Knowledge Format)](./open-knowledge-format.md) — Optional authorship, verification, and freshness metadata
+28. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
+29. [Buzz](./buzz.md) — Formal isolation models to compare with runtime enforcement
+30. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
+31. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
+32. [ELAI](./elai.md) — Archived architecture and measurement discipline
+33. [Loki Agent](./loki.md) — Rebranded Hermes fork; managed connector gateway degradation and retry contract, per-child input-token ceilings for delegation
+34. [pi-mono](./pi-mono.md) — Lane-as-branch session tree, composable provider session headers, and a fail-open hook registry
+35. [Kilo Code](./kilocode.md) — Provider-gated header tiers, hard permission rulesets, and a fail-closed headless subagent guard
+36. [MiMo Code](./mimo-code.md) — Frozen prefix snapshots, parent-grant inheritance for subagents, and local dream/distill self-improvement
+37. [Kimi Code](./kimi-code.md) — Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass
+38. [jcode](./jcode.md) — Host-detected gateway headers, per-instance session identity, and a bash-only risk gate
