@@ -1,7 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-
-import Handlebars from 'handlebars';
 
 import { sanitizeAuthoredText } from './authored-text';
 import { InstanceConfigError } from '@workspace/config-interpolation';
@@ -12,6 +9,17 @@ import {
   TOOL_PROMPT_IDS,
   type ToolPromptId,
 } from '../prompts/tool-descriptions';
+import {
+  compilePromptTemplate,
+  DEFAULT_PROMPT_FILE_ACCESS,
+  escapeForPrompt,
+  parsePromptTemplate,
+  promptSafeString,
+  promptValue,
+  readPromptSource,
+  type PromptFileAccess,
+  type PromptSafeValue,
+} from '../prompts/template-engine';
 import { parseMcpToolId } from '../mcp/tool-id';
 import { isToolId } from '../tools/tool-id';
 import type {
@@ -28,11 +36,7 @@ export type {
   PromptUserInput,
 } from '../models/model-catalog';
 export type { TemporalAnchor } from '../prompts/temporal-anchor';
-
-export type PromptFileAccess = {
-  isFile(filePath: string): boolean;
-  readFile(filePath: string): string;
-};
+export type { PromptFileAccess } from '../prompts/template-engine';
 
 export type ToolPromptFileMap = Readonly<
   Record<string, string | null | undefined>
@@ -57,23 +61,6 @@ export type ToolPromptRendererOptions = {
   models?: ReadonlyArray<PromptModel>;
   access?: PromptFileAccess;
 };
-
-const DEFAULT_PROMPT_FILE_ACCESS: PromptFileAccess = {
-  isFile: (filePath) => statSync(filePath).isFile(),
-  readFile: (filePath) => readFileSync(filePath, 'utf8'),
-};
-
-/**
- * Prompt templates render through their own Handlebars environment so that no
- * helper or partial registered anywhere else in the process is reachable from a
- * prompt file.
- *
- * `Handlebars.create()` shares `Utils` **by reference** with the global export,
- * so `Utils.escapeExpression` MUST NOT be replaced here — patching it would
- * change escaping for every other handlebars consumer in the process. Values
- * are escaped when the context is built instead (`escapeForPrompt`).
- */
-const templates = Handlebars.create();
 
 const toContextKey = (contextPath: string) => contextPath.split('.').join('\0');
 
@@ -211,76 +198,6 @@ const ALLOWED_BLOCK_HELPERS: ReadonlySet<string> = new Set([
   'each',
 ]);
 
-/** Narrower than handlebars' default, which also mangles `'`, `"`, `=`, and backticks. */
-const PROMPT_ESCAPES = new Map([
-  ['&', '&amp;'],
-  ['<', '&lt;'],
-  ['>', '&gt;'],
-]);
-
-function escapeForPrompt(value: string): string {
-  return value.replaceAll(/[&<>]/gu, (character) => {
-    const escaped = PROMPT_ESCAPES.get(character);
-    if (escaped === undefined) {
-      // Unreachable: the regex above only ever matches a PROMPT_ESCAPES key.
-      throw new Error(`Unexpected character in prompt escape: "${character}"`);
-    }
-    return escaped;
-  });
-}
-
-/**
- * Projects one value into the render context, or omits it.
- *
- * Omission is required rather than cosmetic: a `SafeString` is an object and so
- * is truthy **even when it wraps an empty string**, which would make every
- * `{{#if}}` over it evaluate true. A whitespace-only value is truthy too, hence
- * the trim.
- *
- * `neutralize` is a parameter rather than a second copy of this function
- * because the omission rule must be identical for every field kind — only the
- * transform differs. Model, account-identity, and digest-metadata values take
- * the strict `&<>` escape, being short server-computed strings with no
- * legitimate markup. Owner-authored fields and digest item fields take
- * `sanitizeAuthoredText` instead — whose rules are what keep the template's
- * fences unforgeable without mangling legitimate structure in authored text.
- */
-function promptValue(
-  raw: string | undefined,
-  neutralize: (value: string) => string = escapeForPrompt,
-): Handlebars.SafeString | undefined {
-  const trimmed = raw?.trim();
-  if (trimmed === undefined || trimmed.length === 0) {
-    return undefined;
-  }
-  return new templates.SafeString(neutralize(trimmed));
-}
-
-/**
- * Compiled templates, keyed by their SOURCE rather than by file path.
- *
- * The catalog carries prompt templates as plain strings, so compilation has to
- * happen on the render path; doing it per run would re-parse the template on
- * every message. Keying on source means several models pointing at one file
- * share a compile, and it stays correct when the same text arrives from
- * somewhere else entirely (a test fixture, say).
- *
- * Bounded by the number of distinct prompt files in the operator's config,
- * which is config-as-code read once at boot — not an unbounded cache over user
- * input.
- */
-const compiledTemplates = new Map<string, HandlebarsTemplateDelegate>();
-
-function compileTemplate(template: string): HandlebarsTemplateDelegate {
-  const cached = compiledTemplates.get(template);
-  if (cached !== undefined) {
-    return cached;
-  }
-  const compiled = templates.compile(template);
-  compiledTemplates.set(template, compiled);
-  return compiled;
-}
-
 export type RenderSystemPromptInput = {
   template: string;
   model: Pick<PromptModel, 'id' | 'name'>;
@@ -306,14 +223,14 @@ export type ToolPromptRenderer = {
  * Renders one model's complete system prompt.
  *
  * Lives here rather than in the service that exposes it because the render
- * context is built with `templates.SafeString`, and a value must come from the
- * SAME created Handlebars environment that renders it or the engine escapes it
- * a second time. `SystemPromptsService` is the injectable wrapper over this.
+ * context must be built with `promptSafeString` from the shared engine: a
+ * plain string would be escaped by the engine on top of the neutralization
+ * already applied. `SystemPromptsService` is the injectable wrapper over this.
  */
 export function renderSystemPromptTemplate(
   input: RenderSystemPromptInput,
 ): string {
-  return renderPrompt(compileTemplate(input.template), input);
+  return renderPrompt(input.template, input);
 }
 
 export function resolveDefaultChatSystemPromptPath(
@@ -550,14 +467,13 @@ function loadPromptFile(
     );
   }
 
-  let raw: string;
+  let normalized: string;
   try {
-    raw = access.readFile(resolvedPath);
+    normalized = readPromptSource(resolvedPath, access);
   } catch (error) {
     throw promptReadError(field, error);
   }
 
-  const normalized = raw.replaceAll(/\r\n?/gu, '\n').replace(/\s+$/u, '');
   if (normalized.length === 0) {
     throw new InstanceConfigError(`${field}: prompt file is empty`);
   }
@@ -1092,7 +1008,7 @@ function hasLiteralContent(body: ReadonlyArray<hbs.AST.Statement>): boolean {
 function assertSupportedTemplate(prompt: string, field: string) {
   let ast: hbs.AST.Program;
   try {
-    ast = templates.parse(prompt);
+    ast = parsePromptTemplate(prompt);
   } catch {
     throw new InstanceConfigError(`${field}: prompt template failed to parse`);
   }
@@ -1279,9 +1195,10 @@ function projectToolPredicates(
 }
 
 function renderPrompt(
-  template: HandlebarsTemplateDelegate,
+  source: string,
   fields: Omit<RenderSystemPromptInput, 'template'>,
 ): string {
+  const template = compilePromptTemplate(source);
   const { model, anchor, user, chats, skills, admittedToolIds } = fields;
   // An allowlisted path with no value renders empty rather than failing, so
   // that `{{#if model.name}}...{{model.name}}...{{/if}}` is expressible. Typos
@@ -1292,12 +1209,12 @@ function renderPrompt(
   const projectedSkills = skillsContext(skills);
   type RenderPromptContext = {
     model: {
-      id: ReturnType<typeof promptValue>;
-      name: ReturnType<typeof promptValue>;
+      id: PromptSafeValue | undefined;
+      name: PromptSafeValue | undefined;
     };
     context: {
-      systemTime: Handlebars.SafeString;
-      systemTimezone: Handlebars.SafeString;
+      systemTime: PromptSafeValue;
+      systemTimezone: PromptSafeValue;
     };
     user?: typeof projectedUser;
     chats?: typeof projectedChats;
@@ -1312,10 +1229,8 @@ function renderPrompt(
     // Unconditional — the first namespace that always is. Bypasses the
     // omission rule: these are always computable and never absent.
     context: {
-      systemTime: new templates.SafeString(escapeForPrompt(anchor.systemTime)),
-      systemTimezone: new templates.SafeString(
-        escapeForPrompt(anchor.systemTimezone),
-      ),
+      systemTime: promptSafeString(escapeForPrompt(anchor.systemTime)),
+      systemTimezone: promptSafeString(escapeForPrompt(anchor.systemTimezone)),
     },
     tools: projectToolPredicates(admittedToolIds),
   };

@@ -7,7 +7,11 @@
   },
   "compilerOptions": {
     "deleteOutDir": true,
-    "assets": ["instance-config/llame.config.schema.json", "prompts/**/*.md"],
+    "assets": [
+      "instance-config/llame.config.schema.json",
+      "prompts/**/*.md",
+      "**/prompts/**/*.md"
+    ],
     "watchAssets": true
   }
 }

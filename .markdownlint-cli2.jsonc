@@ -17,6 +17,15 @@
     // document rules (trailing newline, inline HTML) would rewrite bytes the
     // provider contract depends on.
     "apps/api/src/prompts/tools/**",
+    // Packaged prompt templates shipped with the app, not documentation: no
+    // operator can replace them, and the same document rules would rewrite
+    // bytes the rendered prompt depends on.
+    "apps/api/src/chats/prompts/**",
+    "apps/api/src/compaction/prompts/**",
+    "apps/api/src/titles/prompts/**",
+    "apps/api/src/knowledge/prompts/**",
+    "apps/api/src/skills/prompts/**",
+    "apps/api/src/tools/prompts/**",
   ],
   "config": {
     // Prettier owns wrapping; specification tables and code often exceed 80 columns.
