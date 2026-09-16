@@ -239,7 +239,7 @@
     // pg-boss worker-liveness window (minimum 10 seconds).
     "heartbeatSeconds": "{env:RUN_HEARTBEAT_SECONDS:-15}",
     // Wall-clock budget for an active run.
-    "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS:-300}",
+    "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS:-900}",
   },
 
   "http": {
@@ -402,7 +402,7 @@
       }
     },
     // Maximum tool-requesting steps per run.
-    "maxStepsPerRun": 20,
+    "maxStepsPerRun": 100,
     // Per-tool-call timeout in seconds.
     "callTimeoutSeconds": 120,
   },

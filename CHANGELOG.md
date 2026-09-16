@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-16
+
+- Raise the built-in Run caps: `tools.maxStepsPerRun` from 20 to 100 and
+  `runs.timeoutSeconds` from 300 to 900. The old defaults were set before the
+  tool loop existed and bound an ordinary multi-step Run well below peer
+  harnesses (goose 1000 turns, hermes 500 iterations, opencode unbounded).
+  Operators who set either key are unaffected. The `runs.maxOutputTokens`
+  schema description no longer promises a provider output cap; per-run spend
+  is bounded by the step and wall-clock caps.
+
 # 2026-09-15
 
 - Upgrade zod from 3.25.76 to 4.6.5 and move every schema onto the v4 API. The

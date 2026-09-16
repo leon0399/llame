@@ -405,7 +405,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   runs: {
     maxOutputTokens: null,
     heartbeatSeconds: 15,
-    timeoutSeconds: 300,
+    timeoutSeconds: 900,
   },
   http: {
     trustProxy: null,
@@ -416,7 +416,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   tools: {
     allowed: [],
     permissions: {},
-    maxStepsPerRun: 20,
+    maxStepsPerRun: 100,
     callTimeoutSeconds: 120,
     promptFiles: {},
   },

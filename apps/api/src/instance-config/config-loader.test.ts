@@ -180,7 +180,7 @@ describe('loadInstanceConfig — file presence', () => {
     const config = loadInstanceConfig();
     expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
     expect(config.tools.allowed).toContain('search_conversations');
-    expect(config.tools.maxStepsPerRun).toBe(20);
+    expect(config.tools.maxStepsPerRun).toBe(100);
     expect(config.tools.callTimeoutSeconds).toBe(120);
   });
 
@@ -445,7 +445,7 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
     expect(config.tools).toEqual({
       allowed: [],
       permissions: BUILT_IN_DEFAULTS.tools.permissions,
-      maxStepsPerRun: 20,
+      maxStepsPerRun: 100,
       callTimeoutSeconds: 120,
       promptFiles: {},
     });
@@ -1018,7 +1018,7 @@ describe('loadInstanceConfig — precedence (file > built-in default, no bare en
     writeConfig('{ "runs": { "heartbeatSeconds": 20 } }');
     const config = loadInstanceConfig();
     expect(config.defaults.modelId).toBeNull();
-    expect(config.runs.timeoutSeconds).toBe(300);
+    expect(config.runs.timeoutSeconds).toBe(900);
     expect(config.http.trustProxy).toBeNull();
     // The file value it DID set still applies.
     expect(config.runs.heartbeatSeconds).toBe(20);
@@ -1038,7 +1038,7 @@ describe('loadInstanceConfig — precedence (file > built-in default, no bare en
   });
 
   it('falls to the built-in default when the file does not set the key', () => {
-    expect(loadInstanceConfig().runs.timeoutSeconds).toBe(300);
+    expect(loadInstanceConfig().runs.timeoutSeconds).toBe(900);
   });
 });
 
