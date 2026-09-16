@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
-import { lstat, stat } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { lstat, realpath, stat } from "node:fs/promises";
+import { isAbsolute, normalize } from "node:path";
 
 /** `O_NOFOLLOW` makes the kernel refuse a symbolic link at the target, so a
  *  resolver's `lstat` checks cannot be raced by a link swapped in after. */
@@ -38,6 +38,10 @@ export class NativeFileError extends Error {
 
 export type ReadTarget = {
   path: string;
+  /** Canonical host path when it differs from `path` as given, which is how a
+   *  model without shell access learns where a read through a link landed.
+   *  Host paths only: a scheme resolver never sets it. */
+  realPath?: string;
   offset: number;
   limit?: number;
   raw: boolean;
@@ -155,6 +159,21 @@ async function isDirectoryTarget(path: string): Promise<boolean> {
   return false;
 }
 
+/**
+ * The `realPath` a host file read reports: the canonical path, but only when
+ * it differs from the normalized path as given, so a `..` segment that merely
+ * spells the same location is not a link. A path that cannot be resolved —
+ * missing, dangling, or denied — omits the field instead of failing the read.
+ */
+async function realPathField(path: string): Promise<{ realPath?: string }> {
+  try {
+    const canonical = await realpath(path);
+    return canonical === normalize(path) ? {} : { realPath: canonical };
+  } catch {
+    return {};
+  }
+}
+
 export async function resolveReadTarget(input: string): Promise<ReadTarget> {
   if (parsePathScheme(input) || !isAbsolute(input) || input.includes("\0"))
     throw new NativeFileError("invalid_path");
@@ -167,7 +186,12 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
       return { path: cleanPath, offset: 0, raw: false, directory: true };
     }
     if (hasTrailingSep) throw new NativeFileError("not_found");
-    return { path: cleanPath, offset: 0, raw: false };
+    return {
+      path: cleanPath,
+      offset: 0,
+      raw: false,
+      ...(await realPathField(cleanPath)),
+    };
   } catch (error) {
     if (error instanceof NativeFileError) throw error;
     if (!isNodeError(error)) throw error;
@@ -255,5 +279,5 @@ async function classifyParsedTarget(target: ReadTarget): Promise<ReadTarget> {
   } catch {
     // Let downstream handle missing paths.
   }
-  return target;
+  return { ...target, ...(await realPathField(target.path)) };
 }

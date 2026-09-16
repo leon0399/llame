@@ -1,5 +1,35 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-17
+
+- Skill sources follow symbolic links with no containment (#868). A configured
+  source is trusted by being configured: a source may link to a package
+  anywhere on the host, and discovery and skill reads apply ordinary
+  operating-system link semantics with no link resolution, verification, or
+  containment. **Breaking**: `skills.directories` no longer bounds what a
+  source can reach — a child link that was refused or masked now serves its
+  target — and an operator who added real roots as a workaround can remove
+  them. Published paths are the link paths discovery walked: `skillDirectory`
+  is the discovered package directory and `resolvedPath` the resolved file
+  path, and the real package directory is published beside them as
+  `realSkillDirectory`, display only, because package-relative references and
+  script paths still resolve against `skillDirectory`. A child link that
+  cannot be resolved stays a visible unavailable entry naming the unresolved
+  link, and a child link resolving to something other than a directory now
+  names the target kind in an unavailable entry instead of being skipped
+  silently.
+
+  Directory listings also say where each link leads: `- name@/ -> <target>`
+  for a directory target, `- name@ -> <target>` for a regular file, and
+  `- name@? -> <link text>` for a dangling link or one resolving to a special
+  entry, using the canonical target path so a model without shell access can
+  follow a multi-hop link. Links are never descended whatever their target
+  kind, and a `kb://` listing keeps the bare `- name@` with no target because
+  a Knowledge result exposes no resolved host path. A host-path file read
+  whose canonical path differs from the path given now carries `realPath`,
+  counted within the result bound; listings and `kb://` or `skill://` reads
+  never carry it.
+
 # 2026-09-16
 
 - Move six apps/web component suites out of jsdom and into their Storybook

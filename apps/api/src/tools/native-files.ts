@@ -219,6 +219,9 @@ async function readKnowledge(
   const options: NativeReadOptions = {
     displayPath: target.locator,
     reserveCodeUnits: serializeNativeModelOutput(envelope).length,
+    // A Knowledge result exposes no resolved host path, so a link entry
+    // renders without its target.
+    linkTargets: false,
     signal: context.abortSignal,
   };
   const result = await readResolvedFile(

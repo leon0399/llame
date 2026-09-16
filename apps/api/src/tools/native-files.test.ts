@@ -369,6 +369,53 @@ describe('knowledge locator resolution', () => {
     },
   );
 
+  it('lists a symbolic link with no target on a kb:// Space', async () => {
+    const target = join(root, 'linked-target');
+    await mkdir(target);
+    await writeFile(join(target, 'inside.txt'), 'secret\n');
+    await symlink(target, join(directory, 'linked'), 'dir');
+    await symlink(join(target, 'inside.txt'), join(directory, 'link.md'));
+
+    const listing = await runTool(
+      nativeReadTool,
+      { path: `kb://${SPACE}` },
+      knowledgeContext(),
+      5,
+    );
+    expect(listing).toMatchObject({
+      status: 'success',
+      kind: 'directory',
+      knowledgeSpaceId: SPACE,
+    });
+    const content =
+      isRecord(listing) && isString(listing['content'])
+        ? listing['content']
+        : '';
+    const lines = content.split('\n');
+    // A Knowledge result exposes no resolved host path, so both link kinds
+    // render bare: no target kind and no target.
+    expect(lines).toContain('  - linked@');
+    expect(lines).toContain('  - link.md@');
+    expect(content).not.toContain(' -> ');
+    expect(content).not.toContain('@/');
+    expect(content).not.toContain('@?');
+    // The link is rendered from its own metadata, never opened or descended,
+    // so neither the target path nor anything beneath it reaches the model.
+    expect(content).not.toContain('inside.txt');
+    expect(content).not.toContain(root);
+
+    for (const path of [`kb://${SPACE}/linked`, `kb://${SPACE}/link.md`]) {
+      const refused = await runTool(
+        nativeReadTool,
+        { path },
+        knowledgeContext(),
+        5,
+      );
+      expect(refused).toMatchObject({ status: 'error', type: 'not_found' });
+      expect(JSON.stringify(refused)).not.toContain(root);
+    }
+  });
+
   it('refuses a trailing separator on a file and keeps it on a directory', async () => {
     await mkdir(join(directory, 'research'));
     await writeFile(join(directory, 'note.md'), 'a\n');

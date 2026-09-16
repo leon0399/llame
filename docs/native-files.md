@@ -65,8 +65,10 @@ path component is `lstat`ed and a symbolic link is refused without being
 followed, returning `not_found`; the reader itself opens with `O_NOFOLLOW`, so
 a link swapped in after validation also reads back as `not_found`.
 `kb://<id>` and `kb://<id>/` list the Space's directory through the same
-depth-2 listing as an absolute directory path; a bare `kb://` or a locator
-with no identifier is `invalid_path`.
+depth-2 listing as an absolute directory path, except that every symbolic link
+renders as the bare `- name@` with no target, because a `kb://` result exposes
+no resolved host path; a bare `kb://` or a locator with no identifier is
+`invalid_path`.
 
 In create mode a `write` may name directories that do not exist yet. They are
 created one component at a time, each checked after creation, because a
@@ -148,14 +150,26 @@ by writing `$review`. Without that selection its body and resource reads return
   ranges per read. Multi-range results report `requestedRanges` (the merged
   request) and `shownRanges` (emitted lines); a truncated read reports a
   zero-based `nextOffset` — trim `requestedRanges` at `nextOffset + 1` and
-  re-read. A future overview feature (#572) will reference passages with this
-  same multi-range syntax; overviews themselves are not implemented.
+  re-read. A file read on an absolute path reports `realPath`, the canonical
+  absolute path, when a symbolic link in the path or in one of its components
+  makes it differ from the normalized path as given; `realPath` counts within
+  the result bound, and the header and line numbering stay those of the path
+  as given. A directory listing never carries it, and neither does a `kb://`
+  or `skill://` read. A future overview feature (#572) will reference
+  passages with this same multi-range syntax; overviews themselves are not
+  implemented.
 - `read({ path: "/absolute/directory" })` returns a depth-2 listing:
   directories first, then files, sorted by name under the host collation.
-  Each entry renders as `- name/` (directory), `- name` (file), `- name@`
-  (symbolic link), or `- name?` (special entry). Symlinks are never descended;
-  special entries are never opened. Child directories show up to 20 entries
-  followed by `… N more`. Empty directories render `(empty directory)`.
+  Each entry renders as `- name/` (directory), `- name` (file),
+  `- name@/ -> <target>` (symbolic link to a directory), `- name@ -> <target>`
+  (symbolic link to a regular file), `- name@? -> <link text>` (a dangling
+  link, or one resolving to a special entry), or `- name?` (special entry).
+  `<target>` is the canonical absolute path the link resolves to, while a link
+  that is dangling or resolves to a special entry shows its raw link text
+  instead. Symbolic links are never descended, even when the target is a
+  directory, and links and special entries are never opened. Child directories
+  show up to 20 entries followed by `… N more`.
+  Empty directories render `(empty directory)`.
   A trailing separator is optional: `/dir/` and `/dir` both work.
   Range selectors such as `:1-5` return a flat listing of root-level entries
   only, with no child content. `:raw` is not supported for directories.
