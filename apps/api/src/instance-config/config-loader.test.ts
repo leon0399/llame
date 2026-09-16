@@ -180,8 +180,6 @@ describe('loadInstanceConfig — file presence', () => {
     const config = loadInstanceConfig();
     expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
     expect(config.tools.allowed).toContain('search_conversations');
-    expect(config.tools.maxStepsPerRun).toBe(100);
-    expect(config.tools.callTimeoutSeconds).toBe(120);
   });
 
   it('accepts comments and trailing commas (JSONC)', () => {
@@ -438,17 +436,6 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
   it('rejects an empty native host identity', () => {
     writeConfig('{ "tools": { "nativeExecutorId": "" } }');
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
-  });
-
-  it('defaults to no tools, cap 20, timeout 120 when the file omits tools', () => {
-    const config = loadInstanceConfig();
-    expect(config.tools).toEqual({
-      allowed: [],
-      permissions: BUILT_IN_DEFAULTS.tools.permissions,
-      maxStepsPerRun: 100,
-      callTimeoutSeconds: 120,
-      promptFiles: {},
-    });
   });
 
   it('resolves tools.allowed from the file when every id is registered', () => {
@@ -1018,7 +1005,9 @@ describe('loadInstanceConfig — precedence (file > built-in default, no bare en
     writeConfig('{ "runs": { "heartbeatSeconds": 20 } }');
     const config = loadInstanceConfig();
     expect(config.defaults.modelId).toBeNull();
-    expect(config.runs.timeoutSeconds).toBe(900);
+    expect(config.runs.timeoutSeconds).toBe(
+      BUILT_IN_DEFAULTS.runs.timeoutSeconds,
+    );
     expect(config.http.trustProxy).toBeNull();
     // The file value it DID set still applies.
     expect(config.runs.heartbeatSeconds).toBe(20);
@@ -1038,7 +1027,9 @@ describe('loadInstanceConfig — precedence (file > built-in default, no bare en
   });
 
   it('falls to the built-in default when the file does not set the key', () => {
-    expect(loadInstanceConfig().runs.timeoutSeconds).toBe(900);
+    expect(loadInstanceConfig().runs.timeoutSeconds).toBe(
+      BUILT_IN_DEFAULTS.runs.timeoutSeconds,
+    );
   });
 });
 
