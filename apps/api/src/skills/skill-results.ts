@@ -4,9 +4,10 @@
  * drift apart on what the model is told.
  *
  * Operator skill packages are intentionally published: unlike Knowledge, the
- * real package and file paths are part of the model-facing contract, because a
- * skill's script and reference instructions are only usable once the agent can
- * construct absolute paths from them.
+ * package and file paths, as discovered beneath the configured source, are
+ * part of the model-facing contract, with the real package directory beside
+ * them, because a skill's script and reference instructions are only usable
+ * once the agent can construct absolute paths from them.
  */
 
 import { measureNativeModelOutput } from '@workspace/native-file-tools';
