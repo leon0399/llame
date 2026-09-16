@@ -51,9 +51,13 @@ export function readPromptSource(
  * change escaping for every other handlebars consumer in the process. Values
  * are escaped when the context is built instead (`escapeForPrompt`).
  *
- * ONE environment for every regime, packaged templates included: a `SafeString`
- * is recognized only by the environment that compiled the template rendering
- * it, so a second `create()` would escape every projected value a second time.
+ * ONE environment for every regime, packaged templates included. That is a
+ * simplification, not a correctness requirement: handlebars 4.7.9 shares
+ * `SafeString`, `Utils`, and `escapeExpression` across every `create()`
+ * environment, and escaping duck-types `value.toHTML` rather than testing
+ * `instanceof`, so a second environment would render the same projected
+ * SafeStrings verbatim. Nothing registers a helper or partial on this one, so
+ * a second buys nothing and costs a second compile cache.
  */
 const promptTemplates = Handlebars.create();
 
@@ -77,17 +81,16 @@ export function escapeForPrompt(value: string): string {
 
 /**
  * A value already neutralized and wrapped for a render. The ONLY shape a prompt
- * context value may take: handlebars recognizes it as content to emit verbatim,
- * which is what keeps the shared environment from escaping a projected value a
- * second time.
+ * context value may take: handlebars emits it verbatim, where a plain string
+ * would be escaped again on top of the neutralization already applied.
  */
 export type PromptSafeValue = Handlebars.SafeString;
 
 /**
  * Wraps an already-neutralized value so handlebars renders it verbatim. The one
- * way to construct a prompt `SafeString`, for the shared-environment reason on
- * `promptTemplates` — and the reason a packaged template's view values are
- * SafeStrings too even though its compilation disables escaping.
+ * way to construct a prompt `SafeString`, so every projected value takes that
+ * shape — including a packaged template's view values, whose compilation
+ * disables escaping anyway.
  */
 export function promptSafeString(value: string): PromptSafeValue {
   return new promptTemplates.SafeString(value);

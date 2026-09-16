@@ -223,10 +223,9 @@ export type ToolPromptRenderer = {
  * Renders one model's complete system prompt.
  *
  * Lives here rather than in the service that exposes it because the render
- * context is built with `promptSafeString` from the shared engine, and a value
- * must come from the SAME created Handlebars environment that renders it or the
- * engine escapes it a second time. `SystemPromptsService` is the injectable
- * wrapper over this.
+ * context must be built with `promptSafeString` from the shared engine: a
+ * plain string would be escaped by the engine on top of the neutralization
+ * already applied. `SystemPromptsService` is the injectable wrapper over this.
  */
 export function renderSystemPromptTemplate(
   input: RenderSystemPromptInput,
