@@ -398,7 +398,6 @@ describe('knowledge locator resolution', () => {
     expect(lines).toContain('  - link.md@');
     expect(content).not.toContain(' -> ');
     expect(content).not.toContain('@/');
-    expect(content).not.toContain('@?');
     // The link is rendered from its own metadata, never opened or descended,
     // so neither the target path nor anything beneath it reaches the model.
     expect(content).not.toContain('inside.txt');

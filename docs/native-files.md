@@ -159,7 +159,8 @@ by writing `$review`. Without that selection its body and resource reads return
   passages with this same multi-range syntax; overviews themselves are not
   implemented.
 - `read({ path: "/absolute/directory" })` returns a depth-2 listing:
-  directories first, then files, sorted by name under the host collation.
+  directories first, then files, sorted by name under the host collation. A
+  symbolic link sorts among the files by name whatever its target kind.
   Each entry renders as `- name/` (directory), `- name` (file),
   `- name@/ -> <target>` (symbolic link to a directory), `- name@ -> <target>`
   (symbolic link to a regular file), `- name@? -> <link text>` (a dangling

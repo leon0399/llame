@@ -11,7 +11,7 @@ Read a local UTF-8 regular file or list a directory; suggests similar names when
 
 <output>
 - Line-number prefixes are navigation metadata, never file bytes.
-- A file read on an absolute host path carries realPath when its canonical path differs from the path given; no other read or listing carries it.
+- A file read on an absolute host path carries realPath when its canonical path differs from the normalized path given, so a link-free path spelled with .. segments carries none; no other read or listing carries it.
 - Model-facing results are standard JSON text; decode JSON escapes before copying source into {{#if tools.edit}}edit oldText{{else}}a later exact replacement{{/if}}.
 </output>
 
