@@ -449,7 +449,7 @@
       "properties": {
         "maxOutputTokens": {
           "$ref": "#/$defs/nullableNumberOrToken",
-          "description": "Output-token reserve used when admitting a request against the model context window. It does not yet cap provider output; enforcing that cap remains part of the run-budget feature (#91). File-only (no legacy env var)."
+          "description": "Output-token reserve used when admitting a request against the model context window. It does not cap provider output; per-run spend is bounded by tools.maxStepsPerRun and runs.timeoutSeconds. File-only (no legacy env var)."
         },
         "heartbeatSeconds": {
           "$ref": "#/$defs/heartbeatSecondsOrToken",
@@ -457,7 +457,7 @@
         },
         "timeoutSeconds": {
           "$ref": "#/$defs/numberOrToken",
-          "description": "In-process wall-clock budget, in seconds: while its worker is alive, a run exceeding this is aborted in-process and recorded as a terminal run.expired (distinct from a user run.cancelled). Falls back to RUN_TIMEOUT_SECONDS, then 300."
+          "description": "In-process wall-clock budget, in seconds: while its worker is alive, a run exceeding this is aborted in-process and recorded as a terminal run.expired (distinct from a user run.cancelled). Falls back to RUN_TIMEOUT_SECONDS, then 900."
         }
       }
     },
@@ -506,7 +506,7 @@
         },
         "maxStepsPerRun": {
           "$ref": "#/$defs/numberOrToken",
-          "description": "Hard cap on tool-requesting steps per run before the loop stops offering tools and drives the model to answer from accumulated context. Falls back to the built-in default, 20."
+          "description": "Hard cap on tool-requesting steps per run before the loop stops offering tools and drives the model to answer from accumulated context. Falls back to the built-in default, 100."
         },
         "callTimeoutSeconds": {
           "$ref": "#/$defs/numberOrToken",
