@@ -34,7 +34,7 @@ The rail envelope, its `producer` and `form` attributes, and the provenance stat
 
 ### Requirement: Packaged item templates render from producer-owned values only
 
-A packaged item template SHALL render from its producer's own payload together with the view values that producer derives from the payload in the same module, such as booleans for closed kinds, human labels for closed reason codes, and pluralized or joined strings. No other value SHALL be supplied to it. In particular, per-user personalization, account identity, chat recency-digest collections and scalars, and the skill-catalog projection SHALL NOT be supplied, so that no persisted-literal item can carry a copy of owner personal data or another chat's title or excerpt beyond what the producer's own payload already contains under its capability's rules.
+A packaged item template SHALL render from its producer's own payload together with the view values that producer derives from the payload in the same module, such as booleans for closed kinds, human labels for closed reason codes, and pluralized or joined strings. No other value SHALL be supplied to it. In particular, the prefix projections that `model-system-prompts` defines for configured prompt files (`user.*`, `chats.*`, `skills.*`) SHALL NOT be supplied, so that no persisted-literal item can carry a copy of owner personal data or another chat's title or excerpt beyond what the producer's own payload already contains under its capability's rules. The recency-digest producer's own `entries` and pin changes are its payload and are unaffected.
 
 The names `model`, `context`, and `tools` SHALL be reserved and SHALL NOT be used as producer value names. The temporal item SHALL render from its own stored instant and zone, never from the prefix temporal anchor.
 
@@ -44,9 +44,9 @@ The names `model`, `context`, and `tools` SHALL be reserved and SHALL NOT be use
 - **THEN** the reference renders empty because no such value is supplied
 - **AND** no persisted item text contains the owner's personalization or identity values
 
-#### Scenario: The recency digest is not renderable in an item
+#### Scenario: The prefix digest projection is not renderable in an item
 
-- **WHEN** a packaged item template references a recency-digest collection or scalar
+- **WHEN** a packaged item template references a `chats.*` prefix-projection path
 - **THEN** the reference renders empty because no such value is supplied
 - **AND** digest content reaches the rail only through the recency-digest producer's own payload
 
