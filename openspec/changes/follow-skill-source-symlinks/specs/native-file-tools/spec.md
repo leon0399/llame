@@ -11,7 +11,7 @@ Results SHALL carry the logical locator, selected source, absolute `resolvedPath
 #### Scenario: Skill resource exposes the execution base
 
 - **WHEN** the model reads `skill://pdf/scripts/extract.py`
-- **THEN** the result includes the current script content and model-visible real file/package paths
+- **THEN** the result includes the current script content and model-visible file and package paths as discovered beneath the configured source, plus the real package directory
 - **AND** no script executes during the read
 
 #### Scenario: Skill root and directory differ
@@ -35,7 +35,6 @@ Results SHALL carry the logical locator, selected source, absolute `resolvedPath
 
 - **WHEN** a resource symlink resolves to a special file rather than a regular file or directory
 - **THEN** the read fails without opening it
-- **AND** a link that resolves to a regular file or directory anywhere on the host is followed
 
 #### Scenario: Mutation is unsupported
 
@@ -56,19 +55,25 @@ a regular file, `- name@/ -> <target>` for a symbolic link whose target is a dir
 a special entry, and `- name?` for any other entry kind such as a FIFO, socket,
 or device. `<target>` SHALL be the canonical absolute path the link resolves
 to, so that a model without shell access learns where a link leads; a
-dangling link SHALL show its raw link text because it cannot resolve.
-Rendering a link SHALL read its metadata and target path only and SHALL NOT
-open it. Symbolic links found as entries SHALL NOT be descended, and special
-entries SHALL NOT be opened or followed. A symbolic link given as the
+dangling link SHALL show its raw link text because it cannot resolve. A
+`kb://` listing SHALL render every symbolic link as the bare `- name@` with no
+target kind and no target, because a Knowledge result exposes no resolved host
+path. Rendering a link SHALL read its metadata and target path only, SHALL do
+so only for entries that are rendered, and SHALL NOT open it. Symbolic links
+found as entries SHALL NOT be descended whatever their target kind, and
+special entries SHALL NOT be opened or followed. A link whose target is a
+directory SHALL order among non-directory entries by name, as a link does
+today. A symbolic link given as the
 target path SHALL resolve to its target directory as file reads resolve today.
 Entries below the second level SHALL be counted but never rendered. A directory
 with no entries SHALL render `(empty directory)` as its only line after the
 header. Within one directory, entries SHALL be ordered with directories first
 and then by name under the runtime's default `localeCompare`. Entries SHALL be shown verbatim:
-hidden entries, ignore files, and entry metadata SHALL NOT alter the listing in
-this iteration. The listing SHALL be a pure function of entry names, kinds,
-counts, and that comparator, so two reads of an unchanged directory on one
-host produce identical content. The comparator resolves against the runtime's
+hidden entries, ignore files, and entry metadata other than a link's target
+kind and target SHALL NOT alter the listing in this iteration. The listing
+SHALL be a pure function of entry names, kinds, counts, link target kinds and
+targets, and that comparator, so two reads of a directory whose entries and
+link targets are unchanged on one host produce identical content. The comparator resolves against the runtime's
 default locale, so ordering is stable per host rather than defined across
 hosts. Result details SHALL identify the path and the
 directory kind, and listing lines SHALL carry no generated line-number
@@ -107,6 +112,12 @@ prefixes.
 - **THEN** the listing renders `- octocat@/ -> <canonical target directory>` and `- herdr@? -> <raw link text>`
 - **AND** neither link is descended or opened
 
+#### Scenario: Knowledge listing shows a link without its target
+
+- **WHEN** the model lists a `kb://` directory containing a symbolic link
+- **THEN** the link renders as `- name@` with no target kind and no target
+- **AND** the read of that link still fails `not_found`
+
 #### Scenario: Link rendering is deterministic and unaffected by siblings
 
 - **WHEN** an entry is added beside a symbolic link and the directory is read again
@@ -117,21 +128,21 @@ prefixes.
 
 ### Requirement: Reads through symbolic links report the real path
 
-When a file `read` on a host path opens a file whose canonical absolute path differs from the path as given, because the path or any component of it is a symbolic link, the result details SHALL carry that canonical path as `realPath`. Content SHALL be unchanged, the header and line numbering SHALL remain those of the path as given, and `realPath` SHALL be absent when the two paths are equal. `kb://` reads SHALL NOT carry it, because they refuse symbolic links. A `skill://` result SHALL carry the real package directory in its details beside the published link-path `skillDirectory` when the two differ.
+When a file `read` on an absolute host path opens a file whose canonical absolute path differs from the path as given, because the path or any component of it is a symbolic link, the result SHALL carry that canonical path as `realPath`. The header and line numbering SHALL remain those of the path as given; `realPath` SHALL count against the result bound like every other result field and SHALL be present before the result is measured, and SHALL be absent when the two paths are equal. `kb://` and `skill://` reads SHALL NOT carry `realPath`. A `skill://` result SHALL instead carry the real package directory as `realSkillDirectory` in its envelope when it differs from `skillDirectory`, reserved before content exactly as the other envelope fields are.
 
 #### Scenario: File read through a linked directory
 
 - **WHEN** the model reads `/home/u/.agents/skills/octocat/SKILL.md` and `octocat` is a symbolic link to `/home/u/dotfiles/skills/octocat`
 - **THEN** content and header are exactly those of the path as given
-- **AND** details carry `realPath: /home/u/dotfiles/skills/octocat/SKILL.md`
+- **AND** the result carries `realPath: /home/u/dotfiles/skills/octocat/SKILL.md`, counted within the result bound
 
 #### Scenario: Ordinary read carries no real path
 
 - **WHEN** the model reads a file whose path contains no symbolic link
-- **THEN** details carry no `realPath`
+- **THEN** the result carries no `realPath`
 
 #### Scenario: Skill result names both directories
 
 - **WHEN** the model reads `skill://octocat` and the package is a symbolic link beneath its configured source
 - **THEN** `skillDirectory` is the link path beneath the source
-- **AND** details also carry the real package directory
+- **AND** the envelope also carries `realSkillDirectory` with the real package directory
