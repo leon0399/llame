@@ -569,6 +569,23 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
             VALUES (${runId}, 'run.forged')`,
         ),
       ).rejects.toThrow(/row-level security|violates/i);
+
+      // Cancel denial: B's UPDATE matches zero rows under RLS, so A's run is
+      // never marked cancelled (the cancel endpoint's own WHERE is the second
+      // guard; this proves the datastore alone holds).
+      const cancelled = await asUser(
+        userBId,
+        (tx) => tx`
+          UPDATE runs SET cancel_requested_at = now()
+          WHERE id = ${runId}
+          RETURNING id`,
+      );
+      expect(cancelled.length).toBe(0);
+      const [run] = await asUser(
+        userAId,
+        (tx) => tx`SELECT cancel_requested_at FROM runs WHERE id = ${runId}`,
+      );
+      expect(run.cancel_requested_at).toBeNull();
     } finally {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`); // cascades to runs → run_events
     }

@@ -76,6 +76,8 @@ The fork SHALL copy the source Chat's `createdAt` and every frozen prompt baseli
 
 The destination SHALL be a new private, unarchived Chat with the existing title-copy behavior and no inherited pin or Project membership. Fork creation SHALL enqueue no Run and copy no Run, event, job, cancellation, worker, or native-effect state. The fork SHALL survive source deletion; receipts for inherited turns resolve only while the original Run exists.
 
+A fork SHALL confer no tool authority. Tool calls in a fork SHALL be evaluated exactly as in any Chat: by the executing process's permission policy and the caller's identity at call time. Copied history, receipts, and tool results SHALL NOT be read as approvals, and no approval or permission state SHALL be copied, because none is stored per Chat or per Run.
+
 The shared/public fork path SHALL remain the public transcript projection and SHALL receive no compaction, digest or skill baseline, usage, timestamp, or creation time.
 
 #### Scenario: A visitor forks a public compacted Chat
@@ -83,3 +85,9 @@ The shared/public fork path SHALL remain the public transcript projection and SH
 - **WHEN** another user forks the source through the shared/public route
 - **THEN** the copy contains only the public transcript projection
 - **AND** it has no compactions, baselines, usage, or copied creation time
+
+#### Scenario: A fork calls a tool its source once used
+
+- **WHEN** the owner continues a fork whose copied history contains a completed tool call
+- **THEN** the new call is evaluated by the current process policy and the owner's identity
+- **AND** the copied result grants nothing the current evaluation would deny
