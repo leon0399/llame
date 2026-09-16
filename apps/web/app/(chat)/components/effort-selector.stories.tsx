@@ -11,6 +11,7 @@ import { ChatProvider } from "@/contexts/chat-context";
 import * as modelQueries from "@/lib/services/models/queries";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import { EffortSelector } from "./effort-selector";
+import { ModelSelector } from "./model-selector";
 import { PromptInputButton } from "./prompt-input";
 
 const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
@@ -44,8 +45,41 @@ const PLAIN_MODEL: AvailableModel = {
   contextWindowTokens: 128_000,
 };
 
-function catalog(model: AvailableModel) {
-  return { defaultModelId: model.id, models: [model] };
+/** Declares a `reasoning` object whose vocabulary is EMPTY — the api's other
+ *  way of saying this model accepts no effort. */
+const EMPTY_VOCABULARY_MODEL: AvailableModel = {
+  id: "system:openai:no-effort",
+  source: "system",
+  name: "No Effort",
+  contextWindowTokens: 128_000,
+  reasoning: {
+    effortLevels: [],
+    defaultEffort: "n/a",
+    cacheInvalidatedByEffortChange: false,
+  },
+};
+
+/** A second real vocabulary sharing NO level with REASONING_MODEL: `medium`
+ *  does not exist here, so a carried-over selection cannot survive the
+ *  switch. */
+const TERSE_MODEL: AvailableModel = {
+  id: "system:openai:terse",
+  source: "system",
+  name: "Terse",
+  contextWindowTokens: 128_000,
+  reasoning: {
+    effortLevels: [{ value: "x" }, { value: "y", label: "Y" }],
+    defaultEffort: "x",
+    cacheInvalidatedByEffortChange: true,
+  },
+};
+
+/** A catalog whose default model is the one listed first. */
+function catalog(
+  defaultModel: AvailableModel,
+  ...others: Array<AvailableModel>
+) {
+  return { defaultModelId: defaultModel.id, models: [defaultModel, ...others] };
 }
 
 const meta = {
@@ -159,11 +193,36 @@ export const NoReasoningVocabulary: Story = {
 };
 
 /**
+ * A model whose vocabulary is DECLARED but empty accepts no effort either:
+ * there is a `reasoning` object, and nothing in it to choose. The control must
+ * still render nothing — seeding `defaultEffort` here would set and send a
+ * level the user can neither see nor drag the slider to.
+ *
+ * @summary renders nothing for a declared but empty vocabulary
+ */
+export const EmptyEffortVocabulary: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useModelsQuery.mockReturnValue({
+      data: catalog(EMPTY_VOCABULARY_MODEL),
+      isError: false,
+      isPending: false,
+    });
+  },
+  play: async ({ canvas, canvasElement }) => {
+    await expect(canvas.queryByRole("button")).toBeNull();
+    await expect(canvasElement.textContent).toBe("");
+  },
+};
+
+/**
  * Dragging the slider updates the trigger label live, before the popup is
  * dismissed — the point of a slider here is that the trade-off is legible
- * while choosing, not only after committing.
+ * while choosing, not only after committing. The popup carries the same level
+ * in a live region, because the slider's own value is a position INDEX and
+ * would be announced as a meaningless number.
  *
- * @summary slider selection updates the trigger label live
+ * @summary slider selection updates the trigger label and the announced level
  */
 export const SelectsWithKeyboard: Story = {
   tags: ["ai-generated"],
@@ -187,6 +246,128 @@ export const SelectsWithKeyboard: Story = {
 
     await waitFor(async () => {
       await expect(trigger.textContent).toContain("high");
+      // The trigger shows the same string, so the live region has to be
+      // selected by the attribute that makes it one.
+      await expect(
+        within(document.body).getByText("high", { selector: "[aria-live]" }),
+      ).toBeTruthy();
+    });
+  },
+};
+
+/**
+ * Switching to a model that declares no effort vocabulary takes the cell out
+ * of the composer. The picker drives the change because it is the only surface
+ * that changes the selected model — the cell has to follow the model the user
+ * actually chose, not the one the catalog started on.
+ *
+ * @summary switching to a model without a vocabulary removes the cell
+ */
+export const SwitchingToModelWithoutVocabulary: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useModelsQuery.mockReturnValue({
+      data: catalog(REASONING_MODEL, PLAIN_MODEL),
+      isError: false,
+      isPending: false,
+    });
+  },
+  decorators: [
+    (Story) => (
+      <ChatProvider>
+        {/* The shipped composer pair in the group it ships in. */}
+        <ButtonGroup>
+          <ModelSelector />
+          <Story />
+        </ButtonGroup>
+      </ChatProvider>
+    ),
+  ],
+  play: async ({ canvas }) => {
+    // Starts on the reasoning model, so there is a cell to lose.
+    await waitFor(async () => {
+      await expect(
+        canvas.getByRole("button", { name: /Reasoning effort/ }),
+      ).toBeTruthy();
+    });
+
+    await userEvent.click(canvas.getByRole("combobox"));
+
+    // The picker is portalled, so query the document rather than the canvas.
+    await userEvent.click(
+      await within(document.body).findByRole("option", { name: "Plain" }),
+    );
+
+    await waitFor(async () => {
+      await expect(
+        canvas.queryByRole("button", { name: /Reasoning effort/ }),
+      ).toBeNull();
+    });
+
+    // The picker stays mounted through its exit transition, and the hidden
+    // focus guards Base UI parks beside its trigger outlive it by a frame or
+    // two — long enough for the a11y run to sample them and flag them as
+    // focusable inside an aria-hidden node. Wait the teardown out.
+    await waitFor(() => {
+      expect(
+        document.querySelectorAll("[data-base-ui-focus-guard]"),
+      ).toHaveLength(0);
+    });
+  },
+};
+
+/**
+ * Switching to a model whose vocabulary does not contain the current level
+ * moves the control to the NEW model's own default, not to the position the
+ * old level occupied: `medium` is the reasoner's middle level and `y` is
+ * Terse's last, so a positional carry-over would land on a level this model
+ * never declared as its default.
+ *
+ * @summary a carried-over level is replaced by the new model's own default
+ */
+export const SwitchingModelResetsEffort: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useModelsQuery.mockReturnValue({
+      data: catalog(REASONING_MODEL, TERSE_MODEL),
+      isError: false,
+      isPending: false,
+    });
+  },
+  decorators: [
+    (Story) => (
+      <ChatProvider>
+        <ButtonGroup>
+          <ModelSelector />
+          <Story />
+        </ButtonGroup>
+      </ChatProvider>
+    ),
+  ],
+  play: async ({ canvas }) => {
+    await waitFor(async () => {
+      await expect(
+        canvas.getByRole("button", { name: "Reasoning effort, medium" }),
+      ).toBeTruthy();
+    });
+
+    await userEvent.click(canvas.getByRole("combobox"));
+    await userEvent.click(
+      await within(document.body).findByRole("option", { name: "Terse" }),
+    );
+
+    await waitFor(async () => {
+      await expect(
+        canvas.getByRole("button", { name: "Reasoning effort, x" }),
+      ).toBeTruthy();
+    });
+
+    // As in the story above: let the picker's closed-state teardown finish
+    // before the a11y run samples the DOM.
+    await waitFor(() => {
+      expect(
+        document.querySelectorAll("[data-base-ui-focus-guard]"),
+      ).toHaveLength(0);
     });
   },
 };

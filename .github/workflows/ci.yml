@@ -75,7 +75,9 @@ jobs:
 
       # Coverage and function-level CRAP replace the plain test command for
       # these workspaces, so the suite runs once and both thresholds gate CI.
-      - run: pnpm exec turbo run test:coverage --filter=web --filter=@workspace/config-interpolation --filter=@workspace/runtime-safety
+      # `web` is absent by design: half of its gate renders stories in a real
+      # browser, so it runs in the `component` job's Playwright image.
+      - run: pnpm exec turbo run test:coverage --filter=@workspace/config-interpolation --filter=@workspace/runtime-safety
 
   build:
     name: Build
@@ -171,9 +173,9 @@ jobs:
           if-no-files-found: ignore
 
   component:
-    name: Component tests (Storybook)
+    name: Component tests (Storybook + web)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     needs: [typecheck, unit]
     # The Playwright image ships the browser and its system libraries, so this
     # job skips `playwright install --with-deps` entirely. Safe here because
@@ -217,6 +219,12 @@ jobs:
             turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.github/workflows/ci.yml') }}-
 
       - run: pnpm exec turbo run test:component build --filter=storybook
+
+      # apps/web's gate is one Vitest run over both of its projects: node and
+      # jsdom tests plus its stories in Chromium, so a single coverage report
+      # spans the whole workspace. It needs this job's browser, hence not the
+      # `unit` job.
+      - run: pnpm exec turbo run test:coverage --filter=web
 
   browser-e2e:
     name: Product e2e (Playwright)

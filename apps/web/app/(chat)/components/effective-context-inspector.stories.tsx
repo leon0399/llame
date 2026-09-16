@@ -67,12 +67,16 @@ export const Receipt: Story = {
         name: "System prompt receipt",
       }),
     );
+    await expect(dialog.getByText(RECEIPT.modelId)).toBeVisible();
     await expect(dialog.getByText("Model-specific override")).toBeVisible();
     await expect(
       dialog.getByText("You are the complete model-specific prompt."),
     ).toBeVisible();
     await expect(dialog.getByText("7f07b813")).toBeVisible();
     await expect(dialog.getByText("prepared")).toBeVisible();
+    // This receipt carries no effort, so the row must be absent rather than
+    // rendered empty (see the Effort story for the other side).
+    await expect(dialog.queryByText("Effort")).toBeNull();
     // Tool declarations are runtime-only by contract, so nothing the client
     // renders may be tool-labelled. A data-value query could never fail: the
     // picked receipt type carries no tool data to render.
@@ -98,5 +102,123 @@ export const Loading: Story = {
       isError: false,
       data: undefined,
     });
+  },
+};
+
+/**
+ * A receipt that ran at an explicit reasoning effort: the metadata grows the
+ * Effort row, so the owner auditing a prompt can see which setting shaped it.
+ *
+ * @summary effort row shown when the run carried a setting
+ */
+export const Effort: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useRunContextReceipt.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: { ...RECEIPT, effort: "high" },
+    });
+  },
+  play: async () => {
+    const dialog = within(
+      await within(document.body).findByRole("dialog", {
+        name: "System prompt receipt",
+      }),
+    );
+    await expect(dialog.getByText("Effort")).toBeVisible();
+    await expect(dialog.getByText("high")).toBeVisible();
+  },
+};
+
+/**
+ * The attempt ran the project's own system prompt instead of a
+ * model-specific override — the Source row names which prompt actually ran,
+ * so the label follows the receipt rather than a fixed string.
+ *
+ * @summary project-default prompt source labelled
+ */
+export const ProjectDefault: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useRunContextReceipt.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        ...RECEIPT,
+        receipts: [{ ...RECEIPT.receipts[0], promptSource: "project_default" }],
+      },
+    });
+  },
+  play: async () => {
+    const dialog = within(
+      await within(document.body).findByRole("dialog", {
+        name: "System prompt receipt",
+      }),
+    );
+    await expect(dialog.getByText("Project default")).toBeVisible();
+  },
+};
+
+/**
+ * The receipt query failed: the panel says the receipt could not be loaded
+ * instead of leaving an empty metadata block, so a failure is never read as a
+ * run that prepared no prompt.
+ *
+ * @summary failed receipt query reports itself
+ */
+export const Error: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useRunContextReceipt.mockReturnValue({
+      isPending: false,
+      isError: true,
+      data: undefined,
+    });
+  },
+  play: async () => {
+    const dialog = within(
+      await within(document.body).findByRole("dialog", {
+        name: "System prompt receipt",
+      }),
+    );
+    await expect(
+      dialog.getByText("Could not load the receipt for this run."),
+    ).toBeVisible();
+  },
+};
+
+/**
+ * A run still queued has no attempt yet: the panel says the prompt is coming,
+ * which is a different answer from "no receipt was produced".
+ *
+ * @summary queued run with no prepared attempt
+ */
+export const Queued: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useRunContextReceipt.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        ...RECEIPT,
+        state: "pending",
+        activeAttemptId: undefined,
+        completedAttemptId: undefined,
+        receipts: [],
+      },
+    });
+  },
+  play: async () => {
+    const dialog = within(
+      await within(document.body).findByRole("dialog", {
+        name: "System prompt receipt",
+      }),
+    );
+    await expect(
+      dialog.getByText(
+        "This run is queued; no attempt has prepared a prompt yet.",
+      ),
+    ).toBeVisible();
   },
 };

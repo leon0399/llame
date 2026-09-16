@@ -29,9 +29,9 @@
  * Step-cap notice rendering (D6, the `data-cap-notice` part) is NOT covered
  * here: forcing 8 tool-requesting turns deterministically through the mock
  * would be a disproportionate amount of e2e scaffolding for what the cap
- * chip actually needs proven (that it renders, identically live and from
- * history) — that's covered by a component test instead
- * (tool-cap-notice-part.test.tsx), consistent with the task's documented
+ * chip actually needs proven (that it renders) — that's covered by
+ * tool-cap-notice-part.stories.tsx, with the persisted-part parsing covered
+ * by tool-cap-notice-part.test.tsx, consistent with the task's documented
  * fallback for an impractical-to-seed e2e scenario.
  */
 

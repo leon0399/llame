@@ -8,6 +8,10 @@ import type { StorybookConfig } from "@storybook/nextjs-vite";
 const webRoot = fileURLToPath(new URL("../../web", import.meta.url));
 
 const config: StorybookConfig = {
+  // apps/web loads this configuration through the Vitest plugin for its own
+  // story project, so a plain `pnpm --filter web test` would otherwise
+  // prepare a telemetry request and write the session cache on every run.
+  core: { disableTelemetry: true },
   framework: "@storybook/nextjs-vite",
   // Component stories live in packages/ui; page/meta-component stories (chat +
   // project list items, pinned rail) live co-located in apps/web. Scope the

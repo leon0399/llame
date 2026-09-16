@@ -177,3 +177,34 @@ export const LoadFailed: Story = {
     await expect(refetchMemory).toHaveBeenCalled();
   },
 };
+
+/**
+ * A rejected save has to be announced. The mutation only reports `isError`
+ * once the PATCH settles, so the alert arrives after the owner has already
+ * moved on — without the alert role nothing tells them the write failed, and
+ * a privacy switch that did not take reads exactly like one that did. The
+ * toggle stays mounted underneath, so retrying is one click rather than a
+ * reload.
+ *
+ * @summary failed save, announced beside a still-reachable switch
+ */
+export const SaveFailed: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useUpdateMemoryMutation.mockReturnValue({
+      isError: true,
+      mutate: updateMemoryMutate,
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.getByRole("alert")).toHaveTextContent(
+      "Could not save. Try again.",
+    );
+    // The failure does not withdraw the control that caused it.
+    await expect(
+      canvas.getByRole("switch", { name: "Share my recent chats" }),
+    ).toBeInTheDocument();
+  },
+};
