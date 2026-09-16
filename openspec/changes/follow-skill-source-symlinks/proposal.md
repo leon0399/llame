@@ -1,13 +1,13 @@
 ## Why
 
-The skill catalog refuses a package that is a symbolic link unless its real directory lies under one of the configured sources. An operator whose skills directory is a set of links into a dotfiles checkout or another tool's skill store gets 8 of 41 packages. Every reference harness (oh-my-pi, Codex CLI, OpenCode, Claude Code) follows package symlinks from an operator-configured root wherever they point and reserves containment for third-party plugin roots; llame applies the plugin rule to every root. This proposal owns issue #868.
+The skill catalog refuses a package that is a symbolic link unless its real directory lies under one of the configured sources, and contains every link inside a package to that package's real directory. An operator whose skills directory is a set of links into a dotfiles checkout or another tool's skill store gets 8 of 41 packages. oh-my-pi, Codex CLI, OpenCode, and Claude Code all follow package symlinks from an operator-configured root wherever they point; oh-my-pi additionally never resolves real paths and publishes the link path it discovered. llame is the outlier, and the outlier costs three containment algorithms and a `realpath` port. This proposal owns issue #868.
 
 ## What Changes
 
-- A symbolic link that is an immediate child of a configured skill source resolves to its real directory, and that directory need not lie under any configured source. A configured source is trusted by being configured.
-- Unchanged: a dangling or non-directory package link is an unavailable entry with a diagnostic; `SKILL.md`, sidecars, and `skill://<name>/<path>` resources stay contained to the resolved real package; the published `skillDirectory` is the real path; later sources still override earlier ones by name; `kb://` keeps refusing every symbolic link.
-- The package-symlink rule moves from the `native-file-tools` skill-locator requirement to `agent-skills`, which owns discovery; the resource-containment rule stays in `native-file-tools`.
-- One real-path containment helper replaces the duplicated `isInside` copies and the three skill containment algorithms, and the Knowledge Space late check adopts it. Behavior otherwise unchanged.
+- Skill discovery and `skill://` reads apply ordinary operating-system link semantics and perform no symbolic-link resolution, verification, or containment. A configured source is trusted by being configured.
+- A symlinked immediate child of a source is a package when it resolves to a directory holding `SKILL.md`, wherever that directory lies. Links inside a package are followed wherever they point, including a `SKILL.md` that is itself a link. A child link that cannot be resolved or is not a directory stays an unavailable entry with a diagnostic.
+- Published `skillDirectory` and `resolvedPath` are the paths as discovered beneath the configured source (the link path), not resolved real paths. A source root that is itself a link publishes its link path too.
+- **BREAKING** for a spec scenario, not for any user: the "Escaping link fails" scenario and the "resource symlink SHALL resolve only within the selected real package" rule are removed, along with the root-union containment and the `realPath` catalog port. Nothing else about skills, `kb://` (which keeps refusing every link), `bash`, or directory listings changes.
 
 ## Capabilities
 
@@ -17,14 +17,14 @@ _None._
 
 ### Modified Capabilities
 
-- `agent-skills`: configured sources may contain package symlinks resolving anywhere on the host; discovery resolves them to their real directory; dangling links are unavailable entries; package-internal containment is unchanged.
-- `native-file-tools`: the skill-locator requirement no longer constrains where a package symlink resolves; it keeps resource containment to the selected real package and the refusal of escaping links and special files.
+- `agent-skills`: sources may contain package symlinks resolving anywhere; discovery and reads follow operating-system semantics with no containment; dangling child links are unavailable entries; published paths are the discovered link paths.
+- `native-file-tools`: the skill-locator requirement drops resource containment and escaping-link refusal, keeps the special-file refusal, and publishes discovered rather than real paths.
 
 ## Impact
 
-- `apps/api/src/skills/skill-catalog.ts`: `resolvePackageDirectory` drops the root-union check and keeps the dangling/non-directory diagnostics; `escapesPackage` and `skill-target.ts` `containIntoPackage` call one shared helper.
-- `apps/api/src/skills/skill-target.ts`, `apps/api/src/knowledge/knowledge-filesystem.ts`: adopt the helper (`isInsideSpace`), no behavior change.
-- New helper module beside the existing path helpers in `packages/native-file-tools` (the package already owns `path.ts` and the `O_NOFOLLOW` policy), exporting a real-path-inside-root check and the nearest-existing-ancestor walk `skill-target.ts` already implements.
-- Tests: `skill-catalog.test.ts` "refuses a child symlink resolving outside every configured source" inverts into "admits a child symlink resolving outside every configured source"; "admits a child symlink whose real target is inside a configured source", the dangling and escaping-resource scenarios, and every Knowledge symlink test pass unmodified.
-- Docs: `docs/` skill operator guidance states that sources may link to packages anywhere on the host and that the operator is trusted for those links; `CHANGELOG.md` entry.
-- Out of scope: per-source `followSymlinks` configuration (Agent Plugins, #784, will get the contained rule); deduplication by real path across differently named entries; `kb://`, `bash` cwd, and directory-listing traversal (#714).
+- `apps/api/src/skills/skill-catalog.ts`: `resolvePackageDirectory` keeps only "is it a directory with a `SKILL.md`" plus the unresolved-link diagnostic; `escapesPackage`, `isInside`, and the `realPath` port are deleted; `fileKind` no longer branches on links beyond following them.
+- `apps/api/src/skills/skill-target.ts`: `containIntoPackage`, `nearestExistingAncestor`, and `isInside` are deleted; the resolved host path is the discovered package path joined with the validated resource segments.
+- `apps/api/src/tools/native-files.ts` `executeSkill`: reads through the link-following reader `packages/native-file-tools` already uses for host paths, keeping the skill result envelope and reserve.
+- Tests: `skill-catalog.test.ts` "refuses a child symlink resolving outside every configured source", "refuses a SKILL.md symlink that resolves outside its package directory", "refuses a sidecar symlink that resolves outside its package directory", and `skill-target.test.ts` "refuses a resource symlink resolving outside the package" invert to admission tests; "follows a configured source root symlink to its real directory" and "reads a package whose configured source root is a symlink" change their expected path to the link path; dangling-link tests pass unmodified; every Knowledge symlink test is untouched.
+- Docs: `docs/skills.md` states that sources may link to packages anywhere on the host, that links are followed without verification, and that the operator is trusted for them; `CHANGELOG.md` entry.
+- Out of scope: per-source link configuration (Agent Plugins, #784, may introduce a contained source class); deduplication by real path; `kb://`, `bash` cwd, and directory-listing traversal (#714).
