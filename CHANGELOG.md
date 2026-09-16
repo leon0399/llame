@@ -17,6 +17,39 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   suite. Background:
   [docs/research/testing/2026-09-16-vitest-browser-mode.md](docs/research/testing/2026-09-16-vitest-browser-mode.md).
 
+- Every model-facing body llame authors now renders from a packaged Handlebars
+  `.md` file colocated with its producing module, through one shared engine.
+  Sixteen bodies moved: the eleven context-item bodies and the compaction
+  checkpoint, both summarization instructions, the title system and user
+  prompts, the untrusted-output framing around every tool result, and the four
+  closed result notices. The Handlebars environment, compile cache, prompt-file
+  read and normalization, and escaping helpers moved out of the operator prompt
+  loader into `apps/api/src/prompts/template-engine.ts`; the loader keeps its
+  strict validator, allowlist, and boot probes, which still govern exactly the
+  two operator-replaceable surfaces. Packaged templates are not configuration:
+  no new key, no operator replacement, no boot probe. They compile with
+  `noEscape`, and each producer keeps neutralizing untrusted text exactly where
+  it did before.
+
+  Rendered bytes are unchanged on every surface except one. The model-switch
+  body now names both models, each as its display name followed by its
+  llame-internal id and, when the operator catalog carries one, its provider
+  model id; the display name falls back to the internal id and the provider
+  clause is omitted when either is unknown. Its persisted payload still carries
+  only the two model ids, so items written before this change still validate
+  and a later catalog edit cannot rewrite what a historical turn rendered.
+
+  `COMPACTION_SECTION_HEADINGS`, `COMPACTION_MARKDOWN_SECTIONS`,
+  `STANDING_CONTEXT_EXCLUSION`, `DIGEST_PRECEDENCE`,
+  `CONVERSATION_HISTORY_UNTRUSTED_NOTICE`, and
+  `CONVERSATION_HISTORY_AUTHORITY_NOTICE` are removed; their sentences are
+  template text, and the surfaces whose tests compared a constant to itself
+  gained independently authored literal pins. Result content composed by tool
+  implementations, the permission layer, and result truncation stays in code, as
+  do the closed reason-code label maps and the rail provenance line. Adding a
+  model-facing body now means one `.md` file, one render call, one literal pin,
+  and one import in the built-runtime contract.
+
 - Raise the built-in Run caps: `tools.maxStepsPerRun` from 20 to 100 and
   `runs.timeoutSeconds` from 300 to 900. The old defaults were set before the
   tool loop existed and bound an ordinary multi-step Run well below peer

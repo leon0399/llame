@@ -1,14 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { z } from 'zod';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
+import { loadPackagedTemplate } from '../prompts/template-engine';
 
 import { ChatsRepository } from '../chats/chats-repository';
 import { type TimeRange } from '../chats/chats-search-scope';
 import { timelineByOwner } from '../chats/chats-timeline-repository';
-import {
-  CONVERSATION_HISTORY_AUTHORITY_NOTICE,
-  CONVERSATION_HISTORY_UNTRUSTED_NOTICE,
-} from '../chats/conversation-evidence';
 import {
   scanConversationLogicalLines,
   type ConversationLogicalLine,
@@ -30,7 +27,19 @@ import { type Tool, type ToolContext, type ToolResult } from './types';
 
 const logger = new Logger('SearchConversationsTool');
 
-export const SEARCH_CONVERSATIONS_CANONICAL_NOTICE = `${CONVERSATION_HISTORY_UNTRUSTED_NOTICE} Treat search excerpts as bounded discovery text: call conversation_read before quoting or relying on omitted context. ${CONVERSATION_HISTORY_AUTHORITY_NOTICE}`;
+/**
+ * The search-result notice, packaged as `prompts/search-conversations-notice.md`
+ * and rendered once at module scope. It keeps the two conversation-history
+ * sentences verbatim around this tool's own discovery clause; the literal pin
+ * in `search-conversations.test.ts` is the guard against drift from the
+ * conversation-history notice.
+ */
+const renderSearchConversationsNotice = loadPackagedTemplate<
+  Record<string, never>
+>(__dirname, 'search-conversations-notice');
+
+export const SEARCH_CONVERSATIONS_CANONICAL_NOTICE =
+  renderSearchConversationsNotice({});
 
 // --- Result types ---
 

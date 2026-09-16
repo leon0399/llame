@@ -11,6 +11,7 @@ import path, { join } from 'node:path';
 import { SkillCatalog } from './skill-catalog';
 import {
   NO_SKILL_SELECTION,
+  SKILL_PATH_INSTRUCTION,
   isSkillCatalogResult,
   resolveSkillLocator,
 } from './skill-target';
@@ -379,5 +380,21 @@ describe('resolveSkillLocator', () => {
       status: 'error',
       type: 'skill_unavailable',
     });
+  });
+});
+
+/**
+ * Packaged-template pin. The instruction is a field of every skill read, so its
+ * bytes reach the model verbatim; the expected value is written out here rather
+ * than matched against the constant the template renders, which would pass no
+ * matter which bytes the file held. It is deliberately not the rail's path
+ * guidance in `chats/prompts/skill-activation.md`: two different sentences for
+ * two different surfaces.
+ */
+describe('SKILL_PATH_INSTRUCTION', () => {
+  it('pins the packaged instruction byte for byte', () => {
+    expect(SKILL_PATH_INSTRUCTION).toBe(
+      'Resolve package-relative references and script paths against skillDirectory and use the resulting absolute paths in tool calls. Preserve task-relative input arguments as given, and choose `cwd` explicitly when a script requires its own directory.',
+    );
   });
 });

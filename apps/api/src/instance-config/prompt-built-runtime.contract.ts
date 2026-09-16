@@ -76,3 +76,14 @@ import '../compaction/compaction';
 
 // Same proof for `titles/prompts/*.md`: `titles/title` loads both at import.
 import '../titles/title';
+
+// Same proof for `knowledge/prompts/*.md`: `knowledge/knowledge-content-notice`
+// loads the content notice at import.
+import '../knowledge/knowledge-content-notice';
+
+// Same proof for `skills/prompts/*.md`: `skills/skill-target` loads the path
+// instruction at import.
+import '../skills/skill-target';
+
+// Same proof for `tools/prompts/*.md`, via the search-result notice.
+import '../tools/search-conversations';

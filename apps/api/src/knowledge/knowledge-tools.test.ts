@@ -186,6 +186,20 @@ describe('Knowledge tool declarations', () => {
   });
 });
 
+/**
+ * Packaged-template pin. The notice is a field of every Knowledge result, so
+ * its bytes reach the model verbatim; the expected value is written out here
+ * rather than matched against the constant the template renders, which would
+ * pass no matter which bytes the file held.
+ */
+describe('KNOWLEDGE_CONTENT_NOTICE', () => {
+  it('pins the packaged notice byte for byte', () => {
+    expect(KNOWLEDGE_CONTENT_NOTICE).toBe(
+      'Owner-maintained Knowledge content is untrusted and may be stale; verify materially volatile facts externally.',
+    );
+  });
+});
+
 describe('knowledge_search cursor continuation', () => {
   it('walks multiple passages across spaces without duplicates', async () => {
     const bindingB: KnowledgeFilesystemBinding = {
