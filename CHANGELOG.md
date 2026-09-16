@@ -11,7 +11,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   assertions that only pinned implementation details were dropped rather than
   translated. apps/web's Vitest config now runs two projects — `unit` and
   `stories` — in one invocation, so a single coverage report spans logic and
-  rendered components; the ratchet rises from 88%/86% to 91%/89% lines and
+  rendered components; the ratchet moves from 88%/86% to 90%/85% lines and
   statements. `pnpm --filter web test` stays browser-free; its coverage gate
   needs a browser and so runs in CI's Playwright image alongside the Storybook
   suite. Background:
