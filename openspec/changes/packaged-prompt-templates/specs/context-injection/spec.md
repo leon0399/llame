@@ -1,0 +1,49 @@
+## ADDED Requirements
+
+### Requirement: Producer item bodies are packaged templates rendered at author time
+
+Each producer's model-facing body MUST be authored as a packaged template file owned by that producer and shipped with the executing process, rendered once when the item is authored or staged, and persisted under the existing persisted-literal rule. Packaged item templates SHALL NOT be operator configuration: no configuration key SHALL select, replace, or disable one, and an edit SHALL take effect only for items authored by a process built from the edited source.
+
+Packaged item templates are outside the boot-time validation, path allowlist, and value escaping that `instance-config` defines for configured prompt files. The producer SHALL remain responsible for neutralizing every value it did not author before that value is rendered, using the reserved-delimiter rules `instance-config` defines, and the engine SHALL add no escaping of its own, so that rendered bytes are exactly what the producer prepared.
+
+The rail envelope, its `producer` and `form` attributes, and the provenance statement SHALL remain produced by the rail around the rendered body; a packaged item template SHALL render the body only.
+
+#### Scenario: Rendered item bytes are unchanged by the move to a template
+
+- **WHEN** a producer that previously rendered its body from code renders the same payload from its packaged template
+- **THEN** the persisted item text is byte-identical to the previous rendering
+- **AND** the envelope and provenance statement are unchanged
+
+#### Scenario: A foreign value carries a reserved delimiter
+
+- **WHEN** a payload value the producer did not author contains the rail's reserved delimiter name as a tag
+- **THEN** the rendered body carries it neutralized exactly as before the template migration
+- **AND** the rendered body contains one envelope
+
+#### Scenario: A template edit does not alter stored items
+
+- **WHEN** a packaged item template changes in a later release
+- **THEN** every item persisted before that release replays its stored text unchanged
+- **AND** only items authored by the new release use the new wording
+
+#### Scenario: No configuration selects a packaged item template
+
+- **WHEN** an operator configuration attempts to name a replacement for a producer's item template
+- **THEN** startup rejects the unknown key under the closed schema
+- **AND** no producer body is read from an operator path
+
+### Requirement: Persisted-literal items render from a core-only context
+
+The shared context available to a packaged item template SHALL expose only the selected model's public id and name, the chat's temporal anchor, and admitted-tool predicates, together with the producer's own payload. Per-user personalization, account identity, and the chat recency digest SHALL NOT be exposed to a packaged item template, so that no persisted-literal item can carry a copy of owner personal data or another chat's title or excerpt beyond what the producer's own payload already contains under its capability's rules.
+
+#### Scenario: Owner personalization is not renderable in an item
+
+- **WHEN** a packaged item template references a per-user personalization or account-identity path
+- **THEN** the reference resolves to nothing at render time
+- **AND** no persisted item text contains the owner's personalization or identity values
+
+#### Scenario: The recency digest is not renderable in an item
+
+- **WHEN** a packaged item template references a recency-digest collection or scalar
+- **THEN** the reference resolves to nothing at render time
+- **AND** digest content reaches the rail only through the recency-digest producer's own payload
