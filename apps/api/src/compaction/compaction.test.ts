@@ -404,24 +404,33 @@ describe('buildCompactionRequest', () => {
     expect(COMPACTION_WINDOW_RATIO).toBe(0.8);
   });
 
-  it('requests the stable operational-handoff Markdown sections', () => {
-    // Authored independently of prompts/instruction.md (#57's acceptance
-    // criteria). Reading the headings out of the template would let a dropped
-    // section still pass.
-    const EXPECTED_HEADINGS = [
-      'Objective',
-      'Constraints and Preferences',
-      'Decisions and Rationale',
-      'Established Facts',
-      'Current State',
-      'Open Questions and Next Steps',
-      'Critical References',
-    ];
-    for (const heading of EXPECTED_HEADINGS) {
-      expect(COMPACTION_INSTRUCTION).toContain(`## ${heading}`);
-    }
-    expect(COMPACTION_INSTRUCTION).toContain('Output only the summary');
-  });
+  it.each([
+    ['COMPACTION_INSTRUCTION', COMPACTION_INSTRUCTION],
+    ['TRANSITION_COMPACTION_INSTRUCTION', TRANSITION_COMPACTION_INSTRUCTION],
+  ])(
+    '%s requests the stable operational-handoff Markdown sections, in order',
+    (_label, instruction) => {
+      // Authored independently of the instruction templates (#57's acceptance
+      // criteria). Reading the headings out of a template would let a dropped
+      // section still pass. Asserted as one contiguous block, and against BOTH
+      // instructions: each template now carries its own copy of the heading
+      // list, so a per-heading presence check on one instruction would let the
+      // other's membership or order drift while both promise "in this order".
+      const EXPECTED_HEADINGS = [
+        'Objective',
+        'Constraints and Preferences',
+        'Decisions and Rationale',
+        'Established Facts',
+        'Current State',
+        'Open Questions and Next Steps',
+        'Critical References',
+      ];
+      expect(instruction).toContain(
+        EXPECTED_HEADINGS.map((heading) => `## ${heading}`).join('\n'),
+      );
+      expect(instruction).toContain('Output only the summary');
+    },
+  );
 
   it('gives the compaction model semantically relevant availability history to preserve', () => {
     const affectedTurn = msg('Use the docs lookup once it recovers.');

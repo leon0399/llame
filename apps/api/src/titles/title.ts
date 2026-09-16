@@ -18,9 +18,13 @@ import { loadPackagedTemplate } from '../prompts/template-engine';
 
 /**
  * The title system prompt, packaged as `prompts/system.md` and rendered once at
- * module scope. It stays a frozen string rather than a render function because
- * `FakeStreamingModelClient` recognizes a title request by strict identity
- * against it (`input.system === TITLE_SYSTEM_PROMPT`).
+ * module scope. It stays an exported string, not a render function:
+ * `title.service` passes it as the request's `system` field, and
+ * `FakeStreamingModelClient` recognizes a title request by comparing that field
+ * to this export (`input.system === TITLE_SYSTEM_PROMPT`). That is string value
+ * equality, so what the comparison needs is stable bytes and a string-typed
+ * field, not a shared reference — rendering once keeps both without asking
+ * every caller to render.
  */
 const renderTitleSystemTemplate = loadPackagedTemplate<Record<string, never>>(
   __dirname,
