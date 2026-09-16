@@ -33,6 +33,16 @@ pnpm-lock.yaml
 # provider. Prettier would reflow the prose and change what the model reads.
 apps/api/src/prompts/tools/
 
+# Packaged prompt templates shipped with the app, not documentation, and not
+# replaceable by any operator: the same rule applies — Prettier would reflow
+# the prose and change the bytes the model reads.
+apps/api/src/chats/prompts/
+apps/api/src/compaction/prompts/
+apps/api/src/titles/prompts/
+apps/api/src/knowledge/prompts/
+apps/api/src/skills/prompts/
+apps/api/src/tools/prompts/
+
 # Vendored from shadcn CLI (upstream serialization).
 packages/ui/src/styles/shadcn.css
 # Vendored Oxlint plugin; update from its pinned upstream source, not Prettier.
