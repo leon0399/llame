@@ -10,6 +10,7 @@ import {
   type ParsedSkillLocator,
 } from './skill-locator';
 import { type SkillCatalogEntry, type SkillCatalogPort } from './skill-catalog';
+import { loadPackagedTemplate } from '../prompts/template-engine';
 
 /**
  * The instruction every skill read carries. It tells the agent how to turn the
@@ -17,9 +18,20 @@ import { type SkillCatalogEntry, type SkillCatalogPort } from './skill-catalog';
  * rewriting anything: package-relative paths resolve against `skillDirectory`,
  * task-relative inputs stay as the user gave them, and a script needing its own
  * directory gets an explicit `cwd`.
+ *
+ * The sentence is the packaged `prompts/path-instruction.md`, rendered once at
+ * module scope. It stays an exported string, not a render function:
+ * `skill-results.ts` places it in three result shapes' `skillPathInstruction`
+ * field, so what those call sites need is the bytes. It is NOT the rail's path
+ * guidance in `chats/prompts/skill-activation.md` — that sentence is a
+ * different surface (rail prose, with its own wording) and is never shared
+ * with this one.
  */
-export const SKILL_PATH_INSTRUCTION =
-  'Resolve package-relative references and script paths against skillDirectory and use the resulting absolute paths in tool calls. Preserve task-relative input arguments as given, and choose `cwd` explicitly when a script requires its own directory.';
+const renderPathInstructionTemplate = loadPackagedTemplate<
+  Record<string, never>
+>(__dirname, 'path-instruction');
+
+export const SKILL_PATH_INSTRUCTION = renderPathInstructionTemplate({});
 
 /**
  * The current user turn's explicit skill selections. The read layer always

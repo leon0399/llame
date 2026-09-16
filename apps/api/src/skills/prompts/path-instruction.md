@@ -1,0 +1,1 @@
+Resolve package-relative references and script paths against skillDirectory and use the resulting absolute paths in tool calls. Preserve task-relative input arguments as given, and choose `cwd` explicitly when a script requires its own directory.
