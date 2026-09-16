@@ -343,7 +343,9 @@ a regular file, `- name@/ -> <target>` for a symbolic link whose target is a dir
 a special entry, and `- name?` for any other entry kind such as a FIFO, socket,
 or device. `<target>` SHALL be the canonical absolute path the link resolves
 to, so that a model without shell access learns where a link leads; a
-dangling link SHALL show its raw link text because it cannot resolve. A
+dangling link SHALL show its raw link text because it cannot resolve, and a
+link whose link text cannot be read either SHALL render as the bare
+`- name@`. A
 `kb://` listing SHALL render every symbolic link as the bare `- name@` with no
 target kind and no target, because a Knowledge result exposes no resolved host
 path. Rendering a link SHALL read its metadata and target path only, SHALL do
