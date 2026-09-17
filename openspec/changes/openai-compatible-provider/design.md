@@ -1,361 +1,485 @@
 ## Context
 
-See [proposal.md](proposal.md) for motivation and scope; the specs at
-`specs/openai-provider-surfaces/spec.md`, `specs/instance-config/spec.md`, and
-`specs/reasoning-output/spec.md` are the behavior contract this design
-implements.
+See [proposal.md](proposal.md) for motivation and scope; the delta specs
+under `specs/` are the behavior contract this design implements.
 
 Today `providers[]` is discriminated by `type` and the schema's
-`$defs.providerType` enum is strict-closed to `["openai", "openai-codex"]`.
-`llame-config.ts` normalizes entries into
-`OpenAIProviderConfig { id, type, key, baseUrl }` and
+`$defs.providerType` enum is strict-closed to `["openai", "openai-codex"]`
+(`llame.config.schema.json:77-81`). `llame-config.ts:29-38` normalizes
+entries into `OpenAIProviderConfig { id, type, key, baseUrl }` and
 `OpenAICodexProviderConfig { id, type, key, accountId }`, with `key: null`
-meaning keyless. `model-client-factory.ts` switches on `provider.type`, and its
-`openai` case derives `nativeOpenAI: provider.id === 'openai'`;
-`openai-model-client.ts` then selects `openai(model)` (Responses, with
-`reasoningSummary: 'auto'`) versus `openai.chat(model)` from that flag, and the
-Codex client builds the same Responses path with `nativeOpenAI: true` over its
-fixed base URL. The factory's `default` branch is a `never` exhaustiveness
-guard — an unrecognized resolved type is an internal error, never a fallback —
-so `type` is already the dispatch mechanism; only the surface within the
-`openai` case is inferred from an id.
+meaning keyless. `model-client-factory.ts:42-68` switches on `provider.type`
+with a `never` exhaustiveness default, and its `openai` case derives
+`nativeOpenAI: provider.id === 'openai'`; `openai-model-client.ts:283-285`
+selects `openai(model)` (Responses, with `reasoningSummary: 'auto'` at
+`:256`) versus `openai.chat(model)` from that flag, while
+`generateToolBoundObject` (`:318-329`) hardcodes `openai.chat()` for
+structured generation on every provider. The Codex client builds the
+Responses path with `nativeOpenAI: true` and `storeResponses: false`
+(`openai-codex-model-client.ts:67,76`). `type` is already the dispatch
+mechanism; only the wire within the `openai` case is inferred from an id.
 
-Reasoning is persisted as one concatenated `{ type: "reasoning", text }` part
-per turn: `assistant-transcript.ts` caps it at `REASONING_PERSIST_MAX`
-(24,000 characters) in both `parts()` and `assistantParts()`, the web chat
-renders one `Reasoning` panel per reasoning part (`chat-message-row.tsx`), and
-markdown export joins reasoning parts with a single newline (`chat-markdown.ts`)
-— which is why a glued `**One****Two**` run survives into the export. Embedding
-models are a separate path: `openai-embedding-backend.ts` builds its own
-OpenAI client from the provider entry's `key`/`baseUrl`, and the loader gates
-embedding bindings to `provider.type === 'openai'`, so the model-client surface
-split does not reach it. The installed AI SDK is `@ai-sdk/provider@3.0.15` /
-`@ai-sdk/provider-utils@4.0.46`.
+Reasoning today: `AssistantPartCollectorImpl.reasoning()`
+(`assistant-transcript.ts:101-109`) appends to the last part when it is a
+reasoning part and otherwise pushes a new one, so a turn whose reasoning is
+interrupted by a tool call already persists several reasoning parts.
+`parts():144-153` truncates each reasoning part independently at
+`REASONING_PERSIST_MAX` (24,000 characters), so a multi-part turn is already
+bounded per part, not per turn. `assistantParts():414-441`, which does build
+one concatenated part per turn, has no production caller. The web chat
+renders one `Reasoning` panel per part (`chat-message-row.tsx`), markdown
+export joins reasoning parts with a single newline (`chat-markdown.ts:14-28`)
+— which is why a glued `**One****Two**` run survives into the export — and
+`onReasoningDelta` is typed `(text: string) => void` (`model-client.ts:78`),
+so the AI SDK's per-chunk reasoning id and `providerMetadata` are dropped at
+`openai-model-client.ts:300`. `context-builder.ts:57-60` documents reasoning
+as "PERSISTED for display … but NEVER re-fed to the model", and
+`appendAssistantMessage:448-469` builds every assistant `ModelMessage` from
+`partsToText` or tool observations only. `messages.parts` is untyped `jsonb`
+(`db/schema/chats.ts:219`) with no part validator.
 
-The sibling `anthropic-provider` change depends on this one and wrote its
-`instance-config` delta against this change's post-merge wording; it also quotes
-the same two shipped `reasoning-output` requirements in its own D8 and recorded
-the same question as its Q1, which D15 now answers. Its proposal describes this
-change as introducing the per-reasoning-part provider-metadata channel from
-issue #883, and that is what lands here: per-part **identity** (one durable part
-per adapter-supplied id) plus the durable metadata channel D15 specifies, whose
-first producer is that change.
+Embedding models are a separate path: `openai-embedding-backend.ts` builds
+its own OpenAI client from the provider entry's `key`/`baseUrl`, and
+`config-loader.ts:1524` gates embedding bindings to `provider.type ===
+'openai'`. The installed AI SDK is `@ai-sdk/provider@3.0.15` /
+`@ai-sdk/provider-utils@4.0.46`, exact-pinned by `ai@6.0.256`,
+`@ai-sdk/openai@3.0.97`, `@ai-sdk/gateway`, `@ai-sdk/mcp`, and
+`@ai-sdk/react`.
+
+Prior art consulted for the wire decision: omp's `models.yml` separates
+provider identity from wire protocol with an `api` field
+(`openai-completions`, `openai-responses`, `openai-codex-responses`,
+`anthropic-messages`, …) and routes its implicit `ollama` and `llama.cpp`
+providers as `openai-responses`, LM Studio as `openai-completions`, and
+LiteLLM per model. The AI SDK's OpenAI provider page documents `.responses()`
+/ `.chat()` / `.completion()` on one package, a custom `baseURL` as ordinary
+for Responses, and `forceReasoning` for "stealth reasoning models via a
+custom baseURL". PR #648 carries the reasoning identity rule this design
+adopts and the Hermes references it was ported from.
+
+The sibling `anthropic-provider` change (PR #885) depends on this one. Its
+design quotes the two shipped `reasoning-output` privacy requirements in its
+D7 and expects this change to introduce the per-part provider-metadata
+channel; its `instance-config` delta was written against this change's
+earlier `openai` / `openai-compatible` wording and must be rebased onto the
+wire-named types and this change's added scenario before it archives.
 
 ## Goals / Non-Goals
 
 Goals:
 
-- One declared surface per provider `type`, no inference from `id`, `baseUrl`,
-  or host, and no silent rewriting of a mismatched entry.
-- One client per surface under the existing `ModelClient` seam, with the Codex
+- One declared wire per provider `type`, named after the wire, with no
+  inference from `id`, `baseUrl`, or host and no rewriting of an entry.
+- Every request an entry makes uses its declared wire, including structured
+  generation and compaction.
+- One client per wire under the existing `ModelClient` seam, with the Codex
   transport still on Responses by construction.
-- Reasoning reachable on compatible backends through the adapter's own
+- Reasoning reachable on Chat Completions backends through the adapter's own
   normalization, with no llame-authored vendor handling.
-- Reasoning parts with adapter-derived identity, unglued markdown, grouped
-  panels, a bound that holds across a turn, and the durable provider-metadata
-  channel other provider changes build on.
-- Documentation that states which surface each type uses and where reasoning
+- Reasoning parts with #648's identity rule, unglued display, grouped
+  panels, no truncation, and durable provider metadata that is replayed
+  byte-identically, with the Responses path as the first producer.
+- Documentation that states which wire each type uses and where reasoning
   renders.
 
 Non-goals:
 
-- Producing provider metadata: this change owns the channel, its persistence,
-  and its replay, not a producer, and adds no provider-specific metadata
-  semantics.
-- Model-switch coercion: the provider ignores or drops blocks the target model
-  cannot read, so no coercion rule is added.
-- Prefix rebinding or append-only message construction: that mitigation belongs
-  to the `anthropic-provider` change (see Risks).
-- Changing `models[]`, the embedding catalog's provider gate, the run
-  lifecycle, or cost accounting.
+- Interpreting provider metadata, model-switch coercion, prefix rebinding, or
+  append-only message construction (see Risks; the mitigation belongs to
+  `anthropic-provider`).
+- A per-model wire override; a boot-time diagnostic; changing `models[]`,
+  the run lifecycle, or cost accounting.
 - The v4 AI SDK specification line (#882), the Anthropic adapters (#208),
   OpenRouter (#82), OpenCode Go/Zen (#808, #809), BYOK (#37, #18), tool-loop
-  usage and cost accounting (#810), the effort-change cache warning (#593), and
-  the unified compaction request path (#866).
+  usage and cost accounting (#810), the effort-change cache warning (#593),
+  and the unified compaction request path (#866).
 
 ## Decisions
 
-### D1: Split the types; never infer the surface
+### D1: Name the wire; never infer it
 
-`type: "openai"` means the official OpenAI API on the Responses surface, where
-a `baseUrl` names a proxy in front of OpenAI; `type: "openai-compatible"` means
-the Chat Completions surface at the operator's endpoint. `nativeOpenAI` and the
-`provider.id === 'openai'` check are deleted; the factory routes by `type`, and
-the surface is passed explicitly to the client. Rationale: the id is free-form
-and duplicable, so an id-dependent surface makes a readability choice silently
-change the HTTP endpoint llame calls — the bug #219 shipped. Explicit wiring
-makes the surface testable from configuration alone and makes a misconfigured
-entry fail at request time instead of being silently retargeted.
+`type: "openai-responses"` executes the Responses wire through
+`@ai-sdk/openai` at the entry's `baseUrl` (default OpenAI);
+`type: "openai-completions"` executes the Chat Completions wire through
+`@ai-sdk/openai-compatible` at the entry's required `baseUrl`. `type:
+"openai"` is deleted. `nativeOpenAI` and the id check are deleted; the
+factory routes by `type`, and the wire is a property of the client, not a
+flag. Rationale: the id is free-form and duplicable, so an id-dependent wire
+makes a readability choice silently change the endpoint — the bug #219
+shipped. Naming the wire in the type makes the configuration answer the
+question this issue is about by reading it, matches omp's `api` vocabulary
+and the AI SDK's method names, and removes the need to explain what a bare
+`openai` means.
 
-Prior art agrees. Across OpenCode v1 and v2, kimi-code, and jcode, the wire
-protocol is catalogue-declared with a config override on top, and **no**
-surveyed harness derives it from the request host; jcode's host sniffing only
-toggles a correlation header. In llame the operator's `providers[]`/`models[]`
-_is_ the catalogue, so declaring the type is the declaration.
+The AI SDK fixes the matrix: `@ai-sdk/openai`'s Responses path has
+reasoning summaries and encrypted reasoning; its Chat Completions path has no
+reasoning concept; `@ai-sdk/openai-compatible` is Chat Completions only, with
+`reasoning_content` in and out. Two of the four cells are dead, so two types
+are the right count. What the type does not encode is the vendor: an
+`openai-responses` entry may point at Ollama ≥ 0.13.3, vLLM, llama.cpp, or a
+proxy, exactly as omp does; whether that server tolerates the fields llame
+sends (`reasoningSummary: 'auto'`, `store`) is the operator's call and
+surfaces at request time. Known ceiling on that cell: `@ai-sdk/openai`
+recognizes reasoning models by id (`o*`, `gpt-5*` except `-chat`), so for a
+local model id it drops `reasoning.effort` / `reasoning.summary` with a
+warning and never requests encrypted content unless `forceReasoning: true`
+is passed (`openai-responses-language-model.ts:178,351-368,411-416`). llame
+does not set it in this change; the trigger is a real local Responses
+deployment, and the natural hook is the catalog entry's `reasoning` object.
 
-Rejected: deriving the surface from the endpoint (the direction the original
+`@ai-sdk/open-responses` (1.0.42 on the v3 line, same provider/utils pair) is
+the SDK's generic client for the openresponses.org spec and its docs
+recommend it for self-hosted `/v1/responses` servers. It is not adopted here:
+it passes effort/summary through for any model id, but its assistant-message
+conversion handles only `text` and `tool-call`
+(`convert-to-open-responses-input.ts:129-160`), so it never replays
+reasoning, and its reasoning stream parts carry no item metadata
+(`open-responses-language-model.ts:436-464`). For a local reasoning model it
+therefore offers less than `openai-completions`, which replays
+`reasoning_content`. If a local Responses server ever rejects
+`@ai-sdk/openai`'s OpenAI-specific fields, it becomes a third type
+(`open-responses`), not a change to these two.
+
+Rejected: deriving the wire from the endpoint (the direction the original
 issue proposed) — a host rule deciding the protocol is the same class of
-invisible inference this change removes; host/shape allow-lists; and
-reinterpreting an existing entry at load time.
+invisible inference this change removes; a separate `surface` field on a
+kept `openai` type — it would offer two dead combinations and keep the
+ambiguous name; keeping `type: "openai"` as an alias for one wire — the
+name is the ambiguity; a per-model wire override — one `baseUrl` is one
+server, and a mixed LiteLLM proxy is declared twice (known ceiling).
 
-**BREAKING.** An existing `type: "openai"` provider whose `id` is not literally
-`openai` reaches Chat Completions today and reaches Responses after this
-change. Operators with a compatible endpoint must set
-`type: "openai-compatible"`. There is no shim, no migration, and no warning.
+**BREAKING.** Every existing `type: "openai"` entry fails boot as an
+out-of-enum type until re-declared. There is no shim and no migration.
 
 ### D2: Configuration posture stays operator-owned
 
-Boot validates shape only. It does not judge whether a base URL serves the
-surface its `type` names, does not warn about a mismatch, and does not migrate
-or reinterpret an entry. Rationale: llame cannot know every gateway's host or
-path layout, and a heuristic that is wrong either blocks a working endpoint or
-reassures an operator about a broken one — consistent with the existing posture
-that credentials and reachability are never prevalidated at boot. Rejected:
-host allow-lists and boot warnings, which encode vendor knowledge llame does
-not own.
+Boot validates shape only. It does not judge whether a `baseUrl` serves the
+wire its `type` names, does not migrate or reinterpret an entry, and never
+fails boot on a stale but well-formed entry; a mismatch surfaces on the
+first request under the existing failure contract. Rationale: llame cannot
+know every gateway's host or path layout, and a heuristic that is wrong
+either blocks a working endpoint or reassures an operator about a broken
+one — consistent with the existing posture that credentials and
+reachability are never prevalidated at boot. No diagnostic is added; none is
+prohibited, so a later `config check` that prints declared wires is not
+foreclosed by spec text. Rejected: host allow-lists, boot warnings that
+encode vendor knowledge llame does not own, and a spec clause banning
+diagnostics outright.
 
 ### D3: Pin `@ai-sdk/openai-compatible@2.0.75`
 
-It is the newest release on llame's v3 specification line and declares
-`@ai-sdk/provider@3.0.16` and `@ai-sdk/provider-utils@4.0.51` against llame's
-current 3.0.15 / 4.0.46 — same-major bumps, and `@ai-sdk/anthropic@3.0.118` in
-the sibling change wants the identical pair, so the two changes converge
-instead of fighting over the lockfile. Whichever change merges first owns the
-bump. No zod change is needed: all three peer on `^3.25.76 || ^4.1.8`, and
-llame resolves 3.25.76 and 4.6.5. Rejected: the v4 specification line (#882,
-explicitly out of scope) and an unpinned range, which would let the adapter
-drift onto a line llame has not validated.
+It is the newest release on llame's v3 specification line (`ai-v6` dist-tag;
+`3.x` moves to `@ai-sdk/provider@4`) and declares `@ai-sdk/provider@3.0.16` /
+`@ai-sdk/provider-utils@4.0.51`, the same pair `@ai-sdk/anthropic@3.0.118` in
+the sibling change declares. The result is not convergence: `ai@6.0.256`,
+`@ai-sdk/openai@3.0.97`, `@ai-sdk/gateway`, `@ai-sdk/mcp`, and
+`@ai-sdk/react` exact-pin 3.0.15 / 4.0.46, so the lockfile carries both
+pairs. Accepted because the AI SDK's error classes use symbol-based
+`isInstance()` markers and `apps/api/src` has no `instanceof` against
+`@ai-sdk/provider` classes; the types layer verifies the resolved lockfile
+rather than assuming. No zod change: all three peer on `^3.25.76 || ^4.1.8`,
+and llame resolves 3.25.76 and 4.6.5. Rejected: the v4 line (#882) and an
+unpinned range.
 
-### D4: Pass `supportsStructuredOutputs: true`
+### D4: Structured output stays a forced tool call on both wires
 
-The compatible client is constructed with that option set. Its default is
-`false`, which silently degrades a JSON-schema response format to unconstrained
-`json_object` — a silent weakening of a caller's output contract, in a change
-whose whole point is removing silent behavior changes. Rejected: accepting the
-default and inheriting the degradation.
+llame never sends a JSON-schema response format. `generateToolBoundObject`
+uses `generateText` with a forced `tool_choice`, chosen over
+`response_format: json_schema` because tool calling is more widely
+implemented across compatible backends (`openai-model-client.ts:310-317`).
+Forced tool choice and `strict` tool schemas are identical between
+`@ai-sdk/openai` and `@ai-sdk/openai-compatible`, so the path carries over;
+`supportsStructuredOutputs` is left at its default because its only effect
+is on a request llame does not make. The one change is that the helper's
+hardcoded `openai.chat()` is replaced by the entry's declared wire, so an
+`openai-responses` provider's title generation runs on Responses (D1: every
+request follows the type). Known trap from omp's compat table: DeepSeek
+rejects `tool_choice` while reasoning is on; `title.service.ts` already
+catches the failure and falls back to free text. Rejected: a
+`supportsStructuredOutputs` construction flag and a spec requirement for a
+JSON-schema path that does not exist.
 
-### D5: Reasoning on the compatible surface comes from the adapter
+### D5: Reasoning on the completions wire comes from the adapter
 
-`@ai-sdk/openai-compatible` extracts `reasoning_content ?? reasoning` inbound
-and re-injects `reasoning_content` outbound on assistant messages, natively.
-`@ai-sdk/openai`'s chat path has no reasoning concept at all: its
-assistant-message conversion switches only on `text` and `tool-call`, so
-reasoning parts are silently dropped outbound, and its response assembly pushes
-only `text`, `tool-call`, and `source`. Measured: zero occurrences of
-`reasoning_content` in that package. (This corrects the original issue body's
-claim that upstream "hardcodes `reasoning: void 0`" — it is a structural
-omission, which is worse, because no flag switches it on.) This is why the type
-split must ship together with the runtime adoption rather than as routing
-alone: pointing compatible operators at `.chat()` preserves the bug they
-actually hit. Rejected: a llame-authored vendor-specific reasoning parser, raw
-SSE parser, tag extraction, or middleware — the adapter normalizes; llame does
-not.
+`@ai-sdk/openai-compatible` extracts `reasoning_content ?? reasoning`
+inbound (`openai-compatible-chat-language-model.ts:314-315,557`) and
+re-injects `reasoning_content` outbound on assistant messages
+(`convert-to-openai-compatible-chat-messages.ts:206`). `@ai-sdk/openai`'s
+chat path has none of this: its assistant-message conversion switches only
+on `text` and `tool-call`, its response assembly pushes only `text`,
+`tool-call`, and `source`, and the package has zero occurrences of
+`reasoning_content`. (This corrects the original issue body's claim that
+upstream "hardcodes `reasoning: void 0`": it is a structural omission, which
+is worse, because no flag switches it on.) This is why the type split ships
+together with the runtime adoption rather than as routing alone: pointing
+compatible operators at `.chat()` preserves the bug they hit. Rejected: a
+llame-authored vendor parser, raw SSE parser, tag extraction, or middleware.
 
-### D6: The `/v1/responses` survey, and what it does not change
+### D6: The `/v1/responses` survey, and what it changes
 
-Survey taken 2026-09-17, as the original issue asked for: Ollama advertises
-`/v1/responses` since v0.13.3 (non-stateful only — no
-`previous_response_id`); llama.cpp documents the endpoint and implements it by
-**converting the request into Chat Completions**; vLLM lists it in its
-OpenAI-compatible server docs; LM Studio lists it in its OpenAI-compatibility
-docs.
+Survey taken 2026-09-17: Ollama advertises `/v1/responses` since v0.13.3
+(non-stateful — no `previous_response_id`); llama.cpp documents the endpoint
+and implements it by converting the request into Chat Completions; vLLM and
+LM Studio list it in their OpenAI-compatibility docs; omp routes Ollama and
+llama.cpp over it by default. What this changes: a local endpoint is a
+legitimate `openai-responses` target, which is why D1 stopped calling that
+type "official OpenAI". What it does not change: an older installation still
+404s, the shims translate rather than implement, whether a translating
+server tolerates `reasoningSummary: 'auto'` is unverified, and real OpenAI
+under a name other than `openai` losing reasoning is untouched by any
+provider-side adoption. Rejected: treating endpoint advertising as a
+substitute for the declared type.
 
-What this changes: direction 1's blast radius is version-gated rather than
-categorical, so a compatible endpoint named `openai` does not universally 404.
-What it does not change: an older installation still 404s; the shims translate
-rather than implement, and whether a translating server tolerates the
-Responses-only field llame sends on the native path (`reasoningSummary: 'auto'`)
-is unverified; and the survey says nothing about direction 2 — real
-OpenAI under a name other than `openai` silently losing reasoning — which is
-untouched by any provider-side adoption. Rejected: treating endpoint
-advertising as a substitute for the declared type, which would leave the
-failure mode depending on which runtime version an operator happens to run.
+### D7: The accepted regression list
 
-### D7: The accepted regression list, with the one that becomes a 400
-
-`@ai-sdk/openai-compatible` does not implement several things `@ai-sdk/openai`'s
-chat path does. llame uses none of them today; they are recorded so the
-documentation can say so:
+`@ai-sdk/openai-compatible` does not implement several things
+`@ai-sdk/openai`'s chat path does. llame uses none of them today (zero
+matches in `apps/api/src`); they are recorded so the documentation can say
+so:
 
 - reasoning-model parameter handling (`max_tokens` → `max_completion_tokens`
-  remapping, and stripping temperature/logprobs/penalties). **This is the one
-  real hazard**: a compatible-typed provider pointed at a reasoning-capable
-  OpenAI-shaped model can now be rejected with an unsupported-parameter error
-  where `.chat()` would have adapted the request. It is a loud failure, not
-  silent corruption.
+  remapping; stripping temperature/logprobs/penalties). **The one real
+  hazard**: an `openai-completions` provider pointed at a reasoning-capable
+  OpenAI-shaped model can be rejected with an unsupported-parameter error
+  where `.chat()` would have adapted the request. Loud, not silent.
 - `logprobs`, `logit_bias`, `prediction`, `service_tier`, `store`,
-  `safety_identifier`, `parallel_tool_calls`.
-- `prompt_cache_key`, `prompt_cache_options`, `prompt_cache_retention`, and
-  part-level prompt-cache breakpoints.
-- web-search annotations and citations surfaced as `source` parts.
+  `safety_identifier`, `parallel_tool_calls`; `prompt_cache_key`,
+  `prompt_cache_options`, `prompt_cache_retention`, and part-level
+  prompt-cache breakpoints; web-search annotations and citations surfaced as
+  `source` parts.
+- `inputTokens.cacheWrite`: the compatible usage converter has no
+  `cache_write_tokens` field. Inert for llame, whose cost formula reads only
+  `cachedInputTokens` (`turn-telemetry.ts:142-152`).
 
-Not regressed and verified: forced tool choice and `strict` tool schemas are
-identical between the packages, so `generateToolBoundObject` is unaffected;
-error schemas are structurally identical; cached-token usage reporting is
-equivalent. Rejected: compensating for each gap with a llame-authored shim,
-which would grow a per-vendor compatibility layer in a codebase whose
-configuration is meant to stay the only place a surface is declared (D1, D2).
+Verified not regressed: forced tool choice and `strict` tool schemas (D4);
+error schemas are structurally identical; cache-read usage is equivalent.
 
-### D8: Reasoning part identity is the adapter's, or absent
+One endpoint-side rule is not a regression but shapes the stack: DeepSeek
+documents that when a request carries `tools`, the `reasoning_content` of
+**all previous turns** must be passed back or the API returns 400
+(api-docs.deepseek.com/guides/thinking_mode, "Tool Calls"). llame sends tools
+on every chat request, so cross-turn reasoning replay is a precondition for
+the completions wire to work against DeepSeek beyond a chat's first turn,
+not an L3 refinement. The same-Chat replay of persisted reasoning **text**
+therefore ships in L1 with the wire (D15); L3 adds the metadata. Rejected:
+compensating for each gap with a llame-authored shim.
 
-When the adapter supplies a reasoning part id, each distinct id persists as its
-own `{ type: "reasoning" }` part in order; OpenAI Responses supplies
-`${itemId}:${summaryIndex}`, so each summary is its own part. Chat Completions
-and OpenAI-compatible backends supply none and stay one concatenated part.
-Rationale: the adapter's identity is the only boundary that corresponds to a
-transition that actually happened, and it is the same boundary on live output,
-reconnect replay, and reloaded history. Rejected: inventing a boundary from
-text heuristics, which would split on a transition no adapter emits and would
-show different parts live and after reload; and merging all ids into one part,
-which loses the panel boundary #883 exists to restore.
+### D8: Reasoning part identity follows PR #648's rule
 
-### D9: Glue repair happens at persist, render, and export
+A new persisted reasoning part starts when (a) the last collected part is
+not a reasoning part — a text, tool, or other part intervened — or (b) the
+adapter-supplied part id and the open reasoning part's id are both defined
+and differ. Otherwise the delta appends to the open part, and a defined id
+becomes the open part's id. This is `isNewReasoningPart` from #648, with
+the existing intervening-part split kept ahead of it.
 
-A heading glued onto a previous part (`**One****Two**`, or prose butting onto
-`**Heading**`) is separated by a paragraph break wherever reasoning is
-persisted, rendered, or exported as markdown, including for reasoning persisted
-before part ids existed. Mid-sentence emphasis after whitespace
-(`the **signature** field`) is left inline. Rationale: concatenating headed
-summaries produces a `****` run that markdown parses as neither bold nor a
-heading (vercel/ai#6742), and repairing only in the renderer would leave
-persisted text and the markdown export broken; history written before ids
-existed cannot be repaired at persist time at all. Rejected: renderer-only
-repair, and splitting on any `**` pair — the latter breaks ordinary emphasis.
+Observed adapter behavior: `@ai-sdk/openai`'s Responses stream ids every
+reasoning event `${item_id}:${summary_index}`
+(`openai-responses-language-model.ts:2008-2050`), so each summary is its own
+part; `@ai-sdk/openai-compatible` ids every reasoning event with the constant
+`reasoning-0` (`openai-compatible-chat-language-model.ts:514-541`), so a
+turn's uninterrupted reasoning stays one part and reasoning after a tool
+call starts a new one by rule (a). Rationale: the id change is the only
+boundary that corresponds to a transition that happened, and it is the same
+boundary on live output, reconnect replay, and reloaded history. Rejected:
+"one part per distinct id" alone, which would merge reasoning across a tool
+call under a constant id and hoist it; an `undefined` ↔ defined transition
+as a boundary (#648 review: "would invent a stream no adapter emits"); text
+heuristics.
+
+### D9: Glue repair happens at render and export, never at persist
+
+A heading glued onto the text before it (`**One****Two**` with non-whitespace
+on both sides, or prose butting onto a `**Heading**` whose closing `**` is
+followed by a newline or end of text) is separated by a paragraph break when
+reasoning is rendered in the Thinking panel or exported as markdown. This
+covers reasoning persisted before part ids existed, which cannot be repaired
+anywhere else. Mid-sentence and punctuation-adjacent emphasis (`the
+**signature** field`, `Check (**signature**) next`) is left inline — the
+matcher boundaries #648's review settled. Persisted text is never rewritten:
+it is the text a provider signed or encrypted, and D15 replays it
+byte-identically. Persist-side repair has no consumer once render and export
+both repair — search and compaction already exclude reasoning. Markdown
+export additionally separates consecutive reasoning parts with a blank line
+(`chat-markdown.ts:14-28` joins them with a single newline today, which after
+D8 would fuse two summaries into one paragraph that neither matcher touches).
+Rejected: the persist-time `separateGluedReasoningBlocks` from #648 on
+id-less parts, and splitting on any `**` pair.
 
 ### D10: Consecutive parts share one Thinking panel
 
-Consecutive persisted reasoning parts group into one Thinking panel; a tool or
-visible text part splits panels, so occurrence order is preserved and reasoning
-is never hoisted above a tool. Rationale: the parts belong to one visual
-thought until something else happens in the transcript; one panel per part (the
-pre-change behavior) made a tool between two summaries read as interleaved
-glue, and one panel per turn would merge across tool calls and misstate order.
-Rejected: per-part panels and per-turn panels.
+Consecutive persisted reasoning parts group into one Thinking panel; a tool
+or visible text part splits panels, so occurrence order is preserved and
+reasoning is never hoisted above a tool. Rationale: the parts belong to one
+visual thought until something else happens in the transcript; one panel per
+part made a tool between two summaries read as interleaved glue, and one
+panel per turn would merge across tool calls and misstate order. Rejected:
+per-part and per-turn panels.
 
-### D11: The reasoning bound applies across the turn
+### D11: Delete the reasoning cap
 
-`REASONING_PERSIST_MAX` bounds one concatenated part today. Once a turn can
-hold N parts it would bound N × 24k, defeating its stated purpose of bounding
-storage and the per-turn context-read cost. The bound therefore applies to the
-turn's reasoning as a whole. Rejected: the per-part bound (the defect #648's
-review found and never resolved) and removing the bound altogether.
+`REASONING_PERSIST_MAX` is deleted, along with the unused `assistantParts()`.
+Rationale: the cap is per part today, so a multi-part turn already persists
+N × 24k and the stated purpose (bounding storage and context-read cost) is
+not met; a per-turn total would truncate the tail of the turn, which under
+D15 is a block the provider signed or encrypted and would reject on replay;
+a 16k-token thinking budget is roughly 60k characters, so the truncation
+would fire on ordinary use, not edge cases. Reasoning is excluded from
+search, compaction, and public shares, so the storage is inert beyond the
+row. Ceiling: an unbounded blob per turn; trigger for revisiting is a
+measured context-build cost or table growth, at which point the bound goes
+on whole parts, oldest first, dropped with their metadata rather than
+truncated. Rejected: keeping the per-part cap, and a per-turn total.
 
 ### D12: Spec placement
 
 `instance-config`'s provider-list requirement is edited in place: the enum
-clause splits `openai` from `openai-compatible`, the compatible variant shape
-is defined with the same interpolation and keyless semantics as `openai`, and
-the duplicable-providers example no longer shows a local endpoint as
-`type: "openai"`. The new `openai-provider-surfaces` capability carries the
-execution contract (surface selection, reasoning normalization,
-schema-constrained output). `reasoning-output` carries the third-party
-amendment, part identity, markdown blocks, panel grouping, the per-turn bound,
-and the compatible-surface evidence gate.
-
-`available-models` is not modified: its dispatch requirement is still
-satisfied, its `(this slice: openai → …)` parenthetical is scoping rather than
-an enumeration, and the `openai-codex` provider change — which also added a
-type — amended `instance-config` only. The embedding catalog is untouched: the
-embedding backend is not surface-routed, its provider-type gate stays `openai`,
-and the sibling change extends the embedding restriction to its new types.
-Rejected: an `available-models` delta that would restate a requirement that has
-not changed and duplicate the surface contract, and folding execution behavior
-into `instance-config`, which is a configuration contract.
+becomes `openai-responses` / `openai-completions` / `openai-codex`, both
+OpenAI wire variants are defined with the same interpolation and keyless
+semantics, `baseUrl` is required for `openai-completions`, and the
+duplicable-providers and keyless examples are rebased. Its embedding-catalog
+requirement is edited so either OpenAI wire type may back embeddings, with
+every pre-existing scenario name kept. `available-models`' dispatch
+requirement is restated because its parenthetical names the retired `openai`
+type and its routing scenario's THEN clause names "the OpenAI-compatible
+client" for that type; all three scenario names are kept. The new
+`provider-api-selection` capability carries one rule — the type selects the
+wire for every request the entry makes — because no shipped capability owns
+wire selection and `available-models` owns catalog resolution, not
+transport. `reasoning-output` carries the third-party amendment, reasoning
+normalization on every wire (so one capability owns reasoning), part
+identity, the metadata channel, render/export repair, panel grouping, the
+amended privacy requirements, and the completions-wire evidence gate.
+`subscription-access-openai-codex`'s "Preserve llame execution semantics" is
+amended because it forbids persisting the reasoning-item identifiers and
+encrypted reasoning D15 now persists. `tool-calling`'s "Tool observations
+survive into later turns as stored UI parts" and `context-injection`'s
+"User-authored text is neutralized before persistence" are amended because
+both assert that persisted reasoning never replays; the amendment keeps the
+tool projection free of provider reasoning and metadata and routes reasoning
+replay through `reasoning-output` alone, with every scenario name kept.
+Rejected: a vendor-named capability (`openai-provider-surfaces`) — every
+shipped capability is behavior-named; folding wire selection into
+`instance-config`, which is a configuration contract.
 
 ### D13: The live-smoke gate mirrors the native path's
 
-Reasoning on the compatible path is accepted only after a bounded live smoke
-proves its request shape, its normalized stream output, and — the half a mock
-cannot prove — that a later request within the same turn carries the prior
-assistant reasoning back to the endpoint. It runs against a directly-billed
-reasoning-capable compatible endpoint (a DeepSeek or GLM key) and must not use
-OpenCode Go, which depends on this change. The shipped native-path gate
-("a bounded live smoke [that] proves its request shape and normalized stream
-output", with a zero-reasoning response still a success) is the template.
-Rejected: fixture-only evidence for a behavior that depends on what the
-endpoint does with reasoning it receives back, and borrowing evidence from a
-provider that cannot be smoke-tested independently of this change.
+Reasoning on the completions wire is accepted only after a bounded live
+smoke proves its request shape, its normalized stream output, and — the half
+a mock cannot prove — that a later request within the same turn carries the
+prior assistant reasoning back to the endpoint. It runs against a
+directly-billed reasoning-capable Chat Completions endpoint (a DeepSeek or
+GLM key) and must not use OpenCode Go, which depends on this change. The
+shipped native-path gate is the template. Prerequisite: the key exists before
+L1 starts. Rejected: fixture-only evidence for a behavior that depends on what
+the endpoint does with reasoning it receives back.
 
-### D14: The `instance-config` delta is written against today's master text
+### D14: The `instance-config` delta is the base the sibling rebases onto
 
-This change merges first, so its MODIFIED requirement reproduces the
-requirement from master with the split enum and is the post-merge base the
-sibling `anthropic-provider` change rebases its own delta onto. All seven
-pre-existing scenario names are preserved verbatim (the archive step refuses a
-delta that loses one), with the duplicable-providers example rebased and one
-scenario added for the compatible variant's loading shape. Rejected: writing
-against the sibling's post-merge text (it would revert this split at archive
-time) and waiting for the sibling to be finalized first (it would stall the
-stack for no design gain).
+This change merges first, so its MODIFIED requirements reproduce master's
+text with the split enum, and the sibling `anthropic-provider` rebases its
+own delta onto the merged wording. All seven pre-existing provider-list
+scenario names and all eight embedding-catalog scenario names are preserved
+(the archive step refuses a delta that loses one), with two scenarios added
+for the completions variant: its loading shape and its required `baseUrl`.
+The sibling's delta as drafted in PR #885 lacks both added scenarios and still
+names `openai` / `openai-compatible`; it must adopt all of them before it
+archives, or it silently reverts this change at sync time. Rejected: writing
+against the sibling's text, and waiting for the sibling.
 
 ### D15: Provider metadata is durable on the part and replayed for the same Chat
 
-A reasoning part persists its provider metadata durably in `messages.parts`, and
-that metadata is replayed to the provider on later requests for the same Chat.
-Rationale: it is the substrate for a reasoning-preservation mode that Anthropic
-already supports, so the durable shape is designed for where the system is
-going rather than for the current turn's needs. Rejected: run-scoped private
-state deleted at run completion — reversible and spec-free, but it forfeits
-cross-turn reasoning continuity and a later migration cannot backfill data
-never stored.
+A reasoning part persists its provider metadata durably in `messages.parts`
+and that metadata is replayed to the provider on later requests for the same
+Chat, with the part's text byte-identical to what the provider produced. The
+first producer already exists: `@ai-sdk/openai`'s Responses path attaches
+`providerMetadata.openai = { itemId, reasoningEncryptedContent }` to the
+`reasoning-start` and `reasoning-end` stream parts
+(`openai-responses-language-model.ts:1408-1419,1848-1854,2021-2030`) and to
+the assembled content parts (`:559-562`), and requests
+`include: ['reasoning.encrypted_content']` whenever `store === false` on a
+reasoning model (`:299-302`; every `gpt-5*` id except `-chat` variants
+qualifies, `openai-language-model-capabilities.ts:37-39`), which the Codex
+client sets unconditionally. The `reasoning-delta` part carries only
+`itemId`, and `streamText`'s `onChunk` never sees `reasoning-start` /
+`reasoning-end`, so the producer cannot be read at
+`openai-model-client.ts:300` as today's callback stands: the client reads
+reasoning from `fullStream`, correlating start/delta/end by part id, and
+hands the end part's metadata to the collector with that id.
 
-The metadata is opaque to llame: it is never rendered, exported, indexed, or
-included in a public share, and it changes neither the part's display text nor
-its order. This change owns the channel only, and the `anthropic-provider`
-change is its first producer. Because a part and its metadata re-enter the same
-Chat's provider requests, the "excluded from later model context" clause of
-"Reasoning is an ordered private assistant part" is narrowed for that one
-reuse; compaction input, chat search, and public shares stay excluded, and
-state that is genuinely run-scoped stays transient. No model-switch coercion
-rule is added: llame passes blocks back unchanged and the provider ignores or
-drops the ones the target model cannot read. Within-turn round-trip remains
-required as well: the provider rejects a continuation whose earlier thinking
-block in the same turn lost its signature, so a tool continuation must carry it
-regardless of how long the block survives.
+Replay is per wire, and reverses one documented invariant:
+`context-builder.ts`'s `appendAssistantMessage` gains a path that emits
+`{ type: 'reasoning', text, providerOptions? }` content parts ahead of the
+assistant text and tool calls for the same Chat, and no longer returns early
+for an assistant message that has only reasoning parts (`:455-458`). On the
+Chat Completions wire the adapter carries the text as `reasoning_content`
+with no metadata needed — this half ships in L1 because DeepSeek requires it
+(D7). On the Responses wire the SDK carries a part that has an `itemId` as a
+`reasoning` input item (encrypted content when present; an item reference to
+the stored item otherwise) and skips a part without one with a warning
+(`convert-to-openai-responses-input.ts:596-608,647-676`), so reasoning
+persisted before this change and reasoning produced on the other wire are
+omitted there rather than failing the request. Rationale: it is the substrate
+for a reasoning-preservation mode two providers already support, a resumed
+Run after a worker restart mid-turn needs the block on its first request,
+DeepSeek makes the text half mandatory, and a later migration cannot backfill
+data never stored. Rejected: run-scoped private state deleted at run
+completion (forfeits continuity and the restart case), building the channel
+with no producer (the Responses producer is present), and reading metadata
+from `onFinish`'s assembled content instead of the stream (it arrives only
+after the turn, too late for a restart mid-turn).
+
+The metadata is opaque to llame: never rendered, exported, indexed, or
+included in a public share; it changes neither the part's display text nor
+its order. Because a part and its metadata re-enter the same Chat's provider
+requests, the "excluded from later model context" clause of "Reasoning is an
+ordered private assistant part" is narrowed for that one reuse; compaction
+input, chat search, and public shares stay excluded, and state that is
+genuinely run-scoped stays transient. No model-switch coercion rule is added:
+llame passes blocks back unchanged and the provider ignores or drops the ones
+the target model cannot read. No size bound is added (D11's ceiling applies).
 
 ## Risks / Trade-offs
 
-- [The breaking change lands on an operator with a compatible endpoint named
-  `openai`] → documented in the README, `apps/api/AGENTS.md`, and the
-  CHANGELOG, with the required `type: "openai-compatible"` stated plainly; no
-  silent fallback masks it, by design (D1).
-- [A compatible provider is pointed at an OpenAI-shaped reasoning model and is
-  rejected for an unsupported parameter] → the failure is loud and bounded at
-  request time (D7); no llame shim adapts the request, keeping the surface
-  honest.
-- [A translating runtime (Ollama, llama.cpp) mishandles a Responses-only field]
-  → the survey records it as unverified rather than assumed (D6), and the type
-  declaration lets an operator route that endpoint to `openai-compatible`
-  instead.
-- [Reasoning part identity is dropped by a future adapter] → the requirement
-  asserts only that identity follows the adapter and that absent identity stays
-  one part, so a change in the adapter's behavior is a spec-visible change
-  rather than a silent split (D8).
-- [Glue repair splits legitimate emphasis] → the requirement names the two
-  glued shapes that must split and the mid-sentence case that must not (D9),
-  and both are covered by scenarios.
-- [Delta drift against the sibling change] → this delta is the base the sibling
-  rebases onto (D14), and the finalize layer re-reads the canonical requirement
-  after sync instead of assuming it.
-- [Dependency convergence fails] → the adapter's declared `@ai-sdk/provider` /
-  `@ai-sdk/provider-utils` pair matches the sibling's requirement, and the
-  types layer verifies the resolved lockfile rather than assuming (D3).
+- [The breaking rename lands on every operator] → boot fails naming the
+  entry and the out-of-enum `type`; the README, `apps/api/AGENTS.md`, the
+  CHANGELOG, and the shipped example state the two replacement names.
+- [An `openai-completions` provider is pointed at an OpenAI-shaped reasoning
+  model and is rejected for an unsupported parameter] → loud and bounded at
+  request time (D7); no llame shim adapts the request.
+- [A translating runtime mishandles a Responses-only field] → recorded as
+  unverified (D6); the operator declares that endpoint `openai-completions`.
+- [Title generation on `openai-responses` moves from Chat Completions to
+  Responses] → same forced tool call, verified on the live smoke; the
+  existing free-text fallback covers a rejection (D4).
+- [Reasoning part identity is dropped or changed by a future adapter] → the
+  requirement states the rule in terms of the adapter's ids, so an adapter
+  change is a spec-visible change, not a silent split (D8).
+- [Glue repair splits legitimate emphasis] → the requirement names the glued
+  shapes that must split and the inline cases that must not (D9); persisted
+  text is untouched, so a wrong match is a display defect, not a data defect.
+- [Unbounded reasoning per turn] → accepted with a named trigger (D11).
+- [Delta drift against the sibling] → this delta is the base (D14); the
+  finalize layer re-reads the canonical requirement after sync.
+- [Dual `@ai-sdk/provider` versions in the lockfile] → accepted with the
+  `isInstance()` argument; the types layer verifies the resolved lockfile
+  (D3).
 - [A replayed provider block is invalidated by a rewritten prefix] → a
-  provider-issued thinking block "stays valid only while the top-level `system`
-  prompt, the `tools`, and the messages before it are unchanged", and llame is
-  not append-only: compaction rewrites the prefix. The durable-metadata
-  decision inherits that constraint, so a replayed block can be one the
-  provider no longer accepts. The mitigation belongs to the `anthropic-provider`
-  change, which sets the provider's prefix-mismatch behaviour to drop rather
-  than error; append-only message construction would remove the constraint
-  entirely.
+  provider-issued thinking block stays valid only while the system prompt,
+  tools, and preceding messages are unchanged, and llame is not append-only:
+  compaction rewrites the prefix. The durable-metadata decision inherits that
+  constraint. The mitigation belongs to the `anthropic-provider` change,
+  which sets the provider's prefix-mismatch behaviour to drop rather than
+  error; OpenAI's encrypted items carry no such binding.
 
 ## Migration Plan
 
-Operator-visible and configuration-only: an entry whose endpoint serves the
-Chat Completions wire format must be re-declared as
-`type: "openai-compatible"`; entries that keep `type: "openai"` start using the
-Responses surface. No database migration, no `models[]` change, and no data
-rewrite. Rollback is reverting the configuration plus the release; historical
-runs keep their recorded models, parts, and costs. The CHANGELOG records the
-breaking note.
+Operator-visible and configuration-only: every `type: "openai"` entry is
+re-declared as `openai-responses` (Responses wire; OpenAI, Codex-adjacent
+proxies, Ollama ≥ 0.13.3, vLLM) or `openai-completions` (Chat Completions
+wire; DeepSeek, GLM, LM Studio, older Ollama, most gateways). Boot fails
+naming any entry left on the old name. No database migration, no `models[]`
+change, and no data rewrite; reasoning parts persisted before this change
+load unchanged and are repaired at display. Rollback is reverting the
+configuration plus the release; historical runs keep their recorded models,
+parts, and costs. The CHANGELOG records the breaking note.

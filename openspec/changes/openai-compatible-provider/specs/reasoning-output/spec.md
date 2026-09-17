@@ -2,16 +2,16 @@
 
 ### Requirement: Third-party compatibility remains best-effort
 
-OpenRouter, Hugging Face, and other third-party OpenAI-compatible endpoints SHALL execute on the path their provider `type` selects, which normalizes reasoning only where the selected adapter emits it. This change SHALL NOT add vendor-specific reasoning request fields, raw SSE parsers, tag extraction, or middleware for them. Reasoning is collected only when the existing adapter already emits normalized reasoning output.
+OpenRouter, Hugging Face, and other third-party OpenAI-compatible endpoints SHALL execute on the wire their provider `type` selects, which normalizes reasoning only where the selected adapter emits it. This change SHALL NOT add vendor-specific reasoning request fields, raw SSE parsers, tag extraction, or middleware for them. Reasoning is collected only when the selected adapter already emits normalized reasoning output.
 
 #### Scenario: Third-party endpoint emits unsupported raw reasoning data
 
-- **WHEN** a third-party compatible endpoint returns reasoning in a response shape not normalized by the existing adapter
+- **WHEN** a third-party compatible endpoint returns reasoning in a response shape not normalized by the selected adapter
 - **THEN** llame does not synthesize a reasoning part from that data in this change
 
 ### Requirement: Existing UI support receives durable reasoning parts
 
-The backend SHALL use the existing AI SDK reasoning stream protocol and persisted reasoning part shape. The web chat SHALL render those parts in persisted order. Consecutive reasoning parts with no intervening tool or visible text SHALL share one Thinking panel. A tool or visible text part SHALL split panels so occurrence order is preserved.
+The backend SHALL use the existing AI SDK reasoning stream protocol and persisted reasoning part shape, extended only by the optional opaque provider metadata this capability defines. The web chat SHALL render reasoning parts in persisted order. Consecutive reasoning parts with no intervening tool or visible text part SHALL share one Thinking panel. A tool or visible text part SHALL split panels so occurrence order is preserved.
 
 #### Scenario: Existing renderer receives historical reasoning
 
@@ -26,7 +26,7 @@ The backend SHALL use the existing AI SDK reasoning stream protocol and persiste
 
 ### Requirement: Reasoning is an ordered private assistant part
 
-Displayable reasoning SHALL persist as display-only `{ type: "reasoning", text }` assistant parts in the exact occurrence order in which it appeared relative to text and tool parts. The same order SHALL be reconstructed by live streaming, reconnect replay, and historical chat loading. It SHALL be retained with the chat until normal deletion. Reasoning parts SHALL be excluded from compaction input, chat search, and public shares. When model context is built for the same Chat, its reasoning parts and any provider metadata they carry SHALL be returned to the provider; the metadata SHALL stay opaque and SHALL NOT be rendered, exported, indexed, or published. This narrows exactly one exclusion — reuse by the Chat's own provider requests — and leaves the parts' privacy posture unchanged everywhere else.
+Displayable reasoning SHALL persist as display-only `{ type: "reasoning", text }` assistant parts, each optionally carrying opaque provider metadata, in the exact occurrence order in which it appeared relative to text and tool parts. The same order SHALL be reconstructed by live streaming, reconnect replay, and historical chat loading. Persisted reasoning text SHALL be the text the provider produced, unmodified and untruncated, and SHALL be retained with the chat until normal deletion. Reasoning parts SHALL be excluded from compaction input, chat search, and public shares. When model context is built for the same Chat, its reasoning parts SHALL be offered to the provider in their occurrence position, each with its text and any provider metadata byte-identical to what was persisted; the selected adapter carries every part its wire can represent (Chat Completions: the text as `reasoning_content`; Responses: parts that carry an item id or encrypted content) and omits the rest without failing the request. An assistant message whose only parts are reasoning SHALL still enter model context. The metadata SHALL stay opaque and SHALL NOT be rendered, exported, indexed, or published. This narrows exactly one exclusion — reuse by the Chat's own provider requests — and leaves the parts' privacy posture unchanged everywhere else.
 
 #### Scenario: Interleaved output survives reload faithfully
 
@@ -37,6 +37,23 @@ Displayable reasoning SHALL persist as display-only `{ type: "reasoning", text }
 
 - **WHEN** a compaction summary is built, search indexes a chat, or a chat is viewed through a public share
 - **THEN** no reasoning-part text or provider metadata is included in that summary, index, or public payload
+
+#### Scenario: Long reasoning is persisted whole
+
+- **WHEN** a turn emits more reasoning than any earlier persistence cap allowed
+- **THEN** every reasoning part is persisted in full, with no truncation marker
+
+#### Scenario: Chat Completions replay carries earlier turns' reasoning
+
+- **WHEN** a later request for the same Chat is built for an `openai-completions` provider after an earlier assistant turn persisted reasoning
+- **THEN** that turn's reasoning text is sent back as the assistant message's `reasoning_content`
+- **AND** a backend that requires it with `tools` present (DeepSeek) accepts the request
+
+#### Scenario: Responses replay skips parts its wire cannot carry
+
+- **WHEN** a later request for the same Chat is built for an `openai-responses` provider and a persisted reasoning part carries neither an item id nor encrypted content
+- **THEN** that part is omitted from the request
+- **AND** the request succeeds and parts that do carry them are replayed
 
 ### Requirement: Opaque continuation state is transient and private
 
@@ -50,34 +67,71 @@ Chat history SHALL persist provider-authorized displayable reasoning text togeth
 
 ## ADDED Requirements
 
+### Requirement: Reasoning follows the selected adapter on every wire
+
+Reasoning content that the selected adapter normalizes SHALL be surfaced as the existing normalized reasoning output on every wire, and reasoning the adapter produced for a turn SHALL be returned on that turn's own follow-up requests. The system SHALL NOT add vendor-specific reasoning request fields, raw SSE parsing, tag extraction, or middleware to obtain it. A response that carries no reasoning SHALL remain a successful response.
+
+#### Scenario: Chat Completions backend reasoning is displayed
+
+- **WHEN** an `openai-completions` endpoint emits `reasoning_content` the adapter normalizes
+- **THEN** the run collects and persists it under this capability's contract
+- **AND** no llame-authored parser is involved
+
+#### Scenario: The turn's follow-up request carries prior reasoning
+
+- **WHEN** a turn's follow-up request follows a response that carried reasoning
+- **THEN** the reasoning the adapter produced for that turn is sent back to the endpoint
+
+#### Scenario: No reasoning output is not a failure
+
+- **WHEN** a response contains no displayable reasoning
+- **THEN** the run completes normally
+
 ### Requirement: Reasoning part identity follows the adapter's part id
 
-When the selected adapter supplies an identity for a reasoning span, each distinct identity SHALL persist as its own display-only `{ type: "reasoning" }` part, in the order the identities appeared. When the adapter supplies no identity, the turn's reasoning SHALL persist as a single concatenated part. The system SHALL NOT invent a part boundary for a transition no adapter emits, and live streaming, reconnect replay, and historical chat loading SHALL reconstruct the same parts.
+A new persisted reasoning part SHALL start when the last collected part is not a reasoning part, or when the adapter-supplied part id of the incoming delta and the open reasoning part's id are both defined and differ. Otherwise the delta SHALL append to the open reasoning part, and a defined incoming id SHALL become the open part's id. The system SHALL NOT invent a part boundary for a transition no adapter emits, and live streaming, reconnect replay, and historical chat loading SHALL reconstruct the same parts.
 
 #### Scenario: Responses summary parts persist separately
 
-- **WHEN** a Responses stream emits reasoning deltas whose adapter-supplied identity changes
-- **THEN** the assistant message stores one reasoning part per identity, in order
+- **WHEN** a Responses stream emits reasoning deltas whose adapter-supplied id changes (`${itemId}:${summaryIndex}`)
+- **THEN** the assistant message stores one reasoning part per id, in order
 - **AND** live output, reconnect replay, and a reloaded chat show the same parts
 
-#### Scenario: An adapter without reasoning identity persists one part
+#### Scenario: A constant adapter id keeps uninterrupted reasoning as one part
 
-- **WHEN** a backend emits reasoning deltas that carry no adapter-supplied identity (Chat Completions and OpenAI-compatible backends today)
-- **THEN** the turn's reasoning persists as a single concatenated part
+- **WHEN** a Chat Completions backend emits reasoning deltas that all carry the adapter's constant id (`reasoning-0`) with no intervening text or tool part
+- **THEN** the turn's reasoning persists as a single part
+
+#### Scenario: An intervening part splits reasoning under a constant id
+
+- **WHEN** a backend emits reasoning, then a tool call, then more reasoning, all under the same adapter id
+- **THEN** two reasoning parts persist with the tool part between them
+- **AND** neither is hoisted above the tool
+
+#### Scenario: An absent id is not a boundary
+
+- **WHEN** a reasoning delta without an adapter-supplied id follows an open reasoning part, or a delta with an id follows an open part that has none
+- **THEN** the delta appends to the open part
+- **AND** live output and replayed history agree
 
 ### Requirement: Reasoning parts carry durable provider metadata
 
-An assistant reasoning part MAY carry opaque provider metadata supplied by the provider path that produced it. That metadata SHALL persist with the part in the chat's message parts, SHALL be replayed to the provider on later requests for the same Chat, and SHALL stay opaque: never rendered, exported, indexed, or included in a public share. Its presence SHALL NOT change the part's display text, its order relative to other parts, or the treatment of reasoning text elsewhere in the system.
+An assistant reasoning part MAY carry opaque provider metadata supplied by the adapter that produced it (for the Responses wire: the reasoning item id and, when returned, its encrypted content, read from the adapter's reasoning start and end stream parts). That metadata SHALL persist with the part in the chat's message parts, SHALL be replayed to the provider on later requests for the same Chat together with the part's unmodified text, and SHALL stay opaque: never rendered, exported, indexed, or included in a public share. Its presence SHALL NOT change the part's display text, its order relative to other parts, or the treatment of reasoning text elsewhere in the system.
 
 #### Scenario: Provider metadata persists with the reasoning part
 
-- **WHEN** a provider path supplies metadata for a reasoning part
+- **WHEN** an adapter supplies metadata for a reasoning part
 - **THEN** the metadata is persisted with that part and survives a reload of the chat
 
 #### Scenario: Provider metadata is replayed for the same Chat
 
 - **WHEN** a later request builds model context for the same Chat
-- **THEN** the provider metadata accompanies its reasoning part to the provider
+- **THEN** the provider metadata accompanies its reasoning part to the provider as that wire's reasoning input
+
+#### Scenario: A resumed Run continues with its reasoning intact
+
+- **WHEN** a worker restarts between a tool call and its continuation and the resumed Run rebuilds the request from persisted parts
+- **THEN** the continuation carries the earlier reasoning part with its metadata and unmodified text
 
 #### Scenario: Provider metadata is never rendered or published
 
@@ -91,53 +145,46 @@ An assistant reasoning part MAY carry opaque provider metadata supplied by the p
 
 ### Requirement: Reasoning summaries render as distinct markdown blocks
 
-Reasoning text whose heading is glued to the text before it (`**One****Two**`, or prose butting directly onto a `**Heading**`) SHALL be separated by a paragraph break wherever reasoning is persisted, rendered, or exported as markdown, so each headed summary renders as its own markdown block. This SHALL apply to reasoning persisted before per-part identity was recorded. Emphasis that occurs mid-sentence after whitespace SHALL be left inline.
+When reasoning text is rendered in the Thinking panel or exported as markdown, a heading glued onto the text before it — a `****` run with non-whitespace on both sides, or prose butting directly onto a `**Heading**` whose closing `**` is followed by a newline or end of text — SHALL be separated by a paragraph break, so each headed summary reads as its own block. Markdown export SHALL separate consecutive reasoning parts with a blank line. This SHALL apply to reasoning persisted before per-part identity was recorded. Emphasis that occurs mid-sentence after whitespace or punctuation SHALL be left inline. The repair SHALL NOT modify persisted reasoning text.
 
-#### Scenario: Glued summary headings split before render
+#### Scenario: Glued summary headings split at render
 
-- **WHEN** reasoning text contains `**Investigating****Inspecting schema**`
-- **THEN** the Thinking panel renders two bold titles, not one half-bold `****` run
+- **WHEN** persisted reasoning text contains `**Investigating****Inspecting schema**`
+- **THEN** the Thinking panel and the markdown export show two bold titles, not one half-bold `****` run
+- **AND** the persisted text is unchanged
 
 #### Scenario: Glued headings split for history persisted before part ids
 
-- **WHEN** a chat whose reasoning was persisted before per-part identity was recorded is rendered or exported as markdown and its reasoning glues a heading onto the preceding text
-- **THEN** a paragraph break separates the heading from that text
+- **WHEN** a chat whose reasoning was persisted before per-part identity was recorded is rendered or exported and its reasoning glues a heading onto the preceding text
+- **THEN** a paragraph break separates the heading from that text in the rendered and exported output
 
-#### Scenario: Token-streamed reasoning is not split on mid-sentence emphasis
+#### Scenario: Inline emphasis is not split
 
-- **WHEN** reasoning text contains a bold word after whitespace (`the **signature** field`)
+- **WHEN** reasoning text contains a bold span after whitespace or punctuation (`the **signature** field`, `Check (**signature**) next`), or a bold span followed by more prose on the same line
 - **THEN** that emphasis stays inline and no paragraph break is inserted
 
-### Requirement: Persisted reasoning is bounded across the turn
+#### Scenario: Consecutive reasoning parts export as separate blocks
 
-The bound on persisted reasoning SHALL apply to a turn's reasoning as a whole rather than to each reasoning part independently, so a turn that emits many parts cannot persist a multiple of the bound. Reasoning within the bound SHALL be persisted in full.
+- **WHEN** an assistant message holds two consecutive reasoning parts, each beginning with a `**Heading**`
+- **THEN** the markdown export places a blank line between them
+- **AND** each heading renders as its own block
 
-#### Scenario: Many reasoning parts share one bound
+### Requirement: Chat Completions reasoning is evidence-gated
 
-- **WHEN** a turn emits more reasoning than the bound, spread across several parts
-- **THEN** the total persisted reasoning for that turn does not exceed the bound
+Reasoning support on the `openai-completions` wire SHALL be accepted only after a bounded live smoke proves that wire's request shape, its normalized stream output, and that a later request within the same turn carries the reasoning the adapter produced back to the endpoint. The smoke SHALL run against a directly-billed reasoning-capable Chat Completions endpoint. A response with no displayable reasoning SHALL remain a successful response.
 
-#### Scenario: Reasoning within the bound is persisted in full
+#### Scenario: Completions probe observes a reasoning span
 
-- **WHEN** a turn's reasoning is within the bound
-- **THEN** every part is persisted without truncation
-
-### Requirement: OpenAI-compatible reasoning is evidence-gated
-
-Reasoning support on the OpenAI-compatible surface SHALL be accepted only after a bounded live smoke proves that surface's request shape, its normalized stream output, and that a later request within the same turn carries the reasoning the adapter produced back to the endpoint. The smoke SHALL run against a directly-billed reasoning-capable OpenAI-compatible endpoint. A response with no displayable reasoning SHALL remain a successful response.
-
-#### Scenario: Compatible probe observes a reasoning span
-
-- **WHEN** the bounded live smoke receives a displayable reasoning span from the compatible endpoint
+- **WHEN** the bounded live smoke receives a displayable reasoning span from the endpoint
 - **THEN** it verifies durable event persistence, ordered historical projection, and reconnect replay for that span before the reasoning path is accepted
 
-#### Scenario: Compatible probe verifies the within-turn outbound half
+#### Scenario: Completions probe verifies the within-turn outbound half
 
 - **WHEN** the smoke continues the turn after receiving that span
 - **THEN** the follow-up request carries the reasoning the adapter produced back to the endpoint
 
 #### Scenario: A zero-reasoning response is not a failure
 
-- **WHEN** the compatible endpoint returns no displayable reasoning
+- **WHEN** the endpoint returns no displayable reasoning
 - **THEN** the smoke records a successful response
 - **AND** no unproven behavior is inferred from it
