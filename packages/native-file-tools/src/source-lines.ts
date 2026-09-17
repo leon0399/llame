@@ -14,6 +14,9 @@ type ReadSuccessBase = {
   status: "success";
   kind: "file";
   path: string;
+  /** Canonical host path when it differs from the given one. Both result
+   *  constructors copy it before measuring, so it counts against the cap. */
+  realPath?: string;
   representation: "text" | "raw";
   content: string;
   nextOffset?: number;
@@ -147,6 +150,7 @@ export function emptyReadResult(
     shownRange: null,
     truncated: false,
   };
+  if (target.realPath !== undefined) result.realPath = target.realPath;
   if (
     measureNativeModelOutput({ ...result, nextOffset: target.offset }) >
     resultBudget(target)
@@ -183,6 +187,7 @@ export function emptyMultiReadResult(target: ReadTarget): MultiReadSuccess {
     shownRanges: [],
     truncated: false,
   };
+  if (target.realPath !== undefined) result.realPath = target.realPath;
   if (
     measureNativeModelOutput({ ...result, nextOffset: target.offset }) >
     resultBudget(target)

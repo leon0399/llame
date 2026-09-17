@@ -1,4 +1,11 @@
-import { lstat, opendir, open, stat } from "node:fs/promises";
+import {
+  lstat,
+  opendir,
+  open,
+  readlink,
+  realpath,
+  stat,
+} from "node:fs/promises";
 import {
   applySelectorSuffix,
   isNodeError,
@@ -26,6 +33,9 @@ export {
 
 const NODE_DIRECTORY_PORT: DirectoryPort = {
   opendir: (path) => opendir(path),
+  stat: (path) => stat(path),
+  realpath: (path) => realpath(path),
+  readlink: (path) => readlink(path),
 };
 
 type ReadOutcome =

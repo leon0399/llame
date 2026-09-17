@@ -1,7 +1,15 @@
 import * as filesystem from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, mkdtemp, open, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  open,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
   isNumber,
@@ -713,6 +721,126 @@ describe("native source reads", () => {
       expect(result.content.endsWith("31: line 31\n")).toBe(true);
     });
   });
+
+  describe("real path reporting", () => {
+    let realDirectory: string;
+    let realFile: string;
+    let linkedDirectory: string;
+    let linkedFile: string;
+
+    beforeEach(async () => {
+      realDirectory = join(directory, "real");
+      linkedDirectory = join(directory, "link");
+      realFile = join(realDirectory, "notes.md");
+      linkedFile = join(linkedDirectory, "notes.md");
+      await mkdir(realDirectory);
+      await writeFile(realFile, "alpha\nbeta\n");
+      await symlink(realDirectory, linkedDirectory);
+    });
+
+    it("reports the canonical path a linked directory component leads to", async () => {
+      const result = await readFile({ path: linkedFile });
+      assertFileSuccess(result);
+      expect(result).toMatchObject({
+        path: linkedFile,
+        realPath: await realpath(realFile),
+        content: "1: alpha\n2: beta\n",
+      });
+    });
+
+    it("reports the canonical path a linked leaf leads to", async () => {
+      const linkedLeaf = join(directory, "alias.md");
+      await symlink(realFile, linkedLeaf);
+      const result = await readFile({ path: linkedLeaf });
+      assertFileSuccess(result);
+      expect(result).toMatchObject({
+        path: linkedLeaf,
+        realPath: await realpath(realFile),
+        content: "1: alpha\n2: beta\n",
+      });
+    });
+
+    it("reports the canonical path on a multi-range read", async () => {
+      await writeFile(
+        realFile,
+        Array.from({ length: 40 }, (_, i) => `line ${i + 1}\n`).join(""),
+      );
+      const result = await readFile({ path: `${linkedFile}:3-4,30-31` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        path: linkedFile,
+        realPath: await realpath(realFile),
+        requestedRanges: [
+          { startLine: 3, endLine: 4 },
+          { startLine: 30, endLine: 31 },
+        ],
+      });
+    });
+
+    it("reports no real path for a link-free path written with dot segments", async () => {
+      // Spelling the path from its canonical base keeps every component
+      // link-free even where the temporary directory itself is reached
+      // through a link.
+      const base = await realpath(directory);
+      const spelled = `${base}/real/../real/notes.md`;
+      const result = await readFile({ path: spelled });
+      assertFileSuccess(result);
+      expect(result).toMatchObject({
+        path: spelled,
+        content: "1: alpha\n2: beta\n",
+      });
+      expect(result).not.toHaveProperty("realPath");
+    });
+
+    it("reports no real path on a directory listing", async () => {
+      const result = await readFile({ path: linkedDirectory });
+      expect(result).toMatchObject({
+        status: "success",
+        kind: "directory",
+        path: linkedDirectory,
+      });
+      expect(result).not.toHaveProperty("realPath");
+    });
+
+    it("counts the real path against the shared result cap", async () => {
+      // Every appended line is measured with `nextOffset` set, and one more
+      // character on this single source line adds exactly one character to
+      // that measurement. Calibrating the file to that cap leaves `realPath`
+      // as the only measurement the linked read carries beyond the canonical
+      // one, so it must drop the line the canonical read still shows. Both
+      // components of the two paths are the same length, so the longer path
+      // cannot be what overflows.
+      await writeFile(realFile, "x\n");
+      const baseline = await readFile({ path: realFile });
+      assertFileSuccess(baseline);
+      expect(baseline.truncated).toBe(false);
+      const measured = (result: SingleReadSuccess) =>
+        measureNativeModelOutput({ ...result, nextOffset: 1 });
+      await writeFile(
+        realFile,
+        `${"x".repeat(MAX_RESULT_CODE_UNITS - measured(baseline) + 1)}\n`,
+      );
+
+      const canonical = await readFile({ path: realFile });
+      const linked = await readFile({ path: linkedFile });
+      assertFileSuccess(canonical);
+      assertFileSuccess(linked);
+      expect(linkedFile).toHaveLength(realFile.length);
+      expect(measured(canonical)).toBe(MAX_RESULT_CODE_UNITS);
+      expect(
+        measureNativeModelOutput({
+          ...canonical,
+          path: linkedFile,
+          realPath: await realpath(realFile),
+          nextOffset: 1,
+        }),
+      ).toBeGreaterThan(MAX_RESULT_CODE_UNITS);
+      expect(splitSourceLines(canonical.content)).toHaveLength(1);
+      expect(splitSourceLines(linked.content)).toHaveLength(0);
+      expect(linked).toMatchObject({ truncated: true, nextOffset: 1 });
+      expect(linked.realPath).toBe(await realpath(realFile));
+    });
+  });
 });
 
 describe("native reads resolved by a scheme owner", () => {
@@ -884,6 +1012,25 @@ describe("native reads resolved by a scheme owner", () => {
     expect(
       "content" in result && result.content.startsWith("kb://space/\n"),
     ).toBe(true);
+  });
+
+  it("reports no real path for a followed link on a scheme-resolved read", async () => {
+    const realDirectory = join(directory, "real");
+    await mkdir(realDirectory);
+    await writeFile(join(realDirectory, "notes.md"), "alpha\n");
+    const linked = join(directory, "linked.md");
+    await symlink(join(realDirectory, "notes.md"), linked);
+
+    const result = await readResolvedFile(linked, {
+      displayPath: "skill://pdf/linked.md",
+      followSymlinks: true,
+    });
+    assertFileSuccess(result);
+    expect(result).toMatchObject({
+      path: "skill://pdf/linked.md",
+      content: "1: alpha\n",
+    });
+    expect(result).not.toHaveProperty("realPath");
   });
 });
 

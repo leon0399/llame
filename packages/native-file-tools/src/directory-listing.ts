@@ -12,18 +12,39 @@ export type DirentLike = {
   isSymbolicLink(): boolean;
 };
 
+/** The subset of node:fs's Stats the listing reads; a real Stats satisfies this structurally. */
+export type StatsLike = {
+  isFile(): boolean;
+  isDirectory(): boolean;
+};
+
 export type DirectoryPort = {
   opendir: (path: string) => Promise<{
     read(): Promise<DirentLike | null>;
     close(): Promise<void>;
   }>;
+  /** Follows a link leaf, so it reports the kind of what the link leads to. */
+  stat: (path: string) => Promise<StatsLike>;
+  /** The canonical absolute path a link resolves to. */
+  realpath: (path: string) => Promise<string>;
+  /** The raw text of a link, read only when its target cannot be named. */
+  readlink: (path: string) => Promise<string>;
 };
 
 type EntryKind = "directory" | "file" | "symlink" | "special";
 
+/** What a link can lead to when the listing names its target kind. */
+type LinkTargetKind = "directory" | "file";
+
 type DirEntry = {
   name: string;
   kind: EntryKind;
+  /** A link's target kind; absent when the link dangles, leads to a special
+   *  entry, or its metadata cannot be read. */
+  targetKind?: LinkTargetKind;
+  /** A link's canonical target, or its raw link text when no target kind
+   *  could be named. */
+  target?: string;
 };
 
 type ChildDir = {
@@ -49,8 +70,9 @@ export type DirectoryListingOptions = {
   displayPath?: string;
   /** Room withheld from the shared cap for a caller's envelope. */
   reserveCodeUnits?: number;
-  /** Whether a link entry names its target; absent means true. The renderer
-   *  reads it once link rendering lands. */
+  /** Whether a link entry names its target; absent means true. When false
+   *  every link renders as the bare `- name@` and no link metadata is read,
+   *  which is what keeps a resolved host path out of a Knowledge listing. */
   linkTargets?: boolean;
 };
 
@@ -79,12 +101,22 @@ function formatEntry(entry: DirEntry, indent: string): string {
     case "directory":
       return `${indent}- ${entry.name}/`;
     case "symlink":
-      return `${indent}- ${entry.name}@`;
+      return formatLink(entry, indent);
     case "special":
       return `${indent}- ${entry.name}?`;
     default:
       return `${indent}- ${entry.name}`;
   }
+}
+
+function formatLink(entry: DirEntry, indent: string): string {
+  const line = `${indent}- ${entry.name}@`;
+  if (entry.target === undefined) return line;
+  if (entry.targetKind === "directory") return `${line}/ -> ${entry.target}`;
+  if (entry.targetKind === "file") return `${line} -> ${entry.target}`;
+  // Dangling, unresolvable, or leading to a special entry: the raw link text
+  // is the only target the listing can state.
+  return `${line}? -> ${entry.target}`;
 }
 
 function compareEntries(a: DirEntry, b: DirEntry): number {
@@ -125,6 +157,66 @@ async function readDirEntries(
   } finally {
     await dir.close();
   }
+}
+
+async function resolveLinkTarget(
+  port: DirectoryPort,
+  linkPath: string,
+  entry: DirEntry,
+): Promise<void> {
+  try {
+    const canonical = await port.realpath(linkPath);
+    const target = await port.stat(linkPath);
+    if (target.isDirectory() || target.isFile()) {
+      entry.target = canonical;
+      entry.targetKind = target.isDirectory() ? "directory" : "file";
+      return;
+    }
+  } catch {
+    // Dangling or unresolvable; only the raw link text remains below.
+  }
+  try {
+    entry.target = await port.readlink(linkPath);
+  } catch {
+    // Unreadable even as raw text: the entry renders as the bare `- name@`.
+  }
+}
+
+/**
+ * Names every link's target within `entries`. Callers pass only the entries a
+ * listing renders, so a large directory costs metadata reads for its rendered
+ * level and the capped head of each child, and no link is ever opened.
+ */
+async function resolveLinkTargets(
+  port: DirectoryPort,
+  dirPath: string,
+  entries: Array<DirEntry>,
+): Promise<void> {
+  const links = entries.filter((entry) => entry.kind === "symlink");
+  await Promise.all(
+    links.map((entry) =>
+      resolveLinkTarget(port, `${dirPath}/${entry.name}`, entry),
+    ),
+  );
+}
+
+async function resolveTreeLinkTargets(
+  port: DirectoryPort,
+  dirPath: string,
+  rootEntries: Array<DirEntry>,
+  children: Array<ChildDir>,
+): Promise<void> {
+  await resolveLinkTargets(port, dirPath, rootEntries);
+  const rendered = children.filter((child) => !child.overBudget);
+  await Promise.all(
+    rendered.map((child) =>
+      resolveLinkTargets(
+        port,
+        `${dirPath}/${child.name}`,
+        child.entries.slice(0, DIRECTORY_CHILD_CAP),
+      ),
+    ),
+  );
 }
 
 function fitsResultCap(candidate: DirectorySuccess, cap: number): boolean {
@@ -187,6 +279,7 @@ export async function listDirectory(
   const root = await readDirEntries(port, targetPath);
   const header = options?.displayPath ?? targetPath;
   const cap = resultBudget(options ?? {});
+  const linkTargets = options?.linkTargets ?? true;
 
   if (root.overBudget) {
     return {
@@ -200,11 +293,25 @@ export async function listDirectory(
   root.entries.sort(compareEntries);
 
   if (options?.offset !== undefined || options?.limit !== undefined) {
+    const { selected } = requestedSlice(root.entries, options);
+    if (linkTargets) await resolveLinkTargets(port, targetPath, selected);
     return renderFlatListing(header, root.entries, options, cap);
   }
 
   const children = await readChildDirs(root.entries, targetPath, port);
+  if (linkTargets)
+    await resolveTreeLinkTargets(port, targetPath, root.entries, children);
   return renderTreeListing(header, root.entries, children, cap);
+}
+
+function requestedSlice(
+  entries: Array<DirEntry>,
+  options: { offset?: number; limit?: number },
+) {
+  const offset = options.offset ?? 0;
+  const limit = options.limit ?? entries.length;
+  const end = Math.min(offset + limit, entries.length);
+  return { offset, end, selected: entries.slice(offset, end) };
 }
 
 function renderFlatListing(
@@ -213,10 +320,7 @@ function renderFlatListing(
   options: { offset?: number; limit?: number } | undefined,
   cap: number,
 ): DirectorySuccess {
-  const offset = options?.offset ?? 0;
-  const limit = options?.limit ?? entries.length;
-  const end = Math.min(offset + limit, entries.length);
-  const selected = entries.slice(offset, end);
+  const { offset, end, selected } = requestedSlice(entries, options ?? {});
 
   const lines: Array<string> = [targetPath];
   for (const entry of selected) {
