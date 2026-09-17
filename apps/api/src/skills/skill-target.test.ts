@@ -1,6 +1,7 @@
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -192,19 +193,24 @@ describe('resolveSkillLocator', () => {
     });
   });
 
-  it('refuses a resource symlink resolving outside the package', async () => {
+  it('follows a resource symlink resolving outside the package', async () => {
     const source = temporaryDirectory('escape');
     const outside = temporaryDirectory('outside');
     createPackage(source, 'pdf');
+    const packageDirectory = path.join(source, 'pdf');
     writeFileSync(path.join(outside, 'secret.md'), 'secret');
     symlinkSync(
       path.join(outside, 'secret.md'),
-      path.join(source, 'pdf', 'linked.md'),
+      path.join(packageDirectory, 'linked.md'),
     );
 
     const resolved = await resolverResult(source, 'pdf/linked.md');
 
-    expect(resolved).toMatchObject({ status: 'error', type: 'not_found' });
+    // A configured source is trusted, so the link is followed and the target
+    // names the link path the model asked for.
+    expect(resolved).toMatchObject({
+      hostPath: path.join(packageDirectory, 'linked.md'),
+    });
   });
 
   it('resolves a resource symlink that stays inside the package', async () => {
@@ -220,7 +226,7 @@ describe('resolveSkillLocator', () => {
     const resolved = await resolverResult(source, 'pdf/alias.md');
 
     expect(resolved).toMatchObject({
-      hostPath: path.join(packageDirectory, 'real.md'),
+      hostPath: path.join(packageDirectory, 'alias.md'),
     });
   });
 
@@ -232,40 +238,59 @@ describe('resolveSkillLocator', () => {
     const link = join(temporaryDirectory('link-root'), 'source');
     symlinkSync(real, link, 'dir');
 
-    // The catalog resolves the configured root, so containment compares real
-    // paths on both sides and a mounted/symlinked source still reads.
+    // Links are followed as the host resolves them, so a mounted or symlinked
+    // source reads through the configured link path and never its real one.
     const root = await resolverResult(link, 'pdf');
     expect(root).toMatchObject({
-      hostPath: join(real, 'pdf', 'SKILL.md'),
-      skillDirectory: join(real, 'pdf'),
+      hostPath: join(link, 'pdf', 'SKILL.md'),
+      skillDirectory: join(link, 'pdf'),
     });
 
     const resource = await resolverResult(link, 'pdf/references/guide.md');
     expect(resource).toMatchObject({
-      hostPath: join(real, 'pdf', 'references', 'guide.md'),
+      hostPath: join(link, 'pdf', 'references', 'guide.md'),
     });
 
     const listing = await resolverResult(link, 'pdf/');
     expect(listing).toMatchObject({
-      hostPath: `${join(real, 'pdf')}${path.sep}`,
+      hostPath: `${join(link, 'pdf')}${path.sep}`,
     });
   });
 
-  it('refuses a missing leaf beneath an escaping intermediate symlink', async () => {
+  it('publishes realSkillDirectory only when the package path is not canonical', async () => {
+    const real = realpathSync(temporaryDirectory('real-package'));
+    createPackage(real, 'pdf');
+
+    expect(await resolverResult(real, 'pdf')).not.toHaveProperty(
+      'realSkillDirectory',
+    );
+
+    const link = join(temporaryDirectory('linked-package'), 'source');
+    symlinkSync(real, link, 'dir');
+
+    expect(await resolverResult(link, 'pdf')).toMatchObject({
+      skillDirectory: join(link, 'pdf'),
+      realSkillDirectory: join(real, 'pdf'),
+    });
+  });
+
+  it('resolves beneath an intermediate symlink and leaves an absent leaf to the reader', async () => {
     const source = temporaryDirectory('escape-dir');
     const outside = temporaryDirectory('outside-dir');
     createPackage(source, 'pdf');
+    const packageDirectory = join(source, 'pdf');
     mkdirSync(join(outside, 'nested'), { recursive: true });
     writeFileSync(join(outside, 'nested', 'present.md'), '# Outside\n');
-    symlinkSync(join(outside, 'nested'), join(source, 'pdf', 'link'), 'dir');
+    symlinkSync(join(outside, 'nested'), join(packageDirectory, 'link'), 'dir');
 
-    // The leaf is missing, so `realpath` fails on it — but the ancestor the
-    // reader would list for sibling suggestions resolves outside the package.
-    const missing = await resolverResult(source, 'pdf/link/absent.md');
-    expect(missing).toMatchObject({ status: 'error', type: 'not_found' });
-
-    const present = await resolverResult(source, 'pdf/link/present.md');
-    expect(present).toMatchObject({ status: 'error', type: 'not_found' });
+    // Resolution touches nothing on disk, so both leaves name the discovered
+    // link path and the reader's own open is what reports the absent one.
+    expect(await resolverResult(source, 'pdf/link/absent.md')).toMatchObject({
+      hostPath: join(packageDirectory, 'link', 'absent.md'),
+    });
+    expect(await resolverResult(source, 'pdf/link/present.md')).toMatchObject({
+      hostPath: join(packageDirectory, 'link', 'present.md'),
+    });
   });
 
   it('refuses a resource path that escapes the package', async () => {

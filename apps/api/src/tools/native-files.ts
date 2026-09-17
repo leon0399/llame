@@ -145,6 +145,7 @@ async function executeSkill(
   const options: NativeReadOptions = {
     displayPath: resolved.locator,
     reserveCodeUnits: serializeNativeModelOutput(envelope).length,
+    followSymlinks: true,
     signal: context.abortSignal,
   };
   const result = await readResolvedFile(

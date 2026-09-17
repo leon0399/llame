@@ -1,10 +1,4 @@
-import {
-  lstatSync,
-  opendirSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-} from 'node:fs';
+import { lstatSync, opendirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { type UnknownRecord } from '@workspace/runtime-safety';
@@ -43,7 +37,6 @@ export type SkillCatalogFileSystem = {
   readDirectory(directoryPath: string): ReadonlyArray<CatalogDirent>;
   readTextFile(filePath: string): string;
   fileKind(filePath: string): CatalogFileKind;
-  realPath(filePath: string): string;
 };
 
 /**
@@ -70,20 +63,13 @@ export const NODE_SKILL_FILE_SYSTEM: SkillCatalogFileSystem = {
   fileKind: (filePath) => {
     try {
       const link = lstatSync(filePath);
-      if (link.isSymbolicLink()) {
-        try {
-          return statSync(filePath).isFile() ? 'file' : 'unavailable';
-        } catch {
-          return 'unavailable';
-        }
-      }
+      if (link.isSymbolicLink()) return followedKind(filePath);
       if (link.isFile()) return 'file';
       return link.isDirectory() ? 'directory' : 'unavailable';
     } catch (error) {
       return isNotFound(error) ? 'missing' : 'unavailable';
     }
   },
-  realPath: (filePath) => realpathSync(filePath),
 };
 
 export type SkillCatalogEntry = {
@@ -93,7 +79,9 @@ export type SkillCatalogEntry = {
   readonly proactive: boolean;
   /** The configured source this package was selected from. */
   readonly sourceDirectory: string | null;
-  /** The package's real, absolute directory; null when it could not be resolved. */
+  /** The package directory as discovered beneath its configured source; null
+   *  when it could not be resolved. A symbolic-link child is published at its
+   *  link path, not at the directory the link points to. */
   readonly skillDirectory: string | null;
   readonly available: boolean;
   readonly diagnostics: ReadonlyArray<string>;
@@ -116,10 +104,10 @@ export type SkillCatalogPort = Pick<SkillCatalog, 'getSnapshot'>;
 
 /**
  * The one in-process catalog port (design D1). Every later skill layer reads
- * the catalog through this, so precedence, containment, and invocation control
- * are resolved in exactly one place. Discovery is live: nothing is cached, so
- * editing a package inside an already configured source takes effect on the
- * next read without a restart.
+ * the catalog through this, so precedence and invocation control are resolved
+ * in exactly one place. Discovery is live: nothing is cached, so editing a
+ * package inside an already configured source takes effect on the next read
+ * without a restart.
  */
 export class SkillCatalog {
   private readonly directories: ReadonlyArray<string>;
@@ -145,17 +133,9 @@ export class SkillCatalog {
       return { available: true, directories, entries: [], diagnostics: [] };
     }
 
-    const roots = this.resolveRoots(directories);
-    if (roots === undefined) {
-      return this.unavailable(
-        directories,
-        'A configured skill source is missing or unreadable; the catalog is unavailable.',
-      );
-    }
-
     const winners = new Map<string, SkillCatalogEntry>();
-    for (const [index, directory] of directories.entries()) {
-      const result = this.readSource(directory, roots[index], roots);
+    for (const directory of directories) {
+      const result = this.readSource(directory);
       if (result.status === 'unavailable') {
         return this.unavailable(directories, result.diagnostic);
       }
@@ -172,25 +152,7 @@ export class SkillCatalog {
     };
   }
 
-  private resolveRoots(
-    directories: ReadonlyArray<string>,
-  ): Array<string> | undefined {
-    const roots: Array<string> = [];
-    for (const directory of directories) {
-      try {
-        roots.push(this.fileSystem.realPath(directory));
-      } catch {
-        return undefined;
-      }
-    }
-    return roots;
-  }
-
-  private readSource(
-    sourceDirectory: string,
-    sourceRoot: string,
-    roots: ReadonlyArray<string>,
-  ):
+  private readSource(sourceDirectory: string):
     | {
         readonly status: 'read';
         readonly entries: ReadonlyArray<SkillCatalogEntry>;
@@ -198,7 +160,7 @@ export class SkillCatalog {
     | { readonly status: 'unavailable'; readonly diagnostic: string } {
     let children: ReadonlyArray<CatalogDirent>;
     try {
-      children = this.fileSystem.readDirectory(sourceRoot);
+      children = this.fileSystem.readDirectory(sourceDirectory);
     } catch {
       return {
         status: 'unavailable',
@@ -214,22 +176,20 @@ export class SkillCatalog {
 
     const entries: Array<SkillCatalogEntry> = [];
     for (const child of children) {
-      const entry = this.readChild(child, sourceDirectory, sourceRoot, roots);
+      const entry = this.readChild(child, sourceDirectory);
       if (entry !== undefined) entries.push(entry);
     }
     return { status: 'read', entries };
   }
 
-  /** A child that is not a package at all (no `SKILL.md`, or an inadmissible
-   *  symlink) yields `undefined`; anything package-shaped yields an entry,
-   *  available or not. */
+  /** A child that is not a package at all (no `SKILL.md`, or a plain child
+   *  that is not a directory) yields `undefined`; anything package-shaped
+   *  yields an entry, available or not. */
   private readChild(
     child: CatalogDirent,
     sourceDirectory: string,
-    sourceRoot: string,
-    roots: ReadonlyArray<string>,
   ): SkillCatalogEntry | undefined {
-    const resolved = this.resolvePackageDirectory(child, sourceRoot, roots);
+    const resolved = this.resolvePackageDirectory(child, sourceDirectory);
     if (resolved.status === 'not-a-package') return undefined;
     if (resolved.status === 'unavailable') {
       return this.unavailableEntry(
@@ -242,7 +202,6 @@ export class SkillCatalog {
 
     const document = this.readSkillDocument(
       path.join(resolved.directory, SKILL_DOCUMENT_FILENAME),
-      resolved.directory,
     );
     if (document.status === 'missing') return undefined;
     if (document.status === 'unavailable') {
@@ -304,45 +263,40 @@ export class SkillCatalog {
     };
   }
 
+  /** A child is a package when it resolves to a directory; the `SKILL.md`
+   *  check that follows decides whether it is discoverable at all. A symbolic
+   *  link that does not resolve to a directory is an unavailable entry naming
+   *  the link or the kind of its target. */
   private resolvePackageDirectory(
     child: CatalogDirent,
-    sourceRoot: string,
-    roots: ReadonlyArray<string>,
+    sourceDirectory: string,
   ): PackageDirectoryResolution {
-    const childPath = path.join(sourceRoot, child.name);
+    const childPath = path.join(sourceDirectory, child.name);
     if (!child.isSymbolicLink()) {
       return child.isDirectory()
         ? { status: 'package', directory: childPath }
         : { status: 'not-a-package' };
     }
 
-    let real: string;
-    try {
-      real = this.fileSystem.realPath(childPath);
-    } catch {
+    const kind = this.fileSystem.fileKind(childPath);
+    if (kind === 'directory') {
+      return { status: 'package', directory: childPath };
+    }
+    if (kind === 'file') {
       return {
         status: 'unavailable',
         directory: childPath,
-        diagnostic: 'The package symlink could not be resolved.',
+        diagnostic: `The package symlink ${childPath} resolves to a regular file, not a directory.`,
       };
     }
-    if (!roots.some((root) => isInside(root, real))) {
-      return {
-        status: 'unavailable',
-        directory: childPath,
-        diagnostic:
-          'The package symlink resolves outside every configured skill source.',
-      };
-    }
-    const targetKind = this.fileSystem.fileKind(real);
-    if (targetKind !== 'directory') return { status: 'not-a-package' };
-    return { status: 'package', directory: real };
+    return {
+      status: 'unavailable',
+      directory: childPath,
+      diagnostic: `The package symlink ${childPath} could not be resolved.`,
+    };
   }
 
-  private readSkillDocument(
-    documentPath: string,
-    packageDirectory: string,
-  ): SkillDocumentRead {
+  private readSkillDocument(documentPath: string): SkillDocumentRead {
     const kind = this.fileSystem.fileKind(documentPath);
     if (kind === 'missing') return { status: 'missing' };
     if (kind !== 'file') {
@@ -351,9 +305,6 @@ export class SkillCatalog {
         diagnostic: `${SKILL_DOCUMENT_FILENAME} is not a readable regular file.`,
       };
     }
-    const escaped = this.escapesPackage(documentPath, packageDirectory);
-    if (escaped !== undefined)
-      return { status: 'unavailable', diagnostic: escaped };
     try {
       return { status: 'ok', text: this.fileSystem.readTextFile(documentPath) };
     } catch {
@@ -375,7 +326,6 @@ export class SkillCatalog {
   ): boolean | 'invalid' {
     const llame = this.readSidecarControl(
       path.join(packageDirectory, LLAME_SIDECAR_PATH),
-      packageDirectory,
     );
     if (llame !== 'absent') return llame;
 
@@ -384,21 +334,14 @@ export class SkillCatalog {
 
     const openai = this.readSidecarControl(
       path.join(packageDirectory, OPENAI_SIDECAR_PATH),
-      packageDirectory,
     );
     return openai === 'absent' ? true : openai;
   }
 
-  private readSidecarControl(
-    filePath: string,
-    packageDirectory: string,
-  ): InvocationControlValue {
+  private readSidecarControl(filePath: string): InvocationControlValue {
     const kind = this.fileSystem.fileKind(filePath);
     if (kind === 'missing') return 'absent';
     if (kind !== 'file') return 'invalid';
-    if (this.escapesPackage(filePath, packageDirectory) !== undefined) {
-      return 'invalid';
-    }
     try {
       return readSidecarInvocationControl(
         this.fileSystem.readTextFile(filePath),
@@ -408,23 +351,6 @@ export class SkillCatalog {
     }
   }
 
-  /** Return a diagnostic when `filePath` resolves outside `packageDirectory`,
-   *  or `undefined` when contained. Design D1: resource links must remain
-   *  within the selected real package directory. */
-  private escapesPackage(
-    filePath: string,
-    packageDirectory: string,
-  ): string | undefined {
-    try {
-      const real = this.fileSystem.realPath(filePath);
-      if (!isInside(packageDirectory, real)) {
-        return 'A resource symlink resolves outside its package directory.';
-      }
-      return undefined;
-    } catch {
-      return 'A resource symlink could not be resolved.';
-    }
-  }
   private unavailable(
     directories: ReadonlyArray<string>,
     diagnostic: string,
@@ -469,10 +395,6 @@ type SkillDocumentRead =
   | { readonly status: 'missing' }
   | { readonly status: 'unavailable'; readonly diagnostic: string };
 
-function isInside(root: string, candidate: string): boolean {
-  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
-}
-
 /**
  * Code-point order for catalog names, so a non-ASCII directory name sorts
  * deterministically rather than by UTF-16 surrogate code unit. The catalog
@@ -486,6 +408,21 @@ export function compareSkillNames(left: string, right: string): number {
     if (a[index] !== b[index]) return a[index] - b[index];
   }
   return a.length - b.length;
+}
+
+/**
+ * The kind of a symbolic link's target, following the link as the operating
+ * system does. A link that cannot be followed is `unavailable` rather than
+ * `missing`, so a dangling link stays an inspectable entry with a diagnostic.
+ */
+function followedKind(filePath: string): CatalogFileKind {
+  try {
+    const target = statSync(filePath);
+    if (target.isDirectory()) return 'directory';
+    return target.isFile() ? 'file' : 'unavailable';
+  } catch {
+    return 'unavailable';
+  }
 }
 
 function isNotFound(error: unknown): boolean {
