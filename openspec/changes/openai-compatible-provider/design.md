@@ -543,6 +543,15 @@ parts, and costs. The CHANGELOG records the breaking note.
 
 ## Revision history
 
+- v7 (2026-09-18): PR #890 review round (CodeRabbit), harmonizing three
+  amended requirements with `reasoning-output`'s own omission rule: the
+  model-switch requirement now says the adapter omits a part its wire cannot
+  represent before the request rather than reading as an absolute no-pruning
+  rule, `tool-calling`'s switch scenario says the same, and the Codex
+  requirement states the two metadata placements separately — the item
+  identifier on every part of an item, the encrypted content on the single
+  part the adapter attaches it to, never duplicated. No decision changed; the
+  three texts described one contract three ways.
 - v6 (2026-09-18): PR #884 second review round (CodeRabbit). Scoped the
   `available-models` dispatch requirement's endpoint sourcing: credentials come
   from the provider entry for every executable type, while the endpoint comes

@@ -128,8 +128,9 @@ that produced them.
 - **THEN** portable matched observations remain available through the target
   SDK conversion
 - **AND** originating-provider metadata is excluded from the tool projection;
-  replayed reasoning parts are passed back unchanged and the target provider
-  ignores or drops the ones it cannot read
+  replayed reasoning parts are passed back unchanged, `reasoning-output` omits
+  before the request the ones the target wire cannot represent, and the target
+  provider ignores or drops the rest
 
 #### Scenario: The projection is labelled untrusted
 
