@@ -2,7 +2,7 @@
 
 ### Requirement: Provider execution resolves through the configured provider
 
-Model execution SHALL resolve a run's model to its catalog entry, that entry's `provider` to the matching `providers[]` entry, and a model client selected by the provider's `type`. The implementation SHALL dispatch on `type` — each executable type maps to exactly one client, and the wire that client speaks is specified by `provider-api-selection` — and SHALL treat any unrecognized resolved `type` as an internal error, not a silent fallback. Provider credentials and base URL SHALL come from the resolved provider entry, not from a fixed environment variable. A keyless provider (empty resolved `key`) SHALL execute against its configured endpoint without raising a missing-credential error at client construction.
+Model execution SHALL resolve a run's model to its catalog entry, that entry's `provider` to the matching `providers[]` entry, and a model client selected by the provider's `type`. The implementation SHALL dispatch on `type` — each executable type maps to exactly one client; `provider-api-selection` specifies the wire for the OpenAI wire types, and `subscription-access-openai-codex` specifies it for `openai-codex`, whose transport and endpoint are fixed by construction — and SHALL treat any unrecognized resolved `type` as an internal error, not a silent fallback. Provider credentials and base URL SHALL come from the resolved provider entry, not from a fixed environment variable. A keyless provider (empty resolved `key`) SHALL execute against its configured endpoint without raising a missing-credential error at client construction.
 
 #### Scenario: Model routes to its provider's client
 

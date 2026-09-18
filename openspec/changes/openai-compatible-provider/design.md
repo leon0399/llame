@@ -450,8 +450,9 @@ requests, the "excluded from later model context" clause of "Reasoning is an
 ordered private assistant part" is narrowed for that one reuse; compaction
 input, chat search, and public shares stay excluded, and state that is
 genuinely run-scoped stays transient. No model-switch coercion rule is added:
-llame passes blocks back unchanged and the provider ignores or drops the ones
-the target model cannot read. No size bound is added (D11's ceiling applies).
+llame passes blocks back unchanged, a target that can represent a block uses
+it, and one that cannot ignores, drops, or rejects it under the existing
+failure contract. No size bound is added (D11's ceiling applies).
 
 ### D16: Replay is a property of the request, not of the projection
 
@@ -541,6 +542,16 @@ parts, and costs. The CHANGELOG records the breaking note.
 
 ## Revision history
 
+- v5 (2026-09-18): PR #884 review round (CodeRabbit). Named which capability
+  owns `openai-codex`'s wire in the `available-models` dispatch requirement,
+  since `provider-api-selection` covers only the two OpenAI wire types. Added
+  logs, telemetry, and errors to the generic provider-metadata no-leak rule
+  and gave it a scenario; the Codex delta already named those sinks. Bounded
+  the model-switch acceptance criterion to a target that can represent the
+  replayed reasoning, with the documented omit/ignore/drop outcome for one
+  that cannot. One finding rejected: the failed-attempt model-switch-state
+  ambiguity is a property of the shipped requirement, unchanged by this
+  delta.
 - v4 (2026-09-18): Round 4, final round. Replaced the model-switch
   requirement's surviving `MUST NOT` with the synthesis/re-binding rule it
   was meant to become, since as written it forbade the same replay its own

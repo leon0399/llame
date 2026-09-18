@@ -128,7 +128,7 @@ A new persisted reasoning part SHALL start when the last collected part is not a
 
 ### Requirement: Reasoning parts carry durable provider metadata
 
-An assistant reasoning part MAY carry opaque provider metadata supplied by the adapter that produced it (for the Responses wire: the reasoning item id on every part of an item, and the item's encrypted content on whichever part the adapter attaches it to, read from the adapter's reasoning start and end stream parts). That metadata SHALL persist with the part in the chat's message parts, SHALL be replayed to the provider on later requests that continue the same Chat together with the part's unmodified text, and SHALL stay opaque: never rendered, exported, indexed, or included in a public share. Its presence SHALL NOT change the part's display text, its order relative to other parts, or the treatment of reasoning text elsewhere in the system.
+An assistant reasoning part MAY carry opaque provider metadata supplied by the adapter that produced it (for the Responses wire: the reasoning item id on every part of an item, and the item's encrypted content on whichever part the adapter attaches it to, read from the adapter's reasoning start and end stream parts). That metadata SHALL persist with the part in the chat's message parts, SHALL be replayed to the provider on later requests that continue the same Chat together with the part's unmodified text, and SHALL stay opaque: never rendered, exported, indexed, included in a public share, or written to logs, telemetry, or errors. Its presence SHALL NOT change the part's display text, its order relative to other parts, or the treatment of reasoning text elsewhere in the system.
 
 #### Scenario: Provider metadata persists with the reasoning part
 
@@ -150,6 +150,11 @@ An assistant reasoning part MAY carry opaque provider metadata supplied by the a
 
 - **WHEN** a chat is displayed, exported as markdown, indexed for search, or viewed through a public share
 - **THEN** no provider metadata appears in that output
+
+#### Scenario: Provider metadata never reaches a diagnostic sink
+
+- **WHEN** a request carrying replayed provider metadata fails, or the run writes logs or telemetry for it
+- **THEN** the metadata value appears in no log line, telemetry field, or error
 
 #### Scenario: A reasoning part without metadata is unchanged
 
