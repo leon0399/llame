@@ -52,3 +52,46 @@ exception pending #599 rather than part of this change.
 - **THEN** the `tool-calling` projection neutralizes it under its existing
   contract
 - **AND** this change does not redefine ordinary tool-part persistence
+
+### Requirement: Stored parts cross a minimal SDK conversion boundary
+
+Request assembly SHALL treat `messages.parts` as the durable application/UI
+history. It SHALL preserve model-bearing stored parts and their order, omit
+declared display-only parts except reasoning parts, which `reasoning-output`
+returns to the provider for the Chat that stores them, and map each surviving
+`data-context` part to one
+ordinary SDK text part containing `data.text`. It SHALL then pass the ordered
+parts to the AI SDK rather than manually constructing a joined transcript.
+
+This SHALL be an application-level best-effort invariant, not a promise of
+provider-wire byte identity. SDK conversion, role grouping, and provider
+serialization MAY evolve. The current ordinary assistant/tool projection SHALL
+remain a documented exception pending #599 because stored parts do not prove
+step boundaries.
+
+The current top-level system prompt is outside message history and MAY change.
+Compaction MAY replace only the prefix it explicitly supersedes, using the
+materialized replacement history required by `model-system-prompts` and
+`tool-calling`.
+
+#### Scenario: Context data crosses the SDK boundary
+
+- **WHEN** a stored user message contains non-empty `data-context.data.text`
+- **THEN** the transition supplies one `{ type: "text", text: data.text }` part
+  in the same position
+- **AND** no producer renderer, sanitizer, sorter, or manual join runs
+
+#### Scenario: SDK serialization changes
+
+- **WHEN** an SDK or provider release changes its wire representation while
+  accepting the same ordered UI parts
+- **THEN** the application-level replay contract remains satisfied
+- **AND** the system does not claim provider-wire or cache-byte identity
+
+#### Scenario: Reasoning parts cross the boundary for their own Chat
+
+- **WHEN** request assembly builds a Run's request from stored parts that include
+  reasoning parts
+- **THEN** those parts are passed to the AI SDK in their stored positions with any
+  provider metadata they carry
+- **AND** every other declared display-only part is still omitted

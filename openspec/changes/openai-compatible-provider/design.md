@@ -5,7 +5,7 @@ under `specs/` are the behavior contract this design implements.
 
 Today `providers[]` is discriminated by `type` and the schema's
 `$defs.providerType` enum is strict-closed to `["openai", "openai-codex"]`
-(`llame.config.schema.json:77-81`). `llame-config.ts:29-38` normalizes
+(`llame.config.schema.json:77-81`). `llame-config.ts:28-40` normalizes
 entries into `OpenAIProviderConfig { id, type, key, baseUrl }` and
 `OpenAICodexProviderConfig { id, type, key, accountId }`, with `key: null`
 meaning keyless. `model-client-factory.ts:42-68` switches on `provider.type`
@@ -23,7 +23,7 @@ Reasoning today: `AssistantPartCollectorImpl.reasoning()`
 (`assistant-transcript.ts:101-109`) appends to the last part when it is a
 reasoning part and otherwise pushes a new one, so a turn whose reasoning is
 interrupted by a tool call already persists several reasoning parts.
-`parts():144-153` truncates each reasoning part independently at
+`parts():137-158` truncates each reasoning part independently at
 `REASONING_PERSIST_MAX` (24,000 characters), so a multi-part turn is already
 bounded per part, not per turn. `assistantParts():414-441`, which does build
 one concatenated part per turn, has no production caller. The web chat
@@ -112,8 +112,8 @@ and the AI SDK's method names, and removes the need to explain what a bare
 `openai` means.
 
 The AI SDK fixes the matrix: `@ai-sdk/openai`'s Responses path has
-reasoning summaries and encrypted reasoning; its Chat Completions path has no
-reasoning concept; `@ai-sdk/openai-compatible` is Chat Completions only, with
+reasoning summaries and encrypted reasoning; its Chat Completions path takes
+reasoning request options but has no reasoning content, inbound or outbound; `@ai-sdk/openai-compatible` is Chat Completions only, with
 `reasoning_content` in and out. Two of the four cells are dead, so two types
 are the right count. What the type does not encode is the vendor: an
 `openai-responses` entry may point at Ollama ≥ 0.13.3, vLLM, llama.cpp, or a
@@ -173,12 +173,13 @@ It is the newest release on llame's v3 specification line (`ai-v6` dist-tag;
 `@ai-sdk/provider-utils@4.0.51`, the same pair `@ai-sdk/anthropic@3.0.118` in
 the sibling change declares. The result is not convergence: `ai@6.0.256`,
 `@ai-sdk/openai@3.0.97`, `@ai-sdk/gateway`, `@ai-sdk/mcp`, and
-`@ai-sdk/react` exact-pin 3.0.15 / 4.0.46, so the lockfile carries both
-pairs. Accepted because the AI SDK's error classes use symbol-based
+and `@ai-sdk/mcp` exact-pin both 3.0.15 and 4.0.46, and `@ai-sdk/react`
+pins provider-utils 4.0.46, so the lockfile carries both pairs. Accepted because the AI SDK's error classes use symbol-based
 `isInstance()` markers and `apps/api/src` has no `instanceof` against
 `@ai-sdk/provider` classes; the types layer verifies the resolved lockfile
 rather than assuming. No zod change: all three peer on `^3.25.76 || ^4.1.8`,
-and llame resolves 3.25.76 and 4.6.5. Rejected: the v4 line (#882) and an
+and llame resolves 3.25.76 and 4.6.5 for them (a third resolution, 4.4.3,
+belongs to `knip` alone). Rejected: the v4 line (#882) and an
 unpinned range.
 
 ### D4: Structured output stays a forced tool call on both wires
@@ -233,9 +234,12 @@ substitute for the declared type.
 ### D7: The accepted regression list
 
 `@ai-sdk/openai-compatible` does not implement several things
-`@ai-sdk/openai`'s chat path does. llame uses none of them today (zero
-matches in `apps/api/src`); they are recorded so the documentation can say
-so:
+`@ai-sdk/openai`'s chat path does. llame sends none of them on the
+completions wire — `apps/api/src` has no match for any option name below
+except `store`, which only the Responses path sends
+(`openai-model-client.ts:250-262`, fixed to `false` by the Codex client) and
+which exists there to obtain encrypted reasoning. They are recorded so the
+documentation can say so:
 
 - reasoning-model parameter handling (`max_tokens` → `max_completion_tokens`
   remapping; stripping temperature/logprobs/penalties). **The one real
@@ -258,8 +262,8 @@ One endpoint-side rule is not a regression but shapes the stack: DeepSeek
 documents that when a request carries `tools`, the `reasoning_content` of
 **all previous turns** must be passed back or the API returns 400
 (api-docs.deepseek.com/guides/thinking_mode, "Tool Calls"). llame sends tools
-on every chat request, so cross-turn reasoning replay is a precondition for
-the completions wire to work against DeepSeek beyond a chat's first turn,
+on every chat request that has not exhausted its step budget, so cross-turn
+reasoning replay is a precondition for the completions wire to work against DeepSeek beyond a chat's first turn,
 not an L3 refinement. The same-Chat replay of persisted reasoning **text**
 therefore ships in L1 with the wire (D15); L3 adds the metadata. Rejected:
 compensating for each gap with a llame-authored shim.
@@ -352,13 +356,20 @@ identity, the metadata channel, render/export repair, panel grouping, the
 amended privacy requirements, and the completions-wire evidence gate.
 `subscription-access-openai-codex`'s "Preserve llame execution semantics" is
 amended because it forbids persisting the reasoning-item identifiers and
-encrypted reasoning D15 now persists. `tool-calling`'s "Tool observations
-survive into later turns as stored UI parts" and `context-injection`'s
-"User-authored text is neutralized before persistence" are amended because
-both assert that persisted reasoning never replays; the amendment keeps the
-tool projection free of provider reasoning and metadata and routes reasoning
-replay through `reasoning-output` alone, with every scenario name kept.
-Rejected: a vendor-named capability (`openai-provider-surfaces`) — every
+encrypted reasoning D15 now persists. Three more capabilities assert, in five
+requirements, that persisted reasoning never reaches a provider, so each is
+amended to route reasoning replay through `reasoning-output` alone:
+`tool-calling`'s "Tool observations survive into later turns as stored UI
+parts" (its projection stays free of provider reasoning and metadata; its "never
+replayed" scenario keeps its name — `openspec validate` refuses a MODIFIED
+block that drops a shipped scenario name, so the name is diff-hygiene and
+its clauses carry the narrowed boundary); `context-injection`'s "User-authored text
+is neutralized before persistence" and "Stored parts cross a minimal SDK
+conversion boundary" (the latter orders declared display-only parts omitted
+at exactly the seam D16 writes to); and `model-system-prompts`' "A model
+switch replaces the top-level prompt and preserves portable history", whose
+reasoning exclusion covers the same-model continuation as well as a switch.
+Every other scenario name is kept. Rejected: a vendor-named capability (`openai-provider-surfaces`) — every
 shipped capability is behavior-named; folding wire selection into
 `instance-config`, which is a configuration contract.
 
@@ -439,6 +450,42 @@ genuinely run-scoped stays transient. No model-switch coercion rule is added:
 llame passes blocks back unchanged and the provider ignores or drops the ones
 the target model cannot read. No size bound is added (D11's ceiling applies).
 
+### D16: Replay is a property of the request, not of the projection
+
+`buildContext` serves both a Run's request and a compaction request
+(`compaction.ts:320` passes `input.absorb` through the same
+`appendAssistantMessage`), so "reasoning replays" and "reasoning is excluded
+from compaction input" cannot both be properties of the projection. The
+requirement is therefore written against the request kind: a request that
+continues a Chat carries that Chat's reasoning parts; a request that asks a
+model to summarize history does not. The implementation discriminates at
+`buildContext`, not at each caller, so a third caller cannot inherit the
+wrong default. Rejected: filtering in the compaction caller (the next caller
+repeats the bug) and dropping the compaction exclusion (it would send
+reasoning to be summarized into text that is no longer provider-authorized).
+
+Known ceiling on the completions wire: a compacted DeepSeek chat replays
+replacement records that carry `tool_calls` without `reasoning_content`,
+which the vendor rule in D7 rejects with a 400. The L1 smoke exercises the
+first post-compaction request so the ceiling is measured rather than
+assumed; if it reproduces, the fix belongs to the compaction replacement
+contract (#866 owns that path), not to this change.
+
+### D17: Replay follows the Chat that stores the part
+
+A copied Chat (`owner-chat-forks`) copies parts verbatim, including provider
+metadata, and its requirement is that the fork's model-facing prefix equals
+the source's at the copied boundary. Replay is therefore keyed on the Chat
+that stores the part, not the Chat that produced it: a fork replays its own
+copied parts, and the prefix matches. Consequence, accepted: a copied
+`itemId` names an item produced under another Chat's Run. With `store: false`
+the encrypted content travels with the part and the reference is not used; if
+a provider rejects a copied item, it fails or is ignored under the existing
+failure contract and llame does not rewrite or strip it. Rejected: keying on
+the producing Chat (a fork would silently lose reasoning and break the
+prefix-equality requirement) and stripping metadata during a fork (it
+contradicts "copied rows are literal").
+
 ## Risks / Trade-offs
 
 - [The breaking rename lands on every operator] → boot fails naming the
@@ -470,7 +517,9 @@ the target model cannot read. No size bound is added (D11's ceiling applies).
   compaction rewrites the prefix. The durable-metadata decision inherits that
   constraint. The mitigation belongs to the `anthropic-provider` change,
   which sets the provider's prefix-mismatch behaviour to drop rather than
-  error; OpenAI's encrypted items carry no such binding.
+  error. OpenAI documents no equivalent binding for its reasoning items, and
+  does not deny one; the mitigation is scoped to the provider that documents
+  the constraint.
 
 ## Migration Plan
 
@@ -483,3 +532,53 @@ change, and no data rewrite; reasoning parts persisted before this change
 load unchanged and are repaired at display. Rollback is reverting the
 configuration plus the release; historical runs keep their recorded models,
 parts, and costs. The CHANGELOG records the breaking note.
+
+## Revision history
+
+- v3 (2026-09-18): Round 3 of independent review. Added the three capabilities
+  whose requirements still forbade the replay this change introduces —
+  `model-system-prompts`' model-switch requirement (its reasoning exclusion
+  covers the same-model continuation) and `context-injection`'s SDK
+  conversion boundary (which orders display-only parts omitted at the exact
+  seam the replay writes to) — and renamed the one `tool-calling` scenario
+  whose title now contradicted its body. Made replay a property of the
+  request kind rather than the projection (D16), since compaction builds
+  through the same `buildContext`, and recorded the post-compaction DeepSeek
+  ceiling with a smoke step. Keyed replay on the Chat that stores the part so
+  a copied Chat keeps prefix equality with its source (D17). Corrected D7's
+  claim that llame sends none of the listed options (`store` is sent on the
+  Responses wire), D3's dependency-pin and zod wording, the "no reasoning
+  concept" and "tools on every request" phrasings, and two citation line
+  ranges. Stated the embeddings exemption in `provider-api-selection`, fixed
+  task 3.2's per-part encrypted-content assertion to per item, dropped an
+  unobservable usage-metadata assertion from task 1.5, kept the
+  `tool-calling` scenario name after `openspec validate` rejected renaming
+  it, and added the #883
+  amendment task (its per-turn-bound acceptance criterion is rejected by D11)
+  with the model-switch criterion restored.
+- v2 (2026-09-18): Round 2 of independent review. Renamed the types after the
+  wire they speak (`openai-responses` / `openai-completions`) and dropped the
+  "official OpenAI vs proxy" claim, following omp's `api` field and the AI
+  SDK's `.responses()` / `.chat()` split; recorded why
+  `@ai-sdk/open-responses` is not adopted and the `forceReasoning` ceiling
+  (D1). Corrected the reasoning baseline — parts already split on an
+  intervening part and the cap is already per part — so the cap is deleted
+  rather than rebounded (D11) and glue repair moved to render and export,
+  where it cannot invalidate a signed block (D9). Adopted PR #648's identity
+  rule verbatim, including the constant `reasoning-0` the compatible adapter
+  emits (D8). Named the Responses path as the existing metadata producer and
+  the `fullStream` seam that carries it, since `onChunk` never delivers
+  `reasoning-start` / `reasoning-end` (D15); moved same-Chat reasoning text
+  replay into the types layer because DeepSeek rejects a request with `tools`
+  whose earlier turns dropped `reasoning_content` (D7). Deleted D4's
+  `supportsStructuredOutputs` decision and its requirement: llame uses forced
+  tool calls, so the option guards a request it never sends. Added the deltas
+  this change falsified without one — `available-models`,
+  `subscription-access-openai-codex`, `tool-calling`, `context-injection` —
+  renamed the capability to `provider-api-selection`, extended the embedding
+  gate to both wire types, and added the config example, E2E fixture, and
+  sibling-citation corrections. Split the stack into `types`,
+  `reasoning-parts`, `reasoning-metadata`, `finalize`.
+- v1 (2026-09-17): Initial proposal: `openai` / `openai-compatible` type
+  split, `@ai-sdk/openai-compatible` adoption, reasoning part identity, and a
+  durable per-part provider-metadata channel with no present producer.

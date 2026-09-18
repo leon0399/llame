@@ -7,7 +7,7 @@ that entry's declared `type` alone.
 
 ### Requirement: Provider type selects the wire API
 
-A provider entry with `type: "openai-responses"` SHALL execute against the OpenAI Responses wire at its configured `baseUrl` (default: the OpenAI API); an entry with `type: "openai-completions"` SHALL execute against the Chat Completions wire at its configured `baseUrl`. Every request llame makes on behalf of that entry — streaming chat, forced-tool structured generation, and compaction — SHALL use the entry's declared wire. The provider's `id` SHALL NOT select or alter the wire, and no wire behavior SHALL be inferred from an entry's `id`, its `baseUrl`, or any host matching. An entry whose endpoint does not serve its declared wire SHALL be used exactly as authored: startup SHALL succeed, the entry SHALL NOT be migrated, reinterpreted, or re-pointed, and the resulting failure SHALL appear at request time under the existing failure contract rather than as a boot failure, a silent retarget, or a silent rewrite of the request.
+A provider entry with `type: "openai-responses"` SHALL execute against the OpenAI Responses wire at its configured `baseUrl` (default: the OpenAI API); an entry with `type: "openai-completions"` SHALL execute against the Chat Completions wire at its configured `baseUrl`. Every language-model request llame makes on behalf of that entry — streaming chat, forced-tool structured generation, and compaction — SHALL use the entry's declared wire. Embedding requests are wire-independent and are exempt: an entry of either OpenAI wire type may back an embedding model, and its embedding calls are not routed by wire. The provider's `id` SHALL NOT select or alter the wire, and no wire behavior SHALL be inferred from an entry's `id`, its `baseUrl`, or any host matching. An entry whose endpoint does not serve its declared wire SHALL be used exactly as authored: startup SHALL succeed, the entry SHALL NOT be migrated, reinterpreted, or re-pointed, and the resulting failure SHALL appear at request time under the existing failure contract rather than as a boot failure, a silent retarget, or a silent rewrite of the request.
 
 #### Scenario: A Responses-typed provider uses the Responses wire whatever its id
 
@@ -37,6 +37,12 @@ A provider entry with `type: "openai-responses"` SHALL execute against the OpenA
 - **WHEN** a caller requests forced-tool structured generation (e.g. a chat title) through a provider entry
 - **THEN** the request is sent on that entry's declared wire with a forced tool choice
 - **AND** a rejection falls through to the caller's existing fallback rather than another wire
+
+#### Scenario: Embedding requests are exempt from wire selection
+
+- **WHEN** an `openai-completions` entry backs an embedding model
+- **THEN** its embedding requests are issued against the same endpoint without following the entry's language-model wire
+- **AND** no wire mismatch is reported for them
 
 #### Scenario: A mismatched configuration fails at request time
 

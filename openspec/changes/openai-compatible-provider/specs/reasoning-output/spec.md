@@ -26,7 +26,7 @@ The backend SHALL use the existing AI SDK reasoning stream protocol and persiste
 
 ### Requirement: Reasoning is an ordered private assistant part
 
-Displayable reasoning SHALL persist as display-only `{ type: "reasoning", text }` assistant parts, each optionally carrying opaque provider metadata, in the exact occurrence order in which it appeared relative to text and tool parts. The same order SHALL be reconstructed by live streaming, reconnect replay, and historical chat loading. Persisted reasoning text SHALL be the text the provider produced, unmodified and untruncated, and SHALL be retained with the chat until normal deletion. Reasoning parts SHALL be excluded from compaction input, chat search, and public shares. When model context is built for the same Chat, its reasoning parts SHALL be offered to the provider in their occurrence position, each with its text and any provider metadata byte-identical to what was persisted; the selected adapter carries every part its wire can represent (Chat Completions: the text as `reasoning_content`; Responses: parts that carry an item id or encrypted content) and omits the rest without failing the request. An assistant message whose only parts are reasoning SHALL still enter model context. The metadata SHALL stay opaque and SHALL NOT be rendered, exported, indexed, or published. This narrows exactly one exclusion — reuse by the Chat's own provider requests — and leaves the parts' privacy posture unchanged everywhere else.
+Displayable reasoning SHALL persist as display-only `{ type: "reasoning", text }` assistant parts, each optionally carrying opaque provider metadata, in the exact occurrence order in which it appeared relative to text and tool parts. The same order SHALL be reconstructed by live streaming, reconnect replay, and historical chat loading. Persisted reasoning text SHALL be the text the provider produced, unmodified and untruncated, and SHALL be retained with the chat until normal deletion. Reasoning parts SHALL be excluded from chat search and public shares, and from the history a compaction request summarizes. Replay is a property of the request kind, not of the projection: when a request is built to continue a Chat, that Chat's stored reasoning parts SHALL be offered to the provider in their occurrence position, each with its text and any provider metadata byte-identical to what was persisted; the selected adapter carries every part its wire can represent (Chat Completions: the text as `reasoning_content`; Responses: parts that carry an item id or encrypted content) and omits the rest without failing the request. An assistant message whose only parts are reasoning SHALL still enter model context. The metadata SHALL stay opaque and SHALL NOT be rendered, exported, indexed, or published. This narrows exactly one exclusion — reuse by the Chat's own provider requests — and leaves the parts' privacy posture unchanged everywhere else.
 
 #### Scenario: Interleaved output survives reload faithfully
 
@@ -37,6 +37,12 @@ Displayable reasoning SHALL persist as display-only `{ type: "reasoning", text }
 
 - **WHEN** a compaction summary is built, search indexes a chat, or a chat is viewed through a public share
 - **THEN** no reasoning-part text or provider metadata is included in that summary, index, or public payload
+
+#### Scenario: Compaction and continuation share one projection
+
+- **WHEN** a compaction request and a continuation request are built from the same stored messages
+- **THEN** the continuation carries their reasoning parts and the compaction request carries none
+- **AND** the difference is a declared property of the request, not an incidental effect of caller order
 
 #### Scenario: Long reasoning is persisted whole
 
@@ -55,9 +61,15 @@ Displayable reasoning SHALL persist as display-only `{ type: "reasoning", text }
 - **THEN** that part is omitted from the request
 - **AND** the request succeeds and parts that do carry them are replayed
 
+#### Scenario: A copied Chat replays the parts it stores
+
+- **WHEN** a Chat that copied another Chat's messages verbatim continues
+- **THEN** its own stored reasoning parts and their metadata are replayed, so its model-facing prefix matches the Chat it was copied from
+- **AND** a provider that no longer accepts a copied item fails or ignores it under the existing failure contract, without llame rewriting or stripping it
+
 ### Requirement: Opaque continuation state is transient and private
 
-Chat history SHALL persist provider-authorized displayable reasoning text together with any opaque provider metadata bound to a persisted reasoning part. Opaque continuation state that is not bound to a persisted reasoning part SHALL remain private run state: it SHALL NOT be rendered or used as later chat context, and SHALL be deleted when the run completes. Provider metadata bound to a persisted reasoning part is durable with that part, is replayed only for the same Chat, and SHALL NOT be rendered, exported, indexed, or included in a public share.
+Chat history SHALL persist provider-authorized displayable reasoning text together with any opaque provider metadata bound to a persisted reasoning part. Opaque continuation state that is not bound to a persisted reasoning part SHALL remain private run state: it SHALL NOT be rendered or used as later chat context, and SHALL be deleted when the run completes. Provider metadata bound to a persisted reasoning part is durable with that part, is replayed only when a request continues the Chat that stores it, and SHALL NOT be rendered, exported, indexed, or included in a public share.
 
 #### Scenario: Completed run removes opaque continuation state
 
@@ -116,7 +128,7 @@ A new persisted reasoning part SHALL start when the last collected part is not a
 
 ### Requirement: Reasoning parts carry durable provider metadata
 
-An assistant reasoning part MAY carry opaque provider metadata supplied by the adapter that produced it (for the Responses wire: the reasoning item id and, when returned, its encrypted content, read from the adapter's reasoning start and end stream parts). That metadata SHALL persist with the part in the chat's message parts, SHALL be replayed to the provider on later requests for the same Chat together with the part's unmodified text, and SHALL stay opaque: never rendered, exported, indexed, or included in a public share. Its presence SHALL NOT change the part's display text, its order relative to other parts, or the treatment of reasoning text elsewhere in the system.
+An assistant reasoning part MAY carry opaque provider metadata supplied by the adapter that produced it (for the Responses wire: the reasoning item id on every part of an item, and the item's encrypted content on whichever part the adapter attaches it to, read from the adapter's reasoning start and end stream parts). That metadata SHALL persist with the part in the chat's message parts, SHALL be replayed to the provider on later requests that continue the same Chat together with the part's unmodified text, and SHALL stay opaque: never rendered, exported, indexed, or included in a public share. Its presence SHALL NOT change the part's display text, its order relative to other parts, or the treatment of reasoning text elsewhere in the system.
 
 #### Scenario: Provider metadata persists with the reasoning part
 
@@ -125,8 +137,9 @@ An assistant reasoning part MAY carry opaque provider metadata supplied by the a
 
 #### Scenario: Provider metadata is replayed for the same Chat
 
-- **WHEN** a later request builds model context for the same Chat
+- **WHEN** a later request continues the same Chat
 - **THEN** the provider metadata accompanies its reasoning part to the provider as that wire's reasoning input
+- **AND** parts sharing one reasoning item are replayed as that item, whichever part carried its encrypted content
 
 #### Scenario: A resumed Run continues with its reasoning intact
 

@@ -52,7 +52,8 @@ against `master`. #648's identity rule is adopted here verbatim.
   the existing forced-tool-call path on both wires; the adapter's
   `supportsStructuredOutputs` option is left at its default because llame
   never sends a JSON-schema response format.
-- Replay persisted reasoning text to the same Chat's later requests (L1).
+- Replay persisted reasoning text on later requests that continue the same
+  Chat (L1).
   DeepSeek returns 400 when a request carries `tools` and any earlier
   assistant turn's `reasoning_content` is missing, and llame sends tools on
   every chat request, so the completions wire does not work past a chat's
@@ -141,11 +142,15 @@ against `master`. #648's identity rule is adopted here verbatim.
   identifiers and encrypted reasoning; they become the durable provider
   metadata `reasoning-output` defines, under the same never-rendered,
   never-exported, never-indexed, never-shared boundary.
-- `tool-calling` and `context-injection`: one requirement each asserts that
-  persisted reasoning and provider metadata never replay. Both are amended
-  so the tool projection stays free of provider reasoning and metadata while
-  reasoning replay is governed by `reasoning-output` alone; every scenario
-  name is kept.
+- `tool-calling`, `context-injection` (two requirements), and
+  `model-system-prompts`: five requirements assert that persisted reasoning
+  and provider metadata never reach a provider, including on a same-model
+  continuation. Each is amended so the tool projection stays free of provider
+  reasoning and metadata, the SDK conversion boundary passes reasoning parts
+  for their own Chat, and reasoning replay is governed by `reasoning-output`
+  alone. Every scenario name is kept, including `tool-calling`'s "Provider
+  reasoning and metadata are never replayed", whose clauses now scope the
+  prohibition to the tool projection.
 
 ## Non-goals
 
@@ -211,7 +216,10 @@ against `master`. #648's identity rule is adopted here verbatim.
   rule, cap and `assistantParts()` deleted, metadata on the part),
   `apps/api/src/runs/run-execution.service.ts` and
   `apps/api/src/runs/run-stream-bridge.ts` (part id and metadata through the
-  event stream), `apps/api/src/chats/context-builder.ts` (reasoning replay
+  event stream), `apps/api/src/chats/context-builder.ts` (reasoning replay,
+  discriminated by request kind so compaction over the same messages stays
+  reasoning-free — `apps/api/src/compaction/compaction.ts` builds through the
+  same function)
   with `providerOptions`), the web chat's reasoning rendering and grouping,
   `packages/ui` reasoning content, and `apps/web/lib/services/chat/chat-markdown.ts`.
 - Focused configuration, dispatch, and reasoning tests; one bounded live
