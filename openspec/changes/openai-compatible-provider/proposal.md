@@ -56,8 +56,8 @@ against `master`. #648's identity rule is adopted here verbatim.
   Chat (L1).
   DeepSeek returns 400 when a request carries `tools` and any earlier
   assistant turn's `reasoning_content` is missing, and llame sends tools on
-  every chat request, so the completions wire does not work past a chat's
-  first turn without it. `context-builder.ts` gains a reasoning replay path
+  every chat request that has not exhausted its step budget, so the
+  completions wire does not work past a chat's first turn without it. `context-builder.ts` gains a reasoning replay path
   — reversing its documented "never re-fed" invariant for this one reuse —
   and the Chat Completions adapter carries the text as `reasoning_content`.
   On the Responses wire a part is replayed only when it carries an `itemId`
@@ -143,7 +143,7 @@ against `master`. #648's identity rule is adopted here verbatim.
   metadata `reasoning-output` defines, under the same never-rendered,
   never-exported, never-indexed, never-shared boundary.
 - `tool-calling`, `context-injection` (two requirements), and
-  `model-system-prompts`: five requirements assert that persisted reasoning
+  `model-system-prompts`: four requirements assert that persisted reasoning
   and provider metadata never reach a provider, including on a same-model
   continuation. Each is amended so the tool projection stays free of provider
   reasoning and metadata, the SDK conversion boundary passes reasoning parts
@@ -219,8 +219,8 @@ against `master`. #648's identity rule is adopted here verbatim.
   event stream), `apps/api/src/chats/context-builder.ts` (reasoning replay,
   discriminated by request kind so compaction over the same messages stays
   reasoning-free — `apps/api/src/compaction/compaction.ts` builds through the
-  same function)
-  with `providerOptions`), the web chat's reasoning rendering and grouping,
+  same function; `estimateContextTokens` at `:128` takes the continuation
+  kind), the web chat's reasoning rendering and grouping,
   `packages/ui` reasoning content, and `apps/web/lib/services/chat/chat-markdown.ts`.
 - Focused configuration, dispatch, and reasoning tests; one bounded live
   proof; `apps/api/AGENTS.md`, the README provider section, and

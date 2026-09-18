@@ -23,7 +23,7 @@ Reasoning today: `AssistantPartCollectorImpl.reasoning()`
 (`assistant-transcript.ts:101-109`) appends to the last part when it is a
 reasoning part and otherwise pushes a new one, so a turn whose reasoning is
 interrupted by a tool call already persists several reasoning parts.
-`parts():137-158` truncates each reasoning part independently at
+`parts():137-155` truncates each reasoning part independently at
 `REASONING_PERSIST_MAX` (24,000 characters), so a multi-part turn is already
 bounded per part, not per turn. `assistantParts():414-441`, which does build
 one concatenated part per turn, has no production caller. The web chat
@@ -172,9 +172,9 @@ It is the newest release on llame's v3 specification line (`ai-v6` dist-tag;
 `3.x` moves to `@ai-sdk/provider@4`) and declares `@ai-sdk/provider@3.0.16` /
 `@ai-sdk/provider-utils@4.0.51`, the same pair `@ai-sdk/anthropic@3.0.118` in
 the sibling change declares. The result is not convergence: `ai@6.0.256`,
-`@ai-sdk/openai@3.0.97`, `@ai-sdk/gateway`, `@ai-sdk/mcp`, and
-and `@ai-sdk/mcp` exact-pin both 3.0.15 and 4.0.46, and `@ai-sdk/react`
-pins provider-utils 4.0.46, so the lockfile carries both pairs. Accepted because the AI SDK's error classes use symbol-based
+`@ai-sdk/openai@3.0.97`, `@ai-sdk/gateway`, and `@ai-sdk/mcp` exact-pin both
+3.0.15 and 4.0.46, and `@ai-sdk/react` pins provider-utils 4.0.46, so the
+lockfile carries both pairs. Accepted because the AI SDK's error classes use symbol-based
 `isInstance()` markers and `apps/api/src` has no `instanceof` against
 `@ai-sdk/provider` classes; the types layer verifies the resolved lockfile
 rather than assuming. No zod change: all three peer on `^3.25.76 || ^4.1.8`,
@@ -236,9 +236,12 @@ substitute for the declared type.
 `@ai-sdk/openai-compatible` does not implement several things
 `@ai-sdk/openai`'s chat path does. llame sends none of them on the
 completions wire — `apps/api/src` has no match for any option name below
-except `store`, which only the Responses path sends
-(`openai-model-client.ts:250-262`, fixed to `false` by the Codex client) and
-which exists there to obtain encrypted reasoning. They are recorded so the
+except `store`, whose only setter is the Codex client
+(`openai-codex-model-client.ts:76`, on a Responses-only transport at `:67`),
+where it exists to obtain encrypted reasoning; `applyReasoningOptions`
+(`openai-model-client.ts:247-262`) forwards it whenever it is set, so a
+future completions-wire setter would reach the compatible adapter, which
+ignores it. They are recorded so the
 documentation can say so:
 
 - reasoning-model parameter handling (`max_tokens` → `max_completion_tokens`
@@ -356,7 +359,7 @@ identity, the metadata channel, render/export repair, panel grouping, the
 amended privacy requirements, and the completions-wire evidence gate.
 `subscription-access-openai-codex`'s "Preserve llame execution semantics" is
 amended because it forbids persisting the reasoning-item identifiers and
-encrypted reasoning D15 now persists. Three more capabilities assert, in five
+encrypted reasoning D15 now persists. Three more capabilities assert, in four
 requirements, that persisted reasoning never reaches a provider, so each is
 amended to route reasoning replay through `reasoning-output` alone:
 `tool-calling`'s "Tool observations survive into later turns as stored UI
@@ -452,15 +455,18 @@ the target model cannot read. No size bound is added (D11's ceiling applies).
 
 ### D16: Replay is a property of the request, not of the projection
 
-`buildContext` serves both a Run's request and a compaction request
+`buildContext` serves three callers: a Run's request, a compaction request
 (`compaction.ts:320` passes `input.absorb` through the same
-`appendAssistantMessage`), so "reasoning replays" and "reasoning is excluded
+`appendAssistantMessage`), and the pre-compaction size estimate
+(`estimateContextTokens`, `compaction.ts:128`, consumed by `planCompaction`
+at `:261-267`), which measures the next continuation and so takes the
+continuation kind. So "reasoning replays" and "reasoning is excluded
 from compaction input" cannot both be properties of the projection. The
 requirement is therefore written against the request kind: a request that
 continues a Chat carries that Chat's reasoning parts; a request that asks a
 model to summarize history does not. The implementation discriminates at
-`buildContext`, not at each caller, so a third caller cannot inherit the
-wrong default. Rejected: filtering in the compaction caller (the next caller
+`buildContext`, not at each caller, so every call site states its kind and a
+fourth caller cannot inherit a silent default. Rejected: filtering in the compaction caller (the next caller
 repeats the bug) and dropping the compaction exclusion (it would send
 reasoning to be summarized into text that is no longer provider-authorized).
 
@@ -535,13 +541,25 @@ parts, and costs. The CHANGELOG records the breaking note.
 
 ## Revision history
 
-- v3 (2026-09-18): Round 3 of independent review. Added the three capabilities
-  whose requirements still forbade the replay this change introduces —
+- v4 (2026-09-18): Round 4, final round. Replaced the model-switch
+  requirement's surviving `MUST NOT` with the synthesis/re-binding rule it
+  was meant to become, since as written it forbade the same replay its own
+  scenario requires. Named the third `buildContext` caller D16 claimed could
+  not exist (`estimateContextTokens`, which measures a continuation) in the
+  decision, the Impact list, and task 1.9. Corrected the amended-requirement
+  count (four, not five), split task 3.3's Responses replay check by `store`
+  setting (the SDK emits an inline item or an `item_reference`, never both),
+  repaired an Impact bullet and a D3 sentence damaged by round-3 edits, fixed
+  the `store` citation to its actual setter and one line range, and removed
+  the v3 entry's stale rename claim.
+- v3 (2026-09-18): Round 3 of independent review. Amended the three
+  capabilities whose requirements still forbade the replay this change
+  introduces —
   `model-system-prompts`' model-switch requirement (its reasoning exclusion
   covers the same-model continuation) and `context-injection`'s SDK
   conversion boundary (which orders display-only parts omitted at the exact
-  seam the replay writes to) — and renamed the one `tool-calling` scenario
-  whose title now contradicted its body. Made replay a property of the
+  seam the replay writes to) — and narrowed the one `tool-calling` scenario
+  whose body no longer matched its title. Made replay a property of the
   request kind rather than the projection (D16), since compaction builds
   through the same `buildContext`, and recorded the post-compaction DeepSeek
   ceiling with a smoke step. Keyed replay on the Chat that stores the part so
