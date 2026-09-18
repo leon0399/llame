@@ -14,8 +14,9 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   reconnect.
 - Operator-managed providers, models, and per-model system prompts in
   `llame.config.json`. Each provider entry declares the wire it speaks:
-  `openai-responses` for the Responses API, or `openai-completions` for
-  OpenAI-compatible Chat Completions endpoints.
+  `openai-responses` for the Responses API, `openai-completions` for
+  OpenAI-compatible Chat Completions endpoints, or `openai-codex` for the
+  Codex subscription, whose transport and endpoint are fixed by construction.
 - Owner-only Projects for organizing chats, with pinning and reversible archive.
 - Bounded tool loop: `search_conversations`, optional line-ranged
   `conversation_read`, and operator-configured Streamable HTTP MCP tools.
@@ -62,8 +63,9 @@ pnpm dev
 `llame.config.json`. Each provider entry declares its wire: `openai-responses`
 calls the Responses API, with an optional `baseUrl` defaulting to OpenAI, and
 `openai-completions` calls Chat Completions on its required `baseUrl`.
-**Breaking**: `type: "openai"` is deleted — re-declare every existing provider
-entry as one of those two types, or startup fails naming the entry.
+**Breaking**: `type: "openai"` is deleted — re-declare every entry that used it
+as one of those two wires, or startup fails naming the entry. `openai-codex`
+is unchanged.
 `apps/web` is a thin client configured with `NEXT_PUBLIC_API_URL`. See
 [AGENTS.md](AGENTS.md) for development setup and commands.
 

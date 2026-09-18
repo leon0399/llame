@@ -178,6 +178,22 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
     expect(streamTextCall?.providerOptions).toBeUndefined();
   });
 
+  it('forwards a configured effort to the adapter as reasoningEffort', async () => {
+    const model = scriptedModel([textResponse('answer')]);
+    const { client } = buildClient(model);
+
+    await expect(
+      client.streamText({ messages, effort: 'high' }).text,
+    ).resolves.toBe('answer');
+
+    // The request the adapter's model is called with: the provider-native
+    // token unchanged, under the adapter's non-deprecated `openaiCompatible`
+    // option key.
+    expect(model.doStreamCalls[0]?.providerOptions).toEqual({
+      openaiCompatible: { reasoningEffort: 'high' },
+    });
+  });
+
   it('omits pricing and compaction keys the operator did not configure', () => {
     const { client } = buildClient(
       new MockLanguageModelV3({

@@ -70,6 +70,14 @@ function runOpenAICompatibleStream(
     onError: input.onError,
     onAbort: settlement.onAbort,
     onFinish: input.onFinish,
+    // The adapter itself reads `openaiCompatible` — its own non-deprecated
+    // key, independent of the provider name configured above — and maps
+    // `reasoningEffort` onto the wire's `reasoning_effort`.
+    ...(input.effort !== undefined && {
+      providerOptions: {
+        openaiCompatible: { reasoningEffort: input.effort },
+      },
+    }),
   };
   applyToolCallingOptions(streamOptions, input);
   // Reasoning is the adapter's own normalized output (design D5): the
