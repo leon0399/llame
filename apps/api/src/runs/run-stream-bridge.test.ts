@@ -900,6 +900,58 @@ describe('createRunEventTranslator part identity and error text', () => {
     });
   });
 
+  it('never carries reasoning provider metadata into the UI chunk stream', () => {
+    const build = () => {
+      const t = createRunEventTranslator('run-1');
+      t.translate({ eventType: 'run.started', payload: null });
+      return t;
+    };
+    const plain = build();
+    const withMetadata = build();
+    const metadata = {
+      openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+    };
+
+    const plainChunks = plain.translate({
+      eventType: 'reasoning.delta',
+      payload: { text: 'think', partId: 'rs_1:0' },
+    });
+    const metadataChunks = withMetadata.translate({
+      eventType: 'reasoning.delta',
+      payload: { text: 'think', partId: 'rs_1:0', providerMetadata: metadata },
+    });
+
+    // The metadata is provider plumbing the browser must never receive: the
+    // chunks (and therefore the part boundaries) are identical either way.
+    expect(metadataChunks).toEqual(plainChunks);
+    expect(JSON.stringify(metadataChunks)).not.toContain('itemId');
+
+    // A metadata-only event (the adapter's reasoning END, which carries no
+    // delta text) emits nothing and moves no boundary.
+    expect(
+      withMetadata.translate({
+        eventType: 'reasoning.delta',
+        payload: { partId: 'rs_1:1', providerMetadata: metadata },
+      }),
+    ).toEqual([]);
+    // The stream that saw the metadata-only event keeps the exact boundaries
+    // of the one that never did: a changed adapter id still opens its own part.
+    const nextPlain = plain.translate({
+      eventType: 'reasoning.delta',
+      payload: { text: 'more', partId: 'rs_1:1' },
+    });
+    const nextWithMetadata = withMetadata.translate({
+      eventType: 'reasoning.delta',
+      payload: { text: 'more', partId: 'rs_1:1' },
+    });
+    expect(nextWithMetadata).toEqual(nextPlain);
+    expect(nextWithMetadata).toContainEqual({
+      type: 'reasoning-delta',
+      id: 'reasoning-2',
+      delta: 'more',
+    });
+  });
+
   it('uses a generic error text only when the tool output carries none', () => {
     const withMessage = createRunEventTranslator('run-1');
     withMessage.translate({ eventType: 'run.started', payload: null });

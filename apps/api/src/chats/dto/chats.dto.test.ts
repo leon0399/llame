@@ -598,6 +598,35 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
     );
   });
 
+  it('strips a reasoning part and its opaque provider metadata from the public payload', () => {
+    // The metadata is durable with the part (design D15) but stays private:
+    // a public share sees neither the reasoning text nor the opaque values.
+    const message = fakeMessage({
+      parts: [
+        {
+          type: 'reasoning',
+          text: 'PRIVATE_REASONING_TEXT',
+          providerMetadata: {
+            openai: {
+              itemId: 'PRIVATE_ITEM_ID',
+              reasoningEncryptedContent: 'PRIVATE_ENCRYPTED_CONTENT',
+            },
+          },
+        },
+        { type: 'text', text: 'visible answer' },
+      ],
+    });
+
+    const dto = toSharedChatResponse(fakeChat, [message]);
+
+    expect(dto.messages[0].parts).toEqual([
+      { type: 'text', text: 'visible answer' },
+    ]);
+    expect(JSON.stringify(dto)).not.toMatch(
+      /PRIVATE_REASONING_TEXT|PRIVATE_ITEM_ID|PRIVATE_ENCRYPTED_CONTENT|providerMetadata/,
+    );
+  });
+
   it('a message with ONLY tool/cap-notice parts (no text) still appears, with an empty parts array', () => {
     const message = fakeMessage({
       parts: [

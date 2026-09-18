@@ -122,6 +122,78 @@ describe('createOpenAICodexModelClient', () => {
     }
   });
 
+  it('carries each reasoning part and its item metadata off the non-stored stream', async () => {
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        new Response(
+          [
+            'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1","encrypted_content":null}}\n\n',
+            'data: {"type":"response.reasoning_summary_part.added","item_id":"rs_1","summary_index":0}\n\n',
+            'data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","summary_index":0,"delta":"think"}\n\n',
+            'data: {"type":"response.reasoning_summary_part.done","item_id":"rs_1","summary_index":0}\n\n',
+            'data: {"type":"response.reasoning_summary_part.added","item_id":"rs_1","summary_index":1}\n\n',
+            'data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","summary_index":1,"delta":"more"}\n\n',
+            'data: {"type":"response.reasoning_summary_part.done","item_id":"rs_1","summary_index":1}\n\n',
+            'data: {"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1","encrypted_content":"enc-1"}}\n\n',
+            'data: {"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"item-1"}}\n\n',
+            'data: {"type":"response.output_text.delta","item_id":"item-1","delta":"done"}\n\n',
+            'data: {"type":"response.completed","response":{"incomplete_details":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
+            'data: [DONE]\n\n',
+          ].join(''),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+      );
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = createOpenAICodexModelClient({
+        credential: 'access-token',
+        accountId: 'account-id',
+        providerModelId: 'gpt-5-codex',
+        modelId: 'system:codex:gpt-5-codex',
+        contextWindowTokens: 128_000,
+      });
+      const onReasoningDelta = vi.fn();
+
+      await expect(
+        client.streamText({ messages, onReasoningDelta }).text,
+      ).resolves.toBe('done');
+
+      // `store: false` on a reasoning model requests the encrypted reasoning
+      // content that this response then binds to the item's own parts.
+      expect(JSON.stringify(fetchMock.mock.calls)).toContain(
+        String.raw`\"include\":[\"reasoning.encrypted_content\"]`,
+      );
+      await vi.waitFor(() =>
+        expect(
+          onReasoningDelta.mock.calls.filter((call) => call.length === 3),
+        ).toHaveLength(2),
+      );
+      // The Responses wire ids every summary `${itemId}:${summaryIndex}`, so
+      // each summary persists as its own part.
+      expect(
+        onReasoningDelta.mock.calls.filter((call) => call.length === 2),
+      ).toEqual([
+        ['think', 'rs_1:0'],
+        ['more', 'rs_1:1'],
+      ]);
+      expect(
+        onReasoningDelta.mock.calls.filter((call) => call.length === 3),
+      ).toEqual([
+        ['', 'rs_1:0', { openai: { itemId: 'rs_1' } }],
+        [
+          '',
+          'rs_1:1',
+          { openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' } },
+        ],
+      ]);
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   it('uses the fixed Responses transport with private subscription headers and no remote storage', async () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',

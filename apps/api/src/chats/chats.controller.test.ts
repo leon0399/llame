@@ -1,6 +1,6 @@
-import { NotFoundException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import { streamText } from 'ai';
+import { APICallError, streamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { Writable } from 'node:stream';
@@ -822,6 +822,67 @@ describe('ChatsController response plumbing', () => {
     expect(response.status).toHaveBeenCalledWith(204);
     expect(end).toHaveBeenCalled();
     expect(response.chunks).toEqual([]);
+  });
+
+  it('keeps replayed provider metadata out of the owner-visible error and the log when the model request fails', async () => {
+    const { controller, chatLoopService } = makeController();
+    const errorSpy = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => {});
+    // Production shape: the SDK's APICallError carries the request body it
+    // sent — including any replayed reasoning item and its encrypted content —
+    // on `requestBodyValues`, while `message`/`stack` hold the response side.
+    const providerError = new APICallError({
+      message: 'invalid request',
+      url: 'https://provider.example.test/v1/responses',
+      requestBodyValues: {
+        input: [
+          {
+            type: 'reasoning',
+            id: 'PRIVATE_ITEM_ID',
+            encrypted_content: 'PRIVATE_ENCRYPTED_CONTENT',
+          },
+        ],
+      },
+      statusCode: 400,
+      isRetryable: false,
+    });
+    const streamResult = streamText({
+      model: new MockLanguageModelV3({
+        provider: 'test',
+        modelId: 'test',
+        doStream: () => Promise.reject(providerError),
+      }),
+      messages: [{ role: 'user', content: 'Hello' }],
+    });
+    chatLoopService.createMessageStream.mockResolvedValue(streamResult);
+
+    const response = makeWritableResponse();
+    try {
+      await controller.createMessage(
+        'u',
+        chatId,
+        {
+          modelId: 'system:openai:gpt-5.4-mini',
+          message: {
+            id: '0910fd41-1f2f-49de-b1c2-00ff4b3c7c60',
+            parts: [{ type: 'text' as const, text: 'Hello' }],
+          },
+        },
+        response,
+      );
+
+      const body = response.chunks.join('');
+      expect(body).toContain('An error occurred.');
+      expect(body).not.toMatch(
+        /PRIVATE_ITEM_ID|PRIVATE_ENCRYPTED_CONTENT|encrypted_content/,
+      );
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toMatch(
+        /PRIVATE_ITEM_ID|PRIVATE_ENCRYPTED_CONTENT/,
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('destroys the connection instead of rethrowing when the stream fails after headers', async () => {

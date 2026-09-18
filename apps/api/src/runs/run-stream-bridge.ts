@@ -229,6 +229,10 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   private onReasoningDelta(event: RunEventLike): Array<UiChunk> {
     const text = payloadString(event.payload, 'text') ?? '';
     if (text.length === 0) {
+      // Also drops the metadata-only event a reasoning part's END produces:
+      // the opaque provider metadata it carries is provider plumbing for a
+      // later request for this Chat, never part of the UI chunk protocol
+      // (the browser must not receive it), and it moves no boundary.
       return [];
     }
     const partId = payloadString(event.payload, 'partId');

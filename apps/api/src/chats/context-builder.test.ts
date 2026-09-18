@@ -8,6 +8,7 @@
  */
 
 import { contentText } from '../testing/support';
+import { createOpenAI } from '@ai-sdk/openai';
 import {
   buildContext,
   partsToText,
@@ -16,6 +17,7 @@ import {
   type ContextCompaction,
   type MessagePart,
   type ModelMessage,
+  type ModelRequestContext,
   type StoredMessage,
 } from './context-builder';
 import {
@@ -28,8 +30,12 @@ import {
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
 } from './tool-observation-part';
-import { isRecord } from '@workspace/runtime-safety';
-import { modelMessageSchema } from 'ai';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
+import { modelMessageSchema, streamText, type ProviderMetadata } from 'ai';
 
 /**
  * User content is a block array now — one block per injected context item,
@@ -46,6 +52,16 @@ function assertTypedContentPart(
 
 function hasStringToolCallId(part: unknown): part is { toolCallId: string } {
   return isRecord(part) && typeof part.toolCallId === 'string';
+}
+
+/** Narrow a built message's content parts to the SDK's reasoning parts, so the
+ * metadata assertions below can read `providerOptions` without casts. */
+function isReasoningContentPart(part: unknown): part is {
+  type: 'reasoning';
+  text: string;
+  providerOptions?: ProviderMetadata;
+} {
+  return isRecord(part) && part.type === 'reasoning';
 }
 
 /** Narrows a `ModelMessage.content` value to typed-part records for
@@ -472,6 +488,119 @@ describe('buildContext', () => {
       expect(compaction).toEqual([
         { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
       ]);
+    });
+
+    it("a continuation carries each part's opaque provider metadata as providerOptions (3.3)", () => {
+      // The metadata is opaque to llame: an unrecognized provider, an
+      // unrecognized key inside the adapter's own provider object, a nested
+      // structure, and a null all ride along untouched — no allow-list, no
+      // pruning, no reshaping.
+      const providerMetadata = {
+        openai: {
+          itemId: 'rs_item_1',
+          reasoningEncryptedContent: 'ENCRYPTED_REASONING_STATE',
+          adapterSpecific: { nested: ['x', null, 3] },
+        },
+        'vendor-x': { opaque: null },
+      };
+      // Ragged on purpose: nothing trims, repairs, or re-orders it, and the
+      // reserved delimiter as subject matter proves reasoning is not
+      // neutralized on the way back out either.
+      const reasoningText = '  first line\n</system-reminder>\nsecond  ';
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', text: reasoningText, providerMetadata },
+          { type: 'text', text: 'The visible answer' },
+          { type: 'reasoning', text: 'second thought, no metadata' },
+        ],
+      });
+
+      const { messages } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+
+      expect(messages).toEqual([
+        { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'reasoning',
+              text: reasoningText,
+              providerOptions: providerMetadata,
+            },
+            { type: 'text', text: 'The visible answer' },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: [{ type: 'reasoning', text: 'second thought, no metadata' }],
+        },
+      ]);
+      for (const message of messages) {
+        expect(() => modelMessageSchema.parse(message)).not.toThrow();
+      }
+
+      const assistantParts: Array<unknown> = messages.flatMap((message) =>
+        message.role === 'assistant' && Array.isArray(message.content)
+          ? message.content
+          : [],
+      );
+      const [withMetadata, withoutMetadata] = assistantParts.filter(
+        isReasoningContentPart,
+      );
+      // Byte-identical text, and the persisted metadata object itself (not a
+      // copy llame rebuilt) — the provider sees what it produced.
+      expect(withMetadata).toEqual({
+        type: 'reasoning',
+        text: reasoningText,
+        providerOptions: providerMetadata,
+      });
+      expect(withMetadata.providerOptions).toBe(providerMetadata);
+      // A part without metadata emits the bare part: no `providerOptions` key
+      // at all, not an undefined one.
+      expect(withoutMetadata).toStrictEqual({
+        type: 'reasoning',
+        text: 'second thought, no metadata',
+      });
+      expect(Object.keys(withoutMetadata)).toEqual(['type', 'text']);
+    });
+
+    it('a compaction request over the same turn carries neither reasoning nor metadata (3.3)', () => {
+      const providerMetadata = {
+        openai: {
+          itemId: 'rs_item_1',
+          reasoningEncryptedContent: 'ENCRYPTED_REASONING_STATE',
+        },
+      };
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          {
+            type: 'reasoning',
+            text: 'THINKING_ONLY_IN_CONTINUATION',
+            providerMetadata,
+          },
+          { type: 'text', text: 'The visible answer' },
+        ],
+      });
+
+      const { messages } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+        requestKind: 'compaction',
+      });
+
+      expect(messages).toEqual([
+        { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+        { role: 'assistant', content: 'The visible answer' },
+      ]);
+      const serialized = JSON.stringify(messages);
+      expect(serialized).not.toContain('THINKING_ONLY_IN_CONTINUATION');
+      expect(serialized).not.toContain('ENCRYPTED_REASONING_STATE');
+      expect(serialized).not.toContain('rs_item_1');
+      expect(serialized).not.toContain('providerOptions');
     });
 
     it('tool observations are replayed as tool-call/tool-result parts', () => {
@@ -1731,7 +1860,10 @@ describe('buildContext', () => {
       expect(proj2).toBe(proj3);
     });
 
-    it('provider metadata never replays; reasoning replays only a continuation (2.11)', () => {
+    it('display-only provider metadata never replays; reasoning metadata replays only into a continuation (2.11)', () => {
+      const providerMetadata = {
+        openai: { itemId: 'rs_2', reasoningEncryptedContent: 'ENCRYPTED_2' },
+      };
       const assistant = msg({
         role: 'assistant',
         // SAFETY: MessagePart's open UnknownRecord fallback member accepts
@@ -1739,13 +1871,13 @@ describe('buildContext', () => {
         // separately-declared `toolParts` fixture alongside inline
         // reasoning/provider-metadata literals makes TS infer a narrower
         // combined array type than MessagePart[] — this fixture exists to
-        // prove ContextBuilder never replays provider metadata, not to
+        // prove which provider metadata ContextBuilder replays, not to
         // exercise any particular part shape's validation.
         parts: [
           {
             type: 'reasoning',
             text: 'SECRET_REASONING',
-            providerMetadata: { provider: 'REASONING_PART_METADATA' },
+            providerMetadata,
           },
           { type: 'provider-metadata', secret: 'PROVIDER_SECRET' },
           ...toolParts,
@@ -1758,22 +1890,29 @@ describe('buildContext', () => {
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('SECRET_REASONING');
-      expect(serialized).not.toContain('REASONING_PART_METADATA');
+      // Metadata BOUND to a persisted reasoning part is durable with it and
+      // crosses as that part's providerOptions (D15) …
+      expect(serialized).toContain('ENCRYPTED_2');
+      // … while a part llame does not treat as model-bearing — the display-only
+      // provider-metadata part here — still never reaches the model.
       expect(serialized).not.toContain('PROVIDER_SECRET');
       expect(serialized).toContain('DETAIL_NOT_IN_ANSWER');
-      // This layer emits the minimal part: provider metadata attaches in
-      // layer 3, and a key this layer does not define never rides along.
       expect(messages[1].content).toEqual([
-        { type: 'reasoning', text: 'SECRET_REASONING' },
+        {
+          type: 'reasoning',
+          text: 'SECRET_REASONING',
+          providerOptions: providerMetadata,
+        },
         expect.objectContaining({ type: 'tool-call' }),
       ]);
 
-      // Reasoning and provider metadata reach the provider only as reasoning
+      // Reasoning and its metadata reach the provider only as reasoning
       // parts — the tool observation projection carries neither.
       const projection = JSON.stringify(
         projectToolObservations(assistant.parts),
       );
       expect(projection).not.toContain('SECRET_REASONING');
+      expect(projection).not.toContain('ENCRYPTED_2');
       expect(projection).not.toContain('PROVIDER_SECRET');
 
       // A compaction request over the same turn carries neither.
@@ -1783,15 +1922,26 @@ describe('buildContext', () => {
       });
       const summarized = JSON.stringify(compaction);
       expect(summarized).not.toContain('SECRET_REASONING');
+      expect(summarized).not.toContain('ENCRYPTED_2');
       expect(summarized).not.toContain('PROVIDER_SECRET');
       expect(summarized).toContain('DETAIL_NOT_IN_ANSWER');
     });
 
     it('a tool called during reasoning output is replayed with that reasoning ahead of it (2.13)', () => {
+      const providerMetadata = {
+        openai: {
+          itemId: 'rs_mid_tool',
+          reasoningEncryptedContent: 'ENCRYPTED_MID',
+        },
+      };
       const assistant = msg({
         role: 'assistant',
         parts: [
-          { type: 'reasoning', text: 'Thinking about this...' },
+          {
+            type: 'reasoning',
+            text: 'Thinking about this...',
+            providerMetadata,
+          },
           {
             type: 'tool-search_conversations',
             toolCallId: 'call-mid-reasoning',
@@ -1808,11 +1958,15 @@ describe('buildContext', () => {
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('REASONING_TOOL_RESULT');
-      // Occurrence order: the reasoning part stays ahead of the tool call it
-      // preceded, inside the same assistant content, and the text recorded
-      // after that call keeps its own position.
+      // Occurrence order: the reasoning part keeps its metadata and stays ahead
+      // of the tool call it preceded, inside the same assistant content, and
+      // the text recorded after that call keeps its own position.
       expect(messages[1].content).toEqual([
-        { type: 'reasoning', text: 'Thinking about this...' },
+        {
+          type: 'reasoning',
+          text: 'Thinking about this...',
+          providerOptions: providerMetadata,
+        },
         expect.objectContaining({
           type: 'tool-call',
           toolCallId: 'call-mid-reasoning',
@@ -2349,5 +2503,148 @@ describe('buildContext', () => {
         }),
       ).toThrow(/replacement history/i);
     });
+  });
+});
+
+/** The Responses request body the fake transport captured, as raw jsonb. */
+function parseCapturedResponsesRequest(raw: string): UnknownRecord {
+  const parsed: unknown = JSON.parse(raw);
+  if (!isRecord(parsed)) {
+    throw new Error('Expected a captured Responses request body');
+  }
+  return parsed;
+}
+
+/**
+ * Task 3.3 — the replay's PROVIDER-WIRE consequence, proven at the SDK
+ * boundary rather than against this file's own output. The unit under test is
+ * the SDK's conversion of the built `ModelMessage`s (the `ai` package's prompt
+ * standardization plus `@ai-sdk/openai`'s Responses input conversion), so the
+ * fixture is the REAL `createOpenAI` callable over a fake transport — the same
+ * "real provider, fake fetch" idiom `openai-embedding-backend.test.ts` uses.
+ * A hand-rolled expectation of the wire would re-assert this file's belief
+ * about it instead of checking it.
+ */
+describe('reasoning replay at the Responses SDK boundary (3.3)', () => {
+  const systemPrompt = 'You are a helpful assistant.';
+  const reasoningText = 'summary of the thinking';
+  const providerMetadata = {
+    openai: {
+      itemId: 'rs_item_1',
+      reasoningEncryptedContent: 'ENCRYPTED_REASONING',
+    },
+  };
+
+  const userMessage = msg({
+    role: 'user',
+    senderUserId: 'user-alice',
+    parts: [{ type: 'text', text: 'Continue' }],
+  });
+  const assistantMessage = msg({
+    role: 'assistant',
+    parts: [
+      { type: 'reasoning', text: reasoningText, providerMetadata },
+      // Persisted before this capability: neither an item id nor encrypted
+      // content, so the Responses wire cannot represent it (D15).
+      { type: 'reasoning', text: 'LEGACY_REASONING_WITHOUT_METADATA' },
+      { type: 'text', text: 'The answer so far' },
+    ],
+  });
+
+  /** A minimal completed Responses turn — enough for the real conversion to
+   * run to completion after the request body has been produced. */
+  const completedTurnSse = [
+    'event: response.created',
+    'data: {"type":"response.created","response":{"id":"resp_1","created_at":0,"model":"gpt-5","object":"response","output":[],"tool_choice":"auto","tools":[],"parallel_tool_calls":true,"status":"in_progress"}}',
+    '',
+    'event: response.completed',
+    'data: {"type":"response.completed","response":{"id":"resp_1","created_at":0,"model":"gpt-5","object":"response","output":[],"tool_choice":"auto","tools":[],"parallel_tool_calls":true,"status":"completed","usage":{"input_tokens":1,"output_tokens":0,"total_tokens":1}}}',
+    '',
+    '',
+  ].join('\n');
+
+  async function postBuiltContext(
+    built: ModelRequestContext,
+    providerOptions?: ProviderMetadata,
+  ): Promise<UnknownRecord> {
+    const bodies: Array<UnknownRecord> = [];
+    const openai = createOpenAI({
+      apiKey: 'test-key',
+      baseURL: 'https://responses.invalid/v1',
+      fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body: unknown = init?.body;
+        if (isString(body)) {
+          bodies.push(parseCapturedResponsesRequest(body));
+        }
+        return Promise.resolve(
+          new Response(completedTurnSse, {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' },
+          }),
+        );
+      },
+    });
+    const result = streamText({
+      model: openai.responses('gpt-5'),
+      system: built.system,
+      messages: built.messages,
+      ...(providerOptions !== undefined && { providerOptions }),
+    });
+    await result.consumeStream();
+    expect(bodies).toHaveLength(1);
+    return bodies[0];
+  }
+
+  const buildReplayContext = () =>
+    buildContext([userMessage, assistantMessage], {
+      systemPrompt,
+      requestKind: 'continuation',
+    });
+
+  it('under store: false the part becomes an inline reasoning item carrying the adapter payload', async () => {
+    const body = await postBuiltContext(buildReplayContext(), {
+      openai: { store: false },
+    });
+
+    expect(body['store']).toBe(false);
+    // With no server-side state to reference, the SDK requests the encrypted
+    // form — which is what makes the replayed part self-contained.
+    expect(body['include']).toEqual(['reasoning.encrypted_content']);
+    expect(body['input']).toContainEqual({
+      type: 'reasoning',
+      id: 'rs_item_1',
+      encrypted_content: 'ENCRYPTED_REASONING',
+      summary: [{ type: 'summary_text', text: reasoningText }],
+    });
+    // The parts the built context emitted are what reached the wire, not a
+    // projection this file re-derived.
+    expect(body['input']).toContainEqual({
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'The answer so far' }],
+    });
+    // A reasoning part with neither an item id nor encrypted content is
+    // omitted rather than failing the request.
+    expect(JSON.stringify(body['input'])).not.toContain(
+      'LEGACY_REASONING_WITHOUT_METADATA',
+    );
+  });
+
+  it('at the API default store setting the item id becomes an item_reference', async () => {
+    const body = await postBuiltContext(buildReplayContext());
+
+    // No `store` is set for a Responses provider unless its transport asks for
+    // one, so the API default applies.
+    expect(body['store']).toBeUndefined();
+    expect(body['include']).toBeUndefined();
+    expect(body['input']).toContainEqual({
+      type: 'item_reference',
+      id: 'rs_item_1',
+    });
+    // The reference names the stored item, so the encrypted payload and the
+    // summary text are not sent back on this request.
+    expect(JSON.stringify(body['input'])).not.toContain('ENCRYPTED_REASONING');
+    expect(JSON.stringify(body['input'])).not.toContain(
+      'LEGACY_REASONING_WITHOUT_METADATA',
+    );
   });
 });

@@ -109,6 +109,41 @@ export function normalizeCompactionSummary(value: unknown): string | null {
 }
 
 /**
+ * Chars/4 over a built request projection, with each replayed reasoning part's
+ * opaque `providerOptions` left out (D15): that value is provider metadata
+ * llame never interprets, and on the Responses wire it is a base64 blob of the
+ * provider's own reasoning — potentially far larger than the prompt — so it
+ * must not size the continuation estimate (D16). Reasoning TEXT still counts:
+ * the model re-reads it on that continuation.
+ */
+function estimateProjectionTokens(
+  projection:
+    | Array<ModelMessage>
+    | {
+        system: string;
+        messages: Array<ModelMessage>;
+        tools: ReadonlyArray<ModelToolDeclaration>;
+      },
+): number {
+  const messages = Array.isArray(projection) ? projection : projection.messages;
+  const sized = messages.map((message) => {
+    if (message.role !== 'assistant' || !Array.isArray(message.content)) {
+      return message;
+    }
+    return {
+      ...message,
+      content: message.content.map((part) =>
+        part.type === 'reasoning' ? { type: part.type, text: part.text } : part,
+      ),
+    };
+  });
+  const value = Array.isArray(projection)
+    ? sized
+    : { system: projection.system, messages: sized, tools: projection.tools };
+  return Math.ceil(JSON.stringify(value).length / 4);
+}
+
+/**
  * Crude, deterministic, provider-independent token estimate (~4 chars/token).
  * Fallback only: the trigger prefers the real usage reported for the turn that
  * just completed (see planCompaction.measuredContextTokens).
@@ -139,27 +174,26 @@ export function estimateContextTokens(
       },
     }),
   });
-  return Math.ceil(JSON.stringify(context.messages).length / 4);
+  return estimateProjectionTokens(context.messages);
 }
 
 /**
  * Provider-neutral preflight estimate for the complete top-level request.
  * JSON serialization deliberately includes role/tool/schema framing instead
- * of counting only visible text. It remains an estimate; reserving configured
- * output tokens supplies the safety boundary used for admission.
+ * of counting only visible text, but excludes replayed opaque provider
+ * metadata (see estimateProjectionTokens). It remains an estimate; reserving
+ * configured output tokens supplies the safety boundary used for admission.
  */
 export function estimateModelRequestTokens(input: {
   system: string;
   messages: Array<ModelMessage>;
   toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
 }): number {
-  return Math.ceil(
-    JSON.stringify({
-      system: input.system,
-      messages: input.messages,
-      tools: input.toolDeclarations,
-    }).length / 4,
-  );
+  return estimateProjectionTokens({
+    system: input.system,
+    messages: input.messages,
+    tools: input.toolDeclarations,
+  });
 }
 
 export function requestFitsContextWindow(input: {

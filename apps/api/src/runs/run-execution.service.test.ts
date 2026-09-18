@@ -1165,6 +1165,50 @@ describe('RunExecutionService executeRun — stream completion', () => {
     );
   });
 
+  it('records a reasoning part’s provider metadata on that part and its own event', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    const providerMetadata = {
+      openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+    };
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onReasoningDelta?.('thinking', 'rs_1:0');
+    // The adapter's reasoning END carries the metadata with no text of its
+    // own, so it is recorded as its own event bound to the same part id.
+    options.onReasoningDelta?.('', 'rs_1:0', providerMetadata);
+    await options.onFinish?.({
+      text: '',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+    });
+
+    expect(appended.map((entry) => entry.type)).toEqual([
+      'run.started',
+      'model.requested',
+      'reasoning.delta',
+      'reasoning.delta',
+      'model.completed',
+      'run.completed',
+    ]);
+    expect(appended[2]?.payload).toStrictEqual({
+      text: 'thinking',
+      partId: 'rs_1:0',
+    });
+    expect(appended[3]?.payload).toStrictEqual({
+      partId: 'rs_1:0',
+      providerMetadata,
+    });
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [{ type: 'reasoning', text: 'thinking', providerMetadata }],
+      }),
+    );
+  });
+
   it('drops a final text that does not extend what already streamed', async () => {
     const spies = mockNormalExecutionRepositories();
     recordAppendedEvents();

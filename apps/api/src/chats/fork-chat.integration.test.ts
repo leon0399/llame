@@ -292,7 +292,22 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         chatId: chat.id,
         role: 'assistant',
         senderUserId: null,
-        parts: [{ type: 'text', text: 'a3' }],
+        // D17: opaque provider metadata is copied verbatim with its part, and
+        // the fork replays its OWN copy — so the model-facing prefix equals its
+        // source's at the copied boundary, metadata included.
+        parts: [
+          {
+            type: 'reasoning',
+            text: 'live reasoning',
+            providerMetadata: {
+              openai: {
+                itemId: 'rs-live-1',
+                reasoningEncryptedContent: 'ENCRYPTED_LIVE_STATE',
+              },
+            },
+          },
+          { type: 'text', text: 'a3' },
+        ],
         usage: { costUsd: 0.5, model: 'gpt-x', runId: 'run-3' },
         inReplyTo: q3.id,
       });
@@ -579,7 +594,18 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         },
       ];
       const prefixAssistantParts = [
-        { type: 'reasoning', text: 'private reasoning' },
+        {
+          type: 'reasoning',
+          text: 'private reasoning',
+          // D17: a copy is literal — opaque provider metadata rides with the
+          // part it is bound to.
+          providerMetadata: {
+            openai: {
+              itemId: 'rs-private-1',
+              reasoningEncryptedContent: 'ENCRYPTED_PRIVATE_STATE',
+            },
+          },
+        },
         { type: 'text', text: 'prefix answer' },
         {
           type: 'tool-search_conversations',
@@ -835,6 +861,26 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     // Equal inherited history: the copied replacement history leads, the
     // retained tail follows, then the identical new input.
     expect(forkContext.messages).toEqual(sourceContext.messages);
+    // Non-vacuous for the metadata half: the retained tail's reasoning part is
+    // there with its opaque provider metadata, replayed from the FORK's copied
+    // part (D17) — a projection that dropped either side would still compare
+    // equal to its source, so pin the fork's own request content.
+    expect(forkContext.messages).toContainEqual({
+      role: 'assistant',
+      content: [
+        {
+          type: 'reasoning',
+          text: 'live reasoning',
+          providerOptions: {
+            openai: {
+              itemId: 'rs-live-1',
+              reasoningEncryptedContent: 'ENCRYPTED_LIVE_STATE',
+            },
+          },
+        },
+        { type: 'text', text: 'a3' },
+      ],
+    });
   });
 
   it('an anchor before the latest checkpoint copies only the earlier one and keeps the baseline bound to it', async () => {

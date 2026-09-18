@@ -95,6 +95,38 @@ describe('chunkConversation', () => {
     expect(chunks[0].normalizedContent).not.toContain('snippet');
   });
 
+  it('excludes a reasoning part carrying opaque provider metadata, value and all', () => {
+    const chunks = chunkConversation([
+      userMsg('u', 'real question', 0),
+      {
+        id: 'a',
+        role: 'assistant',
+        parts: [
+          {
+            type: 'reasoning',
+            text: 'hidden chain of thought',
+            providerMetadata: {
+              openai: {
+                itemId: 'PRIVATE_ITEM_ID',
+                reasoningEncryptedContent: 'PRIVATE_ENCRYPTED_CONTENT',
+              },
+            },
+          },
+          { type: 'text', text: 'visible answer' },
+        ],
+        createdAt: at(1),
+      },
+    ]);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].content).toBe(
+      '[user] real question\n\n[assistant] visible answer',
+    );
+    expect(JSON.stringify(chunks)).not.toMatch(
+      /hidden chain of thought|PRIVATE_ITEM_ID|PRIVATE_ENCRYPTED_CONTENT|providerMetadata/,
+    );
+  });
+
   it('indexes only canonical human text when a user row carries trusted control parts', () => {
     const chunks = chunkConversation([
       {

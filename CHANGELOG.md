@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-18
 
+- A reasoning part carries the provider's own opaque metadata, durably (#883).
+  The OpenAI Responses path already returns a reasoning item's identifier and,
+  under `store: false`, its encrypted content; llame discarded both. Those now
+  persist beside the part in `messages.parts` and are replayed with it on later
+  requests for the Chat that stores them — including a copied Chat, which
+  replays its own copied parts — so a signed or encrypted reasoning block
+  survives a worker restart mid-turn and a resumed Run can continue. The
+  metadata is opaque: llame never interprets a key inside it, never coerces,
+  prunes, or re-binds it for a switched-to model, and never renders, exports,
+  indexes, publicly shares, logs, or reports it in an error. A part without
+  metadata keeps its existing shape.
+
 - Reasoning parts keep the identity the provider gave them (#883). A new
   persisted part starts when a text, tool, or other part intervenes, or when
   the adapter's part id changes, so each OpenAI Responses summary is its own

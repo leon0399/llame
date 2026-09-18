@@ -3,6 +3,7 @@ import type {
   FlexibleSchema,
   LanguageModelUsage,
   ModelMessage,
+  ProviderMetadata,
   StreamTextOnErrorCallback,
   streamText,
   ToolChoice,
@@ -78,8 +79,24 @@ export interface ModelStreamInput {
    * Responses wire ids every summary `${itemId}:${summaryIndex}`). It decides
    * persisted part boundaries and is transport plumbing, never display state;
    * an undefined id means the wire gave no information, not "no part".
+   *
+   * `providerMetadata` is the opaque metadata the adapter bound to that part
+   * (design D15): on the Responses wire the `reasoning-end` stream part
+   * carries the item's `itemId` and its `reasoningEncryptedContent` for the
+   * part the adapter attaches it to. It travels with the persisted part and
+   * is replayed with it on a request that continues the same Chat; llame
+   * never reads inside it. A wire that supplies none (Chat Completions)
+   * leaves it undefined.
+   *
+   * A call may carry metadata with empty text: the adapter's end part has no
+   * delta of its own, so the metadata is bound to the part `partId` names
+   * rather than to a text fragment.
    */
-  onReasoningDelta?: (text: string, partId?: string) => void;
+  onReasoningDelta?: (
+    text: string,
+    partId?: string,
+    providerMetadata?: ProviderMetadata,
+  ) => void;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: {
     text: string;
