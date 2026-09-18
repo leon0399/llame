@@ -429,11 +429,12 @@ for an assistant message that has only reasoning parts (`:455-458`). On the
 Chat Completions wire the adapter carries the text as `reasoning_content`
 with no metadata needed — this half ships in L1 because DeepSeek requires it
 (D7). On the Responses wire the SDK carries a part that has an `itemId` as a
-`reasoning` input item (encrypted content when present; an item reference to
-the stored item otherwise) and skips a part without one with a warning
-(`convert-to-openai-responses-input.ts:596-608,647-676`), so reasoning
-persisted before this change and reasoning produced on the other wire are
-omitted there rather than failing the request. Rationale: it is the substrate
+`reasoning` input item — an item reference when `store` is left at the API
+default, the inline item with its encrypted content when `store` is false —
+carries a part that has encrypted content but no `itemId` as an inline item
+without an id, and skips a part with neither, with a warning
+(`@ai-sdk/openai@3.0.97` `dist/index.mjs:3433-3502`), so reasoning persisted
+before this change is omitted there rather than failing the request. Rationale: it is the substrate
 for a reasoning-preservation mode two providers already support, a resumed
 Run after a worker restart mid-turn needs the block on its first request,
 DeepSeek makes the text half mandatory, and a later migration cannot backfill
@@ -542,6 +543,22 @@ parts, and costs. The CHANGELOG records the breaking note.
 
 ## Revision history
 
+- v6 (2026-09-18): PR #884 second review round (CodeRabbit). Scoped the
+  `available-models` dispatch requirement's endpoint sourcing: credentials come
+  from the provider entry for every executable type, while the endpoint comes
+  from it only where it is operator-declared, since `openai-codex` rejects
+  `baseUrl` and executes against a fixed endpoint. Corrected D15's account of
+  the Responses converter against the installed adapter: it also carries a part
+  that has encrypted content but no item id, as an inline item without an id,
+  so "an item id or encrypted content" in `reasoning-output` was already right
+  and the design prose was the imprecise half. Two findings rejected with
+  evidence: requiring an item id for Responses replay (the adapter supports the
+  encrypted-only part, `dist/index.mjs:3483-3496`), and reinstating a bound
+  before deleting `REASONING_PERSIST_MAX` (D11 accepts the ceiling with a named
+  revisit trigger; the same estimate that now counts replayed reasoning text
+  drives compaction, so growth produces compaction rather than a hard refusal,
+  and the degenerate case fails loudly under the existing context-incompatible
+  contract — tracked separately rather than reopened here).
 - v5 (2026-09-18): PR #884 review round (CodeRabbit). Named which capability
   owns `openai-codex`'s wire in the `available-models` dispatch requirement,
   since `provider-api-selection` covers only the two OpenAI wire types. Added
