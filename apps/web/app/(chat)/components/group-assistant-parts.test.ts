@@ -125,6 +125,37 @@ describe("groupAssistantParts", () => {
     ]);
   });
 
+  it("renders only a reasoning part's text, never its opaque provider metadata", () => {
+    // The Thinking panel is fed `segment.text` alone, so a stored part
+    // carrying durable provider metadata (design D15) must group down to its
+    // text: no key and no opaque value may survive into the render input.
+    const withMetadata: UIMessage["parts"][number] = {
+      type: "reasoning",
+      text: "the plan",
+      providerMetadata: {
+        openai: {
+          itemId: "PRIVATE_ITEM_ID",
+          reasoningEncryptedContent: "PRIVATE_ENCRYPTED_CONTENT",
+        },
+      },
+    };
+
+    const grouped = groupAssistantParts([withMetadata, text("done")]);
+
+    expect(grouped).toEqual([
+      {
+        kind: "reasoning",
+        text: "the plan",
+        isStreaming: false,
+        startIndex: 0,
+      },
+      { kind: "part", part: text("done"), index: 1 },
+    ]);
+    expect(JSON.stringify(grouped)).not.toMatch(
+      /PRIVATE_ITEM_ID|PRIVATE_ENCRYPTED_CONTENT|providerMetadata/,
+    );
+  });
+
   it("leaves the message's parts untouched", () => {
     const parts = [
       reasoning("**One****Two**"),

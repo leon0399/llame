@@ -105,6 +105,35 @@ describe("chatToMarkdown", () => {
     expect(md).toContain("answer");
   });
 
+  it("omits a reasoning part's opaque provider metadata from the export", () => {
+    // The stored part may carry durable provider metadata (design D15); the
+    // export renders its text and nothing else.
+    const md = chatToMarkdown("T", [
+      msg({
+        role: "assistant",
+        parts: [
+          {
+            type: "reasoning",
+            text: "let me think",
+            providerMetadata: {
+              openai: {
+                itemId: "PRIVATE_ITEM_ID",
+                reasoningEncryptedContent: "PRIVATE_ENCRYPTED_CONTENT",
+              },
+            },
+          },
+          { type: "text", text: "answer" },
+        ],
+      }),
+    ]);
+
+    expect(md).toContain("> _Reasoning:_ let me think");
+    expect(md).toContain("answer");
+    expect(md).not.toMatch(
+      /PRIVATE_ITEM_ID|PRIVATE_ENCRYPTED_CONTENT|providerMetadata/,
+    );
+  });
+
   it("unglues a reasoning-summary heading persisted as one glued run", () => {
     const reasoning = {
       type: "reasoning",

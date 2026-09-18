@@ -64,6 +64,65 @@ describe('AssistantPartCollector', () => {
     ]);
   });
 
+  it('stores opaque provider metadata on the part its adapter id names', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('first summary', 'rs_1:0');
+    collector.reasoning('second summary', 'rs_1:1');
+    // The Responses adapter ends an earlier summary of the same reasoning
+    // item when the next one opens, so both ends can arrive after the later
+    // part already collected text; the id decides the target part.
+    collector.reasoning('', 'rs_1:0', { openai: { itemId: 'rs_1' } });
+    collector.reasoning('', 'rs_1:1', {
+      openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+    });
+
+    expect(collector.parts()).toEqual([
+      {
+        type: 'reasoning',
+        text: 'first summary',
+        providerMetadata: { openai: { itemId: 'rs_1' } },
+      },
+      {
+        type: 'reasoning',
+        text: 'second summary',
+        providerMetadata: {
+          openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+        },
+      },
+    ]);
+  });
+
+  it('binds metadata without a part id to the open reasoning part', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('wire without ids');
+    collector.reasoning('', undefined, { openai: { itemId: 'rs_1' } });
+
+    expect(collector.parts()).toEqual([
+      {
+        type: 'reasoning',
+        text: 'wire without ids',
+        providerMetadata: { openai: { itemId: 'rs_1' } },
+      },
+    ]);
+  });
+
+  it('leaves a reasoning part without metadata exactly as it was', () => {
+    const collector = createAssistantPartCollector();
+
+    collector.reasoning('plain thinking', 'reasoning-0');
+    collector.reasoning('', 'reasoning-0');
+    // A metadata-only delivery with no part to bind it to adds no part.
+    collector.reasoning('', 'rs_missing', { openai: { itemId: 'rs_missing' } });
+
+    // `toStrictEqual` (not `toEqual`): an explicit `providerMetadata:
+    // undefined` key would fail here, and the shape must be unchanged.
+    expect(collector.parts()).toStrictEqual([
+      { type: 'reasoning', text: 'plain thinking' },
+    ]);
+  });
+
   it('filters unresolved requests but preserves an unrequested settlement', () => {
     const collector = createAssistantPartCollector();
 
@@ -210,6 +269,45 @@ describe('reconstructDurableAssistant', () => {
       expect.objectContaining({ type: 'tool-search', toolCallId: 'c1' }),
       { type: 'reasoning', text: 'after the tool' },
       { type: 'text', text: 'answer' },
+    ]);
+  });
+
+  it('replays each reasoning part’s provider metadata onto its own part', () => {
+    const earlierMetadata = { openai: { itemId: 'rs_1' } };
+    const laterMetadata = {
+      openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+    };
+    const result = reconstructDurableAssistant([
+      event('reasoning.delta', { text: 'first summary', partId: 'rs_1:0' }),
+      event('reasoning.delta', { text: 'second summary', partId: 'rs_1:1' }),
+      // The ends arrive after the later part already holds text; the id
+      // routes each one to the part it belongs to.
+      event('reasoning.delta', {
+        partId: 'rs_1:0',
+        providerMetadata: earlierMetadata,
+      }),
+      event('reasoning.delta', {
+        partId: 'rs_1:1',
+        providerMetadata: laterMetadata,
+      }),
+      // A malformed payload binds nothing and adds no part.
+      event('reasoning.delta', {
+        partId: 'rs_1:1',
+        providerMetadata: 'not-a-record',
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      {
+        type: 'reasoning',
+        text: 'first summary',
+        providerMetadata: earlierMetadata,
+      },
+      {
+        type: 'reasoning',
+        text: 'second summary',
+        providerMetadata: laterMetadata,
+      },
     ]);
   });
 

@@ -3,7 +3,7 @@ import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { tool, type ToolSet } from 'ai';
+import { tool, type ProviderMetadata, type ToolSet } from 'ai';
 
 import { canonicalJson, compareCodePoints } from '../canonical-json';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -779,6 +779,11 @@ export class RunExecutionService {
     // text it holds, so the durable reconstructor can rebuild the same part
     // boundaries the live collector saw (design D8). The buffer is drained
     // before the id is switched, so one event never spans two ids.
+    //
+    // A reasoning part's opaque provider metadata (design D15) is recorded on
+    // its own `reasoning.delta` event: the adapter attaches it to the part's
+    // END stream part, which carries no delta text, so there is nothing to
+    // buffer — only the part id the metadata is bound to.
     const reasoningDeltas = createDeltaBuffer();
     let reasoningPartId: string | undefined;
     const persistReasoning = (text: string | null) => {
@@ -788,6 +793,15 @@ export class RunExecutionService {
           ...(reasoningPartId !== undefined && { partId: reasoningPartId }),
         });
       }
+    };
+    const persistReasoningMetadata = (
+      partId: string | undefined,
+      providerMetadata: ProviderMetadata,
+    ) => {
+      enqueueEvent('reasoning.delta', {
+        ...(partId !== undefined && { partId }),
+        providerMetadata,
+      });
     };
 
     // Trusted execution context for tools — built from the RUN's fields,
@@ -1173,13 +1187,28 @@ export class RunExecutionService {
           reasoningPartId = undefined;
           persistDelta(deltas.push(text, Date.now()));
         },
-        onReasoningDelta: (text, partId) => {
+        onReasoningDelta: (text, partId, providerMetadata) => {
+          // A metadata-only delivery: the adapter's reasoning END part carries
+          // a part's opaque metadata but no delta of its own (design D15).
+          // Drain the buffer first so the durable log keeps the part's text
+          // before its metadata, then record the metadata under the id the
+          // adapter named — which can differ from the open part's id when one
+          // reasoning item has several summaries.
+          if (text.length === 0 && providerMetadata !== undefined) {
+            persistReasoning(reasoningDeltas.flush());
+            persistReasoningMetadata(partId, providerMetadata);
+            assistantPartCollector.reasoning('', partId, providerMetadata);
+            return;
+          }
           // Drain before adopting a new id so a buffered event never spans
           // two adapter parts (the collector splits on the same transition).
           if (partId !== reasoningPartId) {
             persistReasoning(reasoningDeltas.flush());
             reasoningPartId = partId;
           }
+          // A text delta never carries metadata: the only wire that supplies
+          // any attaches it to a part's END, which carries no text (D15), so
+          // this is a text-only delivery.
           assistantPartCollector.reasoning(text, partId);
           persistDelta(deltas.flush());
           persistReasoning(reasoningDeltas.push(text, Date.now()));

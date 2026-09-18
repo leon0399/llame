@@ -232,6 +232,19 @@ describe('assistant reasoning part identity across live, replay, and history', (
       text: '**Inspecting the tool**',
       partId: 'rs_1:1',
     }),
+    // The Responses adapter's reasoning ends: the earlier summary's end
+    // carries the item id alone, the item's last end carries it with the
+    // encrypted content.
+    event('reasoning.delta', {
+      partId: 'rs_1:0',
+      providerMetadata: { openai: { itemId: 'rs_1' } },
+    }),
+    event('reasoning.delta', {
+      partId: 'rs_1:1',
+      providerMetadata: {
+        openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+      },
+    }),
     event('tool.requested', {
       toolCallId: 'c1',
       toolName: 'search_conversations',
@@ -253,6 +266,10 @@ describe('assistant reasoning part identity across live, replay, and history', (
     live.reasoning('**Investigating** ', 'rs_1:0');
     live.reasoning('the message schema.', 'rs_1:0');
     live.reasoning('**Inspecting the tool**', 'rs_1:1');
+    live.reasoning('', 'rs_1:0', { openai: { itemId: 'rs_1' } });
+    live.reasoning('', 'rs_1:1', {
+      openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+    });
     live.toolRequested('c1');
     live.tool(
       toolActivityPart({
@@ -269,8 +286,18 @@ describe('assistant reasoning part identity across live, replay, and history', (
     const durable = reconstructDurableAssistant(turnEvents).collector.parts();
     expect(durable).toEqual(live.parts());
     expect(durable).toEqual([
-      { type: 'reasoning', text: '**Investigating** the message schema.' },
-      { type: 'reasoning', text: '**Inspecting the tool**' },
+      {
+        type: 'reasoning',
+        text: '**Investigating** the message schema.',
+        providerMetadata: { openai: { itemId: 'rs_1' } },
+      },
+      {
+        type: 'reasoning',
+        text: '**Inspecting the tool**',
+        providerMetadata: {
+          openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+        },
+      },
       expect.objectContaining({
         type: 'tool-search_conversations',
         toolCallId: 'c1',
@@ -312,5 +339,12 @@ describe('assistant reasoning part identity across live, replay, and history', (
       'reasoning',
       'text',
     ]);
+
+    // The opaque provider metadata is durable on the part and private to the
+    // provider request: the UI chunk stream (live and reconnect) never
+    // carries it, and the browser's parsed message holds none of it.
+    expect(JSON.stringify(liveChunks)).not.toContain('providerMetadata');
+    expect(JSON.stringify(liveUi)).not.toContain('itemId');
+    expect(JSON.stringify(liveUi)).not.toContain('reasoningEncryptedContent');
   });
 });

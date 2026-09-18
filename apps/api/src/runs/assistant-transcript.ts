@@ -18,6 +18,7 @@
  * the full executeRun path (see `chats/reasoning-parts.test.ts`).
  */
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
+import { type ProviderMetadata } from 'ai';
 import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
 import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';
@@ -83,6 +84,14 @@ class AssistantPartCollectorImpl {
   // Adapter part id of the open reasoning part (undefined = the wire gave
   // none). Decides part boundaries only — never persisted (design D8).
   private openReasoningPartId: string | undefined;
+  // Index of every reasoning part this turn collected, by adapter part id.
+  // The Responses adapter attaches a part's opaque provider metadata to that
+  // part's `reasoning-end` stream part, which carries no text of its own and
+  // can arrive after the next summary's part opened (a new summary's start
+  // ends the previous still-open one, and the item's completion ends the
+  // last), so the metadata is routed to the part its id names rather than to
+  // whatever part is open (design D15).
+  private readonly reasoningPartIndexes = new Map<string, number>();
 
   text(text: string): void {
     if (text.length === 0) return;
@@ -94,21 +103,60 @@ class AssistantPartCollectorImpl {
     this.collected.push({ type: 'text', text });
   }
 
-  reasoning(text: string, partId?: string): void {
-    if (text.length === 0) return;
-    const last = this.collected.at(-1);
-    if (
-      last?.type === 'reasoning' &&
-      isString(last.text) &&
-      !this.isNewReasoningPart(partId)
-    ) {
-      last.text += text;
-      // A defined id becomes the open part's id; an absent id adds nothing.
-      this.openReasoningPartId = partId ?? this.openReasoningPartId;
-      return;
+  /**
+   * A reasoning delivery: delta `text` (possibly empty — the adapter's end
+   * part has none) with the adapter's part id and, when the wire supplied
+   * one, the opaque provider metadata bound to that part (design D15). An
+   * empty `text` starts no part and moves no boundary; it only binds the
+   * metadata to the part `partId` names (the open part when the wire never
+   * supplied ids).
+   */
+  reasoning(
+    text: string,
+    partId?: string,
+    providerMetadata?: ProviderMetadata,
+  ): void {
+    if (text.length > 0) {
+      const last = this.collected.at(-1);
+      if (
+        last?.type === 'reasoning' &&
+        isString(last.text) &&
+        !this.isNewReasoningPart(partId)
+      ) {
+        last.text += text;
+        // A defined id becomes the open part's id; an absent id adds nothing.
+        this.openReasoningPartId = partId ?? this.openReasoningPartId;
+      } else {
+        this.openReasoningPartId = partId;
+        this.collected.push({ type: 'reasoning', text });
+      }
+      // A defined id now names the part those characters went into (D15).
+      if (partId !== undefined) {
+        this.reasoningPartIndexes.set(partId, this.collected.length - 1);
+      }
     }
-    this.openReasoningPartId = partId;
-    this.collected.push({ type: 'reasoning', text });
+    if (providerMetadata === undefined) return;
+    // Opaque and stored verbatim: llame never reads inside it, and an absent
+    // one never becomes an `undefined` field on the part. The id names the
+    // part the metadata belongs to; a wire that supplied none binds it to the
+    // open part, and an id no collected part carries binds nothing.
+    const index =
+      partId === undefined
+        ? this.openReasoningPartIndex()
+        : this.reasoningPartIndexes.get(partId);
+    if (index === undefined) return;
+    const part = this.collected[index];
+    if (part?.type === 'reasoning' && isString(part.text)) {
+      part.providerMetadata = providerMetadata;
+    }
+  }
+
+  /** Index of the open reasoning part, when the last collected part is one. */
+  private openReasoningPartIndex(): number | undefined {
+    const last = this.collected.at(-1);
+    return last?.type === 'reasoning' && isString(last.text)
+      ? this.collected.length - 1
+      : undefined;
   }
 
   /**
@@ -221,6 +269,23 @@ function eventPayloadString(payload: unknown, key: string): string | undefined {
 }
 
 /**
+ * The opaque provider metadata a `reasoning.delta` event carries (design
+ * D15). Stored jsonb is untrusted on the way back in, so only a record is
+ * accepted; llame never reads inside it.
+ */
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- reads one field off the raw `run_events.payload` JSONB value, validating with `isRecord` before the value is trusted; mirrors `eventPayloadString` above.
+function eventProviderMetadata(payload: unknown): ProviderMetadata | undefined {
+  const value = eventPayloadField(payload, 'providerMetadata');
+  if (!isRecord(value)) return undefined;
+  // SAFETY: the value is the adapter's own provider-metadata object as
+  // Postgres jsonb stored and returned it; the check above only rules out a
+  // malformed or legacy payload shape, and nothing reads inside it.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  const metadata = value as ProviderMetadata;
+  return metadata;
+}
+
+/**
  * Rebuild the observable assistant prefix from the append-only event log and
  * identify calls that were durably requested but never durably completed.
  * Request-time reservations keep synthetic results in occurrence order even
@@ -312,6 +377,7 @@ class DurableAssistantReconstructor {
         this.collector.reasoning(
           eventPayloadString(event.payload, 'text') ?? '',
           eventPayloadString(event.payload, 'partId'),
+          eventProviderMetadata(event.payload),
         );
         return;
       case 'run.step_cap_reached':

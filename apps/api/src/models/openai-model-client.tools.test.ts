@@ -368,6 +368,99 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
   });
 });
 
+describe('createOpenAIModelClient — reasoning provider metadata', () => {
+  it('carries every part of a reasoning item with its end part’s metadata', async () => {
+    // Recorded Responses shape with `store: false`: a new summary of the same
+    // reasoning item ends the previous, still-open summary immediately with
+    // the item id alone, and the item's completion ends its last summary with
+    // the id plus the encrypted content the request asked for.
+    const model = scriptedModel([
+      providerResponse(
+        [
+          {
+            type: 'reasoning-start',
+            id: 'rs_1:0',
+            providerMetadata: {
+              openai: { itemId: 'rs_1', reasoningEncryptedContent: null },
+            },
+          },
+          {
+            type: 'reasoning-delta',
+            id: 'rs_1:0',
+            delta: 'think',
+            providerMetadata: { openai: { itemId: 'rs_1' } },
+          },
+          {
+            type: 'reasoning-end',
+            id: 'rs_1:0',
+            providerMetadata: { openai: { itemId: 'rs_1' } },
+          },
+          {
+            type: 'reasoning-start',
+            id: 'rs_1:1',
+            providerMetadata: {
+              openai: { itemId: 'rs_1', reasoningEncryptedContent: null },
+            },
+          },
+          {
+            type: 'reasoning-delta',
+            id: 'rs_1:1',
+            delta: 'more',
+            providerMetadata: { openai: { itemId: 'rs_1' } },
+          },
+          {
+            type: 'reasoning-end',
+            id: 'rs_1:1',
+            providerMetadata: {
+              openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+            },
+          },
+          { type: 'text-start', id: 'answer' },
+          { type: 'text-delta', id: 'answer', delta: 'done' },
+          { type: 'text-end', id: 'answer' },
+        ],
+        'stop',
+      ),
+    ]);
+    const client = buildClient(model);
+    const onTextDelta = vi.fn();
+    const onReasoningDelta = vi.fn();
+
+    await expect(
+      client.streamText({ messages, onTextDelta, onReasoningDelta }).text,
+    ).resolves.toBe('done');
+
+    // Reading the reasoning ends off `fullStream` must not swallow the stream
+    // the caller consumes: the text still resolves, and the delta text and
+    // part ids are exactly what `onChunk` delivered before the mirror.
+    await vi.waitFor(() =>
+      expect(
+        onReasoningDelta.mock.calls.filter((call) => call.length === 3),
+      ).toHaveLength(2),
+    );
+    expect(onTextDelta.mock.calls).toEqual([['done']]);
+    expect(
+      onReasoningDelta.mock.calls.filter((call) => call.length === 2),
+    ).toEqual([
+      ['think', 'rs_1:0'],
+      ['more', 'rs_1:1'],
+    ]);
+    // Every part of the item carries its `itemId`; the item's encrypted
+    // content rides the one part the adapter attached it to, and the
+    // placeholder start is never forwarded.
+    expect(
+      onReasoningDelta.mock.calls.filter((call) => call.length === 3),
+    ).toEqual([
+      ['', 'rs_1:0', { openai: { itemId: 'rs_1' } }],
+      [
+        '',
+        'rs_1:1',
+        { openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' } },
+      ],
+    ]);
+  });
+});
+
 describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal', () => {
   it.each([
     {

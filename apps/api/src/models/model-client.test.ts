@@ -1,5 +1,10 @@
 import type { ModelMessage } from 'ai';
-import type { streamText } from 'ai';
+import {
+  simulateReadableStream,
+  type streamText,
+  type TextStreamPart,
+  type ToolSet,
+} from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import type { createOpenAI } from '@ai-sdk/openai';
 
@@ -295,6 +300,58 @@ describe('ModelClient', () => {
       '**Investigating**',
       'rs_1:0',
     );
+  });
+
+  it('carries a reasoning end’s provider metadata with its adapter part id', async () => {
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
+    });
+    const openaiProvider = responsesProviderMock(providerModel);
+    createOpenAIMock.mockReturnValue(openaiProvider);
+    // `onChunk` never delivers `reasoning-start` / `reasoning-end` (the SDK
+    // only calls it for deltas), so the end part's metadata is read off the
+    // result's `fullStream`.
+    streamTextMock.mockReturnValue({
+      fullStream: simulateReadableStream<TextStreamPart<ToolSet>>({
+        chunks: [
+          {
+            type: 'reasoning-start',
+            id: 'rs_1:0',
+            providerMetadata: {
+              openai: { itemId: 'rs_1', reasoningEncryptedContent: null },
+            },
+          },
+          {
+            type: 'reasoning-end',
+            id: 'rs_1:0',
+            providerMetadata: {
+              openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+            },
+          },
+        ],
+      }),
+    });
+
+    const onReasoningDelta = vi.fn();
+    const client = createOpenAIModelClient(
+      {
+        credential: 'sk-user-supplied',
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
+    client.streamText({ messages, onReasoningDelta });
+
+    // The start part's placeholder metadata is not forwarded, and the
+    // metadata never rides a delta call: it is bound to its part id with no
+    // text of its own.
+    await vi.waitFor(() => expect(onReasoningDelta).toHaveBeenCalledTimes(1));
+    expect(onReasoningDelta).toHaveBeenCalledWith('', 'rs_1:0', {
+      openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+    });
   });
 
   describe('reasoning effort (add-reasoning-effort)', () => {

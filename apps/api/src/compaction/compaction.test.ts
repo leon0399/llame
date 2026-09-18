@@ -168,6 +168,37 @@ describe('estimateContextTokens', () => {
       estimateContextTokens(withoutReasoning, undefined),
     );
   });
+
+  it('excludes replayed opaque provider metadata but keeps reasoning text (D15)', () => {
+    const question = msg('question');
+    const answer = msg('answer', 'assistant');
+    // What the Responses wire replays on a continuation: the provider's own
+    // reasoning, base64-encoded into the part's opaque metadata (D15).
+    const metadata = {
+      openai: { reasoningEncryptedContent: 'E'.repeat(40_000) },
+    };
+    const estimateWith = (parts: StoredMessage['parts']): number =>
+      estimateContextTokens([question, { ...answer, parts }], undefined);
+
+    const plain = estimateWith([
+      { type: 'reasoning', text: 'thinking' },
+      { type: 'text', text: 'answer' },
+    ]);
+    const withMetadata = estimateWith([
+      { type: 'reasoning', text: 'thinking', providerMetadata: metadata },
+      { type: 'text', text: 'answer' },
+    ]);
+    const withMoreReasoningText = estimateWith([
+      { type: 'reasoning', text: 'thinking '.repeat(1000) },
+      { type: 'text', text: 'answer' },
+    ]);
+
+    // The metadata is provider plumbing llame never interprets, so its size
+    // must not count against the continuation it rides on …
+    expect(withMetadata).toBe(plain);
+    // … while the reasoning TEXT is re-read by the model and keeps counting.
+    expect(withMoreReasoningText).toBeGreaterThan(plain);
+  });
 });
 
 describe('target request preflight', () => {
@@ -218,6 +249,44 @@ describe('target request preflight', () => {
         reservedOutputTokens: 1,
       }),
     ).toBe(false);
+  });
+
+  it('ignores replayed opaque provider metadata when admitting a request (D15)', () => {
+    const reasoning = { type: 'reasoning' as const, text: 'thinking' };
+    const metadata = {
+      openai: { reasoningEncryptedContent: 'E'.repeat(40_000) },
+    };
+    const messages = [
+      {
+        role: 'assistant' as const,
+        content: [reasoning, { type: 'text' as const, text: 'answer' }],
+      },
+    ];
+    const withMetadata = [
+      {
+        role: 'assistant' as const,
+        content: [
+          { ...reasoning, providerOptions: metadata },
+          { type: 'text' as const, text: 'answer' },
+        ],
+      },
+    ];
+    const request = { system: 'S'.repeat(400), toolDeclarations: [] };
+    const estimated = estimateModelRequestTokens({ ...request, messages });
+
+    // The blob is opaque provider plumbing the admission gate must not size
+    // (D15), so a request whose real prompt fits is still admitted.
+    expect(
+      estimateModelRequestTokens({ ...request, messages: withMetadata }),
+    ).toBe(estimated);
+    expect(
+      requestFitsContextWindow({
+        ...request,
+        messages: withMetadata,
+        contextWindowTokens: estimated,
+        reservedOutputTokens: null,
+      }),
+    ).toBe(true);
   });
 });
 

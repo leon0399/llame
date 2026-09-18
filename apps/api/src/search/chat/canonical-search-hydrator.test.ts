@@ -81,6 +81,43 @@ describe('hydrateCanonicalSearchRows', () => {
     });
   });
 
+  it('hydrates a message whose reasoning carries opaque provider metadata from text parts only', () => {
+    const result = hydrateCanonicalSearchRows(
+      [
+        row(),
+        row({
+          message_id: LAST_MESSAGE_ID,
+          message_seq: '11',
+          message_role: 'assistant',
+          message_parts: [
+            {
+              type: 'reasoning',
+              text: 'hidden chain of thought',
+              providerMetadata: {
+                openai: {
+                  itemId: 'PRIVATE_ITEM_ID',
+                  reasoningEncryptedContent: 'PRIVATE_ENCRYPTED_CONTENT',
+                },
+              },
+            },
+            { type: 'text', text: 'answer\r\nwith source' },
+          ],
+          message_usage: { status: 'completed' },
+        }),
+      ],
+      { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+    );
+
+    expect(result?.messages).toHaveLength(2);
+    expect(result?.messages[1]).toMatchObject({
+      messageSeq: 11,
+      visibleText: 'answer\r\nwith source',
+    });
+    expect(JSON.stringify(result)).not.toMatch(
+      /hidden chain of thought|PRIVATE_ITEM_ID|PRIVATE_ENCRYPTED_CONTENT|providerMetadata/,
+    );
+  });
+
   it('returns a closed miss when the source rows are not eligible evidence', () => {
     expect(
       hydrateCanonicalSearchRows([row({ message_role: 'tool' })], {

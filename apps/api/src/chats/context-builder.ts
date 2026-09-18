@@ -16,7 +16,9 @@
  */
 
 import type {
+  AssistantContent,
   ModelMessage,
+  ProviderMetadata,
   ToolCallPart as SdkToolCallPart,
   ToolResultPart as SdkToolResultPart,
 } from 'ai';
@@ -71,6 +73,16 @@ export interface TextPart {
 export interface ReasoningPart {
   type: 'reasoning';
   text: string;
+  /**
+   * Opaque provider metadata the adapter attached to this part (D15), stored
+   * verbatim beside the text. llame never reads a key inside it: the
+   * continuation passes the value through unchanged as the emitted content
+   * part's `providerOptions`, so the wire that produced the part recognizes it
+   * again — and a wire that cannot represent it ignores or rejects it under
+   * the existing failure contract. Absent when the adapter supplied none, and
+   * it changes neither the part's display text nor its order.
+   */
+  providerMetadata?: ProviderMetadata;
 }
 
 /**
@@ -345,6 +357,17 @@ function appendCompactionReplacementHistory(
 }
 
 /**
+ * The SDK's prompt-side reasoning content part, derived from `ModelMessage` so
+ * this file cannot drift from the SDK's part vocabulary. Names the byte-level
+ * distinction the persisted `ReasoningPart` crosses at replay: the stored
+ * `providerMetadata` becomes this part's `providerOptions`, unreshaped.
+ */
+type PromptReasoningPart = Extract<
+  Extract<AssistantContent, ReadonlyArray<unknown>>[number],
+  { type: 'reasoning' }
+>;
+
+/**
  * Batches consecutive text parts into one assistant message and inserts the
  * omission notice at the right point in the stream — the running state
  * `pushAssistantHistory` below drives while walking `parts` in order.
@@ -353,11 +376,12 @@ function appendCompactionReplacementHistory(
  * part through in its stored position: reasoning is buffered and emitted ahead
  * of the next assistant content the same turn produces (text, tool call, or
  * omission notice), and a turn ending on reasoning flushes it as its own
- * assistant message. Reasoning text is passed through byte-identically.
+ * assistant message. Reasoning text is passed through byte-identically, with
+ * the part's opaque provider metadata riding along as `providerOptions`.
  */
 class AssistantHistoryEmitter {
   private readonly pendingText: Array<string> = [];
-  private readonly pendingReasoning: Array<ReasoningPart> = [];
+  private readonly pendingReasoning: Array<PromptReasoningPart> = [];
   private omissionRendered = false;
 
   constructor(
@@ -369,7 +393,7 @@ class AssistantHistoryEmitter {
     this.pendingText.push(text);
   }
 
-  appendReasoning(part: ReasoningPart): void {
+  appendReasoning(part: PromptReasoningPart): void {
     this.pendingReasoning.push(part);
   }
 
@@ -416,7 +440,7 @@ class AssistantHistoryEmitter {
     this.omissionRendered = true;
   }
 
-  private takePendingReasoning(): Array<ReasoningPart> {
+  private takePendingReasoning(): Array<PromptReasoningPart> {
     const reasoning = [...this.pendingReasoning];
     this.pendingReasoning.length = 0;
     return reasoning;
@@ -463,9 +487,15 @@ function pushAssistantHistory(
       // belongs in its stored position, not hoisted or pushed behind it.
       if (requestKind === 'continuation') {
         emitter.flushPendingText();
-        // The explicit minimal part this layer emits; the stored object may
-        // carry opaque keys this layer does not define.
-        emitter.appendReasoning({ type: 'reasoning', text: part.text });
+        // The part's opaque provider metadata (D15) crosses unchanged as the
+        // prompt part's `providerOptions`; llame reads no key inside it. A
+        // part without metadata emits the bare part — no undefined key.
+        const providerOptions = part.providerMetadata;
+        emitter.appendReasoning({
+          type: 'reasoning',
+          text: part.text,
+          ...(providerOptions !== undefined && { providerOptions }),
+        });
       }
       continue;
     }
