@@ -301,9 +301,9 @@ using its predecessor's receipt, catalog, or model context.
 
 ### Requirement: A model switch replaces the top-level prompt and preserves portable history
 
-For a turn whose selected model differs from the most recent successfully committed prior run in the chat, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target attempt's runtime tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability. It MUST NOT replay persisted reasoning or provider-native thinking/signature/cache metadata from earlier runs. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
+For a turn whose selected model differs from the most recent successfully committed prior run in the chat, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target attempt's runtime tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability. It MUST NOT synthesize, rewrite, or re-bind an originating model's provider-native thinking/signature/cache metadata for the target model; reasoning parts and their provider metadata replay under the `reasoning-output` capability, which passes each part back unchanged, omits before the request any part the target wire cannot represent, and lets the target provider ignore or drop the rest. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
 
-Tool observations are no longer display-only. They are replayed in the conventional tool-call/tool-result representation, carried across a model or provider switch in the target provider's expected form, with every replayed call accompanied by its result. What remains excluded on a switch is the **originating model's provider-native metadata** — thinking blocks, signatures, cache markers — none of which is portable to a different provider.
+Tool observations are no longer display-only. They are replayed in the conventional tool-call/tool-result representation, carried across a model or provider switch in the target provider's expected form, with every replayed call accompanied by its result. Reasoning parts are likewise no longer display-only for the Chat that stores them: `reasoning-output` replays each part and any provider metadata it carries, unchanged; the system neither coerces it nor selects which parts to keep by content, while the selected adapter still omits a part its wire cannot represent. What this requirement still forbids is llame synthesizing, rewriting, or re-binding an originating model's provider-native metadata for a different model.
 
 #### Scenario: User sends the next turn with a different model
 
@@ -318,7 +318,7 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **AND** a later turn uses the same model or switches providers or models
 - **THEN** the later model receives the visible answer text through the canonical replay projection
 - **AND** it receives the earlier tool observations in the target provider's expected representation, each call accompanied by its result
-- **AND** it does not receive the persisted reasoning or the originating model's provider-native metadata
+- **AND** the persisted reasoning parts and their provider metadata are passed back unchanged under `reasoning-output`, with no coercion, pruning, or re-binding for the later model
 
 #### Scenario: Target context window cannot fit portable history
 
@@ -358,7 +358,7 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **THEN** the selected model receives its effective prompt normally
 - **AND** no model-switch reminder is created
 
-Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, which never replays persisted reasoning; only attempt-generated rail context stays staged and publishes with a successful turn. Transition compaction SHALL use no persisted tool declarations and SHALL follow the source system-receipt contract below.
+Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`; only attempt-generated rail context stays staged and publishes with a successful turn. Transition compaction SHALL use no persisted tool declarations and SHALL follow the source system-receipt contract below.
 
 ### Requirement: Model switches use canonical persisted context text and metadata
 

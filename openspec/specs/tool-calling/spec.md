@@ -717,8 +717,10 @@ Ordinary stored assistant parts SHALL replay through the existing conventional
 AI SDK tool-call/tool-result projection until #599 establishes the canonical UI
 message persistence contract. Every projected call SHALL be accompanied by its
 matching result, including a well-formed result for a call with no genuine tool
-result. Provider-native reasoning/metadata, credentials, and unrelated payloads
-SHALL NOT replay.
+result. Credentials and unrelated payloads SHALL NOT replay, and the tool
+projection SHALL NOT carry provider-native reasoning or metadata; persisted
+reasoning parts and their provider metadata reach the provider only through
+`reasoning-output`'s same-Chat replay, outside this projection and its budget.
 
 The ordinary projection SHALL remain:
 
@@ -794,7 +796,8 @@ that produced them.
 
 - **WHEN** a tool was called while reasoning output was produced
 - **THEN** the call/result observation follows the same replay contract
-- **AND** the reasoning part remains display-only
+- **AND** the reasoning part is not carried by the tool projection; it replays
+  under `reasoning-output` in its own occurrence position
 
 #### Scenario: Every replayed call has a matching replayed result
 
@@ -813,14 +816,18 @@ that produced them.
 
 - **WHEN** stored tool activity includes reasoning or provider metadata
 - **THEN** portable observations remain available across model/provider switches
-- **AND** originating-provider reasoning and metadata do not replay
+- **AND** the tool projection carries no originating-provider reasoning or
+  metadata; reasoning replay is governed by `reasoning-output`
 
 #### Scenario: A model or provider switch keeps observations but not provider metadata
 
 - **WHEN** a chat with tool activity continues on another model or provider
 - **THEN** portable matched observations remain available through the target
   SDK conversion
-- **AND** originating-provider metadata is excluded
+- **AND** originating-provider metadata is excluded from the tool projection;
+  replayed reasoning parts are passed back unchanged, `reasoning-output` omits
+  before the request the ones the target wire cannot represent, and the target
+  provider ignores or drops the rest
 
 #### Scenario: The projection is labelled untrusted
 

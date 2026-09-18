@@ -182,7 +182,7 @@ Operator settings SHALL resolve from exactly two sources, in order: the config f
 
 ### Requirement: Provider list configuration
 
-The config file SHALL support a top-level `providers` array of duplicable provider entries, discriminated by `type`. `id` SHALL be a non-empty operator-chosen identifier, unique within the array. `type` SHALL select the client implementation and SHALL be constrained by the schema to the set of executable provider types (`"openai"` for native OpenAI and OpenAI-compatible endpoints; `"openai-codex"` for the Codex subscription backend). The `openai` variant SHALL accept `{ id, type, key?, baseUrl? }`; its `key` and `baseUrl` SHALL be strings supporting `{env:…}`/`{path:…}` interpolation. An `openai` `key` that resolves to empty SHALL mark the provider **keyless** (no credential), preserving the empty-resolution-means-unset semantics. Duplicate ids, or a `type` outside the schema enum, SHALL fail startup naming the offending entry.
+The config file SHALL support a top-level `providers` array of duplicable provider entries, discriminated by `type`. `id` SHALL be a non-empty operator-chosen identifier, unique within the array. `type` SHALL select the client implementation and the wire API it speaks, and SHALL be constrained by the schema to the set of executable provider types (`"openai-responses"` for the Responses wire through `@ai-sdk/openai`; `"openai-completions"` for the Chat Completions wire through `@ai-sdk/openai-compatible`; `"openai-codex"` for the Codex subscription backend). The `openai-responses` variant SHALL accept `{ id, type, key?, baseUrl? }`, with `baseUrl` defaulting to the OpenAI API; the `openai-completions` variant SHALL accept `{ id, type, key?, baseUrl }`, with `baseUrl` required. For both, `key` and `baseUrl` SHALL be strings supporting `{env:…}`/`{path:…}` interpolation, and a `key` that resolves to empty SHALL mark the provider **keyless** (no credential), preserving the empty-resolution-means-unset semantics. Duplicate ids, or a `type` outside the schema enum (including the retired `"openai"`), SHALL fail startup naming the offending entry.
 
 Resolved `key` values SHALL never be written to logs, errors, or diagnostics; a load-time error on a provider field SHALL identify the entry by `id` and the field name, never the resolved value.
 
@@ -190,18 +190,29 @@ The `openai-codex` variant SHALL require `{ id, type, key, accountId }`, with no
 
 #### Scenario: Duplicable providers of the same type coexist
 
-- **WHEN** the file defines two `type: "openai"` providers with distinct ids (e.g. a hosted OpenAI and a local Ollama on a different `baseUrl`)
+- **WHEN** the file defines two providers of the same `type` with distinct ids (e.g. two `openai-completions` endpoints on different `baseUrl`s, or two `openai-responses` providers with different keys)
 - **THEN** both are loaded as distinct providers keyed by `id`
 - **AND** startup succeeds
 
 #### Scenario: Unsupported provider type fails at boot
 
-- **WHEN** a provider entry sets `type` to a value outside the schema enum (e.g. `"anthropic"` before the adapter exists)
+- **WHEN** a provider entry sets `type` to a value outside the schema enum (e.g. the retired `"openai"`, or `"anthropic"` before the adapter exists)
 - **THEN** startup fails naming the entry and the invalid `type`
+
+#### Scenario: OpenAI-completions provider loads by shape
+
+- **WHEN** the file defines a `type: "openai-completions"` provider with a `baseUrl` and a `key` that resolves to empty
+- **THEN** it is loaded as a keyless provider targeting that base URL
+- **AND** startup succeeds without contacting the endpoint
+
+#### Scenario: OpenAI-completions provider requires a base URL
+
+- **WHEN** the file defines a `type: "openai-completions"` provider whose `baseUrl` is omitted or resolves to empty
+- **THEN** startup fails naming the entry and the `baseUrl` field
 
 #### Scenario: Keyless provider
 
-- **WHEN** an `openai` provider's `key` is `"{env:OLLAMA_API_KEY:-}"` and `OLLAMA_API_KEY` is unset
+- **WHEN** an `openai-completions` provider's `key` is `"{env:OLLAMA_API_KEY:-}"` and `OLLAMA_API_KEY` is unset
 - **THEN** the provider is loaded as keyless
 - **AND** startup succeeds
 
@@ -926,7 +937,7 @@ Both exact and namespace MCP entries SHALL be permission predicates over the saf
 
 ### Requirement: Embedding model catalog configuration
 
-The config file SHALL support an optional top-level `embeddingModels` array declaring the embedding models an instance may use. Each entry SHALL include a required opaque `id` (the stable internal key that stored vectors reference), a required `provider` referencing a defined `providers[].id` whose type supports embeddings (`openai`), a required server-only `providerModelId`, and a required positive-integer `dimensions`. Each entry MAY include a distance metric, a model revision, a positive-integer `batchSize` bounding how many documents are sent per provider request, and optional asymmetric `documentPrefix` / `queryPrefix` strings. Embedding models SHALL reuse the existing `providers[]` connections rather than introducing a parallel credential or endpoint concept, so the same interpolation, keyless-provider, and secret-redaction rules apply unchanged.
+The config file SHALL support an optional top-level `embeddingModels` array declaring the embedding models an instance may use. Each entry SHALL include a required opaque `id` (the stable internal key that stored vectors reference), a required `provider` referencing a defined `providers[].id` whose type supports embeddings (`openai-responses` or `openai-completions`; the embeddings call is wire-independent), a required server-only `providerModelId`, and a required positive-integer `dimensions`. Each entry MAY include a distance metric, a model revision, a positive-integer `batchSize` bounding how many documents are sent per provider request, and optional asymmetric `documentPrefix` / `queryPrefix` strings. Embedding models SHALL reuse the existing `providers[]` connections rather than introducing a parallel credential or endpoint concept, so the same interpolation, keyless-provider, and secret-redaction rules apply unchanged.
 
 The config file SHALL additionally support a per-corpus intended-embedding-model setting naming an `embeddingModels[].id`. Selection SHALL be expressed per corpus rather than as one instance-wide flag, so corpora embedding at different rates cannot strand one another; a corpus with no setting has no intended model and produces no embedding work.
 
@@ -936,7 +947,7 @@ A duplicate `id`, an entry whose `provider` does not reference a defined provide
 
 #### Scenario: Embedding model references a defined provider
 
-- **WHEN** an `embeddingModels[]` entry's `provider` names an `openai` provider defined in `providers[]`
+- **WHEN** an `embeddingModels[]` entry's `provider` names an `openai-responses` or `openai-completions` provider defined in `providers[]`
 - **THEN** the embedding model is loaded against that provider connection
 - **AND** startup succeeds
 
@@ -948,7 +959,7 @@ A duplicate `id`, an entry whose `provider` does not reference a defined provide
 
 #### Scenario: A self-hosted embedding backend needs no new configuration concept
 
-- **WHEN** an operator declares a keyless local provider in `providers[]` and an `embeddingModels[]` entry referencing it
+- **WHEN** an operator declares a keyless local `openai-completions` provider in `providers[]` and an `embeddingModels[]` entry referencing it
 - **THEN** the embedding model is loaded against that local endpoint
 - **AND** no embedding-specific credential, endpoint, or interpolation rule is introduced
 

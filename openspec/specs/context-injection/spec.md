@@ -382,7 +382,9 @@ request assembly.
 
 Sanitization SHALL preserve message-part boundaries and order. Replay SHALL NOT
 join text parts manually or prefix sender identifiers. Assistant output SHALL
-NOT be neutralized and persisted reasoning SHALL remain display-only.
+NOT be neutralized. Persisted reasoning SHALL NOT be neutralized either; it
+is display-only everywhere except the same-Chat provider replay that
+`reasoning-output` defines, where it is replayed byte-identically.
 
 Tool-result neutralization and ordinary assistant/tool replay remain governed
 by `tool-calling`; their current custom projection is an explicit best-effort
@@ -412,7 +414,9 @@ exception pending #599 rather than part of this change.
 - **WHEN** an assistant turn contains the reserved delimiter as subject matter
 - **THEN** its replayed visible text is byte-identical to what the model produced
   and is not neutralized
-- **AND** persisted reasoning remains excluded
+- **AND** persisted reasoning is excluded from that visible text and, when
+  `reasoning-output` replays it, is likewise byte-identical and not
+  neutralized
 
 #### Scenario: A tool result contains an envelope
 
@@ -561,7 +565,9 @@ that limitation SHALL remain documented.
 
 Request assembly SHALL treat `messages.parts` as the durable application/UI
 history. It SHALL preserve model-bearing stored parts and their order, omit
-declared display-only parts, and map each surviving `data-context` part to one
+declared display-only parts except reasoning parts, which `reasoning-output`
+returns to the provider for the Chat that stores them, and map each surviving
+`data-context` part to one
 ordinary SDK text part containing `data.text`. It SHALL then pass the ordered
 parts to the AI SDK rather than manually constructing a joined transcript.
 
@@ -589,6 +595,14 @@ materialized replacement history required by `model-system-prompts` and
   accepting the same ordered UI parts
 - **THEN** the application-level replay contract remains satisfied
 - **AND** the system does not claim provider-wire or cache-byte identity
+
+#### Scenario: Reasoning parts cross the boundary for their own Chat
+
+- **WHEN** request assembly builds a Run's request from stored parts that include
+  reasoning parts
+- **THEN** those parts are passed to the AI SDK in their stored positions with any
+  provider metadata they carry
+- **AND** every other declared display-only part is still omitted
 
 ### Requirement: The skill catalog is a frozen prefix baseline stored on the chat
 
