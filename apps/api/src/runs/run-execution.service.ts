@@ -765,8 +765,8 @@ export class RunExecutionService {
     // Reasoning ("thinking") deltas: coalesced in their own buffer, appended
     // through the SAME chain as model.delta so reasoning and text land in
     // stream order (reasoning precedes text). The full reasoning text is ALSO
-    // accumulated (reasoningText) and persisted as a leading `reasoning` part of
-    // the assistant message, so thinking survives a reload — but `partsToText`
+    // collected (assistantPartCollector) and persisted as `reasoning` parts in
+    // occurrence order, so thinking survives a reload — but `partsToText`
     // strips reasoning, so it is still NEVER re-fed to the model.
     //
     // Accumulated from EACH onReasoningDelta chunk (not the SDK's
@@ -774,10 +774,19 @@ export class RunExecutionService {
     // silently drop step-1 thinking on a multi-step tool turn — master has no
     // tool loop today, so every turn is one step, but the accumulation is
     // correct regardless of step count and matches the persistence branch).
+    //
+    // Each buffered `reasoning.delta` event carries the adapter part id of the
+    // text it holds, so the durable reconstructor can rebuild the same part
+    // boundaries the live collector saw (design D8). The buffer is drained
+    // before the id is switched, so one event never spans two ids.
     const reasoningDeltas = createDeltaBuffer();
+    let reasoningPartId: string | undefined;
     const persistReasoning = (text: string | null) => {
       if (text !== null) {
-        enqueueEvent('reasoning.delta', { text });
+        enqueueEvent('reasoning.delta', {
+          text,
+          ...(reasoningPartId !== undefined && { partId: reasoningPartId }),
+        });
       }
     };
 
@@ -1159,10 +1168,19 @@ export class RunExecutionService {
           // text in the log. A no-op once the other buffer is empty, so it's
           // cheap on the steady-state stream.
           persistReasoning(reasoningDeltas.flush());
+          // Text intervened: the next reasoning delta opens a new part, so the
+          // id it carries is not the one the drained buffer belonged to.
+          reasoningPartId = undefined;
           persistDelta(deltas.push(text, Date.now()));
         },
-        onReasoningDelta: (text) => {
-          assistantPartCollector.reasoning(text);
+        onReasoningDelta: (text, partId) => {
+          // Drain before adopting a new id so a buffered event never spans
+          // two adapter parts (the collector splits on the same transition).
+          if (partId !== reasoningPartId) {
+            persistReasoning(reasoningDeltas.flush());
+            reasoningPartId = partId;
+          }
+          assistantPartCollector.reasoning(text, partId);
           persistDelta(deltas.flush());
           persistReasoning(reasoningDeltas.push(text, Date.now()));
         },
@@ -1313,10 +1331,9 @@ export class RunExecutionService {
             });
             return;
           }
-          // Persist the accumulated thinking as a leading reasoning part (display
-          // only — partsToText strips it, so it is never re-fed). Capped so an
-          // unbounded thinking blob doesn't amplify every later turn's context
-          // read (each build reads all message parts, then discards reasoning).
+          // Persist the collected thinking as reasoning parts in occurrence
+          // order (display only — partsToText strips it, so it is never
+          // re-fed to the model and never enters a compaction summary).
           // Only turns reaching onFinish (normal completion + the narrow
           // finish-races-abort case) get this; the common event-driven abort
           // goes through onError → the streamedText-only parts above (reasoning

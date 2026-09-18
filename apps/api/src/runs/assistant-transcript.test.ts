@@ -1,7 +1,5 @@
 import {
-  assistantParts,
   createAssistantPartCollector,
-  REASONING_PERSIST_MAX,
   reconstructDurableAssistant,
   toolActivityPart,
   type ToolActivityPart,
@@ -86,21 +84,23 @@ describe('AssistantPartCollector', () => {
     expect(collector.parts()).toEqual([first]);
   });
 
-  it('caps collector reasoning only above the persistence limit', () => {
+  it('persists every reasoning part whole past the former persistence cap', () => {
     const collector = createAssistantPartCollector();
-    const exact = 'e'.repeat(REASONING_PERSIST_MAX);
-    const over = 'o'.repeat(REASONING_PERSIST_MAX + 1);
+    // Both parts individually exceed the deleted 24,000-character cap.
+    const first = 'x'.repeat(30_000);
+    const second = 'y'.repeat(30_000);
 
-    collector.reasoning(exact);
-    expect(collector.parts()).toEqual([{ type: 'reasoning', text: exact }]);
-    collector.reasoning(over);
+    collector.reasoning(first, 'rs_1:0');
+    collector.reasoning(second, 'rs_1:1');
 
-    expect(collector.parts()).toEqual([
-      {
-        type: 'reasoning',
-        text: `${exact}${over}`.slice(0, REASONING_PERSIST_MAX) + '…',
-      },
+    const parts = collector.parts();
+    expect(parts).toEqual([
+      { type: 'reasoning', text: first },
+      { type: 'reasoning', text: second },
     ]);
+    // No truncation marker: the persisted text is the text the provider
+    // produced, byte for byte (D9/D11 — replay signs or encrypts it).
+    expect(JSON.stringify(parts)).not.toContain('…');
   });
 });
 
@@ -184,6 +184,58 @@ describe('reconstructDurableAssistant', () => {
       { type: 'data-cap-notice', data: { stepsUsed: 4, maxSteps: 4 } },
     ]);
     expect(result.openToolCalls).toEqual(new Map());
+  });
+
+  it('rebuilds reasoning part boundaries from the persisted adapter part ids', () => {
+    const result = reconstructDurableAssistant([
+      event('reasoning.delta', { text: 'first ', partId: 'rs_1:0' }),
+      event('reasoning.delta', { text: 'summary', partId: 'rs_1:0' }),
+      event('reasoning.delta', { text: 'second', partId: 'rs_1:1' }),
+      event('tool.requested', {
+        toolCallId: 'c1',
+        toolName: 'search',
+        input: { query: 'needle' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'c1',
+        output: { status: 'success', value: 'found' },
+      }),
+      event('reasoning.delta', { text: 'after the tool', partId: 'rs_1:1' }),
+      event('model.delta', { text: 'answer' }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      { type: 'reasoning', text: 'first summary' },
+      { type: 'reasoning', text: 'second' },
+      expect.objectContaining({ type: 'tool-search', toolCallId: 'c1' }),
+      { type: 'reasoning', text: 'after the tool' },
+      { type: 'text', text: 'answer' },
+    ]);
+  });
+
+  it('merges legacy reasoning.delta events that carry no part id', () => {
+    const result = reconstructDurableAssistant([
+      event('reasoning.delta', { text: 'one ' }),
+      event('reasoning.delta', { text: 'thought' }),
+      // Absent after a defined id is not a boundary either.
+      event('reasoning.delta', { text: ' second', partId: 'rs_1:0' }),
+      event('reasoning.delta', { text: ' third' }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      { type: 'reasoning', text: 'one thought second third' },
+    ]);
+  });
+
+  it('replays a reasoning part longer than the former cap whole', () => {
+    const long = 'z'.repeat(30_000);
+    const result = reconstructDurableAssistant([
+      event('reasoning.delta', { text: long, partId: 'rs_1:0' }),
+    ]);
+
+    const parts = result.collector.parts();
+    expect(parts).toEqual([{ type: 'reasoning', text: long }]);
+    expect(JSON.stringify(parts)).not.toContain('…');
   });
 
   it('reserves requested tools, correlates completions, and keeps occurrence order', () => {
@@ -434,27 +486,6 @@ describe('system-origin tool activity', () => {
 
     expect(result.collector.parts()).toEqual([
       expect.objectContaining({ toolCallId: 'other-1' }),
-    ]);
-  });
-});
-
-describe('assistantParts', () => {
-  it('preserves optional cap notice and omits only an empty answer', () => {
-    const tool = successToolPart('call-1');
-
-    expect(
-      assistantParts({
-        reasoningText: '',
-        toolParts: [tool],
-        text: '',
-        capNotice: {
-          type: 'data-cap-notice',
-          data: { stepsUsed: 8, maxSteps: 8 },
-        },
-      }),
-    ).toEqual([
-      tool,
-      { type: 'data-cap-notice', data: { stepsUsed: 8, maxSteps: 8 } },
     ]);
   });
 });

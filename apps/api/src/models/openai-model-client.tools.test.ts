@@ -361,9 +361,10 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     ).resolves.toBe('done');
 
     // Exact call lists, not `toHaveBeenCalledWith`: each chunk must reach its
-    // own callback exactly once, so a chunk routed to both cannot pass.
+    // own callback exactly once, so a chunk routed to both cannot pass. The
+    // adapter part id rides along to decide persisted part boundaries.
     expect(onTextDelta.mock.calls).toEqual([['done']]);
-    expect(onReasoningDelta.mock.calls).toEqual([['think']]);
+    expect(onReasoningDelta.mock.calls).toEqual([['think', 'reasoning']]);
   });
 });
 

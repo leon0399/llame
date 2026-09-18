@@ -105,6 +105,79 @@ describe("chatToMarkdown", () => {
     expect(md).toContain("answer");
   });
 
+  it("unglues a reasoning-summary heading persisted as one glued run", () => {
+    const reasoning = {
+      type: "reasoning",
+      text: "**Investigating likely culprit PRs****Inspecting message schema**",
+    };
+    const md = chatToMarkdown("T", [
+      msg({
+        role: "assistant",
+        parts: [reasoning, { type: "text", text: "answer" }],
+      }),
+    ]);
+
+    expect(md).toContain(
+      "> _Reasoning:_ **Investigating likely culprit PRs**\n> \n> **Inspecting message schema**",
+    );
+    expect(md).not.toContain("****");
+    // The repair applies to the exported value only — history persisted
+    // before per-part identity (or by a relay that drops the part id) keeps
+    // the exact text the provider produced.
+    expect(reasoning.text).toBe(
+      "**Investigating likely culprit PRs****Inspecting message schema**",
+    );
+  });
+
+  it("separates consecutive headed reasoning parts with a blank line", () => {
+    const md = chatToMarkdown("T", [
+      msg({
+        role: "assistant",
+        parts: [
+          { type: "reasoning", text: "**Investigating likely culprit PRs**" },
+          { type: "reasoning", text: "**Inspecting message schema**" },
+        ],
+      }),
+    ]);
+
+    expect(md).toContain(
+      "> _Reasoning:_ **Investigating likely culprit PRs**\n> \n> **Inspecting message schema**",
+    );
+    expect(md).not.toContain("PRs****Inspecting");
+  });
+
+  it("leaves inline emphasis inline in the export", () => {
+    const cases = [
+      "the **signature** field is missing",
+      "Check (**signature**) next",
+      "**Heading** and then prose on the same line",
+    ];
+
+    for (const text of cases) {
+      const md = chatToMarkdown("T", [
+        msg({
+          role: "assistant",
+          parts: [{ type: "reasoning", text }],
+        }),
+      ]);
+      expect(md).toContain(`> _Reasoning:_ ${text}`);
+      // No paragraph break inside the blockquote (that would render as a
+      // quoted empty line).
+      expect(md).not.toContain("\n> \n");
+    }
+  });
+
+  it("leaves a standalone **** separator alone in the export", () => {
+    const md = chatToMarkdown("T", [
+      msg({
+        role: "assistant",
+        parts: [{ type: "reasoning", text: "before\n\n****\n\nafter" }],
+      }),
+    ]);
+
+    expect(md).toContain("> _Reasoning:_ before\n> \n> ****\n> \n> after");
+  });
+
   it("skips system/tool rows and empty turns", () => {
     const md = chatToMarkdown("T", [
       msg({ role: "system", parts: [{ type: "text", text: "SYSTEM" }] }),

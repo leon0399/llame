@@ -84,12 +84,16 @@ function payloadNumber(payload: unknown, key: string): number | undefined {
  * lazily and closes text/reasoning/stream on the terminal events. Reasoning
  * ("thinking") deltas render as their own part, mutually exclusive with
  * text — opening one closes the other, so the UI renders ordered parts
- * (reasoning → text → reasoning → …) rather than merging the two. Tool events
- * become `dynamic-tool` UI parts (tool.call → tool-input-available,
- * tool.result → tool-output-available), correlated by toolCallId. A tool part
- * closes the open text part first, so the UI renders ordered parts
- * (text → tool → text) rather than merging text across the tool boundary.
- * Pure state machine — trivially unit-testable.
+ * (reasoning → text → reasoning → …) rather than merging the two. A
+ * `reasoning.delta`'s adapter part id decides boundaries exactly as it does
+ * at persist time (design D8: two defined ids that differ start a new part;
+ * an absent id never does; an intervening text/tool part always does), so the
+ * live stream, a reconnect replay, and the persisted transcript show the same
+ * parts. Tool events become `dynamic-tool` UI parts (tool.call →
+ * tool-input-available, tool.result → tool-output-available), correlated by
+ * toolCallId. A tool part closes the open text part first, so the UI renders
+ * ordered parts (text → tool → text) rather than merging text across the tool
+ * boundary. Pure state machine — trivially unit-testable.
  */
 export type RunEventTranslator = {
   translate(event: RunEventLike): Array<UiChunk>;
@@ -115,6 +119,12 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   private openTextId: string | null = null;
   private reasoningPartCount = 0;
   private openReasoningId: string | null = null;
+  // Adapter-supplied id of the open reasoning part (undefined = the wire gave
+  // none). The UI id above stays llame-owned, because a wire can reuse one
+  // adapter id for several parts (reasoning → tool → reasoning under a
+  // constant id) and duplicate UI part ids would merge them client-side; this
+  // field carries only the boundary decision (design D8).
+  private openReasoningPartId: string | undefined;
   // Tool calls whose result has not arrived. A terminal run event must settle
   // these: `tool-input-available` renders as "running", so finishing without
   // closing them leaves the UI spinning on a call that will never complete.
@@ -149,6 +159,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     }
     const chunk: UiChunk = { type: 'reasoning-end', id: this.openReasoningId };
     this.openReasoningId = null;
+    this.openReasoningPartId = undefined;
     return [chunk];
   }
 
@@ -220,15 +231,33 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     if (text.length === 0) {
       return [];
     }
+    const partId = payloadString(event.payload, 'partId');
     const chunks = [...this.prelude(), ...this.closeText()];
-    if (this.openReasoningId === null) {
+    // Design D8: a new part starts when none is open, or when two defined
+    // adapter ids differ. An absent id is "no information" and never a
+    // boundary; an intervening text/tool/notice part already closed the open
+    // reasoning part, so this opens a fresh one from the closed state.
+    let openReasoningId = this.openReasoningId;
+    const openPartId = this.openReasoningPartId;
+    if (
+      openReasoningId === null ||
+      (partId !== undefined &&
+        openPartId !== undefined &&
+        partId !== openPartId)
+    ) {
+      chunks.push(...this.closeReasoning());
       this.reasoningPartCount += 1;
-      this.openReasoningId = `reasoning-${this.reasoningPartCount}`;
-      chunks.push({ type: 'reasoning-start', id: this.openReasoningId });
+      openReasoningId = `reasoning-${this.reasoningPartCount}`;
+      this.openReasoningId = openReasoningId;
+      this.openReasoningPartId = partId;
+      chunks.push({ type: 'reasoning-start', id: openReasoningId });
+    } else if (partId !== undefined) {
+      // A defined id becomes the open part's id; an absent one adds nothing.
+      this.openReasoningPartId = partId;
     }
     chunks.push({
       type: 'reasoning-delta',
-      id: this.openReasoningId,
+      id: openReasoningId,
       delta: text,
     });
     return chunks;

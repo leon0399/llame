@@ -2,6 +2,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-18
 
+- Reasoning parts keep the identity the provider gave them (#883). A new
+  persisted part starts when a text, tool, or other part intervenes, or when
+  the adapter's part id changes, so each OpenAI Responses summary is its own
+  part while a Chat Completions turn's uninterrupted reasoning stays one —
+  live output, reconnect replay, and a reloaded chat now produce identical
+  parts. Consecutive parts share one Thinking panel, and a tool or visible
+  text part splits panels, so reasoning is never hoisted above the tool it
+  preceded. A heading glued onto the text before it (`**One****Two**`, or
+  prose butting onto a `**Heading**` that closes its line) is separated when
+  displayed or exported to markdown, where consecutive parts are now separated
+  by a blank line; mid-sentence emphasis stays inline and persisted text is
+  never rewritten. The 24,000-character per-part reasoning cap is deleted: it
+  bounded nothing a multi-part turn cared about, and truncating a block the
+  provider signed would invalidate it on replay.
+
 - Provider `type` names the wire API the entry speaks, and `type: "openai"` is
   deleted (#219, #339). `openai-responses` executes the Responses wire through
   `@ai-sdk/openai` at the entry's `baseUrl`, defaulting to

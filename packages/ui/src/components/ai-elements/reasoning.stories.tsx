@@ -115,3 +115,42 @@ export const Collapsed: Story = {
     await expect(content).toBeVisible();
   },
 };
+
+/**
+ * Reasoning summaries arrive as discrete headed blocks, and a wire that drops
+ * the summary index concatenates them into a `****` run that markdown cannot
+ * read as bold. The panel separates the glued pair at render, so each title is
+ * its own block — and the stored text is untouched.
+ *
+ * @summary for a reasoning panel whose trace is discrete summary parts
+ * @see https://github.com/vercel/ai/issues/6742
+ */
+export const GluedSummaryHeadings: Story = {
+  tags: ["ai-generated"],
+  args: {
+    isStreaming: false,
+    defaultOpen: true,
+    duration: 3,
+  },
+  render: (args) => (
+    <Reasoning {...args}>
+      <ReasoningTrigger />
+      <ReasoningContent>
+        {
+          "**Investigating likely culprit PRs****Inspecting message schema**\n\nThe stored parts array is the source of truth."
+        }
+      </ReasoningContent>
+    </Reasoning>
+  ),
+  play: async ({ canvas, canvasElement }) => {
+    await expect(
+      canvas.getByText(/investigating likely culprit prs/i),
+    ).toBeVisible();
+    await expect(canvas.getByText(/inspecting message schema/i)).toBeVisible();
+    await expect(canvasElement.textContent).not.toContain("****");
+    // Streamdown renders `**bold**` as a tagged span, not a `strong` element.
+    await expect(
+      canvasElement.querySelectorAll('[data-streamdown="strong"]'),
+    ).toHaveLength(2);
+  },
+};

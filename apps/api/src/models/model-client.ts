@@ -73,9 +73,13 @@ export interface ModelStreamInput {
   /**
    * Called for each streamed reasoning ("thinking") delta from a reasoning
    * model. Same narrow seam as onTextDelta — providers map their reasoning
-   * chunks onto plain text; absent/empty for non-reasoning models.
+   * chunks onto plain text; absent/empty for non-reasoning models. `partId`
+   * is the adapter's reasoning part id when its wire supplies one (the
+   * Responses wire ids every summary `${itemId}:${summaryIndex}`). It decides
+   * persisted part boundaries and is transport plumbing, never display state;
+   * an undefined id means the wire gave no information, not "no part".
    */
-  onReasoningDelta?: (text: string) => void;
+  onReasoningDelta?: (text: string, partId?: string) => void;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: {
     text: string;

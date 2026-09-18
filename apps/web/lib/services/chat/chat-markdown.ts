@@ -1,3 +1,5 @@
+import { separateGluedReasoningBlocks } from "@workspace/ui/lib/reasoning-blocks";
+
 import { modelDisplayName, type AvailableModel } from "../models/queries";
 import type { ChatMessageResponse } from "./history";
 
@@ -23,9 +25,10 @@ function partsText(parts: unknown, kind: "text" | "reasoning"): string {
         return (p as MaybePart).type === kind;
       })
       .map((p) => (isString(p.text) ? p.text : ""))
-      // Text parts around a tool call are distinct paragraphs in the UI — separate
-      // them with a blank line so the export doesn't fuse two sentences.
-      .join(kind === "reasoning" ? "\n" : "\n\n")
+      // Text parts around a tool call are distinct paragraphs in the UI, and
+      // consecutive reasoning summaries are distinct headed blocks — separate
+      // both with a blank line so neither fuses into one paragraph.
+      .join("\n\n")
   );
 }
 
@@ -58,7 +61,11 @@ export function chatToMarkdown(
   for (const message of messages) {
     if (message.role !== "user" && message.role !== "assistant") continue;
     const text = partsText(message.parts, "text");
-    const reasoning = partsText(message.parts, "reasoning");
+    // Repair at the exported value only: the stored parts keep the provider's
+    // exact text (see `@workspace/ui/lib/reasoning-blocks`).
+    const reasoning = separateGluedReasoningBlocks(
+      partsText(message.parts, "reasoning"),
+    );
     if (!text && !reasoning) continue;
 
     const model =
