@@ -2241,7 +2241,17 @@ describeIfDb('executeRun tool-loop persistence', () => {
         role: 'user',
         content: [{ type: 'text', text: 'Old visible request.' }],
       },
-      { role: 'assistant', content: 'Old visible answer.' },
+      {
+        // The persisted reasoning part is replayed unchanged, in its stored
+        // position ahead of the answer it preceded: a continuation of the same
+        // Chat carries that Chat's reasoning even across a model switch, and
+        // llame neither coerces nor prunes it for the target model.
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: 'SECRET REASONING ARTIFACT' },
+          { type: 'text', text: 'Old visible answer.' },
+        ],
+      },
       {
         role: 'assistant',
         content: [
@@ -2334,7 +2344,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const providerInput = JSON.stringify(calls[0]);
     expect(providerInput).not.toContain(seeded.sourceReceipt.systemPrompt);
-    expect(providerInput).not.toContain('SECRET REASONING ARTIFACT');
+    expect(providerInput).toContain('SECRET REASONING ARTIFACT');
     expect(providerInput).not.toContain('PROVIDER NATIVE ARTIFACT');
     expect(providerInput).toContain('TOOL DISPLAY INPUT');
     expect(providerInput).toContain('TOOL DISPLAY OUTPUT');
