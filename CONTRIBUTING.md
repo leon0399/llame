@@ -68,6 +68,18 @@ fails, report the unsynchronized transition in the handoff; do not claim it was
 updated. Keep live status in the Project rather than duplicating it in task
 files or issue bodies. OpenSpec checkboxes continue to record completed tasks.
 
+The `Project status` workflow writes `Status` for the transitions the table
+above derives from the event alone: a PR opened, reopened, or converted to
+draft becomes In progress; ready for review becomes In review; a review
+requesting changes returns it to In progress; a merged PR and a closed issue
+become Done. It adds a missing item and writes nothing else, so `Next action`,
+`Workstream`, `Priority`, and `Order` stay yours, as do Design versus Awaiting
+approval for a proposal PR, a closed-unmerged PR's cancelled-or-superseded
+note, and an issue whose acceptance is only partly shipped. The workflow needs
+a `PROJECTS_TOKEN` secret with read and write on the owner's Projects; it fails
+the run rather than passing silently when that token is missing, and a failed
+run means the transition is still yours to apply.
+
 ## Feature delivery
 
 ### 1. Issue and evidence
