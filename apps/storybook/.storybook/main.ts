@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { StorybookConfig } from "@storybook/nextjs-vite";
@@ -6,6 +8,10 @@ import type { StorybookConfig } from "@storybook/nextjs-vite";
 // Vite. Storybook is rooted in apps/storybook and otherwise has no knowledge of
 // the web app's path mapping.
 const webRoot = fileURLToPath(new URL("../../web", import.meta.url));
+
+// Resolves packages installed for apps/web only (this package does not depend
+// on the app's runtime libraries).
+const resolveFromWeb = createRequire(path.join(webRoot, "package.json"));
 
 const config: StorybookConfig = {
   // apps/web loads this configuration through the Vitest plugin for its own
@@ -51,6 +57,7 @@ const config: StorybookConfig = {
   viteFinal: (config) => {
     configurePreBundledStoryDeps(config);
     configureWebAlias(config, webRoot);
+    configureBrowserNodeGlobals(config);
     return config;
   },
 };
@@ -73,6 +80,9 @@ const preBundledStoryDeps = [
   "@hookform/resolvers/zod",
   // apps/web stories render components whose data hooks pull in React Query.
   "@tanstack/react-query",
+  // The chat transcript row imports the AI SDK; pinned to apps/web's copy by
+  // `configurePreBundledStoryDeps` below.
+  "ai",
   // AI Elements stories: Streamdown markdown (message/reasoning), the
   // reasoning collapsible's controllable-state hook, framer-motion (Shimmer),
   // and Conversation's stick-to-bottom. Declared as storybook devDeps too so
@@ -120,6 +130,40 @@ function configurePreBundledStoryDeps(config: ViteFinalConfig): void {
     ...(config.optimizeDeps.include ?? []),
     ...preBundledStoryDeps,
   ];
+
+  // The chat transcript row (an apps/web component) imports `ai`, which is
+  // installed for the app, not for this package. Pin the bare specifier to the
+  // app's copy so the pre-bundle entry resolves here; otherwise Vite discovers
+  // the SDK mid-run, re-optimizes, and the reload fails the first story run
+  // against a cold cache.
+  config.resolve ??= {};
+  config.resolve.alias = [
+    ...(Array.isArray(config.resolve.alias)
+      ? config.resolve.alias
+      : Object.entries(config.resolve.alias ?? {}).map(
+          ([find, replacement]) => ({ find, replacement }),
+        )),
+    { find: /^ai$/, replacement: resolveFromWeb.resolve("ai") },
+  ];
+}
+
+/**
+ * Next aliases `@opentelemetry/api` to its bundled Node build (that alias is
+ * what makes the AI SDK importable), and that build reads `__dirname` inside
+ * a webpack guard Next itself shims. Vite's browser bundle has no such shim,
+ * so a story that imports the AI SDK (any transcript/message component) dies
+ * on the dep chunk. Define the same mock webpack uses for the web target.
+ */
+function configureBrowserNodeGlobals(config: ViteFinalConfig): void {
+  config.define = { ...config.define, __dirname: '"/"' };
+  config.optimizeDeps ??= {};
+  config.optimizeDeps.esbuildOptions = {
+    ...config.optimizeDeps.esbuildOptions,
+    define: {
+      ...config.optimizeDeps.esbuildOptions?.define,
+      __dirname: '"/"',
+    },
+  };
 }
 
 function configureWebAlias(config: ViteFinalConfig, webRoot: string): void {

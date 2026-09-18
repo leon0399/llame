@@ -424,6 +424,93 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('opens a new UI reasoning part when a reasoning.delta changes its partId', () => {
+    const t = createRunEventTranslator('run-identity');
+
+    expect(
+      t.translate({
+        eventType: 'reasoning.delta',
+        payload: { text: '**Investigating**', partId: 'rs_1:0' },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-identity' },
+      { type: 'reasoning-start', id: 'reasoning-1' },
+      {
+        type: 'reasoning-delta',
+        id: 'reasoning-1',
+        delta: '**Investigating**',
+      },
+    ]);
+
+    // The UI id stays llame-owned (a wire can reuse one adapter id for
+    // several parts), but the boundary matches the persisted one.
+    expect(
+      t.translate({
+        eventType: 'reasoning.delta',
+        payload: { text: '**Inspecting**', partId: 'rs_1:1' },
+      }),
+    ).toEqual([
+      { type: 'reasoning-end', id: 'reasoning-1' },
+      { type: 'reasoning-start', id: 'reasoning-2' },
+      { type: 'reasoning-delta', id: 'reasoning-2', delta: '**Inspecting**' },
+    ]);
+  });
+
+  it('keeps one UI reasoning part for a constant partId and an absent one', () => {
+    const t = createRunEventTranslator('run-constant-id');
+    t.translate({
+      eventType: 'reasoning.delta',
+      payload: { text: 'a', partId: 'reasoning-0' },
+    });
+
+    // Same constant id (the compatible wire's shape) appends.
+    expect(
+      t.translate({
+        eventType: 'reasoning.delta',
+        payload: { text: 'b', partId: 'reasoning-0' },
+      }),
+    ).toEqual([{ type: 'reasoning-delta', id: 'reasoning-1', delta: 'b' }]);
+
+    // An absent id is "no information": append, and do not forget the id.
+    expect(
+      t.translate({ eventType: 'reasoning.delta', payload: { text: 'c' } }),
+    ).toEqual([{ type: 'reasoning-delta', id: 'reasoning-1', delta: 'c' }]);
+    expect(
+      t.translate({
+        eventType: 'reasoning.delta',
+        payload: { text: 'd', partId: 'reasoning-0' },
+      }),
+    ).toEqual([{ type: 'reasoning-delta', id: 'reasoning-1', delta: 'd' }]);
+  });
+
+  it('re-opens a fresh UI reasoning part after a tool under a repeated partId', () => {
+    const t = createRunEventTranslator('run-tool-split');
+    t.translate({
+      eventType: 'reasoning.delta',
+      payload: { text: 'before', partId: 'reasoning-0' },
+    });
+    t.translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'c1',
+        toolName: 'search_conversations',
+        input: { query: 'q' },
+      },
+    });
+
+    // The tool part closed the reasoning part, so the same adapter id opens a
+    // fresh UI part — occurrence order, not hoisting (D8 rule (a)).
+    expect(
+      t.translate({
+        eventType: 'reasoning.delta',
+        payload: { text: 'after', partId: 'reasoning-0' },
+      }),
+    ).toEqual([
+      { type: 'reasoning-start', id: 'reasoning-2' },
+      { type: 'reasoning-delta', id: 'reasoning-2', delta: 'after' },
+    ]);
+  });
+
   it('a reasoning-only run closes the reasoning part on terminal', () => {
     const t = createRunEventTranslator('run-8');
     t.translate({

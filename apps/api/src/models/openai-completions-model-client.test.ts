@@ -375,9 +375,12 @@ describe('createOpenAICompletionsModelClient — reasoning deltas and the tool l
 
     // Exact call lists, not `toHaveBeenCalledWith`: each normalized delta
     // must reach its own callback exactly once, so a chunk routed to both
-    // cannot pass.
+    // cannot pass. The constant adapter id rides along (D8).
     expect(onTextDelta.mock.calls).toEqual([['done']]);
-    expect(onReasoningDelta.mock.calls).toEqual([['looking up'], ['found it']]);
+    expect(onReasoningDelta.mock.calls).toEqual([
+      ['looking up', 'reasoning-0'],
+      ['found it', 'reasoning-0'],
+    ]);
     expect(model.doStreamCalls).toHaveLength(2);
     // The follow-up request of the same turn carries the prior assistant
     // reasoning for the adapter to re-inject as `reasoning_content` (D5/D15);

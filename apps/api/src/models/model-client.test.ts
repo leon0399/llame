@@ -258,6 +258,45 @@ describe('ModelClient', () => {
     );
   });
 
+  it('forwards the adapter reasoning part id with each reasoning delta', () => {
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
+    });
+    const openaiProvider = responsesProviderMock(providerModel);
+    createOpenAIMock.mockReturnValue(openaiProvider);
+    streamTextMock.mockReturnValue({});
+
+    const onReasoningDelta = vi.fn();
+    const client = createOpenAIModelClient(
+      {
+        credential: 'sk-user-supplied',
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
+    client.streamText({ messages, onReasoningDelta });
+
+    // The SDK's `reasoning-delta` chunk carries the part id
+    // (`${itemId}:${summaryIndex}` on Responses); the seam must not drop it.
+    const onChunk = streamTextMock.mock.calls[0]?.[0]?.onChunk;
+    expect(onChunk).toBeTypeOf('function');
+    onChunk?.({
+      chunk: {
+        type: 'reasoning-delta',
+        id: 'rs_1:0',
+        text: '**Investigating**',
+      },
+    });
+
+    expect(onReasoningDelta).toHaveBeenCalledWith(
+      '**Investigating**',
+      'rs_1:0',
+    );
+  });
+
   describe('reasoning effort (add-reasoning-effort)', () => {
     function build() {
       const providerModel = new MockLanguageModelV3({

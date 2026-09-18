@@ -22,6 +22,10 @@ import { getToolName, isToolUIPart, type ChatStatus, type UIMessage } from "ai";
 
 import { CompactionBoundary } from "./compaction-boundary";
 import { EffectiveContextAction } from "./effective-context-inspector";
+import {
+  groupAssistantParts,
+  type NonReasoningPart,
+} from "./group-assistant-parts";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
@@ -79,24 +83,37 @@ function ToolPartView({ part }: { part: UIMessage["parts"][number] }) {
   );
 }
 
-/** Renders one message part — reasoning, text, a tool call/result, a
+/** One Thinking panel for a run of consecutive reasoning parts: the run is a
+ *  single visual thought until a tool or visible text part interrupts it.
+ *  `ReasoningContent` repairs glued summary headings at display; the parts
+ *  themselves keep the provider's exact text. */
+function ReasoningPanel({
+  text,
+  isStreaming,
+  renderers,
+}: {
+  text: string;
+  isStreaming: boolean;
+  renderers: ChatMarkdownRenderers;
+}) {
+  const ReasoningContent = renderers.ReasoningContent;
+  return (
+    <Reasoning isStreaming={isStreaming} defaultOpen={false}>
+      <ReasoningTrigger />
+      <ReasoningContent>{text}</ReasoningContent>
+    </Reasoning>
+  );
+}
+
+/** Renders one non-reasoning message part — text, a tool call/result, a
  *  step-cap notice, or a server-authored context item (never visible). */
 function MessagePartView({
   part,
   renderers,
 }: {
-  part: UIMessage["parts"][number];
+  part: NonReasoningPart;
   renderers: ChatMarkdownRenderers;
 }) {
-  if (part.type === "reasoning") {
-    const ReasoningContent = renderers.ReasoningContent;
-    return (
-      <Reasoning isStreaming={part.state === "streaming"} defaultOpen={false}>
-        <ReasoningTrigger />
-        <ReasoningContent>{part.text}</ReasoningContent>
-      </Reasoning>
-    );
-  }
   if (part.type === "text") {
     const MessageResponse = renderers.MessageResponse;
     return <MessageResponse>{part.text}</MessageResponse>;
@@ -189,6 +206,35 @@ type ChatMessageRowProps = ChatMessageActionProps & {
   modelBoundary: ReactNode;
 };
 
+/** Walks the stored parts as grouped segments, so consecutive reasoning parts
+ *  share one Thinking panel and everything else renders in stored order. */
+function MessageSegments({
+  parts,
+  renderKey,
+  renderers,
+}: {
+  parts: UIMessage["parts"];
+  renderKey: string;
+  renderers: ChatMarkdownRenderers;
+}) {
+  return groupAssistantParts(parts).map((segment) =>
+    segment.kind === "reasoning" ? (
+      <ReasoningPanel
+        key={`message-part-${renderKey}-${segment.startIndex}`}
+        text={segment.text}
+        isStreaming={segment.isStreaming}
+        renderers={renderers}
+      />
+    ) : (
+      <MessagePartView
+        key={`message-part-${renderKey}-${segment.index}`}
+        part={segment.part}
+        renderers={renderers}
+      />
+    ),
+  );
+}
+
 export function ChatMessageRow({
   renderKey,
   boundary,
@@ -214,13 +260,11 @@ export function ChatMessageRow({
         data-message-key={renderKey}
       >
         <MessageContent>
-          {message.parts.map((part, partIndex) => (
-            <MessagePartView
-              key={`message-part-${renderKey}-${partIndex}`}
-              part={part}
-              renderers={renderers}
-            />
-          ))}
+          <MessageSegments
+            parts={message.parts}
+            renderKey={renderKey}
+            renderers={renderers}
+          />
         </MessageContent>
         <ChatMessageFooter {...footerProps} />
       </Message>

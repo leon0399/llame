@@ -30,13 +30,6 @@ import {
 import { isSystemOriginPayload } from './tool-activity-origin';
 
 /**
- * Cap on persisted reasoning text. Reasoning is display-only (stripped from
- * model context), so this bounds storage + the per-turn context-read cost (each
- * build reads every message's parts) without affecting what the model sees.
- */
-export const REASONING_PERSIST_MAX = 24_000;
-
-/**
  * A persisted tool-activity part (design D5, AI SDK tool-part vocabulary):
  * `type: "tool-<name>"`, correlated by `toolCallId`, settled state only
  * (`output-available` | `output-error` — no `input-streaming`/`input-available`
@@ -87,6 +80,9 @@ class AssistantPartCollectorImpl {
   // Ids whose outcome is already recorded, by either path. Settlement is
   // at-most-once per call (design D6, first writer wins).
   private readonly settledToolCallIds = new Set<string>();
+  // Adapter part id of the open reasoning part (undefined = the wire gave
+  // none). Decides part boundaries only — never persisted (design D8).
+  private openReasoningPartId: string | undefined;
 
   text(text: string): void {
     if (text.length === 0) return;
@@ -98,14 +94,35 @@ class AssistantPartCollectorImpl {
     this.collected.push({ type: 'text', text });
   }
 
-  reasoning(text: string): void {
+  reasoning(text: string, partId?: string): void {
     if (text.length === 0) return;
     const last = this.collected.at(-1);
-    if (last?.type === 'reasoning' && isString(last.text)) {
+    if (
+      last?.type === 'reasoning' &&
+      isString(last.text) &&
+      !this.isNewReasoningPart(partId)
+    ) {
       last.text += text;
+      // A defined id becomes the open part's id; an absent id adds nothing.
+      this.openReasoningPartId = partId ?? this.openReasoningPartId;
       return;
     }
+    this.openReasoningPartId = partId;
     this.collected.push({ type: 'reasoning', text });
+  }
+
+  /**
+   * Design D8: a new persisted reasoning part starts on two defined ids that
+   * differ. An undefined id is "no information" — it neither opens nor closes
+   * a part, so an undefined ↔ defined transition is not a boundary (the
+   * intervening-part split ahead of this handles a text/tool/notice part).
+   */
+  private isNewReasoningPart(partId?: string): boolean {
+    return (
+      partId !== undefined &&
+      this.openReasoningPartId !== undefined &&
+      partId !== this.openReasoningPartId
+    );
   }
 
   toolRequested(toolCallId: string): void {
@@ -135,22 +152,11 @@ class AssistantPartCollectorImpl {
   }
 
   parts(): Array<MessagePart> {
-    return (
-      this.collected
-        // Only settled tool parts are a durable history representation. A
-        // provider failure after tool.requested leaves the request in the
-        // event log, while avoiding an invalid UI tool-part snapshot.
-        .filter((part): part is MessagePart => part.type !== 'pending-tool')
-        .map((part) =>
-          part.type === 'reasoning' &&
-          isString(part.text) &&
-          part.text.length > REASONING_PERSIST_MAX
-            ? {
-                ...part,
-                text: `${part.text.slice(0, REASONING_PERSIST_MAX)}…`,
-              }
-            : part,
-        )
+    return this.collected.filter(
+      // Only settled tool parts are a durable history representation. A
+      // provider failure after tool.requested leaves the request in the
+      // event log, while avoiding an invalid UI tool-part snapshot.
+      (part): part is MessagePart => part.type !== 'pending-tool',
     );
   }
 }
@@ -305,6 +311,7 @@ class DurableAssistantReconstructor {
       case 'reasoning.delta':
         this.collector.reasoning(
           eventPayloadString(event.payload, 'text') ?? '',
+          eventPayloadString(event.payload, 'partId'),
         );
         return;
       case 'run.step_cap_reached':
@@ -399,43 +406,4 @@ export function reconstructDurableAssistant(events: Array<RunEvent>) {
     collector: reconstructor.collector,
     openToolCalls: reconstructor.openToolCalls,
   };
-}
-
-/**
- * Assistant-turn parts, in occurrence order: a leading `reasoning` part
- * (capped, display-only) when the model produced thinking, then every tool
- * call/result of the run (in the order they were recorded), then the answer
- * text, then an optional step-cap notice. All three display-only kinds —
- * reasoning, tool parts, and the cap notice — survive a reload for the UI but
- * are stripped by `partsToText`, so they never re-enter model context on a
- * later turn or in a compaction summary (the model saw tool results live
- * during the run's own loop; the persisted parts are a UI record).
- */
-export function assistantParts(input: {
-  reasoningText: string;
-  toolParts: ReadonlyArray<ToolActivityPart>;
-  text: string;
-  capNotice?: CapNoticePart;
-}): Array<MessagePart> {
-  const { reasoningText, toolParts, text, capNotice } = input;
-  const parts: Array<MessagePart> = [];
-  if (reasoningText.length > 0) {
-    const reasoning =
-      reasoningText.length > REASONING_PERSIST_MAX
-        ? `${reasoningText.slice(0, REASONING_PERSIST_MAX)}…`
-        : reasoningText;
-    parts.push({ type: 'reasoning', text: reasoning });
-  }
-  parts.push(...toolParts);
-  // Skip an empty text part: a reasoning-only turn (or one that hits onFinish
-  // with no visible answer) should not persist a spurious `{ type: 'text',
-  // text: '' }` -- no downstream renderer (chat-page.tsx, markdown export)
-  // needs an empty text bubble/line.
-  if (text.length > 0) {
-    parts.push({ type: 'text', text });
-  }
-  if (capNotice) {
-    parts.push(capNotice);
-  }
-  return parts;
 }
