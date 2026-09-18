@@ -6,6 +6,8 @@
  *   channel — not a `role: 'system'` entry in `messages`; `messages` is history oldest→newest
  * - `system` contains NO timestamps, ids, or per-request values — byte-identical across turns
  * - Stored user text/context parts replay in place without sender decoration
+ * - Persisted reasoning parts replay ONLY into a request that continues the
+ *   Chat storing them (D15); compaction input excludes them (D16)
  * - Deterministic: identical inputs → identical output
  * - No message-count cap: context size is governed in TOKENS by the compaction
  *   threshold (#57). A count cap would silently drop old turns without any
@@ -36,6 +38,7 @@ import { resolveForm } from './context-item';
 import type { UnknownRecord } from '@workspace/runtime-safety';
 import {
   projectToolObservations,
+  type ProjectedToolObservationPair,
   type ToolObservationProjection,
 } from './tool-observation-part';
 import {
@@ -55,9 +58,15 @@ export interface TextPart {
 }
 
 /**
- * A reasoning ("thinking") part. PERSISTED for display (survives reload) but
- * NEVER re-fed to the model — `partsToText` strips it (see below), preserving
- * the original "reasoning is never re-fed" guarantee.
+ * A reasoning ("thinking") part. PERSISTED for display (survives reload) and
+ * replayed to the provider on the ONE request kind that reuses it: a
+ * continuation of the Chat that stores it. `buildContext` re-emits it as a
+ * reasoning content part ahead of the content the same turn produced, with the
+ * text byte-identical to the stored part (never trimmed, repaired, re-ordered,
+ * or neutralized) — DeepSeek's `tools` rule makes that replay mandatory on the
+ * completions wire (D7/D15). Everywhere else the exclusion stands: `partsToText`
+ * still strips reasoning, so compaction input, chat search, and public shares
+ * never carry it.
  */
 export interface ReasoningPart {
   type: 'reasoning';
@@ -82,6 +91,18 @@ export function isTextPart(part: unknown): part is TextPart {
     part !== null &&
     'type' in part &&
     part.type === 'text' &&
+    'text' in part &&
+    typeof part.text === 'string'
+  );
+}
+
+/** Duck-typed like `isTextPart`: `parts` is jsonb with no runtime validation. */
+function isReasoningPart(part: unknown): part is ReasoningPart {
+  return (
+    typeof part === 'object' &&
+    part !== null &&
+    'type' in part &&
+    part.type === 'reasoning' &&
     'text' in part &&
     typeof part.text === 'string'
   );
@@ -128,8 +149,24 @@ export interface ContextCompaction {
   replacementHistory: unknown;
 }
 
+/**
+ * What the built request is for (D16). Replaying a Chat's persisted reasoning
+ * is a property of the request kind, not of the projection: a request that
+ * continues the Chat carries its stored reasoning parts, while a request that
+ * asks a model to summarize that history into a compaction carries none —
+ * reasoning must not be folded into summary text that is no longer
+ * provider-authorized.
+ */
+export type ContextRequestKind = 'continuation' | 'compaction';
+
 export interface BuildContextOptions {
   systemPrompt: string;
+  /**
+   * Required, with no default: every caller states whether this request
+   * continues the Chat (reasoning replays) or summarizes it (reasoning is
+   * excluded), so a new caller cannot inherit a silent choice (D16).
+   */
+  requestKind: ContextRequestKind;
   /** Latest compaction for the chat, if any (#57). */
   compaction?: ContextCompaction;
 }
@@ -311,70 +348,137 @@ function appendCompactionReplacementHistory(
  * Batches consecutive text parts into one assistant message and inserts the
  * omission notice at the right point in the stream — the running state
  * `pushAssistantHistory` below drives while walking `parts` in order.
+ *
+ * On a continuation request the emitter also carries each persisted reasoning
+ * part through in its stored position: reasoning is buffered and emitted ahead
+ * of the next assistant content the same turn produces (text, tool call, or
+ * omission notice), and a turn ending on reasoning flushes it as its own
+ * assistant message. Reasoning text is passed through byte-identically.
  */
-function createAssistantHistoryEmitter(
-  result: Array<ModelMessage>,
-  projection: ToolObservationProjection,
-) {
-  const pendingText: Array<string> = [];
-  let omissionRendered = false;
+class AssistantHistoryEmitter {
+  private readonly pendingText: Array<string> = [];
+  private readonly pendingReasoning: Array<ReasoningPart> = [];
+  private omissionRendered = false;
 
-  const flushPendingText = () => {
-    const text = pendingText.join('\n');
-    pendingText.length = 0;
+  constructor(
+    private readonly result: Array<ModelMessage>,
+    private readonly projection: ToolObservationProjection | null,
+  ) {}
+
+  appendText(text: string): void {
+    this.pendingText.push(text);
+  }
+
+  appendReasoning(part: ReasoningPart): void {
+    this.pendingReasoning.push(part);
+  }
+
+  flushPendingText(): void {
+    const text = this.pendingText.join('\n');
+    this.pendingText.length = 0;
     if (text.length > 0) {
-      result.push({ role: 'assistant', content: text });
+      this.pushAssistantText(text);
     }
-  };
+  }
 
-  const appendOmissionWhenDue = (partIndex: number) => {
+  flushPendingToolPair(pair: ProjectedToolObservationPair): void {
+    const reasoning = this.takePendingReasoning();
+    this.result.push(
+      reasoning.length === 0
+        ? { role: 'assistant', content: [pair.toolCallPart] }
+        : { role: 'assistant', content: [...reasoning, pair.toolCallPart] },
+      { role: 'tool', content: [pair.toolResultPart] },
+    );
+  }
+
+  flushPendingReasoning(): void {
+    if (this.pendingReasoning.length === 0) return;
+    this.result.push({
+      role: 'assistant',
+      content: this.takePendingReasoning(),
+    });
+  }
+
+  appendOmissionWhenDue(partIndex: number): void {
+    const { projection } = this;
     if (
-      !omissionRendered &&
-      projection.omissionPartIndex !== null &&
-      projection.omissionPartIndex <= partIndex
+      projection === null ||
+      this.omissionRendered ||
+      projection.omissionPartIndex === null ||
+      projection.omissionPartIndex > partIndex
     ) {
-      flushPendingText();
-      result.push({
-        role: 'assistant',
-        content: renderToolObservationOmission(projection.omittedCount),
-      });
-      omissionRendered = true;
+      return;
     }
-  };
+    this.flushPendingText();
+    this.pushAssistantText(
+      renderToolObservationOmission(projection.omittedCount),
+    );
+    this.omissionRendered = true;
+  }
 
-  return { pendingText, flushPendingText, appendOmissionWhenDue };
+  private takePendingReasoning(): Array<ReasoningPart> {
+    const reasoning = [...this.pendingReasoning];
+    this.pendingReasoning.length = 0;
+    return reasoning;
+  }
+
+  /**
+   * Every assistant text message takes the reasoning collected ahead of it, so
+   * the stored order of reasoning against text and tool calls holds.
+   */
+  private pushAssistantText(text: string): void {
+    const reasoning = this.takePendingReasoning();
+    this.result.push(
+      reasoning.length === 0
+        ? { role: 'assistant', content: text }
+        : {
+            role: 'assistant',
+            content: [...reasoning, { type: 'text' as const, text }],
+          },
+    );
+  }
 }
 
 function pushAssistantHistory(
   result: Array<ModelMessage>,
   parts: Array<MessagePart>,
-  projection: ToolObservationProjection,
+  projection: ToolObservationProjection | null,
+  requestKind: ContextRequestKind,
 ): void {
   // TODO(#599): Research canonical AI SDK UIMessage persistence before replacing
   // this projector; stored assistant parts currently omit multi-step boundaries.
   const pairsByPartIndex = new Map(
-    projection.pairs.map((pair) => [pair.partIndex, pair]),
+    (projection?.pairs ?? []).map((pair) => [pair.partIndex, pair]),
   );
-  const emitter = createAssistantHistoryEmitter(result, projection);
+  const emitter = new AssistantHistoryEmitter(result, projection);
 
   for (const [partIndex, part] of parts.entries()) {
     emitter.appendOmissionWhenDue(partIndex);
     if (isTextPart(part)) {
-      emitter.pendingText.push(part.text);
+      emitter.appendText(part.text);
+      continue;
+    }
+    if (isReasoningPart(part)) {
+      // Text recorded before the reasoning flushes first: the reasoning part
+      // belongs in its stored position, not hoisted or pushed behind it.
+      if (requestKind === 'continuation') {
+        emitter.flushPendingText();
+        // The explicit minimal part this layer emits; the stored object may
+        // carry opaque keys this layer does not define.
+        emitter.appendReasoning({ type: 'reasoning', text: part.text });
+      }
       continue;
     }
 
     const pair = pairsByPartIndex.get(partIndex);
     if (!pair) continue;
     emitter.flushPendingText();
-    result.push(
-      { role: 'assistant', content: [pair.toolCallPart] },
-      { role: 'tool', content: [pair.toolResultPart] },
-    );
+    emitter.flushPendingToolPair(pair);
   }
 
   emitter.appendOmissionWhenDue(Number.POSITIVE_INFINITY);
   emitter.flushPendingText();
+  emitter.flushPendingReasoning();
 }
 
 /**
@@ -389,7 +493,7 @@ export function buildContext(
   messages: Array<StoredMessage>,
   options: BuildContextOptions,
 ): BuiltContext {
-  const { systemPrompt, compaction } = options;
+  const { systemPrompt, compaction, requestKind } = options;
 
   // Exclude any stored system-role rows: `system` (above) is the only system
   // content this function emits — a persisted system-role row (none are written
@@ -426,7 +530,7 @@ export function buildContext(
     if (m.role === 'user') {
       appendUserMessage(result, contextItems, m);
     } else {
-      appendAssistantMessage(result, m);
+      appendAssistantMessage(result, m, requestKind);
     }
   }
 
@@ -448,22 +552,29 @@ function appendUserMessage(
 function appendAssistantMessage(
   result: Array<ModelMessage>,
   m: StoredMessage,
+  requestKind: ContextRequestKind,
 ): void {
   const visibleText = partsToText(m.parts);
   const projected =
     m.role === 'assistant' ? projectToolObservations(m.parts) : null;
+  // The one reuse of persisted reasoning: a request continuing this Chat
+  // re-sends the turn's reasoning where it occurred (D15). A compaction
+  // request summarizes the same turns with no reasoning in reach (D16).
+  const hasReasoning =
+    requestKind === 'continuation' && m.parts.some(isReasoningPart);
 
-  if (visibleText.length === 0 && !projected) {
+  if (visibleText.length === 0 && !projected && !hasReasoning) {
     return;
   }
 
-  if (projected) {
-    pushAssistantHistory(result, m.parts, projected);
-  } else {
-    // Assistant output is replayed byte-identically and never neutralized: a
-    // model does not treat its own prior turns as authoritative, and llame's
-    // users legitimately discuss llame's own envelope, which neutralization
-    // would corrupt.
-    result.push({ role: 'assistant', content: visibleText });
+  if (projected || hasReasoning) {
+    pushAssistantHistory(result, m.parts, projected, requestKind);
+    return;
   }
+
+  // Assistant output is replayed byte-identically and never neutralized: a
+  // model does not treat its own prior turns as authoritative, and llame's
+  // users legitimately discuss llame's own envelope, which neutralization
+  // would corrupt.
+  result.push({ role: 'assistant', content: visibleText });
 }

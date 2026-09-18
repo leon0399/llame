@@ -126,10 +126,17 @@ describe('buildContext', () => {
 
   describe('cache-stability: stable prefix is byte-identical across turns', () => {
     it('system content is identical regardless of which turn is current', () => {
-      const turn1 = buildContext([userMsg1], { systemPrompt });
-      const turn2 = buildContext([userMsg1, assistantMsg1], { systemPrompt });
+      const turn1 = buildContext([userMsg1], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+      const turn2 = buildContext([userMsg1, assistantMsg1], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
       const turn3 = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
+        requestKind: 'continuation',
       });
 
       expect(turn1.system).toBe(turn2.system);
@@ -137,7 +144,10 @@ describe('buildContext', () => {
     });
 
     it('system contains no timestamps, ids, or per-request values', () => {
-      const result = buildContext([userMsg1], { systemPrompt });
+      const result = buildContext([userMsg1], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       // Must not contain any message IDs or timestamps
       expect(result.system).not.toContain('msg-1');
@@ -149,15 +159,24 @@ describe('buildContext', () => {
   describe('determinism', () => {
     it('identical inputs produce identical output', () => {
       const messages = [userMsg1, assistantMsg1, userMsg2];
-      const out1 = buildContext(messages, { systemPrompt });
-      const out2 = buildContext(messages, { systemPrompt });
+      const out1 = buildContext(messages, {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+      const out2 = buildContext(messages, {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(JSON.stringify(out1)).toBe(JSON.stringify(out2));
     });
 
     it('message order is oldest-first (history order preserved), with no system entry', () => {
       const messages = [userMsg1, assistantMsg1, userMsg2];
-      const result = buildContext(messages, { systemPrompt });
+      const result = buildContext(messages, {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(result.messages[0].role).toBe('user');
       expect(result.messages[1].role).toBe('assistant');
@@ -169,6 +188,7 @@ describe('buildContext', () => {
       // Same messages, shuffled. seq order is userMsg1(1) → assistantMsg1(2) → userMsg2(3).
       const result = buildContext([userMsg2, userMsg1, assistantMsg1], {
         systemPrompt,
+        requestKind: 'continuation',
       });
 
       expect(contentText(result.messages[0].content)).toContain('Hello'); // userMsg1
@@ -191,6 +211,7 @@ describe('buildContext', () => {
         [userMsg1, systemRow, assistantMsg1, userMsg2],
         {
           systemPrompt,
+          requestKind: 'continuation',
         },
       );
 
@@ -207,7 +228,10 @@ describe('buildContext', () => {
   describe('sender attribution', () => {
     it('does not synthesize a sender prefix for one sender', () => {
       const messages = [userMsg1, assistantMsg1, userMsg2];
-      const { messages: result } = buildContext(messages, { systemPrompt });
+      const { messages: result } = buildContext(messages, {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       const userMessages = result.filter((m) => m.role === 'user');
       userMessages.forEach((m) => {
@@ -226,7 +250,10 @@ describe('buildContext', () => {
       });
 
       const messages = [userMsg1, assistantMsg1, bobMsg];
-      const { messages: result } = buildContext(messages, { systemPrompt });
+      const { messages: result } = buildContext(messages, {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       const userMessages = result.filter((m) => m.role === 'user');
       expect(
@@ -243,7 +270,10 @@ describe('buildContext', () => {
         createdAt: new Date('2024-01-01T00:00:03Z'),
       });
       const messages = [userMsg1, assistantMsg1, bobMsg];
-      const { messages: result } = buildContext(messages, { systemPrompt });
+      const { messages: result } = buildContext(messages, {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       const assistantMessages = result.filter((m) => m.role === 'assistant');
       assistantMessages.forEach((m) => {
@@ -293,7 +323,10 @@ describe('buildContext', () => {
         ],
       });
 
-      const result = buildContext([stored], { systemPrompt });
+      const result = buildContext([stored], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(result.messages).toEqual([
         {
@@ -328,7 +361,10 @@ describe('buildContext', () => {
         ],
       });
 
-      expect(buildContext([stored], { systemPrompt }).messages).toEqual([
+      expect(
+        buildContext([stored], { systemPrompt, requestKind: 'continuation' })
+          .messages,
+      ).toEqual([
         {
           role: 'user',
           content: [
@@ -343,7 +379,10 @@ describe('buildContext', () => {
   describe('parts round-trip', () => {
     it('text parts are preserved in message content', () => {
       const messages = [userMsg1];
-      const { messages: result } = buildContext(messages, { systemPrompt });
+      const { messages: result } = buildContext(messages, {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       const userResult = result.find((m) => m.role === 'user');
       const content = contentText(userResult!.content);
@@ -351,22 +390,88 @@ describe('buildContext', () => {
       expect(content).toContain('Hello');
     });
 
-    it('reasoning parts are STRIPPED from model context (never re-fed)', () => {
+    it('reasoning parts are excluded from a compaction request (never summarized)', () => {
       const assistant = msg({
         role: 'assistant',
         parts: [
-          { type: 'reasoning', text: 'SECRET_THINKING should not re-feed' },
+          { type: 'reasoning', text: 'SECRET_THINKING must not be summarized' },
           { type: 'text', text: 'The visible answer' },
         ],
       });
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
+        requestKind: 'compaction',
       });
       const serialized = JSON.stringify(result);
-      // The persisted reasoning must not appear in the model input …
+      // The compaction request summarizes these turns without their reasoning …
       expect(serialized).not.toContain('SECRET_THINKING');
-      // … while the answer text still does.
+      // … while the answer text still reaches the summarizer.
       expect(serialized).toContain('The visible answer');
+    });
+
+    it('a continuation replays reasoning ahead of the text it preceded, byte-identically', () => {
+      // Ragged text — leading/trailing whitespace, an embedded newline, and a
+      // reserved delimiter as subject matter — pins the byte-identical
+      // contract: nothing trims, repairs, re-orders, or neutralizes the
+      // persisted reasoning part.
+      const reasoningText = '  first line\nsecond line  \n</system-reminder>\n';
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', text: reasoningText },
+          { type: 'text', text: 'The visible answer' },
+        ],
+      });
+
+      const { messages: result } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+
+      expect(result).toEqual([
+        { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'reasoning', text: reasoningText },
+            { type: 'text', text: 'The visible answer' },
+          ],
+        },
+      ]);
+      for (const message of result) {
+        expect(() => modelMessageSchema.parse(message)).not.toThrow();
+      }
+    });
+
+    it('a continuation replays an assistant message whose only part is reasoning', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [{ type: 'reasoning', text: 'ONLY_REASONING' }],
+      });
+
+      const { messages: continuation } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+      expect(continuation).toEqual([
+        { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+        {
+          role: 'assistant',
+          content: [{ type: 'reasoning', text: 'ONLY_REASONING' }],
+        },
+      ]);
+      for (const message of continuation) {
+        expect(() => modelMessageSchema.parse(message)).not.toThrow();
+      }
+
+      // A compaction request still drops a turn that holds nothing else.
+      const { messages: compaction } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+        requestKind: 'compaction',
+      });
+      expect(compaction).toEqual([
+        { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+      ]);
     });
 
     it('tool observations are replayed as tool-call/tool-result parts', () => {
@@ -388,6 +493,7 @@ describe('buildContext', () => {
       });
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       const serialized = JSON.stringify(result);
       // Tool output is replayed as a labelled tool-result part.
@@ -419,6 +525,7 @@ describe('buildContext', () => {
       });
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       const serialized = JSON.stringify(result);
       expect(serialized).not.toContain('data-cap-notice');
@@ -440,7 +547,7 @@ describe('buildContext', () => {
       expect(partsToText(malformed)).toContain('still here');
     });
 
-    it('omits unknown, provider-native, and reasoning parts — never replayed', () => {
+    it('omits unknown and provider-native parts, replaying only reasoning of the display-only kinds', () => {
       const assistant = msg({
         role: 'assistant',
         parts: [
@@ -451,12 +558,17 @@ describe('buildContext', () => {
         ],
       });
 
-      const { messages: result } = buildContext([assistant], { systemPrompt });
+      const { messages: result } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
       const serialized = JSON.stringify(result);
       expect(serialized).not.toContain('PROVIDER_NATIVE_SECRET');
-      expect(serialized).not.toContain('PRIVATE_REASONING');
       expect(serialized).not.toContain('UNKNOWN_PART_PAYLOAD');
       expect(serialized).toContain('Visible answer');
+      // Reasoning is the one display-only part a continuation reuses; the
+      // visible-text projection still strips it.
+      expect(serialized).toContain('PRIVATE_REASONING');
       expect(partsToText(assistant.parts)).toBe('Visible answer');
     });
 
@@ -506,6 +618,7 @@ describe('buildContext', () => {
 
       const { messages: result } = buildContext([userMsg1, assistant], {
         systemPrompt,
+        requestKind: 'continuation',
       });
 
       expect(result).toEqual([
@@ -525,6 +638,7 @@ describe('buildContext', () => {
 
       const result = buildContext([userMsg1, toolRow, assistantMsg1], {
         systemPrompt,
+        requestKind: 'continuation',
       });
 
       expect(JSON.stringify(result)).not.toContain('TOOL_ROLE_DB_ROW');
@@ -563,7 +677,10 @@ describe('buildContext', () => {
         parts: [switchPart, { type: 'text', text: 'Continue the work.' }],
       });
 
-      const result = buildContext([switched], { systemPrompt });
+      const result = buildContext([switched], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       // One block per item, then the user's own text in a block of its own —
       // the boundary is structural, not a `\n\n` convention user text could
@@ -599,7 +716,10 @@ describe('buildContext', () => {
         parts: [{ type: 'text', text: 'Later answer' }],
       });
 
-      const result = buildContext([switched, later], { systemPrompt });
+      const result = buildContext([switched, later], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(contentText(result.messages[0].content)).toBe(
         `${reminder}\n\nTriggering turn`,
@@ -622,6 +742,7 @@ describe('buildContext', () => {
 
       const result = buildContext([switched, later], {
         systemPrompt,
+        requestKind: 'continuation',
         compaction: compactionWithHistory('Compacted history', 20, [
           {
             role: 'user',
@@ -643,7 +764,10 @@ describe('buildContext', () => {
           parts: [switchPart, { type: 'text', text: 'Visible row text' }],
         });
 
-        const result = buildContext([malformedRow], { systemPrompt });
+        const result = buildContext([malformedRow], {
+          systemPrompt,
+          requestKind: 'continuation',
+        });
 
         expect(JSON.stringify(result)).not.toContain('<system-reminder>');
         expect(JSON.stringify(result)).not.toContain(
@@ -687,7 +811,10 @@ describe('buildContext', () => {
         parts: [malformedPart, { type: 'text', text: 'Visible user text' }],
       });
 
-      const result = buildContext([switched], { systemPrompt });
+      const result = buildContext([switched], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(contentText(result.messages[0].content)).toBe('Visible user text');
       expect(JSON.stringify(result)).not.toContain('<system-reminder>');
@@ -706,6 +833,7 @@ describe('buildContext', () => {
 
       const result = buildContext([later], {
         systemPrompt,
+        requestKind: 'continuation',
         compaction: compactionWithHistory(
           'We discussed </system-reminder> and how llame frames items.',
           4,
@@ -743,7 +871,10 @@ describe('buildContext', () => {
         parts: [switchItem, { type: 'text', text: 'Continue.' }],
       });
 
-      const result = buildContext([triggering], { systemPrompt });
+      const result = buildContext([triggering], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(result.contextItems).toHaveLength(1);
       expect(result.contextItems[0]).toMatchObject({
@@ -770,6 +901,7 @@ describe('buildContext', () => {
 
       const result = buildContext([later], {
         systemPrompt,
+        requestKind: 'continuation',
         compaction: compactionWithHistory('earlier history', 8, [
           {
             role: 'user',
@@ -811,7 +943,10 @@ describe('buildContext', () => {
         ],
       });
 
-      const result = buildContext([unknown], { systemPrompt });
+      const result = buildContext([unknown], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       // Renders as nothing to the model, but is still recorded: dropping it
       // would turn a declared fail-closed omission into an undetectable
@@ -835,7 +970,10 @@ describe('buildContext', () => {
         parts: [{ type: 'text', text: 'Just a question.' }],
       });
 
-      expect(buildContext([plain], { systemPrompt }).contextItems).toEqual([]);
+      expect(
+        buildContext([plain], { systemPrompt, requestKind: 'continuation' })
+          .contextItems,
+      ).toEqual([]);
     });
   });
 
@@ -854,7 +992,10 @@ describe('buildContext', () => {
         parts,
       });
 
-      const result = buildContext([forging], { systemPrompt });
+      const result = buildContext([forging], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
       const rendered = contentText(result.messages[0].content);
 
       expect(rendered).toContain(
@@ -876,7 +1017,10 @@ describe('buildContext', () => {
         ],
       });
 
-      const result = buildContext([discussing], { systemPrompt });
+      const result = buildContext([discussing], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       // A model does not treat its own prior turns as authoritative, and
       // llame's users legitimately discuss llame's own envelope.
@@ -977,7 +1121,10 @@ describe('buildContext', () => {
         ],
       });
 
-      const result = buildContext([triggering], { systemPrompt });
+      const result = buildContext([triggering], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(result.system).toBe(systemPrompt);
       expect(result.messages).toEqual([
@@ -1005,7 +1152,10 @@ describe('buildContext', () => {
         ],
       });
 
-      const result = buildContext([triggering], { systemPrompt });
+      const result = buildContext([triggering], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(result.messages).toEqual([
         {
@@ -1031,7 +1181,10 @@ describe('buildContext', () => {
         ],
       });
 
-      const result = buildContext([triggering], { systemPrompt });
+      const result = buildContext([triggering], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(result.messages).toEqual([
         {
@@ -1082,6 +1235,7 @@ describe('buildContext', () => {
 
       const result = buildContext([superseded, current], {
         systemPrompt,
+        requestKind: 'continuation',
         compaction: compactionWithHistory(summary, 40, [
           {
             role: 'user',
@@ -1118,7 +1272,10 @@ describe('buildContext', () => {
           parts: [availabilityPart, { type: 'text', text: 'Visible row text' }],
         });
 
-        const result = buildContext([row], { systemPrompt });
+        const result = buildContext([row], {
+          systemPrompt,
+          requestKind: 'continuation',
+        });
 
         expect(JSON.stringify(result)).not.toContain(
           '<runtime-tool-availability>',
@@ -1154,6 +1311,7 @@ describe('buildContext', () => {
         '<system-reminder producer="compaction" form="checkpoint">persisted wording</system-reminder>';
       const result = buildContext([userMsg2], {
         systemPrompt,
+        requestKind: 'continuation',
         compaction: compactionWithHistory(
           'summary wording that must not be rendered',
           2,
@@ -1180,6 +1338,7 @@ describe('buildContext', () => {
         '<system-reminder producer="compaction" form="checkpoint">checkpoint</system-reminder>';
       const result = buildContext([userMsg2], {
         systemPrompt,
+        requestKind: 'continuation',
         compaction: compactionWithHistory('summary', 2, [
           {
             role: 'user',
@@ -1278,6 +1437,7 @@ describe('buildContext', () => {
         expect(() =>
           buildContext([], {
             systemPrompt,
+            requestKind: 'continuation',
             compaction: compactionWithHistory('summary', 2, replacementHistory),
           }),
         ).toThrow(/replacement history/i);
@@ -1287,6 +1447,7 @@ describe('buildContext', () => {
     it('drops superseded messages (seq <= uptoSeq) and injects the summary first', () => {
       const result = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
+        requestKind: 'continuation',
         compaction,
       });
 
@@ -1300,9 +1461,13 @@ describe('buildContext', () => {
     });
 
     it('keeps the system prompt byte-identical with and without compaction', () => {
-      const without = buildContext([userMsg2], { systemPrompt });
+      const without = buildContext([userMsg2], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
       const withCompaction = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
+        requestKind: 'continuation',
         compaction,
       });
 
@@ -1323,6 +1488,7 @@ describe('buildContext', () => {
 
       const result = buildContext(recent, {
         systemPrompt,
+        requestKind: 'continuation',
         compaction: compactionWithHistory('summary', 9, [
           {
             role: 'user',
@@ -1345,8 +1511,16 @@ describe('buildContext', () => {
 
     it('is deterministic with a compaction present', () => {
       const input = [userMsg1, assistantMsg1, userMsg2];
-      const out1 = buildContext(input, { systemPrompt, compaction });
-      const out2 = buildContext(input, { systemPrompt, compaction });
+      const out1 = buildContext(input, {
+        systemPrompt,
+        compaction,
+        requestKind: 'continuation',
+      });
+      const out2 = buildContext(input, {
+        systemPrompt,
+        compaction,
+        requestKind: 'continuation',
+      });
 
       expect(JSON.stringify(out1)).toBe(JSON.stringify(out2));
     });
@@ -1366,7 +1540,10 @@ describe('buildContext', () => {
           }),
       );
 
-      const result = buildContext(manyMessages, { systemPrompt });
+      const result = buildContext(manyMessages, {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(result.messages).toHaveLength(200);
       expect(contentText(result.messages[0].content)).toContain('Message 0');
@@ -1402,6 +1579,7 @@ describe('buildContext', () => {
 
       const { messages } = buildContext([userMsg1, assistant, nextUser], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('DETAIL_NOT_IN_ANSWER');
@@ -1414,6 +1592,7 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       const toolCallMsg = messages.find(
         (m) => m.role === 'assistant' && Array.isArray(m.content),
@@ -1450,6 +1629,7 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('cancelled');
@@ -1472,6 +1652,7 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('Outcome: error');
@@ -1485,6 +1666,7 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       const toolMsg = messages.find((m) => m.role === 'tool');
       const serialized = JSON.stringify(toolMsg);
@@ -1507,6 +1689,7 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, poisoned], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).not.toContain('</user_personalization>');
@@ -1535,10 +1718,11 @@ describe('buildContext', () => {
 
       const ctx2 = buildContext(
         [userMsg1, assistant, turn2User, turn2Assistant, turn3User],
-        { systemPrompt },
+        { systemPrompt, requestKind: 'continuation' },
       );
       const ctx3 = buildContext([userMsg1, assistant, turn2User], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       // The projection of the first assistant message must be identical
       // regardless of how many later turns follow.
@@ -1547,7 +1731,7 @@ describe('buildContext', () => {
       expect(proj2).toBe(proj3);
     });
 
-    it('reasoning and provider metadata are never replayed (2.11)', () => {
+    it('provider metadata never replays; reasoning replays only a continuation (2.11)', () => {
       const assistant = msg({
         role: 'assistant',
         // SAFETY: MessagePart's open UnknownRecord fallback member accepts
@@ -1555,24 +1739,55 @@ describe('buildContext', () => {
         // separately-declared `toolParts` fixture alongside inline
         // reasoning/provider-metadata literals makes TS infer a narrower
         // combined array type than MessagePart[] — this fixture exists to
-        // prove ContextBuilder never replays reasoning/provider-metadata,
-        // not to exercise any particular part shape's validation.
+        // prove ContextBuilder never replays provider metadata, not to
+        // exercise any particular part shape's validation.
         parts: [
-          { type: 'reasoning', text: 'SECRET_REASONING' },
+          {
+            type: 'reasoning',
+            text: 'SECRET_REASONING',
+            providerMetadata: { provider: 'REASONING_PART_METADATA' },
+          },
           { type: 'provider-metadata', secret: 'PROVIDER_SECRET' },
           ...toolParts,
         ] as Array<MessagePart>,
       });
+
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       const serialized = JSON.stringify(messages);
-      expect(serialized).not.toContain('SECRET_REASONING');
+      expect(serialized).toContain('SECRET_REASONING');
+      expect(serialized).not.toContain('REASONING_PART_METADATA');
       expect(serialized).not.toContain('PROVIDER_SECRET');
       expect(serialized).toContain('DETAIL_NOT_IN_ANSWER');
+      // This layer emits the minimal part: provider metadata attaches in
+      // layer 3, and a key this layer does not define never rides along.
+      expect(messages[1].content).toEqual([
+        { type: 'reasoning', text: 'SECRET_REASONING' },
+        expect.objectContaining({ type: 'tool-call' }),
+      ]);
+
+      // Reasoning and provider metadata reach the provider only as reasoning
+      // parts — the tool observation projection carries neither.
+      const projection = JSON.stringify(
+        projectToolObservations(assistant.parts),
+      );
+      expect(projection).not.toContain('SECRET_REASONING');
+      expect(projection).not.toContain('PROVIDER_SECRET');
+
+      // A compaction request over the same turn carries neither.
+      const { messages: compaction } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+        requestKind: 'compaction',
+      });
+      const summarized = JSON.stringify(compaction);
+      expect(summarized).not.toContain('SECRET_REASONING');
+      expect(summarized).not.toContain('PROVIDER_SECRET');
+      expect(summarized).toContain('DETAIL_NOT_IN_ANSWER');
     });
 
-    it('a tool called during reasoning output is replayed (2.13)', () => {
+    it('a tool called during reasoning output is replayed with that reasoning ahead of it (2.13)', () => {
       const assistant = msg({
         role: 'assistant',
         parts: [
@@ -1589,10 +1804,28 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('REASONING_TOOL_RESULT');
-      expect(serialized).not.toContain('Thinking about this');
+      // Occurrence order: the reasoning part stays ahead of the tool call it
+      // preceded, inside the same assistant content, and the text recorded
+      // after that call keeps its own position.
+      expect(messages[1].content).toEqual([
+        { type: 'reasoning', text: 'Thinking about this...' },
+        expect.objectContaining({
+          type: 'tool-call',
+          toolCallId: 'call-mid-reasoning',
+        }),
+      ]);
+      expect(messages[2].role).toBe('tool');
+      expect(messages[3]).toEqual({
+        role: 'assistant',
+        content: 'Answer after reasoning.',
+      });
+      for (const message of messages) {
+        expect(() => modelMessageSchema.parse(message)).not.toThrow();
+      }
     });
 
     it('compaction supersedes raw tool payloads (2.10)', () => {
@@ -1607,6 +1840,7 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, assistant, nextUser], {
         systemPrompt,
+        requestKind: 'continuation',
         compaction: compactionWithHistory(
           'User searched for holidays. Tool found results.',
           assistant.seq,
@@ -1658,6 +1892,7 @@ describe('buildContext', () => {
       });
       const { messages } = buildContext([userMsg1, toolOnly, nextUser], {
         systemPrompt,
+        requestKind: 'continuation',
       });
       const serialized = JSON.stringify(messages);
       expect(serialized).toContain('tool-call');
@@ -1784,7 +2019,10 @@ describe('buildContext', () => {
           ],
         });
 
-        const { messages } = buildContext([assistant], { systemPrompt });
+        const { messages } = buildContext([assistant], {
+          systemPrompt,
+          requestKind: 'continuation',
+        });
         expect(messages.map(({ role }) => role)).toEqual(['assistant', 'tool']);
 
         const serialized = JSON.stringify(messages);
@@ -1813,7 +2051,10 @@ describe('buildContext', () => {
         ],
       });
 
-      const { messages } = buildContext([assistant], { systemPrompt });
+      const { messages } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(messages.map(({ role }) => role)).toEqual([
         'assistant',
@@ -1873,7 +2114,10 @@ describe('buildContext', () => {
         ],
       });
 
-      const { messages } = buildContext([assistant], { systemPrompt });
+      const { messages } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(messages.map(({ role }) => role)).toEqual([
         'assistant',
@@ -1904,7 +2148,10 @@ describe('buildContext', () => {
         ],
       });
 
-      const { messages } = buildContext([assistant], { systemPrompt });
+      const { messages } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(JSON.stringify(messages).length).toBeLessThanOrEqual(
         TOOL_REPLAY_CALL_LIMIT,
@@ -1928,7 +2175,10 @@ describe('buildContext', () => {
         })),
       });
 
-      const { messages } = buildContext([assistant], { systemPrompt });
+      const { messages } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
       const serialized = JSON.stringify(messages);
 
       expect(serialized.length).toBeLessThanOrEqual(TOOL_REPLAY_TURN_LIMIT);
@@ -2002,7 +2252,10 @@ describe('buildContext', () => {
         ],
       });
 
-      const { messages } = buildContext([assistant], { systemPrompt });
+      const { messages } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
 
       expect(messages[0]).toEqual({ role: 'assistant', content: leadingText });
       expect(messages[1]?.role).toBe('assistant');
@@ -2073,7 +2326,8 @@ describe('buildContext', () => {
       });
 
       const serialized = JSON.stringify(
-        buildContext([assistant], { systemPrompt }).messages,
+        buildContext([assistant], { systemPrompt, requestKind: 'continuation' })
+          .messages,
       );
       expect(serialized).toContain('Outcome: timeout');
       expect(serialized).toContain('Outcome: invalid_input');
@@ -2084,6 +2338,7 @@ describe('buildContext', () => {
       expect(() =>
         buildContext([], {
           systemPrompt,
+          requestKind: 'continuation',
           compaction: compactionWithHistory('Checkpoint only', 10, undefined, {
             toolObservationLedger: {
               version: 1,

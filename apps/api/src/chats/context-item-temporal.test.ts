@@ -208,7 +208,10 @@ describe('temporal rows in assembled context', () => {
   ];
 
   it('dates every user turn and no assistant turn', () => {
-    const result = buildContext(conversation, { systemPrompt });
+    const result = buildContext(conversation, {
+      systemPrompt,
+      requestKind: 'continuation',
+    });
 
     const rendered = result.messages.map((m) => contentText(m.content));
     expect(rendered[0]).toContain('Message received: 2026-08-19 18:36+02:00');
@@ -220,7 +223,10 @@ describe('temporal rows in assembled context', () => {
   });
 
   it('renders the row ahead of the user text, in its own block', () => {
-    const [first] = buildContext(conversation, { systemPrompt }).messages;
+    const [first] = buildContext(conversation, {
+      systemPrompt,
+      requestKind: 'continuation',
+    }).messages;
     const blocks = contentBlockTexts(first.content);
     expect(blocks).toHaveLength(2);
     expect(blocks[0]).toContain('Message received:');
@@ -228,8 +234,14 @@ describe('temporal rows in assembled context', () => {
   });
 
   it('replays byte-identically however much later it is read', () => {
-    const first = buildContext(conversation, { systemPrompt });
-    const second = buildContext(conversation, { systemPrompt });
+    const first = buildContext(conversation, {
+      systemPrompt,
+      requestKind: 'continuation',
+    });
+    const second = buildContext(conversation, {
+      systemPrompt,
+      requestKind: 'continuation',
+    });
     // The property the whole design rests on: no message's serialized form
     // changes between requests, so the cached prefix stays valid.
     expect(JSON.stringify(second.messages)).toBe(
@@ -238,7 +250,10 @@ describe('temporal rows in assembled context', () => {
   });
 
   it('records each row in the run record', () => {
-    const { contextItems } = buildContext(conversation, { systemPrompt });
+    const { contextItems } = buildContext(conversation, {
+      systemPrompt,
+      requestKind: 'continuation',
+    });
     expect(contextItems).toHaveLength(2);
     for (const item of contextItems) {
       expect(item).toMatchObject({
@@ -257,7 +272,10 @@ describe('temporal rows in assembled context', () => {
       parts: [{ type: 'text', text: 'sent before rows existed' }],
     });
 
-    const result = buildContext([legacy], { systemPrompt });
+    const result = buildContext([legacy], {
+      systemPrompt,
+      requestKind: 'continuation',
+    });
 
     // A single block, which the provider adapter collapses back to a plain
     // string — the same wire form the turn had before the rail existed.
@@ -281,6 +299,7 @@ describe('temporal rows in assembled context', () => {
   it('drops rows superseded by a compaction along with their turns', () => {
     const { contextItems } = buildContext(conversation, {
       systemPrompt,
+      requestKind: 'continuation',
       compaction: {
         summary: 'earlier history',
         uptoSeq: 2,

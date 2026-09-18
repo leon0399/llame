@@ -136,7 +136,12 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
             config: {
               ...BUILT_IN_DEFAULTS,
               providers: [
-                { id: 'provider-a', type: 'openai', key: 'k', baseUrl: null },
+                {
+                  id: 'provider-a',
+                  type: 'openai-responses',
+                  key: 'k',
+                  baseUrl: null,
+                },
               ],
               embeddingModels: [MODEL],
               search: { chats: { embeddingModelId: MODEL_KEY } },

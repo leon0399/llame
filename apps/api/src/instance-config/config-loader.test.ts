@@ -97,7 +97,8 @@ function writePrompt(content: string, filename: string): string {
 }
 
 /** A single minimal `providers[]` entry, reused across fixtures that just need a provider id `models[].provider` can reference. */
-const SINGLE_PROVIDER_JSON = '"providers": [{ "id": "p", "type": "openai" }]';
+const SINGLE_PROVIDER_JSON =
+  '"providers": [{ "id": "p", "type": "openai-responses" }]';
 
 /**
  * A minimal valid `providers[]`/`models[]` pair naming a single model with
@@ -1076,13 +1077,13 @@ describe('loadInstanceConfig — worker profiles (durable-run-workers D2, task 3
 describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as-code, #167)', () => {
   it('resolves a valid provider + model pair', () => {
     writeConfig(`{
-      "providers": [{ "id": "openai", "type": "openai", "key": "{env:PM_KEY:-}", "baseUrl": "{env:PM_BASE_URL:-}" }],
+      "providers": [{ "id": "openai", "type": "openai-responses", "key": "{env:PM_KEY:-}", "baseUrl": "{env:PM_BASE_URL:-}" }],
       "models": [{ "id": "system:openai:gpt-5.4-mini", "provider": "openai", "providerModelId": "gpt-5.4-mini", "contextWindowTokens": 400000 }],
       "defaults": { "modelId": "system:openai:gpt-5.4-mini" }
     }`);
     const config = loadInstanceConfig();
     expect(config.providers).toEqual([
-      { id: 'openai', type: 'openai', key: null, baseUrl: null },
+      { id: 'openai', type: 'openai-responses', key: null, baseUrl: null },
     ]);
     expect(config.models).toHaveLength(1);
     expect(config.models[0]).toMatchObject({
@@ -1094,15 +1095,82 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     });
   });
 
+  it('loads an openai-responses provider with no baseUrl as null', () => {
+    writeConfig(
+      '{ "providers": [{ "id": "hosted", "type": "openai-responses", "key": "sk-responses" }] }',
+    );
+    expect(loadInstanceConfig().providers).toEqual([
+      {
+        id: 'hosted',
+        type: 'openai-responses',
+        key: 'sk-responses',
+        baseUrl: null,
+      },
+    ]);
+  });
+
+  it('loads a keyless openai-completions provider against its base URL', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "local",
+        "type": "openai-completions",
+        "baseUrl": "http://localhost:11434/v1",
+        "key": "{env:PM_KEY_UNSET:-}"
+      }]
+    }`);
+    expect(loadInstanceConfig().providers).toEqual([
+      {
+        id: 'local',
+        type: 'openai-completions',
+        key: null,
+        baseUrl: 'http://localhost:11434/v1',
+      },
+    ]);
+  });
+
+  it('loads a completions provider without contacting its endpoint', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      writeConfig(`{
+        "providers": [{ "id": "local", "type": "openai-completions", "baseUrl": "https://endpoint.invalid/v1" }]
+      }`);
+      expect(loadInstanceConfig().providers).toEqual([
+        {
+          id: 'local',
+          type: 'openai-completions',
+          key: null,
+          baseUrl: 'https://endpoint.invalid/v1',
+        },
+      ]);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it('two providers of the same type coexist by distinct id', () => {
     writeConfig(`{
       "providers": [
-        { "id": "openai", "type": "openai" },
-        { "id": "ollama", "type": "openai", "baseUrl": "http://localhost:11434/v1" }
+        { "id": "openai", "type": "openai-completions", "baseUrl": "https://api.openai.test/v1" },
+        { "id": "ollama", "type": "openai-completions", "baseUrl": "http://localhost:11434/v1" }
       ]
     }`);
     const config = loadInstanceConfig();
     expect(config.providers.map((p) => p.id)).toEqual(['openai', 'ollama']);
+    expect(config.providers).toEqual([
+      {
+        id: 'openai',
+        type: 'openai-completions',
+        key: null,
+        baseUrl: 'https://api.openai.test/v1',
+      },
+      {
+        id: 'ollama',
+        type: 'openai-completions',
+        key: null,
+        baseUrl: 'http://localhost:11434/v1',
+      },
+    ]);
   });
 
   it('loads nonblank Codex credentials once from provider interpolation', () => {
@@ -1202,8 +1270,8 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
   it('rejects a duplicate provider id', () => {
     writeConfig(`{
       "providers": [
-        { "id": "openai", "type": "openai" },
-        { "id": "openai", "type": "openai" }
+        { "id": "openai", "type": "openai-responses" },
+        { "id": "openai", "type": "openai-responses" }
       ]
     }`);
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
@@ -1212,18 +1280,73 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     );
   });
 
-  it('rejects an unsupported provider type at the schema layer', () => {
-    writeConfig(`{ "providers": [{ "id": "claude", "type": "anthropic" }] }`);
-    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
-    expect(() => loadInstanceConfig()).toThrow(/providers/);
+  it.each(['openai', 'anthropic'] as const)(
+    'rejects the out-of-enum provider type %s naming the entry and the value',
+    (type) => {
+      writeConfig(`{ "providers": [{ "id": "claude", "type": "${type}" }] }`);
+      try {
+        loadInstanceConfig();
+        expect.unreachable('expected an out-of-enum provider type to fail');
+      } catch (error) {
+        expect(errorMessage(error)).toContain('/providers[claude]/type');
+        expect(errorMessage(error)).toContain(JSON.stringify(type));
+        expect(errorMessage(error)).toContain('openai-responses');
+      }
+    },
+  );
+
+  it('fails boot naming the field when openai-completions omits baseUrl', () => {
+    writeConfig(
+      `{ "providers": [{ "id": "local", "type": "openai-completions" }] }`,
+    );
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected a missing completions baseUrl to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toContain('/providers[local]');
+      expect(errorMessage(error)).toContain(
+        "must have required property 'baseUrl'",
+      );
+    }
   });
 
-  it('a keyless provider resolves key to null', () => {
-    writeConfig(
-      `{ "providers": [{ "id": "ollama", "type": "openai", "key": "{env:PM_KEY_UNSET:-}" }] }`,
-    );
-    expect(loadInstanceConfig().providers[0].key).toBeNull();
+  it('fails boot naming the field when an openai-completions baseUrl interpolates to empty', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "local",
+        "type": "openai-completions",
+        "baseUrl": "{env:IC_EMPTY_BASE_URL}"
+      }]
+    }`);
+    try {
+      loadInstanceConfig({ IC_EMPTY_BASE_URL: '   ' });
+      expect.unreachable('expected a blank completions baseUrl to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toBe(
+        'providers[local].baseUrl: must resolve to a nonblank string',
+      );
+    }
   });
+
+  it.each(['openai-responses', 'openai-completions'] as const)(
+    'rejects the Codex-only accountId on an %s provider',
+    (type) => {
+      writeConfig(`{
+        "providers": [{
+          "id": "p",
+          "type": "${type}",
+          "baseUrl": "https://example.test/v1",
+          "accountId": "account-id"
+        }]
+      }`);
+      try {
+        loadInstanceConfig();
+        expect.unreachable('expected a Codex-only accountId to fail');
+      } catch (error) {
+        expect(errorMessage(error)).toContain('/providers[p]');
+      }
+    },
+  );
 
   it('rejects a Codex provider as an embedding backend', () => {
     writeConfig(`{
@@ -1531,8 +1654,8 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
   it('a resolved provider key never appears in a duplicate-id or dangling-reference error', () => {
     writeConfig(`{
       "providers": [
-        { "id": "openai", "type": "openai", "key": "sk-should-never-leak" },
-        { "id": "openai", "type": "openai", "key": "sk-should-never-leak" }
+        { "id": "openai", "type": "openai-responses", "key": "sk-should-never-leak" },
+        { "id": "openai", "type": "openai-responses", "key": "sk-should-never-leak" }
       ]
     }`);
     try {
@@ -1686,12 +1809,19 @@ describe('loadInstanceConfig — embeddingModels[] / search.* (chat-search-embed
 
   it('a self-hosted keyless local provider needs no new configuration concept', () => {
     writeConfig(`{
-      "providers": [{ "id": "local", "type": "openai", "baseUrl": "http://localhost:11434/v1" }],
+      "providers": [{ "id": "local", "type": "openai-completions", "baseUrl": "http://localhost:11434/v1" }],
       "embeddingModels": [
         { "id": "e", "provider": "local", "providerModelId": "bge-m3", "dimensions": 1024 }
       ]
     }`);
-    expect(loadInstanceConfig().embeddingModels[0].provider).toBe('local');
+    const config = loadInstanceConfig();
+    expect(config.embeddingModels[0].provider).toBe('local');
+    expect(config.providers[0]).toEqual({
+      id: 'local',
+      type: 'openai-completions',
+      key: null,
+      baseUrl: 'http://localhost:11434/v1',
+    });
   });
 });
 
@@ -1723,7 +1853,7 @@ describe('loadInstanceConfig — no secret in logs', () => {
 
   it('a resolved embedding-provider credential never appears in a duplicate-id, dangling-reference, or binding error (extends the models[] redaction coverage for embeddingModels[])', () => {
     writeConfig(`{
-      "providers": [{ "id": "p", "type": "openai", "key": "sk-embed-should-never-leak" }],
+      "providers": [{ "id": "p", "type": "openai-responses", "key": "sk-embed-should-never-leak" }],
       "embeddingModels": [
         { "id": "e", "provider": "p", "providerModelId": "m1", "dimensions": 8 },
         { "id": "e", "provider": "p", "providerModelId": "m2", "dimensions": 8 }
@@ -2155,12 +2285,12 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
 describe('loadInstanceConfig — per-entry settings name their own entry', () => {
   it('keeps a configured provider credential and base url instead of unsetting them', () => {
     writeConfig(
-      '{ "providers": [{ "id": "p", "type": "openai", "key": "literal-key", "baseUrl": "https://example.test" }] }',
+      '{ "providers": [{ "id": "p", "type": "openai-completions", "key": "literal-key", "baseUrl": "https://example.test" }] }',
     );
 
     const provider = loadInstanceConfig().providers[0];
-    if (provider?.type !== 'openai') {
-      expect.unreachable('expected an OpenAI-compatible provider');
+    if (provider?.type !== 'openai-completions') {
+      expect.unreachable('expected an openai-completions provider');
     }
     expect(provider.key).toBe('literal-key');
     expect(provider.baseUrl).toBe('https://example.test');
@@ -2168,7 +2298,7 @@ describe('loadInstanceConfig — per-entry settings name their own entry', () =>
 
   it('scopes a provider interpolation failure to that provider entry', () => {
     writeConfig(
-      '{ "providers": [{ "id": "p", "type": "openai", "key": "{env:IC_ABSENT_VARIABLE}" }] }',
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "key": "{env:IC_ABSENT_VARIABLE}" }] }',
     );
     try {
       loadInstanceConfig({});
@@ -2178,7 +2308,7 @@ describe('loadInstanceConfig — per-entry settings name their own entry', () =>
     }
 
     writeConfig(
-      '{ "providers": [{ "id": "p", "type": "openai", "baseUrl": "{env:IC_ABSENT_VARIABLE}" }] }',
+      '{ "providers": [{ "id": "p", "type": "openai-responses", "baseUrl": "{env:IC_ABSENT_VARIABLE}" }] }',
     );
     try {
       loadInstanceConfig({});
@@ -2284,7 +2414,7 @@ describe('loadInstanceConfig — file diagnostics name the exact location', () =
 
   it('reports the FIRST duplicate property, with array elements bracketed', () => {
     writeConfig(`{
-      "providers": [{ "id": "p", "type": "openai", "id": "q" }],
+      "providers": [{ "id": "p", "type": "openai-responses", "id": "q" }],
       "runs": { "timeoutSeconds": 1, "timeoutSeconds": 2 }
     }`);
 

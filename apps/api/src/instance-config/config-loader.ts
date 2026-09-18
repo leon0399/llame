@@ -19,6 +19,9 @@ import {
   type McpRemoteServerConfig,
   type McpServerConfig,
   type McpStdioServerConfig,
+  type OpenAICodexProviderConfig,
+  type OpenAICompletionsProviderConfig,
+  type OpenAIResponsesProviderConfig,
   type ProviderConfig,
   type RawProviderEntry,
   type RawInstanceConfig,
@@ -490,6 +493,24 @@ function assertValidRaw(
         .additionalProperty;
       return `${instancePath}/${extra ?? '?'}: unrecognized key`;
     }
+    const providerTypeMatch = /^\/providers\/(\d+)\/type$/.exec(e.instancePath);
+    if (e.keyword === 'enum' && providerTypeMatch) {
+      // The one schema failure whose message must name the rejected literal
+      // as well as the entry: an operator migrating off the deleted `openai`
+      // type reads the offending value here (spec: "Unsupported provider
+      // type fails at boot"). ajv's default enum message names neither the
+      // value nor the allowed set.
+      // ajv's enum keyword always carries `allowedValues` on `params`;
+      // reading it into `unknown` keeps the fallback truthful if that ever
+      // changes.
+      const allowed: unknown = e.params.allowedValues;
+      const providers: unknown = raw.providers;
+      const entry: unknown = Array.isArray(providers)
+        ? providers[Number(providerTypeMatch[1])]
+        : undefined;
+      const value = isRecord(entry) ? entry.type : undefined;
+      return `${instancePath}: ${JSON.stringify(value)} is not one of ${JSON.stringify(allowed)}`;
+    }
     return `${instancePath || '/'}: ${e.message ?? 'is invalid'}`;
   });
 
@@ -499,12 +520,14 @@ function assertValidRaw(
 }
 
 /**
- * Rewrite ajv's positional `/models/0/...` into `/models[<id>]/...`.
+ * Rewrite ajv's positional `/models/0/...` (and `/providers/0/...`) into
+ * `/models[<id>]/...` (`/providers[<id>]/...`).
  *
- * Every hand-written `models[]` failure below already names the model id, and
- * an operator editing a long catalog reads an id far faster than an ordinal.
- * Falls back to the raw path whenever the id is not a usable string — the
- * entry being reported may be exactly the one whose `id` is missing.
+ * Every hand-written `models[]`/`providers[]` failure already names the
+ * entry id, and an operator editing a long catalog reads an id far faster
+ * than an ordinal. Falls back to the raw path whenever the id is not a
+ * usable string — the entry being reported may be exactly the one whose
+ * `id` is missing.
  *
  * Returns ajv's path unchanged for anything else, INCLUDING the empty root
  * path: each caller applies its own default for that, because the two want
@@ -514,20 +537,24 @@ function describeInstancePath(
   instancePath: string,
   raw: UnknownRecord,
 ): string {
-  const match = /^\/models\/(\d+)(?<rest>\/.*)?$/.exec(instancePath);
+  const match =
+    /^\/(?<collection>models|providers)\/(?<index>\d+)(?<rest>\/.*)?$/.exec(
+      instancePath,
+    );
   if (!match) {
     return instancePath;
   }
-  const models: unknown = raw.models;
-  if (!Array.isArray(models)) {
+  const collection: unknown =
+    match.groups?.collection === 'providers' ? raw.providers : raw.models;
+  if (!Array.isArray(collection)) {
     return instancePath;
   }
   // Annotated `unknown`, not inferred: `Array.isArray` narrows to `any[]`, so
   // indexing it would hand the rest of this function an unchecked `any`.
-  const entry: unknown = models[Number(match[1])];
+  const entry: unknown = collection[Number(match.groups?.index)];
   const id = isRecord(entry) ? entry.id : undefined;
   return isString(id) && id.length > 0
-    ? `/models[${id}]${match.groups?.rest ?? ''}`
+    ? `/${match.groups?.collection}[${id}]${match.groups?.rest ?? ''}`
     : instancePath;
 }
 
@@ -1178,16 +1205,31 @@ function resolveProviders(
     }
     seenIds.add(entry.id);
 
-    return entry.type === 'openai-codex'
-      ? resolveCodexProvider(entry, env)
-      : resolveOpenAIProvider(entry, env);
+    switch (entry.type) {
+      case 'openai-responses':
+        return resolveOpenAIResponsesProvider(entry, env);
+      case 'openai-completions':
+        return resolveOpenAICompletionsProvider(entry, env);
+      case 'openai-codex':
+        return resolveCodexProvider(entry, env);
+      default: {
+        // Unreachable while the JSON Schema's `providerType` enum stays in
+        // sync with the cases above (assertValidRaw rejects any other `type`
+        // before this resolver runs) — kept as an internal error, not a
+        // silent fallback, in case that sync ever drifts.
+        const unsupported: never = entry;
+        throw new InstanceConfigError(
+          `providers: unsupported provider type ${String(unsupported)}`,
+        );
+      }
+    }
   });
 }
 
-function resolveOpenAIProvider(
-  entry: Extract<RawProviderEntry, { type: 'openai' }>,
+function resolveOpenAIResponsesProvider(
+  entry: Extract<RawProviderEntry, { type: 'openai-responses' }>,
   env: NodeJS.ProcessEnv,
-): ProviderConfig {
+): OpenAIResponsesProviderConfig {
   return {
     id: entry.id,
     type: entry.type,
@@ -1206,19 +1248,42 @@ function resolveOpenAIProvider(
   };
 }
 
-function resolveCodexProvider(
-  entry: Extract<RawProviderEntry, { type: 'openai-codex' }>,
+/**
+ * `baseUrl` is schema-required AND must survive interpolation nonblank: the
+ * completions adapter has no default endpoint, so an empty resolution fails
+ * boot naming the entry and the field rather than surfacing later as a
+ * request against the wrong host.
+ */
+function resolveOpenAICompletionsProvider(
+  entry: Extract<RawProviderEntry, { type: 'openai-completions' }>,
   env: NodeJS.ProcessEnv,
-): ProviderConfig {
+): OpenAICompletionsProviderConfig {
   return {
     id: entry.id,
     type: entry.type,
-    key: requireProviderCredential(
-      `providers[${entry.id}].key`,
-      entry.key,
+    key: resolveNullableString({
+      configPath: `providers[${entry.id}].key`,
+      present: entry.key !== undefined,
+      raw: entry.key,
+      env,
+    }),
+    baseUrl: requireNonBlankString(
+      `providers[${entry.id}].baseUrl`,
+      entry.baseUrl,
       env,
     ),
-    accountId: requireProviderCredential(
+  };
+}
+
+function resolveCodexProvider(
+  entry: Extract<RawProviderEntry, { type: 'openai-codex' }>,
+  env: NodeJS.ProcessEnv,
+): OpenAICodexProviderConfig {
+  return {
+    id: entry.id,
+    type: entry.type,
+    key: requireNonBlankString(`providers[${entry.id}].key`, entry.key, env),
+    accountId: requireNonBlankString(
       `providers[${entry.id}].accountId`,
       entry.accountId,
       env,
@@ -1226,7 +1291,12 @@ function resolveCodexProvider(
   };
 }
 
-function requireProviderCredential(
+/**
+ * Resolve a setting that is schema-required and must survive interpolation
+ * nonblank — the Codex credentials and the completions `baseUrl`. The error
+ * names the config path, never the resolved value.
+ */
+function requireNonBlankString(
   configPath: string,
   raw: string | null,
   env: NodeJS.ProcessEnv,
@@ -1521,7 +1591,7 @@ function resolveEmbeddingModels(
         `embeddingModels[${entry.id}].provider: unknown provider id "${entry.provider}" (not defined in providers[])`,
       );
     }
-    if (provider.type !== 'openai') {
+    if (provider.type === 'openai-codex') {
       throw new InstanceConfigError(
         `embeddingModels[${entry.id}].provider: provider "${entry.provider}" has type "${provider.type}" and does not support embeddings`,
       );

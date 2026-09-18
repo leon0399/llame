@@ -32,6 +32,21 @@ const messages = [
   },
 ] satisfies Array<ModelMessage>;
 
+/**
+ * The Responses client calls the provider itself (its Responses entry
+ * point). The named `responses` member is never invoked, but a bare callable
+ * has no properties in common with the `Partial<OpenAIProvider>` the partial
+ * DI mock accepts, so the stub carries it to stay assignable.
+ */
+function responsesProviderMock(model: MockLanguageModelV3) {
+  return Object.assign(
+    vi.fn(() => model),
+    {
+      responses: vi.fn(() => model),
+    },
+  );
+}
+
 describe('ModelClient', () => {
   beforeEach(() => {
     createOpenAIMock.mockReset();
@@ -52,16 +67,12 @@ describe('ModelClient', () => {
 
   it('constructs a per-request client from a user-supplied credential', async () => {
     const providerModel = new MockLanguageModelV3({
-      provider: 'openai.chat',
+      provider: 'openai.responses',
       modelId: 'gpt-test',
     });
-    // The client uses the /chat/completions API (OpenAI-compatible, #88).
-    const openaiProvider = Object.assign(
-      vi.fn(() => providerModel),
-      {
-        chat: vi.fn(() => providerModel),
-      },
-    );
+    // The Responses client calls the provider itself (openai(model)) — its
+    // Responses entry point. No Chat Completions path exists here.
+    const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
 
@@ -96,7 +107,7 @@ describe('ModelClient', () => {
     expect(createOpenAIMock).toHaveBeenCalledWith({
       apiKey: 'sk-user-supplied',
     });
-    expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-test');
+    expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
     const streamTextCall = streamTextMock.mock.calls[0]?.[0];
     expect(streamTextCall).toMatchObject({
       model: providerModel,
@@ -109,7 +120,7 @@ describe('ModelClient', () => {
     expect(streamTextCall?.onAbort).toEqual(expect.any(Function));
   });
 
-  it('passes a non-empty placeholder apiKey for keyless compatible endpoints (#162)', () => {
+  it('passes a non-empty placeholder apiKey for a keyless provider (#162)', () => {
     // Omitting `apiKey` entirely (rather than a placeholder) is what made
     // @ai-sdk/provider-utils's loadApiKey throw LoadAPIKeyError for a
     // genuinely keyless endpoint (local Ollama) when OPENAI_API_KEY was also
@@ -117,15 +128,10 @@ describe('ModelClient', () => {
     // proves loadApiKey doesn't throw; this test only proves OUR code passes
     // the right constructor args.
     const providerModel = new MockLanguageModelV3({
-      provider: 'openai.chat',
+      provider: 'openai.responses',
       modelId: 'gpt-local',
     });
-    const openaiProvider = Object.assign(
-      vi.fn(() => providerModel),
-      {
-        chat: vi.fn(() => providerModel),
-      },
-    );
+    const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
 
@@ -146,7 +152,7 @@ describe('ModelClient', () => {
     expect(createOpenAIMock).toHaveBeenCalledWith({
       apiKey: KEYLESS_PLACEHOLDER_API_KEY,
     });
-    expect(openaiProvider.chat).toHaveBeenCalledWith('gpt-local');
+    expect(openaiProvider).toHaveBeenCalledWith('gpt-local');
     const streamTextCall = streamTextMock.mock.calls[0]?.[0];
     expect(streamTextCall).toMatchObject({
       model: providerModel,
@@ -159,18 +165,13 @@ describe('ModelClient', () => {
     expect(streamTextCall?.onAbort).toEqual(expect.any(Function));
   });
 
-  it('targets an OpenAI-compatible endpoint when a base URL is provided', () => {
+  it('targets the configured base URL when one is provided', () => {
     const providerModel = new MockLanguageModelV3({
-      provider: 'openai.chat',
+      provider: 'openai.responses',
       modelId: 'gpt-test',
     });
-    // The client uses the /chat/completions API (OpenAI-compatible, #88).
-    const openaiProvider = Object.assign(
-      vi.fn(() => providerModel),
-      {
-        chat: vi.fn(() => providerModel),
-      },
-    );
+    // The Responses wire is served at the entry's baseUrl (design D1).
+    const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
 
@@ -198,13 +199,10 @@ describe('ModelClient', () => {
 
   it('exposes configured pricing and compaction metadata on the model client', () => {
     const providerModel = new MockLanguageModelV3({
-      provider: 'openai.chat',
+      provider: 'openai.responses',
       modelId: 'gpt-test',
     });
-    const openaiProvider = Object.assign(
-      vi.fn(() => providerModel),
-      { chat: vi.fn(() => providerModel) },
-    );
+    const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
 
@@ -231,17 +229,12 @@ describe('ModelClient', () => {
     });
   });
 
-  it('uses native Responses with an automatic displayable reasoning summary when configured for native OpenAI', () => {
+  it('uses the Responses wire with an automatic displayable reasoning summary', () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
-    const openaiProvider = Object.assign(
-      vi.fn(() => providerModel),
-      {
-        chat: vi.fn(() => providerModel),
-      },
-    );
+    const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
 
@@ -251,14 +244,12 @@ describe('ModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
-        nativeOpenAI: true,
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
     client.streamText({ messages });
 
     expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
-    expect(openaiProvider.chat).not.toHaveBeenCalled();
     expect(streamTextMock).toHaveBeenCalledWith(
       expect.objectContaining({
         model: providerModel,
@@ -268,15 +259,12 @@ describe('ModelClient', () => {
   });
 
   describe('reasoning effort (add-reasoning-effort)', () => {
-    function build(nativeOpenAI: boolean) {
+    function build() {
       const providerModel = new MockLanguageModelV3({
-        provider: 'openai',
+        provider: 'openai.responses',
         modelId: 'gpt-test',
       });
-      const openaiProvider = Object.assign(
-        vi.fn(() => providerModel),
-        { chat: vi.fn(() => providerModel) },
-      );
+      const openaiProvider = responsesProviderMock(providerModel);
       createOpenAIMock.mockReturnValue(openaiProvider);
       streamTextMock.mockReturnValue({});
       return createOpenAIModelClient(
@@ -285,7 +273,6 @@ describe('ModelClient', () => {
           providerModelId: 'gpt-test',
           modelId: 'system:openai:gpt-test',
           contextWindowTokens: 128_000,
-          nativeOpenAI,
         },
         { createOpenAI: createOpenAIMock, streamText: streamTextMock },
       );
@@ -293,22 +280,24 @@ describe('ModelClient', () => {
 
     // One property, two data points: an ordinary level and a token carrying
     // casing/separators llame never constrains. Both must reach the provider
-    // byte-for-byte on the Chat Completions path.
+    // byte-for-byte on the Responses wire.
     it.each(['xhigh', 'Very-High_2'])(
-      'sends %s through the Chat Completions path verbatim',
+      'sends %s through the Responses wire verbatim',
       (effort) => {
-        build(false).streamText({ messages, effort });
+        build().streamText({ messages, effort });
 
         expect(streamTextMock).toHaveBeenCalledWith(
           expect.objectContaining({
-            providerOptions: { openai: { reasoningEffort: effort } },
+            providerOptions: {
+              openai: { reasoningSummary: 'auto', reasoningEffort: effort },
+            },
           }),
         );
       },
     );
 
-    it('sends the effort alongside the native reasoning summary, not instead of it', () => {
-      build(true).streamText({ messages, effort: 'max' });
+    it('sends the effort alongside the automatic reasoning summary, not instead of it', () => {
+      build().streamText({ messages, effort: 'max' });
 
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -323,20 +312,15 @@ describe('ModelClient', () => {
     // instruction to the provider, and dropping it would silently fall back to
     // the provider's own default instead.
     it('sends a level denoting disabled reasoning rather than dropping it', () => {
-      build(false).streamText({ messages, effort: 'none' });
+      build().streamText({ messages, effort: 'none' });
 
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          providerOptions: { openai: { reasoningEffort: 'none' } },
+          providerOptions: {
+            openai: { reasoningSummary: 'auto', reasoningEffort: 'none' },
+          },
         }),
       );
-    });
-
-    it('sets no provider options at all when no effort is supplied on a compatible endpoint', () => {
-      build(false).streamText({ messages });
-
-      const [options] = streamTextMock.mock.calls.at(-1) ?? [];
-      expect(options?.providerOptions).toBeUndefined();
     });
   });
 });
