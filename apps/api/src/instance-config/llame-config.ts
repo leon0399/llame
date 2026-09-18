@@ -12,11 +12,15 @@ import { type ToolPermissionMap } from '../tools/permissions/types';
 
 /**
  * Executable provider client implementations (providers-and-models-as-code,
- * #167). `openai` covers native OpenAI and any OpenAI-compatible endpoint
- * (Ollama, OpenRouter, a local server, ...). The Anthropic adapter is a
- * split-out follow-up: this enum is strict-closed on purpose — a schema that
- * advertised a `type` it cannot execute would fail at request time instead
- * of at the offending config path.
+ * #167). `type` names the wire API the entry speaks — never inferred from
+ * the `id`, the `baseUrl`, or a host: `openai-responses` executes the
+ * Responses API through `@ai-sdk/openai` (hosted OpenAI or any compatible
+ * `/v1/responses` server); `openai-completions` executes the Chat
+ * Completions API through `@ai-sdk/openai-compatible` at its required
+ * `baseUrl`; `openai-codex` uses the personal Codex subscription backend.
+ * This set is strict-closed on purpose — a schema that advertised a `type`
+ * it cannot execute would fail at request time instead of at the offending
+ * config path. The Anthropic adapter is a split-out follow-up.
  */
 /**
  * A configured provider connection: `type` selects the client
@@ -25,11 +29,25 @@ import { type ToolPermissionMap } from '../tools/permissions/types';
  * `id`s and `baseUrl`s (e.g. hosted OpenAI + a local Ollama) coexist.
  * `key: null` means keyless (the resolved credential was empty/absent).
  */
-export type OpenAIProviderConfig = {
+export type OpenAIResponsesProviderConfig = {
   id: string;
-  type: 'openai';
+  type: 'openai-responses';
   key: string | null;
+  /** `null` uses the client's own default (OpenAI's hosted API). */
   baseUrl: string | null;
+};
+
+/**
+ * Chat Completions wire through `@ai-sdk/openai-compatible`. Unlike the
+ * Responses wire, `baseUrl` is required: the adapter has no default
+ * endpoint, so an entry that omits it (or resolves it to empty) fails at
+ * boot, naming the entry and the field.
+ */
+export type OpenAICompletionsProviderConfig = {
+  id: string;
+  type: 'openai-completions';
+  key: string | null;
+  baseUrl: string;
 };
 
 export type OpenAICodexProviderConfig = {
@@ -39,7 +57,10 @@ export type OpenAICodexProviderConfig = {
   accountId: string;
 };
 
-export type ProviderConfig = OpenAIProviderConfig | OpenAICodexProviderConfig;
+export type ProviderConfig =
+  | OpenAIResponsesProviderConfig
+  | OpenAICompletionsProviderConfig
+  | OpenAICodexProviderConfig;
 
 /** Resolved private Streamable HTTP server configuration. */
 export type McpRemoteServerConfig = {
@@ -141,9 +162,16 @@ export type RawMcpServerEntry =
 export type RawProviderEntry =
   | {
       id: string;
-      type: 'openai';
+      type: 'openai-responses';
       key?: unknown;
       baseUrl?: unknown;
+    }
+  | {
+      id: string;
+      type: 'openai-completions';
+      key?: unknown;
+      /** Schema-required for this branch; may still be `null`/blank after interpolation. */
+      baseUrl: string | null;
     }
   | {
       id: string;

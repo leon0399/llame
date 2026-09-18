@@ -8,6 +8,7 @@ import {
 } from '../instance-config/llame-config';
 import type { SystemModelCatalogEntry } from './model-catalog';
 import { createModelClient } from './model-client-factory';
+import type { createOpenAICompletionsModelClient } from './openai-completions-model-client';
 import type { createOpenAIModelClient } from './openai-model-client';
 import {
   ModelConfigurationError,
@@ -16,29 +17,41 @@ import {
   ModelsService,
 } from './models.service';
 
-// Test seam (anti-slop/no-module-mocking): overrides createOpenAIModelClient
-// via ModelsService's own dependency-injection constructor param instead of
-// module-mocking ./openai-model-client. No provider is registered for that
-// token in production, so this override only takes effect when a test
-// constructs ModelsService directly, as createService below does.
+// Test seam (anti-slop/no-module-mocking): overrides the per-wire client
+// constructors via ModelsService's own dependency-injection constructor param
+// instead of module-mocking ./openai-model-client or
+// ./openai-completions-model-client. No provider is registered for that token
+// in production, so this override only takes effect when a test constructs
+// ModelsService directly, as createService below does.
 const createOpenAIModelClientMock = vi.mocked(
   vi.fn<typeof createOpenAIModelClient>(),
   { partial: true },
 );
 createOpenAIModelClientMock.mockReturnValue({
   model: 'stub',
-  provider: 'openai',
+  provider: 'openai-responses',
+  contextWindowTokens: 400_000,
+  streamText: vi.fn(),
+});
+const createOpenAICompletionsModelClientMock = vi.mocked(
+  vi.fn<typeof createOpenAICompletionsModelClient>(),
+  { partial: true },
+);
+createOpenAICompletionsModelClientMock.mockReturnValue({
+  model: 'stub',
+  provider: 'openai-completions',
   contextWindowTokens: 400_000,
   streamText: vi.fn(),
 });
 const createModelClientOverride: typeof createModelClient = (input) =>
   createModelClient(input, {
     createOpenAIModelClient: createOpenAIModelClientMock,
+    createOpenAICompletionsModelClient: createOpenAICompletionsModelClientMock,
   });
 
 const DEFAULT_PROVIDER: ProviderConfig = {
   id: 'openai',
-  type: 'openai',
+  type: 'openai-responses',
   key: null,
   baseUrl: null,
 };
@@ -144,6 +157,7 @@ function createService(overrides: {
 describe('ModelsService', () => {
   beforeEach(() => {
     createOpenAIModelClientMock.mockClear();
+    createOpenAICompletionsModelClientMock.mockClear();
   });
 
   it('returns the configured default and all configured models in catalog order', () => {
@@ -268,7 +282,7 @@ describe('ModelsService', () => {
       providers: [
         {
           id: 'ollama',
-          type: 'openai',
+          type: 'openai-completions',
           key: null,
           baseUrl: 'http://localhost:11434/v1',
         },
@@ -278,10 +292,11 @@ describe('ModelsService', () => {
 
     service.createClient('system:openai:gpt-5.4-mini');
 
-    expect(createOpenAIModelClientMock).toHaveBeenCalledWith({
+    // `ollama` is a Chat Completions endpoint, so its declared wire builds the
+    // compatible client — not the Responses one, whatever the id is spelled.
+    expect(createOpenAICompletionsModelClientMock).toHaveBeenCalledWith({
       credential: undefined,
       baseUrl: 'http://localhost:11434/v1',
-      nativeOpenAI: false,
       providerModelId: 'gpt-5.4-mini',
       modelId: 'system:openai:gpt-5.4-mini',
       contextWindowTokens: 400_000,
@@ -291,6 +306,7 @@ describe('ModelsService', () => {
         outputUsdPer1M: 4.5,
       },
     });
+    expect(createOpenAIModelClientMock).not.toHaveBeenCalled();
   });
 
   describe('validateModelSelection', () => {

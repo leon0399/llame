@@ -809,6 +809,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           source.chat,
           sourceWindow.compaction,
         ),
+        requestKind: 'continuation',
         compaction: sourceWindow.compaction,
       },
     );
@@ -819,6 +820,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           forked,
           forkWindow.compaction,
         ),
+        requestKind: 'continuation',
         compaction: forkWindow.compaction,
       },
     );

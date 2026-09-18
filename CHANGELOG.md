@@ -1,5 +1,38 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-18
+
+- Provider `type` names the wire API the entry speaks, and `type: "openai"` is
+  deleted (#219, #339). `openai-responses` executes the Responses wire through
+  `@ai-sdk/openai` at the entry's `baseUrl`, defaulting to
+  `https://api.openai.com/v1`; `openai-completions` executes the Chat
+  Completions wire through `@ai-sdk/openai-compatible@2.0.75` at the entry's
+  required `baseUrl`. **Breaking**: every existing `type: "openai"` entry
+  fails boot as an out-of-enum type until it is re-declared as one of the two;
+  there is no shim and no migration. `id` no longer selects anything: the
+  `nativeOpenAI` flag and the `provider.id === 'openai'` check are gone, so a
+  Chat Completions endpoint named `openai` stops receiving Responses requests,
+  and a Responses endpoint under any other name keeps its reasoning summaries.
+  Every request an entry makes — streaming chat, forced-tool structured
+  generation (titles), compaction — follows its declared wire. Boot validates
+  shape only: nothing is inferred from `id`, `baseUrl`, or host, no entry is
+  rewritten at load time, and an endpoint that does not serve its declared
+  wire fails on the first request under the existing failure contract.
+
+  Reasoning now reaches Chat Completions backends. `@ai-sdk/openai-compatible`
+  normalizes `reasoning_content ?? reasoning` inbound and re-injects
+  `reasoning_content` on outbound assistant messages, so a compatible
+  backend's reasoning renders in the Thinking panel with no llame-authored
+  vendor parser, raw SSE parser, tag extraction, or middleware. Persisted
+  reasoning text is replayed on later requests that continue the same Chat,
+  which DeepSeek requires once a request carries `tools`; on the Responses
+  wire only a part with an item id or encrypted content is replayed, and the
+  SDK omits the rest with a warning. Embedding model entries may reference
+  either OpenAI wire type, since the embeddings call is wire-independent. The
+  shipped `apps/api/llame.config.json.example` and the E2E provider fixture are
+  re-declared, the wire matrix is in `apps/api/AGENTS.md`, and the breaking
+  note is in the README.
+
 # 2026-09-17
 
 - Skill sources follow symbolic links with no containment (#868). A configured

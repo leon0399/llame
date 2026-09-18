@@ -97,7 +97,7 @@ describeIfDb(
           providers: [
             {
               id: 'provider-a',
-              type: 'openai' as const,
+              type: 'openai-responses' as const,
               key: 'k',
               baseUrl: null,
             },

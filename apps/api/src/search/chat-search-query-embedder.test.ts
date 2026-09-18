@@ -51,7 +51,12 @@ describe('ChatSearchQueryEmbedder', () => {
       configWith({
         embeddingModels: [TEST_MODEL],
         providers: [
-          { id: 'test-provider', type: 'openai', key: 'k', baseUrl: null },
+          {
+            id: 'test-provider',
+            type: 'openai-responses',
+            key: 'k',
+            baseUrl: null,
+          },
         ],
         search: { chats: { embeddingModelId: 'test-embed' } },
       }),
@@ -69,7 +74,12 @@ describe('ChatSearchQueryEmbedder', () => {
       configWith({
         embeddingModels: [TEST_MODEL],
         providers: [
-          { id: 'test-provider', type: 'openai', key: 'k', baseUrl: null },
+          {
+            id: 'test-provider',
+            type: 'openai-responses',
+            key: 'k',
+            baseUrl: null,
+          },
         ],
         search: { chats: { embeddingModelId: 'test-embed' } },
       }),
@@ -91,7 +101,12 @@ describe('ChatSearchQueryEmbedder', () => {
         configWith({
           embeddingModels: [TEST_MODEL],
           providers: [
-            { id: 'test-provider', type: 'openai', key: 'k', baseUrl: null },
+            {
+              id: 'test-provider',
+              type: 'openai-responses',
+              key: 'k',
+              baseUrl: null,
+            },
           ],
           search: { chats: { embeddingModelId: 'test-embed' } },
         }),

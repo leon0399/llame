@@ -2652,6 +2652,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       };
       const replay = buildContext([storedAssistant], {
         systemPrompt: 'Knowledge replay test',
+        requestKind: 'continuation',
       });
       const replayed = JSON.stringify(replay.messages);
       expect(replayed).toContain(space.id);
@@ -2681,7 +2682,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
             ],
           },
         ],
-        { systemPrompt: 'Knowledge replay test' },
+        { systemPrompt: 'Knowledge replay test', requestKind: 'continuation' },
       );
       expect(JSON.stringify(historical.messages)).toContain(contentHash);
 
@@ -2708,7 +2709,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
             ],
           },
         ],
-        { systemPrompt: 'Knowledge replay test' },
+        { systemPrompt: 'Knowledge replay test', requestKind: 'continuation' },
       );
       const degradedReplay = JSON.stringify(degraded.messages);
       expect(degraded.messages).toHaveLength(2);
@@ -2849,7 +2850,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
             parts: assistant.parts.filter(isRecord),
           },
         ],
-        { systemPrompt: 'Conversation replay test' },
+        {
+          systemPrompt: 'Conversation replay test',
+          requestKind: 'continuation',
+        },
       );
       const replayed = JSON.stringify(replay.messages);
       expect(replayed).toContain(source.chatId);
@@ -3268,6 +3272,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       };
       const replay = buildContext([storedAssistant], {
         systemPrompt: 'Knowledge search replay test',
+        requestKind: 'continuation',
       });
       const replayed = JSON.stringify(replay.messages);
       expect(replayed).toContain(space.id);

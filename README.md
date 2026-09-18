@@ -13,7 +13,9 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 - Durable chat Runs via pg-boss. Progress persists and replays after refresh or
   reconnect.
 - Operator-managed providers, models, and per-model system prompts in
-  `llame.config.json`, supporting OpenAI-compatible endpoints.
+  `llame.config.json`. Each provider entry declares the wire it speaks:
+  `openai-responses` for the Responses API, or `openai-completions` for
+  OpenAI-compatible Chat Completions endpoints.
 - Owner-only Projects for organizing chats, with pinning and reversible archive.
 - Bounded tool loop: `search_conversations`, optional line-ranged
   `conversation_read`, and operator-configured Streamable HTTP MCP tools.
@@ -57,9 +59,13 @@ pnpm dev
 ```
 
 `apps/api` needs `POSTGRES_URL` and any provider credentials referenced by
-`llame.config.json`. `apps/web` is a thin client configured with
-`NEXT_PUBLIC_API_URL`. See [AGENTS.md](AGENTS.md) for development setup and
-commands.
+`llame.config.json`. Each provider entry declares its wire: `openai-responses`
+calls the Responses API, with an optional `baseUrl` defaulting to OpenAI, and
+`openai-completions` calls Chat Completions on its required `baseUrl`.
+**Breaking**: `type: "openai"` is deleted — re-declare every existing provider
+entry as one of those two types, or startup fails naming the entry.
+`apps/web` is a thin client configured with `NEXT_PUBLIC_API_URL`. See
+[AGENTS.md](AGENTS.md) for development setup and commands.
 
 Personal Knowledge is opt-in. Set an absolute `knowledge.root` in the operator
 configuration, mount the same logical stable-ID child directories into every

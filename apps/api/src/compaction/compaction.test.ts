@@ -143,6 +143,31 @@ describe('estimateContextTokens', () => {
       ),
     );
   });
+
+  it('measures a continuation, so replayed reasoning counts toward the estimate', () => {
+    const question = msg('question');
+    const answer = msg('answer', 'assistant');
+    const withReasoning: Array<StoredMessage> = [
+      question,
+      {
+        ...answer,
+        parts: [
+          { type: 'reasoning', text: 'R'.repeat(4000) },
+          { type: 'text', text: 'answer' },
+        ],
+      },
+    ];
+    const withoutReasoning: Array<StoredMessage> = [
+      question,
+      { ...answer, parts: [{ type: 'text', text: 'answer' }] },
+    ];
+
+    // The estimate sizes the next continuation request — which replays
+    // reasoning — not the summarization request over the same history (D16).
+    expect(estimateContextTokens(withReasoning, undefined)).toBeGreaterThan(
+      estimateContextTokens(withoutReasoning, undefined),
+    );
+  });
 });
 
 describe('target request preflight', () => {
@@ -402,6 +427,27 @@ describe('buildCompactionRequest', () => {
 
   it('pins the compaction ratio itself', () => {
     expect(COMPACTION_WINDOW_RATIO).toBe(0.8);
+  });
+
+  it('summarizes a history that stores reasoning without replaying it', () => {
+    const question = msg('plan a trip to Japan');
+    const answer = msg('sure — when?', 'assistant');
+    answer.parts = [
+      { type: 'reasoning', text: 'SECRET_REASONING' },
+      { type: 'text', text: 'VISIBLE_ANSWER' },
+    ];
+
+    const request = buildCompactionRequest({
+      system: CHAT_SYSTEM,
+      previous: undefined,
+      absorb: [question, answer],
+    });
+
+    const serialized = JSON.stringify(request.messages);
+    // Reasoning is excluded from what the summarizer reads …
+    expect(serialized).not.toContain('SECRET_REASONING');
+    // … while the visible turn still reaches it.
+    expect(serialized).toContain('VISIBLE_ANSWER');
   });
 
   it.each([

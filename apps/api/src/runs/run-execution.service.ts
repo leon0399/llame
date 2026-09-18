@@ -1487,6 +1487,9 @@ export class RunExecutionService {
     );
     return buildContext(toStoredMessages(history), {
       systemPrompt,
+      // A Run's own request continues this Chat, so it replays the Chat's
+      // persisted reasoning (D16).
+      requestKind: 'continuation',
       ...(compaction && {
         compaction: {
           summary: compaction.summary,

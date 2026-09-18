@@ -68,7 +68,7 @@ function instanceConfig(embeddingModelId: string | null): InstanceConfigReader {
     config: {
       ...BUILT_IN_DEFAULTS,
       providers: [
-        { id: 'provider-a', type: 'openai', key: 'k', baseUrl: null },
+        { id: 'provider-a', type: 'openai-responses', key: 'k', baseUrl: null },
       ],
       embeddingModels: [MODEL],
       search: {
@@ -326,13 +326,13 @@ describe('resolveEmbeddingBackendConfig', () => {
       resolveEmbeddingBackendConfig(model, [
         {
           id: 'other-provider',
-          type: 'openai',
+          type: 'openai-completions',
           key: 'wrong-key',
           baseUrl: 'https://wrong.example',
         },
         {
           id: 'provider-a',
-          type: 'openai',
+          type: 'openai-completions',
           key: 'right-key',
           baseUrl: 'https://right.example',
         },
@@ -357,7 +357,12 @@ describe('resolveEmbeddingBackendConfig', () => {
 
     expect(
       resolveEmbeddingBackendConfig(model, [
-        { id: 'provider-a', type: 'openai', key: null, baseUrl: null },
+        {
+          id: 'provider-a',
+          type: 'openai-responses',
+          key: null,
+          baseUrl: null,
+        },
       ]),
     ).toEqual({
       providerModelId: MODEL.providerModelId,
@@ -370,9 +375,31 @@ describe('resolveEmbeddingBackendConfig', () => {
     expect(() =>
       resolveEmbeddingBackendConfig(
         { ...MODEL, provider: 'missing-provider' },
-        [{ id: 'provider-a', type: 'openai', key: 'k', baseUrl: null }],
+        [
+          {
+            id: 'provider-a',
+            type: 'openai-responses',
+            key: 'k',
+            baseUrl: null,
+          },
+        ],
       ),
     ).toThrow(/missing-provider/);
+  });
+
+  it('rejects a Codex provider, which cannot back embeddings', () => {
+    expect(() =>
+      resolveEmbeddingBackendConfig({ ...MODEL, provider: 'codex' }, [
+        {
+          id: 'codex',
+          type: 'openai-codex',
+          key: 'token',
+          accountId: 'account',
+        },
+      ]),
+    ).toThrow(
+      'embeddingModels[embed-a].provider: "codex" does not support embeddings',
+    );
   });
 });
 
@@ -761,7 +788,14 @@ describe('resolveEmbeddingBackendConfig key exactness', () => {
         batchSize: 32,
         distanceMetric: 'cosine',
       },
-      [{ id: 'provider-a', type: 'openai', key: null, baseUrl: null }],
+      [
+        {
+          id: 'provider-a',
+          type: 'openai-responses',
+          key: null,
+          baseUrl: null,
+        },
+      ],
     );
 
     expect(Object.keys(config).sort()).toEqual([
@@ -786,7 +820,7 @@ describe('resolveEmbeddingBackendConfig key exactness', () => {
       [
         {
           id: 'provider-a',
-          type: 'openai',
+          type: 'openai-completions',
           key: 'sk-1',
           baseUrl: 'https://example.test',
         },

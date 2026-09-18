@@ -76,8 +76,8 @@
     },
     "providerType": {
       "type": "string",
-      "description": "Executable provider client implementation. \"openai\" supports native OpenAI and OpenAI-compatible endpoints; \"openai-codex\" uses the personal Codex subscription endpoint. Anthropic is a follow-up: this enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
-      "enum": ["openai", "openai-codex"]
+      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"openai-codex\" uses the personal Codex subscription endpoint. Anthropic is a follow-up: this enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
+      "enum": ["openai-responses", "openai-completions", "openai-codex"]
     },
     "providerEntry": {
       "type": "object",
@@ -97,7 +97,7 @@
         },
         "baseUrl": {
           "$ref": "#/$defs/nullableString",
-          "description": "Provider endpoint base URL. Absent/null uses the client implementation's own default (OpenAI's hosted API for `type: \"openai\"`)."
+          "description": "Provider endpoint base URL. Required (and nonblank after interpolation) for `type: \"openai-completions\"`; absent/null uses the client implementation's own default (OpenAI's hosted API for `type: \"openai-responses\"`)."
         },
         "accountId": {
           "$ref": "#/$defs/nullableString",
@@ -106,8 +106,15 @@
       },
       "allOf": [
         {
-          "if": { "properties": { "type": { "const": "openai" } } },
+          "if": { "properties": { "type": { "const": "openai-responses" } } },
           "then": { "not": { "required": ["accountId"] } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "openai-completions" } } },
+          "then": {
+            "required": ["baseUrl"],
+            "not": { "required": ["accountId"] }
+          }
         },
         {
           "if": { "properties": { "type": { "const": "openai-codex" } } },

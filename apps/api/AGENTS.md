@@ -64,6 +64,50 @@ Traps:
   `instance-config/authored-text.ts` and keep the web mirror byte-identical.
 - `SafeString("")` is truthy; omit absent/trimmed-empty keys.
 
+Provider `type` names the wire API the entry speaks and is the only input to
+wire selection: nothing is inferred from `id`, `baseUrl`, or host, and no entry
+is rewritten at load time. Every language-model request the entry makes —
+streaming chat, forced-tool structured generation (titles), compaction — uses
+its declared wire; embedding requests are wire-independent and exempt from it.
+Boot validates shape only, so an endpoint that does not serve its declared wire
+fails on the first request under the existing failure contract, never at boot.
+
+| `type`               | Wire             | Client                       | `baseUrl`                    |
+| -------------------- | ---------------- | ---------------------------- | ---------------------------- |
+| `openai-responses`   | Responses        | `@ai-sdk/openai`             | optional; defaults to OpenAI |
+| `openai-completions` | Chat Completions | `@ai-sdk/openai-compatible`  | required                     |
+| `openai-codex`       | Responses        | Codex subscription transport | rejected                     |
+
+An `openai-completions` `baseUrl` is required and must resolve non-blank after
+interpolation; an `openai-responses` `baseUrl` is optional and falls back to
+the OpenAI API. `openai-responses` is not "official OpenAI": Ollama >= 0.13.3,
+vLLM, and llama.cpp serve `/v1/responses`, while DeepSeek, GLM, LM Studio,
+older Ollama, and most gateways serve Chat Completions.
+
+Reasoning renders in the chat's Thinking panel on both wires and exports to
+markdown with it, and it always comes from the adapter, never from llame
+parsing: `@ai-sdk/openai`'s Responses path supplies reasoning summaries and
+encrypted reasoning, and `@ai-sdk/openai-compatible` normalizes
+`reasoning_content ?? reasoning` inbound and re-injects `reasoning_content` on
+outbound assistant messages. Never add a vendor parser, raw SSE parser, tag
+extraction, or middleware for it. Persisted reasoning text is replayed on
+later requests that continue the same Chat.
+
+Accepted differences on the completions wire, none compensated by a shim: no
+reasoning-model parameter handling (`max_tokens` to `max_completion_tokens`
+remapping, stripping temperature/logprobs/penalties), so an OpenAI-shaped
+reasoning model can be rejected for an unsupported parameter where the
+Responses wire would have adapted the request; `logprobs`, `logit_bias`,
+`prediction`, `service_tier`, `store`, `safety_identifier`,
+`parallel_tool_calls`, prompt-cache fields, and web-search `source` parts are
+unsupported; its usage converter has no `cacheWrite` field, which no cost
+formula reads. Forced tool choice with `strict` tool schemas, error schemas,
+and cache-read usage are not regressed.
+
+**Breaking**: `type: "openai"` is deleted. Every existing entry fails boot as
+an out-of-enum type until it is re-declared as `openai-responses` or
+`openai-completions`; there is no shim and no migration.
+
 Packaged prompt templates are the model-facing bodies llame authors and ships,
 and no operator can replace one. They live at
 `apps/api/src/<module>/prompts/<surface-name>.md`, one file per distinct body,

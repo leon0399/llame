@@ -24,7 +24,7 @@ const titleModel = {
 };
 const provider: ProviderConfig = {
   id: 'openai',
-  type: 'openai',
+  type: 'openai-responses',
   key: null,
   baseUrl: null,
 };

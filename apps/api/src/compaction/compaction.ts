@@ -127,6 +127,10 @@ export function estimateContextTokens(
   }
   const context = buildContext(history, {
     systemPrompt: '',
+    // The estimate measures the NEXT continuation request (D16) — the request
+    // whose size decides whether to compact — so it counts replayed reasoning
+    // exactly as that request will.
+    requestKind: 'continuation',
     ...(previousSummary !== undefined && {
       compaction: {
         summary: previousSummary,
@@ -319,6 +323,9 @@ export function buildCompactionRequest(input: {
 }): ModelRequestContext {
   const { system, messages } = buildContext(input.absorb, {
     systemPrompt: input.system,
+    // Summarization input, not a continuation: reasoning the absorbed turns
+    // persisted must not be folded into the checkpoint (D16).
+    requestKind: 'compaction',
     ...(input.previous && { compaction: input.previous }),
   });
 

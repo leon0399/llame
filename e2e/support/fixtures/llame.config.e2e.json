@@ -12,11 +12,13 @@
   // #167): defaults.modelId/titleGenerationModelId above must reference a
   // models[].id or startup fails. key/baseUrl route to the mock model server
   // via the same OPENAI_API_KEY/OPENAI_BASE_URL env vars playwright.config.ts
-  // already sets on the api webServer.
+  // already sets on the api webServer. The mock answers /chat/completions
+  // only, so this entry declares the Chat Completions wire, and its baseUrl
+  // is set by that env var (required and non-blank for this type).
   "providers": [
     {
       "id": "mock",
-      "type": "openai",
+      "type": "openai-completions",
       "key": "{env:OPENAI_API_KEY:-}",
       "baseUrl": "{env:OPENAI_BASE_URL:-}"
     }

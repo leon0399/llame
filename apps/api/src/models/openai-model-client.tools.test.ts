@@ -95,17 +95,15 @@ function scriptedModel(responses: Array<ReturnType<typeof providerResponse>>) {
   });
 }
 
-function buildClient(model: MockLanguageModelV3, nativeOpenAI = false) {
+function buildClient(model: MockLanguageModelV3) {
   const provider = vi.fn<OpenAIProvider>();
   provider.mockReturnValue(model);
-  provider.chat = vi.fn<OpenAIProvider['chat']>(() => model);
 
   return createOpenAIModelClient(
     {
       providerModelId: 'gpt-test',
       modelId: 'system:openai:gpt-test',
       contextWindowTokens: 128_000,
-      nativeOpenAI,
     },
     { createOpenAI: () => provider, streamText },
   );
@@ -215,7 +213,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 
   it('preserves provider-defined tools', async () => {
     const model = scriptedModel([textResponse()]);
-    const client = buildClient(model, true);
+    const client = buildClient(model);
     const providerTools = {
       hosted_search: tool({
         type: 'provider',
@@ -434,15 +432,11 @@ describe('createOpenAIModelClient — capability surface', () => {
   it('carries optional pricing and compaction keys through when configured', () => {
     const provider = vi.fn<OpenAIProvider>();
     provider.mockReturnValue(scriptedModel([textResponse()]));
-    provider.chat = vi.fn<OpenAIProvider['chat']>(() =>
-      scriptedModel([textResponse()]),
-    );
     const client = createOpenAIModelClient(
       {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
-        nativeOpenAI: false,
         pricing: { inputUsdPer1M: 1, outputUsdPer1M: 2 },
         compactionThresholdTokens: 4000,
       },
@@ -514,16 +508,15 @@ describe('createOpenAIModelClient — structured output', () => {
   function objectClient(model: MockLanguageModelV3) {
     const provider = vi.fn<OpenAIProvider>();
     provider.mockReturnValue(model);
-    provider.chat = vi.fn<OpenAIProvider['chat']>(() => model);
-    return createOpenAIModelClient(
+    const client = createOpenAIModelClient(
       {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
-        nativeOpenAI: false,
       },
       { createOpenAI: () => provider, streamText },
     );
+    return { provider, client };
   }
 
   /**
@@ -531,17 +524,57 @@ describe('createOpenAIModelClient — structured output', () => {
    * keeps the receiver and the generic signature intact, which `bind` erases.
    */
   function objectGenerator(model: MockLanguageModelV3) {
-    const client = objectClient(model);
-    return <OBJECT>(input: ModelObjectInput<OBJECT>): Promise<OBJECT> => {
-      if (!client.generateObject) {
-        throw new Error('the OpenAI model client must expose generateObject');
-      }
-      return client.generateObject(input);
+    const { provider, client } = objectClient(model);
+    return {
+      provider,
+      generate: <OBJECT>(input: ModelObjectInput<OBJECT>): Promise<OBJECT> => {
+        if (!client.generateObject) {
+          throw new Error('the OpenAI model client must expose generateObject');
+        }
+        return client.generateObject(input);
+      },
     };
   }
 
+  it('runs structured generation on the Responses model as a forced tool call', async () => {
+    const model = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
+      doGenerate: () =>
+        Promise.resolve({
+          content: [
+            {
+              type: 'tool-call',
+              toolCallId: 'call-0',
+              toolName: 'output',
+              input: '{"title":"A title"}',
+            },
+          ],
+          finishReason: { unified: 'tool-calls', raw: undefined },
+          usage: PROVIDER_USAGE,
+          warnings: [],
+        }),
+    });
+    const { provider, generate } = objectGenerator(model);
+
+    await expect(
+      generate({
+        messages,
+        schema: z.object({ title: z.string() }),
+      }),
+    ).resolves.toEqual({ title: 'A title' });
+
+    // Title generation follows the declared wire: the Responses model, never
+    // a hardcoded Chat Completions one.
+    expect(provider).toHaveBeenCalledWith('gpt-test');
+    expect(model.doGenerateCalls[0]?.toolChoice).toEqual({
+      type: 'tool',
+      toolName: 'output',
+    });
+  });
+
   it('names the default output tool when the model answers with prose', async () => {
-    const generateObject = objectGenerator(
+    const { generate: generateObject } = objectGenerator(
       new MockLanguageModelV3({
         provider: 'openai.test',
         modelId: 'gpt-test',
@@ -564,7 +597,7 @@ describe('createOpenAIModelClient — structured output', () => {
   });
 
   it('names the caller-supplied output tool in the same failure', async () => {
-    const generateObject = objectGenerator(
+    const { generate: generateObject } = objectGenerator(
       new MockLanguageModelV3({
         provider: 'openai.test',
         modelId: 'gpt-test',

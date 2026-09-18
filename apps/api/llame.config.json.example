@@ -32,18 +32,22 @@
     "titleGenerationModelId": "{env:TITLE_GENERATION_MODEL_ID:-system:openai:gpt-5.4-nano}",
   },
 
-  // OpenAI-compatible provider connections. Omit key for a keyless endpoint.
+  // Provider connections. `type` names the wire the entry speaks:
+  // `openai-responses` for the Responses API (baseUrl optional) or
+  // `openai-completions` for Chat Completions (baseUrl required). Omit key
+  // for a keyless endpoint.
   "providers": [
     {
       "id": "openai",
-      "type": "openai",
+      "type": "openai-responses",
       "key": "{env:OPENAI_API_KEY:-}",
       "baseUrl": "{env:OPENAI_BASE_URL:-}",
     },
-    // Add another provider for a local or compatible endpoint:
+    // Add another provider for a local or compatible endpoint; the baseUrl
+    // must resolve non-blank:
     // {
     //   "id": "ollama",
-    //   "type": "openai",
+    //   "type": "openai-completions",
     //   "baseUrl": "{env:OLLAMA_BASE_URL:-http://localhost:11434/v1}"
     // }
     // A ChatGPT/Codex subscription uses fixed transport settings and a

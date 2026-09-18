@@ -64,7 +64,6 @@ export function createOpenAICodexModelClient(
       providerModelId: config.providerModelId,
       modelId: config.modelId,
       contextWindowTokens: config.contextWindowTokens,
-      nativeOpenAI: true,
       baseUrl: CODEX_RESPONSES_BASE_URL,
       headers: {
         'ChatGPT-Account-ID': config.accountId,

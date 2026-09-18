@@ -1,4 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
+import type { LanguageModelV3 } from '@ai-sdk/provider';
 import {
   generateText,
   NoSuchToolError,
@@ -61,9 +62,11 @@ function disableStrictToolSchemas(tools: ToolSet): ToolSet {
  * Tool-calling loop: the SDK auto-executes tools and re-calls the model.
  * Only wired when tools are present — an answer-only turn keeps the single-
  * generation path unchanged. Mutates `streamOptions` in place, matching the
- * incremental build-up style the rest of `streamText` already uses.
+ * incremental build-up style the rest of `streamText` already uses. Shared
+ * by every wire's client (exported for `openai-completions-model-client`),
+ * so step-cap accounting and refusal reporting stay single-sourced.
  */
-function applyToolCallingOptions(
+export function applyToolCallingOptions(
   streamOptions: Parameters<typeof streamText>[0],
   input: ModelStreamInput,
 ): void {
@@ -121,7 +124,7 @@ function applyToolCallingOptions(
   };
 }
 
-interface AbortSettlement {
+export interface AbortSettlement {
   /** Bind directly to `streamText`'s `onAbort` handler. */
   onAbort: () => void;
   /** Await after the SDK result settles; rethrows a failed abort-time `onError`. */
@@ -135,7 +138,7 @@ interface AbortSettlement {
  * the stream itself has settled, rather than observing a drained result
  * before the run's terminal state is persisted.
  */
-function trackAbortSettlement(input: ModelStreamInput): AbortSettlement {
+export function trackAbortSettlement(input: ModelStreamInput): AbortSettlement {
   let settlement = Promise.resolve();
   let settlementError: { error: unknown } | undefined;
   return {
@@ -160,7 +163,7 @@ function trackAbortSettlement(input: ModelStreamInput): AbortSettlement {
 }
 
 /** Makes `result`'s `consumeStream`/`text` also await the abort settlement. */
-function awaitSettlementAfter(
+export function awaitSettlementAfter(
   result: ReturnType<typeof streamText>,
   settlement: AbortSettlement,
   sanitizeError?: (error: unknown) => Error,
@@ -201,8 +204,6 @@ export type OpenAIModelClientConfig = {
   modelId: string;
   contextWindowTokens: number;
   baseUrl?: string;
-  /** Native OpenAI only; compatible endpoints remain on Chat Completions. */
-  nativeOpenAI?: boolean;
   /** Fixed-provider transport headers. */
   headers?: Record<string, string>;
   /** Fixed-provider transport fetch wrapper. */
@@ -233,27 +234,20 @@ export type OpenAIModelClientDependencies = {
 };
 
 /**
- * Merged, not assigned per-branch: native OpenAI wants BOTH the displayable
- * reasoning summary and the effort, and a compatible endpoint on Chat
- * Completions still takes `reasoningEffort`. `!== undefined` rather than
- * truthiness — a level meaning "no reasoning" is an instruction to send, not
- * an absence.
+ * Responses-wire request options, merged rather than assigned per-branch:
+ * the displayable reasoning summary, the caller's effort, and a fixed
+ * transport's store setting are independent instructions that can apply
+ * together. `!== undefined` rather than truthiness — a level meaning "no
+ * reasoning" is an instruction to send, not an absence.
  */
 function applyReasoningOptions(
   streamOptions: Parameters<typeof streamText>[0],
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
 ): void {
-  if (
-    !config.nativeOpenAI &&
-    input.effort === undefined &&
-    config.storeResponses === undefined
-  ) {
-    return;
-  }
   streamOptions.providerOptions = {
     openai: {
-      ...(config.nativeOpenAI && { reasoningSummary: 'auto' }),
+      reasoningSummary: 'auto',
       ...(input.effort !== undefined && { reasoningEffort: input.effort }),
       ...(config.storeResponses !== undefined && {
         store: config.storeResponses,
@@ -278,11 +272,9 @@ function runOpenAIStream(
         };
   const settlement = trackAbortSettlement(input);
   const streamOptions: Parameters<typeof streamText>[0] = {
-    // Only the configured native OpenAI provider uses Responses. Every
-    // compatible endpoint stays on Chat Completions.
-    model: config.nativeOpenAI
-      ? openai(config.providerModelId)
-      : openai.chat(config.providerModelId),
+    // The declared Responses wire (design D1): the provider callable's
+    // default entry point targets /responses at the configured base URL.
+    model: openai(config.providerModelId),
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
@@ -314,19 +306,19 @@ function runOpenAIStream(
  * more widely implemented across OpenAI-compatible backends. The SDK
  * validates the call's input against the schema; a backend that can't comply
  * throws (or returns no call) — callers keep a fallback.
+ *
+ * `model` is the caller's declared wire's model (design D1/D4): a
+ * Responses-typed provider's structured generation — chat titles included —
+ * runs on Responses, a completions-typed provider's on Chat Completions.
+ * Never a hardcoded wire.
  */
-async function generateToolBoundObject<OBJECT>(
-  openai: ReturnType<typeof createOpenAI>,
-  providerModelId: string,
+export async function generateToolBoundObject<OBJECT>(
+  model: LanguageModelV3,
   input: ModelObjectInput<OBJECT>,
 ): Promise<OBJECT> {
   const toolName = input.schemaName ?? 'output';
   const result = await generateText({
-    // .chat (chat/completions), same as streamText above: the default
-    // `openai(model)` targets OpenAI's /responses endpoint, which
-    // OpenAI-compatible backends (the point of OPENAI_BASE_URL, #88) don't
-    // implement — structured title generation must work everywhere too.
-    model: openai.chat(providerModelId),
+    model,
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
@@ -350,8 +342,11 @@ async function generateToolBoundObject<OBJECT>(
 }
 
 /**
- * Creates a model client for streaming text with OpenAI or any
- * OpenAI-compatible endpoint (OpenRouter, groq, a local server, …).
+ * Creates a model client that executes the Responses wire for an
+ * `openai-responses` provider entry, at its configured `baseUrl` (default:
+ * OpenAI's hosted API). The wire is fixed by construction, never inferred
+ * from the entry's id or host; the Codex subscription client builds on this
+ * one for its fixed Responses transport.
  *
  * `modelId` is the opaque llame id used for telemetry and API events.
  * `providerModelId` is the server-only model id sent to the provider.
@@ -387,7 +382,7 @@ export function createOpenAIModelClient(
     },
     ...(config.generateObject !== false && {
       generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
-        generateToolBoundObject(openai, config.providerModelId, input),
+        generateToolBoundObject(openai(config.providerModelId), input),
     }),
   };
 }
