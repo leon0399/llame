@@ -37,19 +37,20 @@ messages before it are unchanged, and llame rewrites that prefix on compaction
 and on prompt-receipt changes, so every request that carries adaptive thinking
 SHALL explicitly instruct the provider to drop blocks whose bound prefix no
 longer matches instead of failing, and SHALL do so rather than inherit whatever
-the account's default enforcement happens to be. The instruction is a client
-invariant under `provider-api-selection`'s precedence on the adaptive shape:
-an operator's `providerOptions` SHALL NOT set it to error or remove it there.
-The provider documents the instruction alongside adaptive and manual-budget
-thinking only, and the pinned adapter carries it only on the adaptive shape,
-so the client SHALL NOT send a thinking configuration that consists of the
-instruction alone, and a request that carries no thinking configuration or a
-manual-budget or disabled shape carries no instruction: an entry that declares
-no `reasoning` on a model that thinks by default, or an operator who overrides
-`thinking` to a manual-budget or disabled shape, gives up the instruction for
-that model, which the operator documentation SHALL state together with the
-remedy of declaring `reasoning`. The same behavior SHALL hold within a single
-run, where compaction can rewrite the prefix mid-turn.
+the account's default enforcement happens to be. The thinking block binding is
+llame's, not the operator's: it is a reserved key under
+`provider-api-selection`'s rule, so any value an operator's `providerOptions`
+places at it is stripped, and the client sets it itself on the adaptive shape
+only. The provider documents the instruction alongside adaptive and
+manual-budget thinking only, and the pinned adapter carries it only on the
+adaptive shape, so no request SHALL carry a thinking configuration that
+consists of the instruction alone, and a request that carries no thinking
+configuration or a manual-budget or disabled shape carries no instruction: an
+entry that declares no `reasoning` on a model that thinks by default, or an
+operator who overrides `thinking` to a manual-budget or disabled shape, gives
+up the instruction for that model, which the operator documentation SHALL state
+together with the remedy of declaring `reasoning`. The same behavior SHALL
+hold within a single run, where compaction can rewrite the prefix mid-turn.
 
 When the request's model differs from the model that produced a replayed block,
 the block SHALL still be replayed unchanged: a thinking block is readable only by
@@ -104,11 +105,14 @@ A response that emits no thinking output SHALL remain a successful run.
 - **THEN** the continuation still succeeds under the drop behavior rather than
   failing with a rejection
 
-#### Scenario: The drop instruction cannot be configured away on the adaptive shape
+#### Scenario: An operator-supplied block binding is stripped
 
-- **WHEN** a model entry's `providerOptions` sets the prefix-mismatch behavior
-  to error or to `null` while the effective thinking shape is adaptive
-- **THEN** every request still carries the drop instruction
+- **WHEN** a model entry's `providerOptions` places any value at the thinking
+  block binding — error, drop, or `null` — with or without a thinking type
+- **THEN** that value is stripped before composition
+- **AND** a request carrying adaptive thinking still carries llame's drop
+  instruction, and a request carrying no thinking configuration carries no
+  instruction-only thinking object
 
 #### Scenario: A request without adaptive thinking carries no drop instruction
 

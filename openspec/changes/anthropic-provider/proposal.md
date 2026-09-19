@@ -35,7 +35,8 @@ instead.
   removes a default at any depth. Keys that would change what a request is
   (the wire model id and its raw output-limit field, provider-side
   continuation and container identifiers, an instructions or system-message
-  override, server-side fallbacks, provider-attached tool servers) are
+  override, a tool-choice override, server-side fallbacks, provider-attached
+  tool servers, and the Anthropic thinking block binding llame owns) are
   reserved and stripped. The three existing clients are refactored onto it,
   which turns the Responses client's `reasoningSummary: 'auto'` into an
   overridable default while codex keeps `store: false` and its summarized
@@ -127,8 +128,11 @@ instead.
   adapter, the reserved keys, and what takes precedence over them.
 - `available-models`: the dispatch requirement's wire sentence covers every
   wire-named type, and the endpoint clause covers the Anthropic default.
-- `reasoning-output`: the UI requirement renders no Thinking panel for a
-  segment whose parts carry no text; persistence and replay are unchanged.
+- `reasoning-output`: the part-identity requirement starts a reasoning part
+  for an empty delivery that carries provider metadata under a new id (a
+  thinking block whose text the provider withheld), and the UI requirement
+  renders no Thinking panel for a segment whose parts carry no text; replay
+  is unchanged.
 
 Destination selection, the operator-owned configuration posture, and credential
 non-disclosure are not restated in the new capability: `provider-api-selection`
@@ -201,7 +205,9 @@ capabilities.
 - `apps/api/src/models/openai-model-client.ts`,
   `openai-completions-model-client.ts`, and `openai-codex-model-client.ts`:
   provider-options composition replaces the hardcoded per-client options.
-- A new Anthropic model client module, and
+- A new Anthropic model client module,
+  `apps/api/src/runs/assistant-transcript.ts` (a metadata-only delivery under
+  a new part id starts an empty reasoning part), and
   `apps/api/src/chats/turn-telemetry.ts` (`TurnTelemetry` gains cache-write
   tokens; cost subtracts them from the uncached term and prices them once).
 - `apps/web/app/(chat)/components/chat-message-row.tsx`: no panel for a

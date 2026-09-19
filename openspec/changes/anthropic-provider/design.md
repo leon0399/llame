@@ -82,20 +82,31 @@ format on models its own capability table marks as supporting structured
 output (every `claude-` id except the Sonnet 4, Opus 4, and Claude 3
 generations, so including Opus 4.1 and any unrecognized `claude-` id) and
 otherwise adds a `json` tool with a required tool choice; the same table sets
-`max_tokens` when the request carries no `maxOutputTokens` — 128k for the
-current generations, 64k or 32k for older ones, and 4096 for a model id that
-does not contain `claude-`; reasoning replay reads
-`providerOptions.anthropic.{signature, redactedData}` on reasoning parts and
-warns on anything else; the signature of a streamed thinking block arrives on a
-`reasoning-delta` part with an empty delta; the usage it reports has
-`inputTokens.total = input + cache_creation + cache_read`. Its language-model
-option schema is a non-strict zod object, as is `@ai-sdk/openai@3.0.97`'s, so
-unknown keys are dropped and invalid values throw; `@ai-sdk/openai` forwards
-`conversation`, `previousResponseId`, and `instructions` from its namespace,
-and `@ai-sdk/openai-compatible@2.0.75` spreads unknown keys of its namespace
-into the request body after `model`, `max_tokens`, the sampling fields,
-`response_format`, `stop`, and `seed`, and before `reasoning_effort`,
-`messages`, `tools`, and `tool_choice`.
+`max_tokens` when the request carries no `maxOutputTokens` (the rows D17
+enumerates: 128k for the current generations and any unrecognized `claude-`
+id, 64k or 32k for the 4.5 and older 4.x rows, 4096 for the Claude 3 Haiku,
+Claude 2, and Claude Instant rows and for any id without `claude-`); reasoning
+replay reads `providerOptions.anthropic.{signature, redactedData}` on
+reasoning parts and warns on anything else; the signature of a streamed
+thinking block arrives on a `reasoning-delta` part with an empty delta; the
+usage it reports has `inputTokens.total = input + cache_creation +
+cache_read`. Its language-model option schema is a non-strict zod object, as
+is `@ai-sdk/openai@3.0.97`'s, so unknown keys are dropped and invalid values
+throw; `@ai-sdk/openai` forwards `conversation`, `previousResponseId`,
+`instructions`, `systemMessageMode`, and `allowedTools` (which "overrides the
+request-level `toolChoice`") from its namespace and maps
+`cache_write_tokens` from both its wires' usage; `@ai-sdk/openai-compatible@2.0.75`
+parses its recognized options from the `openaiCompatible` namespace and from
+the namespace named after the configured provider (`openai-completions` /
+`openaiCompletions` for llame's client), but spreads unknown keys into the
+request body only from the provider-name namespaces, after `model`,
+`max_tokens`, the sampling fields, `response_format`, `stop`, and `seed`, and
+before `reasoning_effort`, `messages`, `tools`, and `tool_choice`. llame's
+shipped reasoning collector (`apps/api/src/runs/assistant-transcript.ts:106-152`)
+starts a part only on a delivery with text: "An empty `text` starts no part
+and moves no boundary … an id no collected part carries binds nothing", so a
+withheld-text thinking block (start, one empty delta carrying the signature,
+end) is dropped by the collector as shipped.
 
 Anthropic's documentation, read 2026-09-19: `tool_choice` `any` and `tool`
 return a 400 on Claude Fable 5.1 and Mythos 5.1, and "are not supported and
@@ -265,9 +276,16 @@ keys over its own `model` field, so an operator key would execute another
 model under this entry's identity, pricing, and context window) and
 `max_tokens` (spread over the catalog's output limit the same way); on the
 Messages wire `fallbacks` (server-side execution on another model),
-`mcpServers` (tools outside llame's gate), and `container` (a provider-side
-container identifier every owner's requests would share). Boot validates "is
-an object" and
+`mcpServers` (tools outside llame's gate), `container` (a provider-side
+container identifier every owner's requests would share), and
+`thinking.blockBinding` (llame's invariant; an operator value would otherwise
+reach the adapter as a type-less thinking object on an entry without
+`reasoning`); on the Responses wire also `allowedTools`, which the adapter
+lets override the request's tool choice and so would strip the forced choice
+structured generation relies on. The completions client composes into the
+`openaiCompletions` namespace, the camel-case of its configured provider name,
+because the adapter forwards unknown keys only from that namespace and parses
+recognized options from it too. Boot validates "is an object" and
 rejects interpolation syntax in any string value at any depth, so no
 interpolated secret can reach the object; the object is not a credential
 channel and is not redacted, and it is never published. The adapter is the
@@ -343,8 +361,11 @@ line on a cached turn. The public model DTO mirrors the field so the published
 price stays inspectable; the assistant-message and compaction telemetry share
 `TurnTelemetry`'s shape and gain the field with it, the telemetry log line and
 the web usage panel enumerate their fields and gain it explicitly, and the
-`usage` columns are `jsonb`, so no migration follows. On the OpenAI wires the
-count is undefined or zero, so the subtraction changes nothing there. Rejected:
+`usage` columns are `jsonb`, so no migration follows. The OpenAI adapters map
+`cache_write_tokens` from their usage as well, so the count is recorded on
+every wire that reports it and the input-rate fallback keeps every wire's cost
+identical to today's; a model entry that declares `cacheWrite` on an
+OpenAI-wire model reprices those tokens deliberately. Rejected:
 a required field; deriving a write rate as a fixed multiple of input; exposing
 it server-only; adding the term without the subtraction (double-counts every
 cache write).
@@ -371,9 +392,11 @@ with empty text and its signature; the signature is what the replay needs.
 
 Implementation facts the messages layer must respect: the adapter delivers the
 signature on a `reasoning-delta` part with an empty delta, not only on start
-and end parts, so the collector reads metadata from deltas; the adapter reads
-only `providerOptions.anthropic.{signature, redactedData}` on replay and warns
-on anything else, so metadata another wire attached to a part is skipped, not
+and end parts, so the collector reads metadata from deltas; a withheld-text
+block is exactly one such delivery under a new id, which the shipped collector
+drops, so D18 changes the collector rule; the adapter reads only
+`providerOptions.anthropic.{signature, redactedData}` on replay and warns on
+anything else, so metadata another wire attached to a part is skipped, not
 sent. Rejected: run-scoped state that dies with the run; llame-side pruning;
 coercing or stripping a signed block on a model switch; dropping empty-text
 parts (they carry the signature).
@@ -390,8 +413,11 @@ you choose." Enforcement is default-on for accounts created on or after
 compaction rewrites the prefix, and it can do so mid-run — so every request
 that carries adaptive thinking sets
 `thinking.blockBinding.prefixMismatchBehavior: 'drop_block'` through the
-adapter (which adds the beta header). It is a D5 invariant on that shape: an
-operator cannot set it to `error` or remove it there. Two ceilings bound it.
+adapter (which adds the beta header). The binding is llame's: it is a
+reserved key under D5, stripped from the operator's object whatever value or
+thinking type accompanies it, so an operator can neither set it to `error`,
+remove it, nor smuggle the adapter's type-less shape in through
+`providerOptions` on an entry without `reasoning`. Two ceilings bound it.
 The adapter's `thinking` union has no `blockBinding` on its `enabled` and
 `disabled` branches and strips it silently (Anthropic itself accepts
 `block_binding` with `enabled`), so an operator who overrides `thinking` to a
@@ -611,17 +637,45 @@ catalog field, accepting a whole-value interpolation token like
 `maxOutputTokens` setting, provider-neutral like `providerOptions`; absent,
 each adapter's own default applies, which for the OpenAI wires means none.
 What each adapter then puts on the wire is the adapter's: the Messages adapter
-adds a manual thinking budget to it and lowers a value above a ceiling it
-knows with a warning; the Responses adapter sends it as `max_output_tokens`;
+adds a manual thinking budget to it silently and lowers a value above a
+ceiling it knows for a recognized model, warning only when the entry declared
+the limit; the Responses adapter sends it as `max_output_tokens`;
 `@ai-sdk/openai-compatible` sends it as `max_tokens` with no
 `max_completion_tokens` remapping, so declaring it on an `openai-completions`
 entry that fronts an OpenAI-hosted reasoning model is rejected by that model —
-a documented ceiling, and the field is optional. Rationale: the operator who
+a documented ceiling, and the field is optional. The client surfaces the
+adapter's warnings when they exist and the documentation records the silent
+transformations. Rationale: the operator who
 names a model is the one who knows its output ceiling, and a silent 4096 cap on
 a gateway entry would contradict the one-type decision in practice. Rejected:
 repurposing `runs.maxOutputTokens` as a cap (a semantic change to a shipped
 instance setting); a llame model-family table; promising an exact wire value
 the adapters do not guarantee; leaving the adapter default undocumented.
+
+### D18: A withheld-text thinking block starts a reasoning part
+
+The shipped collector (`assistant-transcript.ts:106-152`) starts a reasoning
+part only on a delivery with text; an empty delivery binds metadata to the
+part its id names and otherwise binds nothing. That rule was written for the
+Responses wire, where the encrypted content rides on a part that already has
+summary text. A Messages thinking block with `display: omitted` — the default
+on Opus 5, Sonnet 5, and Fable and Mythos 5.x, and therefore every entry
+without `reasoning` on those models — arrives as `reasoning-start`, one
+`reasoning-delta` with an empty delta carrying the signature, and
+`reasoning-end`, so the shipped collector drops the signature, persists no
+part, and the next request inside a tool-use turn replays nothing where
+Anthropic marks replay required. The rule is amended, in `reasoning-output`'s
+part-identity requirement, by one clause: an empty delivery whose id names no
+collected part and which carries provider metadata starts a reasoning part
+with empty text and binds the metadata to it. An empty delivery without
+metadata, or whose id names a collected part, behaves as before, so the
+Responses wire is unchanged (its end part names the part its deltas created)
+and no boundary is invented. Rationale: the signature is the block, and D9
+already requires it persisted; the collector is the one place the block can be
+lost. Rejected: a Messages-only collector (two identity rules for one part
+shape); synthesizing placeholder text (rewrites what the provider produced and
+would render); replaying from run-scoped state (dies with the run, the shape
+the sibling change amended away).
 
 ## Risks / Trade-offs
 
@@ -659,6 +713,11 @@ the adapters do not guarantee; leaving the adapter default undocumented.
   instruction is an invariant on every request that carries adaptive thinking
   (D10), block order and bytes are preserved, and both the within-turn and
   post-compaction paths carry fixture-covered scenarios.
+- [Amending the shared collector rule for withheld-text blocks regresses the
+  Responses wire] → D18 changes only the empty-delivery-under-a-new-id case,
+  which the Responses adapter never produces (its end part names a part its
+  deltas created); the messages layer carries a Responses fixture proving the
+  end-part metadata still binds to the existing part and starts none.
 - [An ambient `ANTHROPIC_BASE_URL` moves requests off the configured endpoint]
   → the client always passes an explicit `baseURL` (D3), with a fixture that
   sets the variable and asserts the configured destination.
@@ -691,6 +750,23 @@ history.
 
 ## Revision history
 
+- v5 (2026-09-19): Round 3 of independent review (Codex CLI plus one
+  reviewer agent). Found the shipped reasoning collector drops a
+  withheld-text thinking block outright (empty delivery under a new id binds
+  nothing), so added D18 and a `reasoning-output` part-identity delta with an
+  owning task and Impact entry. Made the thinking block binding a reserved key
+  rather than an invariant the operator could still smuggle in as the type-less
+  shape (D5, D10, capability). Corrected the completions client's namespace to
+  `openaiCompletions`, since the adapter forwards unknown keys only from the
+  configured provider name's namespaces (D5, task 2.3). Reserved the Responses
+  `allowedTools` override, which discards the forced tool choice structured
+  generation relies on, and made the raw output-limit field unconditionally
+  reserved. Corrected D8's claim that the OpenAI wires report no cache-write
+  count (their adapters map `cache_write_tokens`; the input-rate fallback is
+  what keeps cost identical), the Context copy of the adapter's `max_tokens`
+  table, and D17's warning claim (the budget addition is silent; the clamp
+  warns only for a declared limit on a recognized model). Gave the tasks
+  concrete non-`claude-` and unrecognized-`claude-` fixtures.
 - v4 (2026-09-19): Round 2 of independent review (Codex CLI plus two
   reviewer agents). Dropped the adapter's type-less `{ blockBinding }` shape
   from D10 after finding Anthropic documents `block_binding` only alongside
