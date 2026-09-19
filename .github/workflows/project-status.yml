@@ -1,0 +1,58 @@
+name: Project status
+
+# Keeps the delivery Project's Status column in step with GitHub, for the
+# transitions CONTRIBUTING's table defines without judgement. Next action,
+# Workstream, Priority, and Order stay with the agent doing the work.
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, converted_to_draft, closed]
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [closed]
+
+permissions: {}
+
+concurrency:
+  # One writer per item: a ready_for_review and a review can land together.
+  group: project-status-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the status scripts
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+          fetch-depth: 1
+
+      - name: Resolve the target status
+        id: target
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          REVIEW_STATE: ${{ github.event.review.state }}
+          PR_NODE_ID: ${{ github.event.pull_request.node_id }}
+          ISSUE_NODE_ID: ${{ github.event.issue.node_id }}
+        run: ./.github/scripts/resolve-project-status.sh >> "$GITHUB_OUTPUT"
+
+      - name: Write the status
+        if: steps.target.outputs.status != ''
+        env:
+          # A user-scoped Project is outside the repository token's reach, so
+          # this needs a token with read and write on the owner's Projects.
+          GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+          CONTENT_ID: ${{ steps.target.outputs.content }}
+          TARGET_STATUS: ${{ steps.target.outputs.status }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::PROJECTS_TOKEN is not configured; delivery status was not updated" >&2
+            exit 1
+          fi
+          ./.github/scripts/set-project-status.sh

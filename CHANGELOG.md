@@ -23,6 +23,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-18
 
+- The delivery Project's `Status` follows GitHub instead of a handoff (#892). A
+  `Project status` workflow sets In progress when a pull request is opened,
+  reopened, or converted to draft, In review when it is marked ready, back to
+  In progress when a review requests changes, and Done when a pull request
+  merges or an issue closes, adding the item to the board when it is missing.
+  It writes nothing else: `Next action`, `Workstream`, `Priority`, `Order`, the
+  Design-versus-Awaiting-approval distinction, and a closed-unmerged pull
+  request's cancelled-or-superseded note stay with the person or agent doing
+  the work. Operators need a `PROJECTS_TOKEN` secret with read and write on the
+  owner's Projects, since a user-scoped Project is outside the repository
+  token's reach; without it the run fails loudly rather than silently skipping
+  the update.
+
 - A reasoning part carries the provider's own opaque metadata, durably (#883).
   The OpenAI Responses path already returns a reasoning item's identifier and,
   under `store: false`, its encrypted content; llame discarded both. Those now
