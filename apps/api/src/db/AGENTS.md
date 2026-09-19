@@ -48,7 +48,17 @@ migration. Add the sibling plus its ownership/execute grants to
 P4 - Journal `when`, not filename, determines order. New migrations use
 timestamp prefixes. After parallel rebases, keep both journal rows, make `idx`
 contiguous, and restamp/regenerate so `when` is strictly increasing. Otherwise
-existing databases silently skip the entry.
+existing databases silently skip the entry. Restamping the journal is only half
+the merge: re-parent the merged snapshot too (`prevId` = the preceding
+snapshot's `id`), or the chain forks and `db:check` fails while `db:generate`
+re-emits schema that already shipped. `lint.yml` runs both checks.
+
+P5 - `drizzle.__drizzle_migrations.created_at` holds the journal's millisecond
+`when`, and the migrator applies an entry only when its `when` exceeds the
+newest stored row. A row inserted by hand with a nanosecond or microsecond stamp
+is decades in the future, so every later migration skips silently; `migrate.ts`
+now fails the run when the newest row is more than a day ahead. Re-stamp such a
+row or delete it — never leave it as the ledger's newest entry.
 
 Changing comments in an applied migration is safe; changing statements is not,
 because the migrator never compares the stored hash or reruns the file.
