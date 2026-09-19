@@ -41,7 +41,10 @@ shape carries `inputTokenDetails.cacheWriteTokens` and the provider interface
 carries `inputTokens.cacheWrite`, but llame's own `TurnTelemetry`
 (`turn-telemetry.ts:11-17`) does not: `buildTurnTelemetry` reads
 `inputTokens`, `cachedInputTokens`, `outputTokens`, and `reasoningTokens` only,
-and the assistant-message and compaction telemetry share that shape. Because
+and the assistant-message and compaction telemetry share that shape; the
+`assistant_turn_completed` log line (`turn-telemetry.ts:105-125`) and the web
+usage panel (`apps/web/app/(chat)/components/message-usage.tsx`) enumerate
+their fields one by one and inherit nothing. Because
 `ai@6.0.256` maps `inputTokens` to the provider's input total and
 `cachedInputTokens` to its cache-read count, every cache-write token is priced
 today inside the uncached term at the input rate.
@@ -184,7 +187,8 @@ non-Anthropic endpoints (`{ type: "anthropic-messages", baseUrl:
 "https://api.z.ai/api/anthropic" }` is true; `type: "anthropic"` on that line is
 not), it matches the enum description ("named after the wire API it speaks")
 and omp's `api` vocabulary, and it leaves the bare `"anthropic"` outside the
-enum so the shipped unsupported-type example stays true. The subscription path
+enum, so the shipped unsupported-type example only needs its parenthetical
+updated from "before the adapter exists" to "a bare `"anthropic"`". The subscription path
 (#754) is not this type whatever shape it settles on: its issue text scopes it
 to an unmodified Claude Code execution path with Anthropic-owned sign-in, while
 OMP and OpenClaw carry it as an OAuth credential on the Messages wire with a
@@ -211,11 +215,16 @@ Rejected: host allow-lists and boot warnings.
 resolution means keyless, and the client passes the same non-empty placeholder
 the OpenAI clients pass (`KEYLESS_PLACEHOLDER_API_KEY`) because the adapter's
 `loadApiKey` throws when `apiKey` is omitted and no environment variable is
-set. The credential is sent as `x-api-key`. Rejected: requiring `key` (breaks
-keyless gateways); a bearer-token option (`authToken` exists in the adapter and
-some gateways want it, but no configured target needs it and the field is
-additive later); separate field names for the compatible case, which no longer
-exists.
+set. The credential is sent as `x-api-key`. The client always passes an
+explicit `baseURL` — the configured value or the Anthropic default — because
+`createAnthropic` reads `ANTHROPIC_BASE_URL` from the environment when the
+option is omitted, and an ambient variable must never move a request off the
+configured destination. Rejected: requiring `key` (breaks keyless gateways); a
+bearer-token option (`authToken` exists in the adapter and some gateways want
+it, but no configured target needs it and the field is additive later);
+separate field names for the compatible case, which no longer exists; omitting
+`baseURL` on the default path, as the OpenAI client does (its adapter reads no
+environment variable for it).
 
 ### D4: Pin `@ai-sdk/anthropic@3.0.118`
 
@@ -246,14 +255,19 @@ which sends no provider options today, gains none. Object-valued options merge
 key by key, recursively; `null` at any depth removes a client default and
 cannot remove an invariant. Reserved keys are stripped from the operator's
 object before composition, because they change what the request is rather than
-how the model answers: on the Responses wire `conversation`,
-`previousResponseId`, and `instructions` (shared provider-side continuation
-state would cross Chat and owner boundaries, and `instructions` replaces
-llame's prompt); on the Chat Completions wire `model` (the adapter spreads
-unknown keys over its own `model` field, so an operator key would execute
-another model under this entry's identity, pricing, and context window); on
-the Messages wire `fallbacks` (server-side execution on another model) and
-`mcpServers` (tools outside llame's gate). Boot validates "is an object" and
+how the model answers: on the Responses wire, for the Responses client and the
+codex client alike, `conversation`, `previousResponseId`, and `instructions`
+(shared provider-side continuation state would cross Chat and owner
+boundaries, and `instructions` replaces llame's prompt) and
+`systemMessageMode` (its `remove` value strips llame's system prompt with only
+a warning); on the Chat Completions wire `model` (the adapter spreads unknown
+keys over its own `model` field, so an operator key would execute another
+model under this entry's identity, pricing, and context window) and
+`max_tokens` (spread over the catalog's output limit the same way); on the
+Messages wire `fallbacks` (server-side execution on another model),
+`mcpServers` (tools outside llame's gate), and `container` (a provider-side
+container identifier every owner's requests would share). Boot validates "is
+an object" and
 rejects interpolation syntax in any string value at any depth, so no
 interpolated secret can reach the object; the object is not a credential
 channel and is not redacted, and it is never published. The adapter is the
@@ -327,10 +341,13 @@ dollar rather than doubling it. The adapter populates the count from
 `cache_creation_input_tokens`, a real field that is billed and is the largest
 line on a cached turn. The public model DTO mirrors the field so the published
 price stays inspectable; the assistant-message and compaction telemetry share
-`TurnTelemetry`'s shape and gain the field with it, and the `usage` columns are
-`jsonb`, so no migration follows. Rejected: a required field; deriving a write
-rate as a fixed multiple of input; exposing it server-only; adding the term
-without the subtraction (double-counts every cache write).
+`TurnTelemetry`'s shape and gain the field with it, the telemetry log line and
+the web usage panel enumerate their fields and gain it explicitly, and the
+`usage` columns are `jsonb`, so no migration follows. On the OpenAI wires the
+count is undefined or zero, so the subtraction changes nothing there. Rejected:
+a required field; deriving a write rate as a fixed multiple of input; exposing
+it server-only; adding the term without the subtraction (double-counts every
+cache write).
 
 ### D9: Signatures are durable per-part metadata and are replayed unmodified
 
@@ -371,54 +388,71 @@ you choose." Enforcement is default-on for accounts created on or after
 2026-08-31 and opt-in on older accounts through
 `thinking.block_binding.prefix_mismatch_behavior`. llame is not append-only —
 compaction rewrites the prefix, and it can do so mid-run — so every request
-sets `thinking.blockBinding.prefixMismatchBehavior: 'drop_block'` through the
-adapter (which adds the beta header), sent alone when no thinking mode is
-configured. It is a D5 invariant on the shapes the pinned adapter can carry it
-on — adaptive thinking and the standalone shape: an operator cannot set it to
-`error` or remove it there. The adapter's `thinking` union has no
-`blockBinding` on its `enabled` and `disabled` branches and strips it silently
-(Anthropic itself accepts `block_binding` with `enabled`), so an operator who
-overrides `thinking` to a manual budget or to disabled gives up the
-instruction for that model, and the documentation says so together with the
-consequence: a prefix rewrite can then be rejected under the account's default
-enforcement. The messages layer proves the wire body for all four shapes, not
-the composed options object. Rationale: a compaction must never convert a
-working chat into a failed run, and the behavior must not depend on when the
-operator's account was created or on a catalog edit; where the adapter cannot
+that carries adaptive thinking sets
+`thinking.blockBinding.prefixMismatchBehavior: 'drop_block'` through the
+adapter (which adds the beta header). It is a D5 invariant on that shape: an
+operator cannot set it to `error` or remove it there. Two ceilings bound it.
+The adapter's `thinking` union has no `blockBinding` on its `enabled` and
+`disabled` branches and strips it silently (Anthropic itself accepts
+`block_binding` with `enabled`), so an operator who overrides `thinking` to a
+manual budget or to disabled gives up the instruction. And the adapter's
+standalone `{ blockBinding }` shape, which the first review round proposed for
+entries that declare no `reasoning`, is not used: Anthropic documents
+`block_binding` "alongside `thinking.type: "adaptive"` and `thinking.type:
+"enabled"`" only, its API reference models `thinking` as a tagged union whose
+every variant requires `type`, and neither OMP nor OpenClaw sends a type-less
+thinking object, so relying on it would risk a 400 on every request of every
+entry without `reasoning`. An entry that declares no `reasoning` therefore
+sends no thinking configuration at all and carries no instruction, and the
+documentation says so together with the consequence — a prefix rewrite can
+then be rejected under the account's default enforcement on a model that
+thinks by default — and the remedy, declaring `reasoning` for such a model.
+The messages layer proves the wire body for the adaptive, adaptive-without-
+display, manual-budget, and no-configuration cases, not the composed options
+object. Rationale: a compaction must never convert a working chat into a
+failed run, and the behavior must not depend on when the operator's account
+was created or on a catalog edit; where the adapter or the provider cannot
 express the instruction, the honest contract is a documented ceiling rather
 than a promise. Rejected: inheriting the account default; llame-side pruning;
 surfacing the 400 as a normal run failure; letting `providerOptions` override
-it on the shapes that carry it; rewriting the request body around the adapter
-to inject the field (llame-authored wire handling the shipped decisions
-reject); refusing manual-budget overrides outright (removes the only thinking
-path for budget-only models).
+it on the adaptive shape; rewriting the request body around the adapter to
+inject the field (llame-authored wire handling the shipped decisions reject);
+refusing manual-budget overrides outright (removes the only thinking path for
+budget-only models); sending adaptive thinking on entries without `reasoning`
+to carry the instruction (a 400 on every budget-only model).
 
 ### D11: Effort maps onto the provider's `effort` option; adaptive thinking is the default
 
 llame's `effort` is one opaque token gated by `resolveEffortSelection`, which
 throws `EffortNotAvailableError` (422) when a model declares no `reasoning`
 config and otherwise resolves the requested level or the entry's default. The
-client forwards the token as `providerOptions.anthropic.effort`, the same shape
-the OpenAI clients use for `reasoningEffort`; the adapter emits it as
-`output_config.effort`, which is generally available with no beta header on
-Opus 4.5 and later, Sonnet 4.6 and later, and Fable and Mythos 5.x. Because an
-entry that declares `reasoning` always resolves an effort, the run's token
-always outranks an operator `effort` key there; on an entry without
-`reasoning` the run resolves none, the client's default is "no effort", and an
-operator `effort` in `providerOptions` is forwarded like any other default
-override. When the entry declares `reasoning`, the client defaults `thinking`
-to `{ type: 'adaptive', display: 'summarized' }`; when it does not, the client
-sends no thinking mode. Rationale: on Opus 4.7+, Sonnet 5, and Fable and
-Mythos 5.x `thinking.type: "enabled"` is a 400, `budget_tokens` is deprecated
-on the 4.6 generation, and depth is controlled by effort — the shape Claude
-Code and OMP both send. `display` must be requested because those models
-default to `omitted`, which hides reasoning from the owner while still billing
-it; Claude Code makes the same opt-in through `showThinkingSummaries`. The
-operator's `reasoning` declaration is the switch, mirroring Claude Code's
-setting: a model without one runs on its own default (Opus 5, Sonnet 5, and
-Fable and Mythos 5.x think regardless; Opus 4.7, 4.8, 4.6, Sonnet 4.6, and
-every budget-only model do not) and the drop invariant still rides along on
-the standalone shape.
+client forwards the token as `providerOptions.anthropic.effort`, the way the
+OpenAI clients forward `reasoningEffort`, with one difference the OpenAI
+adapters do not have: the Anthropic option is a closed enumeration
+(`low`, `medium`, `high`, `xhigh`, `max`), so a declared level outside it
+throws `InvalidArgumentError` at the adapter before any call — a gateway whose
+vocabulary is not Anthropic's cannot be driven through this option, which is
+the shipped "misdeclared level surfaces at request time" rule and is
+documented. The adapter emits the option as `output_config.effort`, generally
+available with no beta header on Opus 4.5 and later, Sonnet 4.6 and later, and
+Fable and Mythos 5.x. Because an entry that declares `reasoning` always
+resolves an effort, the run's token always outranks an operator `effort` key
+there; on an entry without `reasoning` the run resolves none, the client's
+default is "no effort", and an operator `effort` in `providerOptions` is
+forwarded like any other default override. When the entry declares
+`reasoning`, the client defaults `thinking` to `{ type: 'adaptive', display:
+'summarized' }`; when it does not, the client sends no thinking configuration
+at all. Rationale: on Opus 4.7+, Sonnet 5, and Fable and Mythos 5.x
+`thinking.type: "enabled"` is a 400, `budget_tokens` is deprecated on the 4.6
+generation, and depth is controlled by effort — the shape Claude Code and OMP
+both send. `display` must be requested because those models default to
+`omitted`, which hides reasoning from the owner while still billing it; Claude
+Code makes the same opt-in through `showThinkingSummaries`. The operator's
+`reasoning` declaration is the switch, mirroring Claude Code's setting: a
+model without one runs on its own default (Opus 5, Sonnet 5, and Fable and
+Mythos 5.x think regardless; Opus 4.7, 4.8, 4.6, Sonnet 4.6, and every
+budget-only model do not) and, per D10, carries no drop instruction, so an
+operator running a model that thinks by default should declare `reasoning`.
 
 The thinking default is an object-valued default under D5, so an operator's
 `thinking` merges into it key by key: `{ "thinking": { "display": null } }`
@@ -442,8 +476,10 @@ thinking (D12). Rejected: mapping the token onto `thinking` as first drafted
 llame-owned `low`/`medium`/`high` scale; a per-model mode field; always
 sending adaptive regardless of the declaration (400s every budget-only model
 on every request); treating an operator `thinking` as a whole-value
-replacement (as the previous revision's recipe implied), which would have made
-`{ "thinking": { "type": "adaptive" } }` silently keep the display default.
+replacement, which the previous revision's recipe
+(`{ "thinking": { "type": "adaptive" } }` to drop the display) assumed —
+under the merge actually specified that recipe keeps the display default, so
+the recipe, not the merge, was wrong.
 
 ### D12: Structured output uses the adapter's JSON response format
 
@@ -519,7 +555,11 @@ and the optional `pricingUsdPer1M.cacheWrite` rate; both reproduce master's
 text and every shipped scenario. The embedding-catalog requirement is not
 restated: its allowlist ("`openai-responses` or `openai-completions`") already
 excludes the new type, so the exclusion is stated once on the provider-list
-side and left to the allowlist on the embedding side. `available-models`'
+side and left to the allowlist on the embedding side. The published price
+shape needs no `available-models` delta either: no shipped requirement
+enumerates the `pricingUsdPer1M` sub-fields, and its "Pricing units are
+explicit" scenario fixes only the units, so an added optional `cacheWrite`
+key changes no stated contract. `available-models`'
 dispatch requirement is restated because its wire sentence named "the OpenAI
 wire types" and its endpoint clause listed every type. `reasoning-output`'s
 UI requirement is restated for D13 with its shipped bullets intact. The new
@@ -555,21 +595,33 @@ change for the field.
 ### D17: The model output-token limit is a catalog field
 
 The Messages API requires `max_tokens` on every request, and the adapter fills
-it from its model-id table when the request carries no `maxOutputTokens`:
-128k for the current generations, but 4096 for a model id that does not
-contain `claude-` — the gateway-served `glm-5` or `kimi-k3` case D1 leans on —
-with thinking tokens counted against it. llame passes no output limit today,
-because `runs.maxOutputTokens` is an admission reserve, not a cap, and a
-provider option cannot carry it (it is an AI SDK call setting, not a
-namespaced option). So `models[].maxOutputTokens` becomes an optional
-positive-integer catalog field that every client forwards as the request's
-output-token limit, provider-neutral like `providerOptions`; absent, each
-adapter's own default applies, which for the OpenAI wires means none.
-Rationale: the operator who names a model is the one who knows its output
-ceiling, and a silent 4096 cap on a gateway entry would contradict the
-one-type decision in practice. Rejected: repurposing `runs.maxOutputTokens` as
-a cap (a semantic change to a shipped instance setting); a llame model-family
-table; leaving the adapter default undocumented.
+it from its model-id table when the request carries no `maxOutputTokens`: 128k
+for the current generations and for any unrecognized `claude-` id (Mythos ids
+match no explicit row, so they take that branch with an "unknown model"
+warning on every request that carries no limit), 64k or 32k for the 4.5 and
+older 4.x rows, 4096 for the Claude 3 Haiku, Claude 2, and Claude Instant
+rows, and 4096 for a model id that does not contain `claude-` — the
+gateway-served `glm-5` or `kimi-k3` case D1 leans on — with thinking tokens
+counted against it. llame passes no output limit today, because
+`runs.maxOutputTokens` is an admission reserve, not a cap, and a provider
+option cannot carry it (it is an AI SDK call setting, not a namespaced
+option). So `models[].maxOutputTokens` becomes an optional positive-integer
+catalog field, accepting a whole-value interpolation token like
+`contextWindowTokens`, that every client forwards as the request's
+`maxOutputTokens` setting, provider-neutral like `providerOptions`; absent,
+each adapter's own default applies, which for the OpenAI wires means none.
+What each adapter then puts on the wire is the adapter's: the Messages adapter
+adds a manual thinking budget to it and lowers a value above a ceiling it
+knows with a warning; the Responses adapter sends it as `max_output_tokens`;
+`@ai-sdk/openai-compatible` sends it as `max_tokens` with no
+`max_completion_tokens` remapping, so declaring it on an `openai-completions`
+entry that fronts an OpenAI-hosted reasoning model is rejected by that model —
+a documented ceiling, and the field is optional. Rationale: the operator who
+names a model is the one who knows its output ceiling, and a silent 4096 cap on
+a gateway entry would contradict the one-type decision in practice. Rejected:
+repurposing `runs.maxOutputTokens` as a cap (a semantic change to a shipped
+instance setting); a llame model-family table; promising an exact wire value
+the adapters do not guarantee; leaving the adapter default undocumented.
 
 ## Risks / Trade-offs
 
@@ -581,7 +633,13 @@ table; leaving the adapter default undocumented.
   the posture does not speculate.
 - [A gateway model id is capped at 4096 output tokens by the adapter's table]
   → the operator declares `models[].maxOutputTokens` (D17); the documentation
-  states the adapter default.
+  states the adapter default, the Messages adapter's budget addition and
+  ceiling clamp, and the Chat Completions adapter's missing
+  `max_completion_tokens` remap.
+- [A gateway vocabulary is not Anthropic's five effort levels] → the Messages
+  adapter's closed effort enum rejects any other token before the call (D11);
+  documented, and the operator's remedy is to declare Anthropic's levels or
+  none.
 - [`display` is rejected on the 4.6 generation] → moderate-confidence risk from
   OMP's observation; the operator removes the default per model with
   `{ "thinking": { "display": null } }` (D11), and the live proof records what
@@ -589,15 +647,21 @@ table; leaving the adapter default undocumented.
 - [A misspelled `providerOptions` key is silently dropped] → the OpenAI and
   Anthropic adapters strip unknown keys; documented as a ceiling, and the
   request fixtures show the actual body so a proof never assumes.
-- [A manual-budget or disabled thinking override loses the drop instruction]
-  → an adapter limitation (D10), documented with its consequence; the wire
-  fixtures for all four thinking shapes make the loss visible rather than
-  assumed, and an upstream fix to the adapter's `thinking` union would remove
-  the ceiling without a llame change.
+- [A manual-budget or disabled thinking override, or an entry without
+  `reasoning`, carries no drop instruction] → an adapter limitation for the
+  override and a provider-documentation gap for the type-less shape (D10),
+  each documented with its consequence and remedy; the wire fixtures for the
+  adaptive, adaptive-without-display, manual-budget, and no-configuration
+  cases make the absence visible rather than assumed, the live proof exercises
+  an entry without `reasoning`, and an upstream fix to the adapter's
+  `thinking` union would remove the override ceiling without a llame change.
 - [Thinking signatures break continuations after a prefix rewrite] → the drop
-  instruction is an invariant on every request whose thinking shape can carry
-  it (D10), block order and bytes are preserved, and both the within-turn and
+  instruction is an invariant on every request that carries adaptive thinking
+  (D10), block order and bytes are preserved, and both the within-turn and
   post-compaction paths carry fixture-covered scenarios.
+- [An ambient `ANTHROPIC_BASE_URL` moves requests off the configured endpoint]
+  → the client always passes an explicit `baseURL` (D3), with a fixture that
+  sets the variable and asserts the configured destination.
 - [A model declares a wrong `cacheWrite` rate] → cost is only as right as the
   operator's declaration, exactly like `input`/`output`; absent rates fall back
   to input rather than to null, the uncached term excludes the tokens so
@@ -627,6 +691,34 @@ history.
 
 ## Revision history
 
+- v4 (2026-09-19): Round 2 of independent review (Codex CLI plus two
+  reviewer agents). Dropped the adapter's type-less `{ blockBinding }` shape
+  from D10 after finding Anthropic documents `block_binding` only alongside
+  adaptive and manual thinking and neither reference harness sends it, so an
+  entry without `reasoning` sends no thinking configuration and carries no
+  drop instruction, with the remedy documented; scoped the prefix-rewrite
+  scenarios to requests carrying adaptive thinking. Added `systemMessageMode`
+  (its `remove` value strips the system prompt), `container`, and the Chat
+  Completions `max_tokens` field to the reserved keys, named the codex client
+  as reserving the Responses keys, and made the precedence requirement state
+  that an invariant holds in the composed options with the owning capability
+  naming any adapter ceiling. Made the Messages client pass an explicit
+  `baseURL` because the adapter reads `ANTHROPIC_BASE_URL` when it is omitted
+  (D3). Redefined `maxOutputTokens` as the request's `maxOutputTokens`
+  setting rather than an exact wire value, recorded the Messages adapter's
+  budget addition and ceiling clamp, the Chat Completions adapter's missing
+  `max_completion_tokens` remap, the adapter table's real rows (Mythos ids
+  unrecognized; Claude 3 Haiku and older at 4096), and made the field accept a
+  whole-value interpolation token like `contextWindowTokens` (D17). Recorded
+  the Messages adapter's closed five-value effort enum (D11), the telemetry
+  log line and web usage panel that enumerate usage fields (D8), the
+  closed-schema clause for the free-form `providerOptions` subtree, why the
+  published price shape needs no `available-models` delta (D15), and the
+  rewording of the shipped unsupported-type example. Narrowed the
+  structured-output rationale to Fable 5.1, Mythos 5.1, and manual thinking;
+  corrected D11's reversed merge-versus-replacement sentence; and gave the
+  Messages reserved keys, invariants, and `cacheWrite` boot validation owning
+  tasks. No decision reversed; D10's no-configuration case narrowed.
 - v3 (2026-09-19): Round 1 of independent review (Codex CLI plus two
   reviewer agents). Bounded the drop-on-prefix-mismatch invariant to the
   thinking shapes the pinned adapter can carry it on, since its `thinking`

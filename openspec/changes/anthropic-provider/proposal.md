@@ -33,7 +33,8 @@ instead.
   client — client invariants, then the run's effort, then the operator's
   options, then client defaults; object values merge key by key and `null`
   removes a default at any depth. Keys that would change what a request is
-  (the wire model id, provider-side continuation identifiers, an instructions
+  (the wire model id and its raw output-limit field, provider-side
+  continuation and container identifiers, an instructions or system-message
   override, server-side fallbacks, provider-attached tool servers) are
   reserved and stripped. The three existing clients are refactored onto it,
   which turns the Responses client's `reasoningSummary: 'auto'` into an
@@ -42,8 +43,10 @@ instead.
   today. Boot validates only that it is an object and rejects interpolation
   syntax inside it; keys and values are the provider's vocabulary and are never
   validated or published. Alongside it, an optional `models[].maxOutputTokens`
-  is forwarded as the request's output-token limit, because the Messages wire
-  requires one and the adapter's default for an unrecognized model id is 4096.
+  is forwarded as the request's `maxOutputTokens` setting, because the
+  Messages wire requires an output limit and the adapter's default for an
+  unrecognized model id is 4096; each adapter derives its wire field from it as
+  it documents.
 - Extend the provider configuration contract and the `type`-dispatch client
   factory, and add one Anthropic model client implementing the existing
   `ModelClient` seam (`streamText`/`generateObject`, context window, pricing,
@@ -53,19 +56,21 @@ instead.
   metadata through the per-part channel `reasoning-output` now defines, replay
   them complete and unmodified on later requests for the same chat, including
   after a model switch, and never prune them llame-side; the adapter's replay
-  switch is an invariant. Every request carries the provider's
-  drop-on-prefix-mismatch instruction as a client invariant on the thinking
-  shapes the pinned adapter can carry it on (adaptive, or none), so a
-  compaction or prompt-receipt change never turns a replay into a rejected run;
-  an operator override to a manual-budget or disabled shape gives it up, which
-  the documentation states. A block whose text the provider withheld persists
+  switch is an invariant. Every request that carries adaptive thinking carries
+  the provider's drop-on-prefix-mismatch instruction as a client invariant, so
+  a compaction or prompt-receipt change never turns a replay into a rejected
+  run; an entry that declares no `reasoning`, or an operator override to a
+  manual-budget or disabled shape, carries none, which the documentation
+  states together with the remedy. A block whose text the provider withheld persists
   with its signature; the web renderer draws no Thinking panel for a segment
   without text.
 - Reasoning effort: forward the operator-declared effort token as the
-  adapter's `effort` option, the same shape the OpenAI clients use for
-  `reasoningEffort`. When a model declares a `reasoning` vocabulary, the client
-  defaults thinking to adaptive with summarized display; otherwise it sends no
-  thinking mode and no effort. Both are defaults an operator can adjust through
+  adapter's `effort` option, the way the OpenAI clients forward
+  `reasoningEffort`; the Anthropic option is a closed enumeration of the
+  provider's levels, so a level outside it fails at the adapter. When a model
+  declares a `reasoning` vocabulary, the client defaults thinking to adaptive
+  with summarized display; otherwise it sends no thinking configuration and
+  no effort. Both are defaults an operator can adjust through
   `providerOptions` (`{ "thinking": { "display": null } }` removes the display,
   a manual-budget shape replaces adaptive thinking). No llame-owned level
   vocabulary, thinking budget, or model-family table.
@@ -85,9 +90,10 @@ instead.
   choose the provider's native output format on models its capability table
   marks as supporting it, or its own JSON tool with a required tool choice
   otherwise. llame itself authors no forced tool choice on the Messages wire,
-  because current Claude models reject forced tool use; a rejection, including
-  of the adapter's JSON-tool path, falls through to the caller's existing
-  plain-text fallback.
+  because the current flagship models (Fable 5.1, Mythos 5.1) reject forced
+  tool use and every model rejects it under manual thinking; a rejection,
+  including of the adapter's JSON-tool path, falls through to the caller's
+  existing plain-text fallback.
 - Failure boundaries: authentication, invalid-model, rate-limit, and rejected
   request options surface at request time with sanitized diagnostics, no silent
   provider fallback, and no credential disclosure. An option key the adapter
@@ -107,9 +113,11 @@ instead.
 ### Modified Capabilities
 
 - `instance-config`: the provider-list requirement gains the
-  `anthropic-messages` type, its variant shape, and its embedding exclusion; the
-  model-catalog requirement gains the server-only `providerOptions` object with
-  its boot rules, the optional `maxOutputTokens`, and the optional
+  `anthropic-messages` type, its variant shape, and its embedding exclusion,
+  and its shipped unsupported-type example is reworded from "`"anthropic"`
+  before the adapter exists" to "a bare `"anthropic"`"; the model-catalog
+  requirement gains the server-only `providerOptions` object with its boot
+  rules, the optional `maxOutputTokens`, and the optional
   `pricingUsdPer1M.cacheWrite` rate.
 - `provider-api-selection`: the wire-selection requirement gains the Messages
   clause and its scenarios, its shipped structured-generation sentence and
@@ -197,7 +205,9 @@ capabilities.
   `apps/api/src/chats/turn-telemetry.ts` (`TurnTelemetry` gains cache-write
   tokens; cost subtracts them from the uncached term and prices them once).
 - `apps/web/app/(chat)/components/chat-message-row.tsx`: no panel for a
-  reasoning segment without text.
+  reasoning segment without text; `message-usage.tsx` and the
+  `assistant_turn_completed` telemetry log line, which enumerate usage fields,
+  gain the cache-write count.
 - `apps/api/package.json` and the lockfile (one new dependency).
 - Configuration and DTO fixtures, focused provider and composition tests, one
   bounded live proof, operator documentation for the type and the field.

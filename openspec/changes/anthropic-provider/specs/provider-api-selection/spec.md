@@ -62,11 +62,11 @@ A provider entry with `type: "openai-responses"` SHALL execute against the OpenA
 
 ### Requirement: Model provider options are forwarded under a fixed precedence
 
-Every language-model request llame makes on behalf of a model entry SHALL carry that entry's retained `providerOptions` in the provider-options namespace its provider `type` selects, so the same catalog field configures every adapter and no provider gets a field of its own. The effective options SHALL be composed from four layers, highest precedence first: invariants a client requires for correctness or for a shipped contract (for example the Codex transport's non-stored responses and its summarized-reasoning setting, the Anthropic thinking prefix-mismatch behavior, and the Anthropic reasoning-replay switch); the run's resolved effort, placed in the adapter's effort option; the entry's `providerOptions`; and the client's documented defaults. Object-valued options SHALL merge key by key across layers, recursively, and any other value SHALL replace the value below it. An operator value of `null`, at any depth, SHALL remove the client default at that key, and SHALL NOT remove an invariant. A client's defaults MAY differ by request kind (for example a reasoning-summary default on streaming and compaction requests but not on structured generation), and an entry that declares no `providerOptions` SHALL produce exactly the request bodies its client produced before this rule.
+Every language-model request llame makes on behalf of a model entry SHALL carry that entry's retained `providerOptions` in the provider-options namespace its provider `type` selects, so the same catalog field configures every adapter and no provider gets a field of its own. The effective options SHALL be composed from four layers, highest precedence first: invariants a client requires for correctness or for a shipped contract (for example the Codex transport's non-stored responses and its summarized-reasoning setting, the Anthropic thinking prefix-mismatch behavior, and the Anthropic reasoning-replay switch); the run's resolved effort, placed in the adapter's effort option; the entry's `providerOptions`; and the client's documented defaults. Object-valued options SHALL merge key by key across layers, recursively, and any other value SHALL replace the value below it. An operator value of `null`, at any depth, SHALL remove the client default at that key, and SHALL NOT remove an invariant. An invariant holds in the composed options; where an adapter cannot carry an invariant on a particular option shape, the capability that owns that client SHALL state the ceiling and the request SHALL NOT be rewritten around the adapter. A client's defaults MAY differ by request kind (for example a reasoning-summary default on streaming and compaction requests but not on structured generation), and an entry that declares no `providerOptions` SHALL produce exactly the request bodies its client produced before this rule.
 
-Keys that would change what the request is rather than how the model answers are reserved: the wire's model identifier, provider-side conversation or previous-response continuation identifiers, an instructions or system-prompt override, server-side fallbacks to other models, and provider-attached tool servers. Each client SHALL strip its reserved keys from the operator's object before composition and SHALL document them together with its invariants, so `providerOptions` can never retarget a request to another model, attach it to state shared with another Chat or owner, replace llame's prompt, or reach tools outside llame's gate.
+Keys that would change what the request is rather than how the model answers are reserved: the wire's model identifier, the wire's own output-limit field where the catalog owns it, provider-side conversation, previous-response, or container continuation identifiers, an instructions, system-prompt, or system-message-mode override, server-side fallbacks to other models, and provider-attached tool servers. Each client SHALL strip its reserved keys from the operator's object before composition and SHALL document them together with its invariants, so `providerOptions` can never retarget a request to another model, attach it to state shared with another Chat or owner, replace or remove llame's prompt, or reach tools outside llame's gate.
 
-A model entry's optional `maxOutputTokens` SHALL be forwarded as the output-token limit of every language-model request the entry serves; when it is absent, the adapter's own default applies. The system SHALL NOT validate `providerOptions` keys or values against the adapter or the provider at boot. At request time, a value the adapter recognizes but rejects SHALL fail the request explicitly under the existing failure contract; a key the adapter does not recognize is handled by the adapter alone, which MAY drop it or forward it to the endpoint, and SHALL NOT be used by llame to retarget, rewrite, or silently downgrade the request.
+A model entry's optional `maxOutputTokens` SHALL be forwarded as the `maxOutputTokens` setting of every language-model request the entry serves; when it is absent, the adapter's own default applies. The adapter derives the wire's output limit from that setting and MAY transform it as it documents — for example by adding a manual thinking budget, by lowering a value above a model ceiling it knows with a warning, or by sending it as a field a reasoning model rejects — and the client SHALL surface such a warning or failure rather than retry or rewrite the catalog. The system SHALL NOT validate `providerOptions` keys or values against the adapter or the provider at boot. At request time, a value the adapter recognizes but rejects SHALL fail the request explicitly under the existing failure contract; a key the adapter does not recognize is handled by the adapter alone, which MAY drop it or forward it to the endpoint, and SHALL NOT be used by llame to retarget, rewrite, or silently downgrade the request.
 
 #### Scenario: Operator options reach the provider namespace
 
@@ -88,14 +88,15 @@ A model entry's optional `maxOutputTokens` SHALL be forwarded as the output-toke
 #### Scenario: An invariant cannot be overridden
 
 - **WHEN** a model entry's `providerOptions` sets, or sets to `null`, an option a client requires for correctness or for a shipped contract
-- **THEN** the request carries the client's invariant value
+- **THEN** the composed options carry the client's invariant value
 - **AND** the operator value at that key is not sent
+- **AND** where the adapter cannot carry that invariant on the option shape in use, the owning capability's stated ceiling applies instead of a rewrite around the adapter
 
 #### Scenario: A reserved key is never sent
 
-- **WHEN** a model entry's `providerOptions` names a reserved key (e.g. the wire model identifier on the Chat Completions wire, a previous-response or conversation identifier on the Responses wire, or a server-side fallback list on the Messages wire)
+- **WHEN** a model entry's `providerOptions` names a reserved key (e.g. the wire model identifier or the raw output-limit field on the Chat Completions wire; a previous-response or conversation identifier, an instructions override, or the system-message mode on the Responses wire; a server-side fallback list, provider-attached tool servers, or a container identifier on the Messages wire)
 - **THEN** the key is stripped before the request is composed
-- **AND** the request executes against the entry's configured model, endpoint, prompt, and tools
+- **AND** the request executes against the entry's configured model, endpoint, prompt, output limit, and tools
 
 #### Scenario: A null removes a client default at any depth
 
@@ -107,12 +108,13 @@ A model entry's optional `maxOutputTokens` SHALL be forwarded as the output-toke
 
 - **WHEN** a client defaults an object-valued option and the entry's `providerOptions` sets a subset of that object's keys
 - **THEN** the request carries the operator's keys with the client's remaining keys
-- **AND** an invariant key inside that object keeps its invariant value
+- **AND** an invariant key inside that object keeps its invariant value in the composed options
 
 #### Scenario: The output-token limit is forwarded
 
 - **WHEN** a model entry declares `maxOutputTokens`
-- **THEN** every language-model request the entry serves carries that value as its output-token limit
+- **THEN** every language-model request the entry serves carries that value as its `maxOutputTokens` setting
+- **AND** the adapter derives the wire limit from it, surfacing any documented lowering or addition as a warning rather than a silent rewrite of the catalog
 - **AND** an entry without it leaves the limit to the adapter's default
 
 #### Scenario: An invalid option value fails at request time

@@ -71,7 +71,7 @@ The `openai-codex` variant SHALL require `{ id, type, key, accountId }`, with no
 
 ### Requirement: Model catalog configuration
 
-The config file SHALL support a top-level `models` array that is the executable model catalog, superseding any hardcoded catalog. Each entry SHALL include a required opaque `id`, a required `provider` referencing a defined `providers[].id`, a required server-only `providerModelId`, and a required positive-integer `contextWindowTokens`. Each entry MAY include `pricingUsdPer1M`, an optional per-model `compactionThresholdTokens`, an optional positive-integer `maxOutputTokens`, an optional `reasoning` object, an optional server-only `providerOptions` object, and the optional display fields of the public model contract. `pricingUsdPer1M` MAY carry an optional `cacheWrite` rate alongside `input`, `cachedInput`, and `output`, validated like the other rates. A `models[].provider` that does not reference a defined provider id SHALL fail startup naming the model id and the dangling provider reference.
+The config file SHALL support a top-level `models` array that is the executable model catalog, superseding any hardcoded catalog. Each entry SHALL include a required opaque `id`, a required `provider` referencing a defined `providers[].id`, a required server-only `providerModelId`, and a required positive-integer `contextWindowTokens`. Each entry MAY include `pricingUsdPer1M`, an optional per-model `compactionThresholdTokens`, an optional positive-integer `maxOutputTokens` (accepting a whole-value interpolation token and validated after resolution, exactly like `contextWindowTokens`), an optional `reasoning` object, an optional server-only `providerOptions` object, and the optional display fields of the public model contract. `pricingUsdPer1M` MAY carry an optional `cacheWrite` rate alongside `input`, `cachedInput`, and `output`, validated like the other rates. A `models[].provider` that does not reference a defined provider id SHALL fail startup naming the model id and the dangling provider reference.
 
 The optional `reasoning` object declares that the model accepts a reasoning-effort request parameter and what values it accepts. Its presence is the declaration; there SHALL be no separate availability flag. It SHALL contain a required non-empty `effortLevels` array, a required `defaultEffort` string, and an optional `cacheInvalidatedByEffortChange` boolean defaulting to `false`.
 
@@ -85,7 +85,7 @@ At load time the system SHALL normalize every item to `{ value, label? }` (omitt
 
 The system SHALL NOT verify that a declared level is accepted by the provider. A misdeclared level surfaces as a provider request error at execution time, consistent with provider credentials not being prevalidated at boot.
 
-The optional `providerOptions` object carries provider-native request options for the adapter the entry's provider `type` selects, keyed as that adapter documents them. At load time the system SHALL validate only that it is a JSON object and SHALL otherwise retain it unchanged: it SHALL NOT constrain, interpret, or verify its keys or values against the adapter or the provider, because those vocabularies belong to the provider and change between releases. `{env:…}` and `{path:…}` interpolation syntax in any string value at any depth of the object SHALL fail startup naming the model id and the field before any token is resolved, so no interpolated secret can reach a request option. The object is not a credential channel: its contents are not redacted anywhere, and an operator SHALL NOT place a secret in it. The object is server-only and SHALL NOT be published in the public model catalog. How the retained options and the optional `maxOutputTokens` reach the provider, and what takes precedence over them, is specified by `provider-api-selection`.
+The optional `providerOptions` object carries provider-native request options for the adapter the entry's provider `type` selects, keyed as that adapter documents them. The published schema SHALL declare it as a typed free-form object, so the closed-schema rule applies to the `providerOptions` key itself and not to its contents. At load time the system SHALL validate only that it is a JSON object and SHALL otherwise retain it unchanged: it SHALL NOT constrain, interpret, or verify its keys or values against the adapter or the provider, because those vocabularies belong to the provider and change between releases. `{env:…}` and `{path:…}` interpolation syntax in any string value at any depth of the object SHALL fail startup naming the model id and the field before any token is resolved, so no interpolated secret can reach a request option. The object is not a credential channel: its contents are not redacted anywhere, and an operator SHALL NOT place a secret in it. The object is server-only and SHALL NOT be published in the public model catalog. How the retained options and the optional `maxOutputTokens` reach the provider, and what takes precedence over them, is specified by `provider-api-selection`.
 
 #### Scenario: Model references a defined provider
 
@@ -197,9 +197,9 @@ The optional `providerOptions` object carries provider-native request options fo
 
 #### Scenario: Output-token limit is optional and validated
 
-- **WHEN** a model entry declares `maxOutputTokens` as a positive integer, or omits it
-- **THEN** startup succeeds and the declared value, or its absence, is retained for that model
-- **AND** a non-positive or non-integer value fails startup naming the model id and the field
+- **WHEN** a model entry declares `maxOutputTokens` as a positive integer or as a whole-value interpolation token that resolves to one, or omits it
+- **THEN** startup succeeds and the resolved value, or its absence, is retained for that model
+- **AND** a value that resolves to a non-positive or non-integer fails startup naming the model id and the field
 
 #### Scenario: Cache-write rate is optional
 

@@ -34,18 +34,22 @@ the replay needs.
 A replay SHALL be safe when the prefix above it has changed. A thinking block
 stays valid only while the top-level `system` prompt, the `tools`, and the
 messages before it are unchanged, and llame rewrites that prefix on compaction
-and on prompt-receipt changes, so the request SHALL explicitly instruct the
-provider to drop blocks whose bound prefix no longer matches instead of failing,
-and SHALL do so rather than inherit whatever the account's default enforcement
-happens to be. The instruction is a client invariant under
-`provider-api-selection`'s precedence on every thinking shape the pinned
-adapter can carry it on — adaptive thinking, and the standalone shape sent when
-no thinking mode is configured: an operator's `providerOptions` SHALL NOT set
-it to error or remove it there. The pinned adapter cannot carry the instruction
-on a manual-budget or disabled thinking shape, so an operator who overrides
-`thinking` to one of those shapes gives up the instruction for that model, which
-the operator documentation SHALL state. The same behavior SHALL hold within a
-single run, where compaction can rewrite the prefix mid-turn.
+and on prompt-receipt changes, so every request that carries adaptive thinking
+SHALL explicitly instruct the provider to drop blocks whose bound prefix no
+longer matches instead of failing, and SHALL do so rather than inherit whatever
+the account's default enforcement happens to be. The instruction is a client
+invariant under `provider-api-selection`'s precedence on the adaptive shape:
+an operator's `providerOptions` SHALL NOT set it to error or remove it there.
+The provider documents the instruction alongside adaptive and manual-budget
+thinking only, and the pinned adapter carries it only on the adaptive shape,
+so the client SHALL NOT send a thinking configuration that consists of the
+instruction alone, and a request that carries no thinking configuration or a
+manual-budget or disabled shape carries no instruction: an entry that declares
+no `reasoning` on a model that thinks by default, or an operator who overrides
+`thinking` to a manual-budget or disabled shape, gives up the instruction for
+that model, which the operator documentation SHALL state together with the
+remedy of declaring `reasoning`. The same behavior SHALL hold within a single
+run, where compaction can rewrite the prefix mid-turn.
 
 When the request's model differs from the model that produced a replayed block,
 the block SHALL still be replayed unchanged: a thinking block is readable only by
@@ -87,32 +91,35 @@ A response that emits no thinking output SHALL remain a successful run.
 
 #### Scenario: A rewritten prefix drops stale blocks instead of failing
 
-- **WHEN** compaction or a prompt-receipt change rewrites the system prompt,
-  tools, or earlier messages above a replayed thinking block
+- **WHEN** a request carrying adaptive thinking follows a compaction or a
+  prompt-receipt change that rewrote the system prompt, tools, or earlier
+  messages above a replayed thinking block
 - **THEN** the request explicitly asks the provider to drop the stale-bound
   blocks and the run continues without a rejection
 
 #### Scenario: A mid-run compaction does not fail the continuation
 
-- **WHEN** compaction rewrites the prefix during an active run and the turn then
-  continues with a tool result
+- **WHEN** compaction rewrites the prefix during an active run whose requests
+  carry adaptive thinking and the turn then continues with a tool result
 - **THEN** the continuation still succeeds under the drop behavior rather than
   failing with a rejection
 
-#### Scenario: The drop instruction cannot be configured away on the shapes that carry it
+#### Scenario: The drop instruction cannot be configured away on the adaptive shape
 
 - **WHEN** a model entry's `providerOptions` sets the prefix-mismatch behavior
-  to error or to `null` while the effective thinking shape is adaptive or absent
+  to error or to `null` while the effective thinking shape is adaptive
 - **THEN** every request still carries the drop instruction
 
-#### Scenario: A manual-budget or disabled thinking override gives up the drop instruction
+#### Scenario: A request without adaptive thinking carries no drop instruction
 
-- **WHEN** a model entry's `providerOptions` sets `thinking` to the
-  manual-budget or the disabled shape
-- **THEN** the request carries the operator's thinking shape without the drop
-  instruction, because the pinned adapter cannot carry it there
+- **WHEN** a model entry declares no `reasoning` and sets no thinking option, or
+  its `providerOptions` sets `thinking` to the manual-budget or the disabled
+  shape
+- **THEN** the request carries no drop instruction and no instruction-only
+  thinking configuration
 - **AND** the operator documentation records that a prefix rewrite can then be
-  rejected under the account's default enforcement
+  rejected under the account's default enforcement, and that declaring
+  `reasoning` restores the instruction on models with adaptive thinking
 
 #### Scenario: A model switch replays blocks unchanged
 
@@ -251,9 +258,13 @@ effort in the adapter's effort option, verbatim, and SHALL NOT introduce a secon
 effort vocabulary, a new configuration field, or a provider-specific override of
 the existing effort resolution. The existing effective-effort behavior, including
 rejection of an effort the model does not declare, SHALL apply unchanged. The
-adapter MAY lower an effort it knows the model rejects with the effective
-thinking shape (for example a top effort while thinking is disabled) and warn;
-the client SHALL surface that warning and SHALL NOT rewrite the catalog or retry.
+adapter's effort option is a closed enumeration of the provider's own levels, so
+a declared level outside it fails the request at the adapter before any call,
+under the existing rule that a misdeclared level surfaces at request time; the
+client SHALL NOT translate such a level. The adapter MAY lower an effort it
+knows the model rejects with the effective thinking shape (for example a top
+effort while thinking is disabled) and warn; the client SHALL surface that
+warning and SHALL NOT rewrite the catalog or retry.
 
 When a model entry declares a `reasoning` vocabulary, the run's resolved effort
 outranks any effort key in the entry's `providerOptions`, and the client SHALL
@@ -261,13 +272,13 @@ default the adapter's thinking option to adaptive thinking with summarized
 display, so the effort the owner selects governs thinking depth and the
 reasoning the provider summarizes is visible under the existing reasoning-part
 contract. When a model entry declares no `reasoning` vocabulary, the client's
-defaults are no thinking mode and no effort, leaving the model's own default in
-force; an operator MAY still forward an effort or a thinking shape through
-`providerOptions`. The thinking default merges with an operator's `thinking`
-object key by key under `provider-api-selection`'s precedence: an operator
-removes the display default with `{ "thinking": { "display": null } }`, and
-declares a token budget for a model without adaptive thinking by setting the
-manual-budget shape, which replaces the adaptive type. The client SHALL NOT
+defaults are no thinking configuration and no effort, leaving the model's own
+default in force; an operator MAY still forward an effort or a thinking shape
+through `providerOptions`. The thinking default merges with an operator's
+`thinking` object key by key under `provider-api-selection`'s precedence: an
+operator removes the display default with `{ "thinking": { "display": null } }`,
+and declares a token budget for a model without adaptive thinking by setting
+the manual-budget shape, which replaces the adaptive type. The client SHALL NOT
 author a thinking budget, a per-model thinking mode, or any model-family table
 of its own.
 
@@ -300,13 +311,13 @@ of its own.
 - **AND** the run's resolved effort, if the entry declares one, is still carried
   as the effort option
 
-#### Scenario: A model without a reasoning declaration sends no thinking mode
+#### Scenario: A model without a reasoning declaration sends no thinking configuration
 
 - **WHEN** a model entry omits `reasoning` and sets neither a thinking nor an
   effort option in `providerOptions`
-- **THEN** the request carries no thinking mode and no effort option
-- **AND** the model's own default thinking behavior applies
-- **AND** the drop-on-prefix-mismatch instruction is still present
+- **THEN** the request carries no thinking configuration and no effort option
+- **AND** the model's own default thinking behavior applies, without a drop
+  instruction
 
 #### Scenario: An operator effort is forwarded when no vocabulary is declared
 
@@ -336,12 +347,14 @@ SHALL request a JSON response format from the adapter and let the adapter select
 the provider's mechanism: the native output format on models its capability
 table marks as supporting it, and the adapter's own JSON tool with a required
 tool choice otherwise. llame itself SHALL NOT author a named or required tool
-choice to obtain structured output, because current Claude models reject forced
-tool use, and SHALL NOT add a prompt-injected schema, text-parsing fallback, or
-provider-specific bypass. A generation the provider rejects — including the
-adapter's JSON-tool path on a model or thinking shape that rejects forced tool
-use — SHALL fail explicitly and fall through to the caller's existing plain-text
-fallback, never to another mechanism, model, or provider.
+choice to obtain structured output, because the current flagship models (Claude
+Fable 5.1 and Mythos 5.1) reject forced tool use and every model rejects it
+under manual extended thinking, and SHALL NOT add a prompt-injected schema,
+text-parsing fallback, or provider-specific bypass. A generation the provider
+rejects — including the adapter's JSON-tool path on a model or thinking shape
+that rejects forced tool use — SHALL fail explicitly and fall through to the
+caller's existing plain-text fallback, never to another mechanism, model, or
+provider.
 
 #### Scenario: Bound-object generation uses the native output format
 
