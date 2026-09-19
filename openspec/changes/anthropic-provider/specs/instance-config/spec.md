@@ -2,7 +2,7 @@
 
 ### Requirement: Provider list configuration
 
-The config file SHALL support a top-level `providers` array of duplicable provider entries, discriminated by `type`. `id` SHALL be a non-empty operator-chosen identifier, unique within the array. `type` SHALL select the client implementation and the wire API it speaks, and SHALL be constrained by the schema to the set of executable provider types (`"openai-responses"` for the Responses wire through `@ai-sdk/openai`; `"openai-completions"` for the Chat Completions wire through `@ai-sdk/openai-compatible`; `"anthropic-messages"` for the Messages wire through `@ai-sdk/anthropic`; `"openai-codex"` for the Codex subscription backend). The `openai-responses` variant SHALL accept `{ id, type, key?, baseUrl? }`, with `baseUrl` defaulting to the OpenAI API; the `openai-completions` variant SHALL accept `{ id, type, key?, baseUrl }`, with `baseUrl` required; the `anthropic-messages` variant SHALL accept `{ id, type, key?, baseUrl? }`, with `baseUrl` defaulting to the Anthropic API. For all three wire types, `key` and `baseUrl` SHALL be strings supporting `{env:…}`/`{path:…}` interpolation, and a `key` that resolves to empty SHALL mark the provider **keyless** (no credential), preserving the empty-resolution-means-unset semantics. A `baseUrl` whose host does not correspond to the vendor implied by the entry's `type` SHALL be accepted unchanged: no load-time error, warning, migration, or reinterpretation applies. Duplicate ids, or a `type` outside the schema enum (including the retired `"openai"` and a bare `"anthropic"`), SHALL fail startup naming the offending entry.
+The config file SHALL support a top-level `providers` array of duplicable provider entries, discriminated by `type`. `id` SHALL be a non-empty operator-chosen identifier, unique within the array. `type` SHALL select the client implementation and the wire API it speaks, and SHALL be constrained by the schema to the set of executable provider types (`"openai-responses"` for the Responses wire through `@ai-sdk/openai`; `"openai-completions"` for the Chat Completions wire through `@ai-sdk/openai-compatible`; `"anthropic-messages"` for the Messages wire through `@ai-sdk/anthropic`; `"openai-codex"` for the Codex subscription backend). The `openai-responses` variant SHALL accept `{ id, type, key?, baseUrl? }`, with `baseUrl` defaulting to the OpenAI API; the `openai-completions` variant SHALL accept `{ id, type, key?, baseUrl }`, with `baseUrl` required; the `anthropic-messages` variant SHALL accept `{ id, type, key?, baseUrl? }`, with `baseUrl` defaulting to the Anthropic API. For all three wire types, `key` and `baseUrl` SHALL be strings supporting `{env:…}`/`{path:…}` interpolation, and a `key` that resolves to empty SHALL mark the provider **keyless** (no credential), preserving the empty-resolution-means-unset semantics. Duplicate ids, or a `type` outside the schema enum (including the retired `"openai"` and a bare `"anthropic"`), SHALL fail startup naming the offending entry.
 
 Resolved `key` values SHALL never be written to logs, errors, or diagnostics; a load-time error on a provider field SHALL identify the entry by `id` and the field name, never the resolved value.
 
@@ -71,7 +71,7 @@ The `openai-codex` variant SHALL require `{ id, type, key, accountId }`, with no
 
 ### Requirement: Model catalog configuration
 
-The config file SHALL support a top-level `models` array that is the executable model catalog, superseding any hardcoded catalog. Each entry SHALL include a required opaque `id`, a required `provider` referencing a defined `providers[].id`, a required server-only `providerModelId`, and a required positive-integer `contextWindowTokens`. Each entry MAY include `pricingUsdPer1M`, an optional per-model `compactionThresholdTokens`, an optional `reasoning` object, an optional server-only `providerOptions` object, and the optional display fields of the public model contract. A `models[].provider` that does not reference a defined provider id SHALL fail startup naming the model id and the dangling provider reference.
+The config file SHALL support a top-level `models` array that is the executable model catalog, superseding any hardcoded catalog. Each entry SHALL include a required opaque `id`, a required `provider` referencing a defined `providers[].id`, a required server-only `providerModelId`, and a required positive-integer `contextWindowTokens`. Each entry MAY include `pricingUsdPer1M`, an optional per-model `compactionThresholdTokens`, an optional positive-integer `maxOutputTokens`, an optional `reasoning` object, an optional server-only `providerOptions` object, and the optional display fields of the public model contract. `pricingUsdPer1M` MAY carry an optional `cacheWrite` rate alongside `input`, `cachedInput`, and `output`, validated like the other rates. A `models[].provider` that does not reference a defined provider id SHALL fail startup naming the model id and the dangling provider reference.
 
 The optional `reasoning` object declares that the model accepts a reasoning-effort request parameter and what values it accepts. Its presence is the declaration; there SHALL be no separate availability flag. It SHALL contain a required non-empty `effortLevels` array, a required `defaultEffort` string, and an optional `cacheInvalidatedByEffortChange` boolean defaulting to `false`.
 
@@ -85,7 +85,7 @@ At load time the system SHALL normalize every item to `{ value, label? }` (omitt
 
 The system SHALL NOT verify that a declared level is accepted by the provider. A misdeclared level surfaces as a provider request error at execution time, consistent with provider credentials not being prevalidated at boot.
 
-The optional `providerOptions` object carries provider-native request options for the adapter the entry's provider `type` selects, keyed as that adapter documents them. At load time the system SHALL validate only that it is a JSON object and SHALL otherwise retain it unchanged: it SHALL NOT constrain, interpret, or verify its keys or values against the adapter or the provider, because those vocabularies belong to the provider and change between releases. `{env:…}` and `{path:…}` interpolation syntax anywhere inside the object SHALL fail startup naming the model id and the field before any token is resolved, so a request option can never carry a credential. The object is server-only and SHALL NOT be published in the public model catalog. How the retained options reach the provider, and what takes precedence over them, is specified by `provider-api-selection`.
+The optional `providerOptions` object carries provider-native request options for the adapter the entry's provider `type` selects, keyed as that adapter documents them. At load time the system SHALL validate only that it is a JSON object and SHALL otherwise retain it unchanged: it SHALL NOT constrain, interpret, or verify its keys or values against the adapter or the provider, because those vocabularies belong to the provider and change between releases. `{env:…}` and `{path:…}` interpolation syntax in any string value at any depth of the object SHALL fail startup naming the model id and the field before any token is resolved, so no interpolated secret can reach a request option. The object is not a credential channel: its contents are not redacted anywhere, and an operator SHALL NOT place a secret in it. The object is server-only and SHALL NOT be published in the public model catalog. How the retained options and the optional `maxOutputTokens` reach the provider, and what takes precedence over them, is specified by `provider-api-selection`.
 
 #### Scenario: Model references a defined provider
 
@@ -186,7 +186,7 @@ The optional `providerOptions` object carries provider-native request options fo
 
 #### Scenario: Provider options reject interpolation tokens
 
-- **WHEN** any string inside a model entry's `providerOptions` contains `{env:…}` or `{path:…}` syntax
+- **WHEN** any string value at any depth of a model entry's `providerOptions` contains `{env:…}` or `{path:…}` syntax
 - **THEN** startup fails naming the model id and the field before resolving the token
 - **AND** no resolved value is exposed
 
@@ -194,3 +194,15 @@ The optional `providerOptions` object carries provider-native request options fo
 
 - **WHEN** any caller retrieves the available-model catalog
 - **THEN** no `providerOptions` content is returned for any model
+
+#### Scenario: Output-token limit is optional and validated
+
+- **WHEN** a model entry declares `maxOutputTokens` as a positive integer, or omits it
+- **THEN** startup succeeds and the declared value, or its absence, is retained for that model
+- **AND** a non-positive or non-integer value fails startup naming the model id and the field
+
+#### Scenario: Cache-write rate is optional
+
+- **WHEN** a model entry's `pricingUsdPer1M` declares `cacheWrite`, or omits it while declaring other rates
+- **THEN** startup succeeds
+- **AND** a negative or non-numeric `cacheWrite` fails startup naming the model id and the field

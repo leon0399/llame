@@ -13,6 +13,7 @@ The backend SHALL use the existing AI SDK reasoning stream protocol and persiste
 
 - **WHEN** a run emits two reasoning-summary parts, then a tool call, then another reasoning-summary part
 - **THEN** the chat shows one Thinking panel for the first two summaries, the tool, then a second Thinking panel
+- **AND** it does not hoist every reasoning part above the tool
 
 #### Scenario: An empty reasoning segment renders no panel
 

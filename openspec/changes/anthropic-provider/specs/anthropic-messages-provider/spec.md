@@ -19,26 +19,33 @@ signature (and its redacted payload, where present) as opaque provider metadata 
 the same reasoning part through the per-reasoning-part provider-metadata channel
 `reasoning-output` defines, and replay the block on later requests for the same
 chat. Within a tool-use turn the blocks SHALL be passed back; across turns the
-system SHALL pass back everything it holds. The system SHALL NOT prune thinking
-blocks itself: the Messages API filters them, keeps the blocks needed to preserve
-the model's reasoning, and bills input tokens only for the blocks actually shown
-to the model. Replayed blocks SHALL be complete and unmodified, and the
-consecutive thinking blocks of the latest assistant message SHALL NOT be
-rearranged, edited, or partially dropped, because a modified block is rejected.
-A block whose text the provider withheld SHALL be persisted and replayed exactly
-like any other: its empty text is the text the provider produced, and its
-signature is what the replay needs.
+system SHALL pass back everything it holds. The adapter's reasoning-replay
+switch SHALL stay on as a client invariant, so an operator's `providerOptions`
+cannot turn replay off. The system SHALL NOT prune thinking blocks itself: the
+Messages API filters them, keeps the blocks needed to preserve the model's
+reasoning, and bills input tokens only for the blocks actually shown to the
+model. Replayed blocks SHALL be complete and unmodified, and the consecutive
+thinking blocks of the latest assistant message SHALL NOT be rearranged, edited,
+or partially dropped, because a modified block is rejected. A block whose text
+the provider withheld SHALL be persisted and replayed exactly like any other:
+its empty text is the text the provider produced, and its signature is what
+the replay needs.
 
 A replay SHALL be safe when the prefix above it has changed. A thinking block
 stays valid only while the top-level `system` prompt, the `tools`, and the
 messages before it are unchanged, and llame rewrites that prefix on compaction
-and on prompt-receipt changes, so every request SHALL explicitly instruct the
+and on prompt-receipt changes, so the request SHALL explicitly instruct the
 provider to drop blocks whose bound prefix no longer matches instead of failing,
 and SHALL do so rather than inherit whatever the account's default enforcement
-happens to be. This instruction is a client invariant under
-`provider-api-selection`'s precedence: an operator's `providerOptions` SHALL NOT
-remove or override it. The same behavior SHALL hold within a single run, where
-compaction can rewrite the prefix mid-turn.
+happens to be. The instruction is a client invariant under
+`provider-api-selection`'s precedence on every thinking shape the pinned
+adapter can carry it on — adaptive thinking, and the standalone shape sent when
+no thinking mode is configured: an operator's `providerOptions` SHALL NOT set
+it to error or remove it there. The pinned adapter cannot carry the instruction
+on a manual-budget or disabled thinking shape, so an operator who overrides
+`thinking` to one of those shapes gives up the instruction for that model, which
+the operator documentation SHALL state. The same behavior SHALL hold within a
+single run, where compaction can rewrite the prefix mid-turn.
 
 When the request's model differs from the model that produced a replayed block,
 the block SHALL still be replayed unchanged: a thinking block is readable only by
@@ -65,6 +72,13 @@ A response that emits no thinking output SHALL remain a successful run.
 - **THEN** the block is replayed to the provider with that signature
 - **AND** the provider accepts the request
 
+#### Scenario: Replay cannot be switched off by configuration
+
+- **WHEN** a model entry's `providerOptions` sets the adapter's reasoning-replay
+  switch to off or to `null`
+- **THEN** the request still carries the persisted thinking blocks
+- **AND** the operator value is not sent
+
 #### Scenario: Replay preserves block order and content
 
 - **WHEN** the latest assistant message holds several consecutive thinking blocks
@@ -85,11 +99,20 @@ A response that emits no thinking output SHALL remain a successful run.
 - **THEN** the continuation still succeeds under the drop behavior rather than
   failing with a rejection
 
-#### Scenario: The drop instruction cannot be configured away
+#### Scenario: The drop instruction cannot be configured away on the shapes that carry it
 
 - **WHEN** a model entry's `providerOptions` sets the prefix-mismatch behavior
-  to error or to `null`
+  to error or to `null` while the effective thinking shape is adaptive or absent
 - **THEN** every request still carries the drop instruction
+
+#### Scenario: A manual-budget or disabled thinking override gives up the drop instruction
+
+- **WHEN** a model entry's `providerOptions` sets `thinking` to the
+  manual-budget or the disabled shape
+- **THEN** the request carries the operator's thinking shape without the drop
+  instruction, because the pinned adapter cannot carry it there
+- **AND** the operator documentation records that a prefix rewrite can then be
+  rejected under the account's default enforcement
 
 #### Scenario: A model switch replays blocks unchanged
 
@@ -182,16 +205,19 @@ time under the existing failure contract rather than being detected at boot.
 - **THEN** the request succeeds without cache-read tokens
 - **AND** the absence of caching is not reported as a failure
 
-### Requirement: Cache-write usage is reported and priced
+### Requirement: Cache-write usage is reported and priced once
 
 The client SHALL report the provider's cache-creation token count as cache-write
-tokens in run and assistant usage telemetry. Generated-time `costUsd` SHALL price
-those tokens at the model entry's declared cache-write rate when it declares one,
-and otherwise at that entry's input rate, matching the existing fallback used for
-cached input. A model entry that declares no `pricingUsdPer1M` SHALL keep the
-existing unknown-cost contract (`costUsd: null`). Cache-write tokens SHALL be
-provider-reported and SHALL NOT be inferred, estimated, or backfilled from other
-token counts.
+tokens in run and assistant usage telemetry. The adapter's input total already
+includes cache-creation and cache-read tokens, so generated-time `costUsd`
+SHALL subtract both from the input total before pricing the uncached remainder,
+SHALL price cache-write tokens at the model entry's declared cache-write rate
+when it declares one and otherwise at that entry's input rate, and SHALL
+therefore charge a cache-write token exactly once — at the input rate when no
+cache-write rate is declared, which leaves today's cost unchanged. A model
+entry that declares no `pricingUsdPer1M` SHALL keep the existing unknown-cost
+contract (`costUsd: null`). Cache-write tokens SHALL be provider-reported and
+SHALL NOT be inferred, estimated, or backfilled from other token counts.
 
 #### Scenario: Cache-write tokens are reported
 
@@ -204,12 +230,14 @@ token counts.
 - **WHEN** a model entry declares a cache-write rate and the provider reports
   cache-write tokens
 - **THEN** `costUsd` prices those tokens at that rate rather than the input rate
+- **AND** the uncached input term excludes them, so no token is priced twice
 
 #### Scenario: An absent cache-write rate falls back to input
 
 - **WHEN** a model entry declares input and output pricing but no cache-write rate
 - **THEN** cache-write tokens are priced at the input rate
-- **AND** the run still reports a non-null cost
+- **AND** the total equals the cost computed before this change for the same
+  usage
 
 #### Scenario: No cache-write tokens are invented
 
@@ -222,19 +250,26 @@ A request to an `anthropic-messages` provider SHALL place the run's resolved
 effort in the adapter's effort option, verbatim, and SHALL NOT introduce a second
 effort vocabulary, a new configuration field, or a provider-specific override of
 the existing effort resolution. The existing effective-effort behavior, including
-rejection of an effort the model does not declare, SHALL apply unchanged.
+rejection of an effort the model does not declare, SHALL apply unchanged. The
+adapter MAY lower an effort it knows the model rejects with the effective
+thinking shape (for example a top effort while thinking is disabled) and warn;
+the client SHALL surface that warning and SHALL NOT rewrite the catalog or retry.
 
-When a model entry declares a `reasoning` vocabulary, the client SHALL default
-the adapter's thinking option to adaptive thinking with summarized display, so
-the effort the owner selects governs thinking depth and the reasoning the
-provider summarizes is visible under the existing reasoning-part contract. When a
-model entry declares no `reasoning` vocabulary, the client SHALL send no thinking
-mode and no effort, leaving the model's own default in force. Both defaults are
-client defaults under `provider-api-selection`'s precedence: an operator MAY
-replace or remove them through the entry's `providerOptions`, for example to
-omit the display option on a model that rejects it or to declare a token budget
-for a model without adaptive thinking. The client SHALL NOT author a thinking
-budget, a per-model thinking mode, or any model-family table of its own.
+When a model entry declares a `reasoning` vocabulary, the run's resolved effort
+outranks any effort key in the entry's `providerOptions`, and the client SHALL
+default the adapter's thinking option to adaptive thinking with summarized
+display, so the effort the owner selects governs thinking depth and the
+reasoning the provider summarizes is visible under the existing reasoning-part
+contract. When a model entry declares no `reasoning` vocabulary, the client's
+defaults are no thinking mode and no effort, leaving the model's own default in
+force; an operator MAY still forward an effort or a thinking shape through
+`providerOptions`. The thinking default merges with an operator's `thinking`
+object key by key under `provider-api-selection`'s precedence: an operator
+removes the display default with `{ "thinking": { "display": null } }`, and
+declares a token budget for a model without adaptive thinking by setting the
+manual-budget shape, which replaces the adaptive type. The client SHALL NOT
+author a thinking budget, a per-model thinking mode, or any model-family table
+of its own.
 
 #### Scenario: A declared effort reaches the provider as the effort option
 
@@ -250,21 +285,36 @@ budget, a per-model thinking mode, or any model-family table of its own.
 - **THEN** the request carries adaptive thinking with summarized display
 - **AND** the summarized thinking is persisted and rendered as reasoning parts
 
-#### Scenario: An operator replaces the thinking default
+#### Scenario: An operator adjusts the thinking default
 
-- **WHEN** a model entry's `providerOptions` sets the adapter's thinking option
-  (for example adaptive thinking without a display value, or a token budget)
-- **THEN** the request carries the operator's thinking option in place of the
-  default
+- **WHEN** a model entry's `providerOptions` sets `{ "thinking": { "display": null } }`
+- **THEN** the request carries adaptive thinking without a display value
 - **AND** the drop-on-prefix-mismatch instruction is still present
+
+#### Scenario: An operator declares a manual thinking budget
+
+- **WHEN** a model entry's `providerOptions` sets the manual-budget thinking
+  shape with a token budget
+- **THEN** the request carries that shape and budget in place of adaptive
+  thinking
+- **AND** the run's resolved effort, if the entry declares one, is still carried
+  as the effort option
 
 #### Scenario: A model without a reasoning declaration sends no thinking mode
 
-- **WHEN** a model entry omits `reasoning` and sets no thinking option in
-  `providerOptions`
+- **WHEN** a model entry omits `reasoning` and sets neither a thinking nor an
+  effort option in `providerOptions`
 - **THEN** the request carries no thinking mode and no effort option
 - **AND** the model's own default thinking behavior applies
 - **AND** the drop-on-prefix-mismatch instruction is still present
+
+#### Scenario: An operator effort is forwarded when no vocabulary is declared
+
+- **WHEN** a model entry omits `reasoning` and its `providerOptions` sets the
+  adapter's effort option
+- **THEN** the request carries the operator's effort value
+- **AND** the run itself resolves no effort and the existing effort selection is
+  unchanged
 
 #### Scenario: An undeclared effort is refused before the provider
 
@@ -279,32 +329,36 @@ budget, a per-model thinking mode, or any model-family table of its own.
 - **THEN** the declared values are the only ones the provider receives
 - **AND** no llame-defined level names are substituted
 
-### Requirement: Structured output uses the adapter's native structured-output path
+### Requirement: Structured output uses the adapter's structured-output path
 
 Schema-constrained auxiliary generation through an `anthropic-messages` provider
 SHALL request a JSON response format from the adapter and let the adapter select
-the provider's mechanism: the native output format on models that support it,
-and the adapter's own JSON tool otherwise. The client SHALL NOT force a named or
-required tool choice to obtain structured output, because current Claude models
-reject forced tool use, and SHALL NOT add a prompt-injected schema, text-parsing
-fallback, or provider-specific bypass. A generation the provider rejects SHALL
-fail explicitly and fall through to the caller's existing plain-text fallback,
-never to another mechanism, model, or provider.
+the provider's mechanism: the native output format on models its capability
+table marks as supporting it, and the adapter's own JSON tool with a required
+tool choice otherwise. llame itself SHALL NOT author a named or required tool
+choice to obtain structured output, because current Claude models reject forced
+tool use, and SHALL NOT add a prompt-injected schema, text-parsing fallback, or
+provider-specific bypass. A generation the provider rejects — including the
+adapter's JSON-tool path on a model or thinking shape that rejects forced tool
+use — SHALL fail explicitly and fall through to the caller's existing plain-text
+fallback, never to another mechanism, model, or provider.
 
 #### Scenario: Bound-object generation uses the native output format
 
 - **WHEN** a caller requests a schema-constrained object (e.g. a chat title)
-  through an `anthropic-messages` provider whose model supports the native
-  output format
+  through an `anthropic-messages` provider whose model the adapter marks as
+  supporting the native output format
 - **THEN** the request carries the schema as the provider's output format and no
   forced tool choice
 - **AND** the returned object is validated against the schema
 
-#### Scenario: A forced tool choice is never used for structured output
+#### Scenario: llame never authors a forced tool choice for structured output
 
 - **WHEN** a schema-constrained object is requested through an
   `anthropic-messages` provider
-- **THEN** no request carries a named or required tool choice for that purpose
+- **THEN** any named or required tool choice on the request was placed by the
+  adapter's own JSON-tool path, never by llame
+- **AND** llame's request carries the JSON response format only
 
 #### Scenario: A rejected structured generation falls through to the caller
 
@@ -320,11 +374,8 @@ rejected request options SHALL fail the affected request under the existing run
 failure contract with sanitized diagnostics. The client SHALL NOT retry against a
 different credential, fall back to another provider or provider type, or
 represent a failure as a successful run. Already-recorded parts and tool effects
-SHALL be retained under the existing durability rules. A `providerOptions` value
-the adapter recognizes and rejects SHALL fail the request rather than being
-dropped; a key the adapter does not recognize is the adapter's to drop or forward
-under `provider-api-selection`, and SHALL NOT cause llame to rewrite or retarget
-the request.
+SHALL be retained under the existing durability rules. Rejected and unrecognized
+`providerOptions` keys follow `provider-api-selection`'s forwarding rule.
 
 #### Scenario: Authentication failure is bounded to the request
 
@@ -344,16 +395,3 @@ the request.
 - **WHEN** an upstream failure echoes request details
 - **THEN** owner-visible output, persisted errors, logs, and telemetry contain
   only sanitized diagnostics
-
-#### Scenario: A rejected option value fails explicitly
-
-- **WHEN** a model entry's `providerOptions` carries a value the adapter
-  recognizes and rejects
-- **THEN** the request fails explicitly rather than being sent without the option
-
-#### Scenario: An unrecognized option key does not retarget the request
-
-- **WHEN** a model entry's `providerOptions` carries a key the adapter does not
-  recognize
-- **THEN** the adapter alone decides whether it is dropped or forwarded
-- **AND** llame neither rewrites nor retargets the request because of it

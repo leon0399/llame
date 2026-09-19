@@ -31,12 +31,19 @@ instead.
   provider-native request options, forwarded verbatim into the adapter
   namespace the entry's provider `type` selects, under one precedence for every
   client — client invariants, then the run's effort, then the operator's
-  options, then client defaults; `null` removes a default. The three existing
-  clients are refactored onto it, which turns `reasoningSummary: 'auto'` into
-  an overridable default and keeps codex's `store: false` as an invariant. Boot
-  validates only that it is an object and rejects interpolation syntax inside
-  it; keys and values are the provider's vocabulary and are never validated or
-  published.
+  options, then client defaults; object values merge key by key and `null`
+  removes a default at any depth. Keys that would change what a request is
+  (the wire model id, provider-side continuation identifiers, an instructions
+  override, server-side fallbacks, provider-attached tool servers) are
+  reserved and stripped. The three existing clients are refactored onto it,
+  which turns the Responses client's `reasoningSummary: 'auto'` into an
+  overridable default while codex keeps `store: false` and its summarized
+  reasoning as invariants; an entry without options sends the bodies it sends
+  today. Boot validates only that it is an object and rejects interpolation
+  syntax inside it; keys and values are the provider's vocabulary and are never
+  validated or published. Alongside it, an optional `models[].maxOutputTokens`
+  is forwarded as the request's output-token limit, because the Messages wire
+  requires one and the adapter's default for an unrecognized model id is 4096.
 - Extend the provider configuration contract and the `type`-dispatch client
   factory, and add one Anthropic model client implementing the existing
   `ModelClient` seam (`streamText`/`generateObject`, context window, pricing,
@@ -45,18 +52,23 @@ instead.
   parts carrying the block's signature (and redacted payload) as opaque provider
   metadata through the per-part channel `reasoning-output` now defines, replay
   them complete and unmodified on later requests for the same chat, including
-  after a model switch, and never prune them llame-side. Every request carries
-  the provider's drop-on-prefix-mismatch instruction as a client invariant, so a
-  compaction or prompt-receipt change never turns a replay into a rejected run.
-  A block whose text the provider withheld persists with its signature; the web
-  renderer draws no Thinking panel for a segment without text.
+  after a model switch, and never prune them llame-side; the adapter's replay
+  switch is an invariant. Every request carries the provider's
+  drop-on-prefix-mismatch instruction as a client invariant on the thinking
+  shapes the pinned adapter can carry it on (adaptive, or none), so a
+  compaction or prompt-receipt change never turns a replay into a rejected run;
+  an operator override to a manual-budget or disabled shape gives it up, which
+  the documentation states. A block whose text the provider withheld persists
+  with its signature; the web renderer draws no Thinking panel for a segment
+  without text.
 - Reasoning effort: forward the operator-declared effort token as the
   adapter's `effort` option, the same shape the OpenAI clients use for
   `reasoningEffort`. When a model declares a `reasoning` vocabulary, the client
   defaults thinking to adaptive with summarized display; otherwise it sends no
-  thinking mode. Both are defaults an operator can replace through
-  `providerOptions`. No llame-owned level vocabulary, thinking budget, or
-  model-family table.
+  thinking mode and no effort. Both are defaults an operator can adjust through
+  `providerOptions` (`{ "thinking": { "display": null } }` removes the display,
+  a manual-budget shape replaces adaptive thinking). No llame-owned level
+  vocabulary, thinking budget, or model-family table.
 - Request-level prompt caching as a client default: the top-level ephemeral
   `cache_control` (Anthropic's automatic caching) with the provider's 5-minute
   lifetime, replaceable or removable per model through `providerOptions`. llame
@@ -64,13 +76,18 @@ instead.
 - Cost accounting: add an optional `cacheWrite` rate to `pricingUsdPer1M` and
   consume it in cost computation, because the adapter reports a real
   cache-creation count that is billed and is the largest line on a cached turn.
+  The adapter's input total already includes those tokens, so cost subtracts
+  them from the uncached term and prices them once: at the declared rate, or at
+  the input rate when none is declared, which leaves today's cost unchanged.
   The field is optional and additive; only a model that declares it prices
   cache writes differently, which the changelog records.
 - Structured output: request the adapter's JSON response format and let it
-  choose the provider's native output format or its own JSON tool. No forced
-  tool choice on the Messages wire, because current Claude models reject forced
-  tool use; a rejection falls through to the caller's existing plain-text
-  fallback.
+  choose the provider's native output format on models its capability table
+  marks as supporting it, or its own JSON tool with a required tool choice
+  otherwise. llame itself authors no forced tool choice on the Messages wire,
+  because current Claude models reject forced tool use; a rejection, including
+  of the adapter's JSON-tool path, falls through to the caller's existing
+  plain-text fallback.
 - Failure boundaries: authentication, invalid-model, rate-limit, and rejected
   request options surface at request time with sanitized diagnostics, no silent
   provider fallback, and no credential disclosure. An option key the adapter
@@ -91,11 +108,15 @@ instead.
 
 - `instance-config`: the provider-list requirement gains the
   `anthropic-messages` type, its variant shape, and its embedding exclusion; the
-  model-catalog requirement gains the server-only `providerOptions` object and
-  its boot rules.
+  model-catalog requirement gains the server-only `providerOptions` object with
+  its boot rules, the optional `maxOutputTokens`, and the optional
+  `pricingUsdPer1M.cacheWrite` rate.
 - `provider-api-selection`: the wire-selection requirement gains the Messages
-  clause and its scenarios, and a new requirement specifies how
-  `providerOptions` reach the adapter and what takes precedence over them.
+  clause and its scenarios, its shipped structured-generation sentence and
+  scenario are reworded from "forced-tool structured generation" to each wire's
+  own mechanism (the OpenAI wires keep the forced tool choice), and a new
+  requirement specifies how `providerOptions` and `maxOutputTokens` reach the
+  adapter, the reserved keys, and what takes precedence over them.
 - `available-models`: the dispatch requirement's wire sentence covers every
   wire-named type, and the endpoint clause covers the Anthropic default.
 - `reasoning-output`: the UI requirement renders no Thinking panel for a
@@ -109,7 +130,8 @@ capabilities.
 
 ## Dependencies and delivery order
 
-- `openai-compatible-provider` is merged and archived (PRs #883, #886, #890;
+- `openai-compatible-provider` is merged and archived (PRs #884, #886, #888,
+  #889, #890, closing issue #883;
   `openspec/changes/archive/2026-09-18-openai-compatible-provider`). It shipped
   the wire-named types `openai-responses` and `openai-completions`, deleted the
   `openai` type and its id-derived discriminant, bumped the lockfile to carry
@@ -134,10 +156,12 @@ capabilities.
 
 - A second Anthropic type for gateways. One wire, one type; a gateway is a
   `baseUrl`.
-- The Claude subscription path (#754). Its credential (an OAuth token), fixed
-  endpoint, and request fingerprint make it a sibling type with a shape of its
-  own, the way `openai-codex` sits beside `openai-responses`; nothing here
-  constrains it.
+- The Claude subscription path (#754). Its issue text scopes it to an
+  unmodified Claude Code execution path with Anthropic-owned sign-in; OMP and
+  OpenClaw carry it as an OAuth credential on the Messages wire instead. Either
+  way it is not this type: `anthropic-messages` leaves the vendor name and the
+  enum free for whatever shape #754 settles on, and the naming argument here
+  stands on the gateway case alone.
 - A bearer-token authentication option. The adapter supports one; no
   configured target needs it yet, and adding it later is additive.
 - Per-user BYOK (#37, #18): the credential stays an operator-level
@@ -152,23 +176,26 @@ capabilities.
 - Boot-time validation, warning, or reinterpretation of a `baseUrl` or of
   `providerOptions` keys and values, and any credential prevalidation.
 - Publishing `providerOptions` or letting it carry interpolated values.
-- The `models[]` schema beyond the two optional additions (`providerOptions`,
-  `pricingUsdPer1M.cacheWrite`).
+- The `models[]` schema beyond the three optional additions (`providerOptions`,
+  `maxOutputTokens`, `pricingUsdPer1M.cacheWrite`).
 
 ## Impact
 
 - `apps/api/src/instance-config/llame.config.schema.json` (`providerType`
-  enum, provider entry variant, `models[].providerOptions`, `modelPricing`) and
+  enum, provider entry variant, `models[].providerOptions`,
+  `models[].maxOutputTokens`, `modelPricing`) and
   `apps/api/src/instance-config/llame-config.ts` (`ProviderConfig` union and
-  its normalized variants), plus loader normalization of the new field.
+  its normalized variants), plus loader normalization of the new fields.
 - `apps/api/src/models/model-catalog.ts` (server-only `providerOptions`,
-  `ModelPricingUsdPer1M`, `toTokenPrice`), the public model DTO (price shape
-  only), and `apps/api/src/models/model-client-factory.ts` (one dispatch case).
+  `maxOutputTokens`, `ModelPricingUsdPer1M`, `toTokenPrice`), the public model
+  DTO (price shape only), and `apps/api/src/models/model-client-factory.ts`
+  (one dispatch case).
 - `apps/api/src/models/openai-model-client.ts`,
   `openai-completions-model-client.ts`, and `openai-codex-model-client.ts`:
   provider-options composition replaces the hardcoded per-client options.
 - A new Anthropic model client module, and
-  `apps/api/src/chats/turn-telemetry.ts` (cache-write cost).
+  `apps/api/src/chats/turn-telemetry.ts` (`TurnTelemetry` gains cache-write
+  tokens; cost subtracts them from the uncached term and prices them once).
 - `apps/web/app/(chat)/components/chat-message-row.tsx`: no panel for a
   reasoning segment without text.
 - `apps/api/package.json` and the lockfile (one new dependency).
