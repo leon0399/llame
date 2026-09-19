@@ -353,9 +353,12 @@ price them at that rate, falling back to the entry's `input` rate when absent �
 the same fallback shape as `cachedInput`. Because the adapter's input total
 already includes cache-creation tokens and today's formula prices them inside
 the uncached term, the uncached term becomes
-`inputTokens − cacheRead − cacheWrite` at the same time, so a cache-write token
-is charged exactly once and the fallback case reproduces today's cost to the
-dollar rather than doubling it. The adapter populates the count from
+`inputTokens − cacheRead − cacheWrite` at the same time, with the same
+bounding the shipped formula applies to cached input — reads capped at the
+input total, writes at the remainder — so a cache-write token is charged
+exactly once, an endpoint that reports inconsistent counts cannot drive the
+uncached term or the cost below zero, and the fallback case reproduces today's
+cost to the dollar rather than doubling it. The adapter populates the count from
 `cache_creation_input_tokens`, a real field that is billed and is the largest
 line on a cached turn. The public model DTO mirrors the field so the published
 price stays inspectable; the assistant-message and compaction telemetry share
@@ -379,7 +382,8 @@ redacted payload) as opaque provider metadata on that part through the channel
 same chat. Anthropic's tiers, verbatim: "**Required:** within a tool-use turn,
 pass thinking blocks back. **Recommended:** across turns, pass everything back.
 **Allowed:** outside tool use, omit prior turns' thinking." llame follows the
-recommendation and does not prune, because "the API automatically filters them,
+recommendation within the model context a request is built from and does not
+prune there, because "the API automatically filters them,
 keeps the blocks needed to preserve the model's reasoning, and bills input
 tokens only for the blocks actually shown to Claude." On a model switch the
 blocks are replayed unchanged, since a block "is readable only by the model
@@ -750,6 +754,15 @@ history.
 
 ## Revision history
 
+- v6 (2026-09-19): PR #885 review round (Codex; CodeRabbit approved without
+  findings). Scoped cross-turn replay to the retained model context, since the
+  shipped context contract replaces a compacted prefix with its replacement
+  history and the unconditional "replays everything it holds" would have
+  required resending superseded blocks against a rewritten prefix; added the
+  compacted-prefix scenario. Bounded the two cache counts before the cost
+  subtraction the way cached input already is, so inconsistent third-party
+  usage cannot drive the uncached term or `costUsd` below zero; added the
+  scenario and its cost assertion. No decision changed.
 - v5 (2026-09-19): Round 3 of independent review (Codex CLI plus one
   reviewer agent). Found the shipped reasoning collector drops a
   withheld-text thinking block outright (empty delivery under a new id binds

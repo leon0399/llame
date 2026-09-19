@@ -19,10 +19,14 @@ signature (and its redacted payload, where present) as opaque provider metadata 
 the same reasoning part through the per-reasoning-part provider-metadata channel
 `reasoning-output` defines, and replay the block on later requests for the same
 chat. Within a tool-use turn the blocks SHALL be passed back; across turns the
-system SHALL pass back everything it holds. The adapter's reasoning-replay
-switch SHALL stay on as a client invariant, so an operator's `providerOptions`
-cannot turn replay off. The system SHALL NOT prune thinking blocks itself: the
-Messages API filters them, keeps the blocks needed to preserve the model's
+system SHALL pass back every block within the model context the request is
+built from. A prefix that compaction superseded is replaced by its replacement
+history under the existing context contract, so the blocks it held are not
+part of that context and are not replayed; that replacement is not llame-side
+pruning of thinking. The adapter's reasoning-replay switch SHALL stay on as a
+client invariant, so an operator's `providerOptions` cannot turn replay off.
+The system SHALL NOT prune thinking blocks itself within the retained context:
+the Messages API filters them, keeps the blocks needed to preserve the model's
 reasoning, and bills input tokens only for the blocks actually shown to the
 model. Replayed blocks SHALL be complete and unmodified, and the consecutive
 thinking blocks of the latest assistant message SHALL NOT be rearranged, edited,
@@ -134,9 +138,19 @@ A response that emits no thinking output SHALL remain a successful run.
 
 #### Scenario: llame does not prune prior thinking
 
-- **WHEN** a chat's history holds signed thinking blocks from earlier turns
+- **WHEN** a chat's retained model context holds signed thinking blocks from
+  earlier turns
 - **THEN** llame replays them without pruning
 - **AND** the provider decides which blocks are retained and billed
+
+#### Scenario: A compacted prefix's blocks are not replayed
+
+- **WHEN** compaction has superseded a prefix that held signed thinking blocks
+  and a later request is built
+- **THEN** the request carries the compaction's replacement history in place of
+  that prefix, without the superseded blocks
+- **AND** blocks in the retained context after the compaction boundary are
+  replayed unchanged
 
 #### Scenario: Redacted thinking survives a tool continuation
 
@@ -225,10 +239,15 @@ SHALL subtract both from the input total before pricing the uncached remainder,
 SHALL price cache-write tokens at the model entry's declared cache-write rate
 when it declares one and otherwise at that entry's input rate, and SHALL
 therefore charge a cache-write token exactly once — at the input rate when no
-cache-write rate is declared, which leaves today's cost unchanged. A model
-entry that declares no `pricingUsdPer1M` SHALL keep the existing unknown-cost
-contract (`costUsd: null`). Cache-write tokens SHALL be provider-reported and
-SHALL NOT be inferred, estimated, or backfilled from other token counts.
+cache-write rate is declared, which leaves today's cost unchanged. The two
+cache counts SHALL be bounded before the subtraction the way cached input
+already is: cache-read tokens capped at the input total, cache-write tokens
+capped at the input total that remains after cache reads, so the uncached term
+is never negative and an endpoint that reports inconsistent counts cannot
+drive cost below zero. A model entry that declares no `pricingUsdPer1M` SHALL
+keep the existing unknown-cost contract (`costUsd: null`). Cache-write tokens
+SHALL be provider-reported and SHALL NOT be inferred, estimated, or backfilled
+from other token counts.
 
 #### Scenario: Cache-write tokens are reported
 
@@ -254,6 +273,15 @@ SHALL NOT be inferred, estimated, or backfilled from other token counts.
 
 - **WHEN** the provider reports no cache-creation count
 - **THEN** zero cache-write tokens are recorded and no value is estimated
+
+#### Scenario: Inconsistent cache counts cannot drive cost below zero
+
+- **WHEN** an endpoint reports cache-read plus cache-write tokens exceeding its
+  input total
+- **THEN** the counts are capped in order — reads at the input total, writes at
+  the remainder — before pricing
+- **AND** the uncached term is zero rather than negative and `costUsd` is not
+  negative
 
 ### Requirement: Reasoning effort maps onto the provider's effort option with adaptive thinking as the default
 
