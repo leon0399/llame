@@ -55,9 +55,10 @@ instead.
 - Thinking output: persist thinking and redacted-thinking blocks as reasoning
   parts carrying the block's signature (and redacted payload) as opaque provider
   metadata through the per-part channel `reasoning-output` now defines, replay
-  them complete and unmodified on later requests for the same chat, including
-  after a model switch, and never prune them llame-side; the adapter's replay
-  switch is an invariant. Every request that carries adaptive thinking carries
+  them complete and unmodified on later requests for the same chat within the
+  retained model context (a compacted prefix's blocks go with the prefix),
+  including after a model switch, and never prune them llame-side; the
+  adapter's replay switch is an invariant. Every request that carries adaptive thinking carries
   the provider's drop-on-prefix-mismatch instruction as a client invariant, so
   a compaction or prompt-receipt change never turns a replay into a rejected
   run; an entry that declares no `reasoning`, or an operator override to a
@@ -129,10 +130,12 @@ instead.
 - `available-models`: the dispatch requirement's wire sentence covers every
   wire-named type, and the endpoint clause covers the Anthropic default.
 - `reasoning-output`: the part-identity requirement starts a reasoning part
-  for an empty delivery that carries provider metadata under a new id (a
-  thinking block whose text the provider withheld), and the UI requirement
-  renders no Thinking panel for a segment whose parts carry no text; replay
-  is unchanged.
+  for an empty delivery that carries provider metadata under a new defined id
+  (a thinking block whose text the provider withheld, or a Responses reasoning
+  item with an empty summary, which today is discarded), requires unique
+  in-order part ids from every client, and states that such a part produces no
+  live chunk; the UI requirement renders no Thinking panel for a segment whose
+  parts carry no text.
 
 Destination selection, the operator-owned configuration posture, and credential
 non-disclosure are not restated in the new capability: `provider-api-selection`
@@ -205,9 +208,13 @@ capabilities.
 - `apps/api/src/models/openai-model-client.ts`,
   `openai-completions-model-client.ts`, and `openai-codex-model-client.ts`:
   provider-options composition replaces the hardcoded per-client options.
-- A new Anthropic model client module,
-  `apps/api/src/runs/assistant-transcript.ts` (a metadata-only delivery under
-  a new part id starts an empty reasoning part), and
+- A new Anthropic model client module (a single `fullStream` consumer with
+  per-invocation reasoning part ids), `apps/api/src/runs/assistant-transcript.ts`
+  (a metadata-only delivery under a new part id starts an empty reasoning
+  part), `apps/api/src/runs/run-execution.service.ts` (buffered text flushed
+  before a part-starting metadata delivery), the Responses client's reasoning
+  forwarding in `openai-model-client.ts` (moved off its `tee()` onto the same
+  single consumer), and
   `apps/api/src/chats/turn-telemetry.ts` (`TurnTelemetry` gains cache-write
   tokens; cost subtracts them from the uncached term and prices them once).
 - `apps/web/app/(chat)/components/chat-message-row.tsx`: no panel for a

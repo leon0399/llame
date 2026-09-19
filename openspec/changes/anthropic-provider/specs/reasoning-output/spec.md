@@ -2,7 +2,7 @@
 
 ### Requirement: Reasoning part identity follows the adapter's part id
 
-A new persisted reasoning part SHALL start when the last collected part is not a reasoning part, or when the adapter-supplied part id of the incoming delta and the open reasoning part's id are both defined and differ. Otherwise the delta SHALL append to the open reasoning part, and a defined incoming id SHALL become the open part's id. A delivery whose text is empty but which carries provider metadata under an adapter-supplied id that no collected part carries SHALL start a reasoning part with empty text and bind the metadata to it, because a provider that withholds thinking text still returns a block whose metadata a later request must replay; an empty delivery without metadata, or whose id names a collected part, starts no part and moves no boundary. The system SHALL NOT invent a part boundary for a transition no adapter emits, and live streaming, reconnect replay, and historical chat loading SHALL reconstruct the same parts.
+A new persisted reasoning part SHALL start when the last collected part is not a reasoning part, or when the adapter-supplied part id of the incoming delta and the open reasoning part's id are both defined and differ. Otherwise the delta SHALL append to the open reasoning part, and a defined incoming id SHALL become the open part's id. A delivery whose text is empty but which carries provider metadata under a defined adapter-supplied id that no collected part carries SHALL start a reasoning part with empty text and bind the metadata to it, because a provider that withholds thinking text or summary text still returns a block whose metadata a later request must replay; an empty delivery without metadata, one whose id names a collected part, or one without an id (which binds to the open part, as before) starts no part and moves no boundary. Because that rule binds by id, every part id a client hands to the collector SHALL be unique within the turn: a client whose adapter numbers parts per provider response SHALL scope those ids to the provider invocation, and a client SHALL deliver every reasoning part — text and metadata-only — in stream order from one consumer, so a metadata-only delivery can never start a part ahead of the text that precedes it, and a delivery that starts a part SHALL be recorded behind any buffered text that precedes it in the durable log. The system SHALL NOT invent a part boundary for a transition no adapter emits, and live streaming, reconnect replay, and historical chat loading SHALL reconstruct the same parts, except that a part started by a metadata-only delivery produces no live or reconnect chunk: it carries no text, the metadata never reaches the browser, and a text-less segment renders no panel, so the rendered parts agree.
 
 #### Scenario: Responses summary parts persist separately
 
@@ -29,9 +29,16 @@ A new persisted reasoning part SHALL start when the last collected part is not a
 
 #### Scenario: A metadata-only delivery under a new id starts an empty part
 
-- **WHEN** an adapter delivers a reasoning part id that no collected part carries, with empty text and provider metadata (a thinking block whose text the provider withheld)
-- **THEN** a reasoning part with empty text and that metadata is persisted in occurrence order
+- **WHEN** an adapter delivers a defined reasoning part id that no collected part carries, with empty text and provider metadata (a thinking block whose text the provider withheld, or a Responses reasoning item whose summary is empty)
+- **THEN** a reasoning part with empty text and that metadata is persisted in occurrence order, behind any text that preceded it
 - **AND** an empty delivery whose id names an already collected part still binds its metadata to that part without starting another
+- **AND** the live stream and reconnect replay emit no chunk for the part, and the reloaded chat renders no panel for it
+
+#### Scenario: Per-response part ids do not collide across steps
+
+- **WHEN** a provider numbers reasoning blocks from zero in every response and a tool turn produces a withheld-text block in two consecutive steps
+- **THEN** two reasoning parts persist, each with its own metadata, in step order
+- **AND** neither block's metadata overwrites the other's
 
 ### Requirement: Existing UI support receives durable reasoning parts
 

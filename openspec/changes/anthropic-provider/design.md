@@ -283,9 +283,10 @@ reach the adapter as a type-less thinking object on an entry without
 `reasoning`); on the Responses wire also `allowedTools`, which the adapter
 lets override the request's tool choice and so would strip the forced choice
 structured generation relies on. The completions client composes into the
-`openaiCompletions` namespace, the camel-case of its configured provider name,
-because the adapter forwards unknown keys only from that namespace and parses
-recognized options from it too. Boot validates "is an object" and
+`openaiCompletions` namespace: the adapter parses recognized options and
+forwards unknown keys from both its configured provider name
+(`openai-completions`) and that name's camel-case form, and llame picks the
+camel-case form by convention. Boot validates "is an object" and
 rejects interpolation syntax in any string value at any depth, so no
 interpolated secret can reach the object; the object is not a credential
 channel and is not redacted, and it is never published. The adapter is the
@@ -398,7 +399,8 @@ Implementation facts the messages layer must respect: the adapter delivers the
 signature on a `reasoning-delta` part with an empty delta, not only on start
 and end parts, so the collector reads metadata from deltas; a withheld-text
 block is exactly one such delivery under a new id, which the shipped collector
-drops, so D18 changes the collector rule; the adapter reads only
+drops, and its ids restart per response, so D18 changes the collector rule and
+scopes the ids; the adapter reads only
 `providerOptions.anthropic.{signature, redactedData}` on replay and warns on
 anything else, so metadata another wire attached to a part is skipped, not
 sent. Rejected: run-scoped state that dies with the run; llame-side pruning;
@@ -656,30 +658,66 @@ repurposing `runs.maxOutputTokens` as a cap (a semantic change to a shipped
 instance setting); a llame model-family table; promising an exact wire value
 the adapters do not guarantee; leaving the adapter default undocumented.
 
-### D18: A withheld-text thinking block starts a reasoning part
+### D18: A metadata-only reasoning delivery under a new id starts a part
 
 The shipped collector (`assistant-transcript.ts:106-152`) starts a reasoning
 part only on a delivery with text; an empty delivery binds metadata to the
-part its id names and otherwise binds nothing. That rule was written for the
-Responses wire, where the encrypted content rides on a part that already has
-summary text. A Messages thinking block with `display: omitted` — the default
-on Opus 5, Sonnet 5, and Fable and Mythos 5.x, and therefore every entry
-without `reasoning` on those models — arrives as `reasoning-start`, one
-`reasoning-delta` with an empty delta carrying the signature, and
-`reasoning-end`, so the shipped collector drops the signature, persists no
-part, and the next request inside a tool-use turn replays nothing where
-Anthropic marks replay required. The rule is amended, in `reasoning-output`'s
-part-identity requirement, by one clause: an empty delivery whose id names no
-collected part and which carries provider metadata starts a reasoning part
-with empty text and binds the metadata to it. An empty delivery without
-metadata, or whose id names a collected part, behaves as before, so the
-Responses wire is unchanged (its end part names the part its deltas created)
-and no boundary is invented. Rationale: the signature is the block, and D9
-already requires it persisted; the collector is the one place the block can be
-lost. Rejected: a Messages-only collector (two identity rules for one part
-shape); synthesizing placeholder text (rewrites what the provider produced and
-would render); replaying from run-scoped state (dies with the run, the shape
-the sibling change amended away).
+part its id names and otherwise binds nothing. A Messages thinking block with
+`display: omitted` — the default on Opus 5, Sonnet 5, and Fable and Mythos
+5.x, and therefore every entry without `reasoning` on those models — arrives as
+`reasoning-start`, one `reasoning-delta` with an empty delta carrying the
+signature, and `reasoning-end`; a redacted block carries its payload on
+`reasoning-start` alone. The shipped collector drops both, persists no part,
+and the next request inside a tool-use turn replays nothing where Anthropic
+marks replay required. The rule is amended, in `reasoning-output`'s
+part-identity requirement, by one clause: an empty delivery carrying provider
+metadata under a defined id that no collected part carries starts a reasoning
+part with empty text and binds the metadata to it; an empty delivery without
+metadata, one naming a collected part, or one without an id behaves as before.
+
+Three facts about the shipped pipeline shape the clause and are handled with
+it. First, the Anthropic adapter ids reasoning parts by the response's
+content-block index (`String(value.index)`), which restarts at zero on every
+step of a tool loop, so two withheld-text blocks in consecutive steps would
+both arrive as id `"0"` and the second would bind onto the first part's entry
+in the collector's id map; the Messages client therefore scopes the adapter's
+id to the provider invocation (the `start-step` boundary on `fullStream`), so
+every id it hands to the collector is unique within the turn, and the id map
+stays correct for the Responses adapter's already-unique `${itemId}:${index}`
+ids. Second, the Responses adapter emits a metadata-bearing `reasoning-end`
+for an item whose summary was empty — `summaryParts[0]` is registered on
+`output_item.added` and concluded on `output_item.done` whether or not a delta
+arrived — which the shipped client forwards as a metadata-only delivery under
+an id no part carries and the shipped collector silently discards; under the
+amended rule that item persists as an empty part and replays (an item
+reference on a stored request, the encrypted item on a `store: false` codex
+request), which is accepted: the shipped requirement "Reasoning parts carry
+durable provider metadata" already promises that replay, the discard was a
+gap, and the part renders no panel (D13). Third, the shipped Responses client
+forwards metadata-only deliveries from a separate `tee()` of `fullStream`,
+out of band with the `onChunk` deltas, and the run loop's metadata-only path
+(`run-execution.service.ts:1197-1202`) flushes buffered reasoning but not
+buffered text before recording; both were harmless while such a delivery could
+not start a part and become ordering hazards once it can. So every client
+delivers reasoning text and metadata in stream order from one `fullStream`
+consumer — the Messages client from the start, the Responses client by moving
+its reasoning forwarding off the tee — and the run loop flushes buffered text
+before recording a part-starting metadata delivery, so the live collector and
+the durable reconstructor agree on order. The live/reconnect bridge drops
+metadata-only events today and keeps doing so: the empty part reaches the
+browser only on reload and renders no panel either way, which the amended
+requirement states as the one exception to "the same parts".
+
+Rationale: the signature is the block, and D9 already requires it persisted;
+the collector, the id scope, and the delivery order are the three places the
+block can be lost or misplaced. Rejected: a Messages-only collector (two
+identity rules for one part shape); qualifying the bind rule by "no intervening
+non-reasoning part" instead of scoping ids (breaks the Responses late-end
+binding that is correct today); synthesizing placeholder text (rewrites what
+the provider produced and would render); replaying from run-scoped state
+(dies with the run, the shape the sibling change amended away); emitting the
+empty part on the live stream (the metadata must not reach the browser and
+the part has nothing to show).
 
 ## Risks / Trade-offs
 
@@ -717,11 +755,18 @@ the sibling change amended away).
   instruction is an invariant on every request that carries adaptive thinking
   (D10), block order and bytes are preserved, and both the within-turn and
   post-compaction paths carry fixture-covered scenarios.
-- [Amending the shared collector rule for withheld-text blocks regresses the
-  Responses wire] → D18 changes only the empty-delivery-under-a-new-id case,
-  which the Responses adapter never produces (its end part names a part its
-  deltas created); the messages layer carries a Responses fixture proving the
-  end-part metadata still binds to the existing part and starts none.
+- [Amending the shared collector rule for metadata-only deliveries changes
+  the Responses and codex wires] → it does, deliberately: an empty-summary
+  reasoning item now persists and replays instead of being discarded (D18),
+  the part renders no panel, and the messages layer carries Responses
+  fixtures for the empty-summary item (persisted, replayed as an item
+  reference and as an encrypted item on codex) and for a summary-bearing item
+  whose end-part metadata binds to the existing part without starting one.
+- [Moving the Responses client's metadata forwarding onto the single
+  `fullStream` consumer regresses summary delivery] → the deltas the client
+  forwards are the same parts in the same order; the fixture asserts identical
+  live-collector and durable-reconstructor part sequences for a multi-summary
+  item, and the ordering race the tee allowed is closed rather than widened.
 - [An ambient `ANTHROPIC_BASE_URL` moves requests off the configured endpoint]
   → the client always passes an explicit `baseURL` (D3), with a fixture that
   sets the variable and asserts the configured destination.
@@ -754,6 +799,22 @@ history.
 
 ## Revision history
 
+- v7 (2026-09-19): Round 4 of independent review (Codex CLI plus two
+  reviewer agents), all on D18. Scoped the Messages client's reasoning part
+  ids to the provider invocation, since the adapter numbers blocks per
+  response and a tool turn's second withheld-text block would have bound onto
+  the first part; accepted that the Responses adapter's empty-summary
+  reasoning item now persists and replays instead of being discarded, and
+  named it; required every client to deliver reasoning text and metadata in
+  stream order from one `fullStream` consumer (the Responses client leaves its
+  tee) and the run loop to flush buffered text before a part-starting
+  metadata delivery; stated the live/reconnect bridge exception in the
+  requirement; conditioned the clause on a defined id so the shipped absent-id
+  scenario keeps precedence. Corrected the `openaiCompletions` rationale (the
+  adapter reads both the hyphenated and camel-case names) and qualified the
+  proposal's replay bullet with the retained-context scope. Rejected:
+  qualifying the bind rule by "no intervening non-reasoning part" (breaks the
+  Responses late-end binding that is correct today).
 - v6 (2026-09-19): PR #885 review round (Codex; CodeRabbit approved without
   findings). Scoped cross-turn replay to the retained model context, since the
   shipped context contract replaces a compacted prefix with its replacement
