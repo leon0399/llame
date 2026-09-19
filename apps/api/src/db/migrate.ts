@@ -3,17 +3,11 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 
+import { assertLedgerStampIsUsable } from './migration-ledger';
+
 config({
   path: '.env.local',
 });
-
-/**
- * A ledger row may legitimately sit slightly ahead of this process (a developer
- * machine with a fast clock wrote the journal entry), but a unit mix-up —
- * nanoseconds where the journal holds milliseconds — is off by decades, so a
- * single day's tolerance separates the two.
- */
-const LEDGER_STAMP_TOLERANCE_MS = 24 * 60 * 60 * 1000;
 
 const runMigrate = async () => {
   if (!process.env.POSTGRES_URL) {
@@ -43,16 +37,7 @@ const runMigrate = async () => {
     order by created_at::bigint desc
     limit 1
   `;
-  if (
-    Number(newestLedgerRow?.created_at ?? 0) >
-    Date.now() + LEDGER_STAMP_TOLERANCE_MS
-  ) {
-    throw new Error(
-      `The newest migration ledger row ("${newestLedgerRow?.hash}", created_at=${newestLedgerRow?.created_at}) is stamped in the future, ` +
-        "so drizzle skipped every pending migration. Ledger rows hold the journal's millisecond `when`; " +
-        'delete or re-stamp that row, then rerun.',
-    );
-  }
+  assertLedgerStampIsUsable(newestLedgerRow, Date.now());
 
   console.log('✅ Migrations completed in', end - start, 'ms');
   process.exit(0);
