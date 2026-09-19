@@ -42,6 +42,19 @@ jobs:
       # dead code, duplication, and Halstead difficulty.
       - run: pnpm lint
 
+      # Drizzle's committed metadata is a second source of truth for the schema,
+      # and it drifts silently. A parallel-branch merge that restamps the journal
+      # without re-parenting the snapshot forks the chain, and a hand-authored
+      # migration whose snapshot is never regenerated leaves the next
+      # `db:generate` emitting a spurious migration. Both checks are offline.
+      - name: Drizzle metadata drift
+        env:
+          POSTGRES_URL: postgres://unused
+        run: |
+          pnpm --filter api db:check
+          pnpm --filter api db:generate
+          git diff --exit-code -- apps/api/src/db/migrations
+
   format:
     name: Format
     runs-on: ubuntu-latest

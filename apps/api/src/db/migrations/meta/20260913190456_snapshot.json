@@ -492,6 +492,24 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
+        },
+        "skill_catalog_baseline": {
+          "name": "skill_catalog_baseline",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "skill_catalog_rebaked_from": {
+          "name": "skill_catalog_rebaked_from",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "skill_catalog_told": {
+          "name": "skill_catalog_told",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

@@ -1,5 +1,26 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-19
+
+- The migration folder is internally consistent again, and CI enforces it. Two
+  parallel branches merged migrations by restamping the journal `when` without
+  re-parenting the snapshot chain: `20260913190238` claimed a `prevId` that
+  `20260913164029` already owned, and it plus its two descendants
+  (`20260913190456`, `20260914091147`) were missing the `skill_catalog_*`
+  columns that had shipped before them. In the same folder,
+  `20260914091147` recorded the prompt-receipt run foreign key as `NO ACTION`
+  where the shipped SQL and the schema both cascade. On `master`,
+  `drizzle-kit check` failed, and the next `drizzle-kit generate` — which diffs
+  the TypeScript schema against the newest snapshot — would have re-emitted
+  columns and a foreign-key swap that already shipped. The three snapshots are
+  repaired, and the lint workflow now runs `db:check`, a generation, and
+  `git diff --exit-code` over the migrations directory, so a forked chain or a
+  stale snapshot fails the pull request instead of reaching `master`.
+  `db:migrate` additionally fails when the newest row in
+  `drizzle.__drizzle_migrations` is stamped more than a day ahead of the clock
+  — a nanosecond-stamped row silently made drizzle skip every later migration —
+  and `apps/api/src/db/AGENTS.md` records both traps.
+
 # 2026-09-18
 
 - A reasoning part carries the provider's own opaque metadata, durably (#883).

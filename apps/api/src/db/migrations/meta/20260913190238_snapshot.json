@@ -1,6 +1,6 @@
 {
   "id": "a42734bf-2ae7-4d7d-a269-767bf5dc67be",
-  "prevId": "4ab6139a-6d00-4a56-bbd9-07c5eafbc0a7",
+  "prevId": "527df140-9375-439b-b569-413d235d8882",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -490,6 +490,24 @@
         "recency_digest_rebaked_from": {
           "name": "recency_digest_rebaked_from",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "skill_catalog_baseline": {
+          "name": "skill_catalog_baseline",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "skill_catalog_rebaked_from": {
+          "name": "skill_catalog_rebaked_from",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "skill_catalog_told": {
+          "name": "skill_catalog_told",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         }
