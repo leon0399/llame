@@ -223,4 +223,79 @@ describe('createModelClient wire dispatch', () => {
     expect(createResponsesClientMock).toHaveBeenCalledTimes(1);
     expect(createCompletionsClientMock).toHaveBeenCalledTimes(1);
   });
+
+  it('carries the model providerOptions and maxOutputTokens into every client config without mutating the entry', () => {
+    const providerOptions = { user: 'run-owner', max_tokens: 1 };
+    const entry = {
+      ...model,
+      providerOptions,
+      maxOutputTokens: 4096,
+    };
+
+    const providers = [
+      {
+        id: 'responses-entry',
+        type: 'openai-responses',
+        key: 'sk-key',
+        baseUrl: null,
+      },
+      {
+        id: 'completions-entry',
+        type: 'openai-completions',
+        key: 'sk-key',
+        baseUrl: 'https://api.example.test/v1',
+      },
+      {
+        id: 'codex-entry',
+        type: 'openai-codex',
+        key: 'access-token',
+        accountId: 'account-id',
+      },
+    ] as const;
+    for (const provider of providers) {
+      createModelClient(
+        { provider, model: { ...entry, provider: provider.id } },
+        dependencies,
+      );
+    }
+
+    // The raw object the catalog entry carried reaches each client, so the
+    // clients — not the factory — own namespacing and reserved-key policy;
+    // the entry itself is untouched.
+    for (const mock of [
+      createResponsesClientMock,
+      createCompletionsClientMock,
+      createCodexClientMock,
+    ]) {
+      expect(mock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerOptions,
+          maxOutputTokens: 4096,
+        }),
+      );
+    }
+    expect(entry.providerOptions).toBe(providerOptions);
+    expect(entry.maxOutputTokens).toBe(4096);
+  });
+
+  it('leaves providerOptions and maxOutputTokens absent when the entry declares neither', () => {
+    createModelClient(
+      {
+        provider: {
+          id: 'completions-entry',
+          type: 'openai-completions',
+          key: 'sk-key',
+          baseUrl: 'https://api.example.test/v1',
+        },
+        model,
+      },
+      dependencies,
+    );
+
+    // No-options regression guard: the pre-change configs carried no such
+    // keys, so an entry without them still sends none.
+    const config = createCompletionsClientMock.mock.calls[0]?.[0];
+    expect(config).not.toHaveProperty('providerOptions');
+    expect(config).not.toHaveProperty('maxOutputTokens');
+  });
 });

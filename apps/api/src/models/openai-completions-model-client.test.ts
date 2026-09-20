@@ -186,12 +186,130 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
       client.streamText({ messages, effort: 'high' }).text,
     ).resolves.toBe('answer');
 
-    // The request the adapter's model is called with: the provider-native
-    // token unchanged, under the adapter's non-deprecated `openaiCompatible`
-    // option key.
+    // The approved namespace (provider-api-selection D5): the camel-case of
+    // the configured provider name, not the adapter's own `openaiCompatible`
+    // key. The run's effort arrives as the provider-native token, unchanged.
     expect(model.doStreamCalls[0]?.providerOptions).toEqual({
-      openaiCompatible: { reasoningEffort: 'high' },
+      openaiCompletions: { reasoningEffort: 'high' },
     });
+  });
+
+  it('lets the run effort outrank an operator reasoningEffort', async () => {
+    const model = scriptedModel([textResponse('answer')]);
+    const { client } = buildClient(model, {
+      overrides: {
+        providerOptions: { reasoningEffort: 'low', temperature: 0.5 },
+      },
+    });
+
+    await expect(
+      client.streamText({ messages, effort: 'high' }).text,
+    ).resolves.toBe('answer');
+
+    // Precedence (provider-api-selection): the run's effort wins the shared
+    // key while the operator's disjoint key survives beside it.
+    expect(model.doStreamCalls[0]?.providerOptions).toEqual({
+      openaiCompletions: { reasoningEffort: 'high', temperature: 0.5 },
+    });
+  });
+
+  it('sends operator options without an effort under the same namespace', async () => {
+    const model = scriptedModel([textResponse('answer')]);
+    const { client } = buildClient(model, {
+      overrides: {
+        providerOptions: { user: 'run-owner', strictJsonSchema: false },
+      },
+    });
+
+    await expect(client.streamText({ messages }).text).resolves.toBe('answer');
+
+    expect(model.doStreamCalls[0]?.providerOptions).toEqual({
+      openaiCompletions: { user: 'run-owner', strictJsonSchema: false },
+    });
+  });
+
+  it('strips reserved keys before composition and keeps the request whole', async () => {
+    const model = scriptedModel([textResponse('answer')]);
+    const { client } = buildClient(model, {
+      overrides: {
+        providerOptions: {
+          model: 'smuggled-model',
+          max_tokens: 1,
+          tool_choice: 'none',
+          user: 'run-owner',
+        },
+      },
+    });
+
+    await expect(client.streamText({ messages }).text).resolves.toBe('answer');
+
+    // The reserved wire seats never reach the composed object; the surviving
+    // operator key does, and the request still executes against the entry's
+    // own model.
+    expect(model.doStreamCalls[0]?.providerOptions).toEqual({
+      openaiCompletions: { user: 'run-owner' },
+    });
+    expect(model.doStreamCalls[0]?.prompt).toBeDefined();
+  });
+
+  it('stays option-free when only reserved keys were configured', async () => {
+    const model = scriptedModel([textResponse('answer')]);
+    const { client } = buildClient(model, {
+      overrides: { providerOptions: { model: 'smuggled-model' } },
+    });
+
+    await expect(client.streamText({ messages }).text).resolves.toBe('answer');
+
+    expect(model.doStreamCalls[0]?.providerOptions).toBeUndefined();
+  });
+
+  it('forwards unrecognized keys untouched for the adapter to decide', async () => {
+    const model = scriptedModel([textResponse('answer')]);
+    const { client } = buildClient(model, {
+      overrides: {
+        providerOptions: { future_option: { nested: [1, 2, 3] } },
+      },
+    });
+
+    await expect(client.streamText({ messages }).text).resolves.toBe('answer');
+
+    // No allow-list: llame neither validates nor rewrites the key, so the
+    // adapter drops or forwards it under its own ceiling (D5).
+    expect(model.doStreamCalls[0]?.providerOptions).toEqual({
+      openaiCompletions: { future_option: { nested: [1, 2, 3] } },
+    });
+  });
+
+  it('forwards the catalog output limit as the streaming maxOutputTokens setting', async () => {
+    const model = scriptedModel([textResponse('answer')]);
+    const { client } = buildClient(model, {
+      overrides: { maxOutputTokens: 4096 },
+    });
+
+    await expect(client.streamText({ messages }).text).resolves.toBe('answer');
+
+    // The AI SDK call setting, not a body key: the adapter derives the wire
+    // limit from it (D17) — here the Chat Completions adapter's `max_tokens`.
+    expect(model.doStreamCalls[0]?.maxOutputTokens).toBe(4096);
+  });
+
+  it('omits the streaming output limit the catalog did not declare', () => {
+    const model = new MockLanguageModelV3({
+      provider: 'openai-compatible.test',
+      modelId: 'deepseek-chat',
+    });
+    streamTextMock.mockReturnValue({});
+    const { client } = buildClient(model, { stream: streamTextMock });
+
+    client.streamText({ messages });
+
+    // The AI SDK materializes `maxOutputTokens` (undefined) into every call
+    // setting it builds for the adapter, so `doStreamCalls` can never show
+    // the key's absence; the omission is observable on the settings object
+    // this client hands to `streamText`, which is what the assertion pins.
+    expect(streamTextMock.mock.calls[0]?.[0]).not.toHaveProperty(
+      'maxOutputTokens',
+    );
   });
 
   it('omits pricing and compaction keys the operator did not configure', () => {
@@ -320,6 +438,43 @@ describe('createOpenAICompletionsModelClient — structured output (design D4)',
     expect(model.doGenerateCalls[0]?.tools).toEqual([
       expect.objectContaining({ name: 'chat_title' }),
     ]);
+  });
+
+  it('forwards the catalog output limit on structured generation', async () => {
+    const model = new MockLanguageModelV3({
+      provider: 'openai-compatible.test',
+      modelId: 'deepseek-chat',
+      doGenerate: () =>
+        Promise.resolve({
+          content: [
+            {
+              type: 'tool-call',
+              toolCallId: 'call-0',
+              toolName: 'chat_title',
+              input: '{"title":"A title"}',
+            },
+          ],
+          finishReason: { unified: 'tool-calls', raw: undefined },
+          usage: PROVIDER_USAGE,
+          warnings: [],
+        }),
+    });
+    const { client } = buildClient(model, {
+      overrides: { maxOutputTokens: 2048 },
+    });
+
+    await expect(
+      client.generateObject?.({
+        messages,
+        schemaName: 'chat_title',
+        schema: z.object({ title: z.string() }),
+      }),
+    ).resolves.toEqual({ title: 'A title' });
+
+    // Structured generation shares the catalog limit (provider-api-selection
+    // D17): same setting the streaming path forwards, observed on the call
+    // the adapter's model received.
+    expect(model.doGenerateCalls[0]?.maxOutputTokens).toBe(2048);
   });
 });
 

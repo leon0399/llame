@@ -16,6 +16,10 @@ import {
   type ModelStreamInput,
 } from './model-client';
 import type { TokenPrice } from './model-catalog';
+import {
+  composeProviderOptions,
+  type ProviderOptionRecord,
+} from './provider-options';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
 
 /**
@@ -209,10 +213,33 @@ export type OpenAIModelClientConfig = {
   headers?: Record<string, string>;
   /** Fixed-provider transport fetch wrapper. */
   fetch?: typeof globalThis.fetch;
-  /** Disable provider-side Responses state. */
-  storeResponses?: boolean;
   /** Omit structured-object generation when the transport does not support it. */
   generateObject?: boolean;
+  /**
+   * Operator request options (`models[].providerOptions`), the free-form
+   * inner record as written in config — this client wraps it under the
+   * Responses wire's `openai` namespace and strips the wire's reserved paths
+   * (design D5). Composed under the fixed precedence: client defaults <
+   * operator < run effort < client invariants, with `null` at any depth
+   * removing a defaulted key.
+   */
+  providerOptions?: ProviderOptionRecord;
+  /**
+   * Client-owned options no operator value — `null` included — can remove or
+   * replace (design D5). The codex subscription transport pins `store: false`
+   * and `reasoningSummary: 'auto'` here; the plain Responses client leaves it
+   * unset.
+   */
+  providerOptionInvariants?: ProviderOptionRecord;
+  /**
+   * Catalog `models[].maxOutputTokens` (design D17), forwarded as the AI
+   * SDK's `maxOutputTokens` setting on every request this client issues —
+   * streaming (compaction included) and structured generation alike. It is a
+   * call setting, not a namespaced provider option, so an operator cannot
+   * reach it through `providerOptions`. Absent leaves the adapter's own
+   * default in force.
+   */
+  maxOutputTokens?: number;
   /** Public provider identifier exposed by this client. */
   provider?: string;
   /** Replaces provider errors before they enter the run lifecycle. */
@@ -235,26 +262,58 @@ export type OpenAIModelClientDependencies = {
 };
 
 /**
- * Responses-wire request options, merged rather than assigned per-branch:
- * the displayable reasoning summary, the caller's effort, and a fixed
- * transport's store setting are independent instructions that can apply
- * together. `!== undefined` rather than truthiness — a level meaning "no
- * reasoning" is an instruction to send, not an absence.
+ * Responses-wire option paths an operator may not set (design D5): both
+ * provider-side continuation keys would let one Chat resume another owner's
+ * server-side state, `instructions` replaces llame's prompt, a
+ * `systemMessageMode` of `remove` strips it with only a warning, and
+ * `allowedTools` overrides the request's tool choice — the forced choice
+ * structured generation relies on. Stripped from the operator's record
+ * before composition, so no value (including `null`) reaches the request.
  */
-function applyReasoningOptions(
+const RESPONSES_RESERVED_PROVIDER_OPTION_PATHS: ReadonlyArray<string> = [
+  'conversation',
+  'previousResponseId',
+  'instructions',
+  'systemMessageMode',
+  'allowedTools',
+];
+
+/**
+ * Attaches the request's provider options, composed from four layers under
+ * one precedence (design D5): this wire's per-request-kind default (the
+ * displayable reasoning summary, which the structured-generation path does
+ * not take), the operator's object, the run's effort, and the client's
+ * invariants — each layer replaces or removes what the earlier ones set,
+ * never the other way around. The operator's reserved paths are stripped by
+ * the composer.
+ *
+ * A request whose options compose to nothing (every default removed with
+ * `null`, no operator or effort value) carries no `providerOptions` key at
+ * all, so an entry with no configured options sends exactly the body it sent
+ * before this layer. `!== undefined` rather than truthiness for the effort —
+ * a level meaning "no reasoning" is an instruction to send, not an absence.
+ */
+function applyProviderOptions(
   streamOptions: Parameters<typeof streamText>[0],
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
 ): void {
-  streamOptions.providerOptions = {
-    openai: {
-      reasoningSummary: 'auto',
-      ...(input.effort !== undefined && { reasoningEffort: input.effort }),
-      ...(config.storeResponses !== undefined && {
-        store: config.storeResponses,
-      }),
-    },
-  };
+  const composed = composeProviderOptions({
+    defaults: { reasoningSummary: 'auto' },
+    ...(config.providerOptions !== undefined && {
+      operator: config.providerOptions,
+    }),
+    ...(input.effort !== undefined && {
+      effort: { reasoningEffort: input.effort },
+    }),
+    ...(config.providerOptionInvariants !== undefined && {
+      invariants: config.providerOptionInvariants,
+    }),
+    reservedPaths: RESPONSES_RESERVED_PROVIDER_OPTION_PATHS,
+  });
+  if (composed !== undefined) {
+    streamOptions.providerOptions = { openai: composed };
+  }
 }
 
 /**
@@ -338,8 +397,11 @@ function runOpenAIStream(
     onError: sanitizedInput.onError,
     onAbort: settlement.onAbort,
     onFinish: input.onFinish,
+    ...(config.maxOutputTokens !== undefined && {
+      maxOutputTokens: config.maxOutputTokens,
+    }),
   };
-  applyReasoningOptions(streamOptions, config, input);
+  applyProviderOptions(streamOptions, config, input);
   applyToolCallingOptions(streamOptions, input);
   applyDeltaCallbacks(streamOptions, input);
   const result = dependencies.streamText(streamOptions);
@@ -368,10 +430,15 @@ function runOpenAIStream(
  * Responses-typed provider's structured generation — chat titles included —
  * runs on Responses, a completions-typed provider's on Chat Completions.
  * Never a hardcoded wire.
+ *
+ * `maxOutputTokens` is the catalog entry's cap (design D17), forwarded as
+ * the AI SDK's call setting; this path sends no provider options (design
+ * D5), but the cap is not a provider option and applies to it too.
  */
 export async function generateToolBoundObject<OBJECT>(
   model: LanguageModelV3,
   input: ModelObjectInput<OBJECT>,
+  maxOutputTokens?: number,
 ): Promise<OBJECT> {
   const toolName = input.schemaName ?? 'output';
   const result = await generateText({
@@ -379,6 +446,7 @@ export async function generateToolBoundObject<OBJECT>(
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
+    ...(maxOutputTokens !== undefined && { maxOutputTokens }),
     tools: {
       [toolName]: tool({
         description: input.schemaDescription,
@@ -439,7 +507,11 @@ export function createOpenAIModelClient(
     },
     ...(config.generateObject !== false && {
       generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
-        generateToolBoundObject(openai(config.providerModelId), input),
+        generateToolBoundObject(
+          openai(config.providerModelId),
+          input,
+          config.maxOutputTokens,
+        ),
     }),
   };
 }

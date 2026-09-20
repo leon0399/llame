@@ -11,6 +11,8 @@
  * server-only configuration and must never be derived by parsing the public id.
  */
 
+import type { ProviderOptionRecord } from './provider-options';
+
 export type ModelSource = 'system';
 export type SystemPromptSource = 'project_default' | 'model_override';
 
@@ -79,10 +81,11 @@ export interface PublicModelCatalogEntry {
 }
 
 /**
- * The internal execution-side entry: adds the server-only provider reference
- * and the optional per-model compaction override, neither of which is
- * display metadata or exposed via `GET /api/v1/models` (same non-exposure
- * rule as `providerModelId`).
+ * The internal execution-side entry: adds the server-only provider reference,
+ * the optional per-model compaction and output-token overrides, and the
+ * operator's provider-options object, none of which is display metadata or
+ * exposed via `GET /api/v1/models` (same non-exposure rule as
+ * `providerModelId`).
  */
 /**
  * Raw per-user values for one run, before escaping (add-user-personalization).
@@ -138,6 +141,25 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** Explicit per-model compaction trigger override; falls back to `contextWindowTokens x COMPACTION_WINDOW_RATIO` when absent. */
   compactionThresholdTokens?: number;
   /**
+   * Optional per-model output-token limit, forwarded as the `maxOutputTokens`
+   * setting of every request the entry serves. Absent leaves each adapter's own
+   * default in force. Server-only, like `providerModelId`: it is execution
+   * config, not display metadata.
+   */
+  maxOutputTokens?: number;
+  /**
+   * The operator's provider-native request options for the adapter this entry's
+   * provider `type` selects, proved to be a JSON record at boot — its type,
+   * `ProviderOptionRecord`, established rather than asserted — carrying no
+   * `{env:…}`/`{path:…}` syntax and otherwise retained verbatim; no key or
+   * value is constrained, interpreted, or verified against the adapter. Clients
+   * compose their request options from this object under
+   * `provider-api-selection`'s precedence. Never exposed in the public catalog,
+   * and deliberately not a credential channel: its contents are not redacted
+   * anywhere.
+   */
+  providerOptions?: ProviderOptionRecord;
+  /**
    * This model's complete system-prompt template, read and validated at boot.
    *
    * A template string rather than a rendered one because per-user and per-chat
@@ -182,9 +204,10 @@ export type TokenPrice = {
 
 /**
  * Strip the internal execution-only fields (`provider`, `providerModelId`,
- * `compactionThresholdTokens`, `systemPromptTemplate`, `systemPromptSource`,
- * `referencesSkills`, `toolPromptFiles`) from a catalog entry — what's left IS
- * the public shape, so a straight destructure-and-spread stays correct as
+ * `compactionThresholdTokens`, `maxOutputTokens`, `providerOptions`,
+ * `systemPromptTemplate`, `systemPromptSource`, `referencesSkills`,
+ * `toolPromptFiles`) from a catalog entry — what's left IS the public shape, so
+ * a straight destructure-and-spread stays correct as
  * `PublicModelCatalogEntry` grows without needing a matching field-by-field
  * copy here. Host-path fields never reach this projection at all: the loader
  * excludes them while resolving the entry, which its own regression test
@@ -197,6 +220,8 @@ export function toPublicModel(
     provider: _provider,
     providerModelId: _providerModelId,
     compactionThresholdTokens: _compactionThresholdTokens,
+    maxOutputTokens: _maxOutputTokens,
+    providerOptions: _providerOptions,
     systemPromptTemplate: _systemPromptTemplate,
     systemPromptSource: _systemPromptSource,
     referencesSkills: _referencesSkills,

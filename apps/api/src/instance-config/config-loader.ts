@@ -50,6 +50,10 @@ import type {
   SystemModelCatalogEntry,
 } from '../models/model-catalog';
 import {
+  type ProviderOptionRecord,
+  isProviderOptionRecord,
+} from '../models/provider-options';
+import {
   isNumber,
   isRecord,
   isString,
@@ -1350,24 +1354,82 @@ function resolveContextWindowTokens(
   );
 }
 
-function resolveOptionalCompactionThreshold(
-  modelId: string,
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the equality guard `raw === undefined` below; not an `isXxx`-named predicate, a shape the structural exemption doesn't recognize. `resolveNumeric` below re-validates the resolved shape regardless.
-  raw: unknown,
+/**
+ * Resolve one optional per-model numeric setting (`compactionThresholdTokens`,
+ * `maxOutputTokens`): absent stays absent, otherwise the shared
+ * literal-or-whole-value-token resolution with the positive-integer bound
+ * applied after interpolation — exactly like `contextWindowTokens`.
+ */
+function resolveOptionalModelNumber(
+  entry: RawModelEntry,
+  field: 'compactionThresholdTokens' | 'maxOutputTokens',
   env: NodeJS.ProcessEnv,
 ): number | undefined {
+  const raw = entry[field];
   if (raw === undefined) return undefined;
+  const configPath = `models[${entry.id}].${field}`;
   return requireResolvedNumber(
     resolveNumeric({
-      configPath: `models[${modelId}].compactionThresholdTokens`,
+      configPath,
       present: true,
       raw,
       builtInDefault: null,
       nullable: false,
       env,
     }),
-    `models[${modelId}].compactionThresholdTokens`,
+    configPath,
   );
+}
+
+/**
+ * Retain one entry's `providerOptions` verbatim. The published schema
+ * constrains only that it is a JSON object; `isProviderOptionRecord` proves
+ * it is one at every depth here, at the point the parsed file crosses into
+ * `ProviderOptionRecord` (defense-in-depth, like every other resolver's own
+ * narrowing — a JSONC parse cannot produce a non-JSON value), and any
+ * `{env:…}`/`{path:…}` syntax at any depth fails boot BEFORE resolution — no
+ * interpolated secret can reach a request option. No key or value is
+ * otherwise inspected: those vocabularies belong to the provider and change
+ * between releases.
+ */
+function resolveProviderOptions(
+  entry: RawModelEntry,
+): ProviderOptionRecord | undefined {
+  const raw = entry.providerOptions;
+  if (raw === undefined) return undefined;
+  const configPath = `models[${entry.id}].providerOptions`;
+  if (!isProviderOptionRecord(raw)) {
+    throw new InstanceConfigError(`${configPath}: must be a JSON object`);
+  }
+  assertNoInterpolationSyntax(raw, configPath);
+  return raw;
+}
+
+/**
+ * Reject interpolation syntax in every string of an opaque JSON value, nested
+ * objects and arrays included. The diagnostic names the config path only: a
+ * `providerOptions` value may be anything, so it is never echoed back.
+ */
+function assertNoInterpolationSyntax(value: unknown, configPath: string): void {
+  if (isString(value)) {
+    if (INTERPOLATION_TOKEN_SYNTAX.test(value)) {
+      throw new InstanceConfigError(
+        `${configPath}: provider options must not contain {env:...}/{path:...} interpolation syntax`,
+      );
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      assertNoInterpolationSyntax(item, configPath);
+    }
+    return;
+  }
+  if (isRecord(value)) {
+    for (const nested of Object.values(value)) {
+      assertNoInterpolationSyntax(nested, configPath);
+    }
+  }
 }
 
 function assertValidModelEntry(
@@ -1394,12 +1456,16 @@ function resolveModelEntry(
   assertValidModelEntry(entry, context);
 
   // The remaining fields ride along in the spread below: schema-validated
-  // shape already guarantees they need no further resolution. The two
-  // server-only path fields are excluded explicitly — a host path must never
-  // reach the resolved entry (and therefore the public catalog).
+  // shape already guarantees they need no further resolution. Everything the
+  // loader resolves or validates itself — the raw numerics, the reasoning
+  // block, the operator's provider options — plus the two server-only path
+  // fields is excluded explicitly, so nothing unresolved or host-path-shaped
+  // can reach the resolved entry (and therefore the public catalog).
   const {
     contextWindowTokens: _rawContextWindowTokens,
     compactionThresholdTokens: _rawCompactionThresholdTokens,
+    maxOutputTokens: _rawMaxOutputTokens,
+    providerOptions: _rawProviderOptions,
     reasoning: _rawReasoning,
     systemPromptFile: _systemPromptFile,
     toolPromptFiles: _toolPromptFiles,
@@ -1418,30 +1484,45 @@ function resolveModelScalars(entry: RawModelEntry, env: NodeJS.ProcessEnv) {
       entry.contextWindowTokens,
       env,
     ),
-    compactionThresholdTokens: resolveOptionalCompactionThreshold(
-      entry.id,
-      entry.compactionThresholdTokens,
+    compactionThresholdTokens: resolveOptionalModelNumber(
+      entry,
+      'compactionThresholdTokens',
       env,
     ),
+    maxOutputTokens: resolveOptionalModelNumber(entry, 'maxOutputTokens', env),
   };
 }
+
+/**
+ * The schema-validated `models[]` fields that ride straight into the resolved
+ * catalog entry: everything the loader resolves itself or must keep out of the
+ * entry is omitted here, so the spread below can stay flat.
+ */
+type ModelDisplayFields = Omit<
+  RawModelEntry,
+  | 'contextWindowTokens'
+  | 'compactionThresholdTokens'
+  | 'maxOutputTokens'
+  | 'providerOptions'
+  | 'reasoning'
+  | 'systemPromptFile'
+  | 'toolPromptFiles'
+>;
 
 /** Assemble the resolved catalog entry from its validated parts. */
 function buildModelCatalogEntry(
   entry: RawModelEntry,
-  display: Omit<
-    RawModelEntry,
-    | 'contextWindowTokens'
-    | 'compactionThresholdTokens'
-    | 'reasoning'
-    | 'systemPromptFile'
-    | 'toolPromptFiles'
-  >,
+  display: ModelDisplayFields,
   context: ModelResolutionContext,
 ): SystemModelCatalogEntry {
   const { env, promptLoader } = context;
-  const { reasoning, contextWindowTokens, compactionThresholdTokens } =
-    resolveModelScalars(entry, env);
+  const {
+    reasoning,
+    contextWindowTokens,
+    compactionThresholdTokens,
+    maxOutputTokens,
+  } = resolveModelScalars(entry, env);
+  const providerOptions = resolveProviderOptions(entry);
   const prompt = promptLoader.resolve({
     id: entry.id,
     ...(entry.name !== undefined && { name: entry.name }),
@@ -1458,6 +1539,8 @@ function buildModelCatalogEntry(
     ...(compactionThresholdTokens !== undefined && {
       compactionThresholdTokens,
     }),
+    ...(maxOutputTokens !== undefined && { maxOutputTokens }),
+    ...(providerOptions !== undefined && { providerOptions }),
     ...(reasoning !== undefined && { reasoning }),
     ...resolveToolPromptFilesEntry(entry.toolPromptFiles),
   };

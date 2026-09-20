@@ -103,6 +103,46 @@ file paths never enter the model catalog or receipt. Authoring:
 [apps/api/AGENTS.md](apps/api/AGENTS.md), operator runbook:
 [docs/tool-prompts.md](docs/tool-prompts.md).
 
+`models[].providerOptions` is a server-only free-form object of provider-native
+request options for the adapter the provider `type` selects, keyed as that
+adapter documents them (`reasoningSummary` on the Responses wire,
+`reasoningEffort` on Chat Completions); llame places it under the wire's
+provider-options namespace itself (`openai`, or `openaiCompletions` for Chat
+Completions). Boot validates shape only — the value must be an object, and
+`{env:...}`/`{path:...}` syntax in any string value at any depth fails startup
+before any token resolves — so the object is not a credential channel and its
+contents are never redacted. Every request composes four layers, highest
+first: client invariants (the Codex client always sends `store: false` and
+`reasoningSummary: 'auto'`), the run's resolved effort when the model declares
+`reasoning`, the entry's object, then per-request defaults (the Responses
+client defaults `reasoningSummary: 'auto'` on streaming and compaction and
+sends none on structured generation). Objects merge recursively key by key,
+while arrays and scalars replace the value beneath them; `null` at any depth
+removes a default but never an invariant. Keys that
+would change what the request is rather than how the model answers are
+stripped before composition: `conversation`, `previousResponseId`,
+`instructions`, `systemMessageMode`, and `allowedTools` on the Responses wire
+(both `openai-responses` and `openai-codex`); `model`, `max_tokens`, and
+`tool_choice` on the Chat Completions wire. The adapter decides the rest at
+request time: a value it recognizes and rejects fails that request under the
+existing failure contract, and an unrecognized key is dropped by the Responses
+adapter or forwarded into the request body by `openai-completions`.
+
+`models[].maxOutputTokens` is an optional positive integer (or whole-value
+interpolation token, like `contextWindowTokens`, validated after resolution —
+a non-positive or non-integer value fails startup naming the model id and the
+field) sent as every request's `maxOutputTokens` setting; absent, the
+adapter's own default applies — no output limit on either OpenAI wire. The
+Responses adapter sends it as `max_output_tokens`; the Chat Completions
+adapter sends it as `max_tokens` with no `max_completion_tokens` remapping, so
+declaring it on an entry fronting a model that requires `max_completion_tokens`
+is rejected by that model. An adapter may adjust the value as it documents —
+for example lowering one above a ceiling it knows for a recognized model —
+and the warnings it emits surface in the run. This field caps provider output;
+the top-level `runs.maxOutputTokens` remains an admission reserve and does not.
+Like `providerOptions`, it is server-only and never returned by
+`GET /api/v1/models`.
+
 `shareRecentChats` defaults off. Enabling sends a frozen, capped digest of the
 owner's other chats' titles and opening excerpts to the configured provider;
 retroactive over existing eligible chats. Disabling stops new baselines,

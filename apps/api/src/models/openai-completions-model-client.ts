@@ -16,6 +16,10 @@ import {
 } from './model-client';
 import type { TokenPrice } from './model-catalog';
 import {
+  type ProviderOptionRecord,
+  composeProviderOptions,
+} from './provider-options';
+import {
   applyToolCallingOptions,
   awaitSettlementAfter,
   generateToolBoundObject,
@@ -38,6 +42,15 @@ export type OpenAICompletionsModelClientConfig = {
   baseUrl: string;
   pricing?: TokenPrice;
   compactionThresholdTokens?: number;
+  /**
+   * Operator-authored provider-native options, keyed as the adapter
+   * documents them (provider-api-selection): carried by the factory from
+   * the model entry and merged with the run's effort at request time, not
+   * sent verbatim.
+   */
+  providerOptions?: ProviderOptionRecord;
+  /** Optional catalog output limit, forwarded as the request's `maxOutputTokens` setting. */
+  maxOutputTokens?: number;
 };
 
 /**
@@ -53,6 +66,29 @@ export type OpenAICompletionsModelClientDependencies = {
   ) => StreamTextResult<ToolSet, OutputInterface<string, string, never>>;
 };
 
+function composeCompletionsOptions(
+  config: OpenAICompletionsModelClientConfig,
+  input: ModelStreamInput,
+): Pick<Parameters<typeof streamText>[0], 'providerOptions'> {
+  // Composed request options (provider-api-selection D5): the operator's
+  // object under the run's effort as `reasoningEffort`, no defaults and no
+  // invariants on this wire. `model`, `max_tokens`, and `tool_choice` are
+  // reserved — the adapter spreads unknown keys over them into the request
+  // body, so an operator key would retarget the request — and `max_tokens`
+  // in particular stays the catalog output limit's seat, never an option's.
+  const composed = composeProviderOptions({
+    operator: config.providerOptions,
+    ...(input.effort !== undefined && {
+      effort: { reasoningEffort: input.effort },
+    }),
+    reservedPaths: ['model', 'max_tokens', 'tool_choice'],
+  });
+  if (composed === undefined) {
+    return {};
+  }
+  return { providerOptions: { openaiCompletions: composed } };
+}
+
 function runOpenAICompatibleStream(
   provider: OpenAICompatibleProvider,
   config: OpenAICompletionsModelClientConfig,
@@ -60,6 +96,7 @@ function runOpenAICompatibleStream(
   input: ModelStreamInput,
 ) {
   const settlement = trackAbortSettlement(input);
+  const providerOptions = composeCompletionsOptions(config, input);
   const streamOptions: Parameters<typeof streamText>[0] = {
     // Chat Completions at the entry's required base URL (design D1): the
     // compatible provider callable is that wire's chat model.
@@ -70,21 +107,17 @@ function runOpenAICompatibleStream(
     onError: input.onError,
     onAbort: settlement.onAbort,
     onFinish: input.onFinish,
-    // The adapter itself reads `openaiCompatible` — its own non-deprecated
-    // key, independent of the provider name configured above — and maps
-    // `reasoningEffort` onto the wire's `reasoning_effort`.
-    ...(input.effort !== undefined && {
-      providerOptions: {
-        openaiCompatible: { reasoningEffort: input.effort },
-      },
+    ...providerOptions,
+    // The catalog output limit, provider-neutral like `providerOptions`:
+    // the adapter derives the wire's `max_tokens` from this setting.
+    ...(config.maxOutputTokens !== undefined && {
+      maxOutputTokens: config.maxOutputTokens,
     }),
   };
+  // The shared tool loop (the SDK auto-executes tools and re-calls the
+  // model): without these settings `streamText` stops after one step, so a
+  // tool-requesting step would end the turn with no text at all.
   applyToolCallingOptions(streamOptions, input);
-  // Reasoning is the adapter's own normalized output (design D5): the
-  // adapter turns an endpoint's `reasoning_content ?? reasoning` into
-  // `reasoning-delta` chunks and re-injects `reasoning_content` outbound, so
-  // this client only forwards the normalized delta text — no vendor parser,
-  // SSE handling, tag extraction, or middleware.
   if (input.onTextDelta || input.onReasoningDelta) {
     streamOptions.onChunk = ({ chunk }) => {
       if (chunk.type === 'text-delta') {
@@ -135,6 +168,10 @@ export function createOpenAICompletionsModelClient(
     streamText: (input: ModelStreamInput) =>
       runOpenAICompatibleStream(provider, config, dependencies, input),
     generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
-      generateToolBoundObject(provider(config.providerModelId), input),
+      generateToolBoundObject(
+        provider(config.providerModelId),
+        input,
+        config.maxOutputTokens,
+      ),
   };
 }
