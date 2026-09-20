@@ -1,29 +1,24 @@
 import { createAnthropic, type AnthropicProvider } from '@ai-sdk/anthropic';
 import { APICallError, InvalidArgumentError } from '@ai-sdk/provider';
-import {
-  generateObject,
-  NoOutputGeneratedError,
-  streamText,
-  type OutputInterface,
-  type StreamTextResult,
-  type ToolSet,
-} from 'ai';
+import { generateObject, NoOutputGeneratedError, streamText } from 'ai';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 
 import {
   type ModelClient,
   type ModelObjectInput,
   type ModelStreamInput,
+  type ModelStreamResult,
 } from './model-client';
 import type { TokenPrice } from './model-catalog';
 import {
   composeProviderOptions,
   type ProviderOptionRecord,
 } from './provider-options';
-import { consumeReasoningStream } from './reasoning-stream';
 import {
   applyToolCallingOptions,
   awaitSettlementAfter,
+  bindReasoningChannel,
+  deferTerminalCallbacks,
   KEYLESS_PLACEHOLDER_API_KEY,
   trackAbortSettlement,
 } from './openai-model-client';
@@ -149,9 +144,7 @@ export type AnthropicModelClientConfig = {
  */
 export type AnthropicModelClientDependencies = {
   createAnthropic: typeof createAnthropic;
-  streamText: (
-    options: Parameters<typeof streamText>[0],
-  ) => StreamTextResult<ToolSet, OutputInterface<string, string, never>>;
+  streamText: (options: Parameters<typeof streamText>[0]) => ModelStreamResult;
   generateObject: typeof generateObject;
 };
 
@@ -331,8 +324,8 @@ function sanitizeAnthropicError(error: unknown): Error {
  * D1), the caller's message/system/abort plumbing, the composed options, the
  * catalog output limit, and the shared tool loop. Text deltas ride `onChunk`;
  * the whole reasoning channel — deltas, part metadata, and the
- * provider-invocation-scoped part ids — comes off one `fullStream` branch in
- * `runAnthropicStream` through the shared helper.
+ * provider-invocation-scoped part ids — comes off one `fullStream` branch the
+ * shared terminal deferral starts for this request.
  */
 function buildStreamOptions(
   provider: AnthropicProvider,
@@ -370,7 +363,6 @@ function runAnthropicStream(
   input: ModelStreamInput,
 ) {
   const onError = input.onError;
-  const settlement = trackAbortSettlement(input);
   const streamOptions = buildStreamOptions(
     provider,
     config,
@@ -380,13 +372,22 @@ function runAnthropicStream(
       : ({ error }: { error: unknown }) =>
           onError({ error: sanitizeAnthropicError(error) }),
   );
-  streamOptions.onAbort = settlement.onAbort;
   streamOptions.onFinish = input.onFinish;
+  // SDK callbacks return immediately so the `fullStream` reasoning branch can
+  // close; the run's callbacks and abort persistence then execute in order
+  // behind that branch (D15/D18).
+  const terminals = deferTerminalCallbacks(streamOptions, input);
+  const settlement = trackAbortSettlement(input, terminals);
+  streamOptions.onAbort = settlement.onAbort;
   const result = dependencies.streamText(streamOptions);
-  if (input.onReasoningDelta) {
-    void consumeReasoningStream(result.fullStream, input.onReasoningDelta);
-  }
-  return awaitSettlementAfter(result, settlement, sanitizeAnthropicError);
+  bindReasoningChannel(terminals, result, input);
+
+  return awaitSettlementAfter(
+    result,
+    settlement,
+    sanitizeAnthropicError,
+    terminals,
+  );
 }
 
 /**

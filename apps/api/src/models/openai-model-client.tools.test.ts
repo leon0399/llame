@@ -9,7 +9,10 @@ import {
   simulateReadableStream,
   streamText,
   tool,
+  type OnFinishEvent,
   type ModelMessage,
+  type TextStreamPart,
+  type ToolSet,
 } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
@@ -38,6 +41,52 @@ const PROVIDER_USAGE = {
   },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
+
+const FINISH_USAGE = {
+  inputTokens: 0,
+  inputTokenDetails: {
+    noCacheTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  },
+  outputTokens: 0,
+  outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+  totalTokens: 0,
+};
+
+const FINISH_EVENT = {
+  stepNumber: 0,
+  model: { provider: 'test', modelId: 'test' },
+  functionId: undefined,
+  metadata: undefined,
+  experimental_context: undefined,
+  content: [],
+  text: '',
+  reasoning: [],
+  reasoningText: undefined,
+  files: [],
+  sources: [],
+  toolCalls: [],
+  staticToolCalls: [],
+  dynamicToolCalls: [],
+  toolResults: [],
+  staticToolResults: [],
+  dynamicToolResults: [],
+  finishReason: 'stop',
+  rawFinishReason: undefined,
+  usage: FINISH_USAGE,
+  warnings: undefined,
+  request: {},
+  response: {
+    id: 'test',
+    timestamp: new Date(0),
+    modelId: 'test',
+    messages: [],
+  },
+  providerMetadata: undefined,
+  steps: [],
+  totalUsage: FINISH_USAGE,
+} satisfies OnFinishEvent<ToolSet>;
 
 function providerResponse(
   content: Array<LanguageModelV3StreamPart>,
@@ -790,4 +839,162 @@ describe('createOpenAIModelClient — structured output', () => {
       }),
     ).rejects.toThrow("Model did not produce a valid 'chat_title' tool call");
   });
+});
+
+describe('createOpenAIModelClient — reasoning channel settlement (D18)', () => {
+  type Terminal = (
+    options: Parameters<typeof streamText>[0],
+  ) => void | Promise<void>;
+
+  function buildRacingClient(terminal: Terminal, settlementFails = false) {
+    const provider = vi.fn<OpenAIProvider>();
+    provider.mockReturnValue(
+      new MockLanguageModelV3({
+        provider: 'openai.responses',
+        modelId: 'gpt-test',
+      }),
+    );
+    const stream = vi.mocked(vi.fn<typeof streamText>(), { partial: true });
+    stream.mockImplementation((options) => ({
+      fullStream: simulateReadableStream<TextStreamPart<ToolSet>>({
+        chunks: [
+          {
+            type: 'reasoning-start',
+            id: 'rs_1:0',
+            providerMetadata: { openai: { itemId: 'rs_1' } },
+          },
+          {
+            type: 'reasoning-delta',
+            id: 'rs_1:0',
+            text: 'think',
+          },
+          {
+            type: 'reasoning-end',
+            id: 'rs_1:0',
+            providerMetadata: {
+              openai: {
+                itemId: 'rs_1',
+                reasoningEncryptedContent: 'enc-1',
+              },
+            },
+          },
+        ],
+        chunkDelayInMs: 0,
+      }),
+      consumeStream: async () => {
+        await terminal(options);
+        if (settlementFails) throw new Error('stream settlement failed');
+      },
+    }));
+    return createOpenAIModelClient(
+      {
+        credential: 'sk-test',
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+      },
+      { createOpenAI: () => provider, streamText: stream },
+    );
+  }
+
+  const runTimeout = new Error('run-timeout');
+  const terminalPaths: Array<{
+    path: string;
+    terminal: Terminal;
+    settlementFails?: boolean;
+    abortSignal?: AbortSignal;
+    callbackFailure?: Error;
+    rejection?: string;
+    expected: { callback: string; deliveries: number; message?: string };
+  }> = [
+    {
+      path: "the SDK's finish callback",
+      terminal: async (options) => {
+        await options.onFinish?.(FINISH_EVENT);
+      },
+      expected: { callback: 'onFinish', deliveries: 3 },
+    },
+    {
+      path: 'the abort settlement',
+      terminal: async (options) => {
+        await options.onAbort?.({ steps: [] });
+      },
+      abortSignal: AbortSignal.abort(runTimeout),
+      expected: { callback: 'onError', deliveries: 3, message: 'run-timeout' },
+    },
+    {
+      path: 'a failed stream settlement',
+      terminal: (options) => {
+        void options.onError?.({ error: new Error('upstream failed') });
+      },
+      settlementFails: true,
+      rejection: 'stream settlement failed',
+      expected: {
+        callback: 'onError',
+        deliveries: 3,
+        message: 'upstream failed',
+      },
+    },
+    {
+      path: 'a failed terminal persistence callback',
+      terminal: (options) => {
+        void options.onError?.({ error: new Error('upstream failed') });
+      },
+      settlementFails: true,
+      callbackFailure: new Error('terminal persistence failed'),
+      rejection: 'terminal persistence failed',
+      expected: {
+        callback: 'onError',
+        deliveries: 3,
+        message: 'upstream failed',
+      },
+    },
+  ];
+
+  it.each(terminalPaths)(
+    'runs $path only after the reasoning channel has landed',
+    async ({
+      terminal,
+      settlementFails,
+      abortSignal,
+      callbackFailure,
+      rejection,
+      expected,
+    }) => {
+      const client = buildRacingClient(terminal, settlementFails === true);
+      let deliveries = 0;
+      const observed: Array<{
+        callback: string;
+        deliveries: number;
+        message?: string;
+      }> = [];
+
+      const result = client.streamText({
+        messages,
+        ...(abortSignal !== undefined && { abortSignal }),
+        onReasoningDelta: () => {
+          deliveries += 1;
+        },
+        onFinish: () => {
+          observed.push({ callback: 'onFinish', deliveries });
+        },
+        onError: ({ error }) => {
+          observed.push({
+            callback: 'onError',
+            deliveries,
+            ...(error instanceof Error && { message: error.message }),
+          });
+          if (callbackFailure !== undefined) throw callbackFailure;
+        },
+      });
+      const settlement = result.consumeStream();
+
+      if (rejection !== undefined) {
+        await expect(settlement).rejects.toThrow(rejection);
+      } else {
+        await settlement;
+      }
+      expect(observed).toEqual([expected]);
+    },
+  );
 });

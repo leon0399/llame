@@ -25,12 +25,12 @@ import type { ModelStreamInput } from './model-client';
  *   turn reads `0:0`, `0:1`, `1:0` and repeated deliveries for one part keep
  *   reusing one scoped id.
  *
- * Fire-and-forget by design: the caller keeps consuming the result it needs
- * (`consumeStream`/`text`) while this branch runs alongside, so reading the
- * stream's non-delta parts never starves the caller — and a metadata-only
- * delivery can never be recorded ahead of the text that precedes it (D18).
- * A stream failure ends this consumer quietly: the run's own consumption
- * (`onError` plus the abort settlement) owns the error.
+ * The caller starts this consumer beside the SDK result and retains its
+ * promise. Terminal callbacks wait for that promise before they persist the
+ * turn, while the result's own stream keeps flowing, so the callback cannot
+ * deadlock the branch it is waiting for. A stream failure ends this consumer
+ * quietly: the run's own consumption (`onError` plus the abort settlement)
+ * owns the error.
  */
 export async function consumeReasoningStream(
   fullStream: AsyncIterable<TextStreamPart<ToolSet>>,

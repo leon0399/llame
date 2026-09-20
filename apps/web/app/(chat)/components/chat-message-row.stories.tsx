@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, userEvent, waitFor } from "storybook/test";
+import { expect, fn, screen, userEvent, waitFor } from "storybook/test";
 import type { UIMessage } from "ai";
 
+import type { AvailableModel } from "@/lib/services/models/queries";
 import { ChatMessageRow } from "./chat-message-row";
 import { ChatMarkdownProvider } from "./use-chat-markdown-ready";
 
@@ -253,5 +254,84 @@ export const WithheldTextReasoning: Story = {
 
     // Rendering never rewrites a persisted part.
     expect(JSON.stringify(WITHHELD_MESSAGE.parts)).toBe(withheldPartsAtLoad);
+  },
+};
+
+/** The catalog entry an operator-declared Claude model resolves to, so the
+ *  badge and the Cost & model column name the model instead of echoing its id. */
+const CLAUDE_SONNET_MODEL: AvailableModel = {
+  id: "system:anthropic:claude-sonnet-5",
+  source: "system",
+  name: "Claude Sonnet 5",
+  contextWindowTokens: 1_000_000,
+};
+
+const CACHE_WRITE_ANSWER = "Summarized the cached document.";
+
+/**
+ * The telemetry of a cache-heavy Anthropic turn: the provider reports the
+ * cache-creation count separately, as a subset of the input total that Input
+ * already includes.
+ */
+const CACHE_WRITE_MESSAGE: UIMessage = {
+  id: "assistant-cache-write",
+  role: "assistant",
+  metadata: {
+    usage: {
+      inputTokens: 12_800,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 11_200,
+      outputTokens: 20,
+      totalTokens: 12_820,
+      reasoningTokens: 0,
+      modelId: CLAUDE_SONNET_MODEL.id,
+      latencyMs: 900,
+      costUsd: 0.01,
+      status: "completed",
+    },
+  },
+  parts: [{ type: "text", text: CACHE_WRITE_ANSWER }],
+};
+
+/**
+ * A completed turn whose long prompt was written to the provider's cache:
+ * hovering the usage badge reveals the reported cache-creation tokens as an
+ * "of which cache write" row beneath Input, so the largest line of a
+ * cache-heavy turn stays visible without inflating the Input total.
+ *
+ * @summary the usage hover card shows the turn's cache-write tokens
+ */
+export const CacheWriteUsage: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: CACHE_WRITE_MESSAGE,
+    availableModels: [CLAUDE_SONNET_MODEL],
+  },
+  play: async ({ canvas }) => {
+    // The row withholds the transcript — footer included — until the
+    // Streamdown-backed renderers load, so the first query waits on that chunk
+    // like the sibling stories do.
+    const trigger = await waitFor(
+      () => canvas.getByRole("button", { name: /^Message usage:/ }),
+      { timeout: 15_000 },
+    );
+    await expect(trigger).toHaveTextContent("Claude Sonnet 5 · 900ms");
+
+    await userEvent.hover(trigger);
+
+    // The breakdown portals out of the canvas into the document body, so the
+    // card's rows are queried through `screen` rather than `canvas`.
+    const cacheWriteRow = await waitFor(
+      () => {
+        const row = screen.getByText("of which cache write").parentElement;
+        expect(row).toBeVisible();
+        return row;
+      },
+      // Hovering opens the card immediately (delay=0); this covers the
+      // positioner's first measurement, which lands a frame later.
+      { timeout: 2000 },
+    );
+
+    await expect(cacheWriteRow).toHaveTextContent("11.2k");
   },
 };

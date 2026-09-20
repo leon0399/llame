@@ -442,7 +442,6 @@ describe("MessageUsage", () => {
             modelId: "system:openai:gpt-4o",
             latencyMs: 900,
             inputTokens: 12_800,
-            cacheWriteTokens: 11_200,
             outputTokens: 20,
             totalTokens: 12_820,
             costUsd: 0.01,
@@ -459,9 +458,6 @@ describe("MessageUsage", () => {
       0,
     );
     expect(screen.getAllByText("Tokens").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("of which cache write").length).toBeGreaterThan(
-      0,
-    );
     expect(screen.getAllByText("Cost & model").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Est. cost").length).toBeGreaterThan(0);
   });

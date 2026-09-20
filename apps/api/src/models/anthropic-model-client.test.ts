@@ -5,6 +5,14 @@
  * shared test fixture).
  */
 import {
+  simulateReadableStream,
+  streamText,
+  type OnFinishEvent,
+  type TextStreamPart,
+  type ToolSet,
+} from 'ai';
+
+import {
   buildClient,
   buildHarness,
   firstRequest,
@@ -16,6 +24,52 @@ import { ANTHROPIC_DEFAULT_BASE_URL } from './anthropic-model-client';
 import { KEYLESS_PLACEHOLDER_API_KEY } from './openai-model-client';
 
 const hello = messageEnvelope(textBlock(0, 'hello'));
+
+const FINISH_USAGE = {
+  inputTokens: 0,
+  inputTokenDetails: {
+    noCacheTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  },
+  outputTokens: 0,
+  outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+  totalTokens: 0,
+};
+
+const FINISH_EVENT = {
+  stepNumber: 0,
+  model: { provider: 'test', modelId: 'test' },
+  functionId: undefined,
+  metadata: undefined,
+  experimental_context: undefined,
+  content: [],
+  text: '',
+  reasoning: [],
+  reasoningText: undefined,
+  files: [],
+  sources: [],
+  toolCalls: [],
+  staticToolCalls: [],
+  dynamicToolCalls: [],
+  toolResults: [],
+  staticToolResults: [],
+  dynamicToolResults: [],
+  finishReason: 'stop',
+  rawFinishReason: undefined,
+  usage: FINISH_USAGE,
+  warnings: undefined,
+  request: {},
+  response: {
+    id: 'test',
+    timestamp: new Date(0),
+    modelId: 'test',
+    messages: [],
+  },
+  providerMetadata: undefined,
+  steps: [],
+  totalUsage: FINISH_USAGE,
+} satisfies OnFinishEvent<ToolSet>;
 
 describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3.3)', () => {
   it('uses the explicit Anthropic endpoint and sends the credential as x-api-key', async () => {
@@ -429,4 +483,142 @@ describe('createAnthropicModelClient — output limits (D17)', () => {
 
     expect(firstRequest(harness).body['max_tokens']).toBe(64_000);
   });
+});
+
+describe('createAnthropicModelClient — reasoning channel settlement (D18)', () => {
+  type Terminal = (
+    options: Parameters<typeof streamText>[0],
+  ) => void | Promise<void>;
+
+  function buildRacingClient(terminal: Terminal, settlementFails = false) {
+    const harness = buildHarness();
+    const stream = vi.mocked(vi.fn<typeof streamText>(), { partial: true });
+    stream.mockImplementation((options) => ({
+      fullStream: simulateReadableStream<TextStreamPart<ToolSet>>({
+        chunks: [
+          {
+            type: 'reasoning-start',
+            id: '0',
+            providerMetadata: { anthropic: { signature: null } },
+          },
+          { type: 'reasoning-delta', id: '0', text: 'deep thought' },
+          {
+            type: 'reasoning-end',
+            id: '0',
+            providerMetadata: { anthropic: { signature: 'SIG123' } },
+          },
+        ],
+        chunkDelayInMs: 0,
+      }),
+      consumeStream: async () => {
+        await terminal(options);
+        if (settlementFails) throw new Error('stream settlement failed');
+      },
+    }));
+    return buildClient({
+      ...harness,
+      dependencies: { ...harness.dependencies, streamText: stream },
+    });
+  }
+
+  const runTimeout = new Error('run-timeout');
+  const terminalPaths: Array<{
+    path: string;
+    terminal: Terminal;
+    settlementFails?: boolean;
+    abortSignal?: AbortSignal;
+    callbackFailure?: Error;
+    rejection?: string;
+    expected: { callback: string; deliveries: number; message?: string };
+  }> = [
+    {
+      path: "the adapter's finish callback",
+      terminal: async (options) => {
+        await options.onFinish?.(FINISH_EVENT);
+      },
+      expected: { callback: 'onFinish', deliveries: 3 },
+    },
+    {
+      path: 'the abort settlement',
+      terminal: async (options) => {
+        await options.onAbort?.({ steps: [] });
+      },
+      abortSignal: AbortSignal.abort(runTimeout),
+      expected: { callback: 'onError', deliveries: 3, message: 'run-timeout' },
+    },
+    {
+      path: 'a failed stream settlement',
+      terminal: (options) => {
+        void options.onError?.({ error: new Error('upstream failed') });
+      },
+      settlementFails: true,
+      rejection: 'Anthropic request failed.',
+      expected: {
+        callback: 'onError',
+        deliveries: 3,
+        message: 'Anthropic request failed.',
+      },
+    },
+    {
+      path: 'a failed terminal persistence callback',
+      terminal: (options) => {
+        void options.onError?.({ error: new Error('upstream failed') });
+      },
+      settlementFails: true,
+      callbackFailure: new Error('terminal persistence failed'),
+      rejection: 'terminal persistence failed',
+      expected: {
+        callback: 'onError',
+        deliveries: 3,
+        message: 'Anthropic request failed.',
+      },
+    },
+  ];
+
+  it.each(terminalPaths)(
+    'runs $path only after the reasoning channel has landed',
+    async ({
+      terminal,
+      settlementFails,
+      abortSignal,
+      callbackFailure,
+      rejection,
+      expected,
+    }) => {
+      const client = buildRacingClient(terminal, settlementFails === true);
+      let deliveries = 0;
+      const observed: Array<{
+        callback: string;
+        deliveries: number;
+        message?: string;
+      }> = [];
+
+      const result = client.streamText({
+        messages,
+        ...(abortSignal !== undefined && { abortSignal }),
+        onReasoningDelta: () => {
+          deliveries += 1;
+        },
+        onFinish: () => {
+          observed.push({ callback: 'onFinish', deliveries });
+        },
+        onError: ({ error }) => {
+          observed.push({
+            callback: 'onError',
+            deliveries,
+            ...(error instanceof Error && { message: error.message }),
+          });
+          if (callbackFailure !== undefined) throw callbackFailure;
+        },
+      });
+      const settlement = result.consumeStream();
+
+      if (rejection !== undefined) {
+        await expect(settlement).rejects.toThrow(rejection);
+      } else {
+        await settlement;
+      }
+      expect(observed).toEqual([expected]);
+    },
+  );
 });

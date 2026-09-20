@@ -15,7 +15,7 @@
  * durable BOUND to a persisted reasoning part. Nothing else in the chat
  * transcript may carry it once the run is terminal.
  *
- * TEST_DATABASE_URL-gated; run by test:integration.
+ * Requires TEST_DATABASE_URL; run by test:integration.
  */
 
 import { streamText } from 'ai';
@@ -55,7 +55,12 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
-const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+if (!TEST_DB_URL) {
+  throw new Error(
+    'reasoning-metadata-replay.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
+  );
+}
+const describeWithDatabase = describe;
 type SqlClient = Sql;
 
 const MODEL_ID = 'system:openai:gpt-5.4-mini';
@@ -191,7 +196,7 @@ function carriesProviderMetadata(
   return isRecord(part) && part.providerMetadata !== undefined;
 }
 
-describeIfDb(
+describeWithDatabase(
   'reasoning provider metadata across a worker restart (D15/D17)',
   () => {
     let sql: SqlClient;
@@ -200,8 +205,8 @@ describeIfDb(
     let userId: string;
 
     beforeAll(async () => {
-      const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-      sql = postgres(TEST_DB_URL!, { ssl, max: 5 });
+      const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
+      sql = postgres(TEST_DB_URL, { ssl, max: 5 });
       const db: Db = drizzle(sql, { schema });
       tenantDb = new TenantDbService(db);
       const noopCompaction: CompactionCapability = {

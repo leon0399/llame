@@ -3,14 +3,20 @@ import type {
   FlexibleSchema,
   LanguageModelUsage,
   ModelMessage,
+  OutputInterface,
   ProviderMetadata,
   StreamTextOnErrorCallback,
-  streamText,
+  StreamTextResult,
   ToolChoice,
   ToolSet,
 } from 'ai';
 
 import type { TokenPrice } from './model-catalog';
+
+export type ModelStreamResult = StreamTextResult<
+  ToolSet,
+  OutputInterface<string, string, never>
+>;
 
 export interface ModelStreamInput {
   messages: Array<ModelMessage>;
@@ -149,7 +155,7 @@ export interface ModelClient {
    * `contextWindowTokens x COMPACTION_WINDOW_RATIO` (see compaction.ts).
    */
   readonly compactionThresholdTokens?: number;
-  streamText(input: ModelStreamInput): ReturnType<typeof streamText>;
+  streamText(input: ModelStreamInput): ModelStreamResult;
   /**
    * Schema-constrained single object generation. How the object is obtained
    * is the client's: the OpenAI clients pin a REQUIRED tool call to the

@@ -13,6 +13,7 @@ import {
   type ModelClient,
   type ModelObjectInput,
   type ModelStreamInput,
+  type ModelStreamResult,
 } from './model-client';
 import type { TokenPrice } from './model-catalog';
 import {
@@ -136,25 +137,117 @@ export interface AbortSettlement {
   wait: () => Promise<void>;
 }
 
+type TerminalCallbackOptions = Pick<
+  Parameters<typeof streamText>[0],
+  'onError' | 'onFinish'
+>;
+
+/** Terminal work ordered behind one request's reasoning stream. */
+export interface DeferredTerminals {
+  defer: (task: () => void | PromiseLike<void>) => void;
+  bind: (consumption: Promise<void>) => void;
+  /** Waits for queued work and surfaces its first failure. */
+  wait: () => Promise<void>;
+}
+
+function createDeferredTerminals(): DeferredTerminals {
+  let gate = Promise.resolve();
+  let chain = Promise.resolve();
+  let failure: { error: unknown } | undefined;
+  const drain = async (): Promise<void> => {
+    await gate;
+    await chain;
+  };
+  return {
+    defer: (task) => {
+      chain = chain.then(async () => {
+        await gate;
+        try {
+          await task();
+        } catch (error) {
+          failure ??= { error };
+        }
+      });
+    },
+    bind: (consumption) => {
+      gate = consumption;
+    },
+    wait: async () => {
+      await drain();
+      if (failure !== undefined) throw failure.error;
+    },
+  };
+}
+
+/**
+ * Queues the SDK's terminal callbacks instead of awaiting them inside its
+ * pipeline, which would deadlock the `fullStream` branch they must follow.
+ * The client binds the returned queue to its single reasoning consumer after
+ * `streamText` returns.
+ */
+export function deferTerminalCallbacks(
+  streamOptions: TerminalCallbackOptions,
+  input: ModelStreamInput,
+): DeferredTerminals {
+  const terminals = createDeferredTerminals();
+  if (input.onReasoningDelta === undefined) return terminals;
+
+  const onFinish = streamOptions.onFinish;
+  if (onFinish !== undefined) {
+    streamOptions.onFinish = (event) => {
+      terminals.defer(() => onFinish(event));
+    };
+  }
+  const onError = streamOptions.onError;
+  if (onError !== undefined) {
+    streamOptions.onError = (event) => {
+      terminals.defer(() => onError(event));
+    };
+  }
+  return terminals;
+}
+
+/** Binds the queue to the request's one reasoning-stream consumer. */
+export function bindReasoningChannel(
+  terminals: DeferredTerminals,
+  result: Pick<ModelStreamResult, 'fullStream'>,
+  input: ModelStreamInput,
+): void {
+  if (input.onReasoningDelta !== undefined) {
+    terminals.bind(
+      consumeReasoningStream(result.fullStream, input.onReasoningDelta),
+    );
+  }
+}
+
 /**
  * Tracks the async settlement of the `onError` call `streamText` fires when
  * `abortSignal` triggers (the AI SDK invokes `onAbort` without awaiting its
  * return value), so callers can await it — and surface its rejection — after
  * the stream itself has settled, rather than observing a drained result
  * before the run's terminal state is persisted.
+ *
+ * The abort's error call rides `terminals`, behind the reasoning channel's
+ * consumer, so the run's abort persistence observes every delivery the channel
+ * already made. The error stays the signal's own reason — never the request's
+ * sanitizing `onError`, and never a provider failure.
  */
-export function trackAbortSettlement(input: ModelStreamInput): AbortSettlement {
+export function trackAbortSettlement(
+  input: ModelStreamInput,
+  terminals: DeferredTerminals = createDeferredTerminals(),
+): AbortSettlement {
   let settlement = Promise.resolve();
   let settlementError: { error: unknown } | undefined;
   return {
     onAbort: () => {
-      settlement = Promise.resolve(
+      terminals.defer(() =>
         input.onError?.({
           error:
             input.abortSignal?.reason ??
             new DOMException('Aborted', 'AbortError'),
         }),
-      ).catch((error: unknown) => {
+      );
+      settlement = terminals.wait().catch((error: unknown) => {
         settlementError = { error };
       });
     },
@@ -167,12 +260,80 @@ export function trackAbortSettlement(input: ModelStreamInput): AbortSettlement {
   };
 }
 
-/** Makes `result`'s `consumeStream`/`text` also await the abort settlement. */
+async function throwAfterTerminalCompletion(
+  terminals: DeferredTerminals,
+  error: unknown,
+  sanitizeError?: (error: unknown) => Error,
+): Promise<never> {
+  await terminals.wait();
+  throw sanitizeError?.(error) ?? error;
+}
+
+async function awaitTextAndAbortSettlement(
+  text: PromiseLike<string>,
+  settlement: AbortSettlement,
+  terminals: DeferredTerminals,
+  sanitizeError?: (error: unknown) => Error,
+): Promise<string> {
+  try {
+    const value = await text;
+    await settlement.wait();
+    return value;
+  } catch (error) {
+    try {
+      await settlement.wait();
+    } catch (settlementError) {
+      await throwAfterTerminalCompletion(
+        terminals,
+        settlementError,
+        sanitizeError,
+      );
+    }
+    return throwAfterTerminalCompletion(terminals, error, sanitizeError);
+  }
+}
+
+async function awaitTextAfterSettlement(
+  text: PromiseLike<string>,
+  settlement: AbortSettlement,
+  terminals: DeferredTerminals,
+  sanitizeError?: (error: unknown) => Error,
+): Promise<string> {
+  const value = await awaitTextAndAbortSettlement(
+    text,
+    settlement,
+    terminals,
+    sanitizeError,
+  );
+  await terminals.wait();
+  return value;
+}
+
+/**
+ * Makes `result`'s `consumeStream`/`text` also await the abort settlement and
+ * the terminal callbacks `terminals` defers behind the reasoning channel's
+ * consumer (design D18).
+ *
+ * The channel's consumer reads its own branch of the same stream, and the SDK
+ * does not order that branch against this settlement: its last deliveries are
+ * still queued when the stream settles, so a caller that reads back what the
+ * channel delivered (the run's persistence points) would race them. Awaiting
+ * the deferred callbacks HERE is safe precisely because the SDK's own
+ * settlement has resolved first — the callbacks run from the pipeline the
+ * stream's branches close behind, so ordering them on the consumer's completion
+ * *inside* the stream would deadlock it.
+ *
+ * A failed stream settlement waits for terminal persistence first. A terminal
+ * failure takes precedence, matching the SDK's callback semantics; otherwise
+ * the stream's own error surfaces unchanged. A deferred callback's failure is
+ * the run's, never a provider's, so it is not provider-sanitized.
+ */
 export function awaitSettlementAfter(
-  result: ReturnType<typeof streamText>,
+  result: ModelStreamResult,
   settlement: AbortSettlement,
   sanitizeError?: (error: unknown) => Error,
-): ReturnType<typeof streamText> {
+  terminals: DeferredTerminals = createDeferredTerminals(),
+): ModelStreamResult {
   return wrapStreamTextResult(result, {
     consumeStream: (target) => ({
       value: async (...args: Parameters<typeof target.consumeStream>) => {
@@ -180,25 +341,18 @@ export function awaitSettlementAfter(
           await target.consumeStream(...args);
           await settlement.wait();
         } catch (error) {
-          throw sanitizeError?.(error) ?? error;
+          await throwAfterTerminalCompletion(terminals, error, sanitizeError);
         }
+        await terminals.wait();
       },
     }),
     text: (target) => ({
-      value: (async () => {
-        try {
-          const text = await target.text;
-          await settlement.wait();
-          return text;
-        } catch (error) {
-          try {
-            await settlement.wait();
-          } catch (settlementError) {
-            throw sanitizeError?.(settlementError) ?? settlementError;
-          }
-          throw sanitizeError?.(error) ?? error;
-        }
-      })(),
+      value: awaitTextAfterSettlement(
+        target.text,
+        settlement,
+        terminals,
+        sanitizeError,
+      ),
     }),
   });
 }
@@ -258,9 +412,7 @@ export type OpenAIModelClientConfig = {
  */
 export type OpenAIModelClientDependencies = {
   createOpenAI: typeof createOpenAI;
-  streamText: (
-    options: Parameters<typeof streamText>[0],
-  ) => ReturnType<typeof streamText>;
+  streamText: (options: Parameters<typeof streamText>[0]) => ModelStreamResult;
 };
 
 /**
@@ -385,7 +537,7 @@ function runOpenAIStream(
   config: OpenAIModelClientConfig,
   dependencies: OpenAIModelClientDependencies,
   input: ModelStreamInput,
-): ReturnType<typeof streamText> {
+): ModelStreamResult {
   const sanitizedInput =
     config.sanitizeError === undefined
       ? input
@@ -394,7 +546,6 @@ function runOpenAIStream(
           onError: ({ error }: { error: unknown }) =>
             input.onError?.({ error: config.sanitizeError?.(error) ?? error }),
         };
-  const settlement = trackAbortSettlement(input);
   const streamOptions: Parameters<typeof streamText>[0] = {
     // The declared Responses wire (design D1): the provider callable's
     // default entry point targets /responses at the configured base URL.
@@ -403,7 +554,6 @@ function runOpenAIStream(
     system: input.system,
     abortSignal: input.abortSignal,
     onError: sanitizedInput.onError,
-    onAbort: settlement.onAbort,
     onFinish: input.onFinish,
     ...(config.maxOutputTokens !== undefined && {
       maxOutputTokens: config.maxOutputTokens,
@@ -412,16 +562,21 @@ function runOpenAIStream(
   applyProviderOptions(streamOptions, config, input);
   applyToolCallingOptions(streamOptions, input);
   applyTextDeltaCallback(streamOptions, input);
+  // SDK callbacks return immediately so the `fullStream` reasoning branch can
+  // close; the run's callbacks and abort persistence then execute in order
+  // behind that branch (D18).
+  const terminals = deferTerminalCallbacks(streamOptions, input);
+  const settlement = trackAbortSettlement(input, terminals);
+  streamOptions.onAbort = settlement.onAbort;
   const result = dependencies.streamText(streamOptions);
-  // The whole reasoning channel — delta text and the opaque metadata a part's
-  // start/delta/end carries — comes off the result's `fullStream` through one
-  // shared consumer (design D18). The old `tee()`-per-accessor mirror is gone
-  // with it, so what the collector sees is one ordered delivery sequence.
-  if (input.onReasoningDelta) {
-    void consumeReasoningStream(result.fullStream, input.onReasoningDelta);
-  }
+  bindReasoningChannel(terminals, result, input);
 
-  return awaitSettlementAfter(result, settlement, config.sanitizeError);
+  return awaitSettlementAfter(
+    result,
+    settlement,
+    config.sanitizeError,
+    terminals,
+  );
 }
 
 /**
