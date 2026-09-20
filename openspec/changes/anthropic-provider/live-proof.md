@@ -22,7 +22,7 @@ A one-off Vitest integration harness booted the real Nest application against a 
 - The authorized `search_conversations` call completed and persisted an `output-available` tool result before the model's final answer.
 - Native structured output returned a schema-valid title through `generateObject`; the asynchronous title path also persisted a generated chat title using the configured Haiku title model.
 - The Haiku entry declared no reasoning vocabulary and completed with no reasoning stream or persisted reasoning part. Because Haiku 4.5 does not support adaptive thinking, the successful request also proves that llame sent no default adaptive-thinking configuration for that entry.
-- The first cacheable Sonnet request persisted 8,710 cache-write tokens and a non-null `$0.029959` total cost. A reused prefix subsequently reported 10,501 cache-read tokens.
+- The first cacheable Sonnet request persisted 8,710 cache-write tokens and a `$0.029959` total cost. At the configured `$2.50/MTok` cache-write rate, those tokens contributed `$0.021775`; pricing them at the `$2.00/MTok` input-rate fallback would have contributed `$0.017420`, a `$0.004355` difference. A reused prefix subsequently reported 10,501 cache-read tokens.
 - Compaction rewrote the prefix through a durable row with `uptoSeq: 2`; the next Sonnet turn completed under the adaptive drop-on-prefix-mismatch instruction.
 - A live Haiku request reached `running_model`, was cancelled through `PATCH /api/v1/runs/:id`, and settled durably as `cancelled`.
 - The minimal Sonnet 4.6 adaptive request completed with the client's default `display: "summarized"`; the first-party API accepted `display` on that generation at proof time.

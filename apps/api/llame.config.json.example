@@ -302,7 +302,7 @@
       "provider": "anthropic",
       "providerModelId": "claude-sonnet-5",
       "name": "Claude Sonnet 5",
-      "description": "Anthropic's lowest-cost current model with adaptive thinking.",
+      "description": "Lowest-cost current Anthropic model that supports adaptive thinking.",
       "contextWindowTokens": 1000000,
       "pricingUsdPer1M": {
         "input": 2,
