@@ -391,8 +391,9 @@ describe('createOpenAICompletionsModelClient — keyless provider', () => {
 });
 
 describe('createOpenAICompletionsModelClient — structured output (design D4)', () => {
-  it('runs forced-tool structured generation on the Chat Completions model', async () => {
-    const model = new MockLanguageModelV3({
+  /** The provider's forced tool call answering the `chat_title` schema. */
+  function structuredModel() {
+    return new MockLanguageModelV3({
       provider: 'openai-compatible.test',
       modelId: 'deepseek-chat',
       doGenerate: () =>
@@ -410,7 +411,15 @@ describe('createOpenAICompletionsModelClient — structured output (design D4)',
           warnings: [],
         }),
     });
-    const { provider, client } = buildClient(model);
+  }
+
+  /** One structured generation through a scripted model, returning the call
+   * the adapter's model received. */
+  async function generateTitle(
+    overrides: Partial<OpenAICompletionsModelClientConfig> = {},
+  ) {
+    const model = structuredModel();
+    const { provider, client } = buildClient(model, { overrides });
     const generateObject = <OBJECT>(
       input: ModelObjectInput<OBJECT>,
     ): Promise<OBJECT> => {
@@ -429,52 +438,66 @@ describe('createOpenAICompletionsModelClient — structured output (design D4)',
         schema: z.object({ title: z.string() }),
       }),
     ).resolves.toEqual({ title: 'A title' });
+    return { provider, generateCall: model.doGenerateCalls[0] };
+  }
+
+  it('runs forced-tool structured generation on the Chat Completions model', async () => {
+    const { provider, generateCall } = await generateTitle();
 
     expect(provider).toHaveBeenCalledWith('deepseek-chat');
-    expect(model.doGenerateCalls[0]?.toolChoice).toEqual({
+    expect(generateCall?.toolChoice).toEqual({
       type: 'tool',
       toolName: 'chat_title',
     });
-    expect(model.doGenerateCalls[0]?.tools).toEqual([
+    expect(generateCall?.tools).toEqual([
       expect.objectContaining({ name: 'chat_title' }),
     ]);
+    // An entry that configures no options keeps this path's option-free
+    // request: no `providerOptions` key at all (provider-api-selection).
+    expect(generateCall?.providerOptions).toBeUndefined();
+  });
+
+  it("carries the operator's options under the wire's namespace", async () => {
+    const { generateCall } = await generateTitle({
+      providerOptions: { user: 'run-owner', strictJsonSchema: false },
+    });
+
+    // The entry's providerOptions reach structured generation under the same
+    // namespace streaming uses (provider-api-selection: every language-model
+    // request carries them); no effort layer applies to this path.
+    expect(generateCall?.providerOptions).toEqual({
+      openaiCompletions: { user: 'run-owner', strictJsonSchema: false },
+    });
+  });
+
+  it('strips reserved keys from the structured request and keeps the forced choice', async () => {
+    const { generateCall } = await generateTitle({
+      providerOptions: {
+        model: 'smuggled-model',
+        max_tokens: 1,
+        tool_choice: 'none',
+        user: 'run-owner',
+      },
+    });
+
+    // The reserved wire seats never reach the composed object, so the request
+    // still runs llame's forced tool choice on the entry's own model.
+    expect(generateCall?.providerOptions).toEqual({
+      openaiCompletions: { user: 'run-owner' },
+    });
+    expect(generateCall?.toolChoice).toEqual({
+      type: 'tool',
+      toolName: 'chat_title',
+    });
   });
 
   it('forwards the catalog output limit on structured generation', async () => {
-    const model = new MockLanguageModelV3({
-      provider: 'openai-compatible.test',
-      modelId: 'deepseek-chat',
-      doGenerate: () =>
-        Promise.resolve({
-          content: [
-            {
-              type: 'tool-call',
-              toolCallId: 'call-0',
-              toolName: 'chat_title',
-              input: '{"title":"A title"}',
-            },
-          ],
-          finishReason: { unified: 'tool-calls', raw: undefined },
-          usage: PROVIDER_USAGE,
-          warnings: [],
-        }),
-    });
-    const { client } = buildClient(model, {
-      overrides: { maxOutputTokens: 2048 },
-    });
-
-    await expect(
-      client.generateObject?.({
-        messages,
-        schemaName: 'chat_title',
-        schema: z.object({ title: z.string() }),
-      }),
-    ).resolves.toEqual({ title: 'A title' });
+    const { generateCall } = await generateTitle({ maxOutputTokens: 2048 });
 
     // Structured generation shares the catalog limit (provider-api-selection
     // D17): same setting the streaming path forwards, observed on the call
     // the adapter's model received.
-    expect(model.doGenerateCalls[0]?.maxOutputTokens).toBe(2048);
+    expect(generateCall?.maxOutputTokens).toBe(2048);
   });
 });
 

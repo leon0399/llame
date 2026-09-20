@@ -632,45 +632,80 @@ describe('ModelClient', () => {
         return { providerModel, client };
       }
 
-      it('sends no provider options but the catalog output cap', async () => {
-        const { providerModel, client } = objectClient({
-          providerOptions: { reasoningSummary: 'concise' },
-          maxOutputTokens: 1024,
-        });
+      /** One structured generation through `objectClient`, returning the call
+       * the provider model received. */
+      async function generateTitle(
+        overrides: Partial<Parameters<typeof createOpenAIModelClient>[0]> = {},
+      ) {
+        const { providerModel, client } = objectClient(overrides);
         if (!client.generateObject) {
           throw new Error(
             'the Responses model client must expose generateObject',
           );
         }
 
-        const title = await client.generateObject({
-          messages,
-          schema: z.object({ title: z.string() }),
+        await expect(
+          client.generateObject({
+            messages,
+            schema: z.object({ title: z.string() }),
+          }),
+        ).resolves.toEqual({ title: 'A title' });
+        return providerModel.doGenerateCalls[0];
+      }
+
+      // The entry's providerOptions reach structured generation too
+      // (provider-api-selection: every language-model request carries them),
+      // under this wire's namespace and with the operator layer alone — the
+      // displayable reasoning summary is a streaming-only default, and a
+      // structured request carries no effort.
+      it("carries the operator's options under the Responses namespace", async () => {
+        const generateCall = await generateTitle({
+          providerOptions: { vendorNote: 'kept' },
         });
 
-        expect(title).toEqual({ title: 'A title' });
-        const generateCall = providerModel.doGenerateCalls[0];
+        expect(generateCall?.providerOptions).toEqual({
+          openai: { vendorNote: 'kept' },
+        });
+      });
+
+      it.each(reservedOperatorOptions)(
+        'strips the operator-reserved %s from the structured request',
+        async (key, value) => {
+          const generateCall = await generateTitle({
+            providerOptions: { [key]: value, vendorNote: 'kept' },
+          });
+
+          expect(generateCall?.providerOptions).toEqual({
+            openai: { vendorNote: 'kept' },
+          });
+        },
+      );
+
+      it('stays option-free when only reserved keys were configured', async () => {
+        const generateCall = await generateTitle({
+          providerOptions: { previousResponseId: 'resp_operator' },
+        });
+
         expect(generateCall?.providerOptions).toBeUndefined();
+      });
+
+      it('forwards the catalog output cap alongside the composed options', async () => {
+        const generateCall = await generateTitle({
+          providerOptions: { vendorNote: 'kept' },
+          maxOutputTokens: 1024,
+        });
+
+        expect(generateCall?.providerOptions).toEqual({
+          openai: { vendorNote: 'kept' },
+        });
         expect(generateCall?.maxOutputTokens).toBe(1024);
       });
 
       // An entry with no configured options keeps structured generation's
-      // option-free request unchanged (design D5).
+      // option-free request unchanged (provider-api-selection).
       it('leaves the option-free structured generation request unchanged', async () => {
-        const { providerModel, client } = objectClient();
-        if (!client.generateObject) {
-          throw new Error(
-            'the Responses model client must expose generateObject',
-          );
-        }
+        const generateCall = await generateTitle();
 
-        const title = await client.generateObject({
-          messages,
-          schema: z.object({ title: z.string() }),
-        });
-
-        expect(title).toEqual({ title: 'A title' });
-        const generateCall = providerModel.doGenerateCalls[0];
         expect(generateCall?.providerOptions).toBeUndefined();
         expect(generateCall?.maxOutputTokens).toBeUndefined();
       });

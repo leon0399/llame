@@ -219,9 +219,11 @@ export type OpenAIModelClientConfig = {
    * Operator request options (`models[].providerOptions`), the free-form
    * inner record as written in config — this client wraps it under the
    * Responses wire's `openai` namespace and strips the wire's reserved paths
-   * (design D5). Composed under the fixed precedence: client defaults <
-   * operator < run effort < client invariants, with `null` at any depth
-   * removing a defaulted key.
+   * (design D5) on every request it issues, streaming and structured
+   * generation alike. Streaming composes it under the fixed precedence:
+   * client defaults < operator < run effort < client invariants, with `null`
+   * at any depth removing a defaulted key; a structured request carries the
+   * operator layer alone.
    */
   providerOptions?: ProviderOptionRecord;
   /**
@@ -279,13 +281,28 @@ const RESPONSES_RESERVED_PROVIDER_OPTION_PATHS: ReadonlyArray<string> = [
 ];
 
 /**
+ * One composed record under the Responses wire's `openai` namespace — the
+ * namespace `@ai-sdk/openai` reads its own options from, for a streaming and a
+ * structured-generation request alike. An empty composition contributes
+ * nothing, so a request that composes to nothing sends exactly the body it
+ * sent before this layer.
+ */
+function responsesProviderOptions(
+  composed: ProviderOptionRecord | undefined,
+): Pick<Parameters<typeof streamText>[0], 'providerOptions'> {
+  return composed === undefined
+    ? {}
+    : { providerOptions: { openai: composed } };
+}
+
+/**
  * Attaches the request's provider options, composed from four layers under
  * one precedence (design D5): this wire's per-request-kind default (the
  * displayable reasoning summary, which the structured-generation path does
- * not take), the operator's object, the run's effort, and the client's
- * invariants — each layer replaces or removes what the earlier ones set,
- * never the other way around. The operator's reserved paths are stripped by
- * the composer.
+ * not take — see `composeStructuredProviderOptions`), the operator's object,
+ * the run's effort, and the client's invariants — each layer replaces or
+ * removes what the earlier ones set, never the other way around. The
+ * operator's reserved paths are stripped by the composer.
  *
  * A request whose options compose to nothing (every default removed with
  * `null`, no operator or effort value) carries no `providerOptions` key at
@@ -298,22 +315,48 @@ function applyProviderOptions(
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
 ): void {
-  const composed = composeProviderOptions({
-    defaults: { reasoningSummary: 'auto' },
-    ...(config.providerOptions !== undefined && {
-      operator: config.providerOptions,
+  const { providerOptions } = responsesProviderOptions(
+    composeProviderOptions({
+      defaults: { reasoningSummary: 'auto' },
+      ...(config.providerOptions !== undefined && {
+        operator: config.providerOptions,
+      }),
+      ...(input.effort !== undefined && {
+        effort: { reasoningEffort: input.effort },
+      }),
+      ...(config.providerOptionInvariants !== undefined && {
+        invariants: config.providerOptionInvariants,
+      }),
+      reservedPaths: RESPONSES_RESERVED_PROVIDER_OPTION_PATHS,
     }),
-    ...(input.effort !== undefined && {
-      effort: { reasoningEffort: input.effort },
-    }),
-    ...(config.providerOptionInvariants !== undefined && {
-      invariants: config.providerOptionInvariants,
-    }),
-    reservedPaths: RESPONSES_RESERVED_PROVIDER_OPTION_PATHS,
-  });
-  if (composed !== undefined) {
-    streamOptions.providerOptions = { openai: composed };
+  );
+  if (providerOptions !== undefined) {
+    streamOptions.providerOptions = providerOptions;
   }
+}
+
+/**
+ * The structured-generation path's options: the operator's
+ * `models[].providerOptions` under this wire's namespace with its reserved
+ * paths stripped, and no other layer (provider-api-selection: the entry's
+ * options reach every language-model request). The displayable reasoning
+ * summary is a streaming default and is not added here; `ModelObjectInput`
+ * carries no effort, so there is no run layer; and the Codex transport — the
+ * only client that pins invariants — exposes no structured generation, so
+ * none applies. Composes to nothing for an entry that configures no options,
+ * which leaves this path's option-free request exactly as it was.
+ */
+function composeStructuredProviderOptions(
+  config: OpenAIModelClientConfig,
+): Pick<Parameters<typeof streamText>[0], 'providerOptions'> {
+  return responsesProviderOptions(
+    composeProviderOptions({
+      ...(config.providerOptions !== undefined && {
+        operator: config.providerOptions,
+      }),
+      reservedPaths: RESPONSES_RESERVED_PROVIDER_OPTION_PATHS,
+    }),
+  );
 }
 
 /**
@@ -431,14 +474,21 @@ function runOpenAIStream(
  * runs on Responses, a completions-typed provider's on Chat Completions.
  * Never a hardcoded wire.
  *
- * `maxOutputTokens` is the catalog entry's cap (design D17), forwarded as
- * the AI SDK's call setting; this path sends no provider options (design
- * D5), but the cap is not a provider option and applies to it too.
+ * `callSettings` carries the wire's own request options, already composed by
+ * the client whose wire `model` belongs to: its `providerOptions` — that
+ * client owns its namespace, its reserved paths, and which layers a
+ * structured request takes — and the catalog entry's `maxOutputTokens` cap
+ * (design D17), which is a call setting rather than a provider option. This
+ * shared path stays wire-agnostic and composes nothing itself, so a caller
+ * that composes to nothing sets neither key.
  */
 export async function generateToolBoundObject<OBJECT>(
   model: LanguageModelV3,
   input: ModelObjectInput<OBJECT>,
-  maxOutputTokens?: number,
+  callSettings: Pick<
+    Parameters<typeof streamText>[0],
+    'maxOutputTokens' | 'providerOptions'
+  >,
 ): Promise<OBJECT> {
   const toolName = input.schemaName ?? 'output';
   const result = await generateText({
@@ -446,7 +496,7 @@ export async function generateToolBoundObject<OBJECT>(
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
-    ...(maxOutputTokens !== undefined && { maxOutputTokens }),
+    ...callSettings,
     tools: {
       [toolName]: tool({
         description: input.schemaDescription,
@@ -507,11 +557,12 @@ export function createOpenAIModelClient(
     },
     ...(config.generateObject !== false && {
       generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
-        generateToolBoundObject(
-          openai(config.providerModelId),
-          input,
-          config.maxOutputTokens,
-        ),
+        generateToolBoundObject(openai(config.providerModelId), input, {
+          ...composeStructuredProviderOptions(config),
+          ...(config.maxOutputTokens !== undefined && {
+            maxOutputTokens: config.maxOutputTokens,
+          }),
+        }),
     }),
   };
 }
