@@ -217,22 +217,30 @@ function MessageSegments({
   renderKey: string;
   renderers: ChatMarkdownRenderers;
 }) {
-  return groupAssistantParts(parts).map((segment) =>
-    segment.kind === "reasoning" ? (
+  return groupAssistantParts(parts).map((segment) => {
+    if (segment.kind !== "reasoning") {
+      return (
+        <MessagePartView
+          key={`message-part-${renderKey}-${segment.index}`}
+          part={segment.part}
+          renderers={renderers}
+        />
+      );
+    }
+    // A provider that withholds the thinking text still returns the block,
+    // signed, and it must persist and replay unchanged — but a run of parts
+    // that carries no text (at all, or only whitespace) has nothing to show,
+    // so it renders no panel rather than an empty one.
+    if (segment.text.trim() === "") return null;
+    return (
       <ReasoningPanel
         key={`message-part-${renderKey}-${segment.startIndex}`}
         text={segment.text}
         isStreaming={segment.isStreaming}
         renderers={renderers}
       />
-    ) : (
-      <MessagePartView
-        key={`message-part-${renderKey}-${segment.index}`}
-        part={segment.part}
-        renderers={renderers}
-      />
-    ),
-  );
+    );
+  });
 }
 
 export function ChatMessageRow({

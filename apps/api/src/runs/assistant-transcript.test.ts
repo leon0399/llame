@@ -112,14 +112,43 @@ describe('AssistantPartCollector', () => {
     const collector = createAssistantPartCollector();
 
     collector.reasoning('plain thinking', 'reasoning-0');
+    // An empty delivery with no metadata says nothing and adds no part.
     collector.reasoning('', 'reasoning-0');
-    // A metadata-only delivery with no part to bind it to adds no part.
-    collector.reasoning('', 'rs_missing', { openai: { itemId: 'rs_missing' } });
 
     // `toStrictEqual` (not `toEqual`): an explicit `providerMetadata:
     // undefined` key would fail here, and the shape must be unchanged.
     expect(collector.parts()).toStrictEqual([
       { type: 'reasoning', text: 'plain thinking' },
+    ]);
+  });
+
+  it('starts an empty part for a metadata-only delivery under an id nothing carries (D18)', () => {
+    const collector = createAssistantPartCollector();
+    const redacted = { anthropic: { redactedData: 'REDACTED_BLOCK' } };
+    const signature = { anthropic: { signature: 'SIG_WITHHELD' } };
+
+    // A redacted block: its payload rides the start, and no text exists. A
+    // withheld block is the same shape one delivery later — an empty delta
+    // carrying the signature. Both are blocks a later request must replay,
+    // so each persists as its own empty part, in order.
+    collector.reasoning('', '0:0', redacted);
+    collector.reasoning('', '0:1', signature);
+
+    expect(collector.parts()).toStrictEqual([
+      { type: 'reasoning', text: '', providerMetadata: redacted },
+      { type: 'reasoning', text: '', providerMetadata: signature },
+    ]);
+
+    // The empty part is the open one: text the wire still sends under that id
+    // lands in it rather than opening another part.
+    collector.reasoning(' after the fact', '0:1');
+    expect(collector.parts()).toStrictEqual([
+      { type: 'reasoning', text: '', providerMetadata: redacted },
+      {
+        type: 'reasoning',
+        text: ' after the fact',
+        providerMetadata: signature,
+      },
     ]);
   });
 
@@ -308,6 +337,26 @@ describe('reconstructDurableAssistant', () => {
         text: 'second summary',
         providerMetadata: laterMetadata,
       },
+    ]);
+  });
+
+  it('starts an empty part for a metadata-only event whose id the log never carried (D18)', () => {
+    const withheld = { anthropic: { signature: 'SIG_WITHHELD' } };
+    const result = reconstructDurableAssistant([
+      event('model.delta', { text: 'the answer so far' }),
+      // A block whose text the provider withheld: the run records its
+      // metadata under an id no earlier event carried, so the replay must
+      // rebuild the empty part and its bound metadata behind the text.
+      event('reasoning.delta', { partId: '0:0', providerMetadata: withheld }),
+      // A later delivery naming that part binds to it instead of starting a
+      // second one; one carrying no metadata changes nothing.
+      event('reasoning.delta', { partId: '0:0' }),
+      event('reasoning.delta', { partId: '0:0', providerMetadata: withheld }),
+    ]);
+
+    expect(result.collector.parts()).toStrictEqual([
+      { type: 'text', text: 'the answer so far' },
+      { type: 'reasoning', text: '', providerMetadata: withheld },
     ]);
   });
 

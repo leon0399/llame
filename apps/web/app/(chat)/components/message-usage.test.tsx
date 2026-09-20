@@ -69,6 +69,7 @@ describe("parseTurnUsage", () => {
         usage: {
           inputTokens: 10,
           cachedInputTokens: 4,
+          cacheWriteTokens: 6,
           outputTokens: 20,
           totalTokens: 30,
           reasoningTokens: 5,
@@ -81,6 +82,7 @@ describe("parseTurnUsage", () => {
     ).toEqual({
       inputTokens: 10,
       cachedInputTokens: 4,
+      cacheWriteTokens: 6,
       outputTokens: 20,
       totalTokens: 30,
       reasoningTokens: 5,
@@ -265,6 +267,33 @@ describe("buildUsageLine", () => {
     });
   });
 
+  it("shows cache-write tokens as an 'of which cache write' subset row of Input", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      inputTokens: 12_800,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 11_200,
+      outputTokens: 20,
+    });
+    const tokens = result?.sections.find((s) => s.header === "Tokens");
+    expect(tokens?.rows).toContainEqual({
+      label: "of which cache write",
+      value: "11.2k",
+    });
+  });
+
+  it("omits the cache-write row for a turn whose telemetry predates the field", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      inputTokens: 10,
+      outputTokens: 20,
+    });
+    const tokens = result?.sections.find((s) => s.header === "Tokens");
+    expect(tokens?.rows.map((r) => r.label)).not.toContain(
+      "of which cache write",
+    );
+  });
+
   it("always includes Reasoning, defaulting to 0 for a non-reasoning model", () => {
     const result = line({
       modelId: "system:openai:gpt-4o",
@@ -323,6 +352,7 @@ describe("reload parity (live message-metadata vs. history)", () => {
   const persistedTelemetry = {
     inputTokens: 12_800,
     cachedInputTokens: 0,
+    cacheWriteTokens: 11_200,
     outputTokens: 20,
     totalTokens: 12_820,
     reasoningTokens: 0,
@@ -360,6 +390,16 @@ describe("reload parity (live message-metadata vs. history)", () => {
 
     expect(historyLine).toEqual(liveLine);
     expect(historyLine?.text).toBe("GPT-4o · 900ms");
+    expect(historyLine?.sections).toContainEqual({
+      header: "Tokens",
+      rows: [
+        { label: "Input", value: "12.8k" },
+        { label: "of which cached", value: "0" },
+        { label: "of which cache write", value: "11.2k" },
+        { label: "Output", value: "20" },
+        { label: "Reasoning", value: "0" },
+      ],
+    });
     expect(historyLine?.sections).toContainEqual({
       header: "Cost & model",
       rows: [
@@ -402,6 +442,7 @@ describe("MessageUsage", () => {
             modelId: "system:openai:gpt-4o",
             latencyMs: 900,
             inputTokens: 12_800,
+            cacheWriteTokens: 11_200,
             outputTokens: 20,
             totalTokens: 12_820,
             costUsd: 0.01,
@@ -418,6 +459,9 @@ describe("MessageUsage", () => {
       0,
     );
     expect(screen.getAllByText("Tokens").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("of which cache write").length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getAllByText("Cost & model").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Est. cost").length).toBeGreaterThan(0);
   });

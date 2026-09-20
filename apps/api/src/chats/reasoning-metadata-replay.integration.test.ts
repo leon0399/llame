@@ -1,13 +1,15 @@
 /**
- * Reasoning provider metadata across a worker restart (design D15/D17, task 3.3).
+ * Reasoning provider metadata across a worker restart (design D15/D17/D18, task
+ * 3.3).
  *
  * A worker that dies mid-turn leaves the turn's reasoning — and the opaque
  * provider metadata bound to it — durably in the run's event log. Settling that
  * run reconstructs the assistant message from those events, and the NEXT Run for
  * the chat (a fresh service instance stands in for the restarted worker)
  * rebuilds its request from the persisted parts. That first request must carry
- * the earlier reasoning part with its metadata and unmodified text, ahead of the
- * content the same turn produced.
+ * the earlier reasoning parts with their metadata and unmodified text, ahead of
+ * the content the same turn produced — including a block whose text the provider
+ * withheld, which exists as a part only because its metadata arrived (D18).
  *
  * The second consequence of the same rule: provider metadata is only ever
  * durable BOUND to a persisted reasoning part. Nothing else in the chat
@@ -65,11 +67,15 @@ const PROVIDER_METADATA = {
     reasoningEncryptedContent: 'ENCRYPTED_RESUMED',
   },
 };
-/** Opaque metadata with no persisted reasoning part to belong to. */
-const ORPHAN_PROVIDER_METADATA = {
+/**
+ * Opaque metadata of a reasoning item whose summary was empty: its only
+ * delivery, and — design D18 — exactly what makes the item persist as an
+ * empty part, whose signature a later request replays.
+ */
+const EMPTY_SUMMARY_PROVIDER_METADATA = {
   openai: {
-    itemId: 'rs-orphan-1',
-    reasoningEncryptedContent: 'ENCRYPTED_ORPHAN',
+    itemId: 'rs-empty-summary-1',
+    reasoningEncryptedContent: 'ENCRYPTED_EMPTY_SUMMARY',
   },
 };
 
@@ -276,13 +282,13 @@ describeIfDb(
       );
       await tenantDb.runAs(userId, async (tx) => {
         const events = new RunEventsRepository(tx);
-        // Opaque metadata the adapter delivered for a reasoning item that never
-        // produced a persisted part: private run state, never chat context. It
-        // arrives with no reasoning part to bind to (the item carried no
-        // displayable text), so nothing in the transcript may retain it.
+        // Opaque metadata the adapter delivered for a reasoning item whose
+        // summary was empty: the item's only delivery, because it produced no
+        // displayable text. Under D18 it starts the reasoning part it belongs
+        // to, so the item is durable rather than lost.
         await events.append(interrupted.id, 'reasoning.delta', {
-          partId: 'rs-orphan-1',
-          providerMetadata: ORPHAN_PROVIDER_METADATA,
+          partId: 'rs-empty-summary-1',
+          providerMetadata: EMPTY_SUMMARY_PROVIDER_METADATA,
         });
         // The run records a reasoning part as two events in this order: its
         // text (no metadata — a text delta never carries any), then the
@@ -308,7 +314,7 @@ describeIfDb(
       return { chatId, userMessage, interrupted };
     }
 
-    it('a resumed Run replays the earlier reasoning part with its metadata on its first request', async () => {
+    it('a resumed Run replays the earlier reasoning parts with their metadata on its first request', async () => {
       const { chatId, interrupted } = await seedInterruptedTurn();
 
       // The restarted worker settles the stranded run; the turn's parts become
@@ -327,7 +333,14 @@ describeIfDb(
       const persistedAssistant = persisted.find(
         (message) => message.role === 'assistant',
       );
+      // The empty-summary item the provider withheld text for is a part of its
+      // own now (D18), ahead of the summary the same turn did display.
       expect(persistedAssistant?.parts[0]).toEqual({
+        type: 'reasoning',
+        text: '',
+        providerMetadata: EMPTY_SUMMARY_PROVIDER_METADATA,
+      });
+      expect(persistedAssistant?.parts[1]).toEqual({
         type: 'reasoning',
         text: REASONING_TEXT,
         providerMetadata: PROVIDER_METADATA,
@@ -377,11 +390,17 @@ describeIfDb(
 
       expect(calls).toHaveLength(1);
       const first = calls[0];
-      // The rebuilt request's assistant turn carries the reasoning part with its
-      // metadata (opaque, unreshaped) ahead of the tool call it preceded.
+      // The rebuilt request's assistant turn carries both reasoning parts with
+      // their metadata (opaque, unreshaped) ahead of the tool call they
+      // preceded — the withheld item first, in its stored order.
       expect(first.messages).toContainEqual({
         role: 'assistant',
         content: [
+          {
+            type: 'reasoning',
+            text: '',
+            providerOptions: EMPTY_SUMMARY_PROVIDER_METADATA,
+          },
           {
             type: 'reasoning',
             text: REASONING_TEXT,
@@ -399,8 +418,8 @@ describeIfDb(
             ? message.content
             : [],
       );
-      // Exactly one reasoning part, with its unmodified text and the metadata
-      // the provider produced …
+      // Both reasoning parts, with their unmodified text (empty for the item
+      // the provider withheld) and the metadata the provider produced …
       expect(
         assistantParts.filter(
           (part) => isRecord(part) && part.type === 'reasoning',
@@ -408,17 +427,23 @@ describeIfDb(
       ).toEqual([
         {
           type: 'reasoning',
+          text: '',
+          providerOptions: EMPTY_SUMMARY_PROVIDER_METADATA,
+        },
+        {
+          type: 'reasoning',
           text: REASONING_TEXT,
           providerOptions: PROVIDER_METADATA,
         },
       ]);
-      // … and it is the only part that carries metadata at all. The tool result
-      // stays a tool message: metadata reaches the provider on a reasoning part.
+      // … and they are the only parts that carry metadata at all. The tool
+      // result stays a tool message: metadata reaches the provider on a
+      // reasoning part.
       expect(
         assistantParts.filter(
           (part) => isRecord(part) && part.providerOptions !== undefined,
         ),
-      ).toHaveLength(1);
+      ).toHaveLength(2);
       expect(
         JSON.stringify(
           first.messages.filter((message) => message.role !== 'assistant'),
@@ -428,7 +453,7 @@ describeIfDb(
       await sql`DELETE FROM chats WHERE id = ${chatId}`;
     });
 
-    it('retains only metadata bound to a persisted reasoning part once the run is terminal', async () => {
+    it('binds every metadata delivery to a persisted reasoning part once the run is terminal', async () => {
       const { chatId, interrupted } = await seedInterruptedTurn();
       await service.settleTerminalRun({
         runId: interrupted.id,
@@ -441,21 +466,28 @@ describeIfDb(
       const messages = await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, userId),
       );
-      // Exactly one persisted value carries opaque state, and it is the reasoning
-      // part that state belongs to — the metadata bound to a part is durable with
-      // it, and metadata with no part to be bound to (the orphan delivery above)
-      // is gone once the run is terminal.
+      // Every opaque value the run recorded sits on a reasoning part — the one
+      // whose item carried text, and the empty-summary item that exists only
+      // because its metadata arrived (D18). Nothing is left unbound, and
+      // nothing else in the transcript holds any of it.
       const carrying = messages.flatMap((message) =>
         message.parts.filter(carriesProviderMetadata),
       );
-      expect(carrying).toHaveLength(1);
-      expect(carrying[0]).toEqual({
-        type: 'reasoning',
-        text: REASONING_TEXT,
-        providerMetadata: PROVIDER_METADATA,
-      });
-      // Nothing else in the transcript — a non-reasoning part, usage, or
-      // attachments — retains either delivery, and the unbound one is nowhere.
+      expect(carrying).toEqual([
+        {
+          type: 'reasoning',
+          text: '',
+          providerMetadata: EMPTY_SUMMARY_PROVIDER_METADATA,
+        },
+        {
+          type: 'reasoning',
+          text: REASONING_TEXT,
+          providerMetadata: PROVIDER_METADATA,
+        },
+      ]);
+      // The unbound-delivery hole the empty part closes: the metadata is only
+      // ever durable WITH the part it replays from, never dropped on the floor
+      // and never attached to a non-reasoning part.
       const transcript = JSON.stringify(
         messages.map(({ parts, usage, attachments }) => ({
           parts,
@@ -463,14 +495,14 @@ describeIfDb(
           attachments,
         })),
       );
-      expect(transcript).not.toContain('ENCRYPTED_ORPHAN');
-      expect(transcript).not.toContain('rs-orphan-1');
+      expect(transcript).toContain('ENCRYPTED_EMPTY_SUMMARY');
       const nonReasoningParts = JSON.stringify(
         messages.flatMap(({ parts }) =>
           parts.filter((part) => !isRecord(part) || part.type !== 'reasoning'),
         ),
       );
       expect(nonReasoningParts).not.toContain('ENCRYPTED_RESUMED');
+      expect(nonReasoningParts).not.toContain('ENCRYPTED_EMPTY_SUMMARY');
 
       await sql`DELETE FROM chats WHERE id = ${chatId}`;
     });

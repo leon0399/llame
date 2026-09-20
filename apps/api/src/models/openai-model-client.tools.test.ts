@@ -16,6 +16,7 @@ import { z } from 'zod';
 
 import { type ModelObjectInput } from './model-client';
 import { createOpenAIModelClient } from './openai-model-client';
+import { createAssistantPartCollector } from '../runs/assistant-transcript';
 
 const tools = {
   echo: tool({
@@ -362,14 +363,18 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 
     // Exact call lists, not `toHaveBeenCalledWith`: each chunk must reach its
     // own callback exactly once, so a chunk routed to both cannot pass. The
-    // adapter part id rides along to decide persisted part boundaries.
+    // adapter part id rides along to decide persisted part boundaries — scoped
+    // to the provider step, because an adapter may number its parts per
+    // response and restart at zero on a later step (design D18).
     expect(onTextDelta.mock.calls).toEqual([['done']]);
-    expect(onReasoningDelta.mock.calls).toEqual([['think', 'reasoning']]);
+    expect(onReasoningDelta.mock.calls).toEqual([
+      ['think', '0:reasoning', undefined],
+    ]);
   });
 });
 
 describe('createOpenAIModelClient — reasoning provider metadata', () => {
-  it('carries every part of a reasoning item with its end part’s metadata', async () => {
+  it('delivers every part of a reasoning item with its own metadata, in order', async () => {
     // Recorded Responses shape with `store: false`: a new summary of the same
     // reasoning item ends the previous, still-open summary immediately with
     // the item id alone, and the item's completion ends its last summary with
@@ -423,40 +428,112 @@ describe('createOpenAIModelClient — reasoning provider metadata', () => {
       ),
     ]);
     const client = buildClient(model);
-    const onTextDelta = vi.fn();
-    const onReasoningDelta = vi.fn();
+    const collector = createAssistantPartCollector();
+    const onTextDelta = vi.fn((text: string) => collector.text(text));
 
     await expect(
-      client.streamText({ messages, onTextDelta, onReasoningDelta }).text,
+      client.streamText({
+        messages,
+        onTextDelta,
+        // Feeds the collector exactly as the run's callback does: every
+        // delivery carries its own id and metadata, and the part a summary
+        // belongs to is decided by that id, never by arrival order.
+        onReasoningDelta: (text, partId, providerMetadata) =>
+          collector.reasoning(text, partId, providerMetadata),
+      }).text,
     ).resolves.toBe('done');
 
-    // Reading the reasoning ends off `fullStream` must not swallow the stream
-    // the caller consumes: the text still resolves, and the delta text and
-    // part ids are exactly what `onChunk` delivered before the mirror.
-    await vi.waitFor(() =>
-      expect(
-        onReasoningDelta.mock.calls.filter((call) => call.length === 3),
-      ).toHaveLength(2),
-    );
+    // Reading the whole reasoning channel off `fullStream` must not swallow
+    // the stream the caller consumes: the text still resolves exactly once,
+    // and every part's text and metadata arrive once, in stream order, under
+    // the id scoped to this provider step.
     expect(onTextDelta.mock.calls).toEqual([['done']]);
-    expect(
-      onReasoningDelta.mock.calls.filter((call) => call.length === 2),
-    ).toEqual([
-      ['think', 'rs_1:0'],
-      ['more', 'rs_1:1'],
+    expect(collector.parts()).toEqual([
+      {
+        type: 'reasoning',
+        text: 'think',
+        providerMetadata: { openai: { itemId: 'rs_1' } },
+      },
+      {
+        type: 'reasoning',
+        text: 'more',
+        providerMetadata: {
+          openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+        },
+      },
+      { type: 'text', text: 'done' },
     ]);
-    // Every part of the item carries its `itemId`; the item's encrypted
-    // content rides the one part the adapter attached it to, and the
-    // placeholder start is never forwarded.
-    expect(
-      onReasoningDelta.mock.calls.filter((call) => call.length === 3),
-    ).toEqual([
-      ['', 'rs_1:0', { openai: { itemId: 'rs_1' } }],
-      [
-        '',
-        'rs_1:1',
-        { openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' } },
-      ],
+  });
+
+  it('keeps the withheld blocks of consecutive steps apart when the adapter restarts their ids', async () => {
+    // Anthropic numbers a response's content blocks from zero, so a tool turn
+    // that withholds thinking text in two consecutive steps delivers two
+    // different blocks as id `0`. The signature is what a later request
+    // replays, so neither block may lose it to the other.
+    const model = scriptedModel([
+      providerResponse(
+        [
+          { type: 'reasoning-start', id: '0' },
+          {
+            type: 'reasoning-delta',
+            id: '0',
+            delta: '',
+            providerMetadata: { anthropic: { signature: 'SIG_STEP_1' } },
+          },
+          { type: 'reasoning-end', id: '0' },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-1',
+            toolName: 'echo',
+            input: '{"value":"first"}',
+          },
+        ],
+        'tool-calls',
+      ),
+      providerResponse(
+        [
+          { type: 'reasoning-start', id: '0' },
+          {
+            type: 'reasoning-delta',
+            id: '0',
+            delta: '',
+            providerMetadata: { anthropic: { signature: 'SIG_STEP_2' } },
+          },
+          { type: 'reasoning-end', id: '0' },
+          { type: 'text-start', id: 'answer' },
+          { type: 'text-delta', id: 'answer', delta: 'done' },
+          { type: 'text-end', id: 'answer' },
+        ],
+        'stop',
+      ),
+    ]);
+    const client = buildClient(model);
+    const collector = createAssistantPartCollector();
+
+    await expect(
+      client.streamText({
+        messages,
+        tools,
+        onTextDelta: (text) => collector.text(text),
+        onReasoningDelta: (text, partId, providerMetadata) =>
+          collector.reasoning(text, partId, providerMetadata),
+      }).text,
+    ).resolves.toBe('done');
+
+    // Two parts, one per block, each with its own signature, in step order,
+    // ahead of the answer the last step produced.
+    expect(collector.parts()).toEqual([
+      {
+        type: 'reasoning',
+        text: '',
+        providerMetadata: { anthropic: { signature: 'SIG_STEP_1' } },
+      },
+      {
+        type: 'reasoning',
+        text: '',
+        providerMetadata: { anthropic: { signature: 'SIG_STEP_2' } },
+      },
+      { type: 'text', text: 'done' },
     ]);
   });
 });

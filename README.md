@@ -15,7 +15,9 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 - Operator-managed providers, models, and per-model system prompts in
   `llame.config.json`. Each provider entry declares the wire it speaks:
   `openai-responses` for the Responses API, `openai-completions` for
-  OpenAI-compatible Chat Completions endpoints, or `openai-codex` for the
+  OpenAI-compatible Chat Completions endpoints, `anthropic-messages` for the
+  Anthropic Messages wire (the Claude API, or a gateway that speaks it), or
+  `openai-codex` for the
   Codex subscription, whose transport and endpoint are fixed by construction.
 - Owner-only Projects for organizing chats, with pinning and reversible archive.
 - Bounded tool loop: `search_conversations`, optional line-ranged
@@ -63,6 +65,18 @@ pnpm dev
 `llame.config.json`. Each provider entry declares its wire: `openai-responses`
 calls the Responses API, with an optional `baseUrl` defaulting to OpenAI, and
 `openai-completions` calls Chat Completions on its required `baseUrl`.
+`anthropic-messages` calls the Anthropic Messages API, with an optional
+`baseUrl` defaulting to the Anthropic API (`https://api.anthropic.com/v1`,
+the adapter's own default, which the client passes explicitly when the entry
+sets no `baseUrl`) — a proxy, gateway, or third-party
+server that speaks Messages is that `baseUrl`, not a second type. Its shape is
+`{ id, type, key?, baseUrl? }`: `key` and `baseUrl` use the same
+interpolation, an empty resolution means keyless, and the credential is sent
+as `x-api-key`. The client always passes an explicit base URL, so an ambient
+`ANTHROPIC_BASE_URL` never moves a request off the configured destination,
+and it sends the same non-empty placeholder as the OpenAI clients in keyless
+mode, because the adapter requires an API key to be present. The `type` alone
+selects the client: no `id`, `baseUrl`, or host is inspected.
 **Breaking**: `type: "openai"` is deleted — re-declare every entry that used it
 as one of those two wires, or startup fails naming the entry. `openai-codex`
 is unchanged.
@@ -106,42 +120,101 @@ file paths never enter the model catalog or receipt. Authoring:
 `models[].providerOptions` is a server-only free-form object of provider-native
 request options for the adapter the provider `type` selects, keyed as that
 adapter documents them (`reasoningSummary` on the Responses wire,
-`reasoningEffort` on Chat Completions); llame places it under the wire's
-provider-options namespace itself (`openai`, or `openaiCompletions` for Chat
-Completions). Boot validates shape only — the value must be an object, and
+`reasoningEffort` on Chat Completions, `thinking`/`effort`/`cacheControl` on
+the Messages wire); llame places it under the wire's provider-options namespace
+itself (`openai`, `openaiCompletions` for Chat Completions, or `anthropic` for
+Messages). Boot validates shape only — the value must be an object, and
 `{env:...}`/`{path:...}` syntax in any string value at any depth fails startup
 before any token resolves — so the object is not a credential channel and its
 contents are never redacted. Every request composes four layers, highest
 first: client invariants (the Codex client always sends `store: false` and
-`reasoningSummary: 'auto'`), the run's resolved effort when the model declares
-`reasoning`, the entry's object, then per-request defaults (the Responses
-client defaults `reasoningSummary: 'auto'` on streaming and compaction and
-sends none on structured generation). Objects merge recursively key by key,
+`reasoningSummary: 'auto'`; the Messages client always sends
+`sendReasoning: true` and, on every request that carries adaptive thinking,
+the drop-on-prefix-mismatch instruction), the run's resolved effort when the
+model declares `reasoning`, the entry's object, then per-request defaults (the
+Responses client defaults `reasoningSummary: 'auto'` on streaming and
+compaction and sends none on structured generation; the Messages client
+defaults adaptive thinking with summarized display when the model declares
+`reasoning`, and the request-level ephemeral cache control on every request).
+Objects merge recursively key by key,
 while arrays and scalars replace the value beneath them; `null` at any depth
 removes a default but never an invariant. Keys that
 would change what the request is rather than how the model answers are
 stripped before composition: `conversation`, `previousResponseId`,
 `instructions`, `systemMessageMode`, and `allowedTools` on the Responses wire
 (both `openai-responses` and `openai-codex`); `model`, `max_tokens`, and
-`tool_choice` on the Chat Completions wire. The adapter decides the rest at
-request time: a value it recognizes and rejects fails that request under the
-existing failure contract, and an unrecognized key is dropped by the Responses
-adapter or forwarded into the request body by `openai-completions`.
+`tool_choice` on the Chat Completions wire; `fallbacks`, `mcpServers`,
+`container`, and `thinking.blockBinding` on the Messages wire. The adapter
+decides the rest at request time: a value it recognizes and rejects fails that
+request under the existing failure contract, and an unrecognized key is dropped
+by the Responses and Anthropic adapters or forwarded into the request body by
+`openai-completions`.
 
 `models[].maxOutputTokens` is an optional positive integer (or whole-value
 interpolation token, like `contextWindowTokens`, validated after resolution —
 a non-positive or non-integer value fails startup naming the model id and the
 field) sent as every request's `maxOutputTokens` setting; absent, the
-adapter's own default applies — no output limit on either OpenAI wire. The
+adapter's own default applies. The
 Responses adapter sends it as `max_output_tokens`; the Chat Completions
 adapter sends it as `max_tokens` with no `max_completion_tokens` remapping, so
 declaring it on an entry fronting a model that requires `max_completion_tokens`
-is rejected by that model. An adapter may adjust the value as it documents —
-for example lowering one above a ceiling it knows for a recognized model —
+is rejected by that model. The Messages wire requires `max_tokens` on every
+request, so the Anthropic adapter fills it from its own model-id table when
+the entry declares no limit — 128k for the recognized current models and for
+any unrecognized `claude-` id, 64k or 32k for the 4.5 and older 4.x rows, and
+4096 for the Claude 3 Haiku, Claude 2, and Claude Instant rows and for any id
+that does not contain `claude-`, such as a gateway-served `glm-5` — with
+thinking tokens counted against it, and it warns when an unrecognized
+`claude-` id takes the 128k branch. A declared limit makes the adapter add a
+manual thinking budget to it silently. An adapter may adjust the value as it
+documents — for example lowering one above a ceiling it knows for a recognized
+model, warned only when the entry declared the limit —
 and the warnings it emits surface in the run. This field caps provider output;
 the top-level `runs.maxOutputTokens` remains an admission reserve and does not.
 Like `providerOptions`, it is server-only and never returned by
 `GET /api/v1/models`.
+
+The `anthropic-messages` wire owns thinking and caching defaults, and both are
+`providerOptions` defaults rather than fixed behavior. When a model entry
+declares `reasoning`, the client asks for adaptive thinking with summarized
+display, so the owner's effort governs thinking depth and the provider's
+summaries stay visible as reasoning parts; `{ "thinking": { "display": null } }`
+keeps adaptive thinking but drops the display, a budget-only model gets manual
+thinking through `{ "thinking": { "type": "enabled", "budgetTokens": N } }`,
+and `{ "thinking": { "type": "disabled" } }` turns it off. Two documented
+ceilings follow. First, the drop-on-prefix-mismatch instruction llame sets for
+you is carried only on the adaptive shape the pinned adapter emits, so an entry
+that declares no `reasoning` sends no thinking configuration and no
+instruction, and an operator override to a manual-budget or disabled shape
+gives the instruction up for that model: on a model that thinks by default, a
+compaction or prompt-receipt change can then be rejected by the provider under
+the account's own default enforcement. The remedy is to declare `reasoning`
+for such a model. Second, the adapter's effort option is a closed enumeration
+of the provider's levels (`low`, `medium`, `high`, `xhigh`, `max`), so an
+effort level outside it fails that request at the adapter before any call — a
+gateway whose vocabulary is not Anthropic's cannot be driven through this
+option — while an operator `effort` on an entry that declares no `reasoning`
+is forwarded as written. The adapter may also lower `xhigh`/`max` to `high`
+with a warning when thinking is disabled on a model it knows rejects that
+combination; the run surfaces the warning and nothing is retried or rewritten.
+Prompt caching is the other default: every request carries the top-level
+ephemeral cache control with the provider's 5-minute lifetime, the provider
+places and moves the breakpoint itself, and llame authors no block-level
+breakpoints. Replace the default with the provider's longer lifetime or remove
+it with `cacheControl: null` for a gateway that rejects the option; a gateway
+that ignores it simply serves the request without caching.
+
+`models[].pricingUsdPer1M.cacheWrite` is an optional per-million rate for the
+provider's cache-creation tokens. The adapter's input total already includes
+them, so cost prices them at that rate when the entry declares one and at the
+entry's input rate when it does not, which leaves the computed cost identical
+to the result before the field existed. The count is provider-reported and
+never inferred or backfilled: a turn that reports none records zero, an
+endpoint whose cache-read plus cache-write counts exceed its input total is
+bounded to a zero uncached term rather than a negative cost, and a model entry
+with no `pricingUsdPer1M` keeps its unknown-cost contract (`costUsd: null`).
+The web usage panel shows the count as an `of which cache write` row beneath
+Input, the way cached input is shown.
 
 `shareRecentChats` defaults off. Enabling sends a frozen, capped digest of the
 owner's other chats' titles and opening excerpts to the configured provider;

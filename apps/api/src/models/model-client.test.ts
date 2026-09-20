@@ -20,6 +20,7 @@ import {
   createOpenAIModelClient,
   KEYLESS_PLACEHOLDER_API_KEY,
 } from './openai-model-client';
+import { createAssistantPartCollector } from '../runs/assistant-transcript';
 
 // Test seam (anti-slop/no-module-mocking): these tests verify how
 // createOpenAIModelClient SHAPES its calls into the AI SDK's provider
@@ -279,55 +280,18 @@ describe('ModelClient', () => {
     expect(streamTextMock.mock.calls[0]?.[0]?.maxOutputTokens).toBeUndefined();
   });
 
-  it('forwards the adapter reasoning part id with each reasoning delta', () => {
+  it('delivers reasoning text, part ids, and metadata from one consumer in stream order', async () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
     const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
-    streamTextMock.mockReturnValue({});
-
-    const onReasoningDelta = vi.fn();
-    const client = createOpenAIModelClient(
-      {
-        credential: 'sk-user-supplied',
-        providerModelId: 'gpt-test',
-        modelId: 'system:openai:gpt-test',
-        contextWindowTokens: 128_000,
-      },
-      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
-    );
-    client.streamText({ messages, onReasoningDelta });
-
-    // The SDK's `reasoning-delta` chunk carries the part id
-    // (`${itemId}:${summaryIndex}` on Responses); the seam must not drop it.
-    const onChunk = streamTextMock.mock.calls[0]?.[0]?.onChunk;
-    expect(onChunk).toBeTypeOf('function');
-    onChunk?.({
-      chunk: {
-        type: 'reasoning-delta',
-        id: 'rs_1:0',
-        text: '**Investigating**',
-      },
-    });
-
-    expect(onReasoningDelta).toHaveBeenCalledWith(
-      '**Investigating**',
-      'rs_1:0',
-    );
-  });
-
-  it('carries a reasoning end’s provider metadata with its adapter part id', async () => {
-    const providerModel = new MockLanguageModelV3({
-      provider: 'openai.responses',
-      modelId: 'gpt-test',
-    });
-    const openaiProvider = responsesProviderMock(providerModel);
-    createOpenAIMock.mockReturnValue(openaiProvider);
-    // `onChunk` never delivers `reasoning-start` / `reasoning-end` (the SDK
-    // only calls it for deltas), so the end part's metadata is read off the
-    // result's `fullStream`.
+    // `onChunk` is called for deltas alone, so it never sees a part's start or
+    // end: the whole reasoning channel — text and the metadata the adapter
+    // binds to each part — is read off the result's `fullStream` by one
+    // consumer (task 3.4), and that single path is what keeps the delivery
+    // order intact.
     streamTextMock.mockReturnValue({
       fullStream: simulateReadableStream<TextStreamPart<ToolSet>>({
         chunks: [
@@ -337,6 +301,12 @@ describe('ModelClient', () => {
             providerMetadata: {
               openai: { itemId: 'rs_1', reasoningEncryptedContent: null },
             },
+          },
+          {
+            type: 'reasoning-delta',
+            id: 'rs_1:0',
+            text: '**Investigating**',
+            providerMetadata: { openai: { itemId: 'rs_1' } },
           },
           {
             type: 'reasoning-end',
@@ -361,13 +331,91 @@ describe('ModelClient', () => {
     );
     client.streamText({ messages, onReasoningDelta });
 
-    // The start part's placeholder metadata is not forwarded, and the
-    // metadata never rides a delta call: it is bound to its part id with no
-    // text of its own.
-    await vi.waitFor(() => expect(onReasoningDelta).toHaveBeenCalledTimes(1));
-    expect(onReasoningDelta).toHaveBeenCalledWith('', 'rs_1:0', {
-      openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+    await vi.waitFor(() => expect(onReasoningDelta).toHaveBeenCalledTimes(3));
+    // Every delivery of the part, once, in stream order, with the adapter's id
+    // (`${itemId}:${summaryIndex}` on Responses) scoped to the provider
+    // invocation so a later step's numbering cannot collide with this one.
+    expect(onReasoningDelta.mock.calls).toEqual([
+      [
+        '',
+        '0:rs_1:0',
+        { openai: { itemId: 'rs_1', reasoningEncryptedContent: null } },
+      ],
+      ['**Investigating**', '0:rs_1:0', { openai: { itemId: 'rs_1' } }],
+      [
+        '',
+        '0:rs_1:0',
+        { openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' } },
+      ],
+    ]);
+  });
+
+  it('collects an item whose summary is empty into one empty signed part', async () => {
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
     });
+    const openaiProvider = responsesProviderMock(providerModel);
+    createOpenAIMock.mockReturnValue(openaiProvider);
+    // A reasoning item with no summary delta: its start and end are the whole
+    // stream, and the end carries the encryption a later request replays
+    // (design D18).
+    streamTextMock.mockReturnValue({
+      fullStream: simulateReadableStream<TextStreamPart<ToolSet>>({
+        chunks: [
+          {
+            type: 'reasoning-start',
+            id: 'rs_empty:0',
+            providerMetadata: {
+              openai: { itemId: 'rs_empty', reasoningEncryptedContent: null },
+            },
+          },
+          {
+            type: 'reasoning-end',
+            id: 'rs_empty:0',
+            providerMetadata: {
+              openai: {
+                itemId: 'rs_empty',
+                reasoningEncryptedContent: 'enc-empty',
+              },
+            },
+          },
+        ],
+      }),
+    });
+
+    const collector = createAssistantPartCollector();
+    const client = createOpenAIModelClient(
+      {
+        credential: 'sk-user-supplied',
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+      },
+      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+    );
+    client.streamText({
+      messages,
+      // The empty-summary item's deliveries are all metadata-only, so this is
+      // exactly what the run's stream callback does with them.
+      onReasoningDelta: (text, partId, providerMetadata) =>
+        collector.reasoning(text, partId, providerMetadata),
+    });
+
+    await vi.waitFor(() =>
+      expect(collector.parts()).toEqual([
+        {
+          type: 'reasoning',
+          text: '',
+          providerMetadata: {
+            openai: {
+              itemId: 'rs_empty',
+              reasoningEncryptedContent: 'enc-empty',
+            },
+          },
+        },
+      ]),
+    );
   });
 
   describe('reasoning effort (add-reasoning-effort)', () => {

@@ -104,12 +104,19 @@ class AssistantPartCollectorImpl {
   }
 
   /**
-   * A reasoning delivery: delta `text` (possibly empty — the adapter's end
-   * part has none) with the adapter's part id and, when the wire supplied
-   * one, the opaque provider metadata bound to that part (design D15). An
-   * empty `text` starts no part and moves no boundary; it only binds the
-   * metadata to the part `partId` names (the open part when the wire never
-   * supplied ids).
+   * A reasoning delivery: delta `text` (possibly empty — a part's start/end
+   * carries none) with the adapter's part id and, when the wire supplied one,
+   * the opaque provider metadata bound to that part (design D15/D18).
+   *
+   * A delivery with text starts or extends a part as before. An empty
+   * delivery carrying provider metadata under a defined id no collected part
+   * carries starts a reasoning part with empty text and binds the metadata to
+   * it: a provider that withholds a block's text (a signed thinking block with
+   * `display: omitted`, a redacted one, a Responses item whose summary is
+   * empty) still returns a block whose metadata a later request must replay,
+   * so the block persists as an empty part rather than being lost. Every other
+   * empty delivery behaves as it did: metadata binds to the part its id names
+   * (the open part when the wire never supplied ids) and starts nothing.
    */
   reasoning(
     text: string,
@@ -134,6 +141,13 @@ class AssistantPartCollectorImpl {
       if (partId !== undefined) {
         this.reasoningPartIndexes.set(partId, this.collected.length - 1);
       }
+    } else if (this.startsReasoningPart(partId, providerMetadata)) {
+      // D18: the block exists, its text was withheld. The empty part becomes
+      // the open one, so text the wire still sends under this id lands in it.
+      this.openReasoningPartId = partId;
+      this.collected.push({ type: 'reasoning', text: '', providerMetadata });
+      this.reasoningPartIndexes.set(partId, this.collected.length - 1);
+      return;
     }
     if (providerMetadata === undefined) return;
     // Opaque and stored verbatim: llame never reads inside it, and an absent
@@ -149,6 +163,24 @@ class AssistantPartCollectorImpl {
     if (part?.type === 'reasoning' && isString(part.text)) {
       part.providerMetadata = providerMetadata;
     }
+  }
+
+  /**
+   * Design D18: whether an empty delivery starts the reasoning part its
+   * metadata belongs to — provider metadata under a defined adapter id no
+   * collected part carries yet. The block exists even though the provider
+   * withheld its text, and the run loop records such a delivery behind any
+   * buffered text, so the durable replay keeps the stream's order.
+   */
+  startsReasoningPart(
+    partId: string | undefined,
+    providerMetadata: ProviderMetadata | undefined,
+  ): partId is string {
+    return (
+      providerMetadata !== undefined &&
+      partId !== undefined &&
+      !this.reasoningPartIndexes.has(partId)
+    );
   }
 
   /** Index of the open reasoning part, when the last collected part is one. */

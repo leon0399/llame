@@ -131,7 +131,12 @@ describe('ModelsController', () => {
       tags: ['one', 'two'],
       icon: 'icon.svg',
       contextWindowTokens: 128_000,
-      pricingUsdPer1M: { input: 1, cachedInput: 0.2, output: 4 },
+      pricingUsdPer1M: {
+        input: 1,
+        cachedInput: 0.2,
+        output: 4,
+        cacheWrite: 0.5,
+      },
       knowledgeCutoff: '2025-01',
       reasoning: {
         effortLevels: [{ value: 'low' }, { value: 'high', label: 'High' }],
@@ -155,5 +160,23 @@ describe('ModelsController', () => {
       value: 'high',
       label: 'High',
     });
+    expect(response.pricingUsdPer1M).toEqual({
+      input: 1,
+      cachedInput: 0.2,
+      output: 4,
+      cacheWrite: 0.5,
+    });
+  });
+
+  it('publishes only the declared cache-write rate, never a resolved fallback', () => {
+    const response = toAvailableModelResponse({
+      id: 'system:openai:no-cache-write-rate',
+      source: 'system',
+      contextWindowTokens: 128_000,
+      pricingUsdPer1M: { input: 1, output: 4 },
+    });
+
+    expect(response.pricingUsdPer1M).toEqual({ input: 1, output: 4 });
+    expect(response.pricingUsdPer1M).not.toHaveProperty('cacheWrite');
   });
 });

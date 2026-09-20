@@ -348,3 +348,150 @@ describe('assistant reasoning part identity across live, replay, and history', (
     expect(JSON.stringify(liveUi)).not.toContain('reasoningEncryptedContent');
   });
 });
+
+describe('reasoning blocks a provider withheld (D18)', () => {
+  const firstSignature = { anthropic: { signature: 'SIG_STEP_1' } };
+  const secondSignature = { anthropic: { signature: 'SIG_STEP_2' } };
+  const redacted = { anthropic: { redactedData: 'REDACTED_BLOCK' } };
+
+  it('persists two withheld blocks of consecutive tool steps as two parts, each with its own signature', async () => {
+    // The Messages adapter numbers a response's blocks from zero, so a tool
+    // turn that withholds the text of the thinking block in two consecutive
+    // steps delivers two different blocks under the same raw id. The client
+    // scopes that id to the provider step, and each block's signature is
+    // recorded under the scoped id — neither may lose its signature to the
+    // other, and a later request replays both in step order.
+    const turnEvents: Array<RunEvent> = [
+      event('reasoning.delta', {
+        partId: '0:0',
+        providerMetadata: firstSignature,
+      }),
+      event('tool.requested', {
+        toolCallId: 'c1',
+        toolName: 'search_conversations',
+        input: { query: 'schema' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'c1',
+        output: { status: 'success', value: 'found' },
+      }),
+      event('reasoning.delta', {
+        partId: '1:0',
+        providerMetadata: secondSignature,
+      }),
+      event('model.delta', { text: 'the answer' }),
+      event('run.completed', null),
+    ];
+    const live = createAssistantPartCollector();
+    live.reasoning('', '0:0', firstSignature);
+    live.toolRequested('c1');
+    live.tool(
+      toolActivityPart({
+        toolCallId: 'c1',
+        toolName: 'search_conversations',
+        input: { query: 'schema' },
+        result: { status: 'success', value: 'found' },
+      }),
+    );
+    live.reasoning('', '1:0', secondSignature);
+    live.text('the answer');
+
+    const durable = reconstructDurableAssistant(turnEvents).collector.parts();
+    expect(durable).toEqual(live.parts());
+    expect(durable).toEqual([
+      { type: 'reasoning', text: '', providerMetadata: firstSignature },
+      expect.objectContaining({ type: 'tool-search_conversations' }),
+      { type: 'reasoning', text: '', providerMetadata: secondSignature },
+      { type: 'text', text: 'the answer' },
+    ]);
+
+    // The persisted part stays provider-only: neither live delivery nor
+    // reconnect replay emits a UI chunk for the metadata-only event.
+    const translator = createRunEventTranslator(RUN_ID);
+    expect(
+      translator.translate(
+        event('reasoning.delta', {
+          partId: '2:0',
+          providerMetadata: { anthropic: { signature: 'SIG_ISOLATED' } },
+        }),
+      ),
+    ).toEqual([]);
+    const chunks = chunksFrom(turnEvents);
+    expect(JSON.stringify(chunks)).not.toContain('providerMetadata');
+    expect(JSON.stringify(chunks)).not.toContain('SIG_STEP');
+    const ui = await uiPartsFromChunks(chunks);
+    expect(ui.some((part) => isRecord(part) && part.type === 'reasoning')).toBe(
+      false,
+    );
+  });
+
+  it('records the text that precedes a part-starting metadata delivery first, on both paths', () => {
+    // A redacted block opens with a metadata-only delivery under an id no part
+    // carries. Text streamed before it belongs ahead of the empty part in the
+    // log — the run loop flushes that buffer before recording the delivery,
+    // and this is the durable order it produces.
+    const turnEvents: Array<RunEvent> = [
+      event('model.delta', { text: 'the answer so far' }),
+      event('reasoning.delta', { partId: '0:0', providerMetadata: redacted }),
+    ];
+    const live = createAssistantPartCollector();
+    live.text('the answer so far');
+    live.reasoning('', '0:0', redacted);
+
+    expect(reconstructDurableAssistant(turnEvents).collector.parts()).toEqual(
+      live.parts(),
+    );
+    expect(live.parts()).toEqual([
+      { type: 'text', text: 'the answer so far' },
+      { type: 'reasoning', text: '', providerMetadata: redacted },
+    ]);
+  });
+
+  it('replays a Responses item whose summary was empty as an empty part with its metadata', async () => {
+    // `summaryParts[0]` is registered when the item is added and concluded
+    // when it is done whether or not a delta arrived: an item with no summary
+    // text is two metadata-only deliveries, so it persists as an empty part
+    // whose encryption a later request replays (an item reference on a stored
+    // request).
+    const itemMetadata = {
+      openai: { itemId: 'rs_empty', reasoningEncryptedContent: 'enc-empty' },
+    };
+    const turnEvents: Array<RunEvent> = [
+      event('reasoning.delta', {
+        text: 'the earlier summary',
+        partId: '0:rs_1:0',
+      }),
+      event('reasoning.delta', {
+        partId: '0:rs_1:0',
+        providerMetadata: { openai: { itemId: 'rs_1' } },
+      }),
+      event('reasoning.delta', {
+        partId: '0:rs_empty:0',
+        providerMetadata: itemMetadata,
+      }),
+      event('model.delta', { text: 'the answer' }),
+    ];
+    const live = createAssistantPartCollector();
+    live.reasoning('the earlier summary', '0:rs_1:0');
+    live.reasoning('', '0:rs_1:0', { openai: { itemId: 'rs_1' } });
+    live.reasoning('', '0:rs_empty:0', itemMetadata);
+    live.text('the answer');
+
+    const durable = reconstructDurableAssistant(turnEvents).collector.parts();
+    expect(durable).toEqual(live.parts());
+    expect(durable).toEqual([
+      {
+        type: 'reasoning',
+        text: 'the earlier summary',
+        providerMetadata: { openai: { itemId: 'rs_1' } },
+      },
+      { type: 'reasoning', text: '', providerMetadata: itemMetadata },
+      { type: 'text', text: 'the answer' },
+    ]);
+
+    // The empty part reaches the browser only as text-less nothing: no chunk
+    // is emitted for it, so the rendered parts hold one reasoning segment.
+    const ui = await uiPartsFromChunks(chunksFrom(turnEvents));
+    expect(reasoningTexts(ui)).toEqual(['the earlier summary']);
+  });
+});

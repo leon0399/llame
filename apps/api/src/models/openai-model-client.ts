@@ -6,7 +6,6 @@ import {
   stepCountIs,
   streamText,
   tool,
-  type TextStreamPart,
   type ToolSet,
 } from 'ai';
 
@@ -20,6 +19,7 @@ import {
   composeProviderOptions,
   type ProviderOptionRecord,
 } from './provider-options';
+import { consumeReasoningStream } from './reasoning-stream';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
 
 /**
@@ -360,57 +360,22 @@ function composeStructuredProviderOptions(
 }
 
 /**
- * Forwards the opaque provider metadata the Responses adapter binds to a
- * reasoning part (design D15): its `reasoning-end` stream part carries the
- * reasoning item's `itemId` and, on the part the adapter attaches it to, the
- * item's `reasoningEncryptedContent` (`reasoning-start` carries a placeholder
- * before the item exists, so only the end is read).
- *
- * `onChunk` never delivers `reasoning-start` / `reasoning-end` — it is called
- * for deltas only — so this reads the SDK's `fullStream` instead. Each
- * accessor gets its own `tee()` of the same stream, so consuming this branch
- * neither starves the caller's `consumeStream()`/`text` nor changes what they
- * resolve to. The metadata is handed over with the end part's id and no text:
- * the part has no delta of its own, and the id tells the collector which
- * persisted reasoning part the metadata belongs to. `onChunk` keeps carrying
- * the delta text (and, on the completions wire, the constant adapter id), so
- * reasoning text and part boundaries are untouched by this mirror.
+ * `onChunk` carries the answer's text deltas only — it is called for deltas
+ * alone, so it can never see the reasoning metadata a part carries. Reasoning,
+ * text and metadata alike, is forwarded by ONE consumer of the result's
+ * `fullStream` (`consumeReasoningStream`): a single path for the whole channel
+ * keeps part boundaries, metadata binding, and their order in one place, and a
+ * metadata-only delivery that starts a block can never overtake the text that
+ * precedes it (design D18).
  */
-async function forwardReasoningProviderMetadata(
-  fullStream: AsyncIterable<TextStreamPart<ToolSet>>,
-  onReasoningDelta: NonNullable<ModelStreamInput['onReasoningDelta']>,
-): Promise<void> {
-  try {
-    for await (const part of fullStream) {
-      if (
-        part.type === 'reasoning-end' &&
-        part.providerMetadata !== undefined
-      ) {
-        onReasoningDelta('', part.id, part.providerMetadata);
-      }
-    }
-  } catch {
-    // Stream failures are owned by the run's own consumption of the result
-    // (onError plus the abort settlement); this mirror branch just ends.
-  }
-}
-
-/**
- * `onChunk` carries the delta text of both modalities — reading them from the
- * same callback keeps text and reasoning delivery in stream order and on the
- * same schedule. The `reasoning-start` / `reasoning-end` parts it cannot
- * deliver are mirrored off `fullStream` above.
- */
-function applyDeltaCallbacks(
+function applyTextDeltaCallback(
   streamOptions: Parameters<typeof streamText>[0],
   input: ModelStreamInput,
 ): void {
-  if (!input.onTextDelta && !input.onReasoningDelta) return;
+  if (!input.onTextDelta) return;
   streamOptions.onChunk = ({ chunk }) => {
     if (chunk.type === 'text-delta') {
       input.onTextDelta?.(chunk.text);
-    } else if (chunk.type === 'reasoning-delta') {
-      input.onReasoningDelta?.(chunk.text, chunk.id);
     }
   };
 }
@@ -446,15 +411,14 @@ function runOpenAIStream(
   };
   applyProviderOptions(streamOptions, config, input);
   applyToolCallingOptions(streamOptions, input);
-  applyDeltaCallbacks(streamOptions, input);
+  applyTextDeltaCallback(streamOptions, input);
   const result = dependencies.streamText(streamOptions);
-  // The `reasoning-start` / `reasoning-end` parts `onChunk` cannot deliver
-  // (and their provider metadata) come off the same stream's `fullStream`.
+  // The whole reasoning channel — delta text and the opaque metadata a part's
+  // start/delta/end carries — comes off the result's `fullStream` through one
+  // shared consumer (design D18). The old `tee()`-per-accessor mirror is gone
+  // with it, so what the collector sees is one ordered delivery sequence.
   if (input.onReasoningDelta) {
-    void forwardReasoningProviderMetadata(
-      result.fullStream,
-      input.onReasoningDelta,
-    );
+    void consumeReasoningStream(result.fullStream, input.onReasoningDelta);
   }
 
   return awaitSettlementAfter(result, settlement, config.sanitizeError);

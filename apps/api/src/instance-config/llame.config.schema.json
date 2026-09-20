@@ -76,8 +76,13 @@
     },
     "providerType": {
       "type": "string",
-      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"openai-codex\" uses the personal Codex subscription endpoint. Anthropic is a follow-up: this enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
-      "enum": ["openai-responses", "openai-completions", "openai-codex"]
+      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"anthropic-messages\" executes the Messages API through @ai-sdk/anthropic at its optional baseUrl (the Anthropic API by default); \"openai-codex\" uses the personal Codex subscription endpoint. This enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
+      "enum": [
+        "openai-responses",
+        "openai-completions",
+        "anthropic-messages",
+        "openai-codex"
+      ]
     },
     "providerEntry": {
       "type": "object",
@@ -97,7 +102,7 @@
         },
         "baseUrl": {
           "$ref": "#/$defs/nullableString",
-          "description": "Provider endpoint base URL. Required (and nonblank after interpolation) for `type: \"openai-completions\"`; absent/null uses the client implementation's own default (OpenAI's hosted API for `type: \"openai-responses\"`)."
+          "description": "Provider endpoint base URL. Required (and nonblank after interpolation) for `type: \"openai-completions\"`; absent/null uses the client implementation's own default (OpenAI's hosted API for `type: \"openai-responses\"`, the Anthropic API for `type: \"anthropic-messages\"`). For `type: \"anthropic-messages\"` a present, non-null `baseUrl` must resolve nonblank: a configured endpoint that resolves empty fails startup naming the field rather than falling back to the Anthropic API. The client always passes an explicit base URL, so an ambient `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` never moves a request."
         },
         "accountId": {
           "$ref": "#/$defs/nullableString",
@@ -115,6 +120,10 @@
             "required": ["baseUrl"],
             "not": { "required": ["accountId"] }
           }
+        },
+        {
+          "if": { "properties": { "type": { "const": "anthropic-messages" } } },
+          "then": { "not": { "required": ["accountId"] } }
         },
         {
           "if": { "properties": { "type": { "const": "openai-codex" } } },
@@ -241,6 +250,7 @@
       "properties": {
         "input": { "type": "number", "minimum": 0 },
         "cachedInput": { "type": "number", "minimum": 0 },
+        "cacheWrite": { "type": "number", "minimum": 0 },
         "output": { "type": "number", "minimum": 0 }
       }
     },

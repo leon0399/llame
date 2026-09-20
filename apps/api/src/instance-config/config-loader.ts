@@ -19,6 +19,7 @@ import {
   type McpRemoteServerConfig,
   type McpServerConfig,
   type McpStdioServerConfig,
+  type AnthropicMessagesProviderConfig,
   type OpenAICodexProviderConfig,
   type OpenAICompletionsProviderConfig,
   type OpenAIResponsesProviderConfig,
@@ -1214,6 +1215,8 @@ function resolveProviders(
         return resolveOpenAIResponsesProvider(entry, env);
       case 'openai-completions':
         return resolveOpenAICompletionsProvider(entry, env);
+      case 'anthropic-messages':
+        return resolveAnthropicMessagesProvider(entry, env);
       case 'openai-codex':
         return resolveCodexProvider(entry, env);
       default: {
@@ -1279,6 +1282,38 @@ function resolveOpenAICompletionsProvider(
   };
 }
 
+/**
+ * Messages-wire variant (anthropic-provider D2/D3): shape mirrors
+ * `openai-responses` — an optional `baseUrl` that defaults to the Anthropic
+ * API (`null`), an optional credential that resolves to keyless (`null`),
+ * and no endpoint contact at boot. Both travel to the client exactly as
+ * authored: the client always passes an explicit base URL and the same
+ * non-empty placeholder for keyless mode. `baseUrl` is fail-closed when
+ * present — only omission or explicit `null` selects the Anthropic default,
+ * so a configured endpoint that resolves blank aborts boot instead of
+ * silently pairing the configured credential with the public Anthropic API.
+ */
+function resolveAnthropicMessagesProvider(
+  entry: Extract<RawProviderEntry, { type: 'anthropic-messages' }>,
+  env: NodeJS.ProcessEnv,
+): AnthropicMessagesProviderConfig {
+  return {
+    id: entry.id,
+    type: entry.type,
+    key: resolveNullableString({
+      configPath: `providers[${entry.id}].key`,
+      present: entry.key !== undefined,
+      raw: entry.key,
+      env,
+    }),
+    baseUrl: resolveOptionalNonBlankString({
+      configPath: `providers[${entry.id}].baseUrl`,
+      raw: entry.baseUrl,
+      env,
+    }),
+  };
+}
+
 function resolveCodexProvider(
   entry: Extract<RawProviderEntry, { type: 'openai-codex' }>,
   env: NodeJS.ProcessEnv,
@@ -1317,6 +1352,30 @@ function requireNonBlankString(
     );
   }
   return value;
+}
+
+/**
+ * Resolve an optional setting whose absence and explicit `null` both mean
+ * "unset" (the client's own default) while a present value must survive
+ * interpolation nonblank. Deliberately NOT `resolveNullableString`: collapsing
+ * a configured-but-blank value to `null` would silently fall back to that
+ * default — for the Messages `baseUrl` it would pair the still-configured
+ * gateway credential with the public Anthropic API. The error names the
+ * config path, never the resolved value.
+ */
+function resolveOptionalNonBlankString(opts: {
+  configPath: string;
+  raw: unknown;
+  env: NodeJS.ProcessEnv;
+}): string | null {
+  const { configPath, raw, env } = opts;
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+  if (!isString(raw)) {
+    throw new InstanceConfigError(`${configPath}: must be a string`);
+  }
+  return requireNonBlankString(configPath, raw, env);
 }
 
 /**
@@ -1674,7 +1733,10 @@ function resolveEmbeddingModels(
         `embeddingModels[${entry.id}].provider: unknown provider id "${entry.provider}" (not defined in providers[])`,
       );
     }
-    if (provider.type === 'openai-codex') {
+    if (
+      provider.type !== 'openai-responses' &&
+      provider.type !== 'openai-completions'
+    ) {
       throw new InstanceConfigError(
         `embeddingModels[${entry.id}].provider: provider "${entry.provider}" has type "${provider.type}" and does not support embeddings`,
       );

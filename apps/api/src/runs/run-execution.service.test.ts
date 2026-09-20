@@ -1209,6 +1209,52 @@ describe('RunExecutionService executeRun — stream completion', () => {
     );
   });
 
+  it('records buffered text before a metadata-only delivery that starts a reasoning part (D18)', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    const signature = { anthropic: { signature: 'SIG_WITHHELD' } };
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    // Text streamed first, still inside the coalescing buffer …
+    options.onTextDelta?.('the answer so far');
+    // … then a block whose text the provider withheld: the whole payload is
+    // one metadata-only delivery under an id no collected part carries, so it
+    // starts the block's part (design D18).
+    options.onReasoningDelta?.('', '0:0', signature);
+    await options.onFinish?.({
+      text: 'the answer so far',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+    });
+
+    // The buffered text is recorded FIRST, so the durable log replays the
+    // answer before the empty part instead of after it.
+    expect(appended.map((entry) => entry.type)).toEqual([
+      'run.started',
+      'model.requested',
+      'model.delta',
+      'reasoning.delta',
+      'model.completed',
+      'run.completed',
+    ]);
+    expect(appended[2]?.payload).toStrictEqual({ text: 'the answer so far' });
+    expect(appended[3]?.payload).toStrictEqual({
+      partId: '0:0',
+      providerMetadata: signature,
+    });
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          { type: 'text', text: 'the answer so far' },
+          { type: 'reasoning', text: '', providerMetadata: signature },
+        ],
+      }),
+    );
+  });
+
   it('drops a final text that does not extend what already streamed', async () => {
     const spies = mockNormalExecutionRepositories();
     recordAppendedEvents();
@@ -4792,6 +4838,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     const telemetry = {
       inputTokens: 4,
       cachedInputTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 2,
       totalTokens: 6,
       modelId: 'fake-model',

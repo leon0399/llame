@@ -20,6 +20,12 @@ export type ModelPricingUsdPer1M = {
   input?: number;
   cachedInput?: number;
   output?: number;
+  /**
+   * Declared cache-write (cache-creation) rate. Optional and additive: absent,
+   * cache-write tokens are priced at `input`, which is what the uncached term
+   * charged them before this rate existed.
+   */
+  cacheWrite?: number;
 };
 
 /**
@@ -199,6 +205,8 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
 export type TokenPrice = {
   inputUsdPer1M: number;
   cachedInputUsdPer1M?: number;
+  /** Resolved cache-write rate; absent prices cache-write tokens at `inputUsdPer1M`. */
+  cacheWriteUsdPer1M?: number;
   outputUsdPer1M: number;
 };
 
@@ -244,6 +252,9 @@ export function toTokenPrice(
   };
   if (pricing.cachedInput !== undefined) {
     price.cachedInputUsdPer1M = pricing.cachedInput;
+  }
+  if (pricing.cacheWrite !== undefined) {
+    price.cacheWriteUsdPer1M = pricing.cacheWrite;
   }
   return price;
 }

@@ -781,9 +781,11 @@ export class RunExecutionService {
     // before the id is switched, so one event never spans two ids.
     //
     // A reasoning part's opaque provider metadata (design D15) is recorded on
-    // its own `reasoning.delta` event: the adapter attaches it to the part's
-    // END stream part, which carries no delta text, so there is nothing to
-    // buffer — only the part id the metadata is bound to.
+    // its own `reasoning.delta` event: a wire attaches it to a part's start, to
+    // an empty delta (the withheld block's signature), or to the part's END, so
+    // there is nothing to buffer — only the part id the metadata is bound to,
+    // and — for a part that delivery starts (D18) — the text it must land
+    // behind.
     const reasoningDeltas = createDeltaBuffer();
     let reasoningPartId: string | undefined;
     const persistReasoning = (text: string | null) => {
@@ -1188,13 +1190,26 @@ export class RunExecutionService {
           persistDelta(deltas.push(text, Date.now()));
         },
         onReasoningDelta: (text, partId, providerMetadata) => {
-          // A metadata-only delivery: the adapter's reasoning END part carries
-          // a part's opaque metadata but no delta of its own (design D15).
+          // A metadata-only delivery: a reasoning part's start/end carries the
+          // opaque provider metadata but no delta of its own (design D15/D18).
           // Drain the buffer first so the durable log keeps the part's text
           // before its metadata, then record the metadata under the id the
           // adapter named — which can differ from the open part's id when one
           // reasoning item has several summaries.
           if (text.length === 0 && providerMetadata !== undefined) {
+            // D18: when this delivery starts a part no collected part carries
+            // (a signed block whose text the provider withheld, a reasoning
+            // item whose summary is empty), any text buffered before it must
+            // land first — else the durable replay would place the empty part
+            // ahead of text the live collector already recorded in order.
+            if (
+              assistantPartCollector.startsReasoningPart(
+                partId,
+                providerMetadata,
+              )
+            ) {
+              persistDelta(deltas.flush());
+            }
             persistReasoning(reasoningDeltas.flush());
             persistReasoningMetadata(partId, providerMetadata);
             assistantPartCollector.reasoning('', partId, providerMetadata);
@@ -1206,9 +1221,15 @@ export class RunExecutionService {
             persistReasoning(reasoningDeltas.flush());
             reasoningPartId = partId;
           }
-          // A text delta never carries metadata: the only wire that supplies
-          // any attaches it to a part's END, which carries no text (D15), so
-          // this is a text-only delivery.
+          // A text-bearing delivery is recorded as text alone. The opaque
+          // metadata a wire may also attach to a delta (Responses repeats the
+          // item id on every summary delta) is not the delivery a later
+          // request replays from: the part's own metadata delivery carries it
+          // in full under the same id — the Responses item's end (id, plus the
+          // encrypted content on the item's last part), the Messages withheld
+          // block's empty signature delta or redacted start — so binding it
+          // here would only duplicate plumbing, and buffering stays coalesced
+          // exactly as the live collector's part does.
           assistantPartCollector.reasoning(text, partId);
           persistDelta(deltas.flush());
           persistReasoning(reasoningDeltas.push(text, Date.now()));

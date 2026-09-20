@@ -17,10 +17,13 @@ import { type ToolPermissionMap } from '../tools/permissions/types';
  * Responses API through `@ai-sdk/openai` (hosted OpenAI or any compatible
  * `/v1/responses` server); `openai-completions` executes the Chat
  * Completions API through `@ai-sdk/openai-compatible` at its required
- * `baseUrl`; `openai-codex` uses the personal Codex subscription backend.
+ * `baseUrl`; `anthropic-messages` executes the Messages API through
+ * `@ai-sdk/anthropic` at its optional `baseUrl` (the Anthropic API by
+ * default, a Messages-speaking gateway when configured); `openai-codex`
+ * uses the personal Codex subscription backend.
  * This set is strict-closed on purpose — a schema that advertised a `type`
  * it cannot execute would fail at request time instead of at the offending
- * config path. The Anthropic adapter is a split-out follow-up.
+ * config path.
  */
 /**
  * A configured provider connection: `type` selects the client
@@ -50,6 +53,20 @@ export type OpenAICompletionsProviderConfig = {
   baseUrl: string;
 };
 
+/**
+ * Messages wire through `@ai-sdk/anthropic`. Like the Responses wire,
+ * `baseUrl` is optional: `null` uses the client's own default (the
+ * Anthropic API), while a configured value targets any Messages-speaking
+ * gateway exactly as authored (anthropic-provider D1/D3).
+ */
+export type AnthropicMessagesProviderConfig = {
+  id: string;
+  type: 'anthropic-messages';
+  key: string | null;
+  /** `null` uses the client's own default (the Anthropic API). */
+  baseUrl: string | null;
+};
+
 export type OpenAICodexProviderConfig = {
   id: string;
   type: 'openai-codex';
@@ -60,6 +77,7 @@ export type OpenAICodexProviderConfig = {
 export type ProviderConfig =
   | OpenAIResponsesProviderConfig
   | OpenAICompletionsProviderConfig
+  | AnthropicMessagesProviderConfig
   | OpenAICodexProviderConfig;
 
 /** Resolved private Streamable HTTP server configuration. */
@@ -172,6 +190,12 @@ export type RawProviderEntry =
       key?: unknown;
       /** Schema-required for this branch; may still be `null`/blank after interpolation. */
       baseUrl: string | null;
+    }
+  | {
+      id: string;
+      type: 'anthropic-messages';
+      key?: unknown;
+      baseUrl?: unknown;
     }
   | {
       id: string;

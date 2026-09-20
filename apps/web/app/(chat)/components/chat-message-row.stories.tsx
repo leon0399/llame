@@ -172,3 +172,86 @@ export const LiveStreaming: Story = {
     await expectGroupedSummaryRun(context);
   },
 };
+
+/** A thinking block whose text the provider withheld: signed, persisted with
+ *  empty text, and therefore never shown — but its signature is what replay
+ *  needs, so it must survive rendering byte-identical. */
+const WITHHELD_SIGNATURE = "opaque-withheld-thinking-signature";
+const VISIBLE_THOUGHT_HEADING = "**Visible thinking heading**";
+const ANSWER_BEFORE_THOUGHT = "Answer recorded before the visible thought.";
+const ANSWER_AFTER_THOUGHT = "Answer recorded after the visible thought.";
+
+function withheldTextMessage(): UIMessage {
+  return {
+    id: "assistant-withheld",
+    role: "assistant",
+    parts: [
+      {
+        type: "reasoning",
+        text: "",
+        state: "done",
+        providerMetadata: { anthropic: { signature: WITHHELD_SIGNATURE } },
+      },
+      // A whitespace-only delivery joins the same run: still nothing to show.
+      { type: "reasoning", text: "\n  \n", state: "done" },
+      { type: "text", text: ANSWER_BEFORE_THOUGHT },
+      { type: "reasoning", text: VISIBLE_THOUGHT_HEADING, state: "done" },
+      { type: "text", text: ANSWER_AFTER_THOUGHT },
+    ],
+  };
+}
+
+const WITHHELD_MESSAGE = withheldTextMessage();
+const withheldPartsAtLoad = JSON.stringify(WITHHELD_MESSAGE.parts);
+
+/**
+ * A turn that carries a signed, withheld-text thinking block followed by a
+ * visible summary: the empty run renders no Thinking panel at all, the visible
+ * run still renders exactly one, and the transcript keeps its stored order.
+ *
+ * @summary a segment with no text renders no Thinking panel
+ */
+export const WithheldTextReasoning: Story = {
+  tags: ["ai-generated"],
+  args: { message: WITHHELD_MESSAGE },
+  play: async ({ canvas }) => {
+    // Exactly one panel: the withheld run's parts contribute none. Waits out
+    // the Streamdown-backed renderers the row gates its transcript on.
+    const [visiblePanel] = await waitFor(
+      () => {
+        const found = canvas.getAllByRole("button", {
+          name: /thinking|thought/i,
+        });
+        expect(found).toHaveLength(1);
+        return found;
+      },
+      { timeout: 15_000 },
+    );
+
+    // The opaque signature is replay input, never display state.
+    expect(canvas.queryByText(WITHHELD_SIGNATURE)).toBeNull();
+
+    // The skipped run leaves no gap and moves nothing: answer, panel, answer.
+    const answerBeforeThought = canvas.getByText(ANSWER_BEFORE_THOUGHT);
+    const answerAfterThought = canvas.getByText(ANSWER_AFTER_THOUGHT);
+    expect(
+      visiblePanel.compareDocumentPosition(answerBeforeThought) &
+        Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    expect(
+      visiblePanel.compareDocumentPosition(answerAfterThought) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    // The visible run still renders its text in full.
+    await userEvent.click(visiblePanel);
+    await waitFor(() => {
+      expect(renderedTitlesIn(visiblePanel)).toEqual([
+        "Visible thinking heading",
+      ]);
+    });
+
+    // Rendering never rewrites a persisted part.
+    expect(JSON.stringify(WITHHELD_MESSAGE.parts)).toBe(withheldPartsAtLoad);
+  },
+};

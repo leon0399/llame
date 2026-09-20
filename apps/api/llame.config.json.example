@@ -34,8 +34,9 @@
 
   // Provider connections. `type` names the wire the entry speaks:
   // `openai-responses` for the Responses API (baseUrl optional) or
-  // `openai-completions` for Chat Completions (baseUrl required). Omit key
-  // for a keyless endpoint.
+  // `openai-completions` for Chat Completions (baseUrl required),
+  // `anthropic-messages` for the Anthropic Messages API (baseUrl optional,
+  // defaulting to the Anthropic API at https://api.anthropic.com/v1). Omit key for a keyless endpoint.
   "providers": [
     {
       "id": "openai",
@@ -49,6 +50,19 @@
     //   "id": "ollama",
     //   "type": "openai-completions",
     //   "baseUrl": "{env:OLLAMA_BASE_URL:-http://localhost:11434/v1}"
+    // }
+    // Anthropic's Messages wire, named after the wire like the OpenAI types.
+    // A gateway or proxy that speaks Messages is this type with its own
+    // baseUrl, never a second type. Omit key entirely for a keyless endpoint;
+    // a key is sent as x-api-key. The client always passes an explicit base
+    // URL (the configured value or the default https://api.anthropic.com/v1),
+    // so an ambient ANTHROPIC_BASE_URL cannot move a request off the configured endpoint.
+    // Thinking, caching, effort, and output-limit behavior is documented in
+    // README.md.
+    // {
+    //   "id": "anthropic",
+    //   "type": "anthropic-messages",
+    //   "key": "{env:ANTHROPIC_API_KEY}"
     // }
     // A ChatGPT/Codex subscription uses fixed transport settings and a
     // file-backed `codex login` credential snapshot. See
@@ -77,6 +91,10 @@
       "name": "GPT-5.6 Sol",
       "description": "Flagship frontier reasoning model for complex agentic and scientific tasks.",
       "contextWindowTokens": 1050000,
+      // Optional cacheWrite rate (per million tokens) for provider-reported
+      // cache-creation tokens. Absent, those tokens are priced at `input`,
+      // which is exactly the pre-field behavior. The web usage panel shows
+      // the count as an "of which cache write" row under Input.
       "pricingUsdPer1M": { "input": 5, "cachedInput": 0.5, "output": 30 },
       // Reasoning effort (add-reasoning-effort). Presence declares that this
       // model accepts a per-request `effort`; absence means it accepts none.
@@ -101,34 +119,49 @@
       // Optional provider-native request options for the adapter this
       // provider's `type` selects, keyed as that adapter documents them
       // (`reasoningSummary` on the Responses wire, `reasoningEffort` on Chat
-      // Completions); llame places them under the wire's provider-options
-      // namespace itself (`openai`, or `openaiCompletions` for Chat
-      // Completions). Server-only and free-form: boot checks only that the
-      // value is an object and rejects {env:...}/{path:...} syntax in any
-      // string value at any depth before resolving anything. Not a credential
-      // channel — contents are never redacted, so never put a secret in it.
+      // Completions, `thinking`/`effort`/`cacheControl` on the Messages
+      // wire); llame places them under the wire's provider-options namespace
+      // itself (`openai`, `openaiCompletions` for Chat Completions, or
+      // `anthropic` for Messages). Server-only and free-form: boot checks
+      // only that the value is an object and rejects {env:...}/{path:...}
+      // syntax in any string value at any depth before resolving anything.
+      // Not a credential channel — contents are never redacted, so never put
+      // a secret in it.
       // Precedence, highest first: client invariants (Codex always sends
-      // store:false and reasoningSummary:auto), the run's resolved effort
+      // store:false and reasoningSummary:auto; the Messages client always
+      // sends sendReasoning:true and, on adaptive thinking, the
+      // drop-on-prefix-mismatch instruction), the run's resolved effort
       // when this model declares `reasoning`, this object, then per-request
       // defaults (the Responses client defaults reasoningSummary:auto on
-      // streaming and compaction only). Objects merge recursively key by key;
-      // arrays and scalars replace the value beneath them; null at any depth
-      // removes a default, never an invariant. Reserved keys are
-      // stripped before composition: conversation, previousResponseId,
-      // instructions, systemMessageMode, allowedTools on the Responses wire;
-      // model, max_tokens, tool_choice on the Chat Completions wire. A value
-      // the adapter recognizes and rejects fails that request; an unknown key
-      // is dropped by the Responses adapter and forwarded into the request
-      // body by openai-completions.
+      // streaming and compaction only; the Messages client defaults adaptive
+      // thinking with summarized display when this model declares
+      // `reasoning`, plus the request-level ephemeral cache control on every
+      // request). Objects merge recursively key by key; arrays and scalars
+      // replace the value beneath them; null at any depth removes a default,
+      // never an invariant. Reserved keys are stripped before composition:
+      // conversation, previousResponseId, instructions, systemMessageMode,
+      // allowedTools on the Responses wire; model, max_tokens, tool_choice on
+      // the Chat Completions wire; fallbacks, mcpServers, container, and
+      // thinking.blockBinding on the Messages wire. A value the adapter
+      // recognizes and rejects fails that request; an unknown key is dropped
+      // by the Responses and Anthropic adapters and forwarded into the
+      // request body by openai-completions.
       // "providerOptions": { "reasoningSummary": "detailed" },
       // Optional per-model output-token limit (positive integer or whole-value
       // interpolation token, validated after resolution), sent as every
       // request's maxOutputTokens setting: max_output_tokens on the Responses
-      // wire and max_tokens on Chat Completions, with no max_completion_tokens
+      // wire, max_tokens on Chat Completions (with no max_completion_tokens
       // remapping — a model that requires that field rejects a declared
-      // limit. Absent leaves the adapter's default (no limit on the OpenAI
-      // wires). This caps provider output; runs.maxOutputTokens above does
-      // not.
+      // limit), and max_tokens on the Messages wire, where the adapter adds a
+      // manual thinking budget to it silently and lowers a value above a
+      // ceiling it knows for a recognized model, warning only when the entry
+      // declared the limit. Absent leaves the adapter's default: no limit on
+      // the OpenAI wires; on the Messages wire the adapter fills max_tokens
+      // from its model-id table — 128k for the recognized current models and
+      // unrecognized claude- ids, 64k/32k for the 4.5 and older 4.x rows,
+      // 4096 for the Claude 3 Haiku, Claude 2, and Claude Instant rows and
+      // any id without `claude-` — with thinking tokens counted against it.
+      // This caps provider output; runs.maxOutputTokens above does not.
       // "maxOutputTokens": 32000,
       "knowledgeCutoff": "2026-02",
       "website": "https://openai.com",

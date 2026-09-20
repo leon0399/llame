@@ -2247,6 +2247,215 @@ describe('loadInstanceConfig — models[].providerOptions / models[].maxOutputTo
     });
   });
 });
+describe('loadInstanceConfig — anthropic-messages providers (anthropic-provider, task 3.1)', () => {
+  it('loads a default and a gateway anthropic provider as authored without contacting either endpoint', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      writeConfig(`{
+        "providers": [
+          { "id": "anthropic", "type": "anthropic-messages", "key": "sk-anthropic" },
+          { "id": "gateway", "type": "anthropic-messages", "baseUrl": "https://api.z.ai/api/anthropic", "key": "{env:PM_KEY_UNSET:-}" }
+        ]
+      }`);
+      expect(loadInstanceConfig().providers).toEqual([
+        {
+          id: 'anthropic',
+          type: 'anthropic-messages',
+          key: 'sk-anthropic',
+          baseUrl: null,
+        },
+        {
+          id: 'gateway',
+          type: 'anthropic-messages',
+          key: null,
+          baseUrl: 'https://api.z.ai/api/anthropic',
+        },
+      ]);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('loads an anthropic provider whose baseUrl is explicitly null as the default endpoint', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "anthropic",
+        "type": "anthropic-messages",
+        "baseUrl": null,
+        "key": "sk-anthropic"
+      }]
+    }`);
+
+    expect(loadInstanceConfig().providers).toEqual([
+      {
+        id: 'anthropic',
+        type: 'anthropic-messages',
+        key: 'sk-anthropic',
+        baseUrl: null,
+      },
+    ]);
+  });
+
+  it.each([
+    ['an empty literal', '""', {}],
+    ['a whitespace-only literal', '"   "', {}],
+    [
+      'an empty env var',
+      '"{env:ANTHROPIC_GATEWAY_BASE_URL}"',
+      { ANTHROPIC_GATEWAY_BASE_URL: '' },
+    ],
+    [
+      'a whitespace-only env var',
+      '"{env:ANTHROPIC_GATEWAY_BASE_URL}"',
+      { ANTHROPIC_GATEWAY_BASE_URL: '   ' },
+    ],
+  ] as const)(
+    'fails boot naming the field when an anthropic baseUrl is %s',
+    (_kind, baseUrl, env) => {
+      writeConfig(`{
+        "providers": [{
+          "id": "gateway",
+          "type": "anthropic-messages",
+          "baseUrl": ${baseUrl},
+          "key": "sk-gateway-canary"
+        }]
+      }`);
+
+      try {
+        loadInstanceConfig(env);
+        expect.unreachable('expected a blank anthropic baseUrl to fail');
+      } catch (error) {
+        // Exact equality proves the diagnostic carries the config path and
+        // nothing else — no resolved value, canary credential, or token source.
+        expect(errorMessage(error)).toBe(
+          'providers[gateway].baseUrl: must resolve to a nonblank string',
+        );
+      }
+    },
+  );
+
+  it('fails boot naming the field when an anthropic baseUrl resolves empty from a file', () => {
+    const baseUrlFile = path.join(tmpDir, 'anthropic-base-url.secret');
+    writeFileSync(baseUrlFile, '  \n');
+    writeConfig(`{
+      "providers": [{
+        "id": "gateway",
+        "type": "anthropic-messages",
+        "baseUrl": "{path:${baseUrlFile.replaceAll('\\', String.raw`\\`)}}",
+        "key": "sk-gateway-canary"
+      }]
+    }`);
+
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected an empty-file anthropic baseUrl to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toBe(
+        'providers[gateway].baseUrl: must resolve to a nonblank string',
+      );
+    }
+  });
+
+  it('fails boot naming the entry for a bare "anthropic" type, advertising anthropic-messages', () => {
+    writeConfig('{ "providers": [{ "id": "claude", "type": "anthropic" }] }');
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected a bare "anthropic" type to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toContain('/providers[claude]/type');
+      expect(errorMessage(error)).toContain('"anthropic"');
+      expect(errorMessage(error)).toContain('anthropic-messages');
+    }
+  });
+
+  it('rejects the Codex-only accountId on an anthropic-messages provider', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "anthropic-messages",
+        "baseUrl": "https://example.test/v1",
+        "accountId": "account-id"
+      }]
+    }`);
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected a Codex-only accountId to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toContain('/providers[p]');
+    }
+  });
+
+  it('rejects an anthropic-messages provider as an embedding backend', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "anthropic",
+        "type": "anthropic-messages",
+        "key": "sk-anthropic"
+      }],
+      "embeddingModels": [{
+        "id": "claude-embedding",
+        "provider": "anthropic",
+        "providerModelId": "voyage-3",
+        "dimensions": 1024
+      }]
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /embeddingModels\[claude-embedding\]\.provider.*anthropic-messages/u,
+    );
+  });
+});
+
+describe('loadInstanceConfig — models[].pricingUsdPer1M.cacheWrite (anthropic-provider, task 3.7)', () => {
+  /** Write a one-model config whose `models[]` entry carries a `pricingUsdPer1M` object. */
+  function writePricedModel(pricing: string): void {
+    writeConfig(
+      `{ ${SINGLE_PROVIDER_JSON}, "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000, "pricingUsdPer1M": ${pricing} }] }`,
+    );
+  }
+
+  it('loads a declared cache-write rate on the resolved entry', () => {
+    writePricedModel(
+      '{ "input": 3, "cachedInput": 0.3, "cacheWrite": 3.75, "output": 15 }',
+    );
+
+    expect(loadInstanceConfig().models[0].pricingUsdPer1M).toEqual({
+      input: 3,
+      cachedInput: 0.3,
+      cacheWrite: 3.75,
+      output: 15,
+    });
+  });
+
+  it('leaves cacheWrite absent when the entry declares no cache-write rate', () => {
+    writePricedModel('{ "input": 3, "output": 15 }');
+
+    expect(loadInstanceConfig().models[0].pricingUsdPer1M).toEqual({
+      input: 3,
+      output: 15,
+    });
+  });
+
+  it.each([
+    ['negative', '-1'],
+    ['non-numeric', '"expensive"'],
+  ] as const)(
+    'fails boot naming the model id and the field for a %s cacheWrite',
+    (_kind, cacheWrite) => {
+      writePricedModel(
+        `{ "input": 3, "output": 15, "cacheWrite": ${cacheWrite} }`,
+      );
+      try {
+        loadInstanceConfig();
+        expect.unreachable('expected a bad cacheWrite to fail');
+      } catch (error) {
+        expect(errorMessage(error)).toContain('models[m]');
+        expect(errorMessage(error)).toContain('cacheWrite');
+      }
+    },
+  );
+});
 
 describe('loadInstanceConfig — settings name themselves in every failure', () => {
   /** Every numeric setting, its bound, and the leaf that carries it. */
