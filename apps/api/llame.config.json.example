@@ -53,17 +53,18 @@
     // }
     // Anthropic's Messages wire, named after the wire like the OpenAI types.
     // A gateway or proxy that speaks Messages is this type with its own
-    // baseUrl, never a second type. Omit key entirely for a keyless endpoint;
-    // a key is sent as x-api-key. The client always passes an explicit base
-    // URL (the configured value or the default https://api.anthropic.com/v1),
-    // so an ambient ANTHROPIC_BASE_URL cannot move a request off the configured endpoint.
+    // baseUrl, never a second type. The example keeps the provider available
+    // without requiring a credential at boot; requests fail at the provider
+    // until ANTHROPIC_API_KEY is set. The client always passes an explicit
+    // base URL (the configured value or https://api.anthropic.com/v1), so an
+    // ambient ANTHROPIC_BASE_URL cannot move a request off the configured endpoint.
     // Thinking, caching, effort, and output-limit behavior is documented in
     // README.md.
-    // {
-    //   "id": "anthropic",
-    //   "type": "anthropic-messages",
-    //   "key": "{env:ANTHROPIC_API_KEY}"
-    // }
+    {
+      "id": "anthropic",
+      "type": "anthropic-messages",
+      "key": "{env:ANTHROPIC_API_KEY:-}",
+    },
     // A ChatGPT/Codex subscription uses fixed transport settings and a
     // file-backed `codex login` credential snapshot. See
     // docs/codex-subscription.md for the required stop/re-login/restart flow.
@@ -277,6 +278,53 @@
       "website": "https://openai.com",
       "apiDocs": "https://platform.openai.com/docs/models/gpt-4o-mini",
       "modelPage": "https://platform.openai.com/docs/models/gpt-4o-mini",
+    },
+    {
+      "id": "system:anthropic:claude-haiku-4.5",
+      "provider": "anthropic",
+      "providerModelId": "claude-haiku-4-5-20251001",
+      "name": "Claude Haiku 4.5",
+      "description": "Anthropic's lowest-cost current model for fast, high-volume work.",
+      "contextWindowTokens": 200000,
+      "pricingUsdPer1M": {
+        "input": 1,
+        "cachedInput": 0.1,
+        "cacheWrite": 1.25,
+        "output": 5
+      },
+      "knowledgeCutoff": "2025-02",
+      "website": "https://anthropic.com",
+      "modelPage": "https://platform.claude.com/docs/en/models/haiku-4-5/overview",
+      "releasedAt": "2025-10-15",
+    },
+    {
+      "id": "system:anthropic:claude-sonnet-5",
+      "provider": "anthropic",
+      "providerModelId": "claude-sonnet-5",
+      "name": "Claude Sonnet 5",
+      "description": "Anthropic's lowest-cost current model with adaptive thinking.",
+      "contextWindowTokens": 1000000,
+      "pricingUsdPer1M": {
+        "input": 2,
+        "cachedInput": 0.2,
+        "cacheWrite": 2.5,
+        "output": 10
+      },
+      "reasoning": {
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          { "value": "xhigh", "label": "Extra High" },
+          "max"
+        ],
+        "defaultEffort": "low",
+        "cacheInvalidatedByEffortChange": true
+      },
+      "knowledgeCutoff": "2026-01",
+      "website": "https://anthropic.com",
+      "modelPage": "https://platform.claude.com/docs/en/models/sonnet-5/overview",
+      "releasedAt": "2026-06-29",
     },
   ],
 
