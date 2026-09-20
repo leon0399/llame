@@ -2297,6 +2297,21 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
     ]);
   });
 
+  it('accepts an anthropic provider that omits key entirely as keyless with the default endpoint', () => {
+    writeConfig(`{
+      "providers": [{ "id": "anthropic", "type": "anthropic-messages" }]
+    }`);
+
+    expect(loadInstanceConfig().providers).toEqual([
+      {
+        id: 'anthropic',
+        type: 'anthropic-messages',
+        key: null,
+        baseUrl: null,
+      },
+    ]);
+  });
+
   it.each([
     ['an empty literal', '""', {}],
     ['a whitespace-only literal', '"   "', {}],
@@ -2353,6 +2368,28 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
     } catch (error) {
       expect(errorMessage(error)).toBe(
         'providers[gateway].baseUrl: must resolve to a nonblank string',
+      );
+    }
+  });
+
+  it('fails boot naming the entry key when an anthropic key interpolation fails', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "gateway",
+        "type": "anthropic-messages",
+        "baseUrl": "https://gateway.test/anthropic",
+        "key": "{env:IC_ABSENT_VARIABLE}"
+      }]
+    }`);
+
+    try {
+      loadInstanceConfig({});
+      expect.unreachable('expected an unresolved anthropic key to fail');
+    } catch (error) {
+      // Exact equality proves the diagnostic carries the entry-qualified key
+      // path and nothing else — no resolved value or token substitution.
+      expect(errorMessage(error)).toBe(
+        'providers[gateway].key: required environment variable IC_ABSENT_VARIABLE is not set',
       );
     }
   });

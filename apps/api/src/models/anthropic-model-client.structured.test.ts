@@ -1,8 +1,8 @@
 /**
  * `createAnthropicModelClient` — structured generation, reasoning delivery, and
- * the failure boundaries (anthropic-provider 3.4, 3.8, 3.10). Every fixture is
- * the exact body the pinned `@ai-sdk/anthropic` adapter POSTed (see
- * `anthropic-model-client.fixtures.ts`).
+ * the failure boundaries (anthropic-provider 3.4, 3.8, 3.10). Every fixture
+ * is the exact body the pinned `@ai-sdk/anthropic` adapter POSTed (see the
+ * shared test fixture).
  */
 import { jsonSchema, NoOutputGeneratedError } from 'ai';
 import { InvalidArgumentError } from '@ai-sdk/provider';
@@ -24,10 +24,10 @@ import {
   truncatedEchoStream,
   unreachableEndpointFailure,
   type RecordedRequest,
-} from './anthropic-model-client.fixtures';
+} from '../testing/anthropic-model-client-fixtures';
 import type { AnthropicModelClientConfig } from './anthropic-model-client';
 import type { ModelObjectInput } from './model-client';
-import type { ClientHarness } from './anthropic-model-client.fixtures';
+import type { ClientHarness } from '../testing/anthropic-model-client-fixtures';
 
 const titleSchema = jsonSchema<{ title: string }>({
   type: 'object',
@@ -203,6 +203,18 @@ describe('createAnthropicModelClient — structured output (3.8)', () => {
     expect(firstRequest(harness).url).toBe(
       'https://api.anthropic.com/v1/messages',
     );
+  });
+});
+
+describe('createAnthropicModelClient — output limits on structured requests (D17)', () => {
+  it('forwards the catalog output limit as the structured request maxOutputTokens setting', async () => {
+    const { harness, object } = await generateTitle({ maxOutputTokens: 2048 });
+
+    expect(object).toEqual({ title: 'Hi' });
+    // The declared limit is the request's `max_tokens`, on the structured path
+    // exactly as on streaming — not the adapter's own table default for this
+    // id.
+    expect(firstRequest(harness).body['max_tokens']).toBe(2048);
   });
 });
 

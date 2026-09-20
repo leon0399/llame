@@ -25,12 +25,12 @@ import {
   createAnthropicModelClient,
   type AnthropicModelClientConfig,
   type AnthropicModelClientDependencies,
-} from './anthropic-model-client';
-import type { ModelStreamInput } from './model-client';
+} from '../models/anthropic-model-client';
+import type { ModelStreamInput } from '../models/model-client';
 import {
   isProviderOptionRecord,
   type ProviderOptionRecord,
-} from './provider-options';
+} from '../models/provider-options';
 
 export const messages = [
   { role: 'user', content: 'Hi.' },

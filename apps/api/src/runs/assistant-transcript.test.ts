@@ -152,6 +152,29 @@ describe('AssistantPartCollector', () => {
     ]);
   });
 
+  it('starts no part for an empty delivery that carries no provider metadata (D18)', () => {
+    const collector = createAssistantPartCollector();
+    const signature = { anthropic: { signature: 'SIG_WITHHELD' } };
+
+    collector.reasoning('visible thinking', 'reasoning-0');
+    // No text and no metadata: the delivery says nothing at all, so an id no
+    // collected part carries must not open an empty part — a block exists to
+    // persist only once its metadata arrives (design D18).
+    collector.reasoning('', 'reasoning-1');
+
+    expect(collector.parts()).toStrictEqual([
+      { type: 'reasoning', text: 'visible thinking' },
+    ]);
+
+    // The metadata under that same id is what starts the part, behind the
+    // text that already preceded it.
+    collector.reasoning('', 'reasoning-1', signature);
+    expect(collector.parts()).toStrictEqual([
+      { type: 'reasoning', text: 'visible thinking' },
+      { type: 'reasoning', text: '', providerMetadata: signature },
+    ]);
+  });
+
   it('filters unresolved requests but preserves an unrequested settlement', () => {
     const collector = createAssistantPartCollector();
 

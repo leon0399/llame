@@ -1,8 +1,8 @@
 /**
  * `createAnthropicModelClient` — construction, credentials, and the composed
  * request options (anthropic-provider 3.2, 3.3, 3.5, 3.6). Every fixture is
- * the exact body the pinned `@ai-sdk/anthropic` adapter POSTed (see
- * `anthropic-model-client.fixtures.ts`).
+ * the exact body the pinned `@ai-sdk/anthropic` adapter POSTed (see the
+ * shared test fixture).
  */
 import {
   buildClient,
@@ -11,7 +11,7 @@ import {
   messageEnvelope,
   messages,
   textBlock,
-} from './anthropic-model-client.fixtures';
+} from '../testing/anthropic-model-client-fixtures';
 import { ANTHROPIC_DEFAULT_BASE_URL } from './anthropic-model-client';
 import { KEYLESS_PLACEHOLDER_API_KEY } from './openai-model-client';
 
@@ -79,6 +79,34 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
       apiKey: KEYLESS_PLACEHOLDER_API_KEY,
       baseURL: ANTHROPIC_DEFAULT_BASE_URL,
     });
+  });
+
+  it('carries the entry pricing and compaction threshold on the client', () => {
+    const harness = buildHarness();
+    const client = buildClient(harness, {
+      pricing: { inputUsdPer1M: 3, outputUsdPer1M: 15 },
+      compactionThresholdTokens: 64_000,
+    });
+
+    // Both ride the built client because a consumer reads them there: cost
+    // telemetry prices a turn from `client.pricing`, and compaction sizes its
+    // trigger from `client.compactionThresholdTokens`.
+    expect(client.pricing).toStrictEqual({
+      inputUsdPer1M: 3,
+      outputUsdPer1M: 15,
+    });
+    expect(client.compactionThresholdTokens).toBe(64_000);
+  });
+
+  it('omits the pricing and compaction keys the entry did not declare', () => {
+    const harness = buildHarness();
+    const client = buildClient(harness);
+
+    // Omitted, not present-as-undefined: the client's own shape mirrors the
+    // entry's configuration, so an undeclared price or override leaves no key
+    // behind.
+    expect(client).not.toHaveProperty('pricing');
+    expect(client).not.toHaveProperty('compactionThresholdTokens');
   });
 });
 

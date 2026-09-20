@@ -1255,6 +1255,58 @@ describe('RunExecutionService executeRun — stream completion', () => {
     );
   });
 
+  it('does not flush buffered text for a metadata-only delivery that binds to a collected part (D18)', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    const signature = { anthropic: { signature: 'SIG_OPEN' } };
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onReasoningDelta?.('thinking', '0:0');
+    options.onTextDelta?.('the ');
+    // The id already names a collected part, so this delivery binds its
+    // metadata to that part and starts nothing (design D18): text still
+    // coalescing in the delta buffer must not be flushed — and split — by it.
+    options.onReasoningDelta?.('', '0:0', signature);
+    options.onTextDelta?.('answer');
+    await options.onFinish?.({
+      text: 'the answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+    });
+
+    expect(appended.map((entry) => entry.type)).toEqual([
+      'run.started',
+      'model.requested',
+      'reasoning.delta',
+      'reasoning.delta',
+      'model.delta',
+      'model.completed',
+      'run.completed',
+    ]);
+    expect(appended[2]?.payload).toStrictEqual({
+      text: 'thinking',
+      partId: '0:0',
+    });
+    expect(appended[3]?.payload).toStrictEqual({
+      partId: '0:0',
+      providerMetadata: signature,
+    });
+    // One coalesced delta for the whole answer, not one per side of the
+    // metadata delivery.
+    expect(appended[4]?.payload).toStrictEqual({ text: 'the answer' });
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          { type: 'reasoning', text: 'thinking', providerMetadata: signature },
+          { type: 'text', text: 'the answer' },
+        ],
+      }),
+    );
+  });
+
   it('drops a final text that does not extend what already streamed', async () => {
     const spies = mockNormalExecutionRepositories();
     recordAppendedEvents();
