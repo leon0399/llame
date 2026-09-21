@@ -83,7 +83,7 @@ Closes no issue.
 - [x] 2.6 [chat-key] Add the changelog entry for the layer: llame now identifies itself on every language-model request, and every model request carries its Chat's identity and lane; embedding requests are unchanged.
 - [x] 2.7 [chat-key] Prove the layer locally with the affected API `lint`, `typecheck`, and `test:coverage`, `pnpm --filter api build`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; measure the parent-relative authored diff against the budget; publish or refresh the draft with `$gh-stack` within the existing publication authorization.
 - [x] 2.8 [chat-key] SR: self-review the draft PR's actual parent-relative diff against `REVIEW_GUIDE.md` and the approved scope, with an independent subagent on the header and call-site changes; verify every finding, fix accepted ones with new commits, rerun the affected checks, update the PR body, and mark ready.
-- [ ] 2.9 [chat-key] GR: after ready, run the Ready-PR monitoring loop to completion on the current head (terminal passing CI, every expected reviewer complete, zero actionable unresolved feedback) before creating `go-provider`.
+- [x] 2.9 [chat-key] GR: after ready, run the Ready-PR monitoring loop to completion on the current head (terminal passing CI, every expected reviewer complete, zero actionable unresolved feedback) before creating `go-provider`.
 
 ## 3. Go-provider layer
 
