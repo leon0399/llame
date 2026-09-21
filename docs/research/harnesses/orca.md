@@ -4,8 +4,8 @@ title: "Orca"
 description: "Two-tier peer-agent adapters (SDK/app-server versus PTY), durable session records with provider-native resume, and a bypass-by-default permission posture"
 resource: "https://github.com/stablyai/orca"
 observed:
-  date: "2026-09-17"
-  revision: "85d1ffc0726d8403f9494436c421c5e3d7932c47"
+  date: "2026-09-21"
+  revision: "d199e71a8e99cf125e43369fb2429d8faa1acaaf"
 sources:
   - id: src-main-native-chat-agent-session-wire-structured-agent-session-adapter-ts-l154-l230
     resource: "https://github.com/stablyai/orca/blob/85d1ffc0726d8403f9494436c421c5e3d7932c47/src/main/native-chat/agent-session-wire/structured-agent-session-adapter.ts#L154-L230"
@@ -49,6 +49,18 @@ sources:
   - id: src-main-runtime-runtime-worktree-pty-agent-sources-ts-l29-l47
     resource: "https://github.com/stablyai/orca/blob/85d1ffc0726d8403f9494436c421c5e3d7932c47/src/main/runtime/runtime-worktree-pty-agent-sources.ts#L29-L47"
     title: "hook-derived status row for PTY agents"
+  - id: src-main-rate-limits-opencode-go-usage-fetcher-ts-l12-l22
+    resource: "https://github.com/stablyai/orca/blob/d199e71a8e99cf125e43369fb2429d8faa1acaaf/src/main/rate-limits/opencode-go-usage-fetcher.ts#L12-L22"
+    title: "console URLs, server-fn hash, and the cookie allowlist"
+  - id: src-main-rate-limits-opencode-go-usage-fetcher-ts-l220-l241
+    resource: "https://github.com/stablyai/orca/blob/d199e71a8e99cf125e43369fb2429d8faa1acaaf/src/main/rate-limits/opencode-go-usage-fetcher.ts#L220-L241"
+    title: "Go status call scoped by x-org-id"
+  - id: src-main-rate-limits-opencode-go-request-session-ts-l11-l18
+    resource: "https://github.com/stablyai/orca/blob/d199e71a8e99cf125e43369fb2429d8faa1acaaf/src/main/rate-limits/opencode-go-request-session.ts#L11-L18"
+    title: "isolated session partition and cookie clearing"
+  - id: src-main-rate-limits-opencode-go-status-parsing-ts-l70-l85
+    resource: "https://github.com/stablyai/orca/blob/d199e71a8e99cf125e43369fb2429d8faa1acaaf/src/main/rate-limits/opencode-go-status-parsing.ts#L70-L85"
+    title: "five-hour, week, and month meters"
 ---
 
 # Orca
@@ -118,6 +130,20 @@ id[^src-shared-agent-session-resume-ts-l246-l292].
    discovers them through its own mechanism and Orca never concatenates
    skill text into a context window. Moderate confidence for #770: the same
    catalog-plus-placement split keeps llame's prompt surface unchanged.
+6. **Go subscription quota read from the console, not the API.** A dedicated
+   rate-limit fetcher scrapes the OpenCode console: a server-function call to
+   `https://opencode.ai/_server` behind a hard-coded hash discovers `wrk_`/`wk_`
+   workspace ids, then `GET /console/api/go/status` is sent with `x-org-id` and a
+   console `Referer`[^src-main-rate-limits-opencode-go-usage-fetcher-ts-l12-l22][^src-main-rate-limits-opencode-go-usage-fetcher-ts-l220-l241].
+   Auth is a user-pasted browser cookie, not an API key, kept in an isolated
+   Electron session partition and cleared before and after every
+   fetch[^src-main-rate-limits-opencode-go-request-session-ts-l11-l18]. The payload
+   maps `access.meters.fiveHour`, `.week`, and `.month` onto session, weekly, and
+   monthly windows[^src-main-rate-limits-opencode-go-status-parsing-ts-l70-l85], and every
+   failure branch returns a full record with `status: unavailable` or `status: error`
+   rather than throwing. Moderate confidence for llame's quota surfacing (#765):
+   the window model and the total-shape degradation are worth copying; the transport
+   is not.
 
 **Caution**
 
@@ -148,6 +174,13 @@ id[^src-shared-agent-session-resume-ts-l246-l292].
 - The README's "Codex, Claude Code, OpenCode or Pi" framing implies equal
   depth; OpenCode gets a status plugin but no structured adapter, and Pi is
   not even a hook target.
+- Orca never calls the Go inference API itself: OpenCode runs as a PTY peer, so
+  no `x-opencode-session` scheme exists in this tree and session affinity is the
+  peer CLI's problem. The Go work here is a reverse-engineered console scrape in
+  the renderer's main process, holding a cookie jar for a subscription provider
+  and regexing workspace ids out of a server-function payload. Do not port it: the
+  same quota data is available from the Zen API with a bearer key, and the
+  scrape breaks whenever opencode.ai's frontend changes.
 
 [^src-main-native-chat-agent-session-wire-structured-agent-session-adapter-ts-l154-l230]: [`StructuredAgentSessionAdapter` interface](https://github.com/stablyai/orca/blob/85d1ffc0726d8403f9494436c421c5e3d7932c47/src/main/native-chat/agent-session-wire/structured-agent-session-adapter.ts#L154-L230)
 
@@ -176,3 +209,11 @@ id[^src-shared-agent-session-resume-ts-l246-l292].
 [^src-shared-tui-agent-launch-defaults-ts-l111-l123]: [bypass is the posture until changed](https://github.com/stablyai/orca/blob/85d1ffc0726d8403f9494436c421c5e3d7932c47/src/shared/tui-agent-launch-defaults.ts#L111-L123)
 
 [^src-main-runtime-runtime-worktree-pty-agent-sources-ts-l29-l47]: [hook-derived status row for PTY agents](https://github.com/stablyai/orca/blob/85d1ffc0726d8403f9494436c421c5e3d7932c47/src/main/runtime/runtime-worktree-pty-agent-sources.ts#L29-L47)
+
+[^src-main-rate-limits-opencode-go-usage-fetcher-ts-l12-l22]: [console URLs, server-fn hash, and the cookie allowlist](https://github.com/stablyai/orca/blob/d199e71a8e99cf125e43369fb2429d8faa1acaaf/src/main/rate-limits/opencode-go-usage-fetcher.ts#L12-L22)
+
+[^src-main-rate-limits-opencode-go-usage-fetcher-ts-l220-l241]: [Go status call scoped by `x-org-id`](https://github.com/stablyai/orca/blob/d199e71a8e99cf125e43369fb2429d8faa1acaaf/src/main/rate-limits/opencode-go-usage-fetcher.ts#L220-L241)
+
+[^src-main-rate-limits-opencode-go-request-session-ts-l11-l18]: [isolated session partition and cookie clearing](https://github.com/stablyai/orca/blob/d199e71a8e99cf125e43369fb2429d8faa1acaaf/src/main/rate-limits/opencode-go-request-session.ts#L11-L18)
+
+[^src-main-rate-limits-opencode-go-status-parsing-ts-l70-l85]: [five-hour, week, and month meters](https://github.com/stablyai/orca/blob/d199e71a8e99cf125e43369fb2429d8faa1acaaf/src/main/rate-limits/opencode-go-status-parsing.ts#L70-L85)

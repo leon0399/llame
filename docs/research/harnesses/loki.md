@@ -4,9 +4,51 @@ title: "Loki Agent"
 description: "Rebranded Hermes fork; managed connector gateway degradation and retry contract, per-child input-token ceilings for delegation"
 resource: "https://github.com/wundercorp/loki"
 observed:
-  date: "2026-09-17"
-  revision: "a54a41ae9ef9b0174fe1889bcc72e9c4cad6e979"
+  date: "2026-09-21"
+  revision: "5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535"
 sources:
+  - id: agent-opencode-affinity-py-l23-l88
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/agent/opencode_affinity.py#L23-L88"
+    title: "affinity header constant, target matching, key derivation, and merge"
+  - id: agent-chat-completion-helpers-py-l1365-l1376
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/agent/chat_completion_helpers.py#L1365-L1376"
+    title: "affinity headers on every transport"
+  - id: agent-auxiliary-client-py-l6141-l6143
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/agent/auxiliary_client.py#L6141-L6143"
+    title: "auxiliary calls reuse the conversation affinity"
+  - id: loki-cli-models-py-l2018-l2021
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/models.py#L2018-L2021"
+    title: "three OpenCode families including the keyless free tier"
+  - id: loki-cli-models-py-l2169-l2188
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/models.py#L2169-L2188"
+    title: "per-model API mode table and free-tier routing"
+  - id: loki-cli-models-py-l2055-l2056
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/models.py#L2055-L2056"
+    title: "keyless placeholder and free-tier base URL"
+  - id: loki-cli-models-py-l2072-l2075
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/models.py#L2072-L2075"
+    title: "anonymous free-tier default headers"
+  - id: agent-prompt-caching-py-l92-l97
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/agent/prompt_caching.py#L92-L97"
+    title: "cache-marker families and the measured 1h allow-list"
+  - id: agent-prompt-caching-py-l117-l125
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/agent/prompt_caching.py#L117-L125"
+    title: "1h TTL exception applied before the generic clamp"
+  - id: loki-cli-doctor-connectivity-py-l79-l81
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/doctor_connectivity.py#L79-L81"
+    title: "no shared models endpoint probed for Go"
+  - id: loki-cli-providers-py-l61-l62
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/providers.py#L61-L62"
+    title: "Go overlay and the keyless free overlay"
+  - id: plugins-model-providers-opencode-zen-init-py-l16-l20
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/plugins/model-providers/opencode-zen/__init__.py#L16-L20"
+    title: "attribution headers for both relays"
+  - id: plugins-model-providers-opencode-zen-init-py-l58-l67
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/plugins/model-providers/opencode-zen/__init__.py#L58-L67"
+    title: "per-model output cap for the Go relay"
+  - id: plugins-model-providers-opencode-zen-init-py-l114-l124
+    resource: "https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/plugins/model-providers/opencode-zen/__init__.py#L114-L124"
+    title: "Go profile registration with attribution defaults and the vision-tool-message gate"
   - id: scripts-verify-rebrand-mjs-l5
     resource: "https://github.com/wundercorp/loki/blob/a54a41ae9ef9b0174fe1889bcc72e9c4cad6e979/scripts/verify-rebrand.mjs#L5"
     title: "rebrand guard"
@@ -121,6 +163,50 @@ HTTP API alias layer.
    applicability today, because llame's explicit-prefix compaction does not
    rewrite unprotected history; moderate for #153 if a progressive trigger
    ever needs softening against cache economics.
+5. **Relay affinity is a bespoke module here, with no operator-facing header
+   channel.** `agent/opencode_affinity.py` owns an `x-opencode-session`
+   constant, matches relay targets by provider family or by an opencode.ai base
+   URL (custom `opencode-<family>-*` entries included), derives the key from the
+   declared routing scope, then the ambient conversation root, then the explicit
+   session id, and merges it into `extra_headers` with caller-pinned values
+   winning[^agent-opencode-affinity-py-l23-l88]. Two call sites cover every path:
+   the main builder for all three
+   transports[^agent-chat-completion-helpers-py-l1365-l1376] and the auxiliary client
+   used by compression, titles, vision, and MoA[^agent-auxiliary-client-py-l6141-l6143].
+   Two differences from upstream Hermes matter: there is no ephemeral fallback, so a
+   target with no resolvable key sends no header at all[^agent-opencode-affinity-py-l23-l88],
+   and `session_affinity_header` does not exist anywhere in this tree, so the
+   operator-named generic channel exists only upstream. Moderate confidence for
+   #809 and #881: copy the single merge point and the lineage-root key, but keep
+   Hermes' fallback and generic-name support as the newer behavior.
+6. **A third family and a cache-tier carve-out.** The fork splits the relay into
+   three provider ids (`opencode-zen`, `opencode-go`, `opencode-free`), where the
+   free tier is keyless and reaches `https://opencode.ai/zen/v1` through a
+   placeholder credential whose empty `Authorization` header overrides the SDK's
+   bearer[^loki-cli-models-py-l2018-l2021][^loki-cli-models-py-l2055-l2056][^loki-cli-providers-py-l61-l62], with a helper
+   that supplies anonymous default headers[^loki-cli-models-py-l2072-l2075]. Per-model wire
+   selection matches upstream: Responses for `gpt-`/`grok-`/`muse-spark`,
+   Messages for `minimax-`/`qwen`, and the free tier borrows Zen's
+   table[^loki-cli-models-py-l2169-l2188]. For caching, Qwen-family routes clamp
+   `cache_control` to five minutes except Go, the only wire-measured provider
+   allowed to keep a one-hour
+   marker[^agent-prompt-caching-py-l92-l97][^agent-prompt-caching-py-l117-l125]. Go's models
+   endpoint is still skipped by the connectivity check[^loki-cli-doctor-connectivity-py-l79-l81].
+   Moderate confidence: the family split and TTL carve-out are llame-shaped
+   decisions, but the keyless tier is a vendor-specific concession that upstream
+   Hermes has already removed.
+
+7. **Attribution headers and model-specific limits on the provider profile.** Both
+   relay profiles install fixed `HTTP-Referer`, `X-Title`, and `User-Agent:
+LokiAgent/<version>` headers as provider default headers, in the same style as
+   the fork's OpenRouter-style providers[^plugins-model-providers-opencode-zen-init-py-l16-l20][^plugins-model-providers-opencode-zen-init-py-l114-l124].
+   The Go profile also caps `mimo-v2.5-pro`'s output budget because the relay
+   default exceeds what that vendor accepts[^plugins-model-providers-opencode-zen-init-py-l58-l67],
+   and it declares that tool messages cannot carry list-type content after both
+   the console relay and the vendor rejected such rows and the rejected row stayed
+   in history. Moderate confidence for #809's client-identification and per-model
+   limit surface: both are provider-profile properties here, not call-site
+   decisions.
 
 **Caution**
 
@@ -182,3 +268,31 @@ HTTP API alias layer.
 [^tools-tool-output-limits-py-l12-l37]: [process-global output limit cache](https://github.com/wundercorp/loki/blob/a54a41ae9ef9b0174fe1889bcc72e9c4cad6e979/tools/tool_output_limits.py#L12-L37)
 
 [^agent-agents-md-l23]: [corrupted docstring](https://github.com/wundercorp/loki/blob/a54a41ae9ef9b0174fe1889bcc72e9c4cad6e979/agent/AGENTS.md#L23)
+
+[^agent-opencode-affinity-py-l23-l88]: [affinity header constant, target matching, key derivation, and merge](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/agent/opencode_affinity.py#L23-L88)
+
+[^agent-chat-completion-helpers-py-l1365-l1376]: [affinity headers on every transport](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/agent/chat_completion_helpers.py#L1365-L1376)
+
+[^agent-auxiliary-client-py-l6141-l6143]: [auxiliary calls reuse the conversation affinity](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/agent/auxiliary_client.py#L6141-L6143)
+
+[^loki-cli-models-py-l2018-l2021]: [three OpenCode families including the keyless free tier](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/models.py#L2018-L2021)
+
+[^loki-cli-models-py-l2169-l2188]: [per-model API mode table and free-tier routing](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/models.py#L2169-L2188)
+
+[^loki-cli-models-py-l2055-l2056]: [keyless placeholder and free-tier base URL](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/models.py#L2055-L2056)
+
+[^loki-cli-models-py-l2072-l2075]: [anonymous free-tier default headers](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/models.py#L2072-L2075)
+
+[^agent-prompt-caching-py-l92-l97]: [cache-marker families and the measured 1h allow-list](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/agent/prompt_caching.py#L92-L97)
+
+[^agent-prompt-caching-py-l117-l125]: [1h TTL exception applied before the generic clamp](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/agent/prompt_caching.py#L117-L125)
+
+[^loki-cli-doctor-connectivity-py-l79-l81]: [no shared models endpoint probed for Go](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/doctor_connectivity.py#L79-L81)
+
+[^loki-cli-providers-py-l61-l62]: [Go overlay and the keyless free overlay](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/loki_cli/providers.py#L61-L62)
+
+[^plugins-model-providers-opencode-zen-init-py-l16-l20]: [attribution headers for both relays](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/plugins/model-providers/opencode-zen/__init__.py#L16-L20)
+
+[^plugins-model-providers-opencode-zen-init-py-l58-l67]: [per-model output cap for the Go relay](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/plugins/model-providers/opencode-zen/__init__.py#L58-L67)
+
+[^plugins-model-providers-opencode-zen-init-py-l114-l124]: [Go profile registration with attribution defaults and the vision-tool-message gate](https://github.com/wundercorp/loki/blob/5f1aea7c786f5ea8c5f9b9f2db2b791ec326c535/plugins/model-providers/opencode-zen/__init__.py#L114-L124)
