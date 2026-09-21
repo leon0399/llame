@@ -16,13 +16,13 @@ written, and the finalize branch exists before spec synchronization writes
 canonical specs.
 
 Use the canonical OpenSpec skills through the harness skill directories;
-separate OpenSpec command files are not maintained. The current skills are
-based on OpenSpec 1.13.1, with a repository-owned archive-readiness guard:
-incomplete artifacts, unchecked tasks, and unsynced deltas block archival.
-Keep that guard when adopting upstream changes. Delivery policy belongs in
-`openspec/config.yaml`; compare upstream workflows in a temporary project
-before upgrading. Missing guidance or a successful command does not grant
-approval.
+separate OpenSpec command files are not maintained. These skills are
+repository-maintained adaptations of OpenSpec 1.13.1. Keep delivery policy in
+`openspec/config.yaml` and preserve the skills' readiness and authorization
+boundaries. For CLI upgrades, generate upstream workflows in a temporary
+project and compare their contracts; do not overwrite the local adaptations.
+Verify instruction delivery before relying on an upgrade. Missing guidance or
+a successful command does not grant approval.
 
 ## Gates
 
