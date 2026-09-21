@@ -129,9 +129,14 @@ represented as permission from the publisher. The scheme split and trailing
 selector rules that protect a `scheme://` prefix SHALL apply unchanged: the
 scheme's own colon is never read as a selector, and the shipped
 trailing-selector split (the last colon after the last slash) governs the
-rest, so a locator whose authority ends in a port SHALL carry a path after
-the port: `https://example.test:8080/` is a URL with no selector, while
-`https://example.test:8080` selects line 8080 of `https://example.test`.
+rest. A locator whose authority ends in a port SHALL therefore carry a path
+after the port (`https://example.test:8080/` is a URL with no selector, while
+`https://example.test:8080` selects line 8080 of `https://example.test`),
+and a literal colon in the last path segment SHALL be written as `%3A`
+(`https://w.example/wiki/Special%3ASearch`), because
+`https://w.example/wiki/Special:Search` fails as `invalid_selector` and
+`https://w.example/docs/2024:10` selects line 10 of
+`https://w.example/docs/2024`.
 
 #### Scenario: A web locator is fetched by the API process
 
@@ -157,6 +162,12 @@ the port: `https://example.test:8080/` is a URL with no selector, while
 - **THEN** the read returns `invalid_path` before any request
 - **AND** no credential from the locator is sent to the host
 
+#### Scenario: A colon in the last path segment is a selector unless encoded
+
+- **WHEN** the model reads `https://w.example/wiki/Special:Search`
+- **THEN** the read fails with `invalid_selector` and issues no request
+- **AND** `https://w.example/wiki/Special%3ASearch` is fetched as written
+
 #### Scenario: A local-only allow does not admit the web
 
 - **WHEN** the `read` group's only allow clause is a `path` regex for `^/`
@@ -173,19 +184,25 @@ the port: `https://example.test:8080/` is a URL with no selector, while
 Every web request SHALL carry `User-Agent: llame/<version>`, where the version
 is the boot-time value instance configuration resolves for the running
 process. The tool SHALL NOT rotate, randomize, or omit that value and SHALL
-NOT claim another product's client identity. A request SHALL fail when
-response headers do not arrive within 10 seconds. The call SHALL fail when it
-has not completed within 30 seconds, counted across every hop and every probe
-request the call issues. The response body SHALL be streamed against a 5 MiB
-cap and aborted past it with `body_too_large`, and a declared length above the
-cap SHALL fail before the body is read. `Accept-Encoding` SHALL be left to the
-runtime. A web call SHALL NOT retry: a transport failure, a timeout, and an
-error status SHALL each be reported to the model as an error observation with
-no second attempt. A 429 SHALL return an error observation carrying the
-`Retry-After` value when the response supplies one, and every other non-2xx
-status SHALL return an error naming the status. A status error SHALL NOT
-return the response body, and SHALL NOT report response headers other than the
-`Retry-After` delay it carries.
+NOT claim another product's client identity. A request whose response
+headers do not arrive within 10 seconds SHALL fail the call with
+`headers_timeout`. A call that has not completed within 30 seconds, counted
+across every request it issues, SHALL fail with `call_timeout`. The response
+body SHALL be streamed against a 5 MiB cap and aborted past it with
+`body_too_large`, and a declared length above the cap SHALL fail before the
+body is read. `Accept-Encoding` SHALL be left to the runtime. A web call
+SHALL NOT retry: a transport failure, a timeout, and an error status SHALL
+each be reported to the model as an error observation with no second
+attempt. A non-2xx status on the first request, or on a redirect hop, SHALL
+fail the call with `http_status` naming the status; a 429 SHALL additionally
+carry the `Retry-After` value when the response supplies one. A status error
+SHALL NOT return the response body and SHALL NOT report response headers
+other than that `Retry-After` delay. A probe request (an alternate, a suffix
+candidate, or an `llms.txt` candidate) that answers a non-2xx status or a
+refused content type SHALL disqualify only that candidate, and the pipeline
+SHALL continue. A call SHALL issue at most one alternate request, one
+suffix-probe request, and four `llms.txt` requests, and SHALL follow at most
+20 redirects in total across all of its requests.
 
 #### Scenario: Every request identifies llame
 
@@ -196,13 +213,13 @@ return the response body, and SHALL NOT report response headers other than the
 #### Scenario: Slow headers fail at the header bound
 
 - **WHEN** a server accepts the connection and sends no response headers within 10 seconds
-- **THEN** the call fails with an error naming that bound
+- **THEN** the call fails with `headers_timeout`
 - **AND** the body is not read
 
 #### Scenario: A call over the total bound fails
 
 - **WHEN** each response arrives inside the header bound but the call passes 30 seconds while following hops or probing alternates
-- **THEN** the call fails with an error naming the total bound
+- **THEN** the call fails with `call_timeout`
 - **AND** no further request is issued for that call
 
 #### Scenario: An oversized body is aborted
@@ -214,13 +231,13 @@ return the response body, and SHALL NOT report response headers other than the
 #### Scenario: Rate limiting is reported, not retried
 
 - **WHEN** a server answers 429 with `Retry-After: 120`
-- **THEN** the call returns an error naming the status and the retry delay
+- **THEN** the call fails with `http_status` naming 429 and the retry delay
 - **AND** no retry is attempted
 
 #### Scenario: An error status is not content
 
 - **WHEN** a server answers 404 or 500
-- **THEN** the call returns an error naming the status
+- **THEN** the call fails with `http_status` naming the status
 - **AND** the response body is not returned as content
 
 ### Requirement: Web reads accept text bodies only
@@ -239,7 +256,8 @@ first 2 KiB of the body, else as UTF-8.
 #### Scenario: A JSON body is returned as text
 
 - **WHEN** a locator serves `application/json`
-- **THEN** the read returns the body text unchanged and reports text retrieval
+- **THEN** the read returns the body text unchanged with `method` `text`
+- **AND** a first response that is `text/plain` and not HTML-shaped is returned unchanged with `method` `negotiated`
 
 #### Scenario: A binary body is refused with its type named
 
@@ -263,25 +281,28 @@ first 2 KiB of the body, else as UTF-8.
 The first request for a page SHALL send `Accept: text/markdown,
 text/plain;q=0.9, text/html;q=0.8, */*;q=0.5`, so a publisher that serves
 Markdown or plain text for agents is used without a second request or a
-local conversion. A response that is `text/markdown`, or `text/plain` that is
-not HTML-shaped, SHALL be returned as the render with `method` `negotiated`
-and no HTML conversion SHALL run. Otherwise the tool SHALL try, in order,
+local conversion. A first response that is `text/markdown`, or `text/plain`
+that is not HTML-shaped, SHALL be returned as the content with `method`
+`negotiated`, ungated and unconverted: the publisher's agent-facing body is
+taken as it is. Otherwise, for an HTML body, the tool SHALL try, in order,
 a Markdown alternate announced by the response's `Link` header or by a `<link
-rel="alternate" type="text/markdown">` element in the page head, fetched as an
-absolute URL and reported as `method` `alternate`; then the publisher's
-Markdown suffix probe, mapping `/a/b.html` to `/a/b.html.md`, `/a/b` to
-`/a/b.md`, and `/a/b/` to `/a/b/index.md`, reported as `method` `md-suffix`.
-The first candidate that passes the quality gate SHALL win and end the search.
-Every candidate SHALL be judged by the same gate: more than 100 non-whitespace
-characters, not HTML-shaped for a Markdown candidate, and not low quality,
-where a candidate is low quality when it is under 1,024 characters and
-contains a JavaScript or captcha gate phrase, or when more than 70 percent of
-its non-blank lines are shorter than 40 characters. A probe request SHALL send
-the same `Accept` header, SHALL count against the call's total time and body
-bound, and SHALL be subject to the same status, content-type, and redirect
-rules as the first request. A candidate that fails the gate SHALL NOT become
-the render, and a fetched candidate SHALL NOT be searched for further
-alternates or suffixes.
+rel="alternate" type="text/markdown">` element in the page head, resolved to
+an absolute URL, fetched, and reported as `method` `alternate`; then the
+publisher's Markdown suffix probe, mapping `/a/b.html` to `/a/b.html.md`,
+`/a/b` to `/a/b.md`, and `/a/b/` to `/a/b/index.md`, reported as `method`
+`md-suffix`. The first candidate that passes the quality gate SHALL win and
+end the search. The quality gate SHALL judge an alternate, a suffix candidate,
+and the local render alike: more than 100 non-whitespace characters, not
+HTML-shaped for a Markdown candidate, and not low quality, where a candidate
+is low quality when it is under 1,024 characters and contains a JavaScript
+or captcha gate phrase, or when more than 70 percent of its non-blank lines
+are shorter than 40 characters. A probe request SHALL send the same `Accept`
+header, SHALL count against the call's total time, body, request, and
+redirect bounds, and SHALL be admitted per hop like the first request; its
+non-2xx status or refused content type disqualifies the candidate without
+failing the call. A candidate that fails the gate SHALL NOT become the
+content, and a fetched candidate SHALL NOT be searched for further alternates
+or suffixes.
 
 #### Scenario: Negotiated Markdown wins without a second request
 
@@ -306,8 +327,8 @@ alternates or suffixes.
 
 #### Scenario: A candidate that fails the gate does not win
 
-- **WHEN** an alternate or suffix URL returns an HTML error page or a body of 40 characters
-- **THEN** that candidate is not returned as the render
+- **WHEN** an alternate or suffix URL answers 404, serves `application/pdf`, returns an HTML error page, or returns a body of 40 characters
+- **THEN** that candidate is not returned as the content and the call does not fail
 - **AND** the next adapter in order decides the content
 
 #### Scenario: A low-quality candidate is rejected
@@ -329,16 +350,20 @@ Readability main-content extraction over the response body, converted to
 Markdown with GFM tables and reported as `method` `readability`. When
 Readability finds no article, the whole body SHALL be converted instead and
 reported with the same method. Only when that render fails the quality gate
-SHALL the tool probe `llms.txt`, walking from the deepest path segment up to
-the site root and requesting each candidate until one passes the gate,
-reported as `method` `llms-txt`. When no attempt passes the gate, the tool
-SHALL return the response body with `method` `raw` and a note explaining that
-the page could not be converted. A JavaScript or captcha challenge SHALL fail
-the gate, be returned with `method` `raw`, and carry a note naming the
-detected challenge. A non-HTML text body SHALL be reported with `method`
-`text`. `:raw` SHALL skip every probe and conversion and return the first
-response's body untouched with `method` `raw`; a `:raw` read of a refused
-content type SHALL still fail under the content-type rule.
+SHALL the tool probe `llms.txt`, requesting at most four candidates from the
+deepest path segment up to the site root (the three deepest scopes and the
+root) until one is accepted, reported as `method` `llms-txt`. An `llms.txt`
+candidate SHALL be accepted on the length and not-HTML-shaped conditions
+only, because an index file is short link lines by construction. When no
+attempt is accepted, the tool SHALL return the response body with `method`
+`raw` and a note explaining that the page could not be converted. A
+JavaScript or captcha challenge SHALL fail the gate, be returned with
+`method` `raw`, and carry a note naming the detected challenge. A text body
+outside the negotiation set (JSON, XML, and other `text/*` types) SHALL be
+returned unchanged with `method` `text`. `:raw` SHALL skip every probe and
+conversion and return the first response's body untouched with `method`
+`raw`; a `:raw` read of a refused content type SHALL still fail under the
+content-type rule.
 
 #### Scenario: A page without publisher Markdown is rendered
 
@@ -379,21 +404,30 @@ content type SHALL still fail under the content-type rule.
 
 ### Requirement: Web reads follow redirects under per-hop permission admission
 
-A web read SHALL follow redirect responses on any host, up to 20 hops, and
-SHALL request each hop with the same bounds and headers as the first. Before a
-hop's request is sent, the `read` permission group SHALL be evaluated against
-the hop's absolute URL as if the model had submitted it, through the same
-evaluator and the same projection the call used. A rejected hop SHALL end the
-call with a `permission_denied` error naming the hop's URL, and the rejected
-target's body SHALL NEVER be read. When the hop limit is reached the call
-SHALL fail with an error naming that bound and SHALL issue no further request.
-The result SHALL name the URL of the response that produced the content as
-`finalUrl` and SHALL NOT enumerate the hop chain. The `read` tool description
-SHALL state that redirects are followed and that `finalUrl` reports where the
-content came from, so the model does not re-fetch a page to learn its
-location. This change SHALL NOT resolve a hostname to check its address before
-connecting: a `path` clause is a rule over text, so a host it admits is
-admitted at every address that host resolves to.
+A web read SHALL follow redirect responses on any host, up to 20 in total
+per call, and SHALL request each hop with the same bounds and headers as the
+first. The hop locator SHALL be the `Location` value resolved against the
+redirecting request's URL by the WHATWG URL parser and serialized as its
+`href`, so a relative `Location` becomes absolute and the serialization is
+what policy sees (lowercase host, default port dropped, empty path as `/`); a
+hop whose resolved locator carries userinfo or a scheme other than `http` or
+`https` SHALL fail the call with `invalid_redirect` before any request and
+SHALL NOT name the target. Before a hop's request is sent, the `read`
+permission group SHALL be evaluated against that locator as if the model had
+submitted it, through the same evaluator and the same projection the call
+used. A rejected hop SHALL end the call with a `permission_denied` error
+whose result carries the rejected locator as `rejectedUrl`, bounded to 2,048
+characters with control characters removed, and whose message is the fixed
+hop template; the rejected target's body SHALL NEVER be read. When the
+redirect budget is exhausted the call SHALL fail with `too_many_redirects`
+and SHALL issue no further request. The result SHALL name the URL of the
+response that produced the content as `finalUrl` and SHALL NOT enumerate the
+hop chain. The `read` tool description SHALL state that redirects are
+followed and that `finalUrl` reports where the content came from, so the
+model does not re-fetch a page to learn its location. This change SHALL NOT
+resolve a hostname to check its address before connecting: a `path` clause is
+a rule over text, so a host it admits is admitted at every address that host
+resolves to.
 
 #### Scenario: A cross-host hop is followed when policy admits it
 
@@ -404,14 +438,26 @@ admitted at every address that host resolves to.
 #### Scenario: A hop naming a rejected host ends the call without reading its body
 
 - **WHEN** a redirect target is refused by a `read` reject
-- **THEN** the call returns `permission_denied` naming that target
+- **THEN** the call returns `permission_denied` with the fixed hop message and `rejectedUrl` carrying the resolved target, bounded to 2,048 characters with control characters removed
 - **AND** no request is sent to the refused target, so its body is never read, converted, or returned
 
 #### Scenario: The hop limit bounds a redirect loop
 
-- **WHEN** a server redirects more than 20 times
-- **THEN** the call fails with an error naming the hop bound
+- **WHEN** a server redirects more than 20 times within one call
+- **THEN** the call fails with `too_many_redirects`
 - **AND** no further request is issued
+
+#### Scenario: A redirect to a credentialed or non-web target fails closed
+
+- **WHEN** a hop's `Location` resolves to `https://user:secret@b.example/x` or to `file:///etc/passwd`
+- **THEN** the call fails with `invalid_redirect` before any request to that target
+- **AND** the error does not repeat the target
+
+#### Scenario: A relative Location is resolved and normalized before policy
+
+- **WHEN** `https://a.example/docs/start` answers 302 with `Location: ../Guide` and the `read` group allows `^https://a\.example/`
+- **THEN** policy evaluates `https://a.example/Guide` and the request targets that URL
+- **AND** `finalUrl` reports `https://a.example/Guide`
 
 #### Scenario: A hop to a private address is admitted by its text
 
@@ -445,7 +491,7 @@ promise that two reads of the same URL return the same text.
 #### Scenario: The result is the native object plus the web fields
 
 - **WHEN** a web read succeeds
-- **THEN** the result carries `content`, the range metadata, `path` as submitted, `finalUrl`, and `method`, with `notes` only when non-empty
+- **THEN** the result carries `content`, the range metadata, `path` as the locator with its selector stripped (as a local read reports it), `finalUrl`, and `method`, with `notes` only when non-empty
 - **AND** it carries no `url`, `contentType`, `markdownTokens`, leading text header, or frontmatter block
 
 #### Scenario: Selectors address the rendered text

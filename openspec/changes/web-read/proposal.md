@@ -24,14 +24,20 @@ converts HTML locally (peer survey in `design.md`). Issue #913.
   llms.txt suffix probe, a local Readability and Turndown render, an `llms.txt`
   walk only when that render fails the quality gate, then the raw body with a
   note. `:raw` returns the first response body untouched.
-- Redirects are followed on any host up to 20 hops; each hop's URL is
-  evaluated against the `read` group as if the model had submitted it. A
-  rejected hop ends the call with `permission_denied` naming the hop URL and
-  its body is never read; hop decisions are recorded with the call's decision
-  metadata at settlement. The result reports `finalUrl`, not the chain.
-- Bounds: 10 s to headers, 30 s per call across hops and probes, a 5 MiB
-  streamed body cap (`body_too_large`), no retries; 429 returns an error
-  carrying `Retry-After`, other non-2xx statuses an error naming the status.
+- Redirects are followed on any host, up to 20 per call; each hop's resolved
+  `Location` is evaluated against the `read` group as if the model had
+  submitted it. A rejected hop ends the call with `permission_denied`, the
+  fixed hop message, and the locator in a bounded `rejectedUrl` field; its
+  body is never read, and hop decisions reach the runner through the tool
+  context and are recorded with the call's decision metadata at settlement.
+  A hop with userinfo or a non-web scheme fails `invalid_redirect`. The
+  result reports `finalUrl`, not the chain.
+- Bounds: 10 s to headers (`headers_timeout`), 30 s per call
+  (`call_timeout`), a 5 MiB streamed body cap (`body_too_large`), at most 27
+  requests per call (`too_many_redirects` past 20 redirects), no retries.
+  A non-2xx first response or hop fails with `http_status` naming the
+  status (429 also carries `Retry-After`); a probe's failure only disqualifies
+  that candidate.
 - Text bodies only (`text/*`, JSON, XML, `+json`/`+xml`); anything else fails
   with `unsupported_content_type` naming the type.
 - Result: the native read object plus `finalUrl`, `method`, and `notes` when
@@ -92,22 +98,27 @@ second read. Four packages are new to `apps/api`: `@mozilla/readability`,
 master <- web-read/proposal <- web-read/fetch <- web-read/policy <- web-read/finalize
 ```
 
-- `proposal`: this ledger, design, and delta specs. About 1,400 authored
-  lines. Closes nothing.
-- `fetch` (~1,200 lines): locator, HTTP client with bounds and hop loop
-  (no per-hop policy yet), adapters and quality gate, result, `read.md`
-  description, unit and fixture-server tests. Closes nothing.
-- `policy` (~800 lines): per-hop evaluation and provenance, example rejects,
-  `docs/web-read.md`, changelog, README/AGENTS line. `Closes #913`.
+- `proposal`: this ledger, design, and the three delta specs. About 1,600
+  authored lines. Closes nothing.
+- `fetch` (~1,200 lines): locator, `read` admission on the allowlist, HTTP
+  client with bounds, adapters and quality gate, result, `read.md`
+  description, unit and fixture-server tests. A redirect status fails with
+  `http_status` in this layer, so `master` never carries unguarded hop
+  following between merges. Closes nothing.
+- `policy` (~800 lines): the hop loop with per-hop evaluation and
+  provenance, example rejects, `docs/web-read.md`, changelog, README/AGENTS
+  line. `Closes #913`.
 - `finalize`: spec sync and archive only.
 
 ## Impact
 
 `apps/api/src/tools/native-files.ts`, new `apps/api/src/tools/web-read/`
-modules, `apps/api/src/prompts/tools/read.md`, the permission evaluator and
-provenance path, `apps/api/llame.config.json.example`, `apps/api/package.json`,
-`docs/web-read.md`, `CHANGELOG.md`, `README.md`, `apps/api/AGENTS.md`. No
-migration, API surface, or schema change.
+modules, `apps/api/src/prompts/tools/read.md`, the candidate resolver in
+`apps/api/src/tools/turn-tool-catalog.ts`, the permission evaluator, the
+runner's tool context and settlement path, `apps/api/llame.config.json.example`
+with its mirror `apps/api/src/testing/portable-tool-policy.ts`,
+`apps/api/package.json`, `docs/web-read.md`, `CHANGELOG.md`, `README.md`,
+`apps/api/AGENTS.md`. No migration, API surface, or schema change.
 
 ## Acceptance
 
@@ -115,11 +126,13 @@ Each row is a delta-spec scenario; `tasks.md` names the owning layer.
 
 - `read https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/`
   returns `method: "negotiated"` after one request.
-- `read https://llmstxt.org/` returns a Readability render;
-  `read https://llmstxt.org/:raw` returns the HTML body.
-- A 302 to a host matched by a `read` reject ends with `permission_denied`
-  naming that URL, the target body is never read, and the hop decision is
-  recorded with the call's metadata.
+- `read https://llmstxt.org/` returns `method: "md-suffix"` (the site serves
+  `/index.md`); `read https://en.wikipedia.org/wiki/Llama` returns a
+  Readability render, and `read https://llmstxt.org/:raw` returns the HTML
+  body.
+- A 302 to a host matched by a `read` reject ends with `permission_denied`,
+  `rejectedUrl` naming that locator, the target body never read, and the hop
+  decision recorded with the call's metadata.
 - A `read` group whose only allow is
   `{ "field": "path", "regex": "^https://docs\\.example\\.com/" }` admits that
   host and rejects every other URL, local path, and `kb://` locator.

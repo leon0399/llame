@@ -10,9 +10,13 @@ return a web locator unchanged, and the evaluator SHALL apply no URL
 normalization, so host case, default ports, trailing slashes, and encoded
 versus literal spellings remain distinct values. Each followed redirect hop
 SHALL be evaluated against the `read` group as if the model had submitted the
-hop's absolute URL, through the same evaluator and the same projection, with
-no trusted context and no relaxation carried over from the admitted call or
-from an earlier hop.
+hop locator, which is the `Location` value resolved against the redirecting
+request's URL by the WHATWG URL parser and serialized as its `href`; the
+parser's serialization (lowercase host, default port dropped, empty path as
+`/`) is the text policy sees for a hop, and the evaluator itself still
+normalizes nothing. The hop is decided through the same evaluator and the
+same projection, with no trusted context and no relaxation carried over from
+the admitted call or from an earlier hop.
 
 Known incompatible code-owned fields SHALL fail configuration validation. If an exact MCP rule targets a field absent from or incompatible with its currently admitted input declaration, the call SHALL fail closed with a safe policy diagnostic, without changing tool visibility or silently dropping the clause. This applies to both allow and reject field clauses. No field semantics SHALL be inferred from arbitrary MCP names.
 
@@ -69,25 +73,28 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 Every newly evaluated call SHALL obtain a trusted decision before executor dispatch. Its owner-scoped tool activity and stored tool-part metadata SHALL record an opaque random policy-instance ID independent of policy contents, allow/reject decision, static reason, and bounded deterministic clause reference when one matched. No-match, invalid-field, and input-limit decisions SHALL use explicit static reasons. Policy bodies, matched fragments, and resolved config secrets SHALL NOT be included. The ID SHALL remain fixed within its executor process and be regenerated on restart, even with unchanged configuration. It SHALL NOT expose a deterministic digest of interpolated private values. The metadata SHALL be excluded from model replay, public shares, exports, and search.
 
 For a web read, every followed redirect hop SHALL be decided before its
-request is sent, and the hop decisions SHALL be recorded with the call's
-decision metadata when the tool call settles, in the same owner-scoped tool
-activity and the same stored tool-part metadata, each carrying the same
-policy-instance ID as the call decision, the hop's decision, its static
-reason, and a bounded deterministic clause reference when one matched. A call
-that never settles loses its hop records with its result. The existing
-`tool.requested` rule SHALL continue to cover the call decision rather than
-each hop record.
+request is sent. The executor SHALL hand each hop decision to the trusted
+runner through the tool context, never through the model-visible result, and
+the runner SHALL record the hop decisions with the call's decision metadata
+when the tool call settles, in the same owner-scoped tool activity and the
+same stored tool-part metadata, each carrying the same policy-instance ID as
+the call decision, the hop's decision, its static reason, and a bounded
+deterministic clause reference when one matched. A call that never settles
+loses its hop records with its result. The existing `tool.requested` rule
+SHALL continue to cover the call decision rather than each hop record.
 
 A rejected otherwise valid call SHALL return `status: "error"`, `type: "permission_denied"`, and the code-owned message selected by the static decision reason below. It SHALL produce no tool effect or native attempt, no automatic retry, no approval request, and no permission-caused Run termination. A redirect hop rejected after the call
 was admitted SHALL end that call before the hop's body is read, returning
-`status: "error"` and `type: "permission_denied"` with the hop message below
-naming the hop's URL, and SHALL produce no further request, no automatic
-retry, no approval request, and no permission-caused Run termination. The model SHALL observe the
+`status: "error"` and `type: "permission_denied"` with the fixed hop message
+below and a `rejectedUrl` result field carrying the hop locator bounded to
+2,048 characters with control characters removed, and SHALL produce no
+further request, no automatic retry, no approval request, and no
+permission-caused Run termination. The model SHALL observe the
 error and continue subject to existing Run limits. The decision SHALL be durably recorded on `tool.requested` before any `tool.started` event or executor dispatch, and carried through completion, abort settlement, and durable transcript reconstruction into stored tool-part metadata. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.
 
 The model-visible message SHALL use one of these fixed templates. It SHALL NOT interpolate rule text, matching fragments, field names, private paths, operator-authored explanations, clause references, policy IDs, or secret
-values, with one bounded exception: a hop rejection names the rejected hop's
-URL, which is the transport's own target rather than policy content. The static reason explanation is deliberately model-visible; the separate diagnostic metadata remains excluded from model context. These instructions guide model behavior and SHALL NOT be represented as an enforced sandbox or an equivalence detector. Every later submitted call still receives its own admission decision.
+values; the rejected hop locator travels in the separate `rejectedUrl` field,
+never inside the message. The static reason explanation is deliberately model-visible; the separate diagnostic metadata remains excluded from model context. These instructions guide model behavior and SHALL NOT be represented as an enforced sandbox or an equivalence detector. Every later submitted call still receives its own admission decision.
 
 #### Message for `explicit_reject`
 
@@ -116,7 +123,7 @@ Tool call rejected before execution by operator permissions. The submitted input
 #### Message for a rejected redirect hop
 
 ```text
-Tool call stopped by operator permissions. A redirect target was refused before its content was read: <hop URL>. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.
+Tool call stopped by operator permissions. A redirect target was refused before its content was read; the refused target is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.
 ```
 
 #### Scenario: Reject explains its effect without revealing policy
@@ -159,7 +166,7 @@ Tool call stopped by operator permissions. A redirect target was refused before 
 #### Scenario: A hop rejection is an error the model can continue from
 
 - **WHEN** a redirect hop is rejected during an admitted web read
-- **THEN** the call returns `status: "error"` and `type: "permission_denied"` with the fixed hop message naming the hop URL
+- **THEN** the call returns `status: "error"` and `type: "permission_denied"` with the fixed hop message and the hop locator in `rejectedUrl`, and the message itself contains no interpolated text
 - **AND** no further request, command, script, or agent retries that target, and the Run continues with other permitted work
 
 ### Requirement: Recommended portable policy with explicit replacement
