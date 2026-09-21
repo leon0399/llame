@@ -15,6 +15,11 @@ of that injection: the proposal branch exists before any change artifact is
 written, and the finalize branch exists before spec synchronization writes
 canonical specs.
 
+The checked-in workflows are generated with OpenSpec 1.13.1. Keep project
+policy in `openspec/config.yaml`, not in generated skills or commands. When
+upgrading the CLI, regenerate consumers and verify instruction delivery before
+relying on it; missing guidance or a successful command does not grant approval.
+
 ## Gates
 
 1. Features start with an issue and OpenSpec proposal.
@@ -135,6 +140,9 @@ has one sentence of ownership and an authored size estimated within the
 - final-layer spec-sync and archive-readiness tasks, and the `finalize` entry
   boundary before `$openspec-sync-specs` writes.
 
+For finalize, SR and GR are recorded as post-archive gates, not pre-archive
+checkbox tasks. All tracked tasks must be complete before archive movement.
+
 Do not create implementation branches before proposal approval.
 
 ### 3. Proposal review and approval
@@ -201,7 +209,7 @@ application fixes.
 2. Run `$openspec-archive-change` only after readiness is proved. Preserve
    checked task history; check MODIFIED requirements and cross-capability
    wording for semantic consistency, not just strict validation.
-3. Prove the layer with the Final OpenSpec and Any change rows in
+3. Prove the layer with the Final OpenSpec, Product Markdown, and Any change rows in
    [Verification](#verification), then publish the finalize PR as draft with
    `$gh-stack`. Its SR and GR are post-archive gates: after archive movement,
    self-review the actual diff, mark ready, and run the
