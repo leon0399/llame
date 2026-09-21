@@ -1,19 +1,147 @@
 schema: spec-driven
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+context: |
+  llame is a personal-first meta-harness; preserve Chat/Run ownership,
+  tenant isolation, durable history, and fail-closed authorization.
+  Read CONTRIBUTING.md for approval, publication, Project tracking, CI,
+  monitoring, and merge policy; CODING_STANDARDS.md for implementation scope;
+  REVIEW_GUIDE.md for review; docs/testing.md for the correct proof surface.
+  SPEC.md owns architecture; openspec/specs owns shipped capability behavior.
+  Artifact readiness and checked tasks never confer approval or permission.
+
+rules:
+  proposal:
+    - >-
+      Confirm the proposal branch was initialized with $gh-stack before any
+      change artifacts were written. Read the issue, native dependencies,
+      relevant specs, code, and prior decisions before proposing scope.
+    - >-
+      Capture sourced intent, observable acceptance, non-goals, assumptions,
+      and unresolved decisions in the proposal; link raw evidence instead of
+      duplicating a separate intent document. Never invent metrics or authority.
+    - >-
+      Keep implementation out of the proposal layer. Commit the initial draft,
+      use $iterative-review-refinement, retain separate review revisions, and
+      obtain approval of the published revision per CONTRIBUTING.md.
+  specs:
+    - >-
+      Specify observable outcomes and failure boundaries, including negative
+      isolation scenarios for data/auth/tenancy. Preserve complete MODIFIED
+      requirements and existing scenarios; keep implementation details in design.
+    - >-
+      Identify how each changed contract can be falsified by a focused check.
+      Distinguish deterministic safety tests from model-quality evaluations.
+  design:
+    - >-
+      Reuse repository, platform, and installed dependency capabilities first.
+      Cite inspected versions and relevant prior art. Resolve contract-shaping
+      uncertainty with a bounded spike before committing the dependent design.
+    - >-
+      Compare the smallest complete design with alternatives; justify new
+      dependencies and abstractions against CODING_STANDARDS.md. State threats,
+      rollout and rollback constraints when the change touches durable data or APIs.
+    - >-
+      Define independent work ownership and interfaces before delegation.
+      Keep shared-file integration with one owner; parallel execution does not
+      relax the linear delivery stack or approval boundaries.
+  tasks:
+    - >-
+      Plan one linear stack: master <- <change>/proposal <- implementation
+      layers <- <change>/finalize. Use $gh-stack and $openspec-apply-change.
+      Give each layer its exact branch, parent, one-sentence ownership,
+      estimated changed lines, exit evidence, and issue-closing responsibility.
+    - >-
+      Budget at most about 2,000 authored added-plus-deleted lines per layer
+      against its immediate parent, not master. Include tests, specs, docs, and
+      mechanical codemods. Reproducible generated files count zero toward this
+      quota: Drizzle metadata snapshots, generated OpenAPI/clients, lockfiles,
+      and equivalent outputs. Report their churn separately from authored size.
+      Generated does not mean unreviewed: verify regeneration and migration
+      safety; count hand-authored SQL/security steps. Measure pure moves with
+      rename detection, not deletion plus recreation. Split by coherent
+      responsibility, never separate a change from its required tests or safety.
+      Request an explicit exception before publishing an oversized layer.
+    - >-
+      Assign each checkbox to exactly one layer and state its observable proof.
+      Keep tasks bounded; link scenarios rather than copying the spec.
+      Separate focused local checks from full published-head CI evidence.
+    - >-
+      Give every layer separate self-review-before-ready and GitHub-bot-review
+      checkpoints. Review the actual parent-relative draft PR diff, optionally
+      using independent subagents for nontrivial or high-risk concerns; resolve
+      findings before draft -> ready. GitHub bots and current-head CI then run
+      the external review loop. For finalize, both checkpoints follow archive
+      movement as post-archive gates, not pre-archive checklist prerequisites.
+    - >-
+      The functionality-completing implementation layer owns Closes #N.
+      Every layer that ships work owns its relevant operator docs, dated
+      CHANGELOG.md entry, and completed ROADMAP.md removals. Finalize owns
+      only spec synchronization, task records, and archive movement.
+    - >-
+      Include final-layer spec-sync and archive-readiness tasks. Require entry
+      to <change>/finalize with $gh-stack before $openspec-sync-specs writes.
+      Archive execution and post-archive publication/monitoring/merge follow
+      readiness; they are not unchecked prerequisites of their own execution.
+
+operations:
+  apply:
+    guidance:
+      - >-
+        Read the approved revision and native blockers; ready is not approved.
+        Use $gh-stack to confirm the owning layer and immediate base, then
+        create only the next authorized layer after proposal approval.
+      - >-
+        Execute only this layer's tasks. Preserve each required negative test
+        and verify observable behavior before checking a task. Stop at the
+        layer boundary for CONTRIBUTING.md publication, review, and CI gates.
+      - >-
+        Check the parent-relative authored diff against the approximately
+        2,000-line budget before it outgrows the planned concern. Replan or
+        request an exception; never solve sizing by hiding generated churn.
+      - >-
+        Use $gh-stack to repair lower-layer defects on their owning branch,
+        replay the stack upward, and return to the current layer.
+        Push only within the user's existing publication authorization; this
+        adds no new per-push approval ritual. Never repair a lower concern in
+        the top PR. Every non-draft fix push restarts the monitoring loop.
+      - >-
+        Use $gh-stack to publish or refresh the draft within publication
+        authorization. Before draft -> ready, self-review its actual
+        parent-relative diff against REVIEW_GUIDE.md; use independent subagents
+        where they add coverage. Verify findings, fix accepted ones, rerun affected
+        checks, and re-review before marking ready. Self-review never replaces bots.
+      - >-
+        After ready, the configured/requested GitHub review bots power the
+        external review loop. Follow CONTRIBUTING.md for current-head CI,
+        reviewer completion, the monitoring floor, finding dispositions, and
+        Project field readback. Re-review fixes locally and restart monitoring
+        after each non-draft push; never toggle draft state to retrigger bots.
+      - >-
+        If implementation invalidates approved scope, stop dependent work.
+        Revise the owning unmerged planning layer and replay upward; if it
+        already merged, publish a separate proposal amendment against master
+        and obtain its approval before resuming the dependent stack.
+        Obtain revised published approval; never rewrite merged history.
+        Keep verified task checkoffs in their implementing layer.
+  archive:
+    guidance:
+      - >-
+        Confirm implementation layers passed their delivery gates and verify
+        the owning <change>/finalize branch before synchronization or movement.
+        The entry precondition belongs in CONTRIBUTING.md and the task plan,
+        because this archive lookup may occur after a separate sync invocation.
+        Never put application fixes here.
+      - >-
+        Run $openspec-sync-specs, verify all planning artifacts and tracked
+        pre-archive tasks are complete, and validate --specs and --all --strict.
+        Do not use a warning override to bypass incomplete work or unsynced specs.
+      - >-
+        Archive only after readiness is proved; preserve checked history and
+        verify the moved record. Use $gh-stack to publish the authorized draft,
+        self-review its actual diff before ready, then complete the GitHub-bot
+        review/CI loop and Project updates per CONTRIBUTING.md. Use $gh-stack
+        for merging only after explicit authorization.
+      - >-
+        Record evidence of any rollout actually performed; do not equate merge
+        with deployment. Turn a recurring verified failure into one narrowly
+        owned rule, skill improvement, regression/eval case, or follow-up issue.

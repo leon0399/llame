@@ -8,17 +8,50 @@ implementation details.
 `.claude/skills`, `.opencode/skills`, `.codex/skills` — symlinks the skills it
 loads, so a clone carries every skill this file asks you to run.
 
+OpenSpec injects per-phase delivery reminders from `openspec/config.yaml`
+(`context`, `rules`, `operations`) into its skills. This file owns the
+human-readable policy and the two ordering preconditions that hold regardless
+of that injection: the proposal branch exists before any change artifact is
+written, and the finalize branch exists before spec synchronization writes
+canonical specs.
+
+Use the canonical OpenSpec skills through the harness skill directories;
+separate OpenSpec command files are not maintained. The current skills are
+based on OpenSpec 1.13.1, with a repository-owned archive-readiness guard:
+incomplete artifacts, unchecked tasks, and unsynced deltas block archival.
+Keep that guard when adopting upstream changes. Delivery policy belongs in
+`openspec/config.yaml`; compare upstream workflows in a temporary project
+before upgrading. Missing guidance or a successful command does not grant
+approval.
+
 ## Gates
 
 1. Features start with an issue and OpenSpec proposal.
 2. Implementation waits for proposal approval.
 3. Feature work is a linear stack: proposal, implementation layer(s), finalize.
-4. Every PR is reviewable, verified, self-reviewed, and monitored.
+4. Every PR is reviewable, verified, self-reviewed before ready, and monitored.
 5. Merge requires Leo's explicit permission.
 
 Bug fixes and chores may skip OpenSpec only when they do not change a product
-contract. Use an issue whenever scope, acceptance, or follow-up ownership would
-otherwise be implicit.
+contract; the [review budget](#review-budget) still applies to them. Use an
+issue whenever scope, acceptance, or follow-up ownership would otherwise be
+implicit.
+
+## Review budget
+
+Plan and review each layer within about 2,000 **authored** added-plus-deleted
+lines against its immediate parent, not `master`. Tests, specs, docs, and
+mechanical codemods count as authored. Reproducible generated output counts
+zero — Drizzle metadata snapshots, generated OpenAPI documents and clients,
+lockfiles, and equivalent outputs — but report its churn separately, and still
+verify regeneration, migration safety, and any hand-authored SQL or security
+step. Use rename detection for pure moves.
+
+The budget covers every PR, including proposal, finalize, and chores that skip
+OpenSpec. Re-estimate at each layer boundary and before publication. Split a
+growing concern, or request a named exception with its reason and evidence
+before publishing an oversized layer; never split an atomic safety invariant to
+satisfy the number.
 
 ## Project tracking
 
@@ -70,6 +103,12 @@ files or issue bodies. OpenSpec checkboxes continue to record completed tasks.
 
 ## Feature delivery
 
+Run stack operations through `$gh-stack`; it owns command syntax and failure
+recovery. OpenSpec injects the per-phase reminders from `openspec/config.yaml`
+into `$openspec-propose`, `$openspec-apply-change`, `$openspec-sync-specs`, and
+`$openspec-archive-change`. This section owns the policy and phase ordering
+those reminders cannot enforce.
+
 ### 1. Issue and evidence
 
 Before editing, read the issue, dependencies, current code, shipped specs,
@@ -84,30 +123,29 @@ that layer remains required delivery work after the feature issue closes.
 
 ### 2. Proposal layer
 
-From current `master`, before writing files:
-
-```bash
-git config rerere.enabled true
-git config remote.pushDefault origin
-gh stack init <change>/proposal
-gh stack view --json
-```
-
-Run `$openspec-propose`. The proposal branch owns only `proposal.md`,
-`design.md`, delta specs, and `tasks.md`.
+Create `<change>/proposal` from current `master` with `$gh-stack` **before**
+`$openspec-propose` writes any file: injected artifact rules arrive too late to
+own that ordering. Run `$openspec-propose`; the proposal branch owns only
+`proposal.md`, `design.md`, delta specs, and `tasks.md`.
 
 ```text
 master <- <change>/proposal <- <change>/<implementation> <- <change>/finalize
 ```
 
 Split implementation by dependency and reviewable responsibility. Each layer
-has one sentence of ownership. `tasks.md` must contain:
+has one sentence of ownership and an authored size estimated within the
+[review budget](#review-budget). `tasks.md` must contain:
 
 - the exact delivery stack;
 - `$gh-stack` and `$openspec-apply-change` requirements;
 - every task assigned to one layer with focused verification;
 - `- [ ]` tracking and the issue-closing owner;
-- final-layer sync and archive tasks.
+- a self-review-before-ready checkpoint and a GitHub review/CI gate per layer;
+- final-layer spec-sync and archive-readiness tasks, and the `finalize` entry
+  boundary before `$openspec-sync-specs` writes.
+
+For finalize, SR and GR are recorded as post-archive gates, not pre-archive
+checkbox tasks. All tracked tasks must be complete before archive movement.
 
 Do not create implementation branches before proposal approval.
 
@@ -122,23 +160,14 @@ Do not create implementation branches before proposal approval.
 5. Surface changed decisions, rejected findings, and uncertainty to Leo.
 6. Obtain Leo's explicit approval of the final revision.
 
-Then run:
+Then prove the proposal layer with the [Verification](#verification) rows for
+OpenSpec proposal, Product Markdown, and Any change; commit only proposal-owned
+files.
 
-```bash
-pnpm exec openspec validate <change> --strict
-pnpm lint:markdown
-pnpm format:check
-git diff --check
-```
-
-After publication approval, submit the draft stack, inspect the generated PR,
-self-review its actual diff, fix with new commits, and mark it ready:
-
-```bash
-gh stack submit --auto
-gh stack view --json
-gh pr ready <proposal-pr>
-```
+After publication approval, publish the draft stack with `$gh-stack`, inspect
+the generated PR, complete self-review (SR) of its actual diff per
+[PR contract](#pr-contract), fix with new commits, and mark it ready for the
+GitHub review (GR) loop.
 
 Publication approval and proposal approval are distinct. A proposal committed
 to `master` is approved; carry that decision forward. Before it lands on
@@ -148,87 +177,86 @@ suffices. A local commit on a proposal branch alone is not approval.
 
 ### 4. Implementation layers
 
-After proposal approval, create only the next layer:
-
-```bash
-gh stack add <change>/<layer>
-```
+After proposal approval, create only the next layer with `$gh-stack` from the
+current stack top.
 
 For each layer:
 
 1. Run `$openspec-apply-change`; implement only this layer's assigned tasks.
 2. Verify each task, then change its checkbox to `- [x]` in the same layer.
 3. Commit only the owned concern and task records.
-4. Publish/refresh with `gh stack submit --auto`; keep new PRs draft until the
-   gates below pass.
-5. Update the PR body, mark ready, run the monitoring loop, then add the next
-   layer.
+4. Publish/refresh the draft with `$gh-stack`; new PRs stay draft until SR
+   completes.
+5. Complete SR, update the PR body, mark ready, run the GR/monitoring loop, then
+   add the next layer.
 
-The PR that ships work adds its dated `CHANGELOG.md` entry and removes any
-completed `ROADMAP.md` item. Unplanned fixes/chores go directly to the changelog.
+The PR that ships work adds its relevant operator documentation, dated
+`CHANGELOG.md` entry, and completed `ROADMAP.md` removals. Unplanned
+fixes/chores go directly to the changelog.
 
-Fix a lower-layer defect on its owning branch, then replay upward:
-
-```bash
-gh stack checkout <owning-branch>
-gh stack rebase --upstack
-gh stack top
-gh stack push
-```
+Fix a lower-layer defect on its owning branch with `$gh-stack` and replay the
+stack upward; never repair a lower concern in the top PR.
 
 ### 5. Finalize
 
-After every implementation layer is published, verified, and checked:
+After every implementation layer is published, verified, and checked, enter
+`<change>/finalize` from the implementation top with `$gh-stack`. Do this
+**before** `$openspec-sync-specs` writes canonical specs: a separate sync
+invocation can run before archive guidance is read. The finalize layer owns
+only spec synchronization, task records, and archive movement — never
+application fixes.
 
-```bash
-gh stack add <change>/finalize
-```
-
-Run `$openspec-sync-specs`. Then inspect
-`openspec status --change <change> --json` and `tasks.md`; stop on any incomplete
-artifact or unchecked task. Run `$openspec-archive-change` only after both are
-complete. Preserve checked task history. This layer contains only spec sync,
-task records, and archive movement, never application fixes.
-
-```bash
-pnpm exec openspec validate --specs --strict
-pnpm exec openspec validate --all --strict
-pnpm lint:markdown
-pnpm format:check
-git diff --check
-```
+1. Run `$openspec-sync-specs`. Inspect
+   `openspec status --change <change> --json` and `tasks.md`, and complete the
+   layer's spec-sync and archive-readiness tasks. Stop on any incomplete
+   artifact or unchecked task.
+2. Run `$openspec-archive-change` only after readiness is proved. Preserve
+   checked task history; check MODIFIED requirements and cross-capability
+   wording for semantic consistency, not just strict validation.
+3. Prove the layer with the Final OpenSpec, Product Markdown, and Any change rows in
+   [Verification](#verification), then publish the finalize PR as draft with
+   `$gh-stack`. Its SR and GR are post-archive gates: after archive movement,
+   self-review the actual diff, mark ready, and run the
+   [Ready-PR monitoring](#ready-pr-monitoring) loop. Readiness gates movement;
+   movement gates publication, review, and merge — never the reverse.
+4. Merge only under [Merge](#merge).
 
 ## Verification
 
 CI is the ground for full verification. The table below names the evidence a
-change carries; CI produces all of it on every push. Do not reproduce the full
-sweeps locally — the whole unit or integration project, product E2E, component
-tests, the aggregate build, mutation testing. Run the narrowest command that
-covers the surface you changed: a focused test file, the workspace lint and
-typecheck, `git diff --check`; add `pnpm lint:markdown` and the strict OpenSpec
-validation for Markdown and spec edits.
+change carries; CI owns the full suites and runs the rows it covers on every
+push. Do not reproduce the full sweeps locally — the whole unit or integration
+project, product E2E, component tests, the aggregate build, mutation testing.
+Run the narrowest command that covers the surface you changed: a focused test
+file, the workspace lint and typecheck, `git diff --check`; add
+`pnpm lint:markdown` and the strict OpenSpec validation for Markdown and spec
+edits. Prove each phase with its rows before publishing: OpenSpec proposal for
+the proposal layer, Final OpenSpec for finalize, plus Product Markdown and Any
+change as they apply.
 
-Only CI's result on the published head gates a merge. A local green is not a
-substitute for it, and no row may be claimed as passed until CI reports it. Run
-a broader row locally only where CI cannot cover it — an environment it does not
-provide, or a failure it cannot attribute.
+Those narrow local commands are the pre-publication proof for those rows — the
+strict OpenSpec validation is local-only, since CI has no OpenSpec CLI. Only
+CI's result on the published head gates a merge for the rows CI covers; a local
+green is not a substitute for that result. Run a broader row locally only where
+CI cannot cover it — an environment it does not provide, or a failure it cannot
+attribute.
 
 Narrow evidence cannot support a broader claim.
 
-| Surface                | Evidence                                                        |
-| ---------------------- | --------------------------------------------------------------- |
-| Any change             | `pnpm format:check`; `git diff --check`                         |
-| Product Markdown       | `pnpm lint:markdown`                                            |
-| OpenSpec proposal      | `pnpm exec openspec validate <change> --strict`                 |
-| Workspace TypeScript   | affected `lint`, `typecheck`, and `test:coverage` when defined  |
-| Root TypeScript        | `pnpm lint`; focused E2E if behavior changed                    |
-| Buildable workspace    | `pnpm --filter <workspace> build`                               |
-| API DB/tenancy         | API integration suite plus negative isolation coverage          |
-| API/generated client   | OpenAPI lint, regeneration, second-generation clean diff        |
-| Shared UI/stories      | Storybook MCP tests and previews; CLI fallback if unavailable   |
-| Cross-surface behavior | focused product E2E                                             |
-| GitHub Actions         | `actionlint`; `zizmor .github/workflows/`; `pinact run --check` |
-| Final OpenSpec         | strict `--specs` and `--all` validation                         |
+| Surface                | Evidence                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------- |
+| Any change             | `pnpm format:check`; `git diff --check`                                                      |
+| Product Markdown       | `pnpm lint:markdown`                                                                         |
+| OpenSpec proposal      | `pnpm exec openspec validate <change> --strict`                                              |
+| Workspace TypeScript   | affected `lint`, `typecheck`, and `test:coverage` when defined                               |
+| Root TypeScript        | `pnpm lint`; focused E2E if behavior changed                                                 |
+| Buildable workspace    | `pnpm --filter <workspace> build`                                                            |
+| API DB/tenancy         | API integration suite plus negative isolation coverage                                       |
+| API/generated client   | OpenAPI lint, regeneration, second-generation clean diff                                     |
+| Shared UI/stories      | Storybook MCP tests and previews; CLI fallback if unavailable                                |
+| Cross-surface behavior | focused product E2E                                                                          |
+| GitHub Actions         | `actionlint`; `zizmor .github/workflows/`; `pinact run --check`                              |
+| Final OpenSpec         | `pnpm exec openspec validate --specs --strict`; `pnpm exec openspec validate --all --strict` |
 
 Use `pnpm exec turbo run build --concurrency=1` only when aggregate build
 evidence is necessary. Never run unbounded `pnpm build`. Report environment
@@ -236,15 +264,25 @@ failures separately from repository defects.
 
 ## PR contract
 
-Confirm every PR's immediate base and ownership with `gh stack view --json`.
-Its body contains the one concern, issues served, stack position, and commands
-actually run. Use `Closes #N` only for completed issues. Do not add a `Test
-plan` section or mention agent tooling unless asked.
+Confirm every PR's immediate base and ownership with `$gh-stack`. Its body
+contains the one concern, issues served, stack position, and commands actually
+run. Use `Closes #N` only for completed issues. Do not add a `Test plan`
+section or mention agent tooling unless asked.
 
-Before ready review or after a ready-state push, review the layer diff for
-correctness, unnecessary complexity, security where applicable, and
-domain-specific traps. Verify findings independently, fix accepted ones, explain
-rejections with evidence, and rerun affected checks.
+Every layer has two separate review checkpoints:
+
+- **Self-review (SR), before draft -> ready.** The author reviews the actual
+  parent-relative diff against [REVIEW_GUIDE.md](REVIEW_GUIDE.md) and the
+  approved scope while the PR is draft. Independent subagents may cover
+  nontrivial or high-risk concerns; they never replace GitHub review. Verify
+  every finding independently, fix accepted ones, rerun affected checks, and
+  re-review before marking ready.
+- **GitHub review (GR), after ready.** The configured/requested GitHub review
+  bots and current-head CI power the external loop; a local reviewer or
+  subagent never substitutes for an expected bot. For every non-draft fix push,
+  self-review the changed diff and rerun affected checks locally before
+  pushing, then restart [Ready-PR monitoring](#ready-pr-monitoring). Never
+  toggle draft state to retrigger reviews.
 
 ## Ready-PR monitoring
 
@@ -280,10 +318,5 @@ skipped does not keep the loop open. Pending or unknown state extends the loop.
 ## Merge
 
 Immediately recheck CI, approvals, threads, base, and stack. Then obtain Leo's
-explicit permission. Merge a stack only with:
-
-```bash
-gh stack merge <target> --yes
-```
-
-Never use `gh pr merge` on a stack or delete an intermediate branch manually.
+explicit permission. Merge stacks only through `$gh-stack`; `gh pr merge` cannot
+merge a stack, and intermediate branches are never deleted manually.
