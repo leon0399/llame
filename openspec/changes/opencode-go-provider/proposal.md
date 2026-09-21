@@ -17,8 +17,9 @@ implements issue #809.
 
 The same gap covers every other provider: no llame client identifies llame.
 Each adapter appends its own token to an absent `User-Agent`
-(`@ai-sdk/provider-utils` `withUserAgentSuffix`, `dist/index.js:884-892`, called
-by the Responses, Messages, and Chat Completions adapters), so llame presents
+(`@ai-sdk/provider-utils` `withUserAgentSuffix`, `dist/index.js:884-892` in the
+copy the Responses and Messages adapters resolve, `:914-922` in the copy the
+Chat Completions adapter resolves), so llame presents
 today as the bare SDK, which Go's documentation explicitly asks clients not to
 do.
 
@@ -59,7 +60,7 @@ do.
   `/responses` are not wired in this change.
 - Report Go failures exactly as the Chat Completions module reports every
   compatible endpoint's: the gateway's parsed error message is the run's
-  failure, after the SDK's own retries; the raw body, headers, request values,
+  failure, after the SDK's own retries; the failure body, its headers, the request body,
   and credential never reach owners or logs. No boot-time eligibility check, no
   compiled model or route table, no Go-specific classification or sanitizer,
   no typed quota error, no quota ledger. The accepted upstream shapes (a
@@ -71,12 +72,12 @@ do.
   Codex precedent. An operator-declared price is llame's own accounting of a
   subscription quota, which the runbook says plainly.
 - Ship an example configuration with two chat-accepted models and a runbook
-  that records the route ceiling, the two misreported failures, the per-model
+  that records the route ceiling, the accepted upstream failure shapes, the per-model
   privacy divergence, the quota windows, and the upstream "Use balance" toggle
   llame cannot observe or set.
 
-No configuration becomes invalid: the provider type is additive, the two new
-client config fields are optional, and an entry that sets neither sends the
+No configuration becomes invalid: the provider type is additive, the new
+client config fields are optional, and an entry that sets none of them sends the
 bodies it sends today. The one observable change for existing providers is the
 `User-Agent` on every request. The `chat` field is
 required on the input contract, which is an internal seam with no operator
@@ -92,8 +93,8 @@ already serves. No new dependency: the Chat Completions adapter
 - `opencode-go-provider`: what the fixed Go transport adds on top of the shared
   contracts — the key-only entry and fixed destination, the session identity on
   every request including auxiliary calls, client self-identification, the
-  absence of client-side cache control, the failure boundary with its two
-  accepted misreports, unknown cost unless declared, and the operator runbook.
+  absence of client-side cache control, the failure boundary with its accepted
+  upstream shapes, unknown cost unless declared, and the operator runbook.
   Named after the provider type it specifies, as `anthropic-messages-provider`
   is; `subscription-access-openai-codex` is the older, differently named
   sibling for the subscription transport.
@@ -177,7 +178,7 @@ already serves. No new dependency: the Chat Completions adapter
   `openai-completions-model-client.ts` (optional `provider` name, optional
   fixed `headers`, an optional per-request session-header renderer, and
   per-call headers on both its streaming and structured requests),
-  `openai-model-client.ts` (per-call headers on the structured path;
+  `openai-model-client.ts` (per-call headers on both paths;
   `generateToolBoundObject` carries `headers`), `anthropic-model-client.ts`
   (per-call headers on both paths), and a version read in
   `apps/api/src/instance-config/` that fails boot as an `InstanceConfigError`
@@ -188,7 +189,8 @@ already serves. No new dependency: the Chat Completions adapter
   `apps/api/src/titles/title.service.ts` (both the structured and the text
   title paths).
 - `apps/api/llame.config.json.example`, `docs/opencode-go.md`, the README
-  provider section, the `apps/api/AGENTS.md` wire matrix, and `CHANGELOG.md`.
+  provider section, the `apps/api/AGENTS.md` wire matrix, `docs/scaling.md`
+  (the manifest must sit beside `dist/`), and `CHANGELOG.md`.
 - Focused configuration, dispatch, header-rendering, and call-site tests, plus
   one bounded live proof recorded in the change directory.
 - No database migration, no new dependency, and no `models[]` schema change.

@@ -199,7 +199,10 @@ The composed client reports itself as `opencode-go`, not as
 `provider` override the Responses client already exposes for the Codex
 transport (`openai-model-client.ts:398-404`, used at
 `openai-codex-model-client.ts:100`), and the module passes that name to
-`createOpenAICompatible({ name })` as well. Two things follow from the adapter
+`createOpenAICompatible({ name })` and derives the composition key of
+`completionsProviderOptions` from it (today hardcoded as `openaiCompletions`,
+`openai-completions-model-client.ts:86-96`), so the operator's options are
+wrapped under the key the adapter will read. Two things follow from the adapter
 and are contract, not accident. Telemetry, run events, and model metadata carry
 `provider: "opencode-go"`, as Codex runs carry `openai-codex`. And the operator's
 `models[].providerOptions` are composed under the namespace the adapter derives
@@ -210,9 +213,12 @@ provider options are forwarded under a fixed precedence" already says: the
 namespace of the adapter the provider `type` selects.
 
 The Go module also installs the redirect-rejecting `fetch` the Codex transport
-uses (`openai-codex-model-client.ts:33-36`): a redirect off the fixed endpoint
-would otherwise carry the credential and the session header to wherever it
-pointed, and `createOpenAICompatible` accepts a `fetch` for exactly this.
+uses (`openai-codex-model-client.ts:33-36`, exported for reuse rather than
+duplicated): a followed redirect off the fixed endpoint would carry the
+session header and the whole request body, and on a same-origin hop the
+credential as well, to wherever it pointed; `createOpenAICompatible` accepts a
+`fetch` for exactly this, and under `redirect: 'manual'` the 3xx itself comes
+back as a non-retryable failure with no second request.
 
 Rejected:
 
@@ -244,7 +250,11 @@ no fallback is needed and a fallback would be a bug hider. It is
 transport-neutral because the same fact has several future consumers, listed as
 evidence rather than scope: the OpenAI Responses `promptCacheKey` body option,
 the Codex `session-id` header, the generic `X-Session-Id` (#881), and child
-agents (`parentId`). Only the Go client renders it today.
+agents (`parentId`). Only the Go client renders it today. One latent surface
+is recorded: the AI SDK exports per-call headers as span attributes when
+`experimental_telemetry` is enabled (`ai/dist/index.js:2411-2449`); llame
+never enables it, and a later telemetry change must keep the identity out of
+exported attributes.
 
 Rejected:
 
@@ -278,8 +288,8 @@ hand and nothing else in common.
 Consequence to hold onto: sending the Chat id to third parties (the gateway
 forwards its `x-opencode-*` headers upstream) makes "chat ids are unguessable"
 permanently unavailable as a security assumption. Nothing shipped relies on it
-today: public share links exist (`GET /shared/chats/:id`,
-`apps/api/src/chats/chats.service.ts:383-437`) and are gated by the explicit
+today: public share links exist (`GET /shared/chats/:id`, `getSharedChat` at
+`apps/api/src/chats/chats.service.ts:317-347`) and are gated by the explicit
 `visibility = 'public'` flag under RLS
 (`chats-repository.ts:517-531`), never by the id being secret, and a
 non-public or absent chat answers 404 either way. Any later feature that would
@@ -370,14 +380,16 @@ client sends one (goose, which Go does not list, sends none). The
 change is made for all clients rather than only Go because it is one fact about
 llame, and a per-type switch would be the second convention.
 
-Recorded fact: after llame's token, core and the adapters append their own
-(`withUserAgentSuffix` joins every supplied part), so the observed wire value on
-the Chat Completions wire is
-`llame/<version> ai-sdk/openai-compatible/<version> ai-sdk/provider-utils/<version> runtime/node.js/<major>`,
-with `ai/<version>` added on structured requests. The requirement is therefore
-stated against what llame controls: the value begins with llame's product token
-and version and is never the SDK's identifier alone; the trailing tokens are
-unconstrained.
+Recorded fact: a per-call `User-Agent` supersedes the adapter's provider-level
+one (`combineHeaders` puts the per-call object last, and `normalizeHeaders`
+lowercases both onto one key), so the adapter's own
+`ai-sdk/<adapter>/<version>` token never reaches the wire; what follows llame's
+token is whatever `postToApi` and core append (`ai-sdk/provider-utils/<version>`,
+`runtime/node.js/<major>`, and `ai/<version>` on structured requests). The
+per-call key is written lowercase, `user-agent`, so it replaces rather than
+duplicates. The requirement is therefore stated against what llame controls:
+the value begins with llame's product token and version and is never the SDK's
+identifier alone; every trailing token is unconstrained.
 
 Not sent: `x-opencode-request` (a message id llame would have to define a
 meaning for), `x-opencode-project` (llame has Projects, and the grouping
@@ -408,15 +420,23 @@ Completions module's existing failure contract, exactly as it does for an
 
 What that contract is, stated so the runbook and the tests say the same thing:
 the adapter parses the gateway's error envelope and makes `error.message` the
-error's message (`@ai-sdk/openai-compatible/dist/index.js:49-62`); the run
+error's message (`@ai-sdk/openai-compatible/dist/index.js:62-65`); the run
 loop records that message as the run's failure and shows it to the owner
 (`run-execution.service.ts:1280-1285`, `:1315-1323`), and logs the error's
-stack. The raw response body, the response headers, the request values, and the
-credential never reach owner output, the persisted run, or the log line: the
-adapter attaches them to the `APICallError` object, not to its message or
-stack. The gateway's `metadata` on a 429 (`workspace`, `limitName`) is stripped
-by the adapter's envelope schema and is not part of `error.message`, so it does
-not reach owners today; the focused test in the go-provider layer pins that.
+stack (`:1245-1248`). The failure response's body and headers, the request
+body, and the credential never reach owner output, the persisted run, or the
+log line: the adapter attaches the first three to the `APICallError` object,
+not to its message or stack, and never attaches request headers at all. A
+failure body that is not the gateway's envelope (an edge proxy's HTML, an
+empty body) yields the HTTP status text as the message, with the body left on
+the error object. The gateway's `metadata` on a 429 (`workspace`, `limitName`)
+is stripped by the adapter's envelope schema and is not part of
+`error.message`, so it does not reach owners today; the focused test in the
+go-provider layer pins that. One bounded exception, identical for every Chat
+Completions entry: a stream chunk the adapter cannot parse surfaces as the
+SDK's parse error, whose message quotes that one chunk. The parsed message
+itself may echo request values the gateway chose to name, such as the model
+id in "not supported for format".
 The SDK's own retry applies as it does everywhere: a 429 is retryable, so the
 request is attempted up to `maxRetries + 1` times with backoff before the
 `RetryError` carrying the last message surfaces; a 401 is not retried.
@@ -452,8 +472,10 @@ for format oa-compat"}}` (or `"Model <id> is not supported"`). The owner sees
   required; it is recorded only so the runbook can name it when a hand-made
   request is being debugged.
 - Gateway message text about the operator's subscription is shown to whichever
-  owner's run failed. It is not a credential and names no workspace; it is the
-  same exposure every `openai-completions` entry has today.
+  owner's run failed. It is not a credential; the `metadata` object that names
+  the workspace is stripped, and whether the message text itself names one is
+  unverified here and recorded by the live proof. It is the same exposure every
+  `openai-completions` entry has today.
 
 Rejected:
 
@@ -762,3 +784,20 @@ no chat history needs reprocessing.
   the design's. Rejected: a Go-specific status-keyed sanitizer (would hide the
   one message the operator needs); a title lane rendered as a prefix (the
   suffix is the chosen shape and the effect is bounded).
+- v3 (2026-09-21): Review round 2 (two independent reviewers; convergence
+  check). Accepted: the recorded `User-Agent` wire value is corrected, since a
+  per-call value supersedes the adapter's provider-level token, and the
+  acceptance criterion constrains only llame's leading token; the completions
+  client's `providerOptions` composition key follows the configured provider
+  name (D2) so a Go entry's options are not silently dropped; the failure
+  contract names what it bounds (the failure response's body and headers, the
+  request body, the credential), the status-text fallback for a non-envelope
+  body, the one-chunk parse-error exception, and that the parsed message may
+  echo request values the gateway names; "names no workspace" is hedged and
+  handed to the live proof; the redirect rationale is restated (session header
+  and request body follow a redirect; the credential on a same-origin hop) and
+  the helper is exported rather than duplicated; `docs/scaling.md` gains the
+  manifest-beside-`dist/` prerequisite; the latent `experimental_telemetry`
+  header export is recorded under D3; stale "two misreports" counts and
+  citations are corrected. No round-1 finding regressed; no new blocking or
+  structural finding.

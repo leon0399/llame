@@ -8,7 +8,7 @@ owned by `provider-api-selection` and `instance-config`; this capability
 specifies only what the Go gateway adds: a fixed destination for a key-only
 entry, the conversation identity every request must carry including auxiliary
 calls, client self-identification, the absence of client-side cache control,
-the failure boundary with its accepted upstream misreports, unknown cost unless
+the failure boundary with its accepted upstream shapes, unknown cost unless
 the operator declares pricing, and the operator runbook.
 
 ## ADDED Requirements
@@ -171,9 +171,13 @@ The provider SHALL surface the gateway's failures at request time under the
 Chat Completions module's existing failure contract, exactly as for an
 `openai-completions` entry: the gateway's parsed error message is the request's
 failure message, shown to the owner whose run failed and recorded on the run,
-after the SDK's own retry rules for retryable statuses; the raw response body,
-response headers, request values, and credential SHALL NOT reach owner output,
-the persisted run, logs, or telemetry. The system SHALL NOT validate a model's
+after the SDK's own retry rules for retryable statuses; the failure response's
+body and headers, the request body, and the credential SHALL NOT reach owner
+output, the persisted run, logs, or telemetry, and a failure body that is not
+the gateway's envelope SHALL surface as the HTTP status text. The parsed
+message MAY name request values the gateway chose to echo, and a stream chunk
+the adapter cannot parse surfaces as the SDK's parse error quoting that one
+chunk, as for every Chat Completions entry. The system SHALL NOT validate a model's
 eligibility or route at boot, SHALL NOT keep a compiled model, route, or
 capability table, SHALL NOT classify Go failures into llame-owned error types
 or replace the gateway's message with a fixed one, SHALL NOT introduce a quota
@@ -200,9 +204,9 @@ message after the SDK's retries.
 
 #### Scenario: Raw upstream details stay out of every surface
 
-- **WHEN** the gateway's failure response carries a body, headers, or metadata beyond its message, or echoes request details
-- **THEN** owner events, persisted errors, logs, and telemetry carry the parsed message only
-- **AND** no credential, response body, response header, or request value appears in any of them
+- **WHEN** the gateway's failure response carries a body, headers, or metadata beyond its message
+- **THEN** owner events, persisted errors, logs, and telemetry carry the parsed message (or the status text when the body is not the envelope)
+- **AND** no credential, response body, response header, or request body appears in any of them
 
 #### Scenario: The runbook names the accepted upstream shapes
 
@@ -237,7 +241,7 @@ provider-side price table.
 An operator runbook SHALL document this provider: how to obtain and configure
 the subscription credential, the fixed endpoint and the route ceiling of this
 slice (the one model reachable only through a route llame does not yet use, and
-the follow-up issue that owns it), the two accepted misreported failures, the
+the follow-up issue that owns it), the accepted upstream failure shapes, the
 per-model privacy divergence inside the provider (retention and training terms
 that differ between its models, with the models the example configuration
 excludes), the subscription's usage windows, and the upstream overage toggle

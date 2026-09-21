@@ -68,13 +68,13 @@ A provider entry with `type: "openai-responses"` SHALL execute against the OpenA
 
 ### Requirement: Every provider request identifies llame
 
-Every language-model request llame makes on behalf of any provider entry SHALL carry a `User-Agent` whose value names llame and llame's version, taken from the API package's own version and read at startup under the instance configuration contract. The value SHALL be carried on the request itself, on streaming and structured requests alike, so that the SDK's and the adapter's own tokens follow llame's rather than replace it. The value SHALL NOT be the adapter's or SDK's identifier alone: a provider that inspects the header SHALL see llame's product token first, not a bare HTTP library or SDK name. llame SHALL NOT claim another product's client identity on any request, and SHALL NOT let a model entry or an operator override the identity through `providerOptions` or any other configuration surface. The identity is a product token, never a credential: it carries no key, account, owner, Chat, or tenant value, and it SHALL NOT be derived from any of them. Tokens the SDK or an adapter appends after llame's are out of llame's control and do not violate this requirement. Embedding requests are exempt.
+Every language-model request llame makes on behalf of any provider entry SHALL carry a `User-Agent` whose value names llame and llame's version, taken from the API package's own version and read at startup under the instance configuration contract. The value SHALL be carried on the request itself, on streaming and structured requests alike, so that the SDK's own token follows llame's rather than replacing it. The value SHALL NOT be the adapter's or SDK's identifier alone: a provider that inspects the header SHALL see llame's product token first, not a bare HTTP library or SDK name. llame SHALL NOT claim another product's client identity on any request, and SHALL NOT let a model entry or an operator override the identity through `providerOptions` or any other configuration surface. The identity is a product token, never a credential: it carries no key, account, owner, Chat, or tenant value, and it SHALL NOT be derived from any of them. Tokens the SDK or an adapter appends after llame's are out of llame's control and do not violate this requirement. Embedding requests are exempt.
 
 #### Scenario: A request from any provider type carries the identity
 
 - **WHEN** a language-model request is made through an entry of any executable provider type
 - **THEN** the request carries the llame identity header
-- **AND** the same value is sent whichever type, wire, or endpoint served the request
+- **AND** the same llame token leads the value whichever type, wire, or endpoint served the request
 
 #### Scenario: The identity names llame and its version
 
