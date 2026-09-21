@@ -5,10 +5,8 @@
   "ignores": [
     // Installed/generated agent integrations are maintained upstream.
     ".agents/skills/**",
-    ".claude/commands/opsx/**",
     ".claude/skills/**",
     ".codex/skills/**",
-    ".opencode/commands/**",
     ".opencode/skills/**",
     // Loader aliases are symlinks to the authoritative AGENTS.md files.
     "**/CLAUDE.md",

@@ -15,18 +15,13 @@ of that injection: the proposal branch exists before any change artifact is
 written, and the finalize branch exists before spec synchronization writes
 canonical specs.
 
-The canonical OpenSpec skills are generated with OpenSpec 1.13.1; the command
-entrypoints are repository-maintained routers that load those skills, and both
-must survive an upgrade. `$openspec-archive-change` carries the one
-repository-owned deviation in this layer: a readiness guard that stops on
-incomplete artifacts or unchecked tasks, requires any needed delta sync to
-finish and verify before it archives, and stops on sync-blocked capabilities,
-with no confirmation or skip-sync override. Keep that guard when the skill is
-regenerated from upstream; the other canonical workflows remain
-upstream-generated. Keep delivery policy in `openspec/config.yaml`. For CLI
-upgrades, generate upstream workflows in a temporary project and compare their
-contracts before adopting them; preserve the command routers. Verify
-instruction delivery: missing guidance or a successful command does not grant
+Use the canonical OpenSpec skills through the harness skill directories;
+separate OpenSpec command files are not maintained. The current skills are
+based on OpenSpec 1.13.1, with a repository-owned archive-readiness guard:
+incomplete artifacts, unchecked tasks, and unsynced deltas block archival.
+Keep that guard when adopting upstream changes. Delivery policy belongs in
+`openspec/config.yaml`; compare upstream workflows in a temporary project
+before upgrading. Missing guidance or a successful command does not grant
 approval.
 
 ## Gates
