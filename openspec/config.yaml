@@ -88,9 +88,8 @@ operations:
     guidance:
       - >-
         Read the approved revision and native blockers; ready is not approved.
-        Use $gh-stack and gh stack view --json to confirm the owning layer and
-        immediate base. After proposal approval create only the next authorized
-        layer with gh stack add <change>/<layer>.
+        Use $gh-stack to confirm the owning layer and immediate base, then
+        create only the next authorized layer after proposal approval.
       - >-
         Execute only this layer's tasks. Preserve each required negative test
         and verify observable behavior before checking a task. Stop at the
@@ -100,14 +99,14 @@ operations:
         2,000-line budget before it outgrows the planned concern. Replan or
         request an exception; never solve sizing by hiding generated churn.
       - >-
-        Fix lower-layer defects on their owning branch with gh stack checkout
-        <owning-branch>, then gh stack rebase --upstack and gh stack top.
+        Use $gh-stack to repair lower-layer defects on their owning branch,
+        replay the stack upward, and return to the current layer.
         Push only within the user's existing publication authorization; this
         adds no new per-push approval ritual. Never repair a lower concern in
         the top PR. Every non-draft fix push restarts the monitoring loop.
       - >-
-        Publish or refresh the draft with gh stack submit --auto only within
-        publication authorization. Before draft -> ready, self-review its actual
+        Use $gh-stack to publish or refresh the draft within publication
+        authorization. Before draft -> ready, self-review its actual
         parent-relative diff against REVIEW_GUIDE.md; use independent subagents
         where they add coverage. Verify findings, fix accepted ones, rerun affected
         checks, and re-review before marking ready. Self-review never replaces bots.
@@ -138,10 +137,10 @@ operations:
         Do not use a warning override to bypass incomplete work or unsynced specs.
       - >-
         Archive only after readiness is proved; preserve checked history and
-        verify the moved record. Publish the authorized finalize PR as draft,
+        verify the moved record. Use $gh-stack to publish the authorized draft,
         self-review its actual diff before ready, then complete the GitHub-bot
-        review/CI loop and Project updates per CONTRIBUTING.md. Merge stacks
-        only with gh stack merge <target> --yes after explicit authorization.
+        review/CI loop and Project updates per CONTRIBUTING.md. Use $gh-stack
+        for merging only after explicit authorization.
       - >-
         Record evidence of any rollout actually performed; do not equate merge
         with deployment. Turn a recurring verified failure into one narrowly

@@ -7,7 +7,8 @@ compatibility: Requires openspec CLI.
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.13.1"
+  upstream: https://github.com/Fission-AI/OpenSpec
+  upstreamVersion: "1.13.1"
 ---
 
 Archive a completed change in the experimental workflow.
@@ -80,9 +81,10 @@ In both branches, never create the root as a side effect: do not run `openspec i
    - `artifacts`: List of artifacts with their status (`done`, `skipped`, or other)
 
    **If any artifacts are neither `done` nor `skipped`** (skipped artifacts satisfy the requirement - the change declares skip_specs):
-   - Display warning listing incomplete artifacts
-   - Ask the user to confirm they want to proceed
-   - Proceed if user confirms
+   - List the incomplete artifacts
+   - Stop: this repository's delivery policy does not archive incomplete
+     work, and there is no confirmation override
+   - Report what must be completed, then re-run this workflow
 
 3. **Check task completion status**
 
@@ -95,9 +97,10 @@ In both branches, never create the root as a side effect: do not run `openspec i
    marker as complete.
 
    **If incomplete tasks found:**
-   - Display warning showing count of incomplete tasks
-   - Ask the user to confirm they want to proceed
-   - Proceed if user confirms
+   - List the incomplete tasks and their count
+   - Stop: this repository's delivery policy does not archive incomplete
+     work, and there is no confirmation override
+   - Report what must be completed, then re-run this workflow
 
    **If no tasks file exists:** Proceed without task-related warning.
 
@@ -119,14 +122,17 @@ In both branches, never create the root as a side effect: do not run `openspec i
    - Continue assessing the remaining capabilities even when one is sync-blocked. Show a combined summary before prompting.
 
    **Prompt options:**
-   - If any capability is sync-blocked: explain why and offer only "Archive without syncing", "Cancel"
-   - Otherwise, if changes needed: "Sync now (recommended)", "Archive without syncing"
+   - If any capability is sync-blocked: explain the blocker and stop — this
+     repository's delivery policy does not archive unsynced deltas, so no
+     override is offered. Report what must change so the user can fix it and
+     re-run this workflow
+   - Otherwise, if changes needed: "Sync now (required)", "Cancel"
    - Otherwise, if already synced: "Archive now", "Sync anyway", "Cancel"
 
    Route on the answer:
    - "Cancel" — stop, do not archive
-   - "Archive without syncing" or "Archive now" — proceed to archive
-   - "Sync now" or "Sync anyway" — sync, then verify (below). Do not start any sync while a capability is sync-blocked; explain the blocker and repeat the available choices.
+   - "Archive now" — proceed to archive
+   - "Sync now" or "Sync anyway" — sync, then verify (below). Never start a sync while a capability is sync-blocked.
    - Anything else — ask again rather than archiving
 
    Before a selected sync writes any main spec, run
@@ -172,7 +178,8 @@ In both branches, never create the root as a side effect: do not run `openspec i
    - Schema that was used
    - Archive location
    - Whether specs were synced (if applicable)
-   - Note about any warnings (incomplete artifacts/tasks)
+   - Note any remaining sync warnings (an already-retired capability, ignored
+     REMOVED requirements)
 
 **Output On Success**
 
@@ -182,15 +189,16 @@ In both branches, never create the root as a side effect: do not run `openspec i
 **Change:** <change-name>
 **Schema:** <schema-name>
 **Archived to:** the archive path derived from `planningHome.changesDir`/<target-name>/
-**Specs:** <"✓ Synced to main specs" only if the step 4 verification passed; otherwise "No delta specs" or "Sync skipped">
+**Specs:** <"✓ Synced to main specs" only if the step 4 verification passed; otherwise "No delta specs" or "Already synced">
 
-<"All artifacts complete. All tasks complete." — or, if archived with warnings, list them instead (e.g. "Archived with 2 incomplete tasks")>
+<"All artifacts complete. All tasks complete." — append any remaining sync warnings>
 ```
 
 **Guardrails**
 - Announce the selected change; prompt for selection when it is ambiguous
 - Use artifact graph (openspec status --json) for completion checking
-- Don't block archive on warnings - just inform and confirm
+- Block the archive on incomplete artifacts, unchecked tasks, unsynced
+  deltas, or sync-blocked capabilities; never offer to archive past them
 - Preserve .openspec.yaml when moving to archive (it moves with the directory)
 - Show clear summary of what happened
 - If sync is requested, run the `openspec-sync-specs` workflow inline (agent-driven)
@@ -198,6 +206,7 @@ In both branches, never create the root as a side effect: do not run `openspec i
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting
 - Apply relevant runtime context and report conflicts; operation guidance remains advisory
 - Consider every guidance entry and explain any inapplicable or conflicting advice
-- Existing CLI checks, resolved paths, prompts, and command contracts are unchanged
+- Runtime context and operation guidance never replace built-in CLI checks,
+  resolved paths, prompts, or command contracts
 - Artifact rules constrain only the specs being written and are never operation guidance
 - Never copy runtime context, operation guidance, or artifact-rule text verbatim into output files

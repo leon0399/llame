@@ -16,11 +16,18 @@ written, and the finalize branch exists before spec synchronization writes
 canonical specs.
 
 The canonical OpenSpec skills are generated with OpenSpec 1.13.1; the command
-entrypoints are repository-maintained routers that load those skills. Keep
-delivery policy in `openspec/config.yaml`. For CLI upgrades, generate upstream
-workflows in a temporary project and compare their contracts before adopting
-them; preserve the command routers. Verify instruction delivery: missing
-guidance or a successful command does not grant approval.
+entrypoints are repository-maintained routers that load those skills, and both
+must survive an upgrade. `$openspec-archive-change` carries the one
+repository-owned deviation in this layer: a readiness guard that stops on
+incomplete artifacts or unchecked tasks, requires any needed delta sync to
+finish and verify before it archives, and stops on sync-blocked capabilities,
+with no confirmation or skip-sync override. Keep that guard when the skill is
+regenerated from upstream; the other canonical workflows remain
+upstream-generated. Keep delivery policy in `openspec/config.yaml`. For CLI
+upgrades, generate upstream workflows in a temporary project and compare their
+contracts before adopting them; preserve the command routers. Verify
+instruction delivery: missing guidance or a successful command does not grant
+approval.
 
 ## Gates
 
@@ -222,19 +229,22 @@ application fixes.
 ## Verification
 
 CI is the ground for full verification. The table below names the evidence a
-change carries; CI produces all of it on every push. Do not reproduce the full
-sweeps locally — the whole unit or integration project, product E2E, component
-tests, the aggregate build, mutation testing. Run the narrowest command that
-covers the surface you changed: a focused test file, the workspace lint and
-typecheck, `git diff --check`; add `pnpm lint:markdown` and the strict OpenSpec
-validation for Markdown and spec edits. Prove each phase with its rows before
-publishing: OpenSpec proposal for the proposal layer, Final OpenSpec for
-finalize, plus Product Markdown and Any change as they apply.
+change carries; CI owns the full suites and runs the rows it covers on every
+push. Do not reproduce the full sweeps locally — the whole unit or integration
+project, product E2E, component tests, the aggregate build, mutation testing.
+Run the narrowest command that covers the surface you changed: a focused test
+file, the workspace lint and typecheck, `git diff --check`; add
+`pnpm lint:markdown` and the strict OpenSpec validation for Markdown and spec
+edits. Prove each phase with its rows before publishing: OpenSpec proposal for
+the proposal layer, Final OpenSpec for finalize, plus Product Markdown and Any
+change as they apply.
 
-Only CI's result on the published head gates a merge. A local green is not a
-substitute for it, and no row may be claimed as passed until CI reports it. Run
-a broader row locally only where CI cannot cover it — an environment it does not
-provide, or a failure it cannot attribute.
+Those narrow local commands are the pre-publication proof for those rows — the
+strict OpenSpec validation is local-only, since CI has no OpenSpec CLI. Only
+CI's result on the published head gates a merge for the rows CI covers; a local
+green is not a substitute for that result. Run a broader row locally only where
+CI cannot cover it — an environment it does not provide, or a failure it cannot
+attribute.
 
 Narrow evidence cannot support a broader claim.
 
