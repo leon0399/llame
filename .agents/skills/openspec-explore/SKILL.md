@@ -3,7 +3,7 @@ name: openspec-explore
 description: Investigate an OpenSpec change before deciding or revising its scope. Use when the user asks to explore or clarify an OpenSpec change.
 allowed-tools: Bash(openspec:*)
 license: MIT
-compatibility: Requires OpenSpec 1.13.1.
+compatibility: Requires OpenSpec 1.13.1
 metadata:
   upstream: https://github.com/Fission-AI/OpenSpec
   upstreamVersion: "1.13.1"

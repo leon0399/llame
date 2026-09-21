@@ -3,7 +3,7 @@ name: openspec-propose
 description: Create or complete the planning artifacts for an OpenSpec change. Use when the user asks to propose or plan an OpenSpec change.
 allowed-tools: Bash(openspec:*)
 license: MIT
-compatibility: Requires OpenSpec 1.13.1.
+compatibility: Requires OpenSpec 1.13.1
 metadata:
   upstream: https://github.com/Fission-AI/OpenSpec
   upstreamVersion: "1.13.1"
@@ -47,7 +47,8 @@ Turn a request into an OpenSpec change whose planning artifacts are complete eno
    - `context` / `rules` — constraints to apply, not content to copy.
    - `dependencies` — completed artifacts to read from disk before drafting this one (they may have changed since you last saw them); reuse those reads instead of re-reading unchanged files on every iteration.
    - `skipped` / `warning` — the change declares `skip_specs`, so this artifact must not be created; move on.
-     Before drafting, inspect the relevant implementation, tests, configuration, and documentation outside `openspec/`, read-only and proportional to the change, and reuse the findings for later artifacts. Ground scope, design, and tasks in what you find: distinguish observed behavior from assumptions and proposed additions, and surface conflicts with existing specs instead of deciding silently.
+
+   Before drafting, inspect the relevant implementation, tests, configuration, and documentation outside `openspec/`, read-only and proportional to the change, and reuse the findings for later artifacts. Ground scope, design, and tasks in what you find: distinguish observed behavior from assumptions and proposed additions, and surface conflicts with existing specs instead of deciding silently.
 
 6. **Close out the set.** Re-run `openspec status --change "<name>" --json` after each artifact — creating one can unblock others. An artifact is satisfied when it is `done`, reads `skipped`, or its own `instruction` states a condition that does not apply (say so, and do not reconsider it). `specs` is skipped only through the declared `skipped` status, never by your own judgment. Dependencies are enablers, not gates: if an artifact is `blocked` only by a deliberately skipped conditional dependency, write it anyway. If an artifact genuinely needs user input, ask and then continue.
 
