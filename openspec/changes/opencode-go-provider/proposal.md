@@ -126,7 +126,8 @@ already serves. No new dependency: the Chat Completions adapter
   outside this stack. It is evidence, not a build dependency, and merges
   independently.
 - Delivery stack, in order, each layer sized within the review budget against
-  its parent (measured 1,546 authored lines for this layer; estimates of about
+  its parent (measured 1,665 authored lines for this layer at publication, insertions
+  plus deletions against `master`; estimates of about
   800, 1,200, and 300 for the others, recorded and re-measured in `tasks.md`):
 
   ```text
@@ -141,8 +142,8 @@ already serves. No new dependency: the Chat Completions adapter
   after its acceptance evidence is recorded. The `finalize` layer syncs and
   archives only.
 
-- No layer closes #903, #904, #808, #881, #810, #593, #751, #754, #18, #82,
-  or #37.
+- No layer closes #903, #904, #908, #808, #881, #810, #593, #751, #754, #18,
+  #82, or #37.
 
 ## Assumptions and open decisions
 
@@ -212,7 +213,8 @@ change the runbook's wording.
   `generateToolBoundObject` carries `headers`), `anthropic-model-client.ts`
   (per-call headers on both paths), and a version read in
   `apps/api/src/instance-config/` that fails boot as an `InstanceConfigError`
-  when `apps/api/package.json` is not beside `dist/`.
+  naming the logical requirement, not the resolved host path, when
+  `apps/api/package.json` is not beside `dist/`.
 - Call sites: `apps/api/src/runs/run-execution.service.ts` (the streaming
   call), `apps/api/src/compaction/compaction.service.ts` (the shared
   summarization call behind `maybeCompact` and `compactForTransition`), and

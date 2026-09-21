@@ -359,7 +359,9 @@ Every client — `openai-responses`, `openai-completions`, `anthropic-messages`,
 language-model request, where the version is the API package's `version`
 (`apps/api/package.json`). Embedding requests are unchanged. The version is
 read once at boot, inside instance-config loading, and a manifest that cannot
-be read fails startup as an `InstanceConfigError` naming the path, not a raw
+be read fails startup as an `InstanceConfigError` naming the logical
+requirement (`apps/api/package.json` beside `dist/`), never the resolved
+absolute path, so startup diagnostics disclose no host layout; not a raw
 `ENOENT` at import time and not a silent fallback to a generic name; the factory
 threads the resulting token into every client config. The read resolves the
 manifest from the module's own location: `nest-cli.json` sets
@@ -448,7 +450,9 @@ is stripped by the adapter's envelope schema and is not part of
 `error.message`, so it does not reach owners today; the focused test in the
 go-provider layer pins that. One bounded exception, identical for every Chat
 Completions entry: a stream chunk the adapter cannot parse surfaces as the
-SDK's parse error, whose message quotes that one chunk. The parsed message
+SDK's parse error, whose message quotes that one chunk. Bounding that
+message is #908, a fix to the shared module that lands independently of this
+change. The parsed message
 itself may echo request values the gateway chose to name, such as the model
 id in "not supported for format".
 The SDK's own retry applies as it does everywhere: a 429 is retryable, so the
