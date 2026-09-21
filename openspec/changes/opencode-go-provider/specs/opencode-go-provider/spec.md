@@ -23,8 +23,11 @@ credential SHALL be resolved once at startup through the existing interpolation
 contract and SHALL never appear in a log, error, telemetry record, model
 context, or owner-visible output. A `key` that resolves empty SHALL fail
 startup naming the entry and the field, because the gateway authenticates every
-request and a keyless Go entry is not a usable configuration. Startup SHALL
-contact no endpoint and SHALL validate no model's eligibility.
+request and a keyless Go entry is not a usable configuration. The client SHALL
+reject redirects, so neither the credential nor the session header follows a
+redirect off the fixed endpoint. Startup SHALL contact no endpoint and SHALL
+validate no model's eligibility. No ambient environment variable SHALL move or
+authenticate a request.
 
 #### Scenario: An entry boots from its key alone
 
@@ -55,6 +58,27 @@ contact no endpoint and SHALL validate no model's eligibility.
 - **WHEN** an instance with a valid `opencode-go` entry starts
 - **THEN** startup completes without contacting the gateway
 - **AND** an unreachable or invalid credential surfaces at request time, not at boot
+
+#### Scenario: A redirect is not followed
+
+- **WHEN** the fixed endpoint answers a request with a redirect
+- **THEN** the request fails without sending the credential or the session header to the redirect destination
+
+### Requirement: The provider identifies itself as `opencode-go` and composes options under its own namespace
+
+A model client built for an `opencode-go` entry SHALL report `opencode-go` as its provider identifier in run events, telemetry, and model metadata, not the name of the wire module it is composed over. The operator's `models[].providerOptions` for such a model SHALL be composed under the namespace the Chat Completions adapter derives from that identifier, under the shipped fixed precedence, with the Chat Completions wire's reserved paths stripped exactly as for an `openai-completions` entry; no `opencode-go`-specific option key, default, or invariant is added.
+
+#### Scenario: Runs record the Go provider identifier
+
+- **WHEN** a run executes through an `opencode-go` model
+- **THEN** its run events and telemetry name the provider `opencode-go`
+- **AND** the wire module's own name does not appear as the provider
+
+#### Scenario: Operator options reach the adapter under the Go namespace
+
+- **WHEN** an `opencode-go` model entry declares `providerOptions`
+- **THEN** the request carries them under the namespace the adapter derives from `opencode-go`
+- **AND** a reserved Chat Completions path in that object is stripped before composition
 
 ### Requirement: Every request for a Chat carries its session identity
 
@@ -144,42 +168,47 @@ SHALL remain a successful request.
 ### Requirement: Upstream failures are mirrored under the existing contract
 
 The provider SHALL surface the gateway's failures at request time under the
-existing failure contract, with sanitized diagnostics and no credential,
-workspace, or account disclosure. The system SHALL NOT validate a model's
+Chat Completions module's existing failure contract, exactly as for an
+`openai-completions` entry: the gateway's parsed error message is the request's
+failure message, shown to the owner whose run failed and recorded on the run,
+after the SDK's own retry rules for retryable statuses; the raw response body,
+response headers, request values, and credential SHALL NOT reach owner output,
+the persisted run, logs, or telemetry. The system SHALL NOT validate a model's
 eligibility or route at boot, SHALL NOT keep a compiled model, route, or
-capability table, SHALL NOT classify Go failures into llame-owned error types,
-SHALL NOT introduce a quota ledger or a typed quota error, and SHALL NOT retry
-or fall back to another provider, wire, or model because a request failed. The
-operator runbook SHALL record the two accepted upstream misreports: a model the
-gateway's format gate rejects arrives as an authentication-shaped failure whose
-body names the unsupported format, and a request that lacks the session header
-surfaces on some models as a model-unavailability failure instead of a named
-session error.
+capability table, SHALL NOT classify Go failures into llame-owned error types
+or replace the gateway's message with a fixed one, SHALL NOT introduce a quota
+ledger or a typed quota error, and SHALL NOT retry against or fall back to
+another provider, wire, or model because a request failed. The operator
+runbook SHALL record the accepted upstream shapes: a model the gateway's
+format gate rejects fails with the gateway's "not supported for format"
+message and its remedy, and a usage-limit rejection fails with the gateway's
+message after the SDK's retries.
 
 #### Scenario: A rejected model surfaces at request time
 
 - **WHEN** a configured model is not accepted by the gateway's format gate for the route llame uses
 - **THEN** startup already succeeded without checking eligibility
-- **AND** the request fails at request time with the gateway's own bounded diagnostic
+- **AND** the request fails at request time with the gateway's own message as the failure
 - **AND** no other provider, wire, or model is tried in its place
 
 #### Scenario: A quota rejection is reported without inventing state
 
 - **WHEN** the gateway rejects a request because a usage limit is exhausted
-- **THEN** the affected request fails under the existing failure and retry rules with a sanitized diagnostic
+- **THEN** the affected request fails under the existing failure and retry rules with the gateway's message
 - **AND** llame reports no quota state of its own and claims no cost
 - **AND** no paid fallback is attempted
 
-#### Scenario: Diagnostics stay secret-free
+#### Scenario: Raw upstream details stay out of every surface
 
-- **WHEN** the gateway echoes credential, account, workspace, or request details in a failure
-- **THEN** owner events, persisted errors, logs, and telemetry contain only sanitized diagnostics
+- **WHEN** the gateway's failure response carries a body, headers, or metadata beyond its message, or echoes request details
+- **THEN** owner events, persisted errors, logs, and telemetry carry the parsed message only
+- **AND** no credential, response body, response header, or request value appears in any of them
 
-#### Scenario: The runbook names the accepted misreports
+#### Scenario: The runbook names the accepted upstream shapes
 
 - **WHEN** the operator runbook for this provider is read
-- **THEN** it states that a rejected model reads as an authentication failure and names the body field that identifies it
-- **AND** it states that a missing session header surfaces on some models as a model-unavailability failure
+- **THEN** it states that a misdeclared model fails with the gateway's "not supported for format" message and names the remedy
+- **AND** it states that a usage-limit rejection surfaces after the SDK's retries and that llame tracks no quota
 
 ### Requirement: Cost is unknown unless the operator declares pricing
 

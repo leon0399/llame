@@ -3,8 +3,8 @@
 llame cannot reach OpenCode Go. `providers[].type` is a strict-closed enum of
 `openai-responses`, `openai-completions`, `anthropic-messages`, and
 `openai-codex` (`apps/api/src/instance-config/llame.config.schema.json`
-`$defs.providerType`), and the gateway has required a stable per-conversation
-`x-opencode-session` header on every request since 2026-09-06, so the provider
+`$defs.providerType`), and the gateway requires a stable per-conversation
+`x-opencode-session` header on every request, so the provider
 is unreachable however it is configured: `ModelStreamInput` carries no
 per-request header channel
 (`apps/api/src/models/model-client.ts:21`) and `chats.id` is dropped before
@@ -26,7 +26,10 @@ do.
 
 - Add one provider type, `opencode-go`: an operator-managed `key`, no
   `baseUrl` (the endpoint is fixed in llame's code), and the Chat Completions
-  wire through the existing `openai-completions` client module. The entry is
+  wire through the existing `openai-completions` client module, reporting
+  itself as `opencode-go` in run events and telemetry and composing operator
+  `providerOptions` under the namespace the adapter derives from that name.
+  Redirects are rejected, as the Codex transport rejects them. The entry is
   constructible from `{ type, key }` alone, so a later BYOK account (#18) adds
   no schema. A keyless entry is invalid: the gateway authenticates every
   request.
@@ -42,20 +45,26 @@ do.
   stable across retries, worker restarts, compaction, and model switches
   within the Chat. The generic sticky-gateway header (#881) reads the same
   field later.
-- Identify llame honestly on every client, not only Go: a `User-Agent` naming
-  llame and its version. The Go client additionally sends the gateway's client
-  header naming llame; `x-opencode-request` and `x-opencode-project` are not
-  sent, and no other product's client identity is ever claimed.
+- Identify llame on every language-model request, not only Go's: a
+  `User-Agent` naming llame and its version, carried on the per-call headers of
+  every streaming and structured request so the SDK appends its own token after
+  llame's instead of replacing it. Embedding requests are unchanged. The Go
+  client additionally sends the gateway's client header naming llame;
+  `x-opencode-request` and `x-opencode-project` are not sent, and no other
+  product's client identity is ever claimed.
 - Serve the Chat Completions route only. The gateway's pre-authentication
   format gate accepts `/chat/completions` for 37 of the 38 models in its live
   catalogue; `grok-4.6` is reachable only through `/responses` and is out of
   reach until #904 adds a per-model route override. `/messages` and
   `/responses` are not wired in this change.
-- Report Go failures as bounded, secret-free errors mirrored from upstream
-  under the existing failure contract: no boot-time eligibility check, no
-  compiled model or route table, no Go-specific classification, no typed quota
-  error, no quota ledger. Two upstream misreports are accepted and documented
-  in the operator runbook.
+- Report Go failures exactly as the Chat Completions module reports every
+  compatible endpoint's: the gateway's parsed error message is the run's
+  failure, after the SDK's own retries; the raw body, headers, request values,
+  and credential never reach owners or logs. No boot-time eligibility check, no
+  compiled model or route table, no Go-specific classification or sanitizer,
+  no typed quota error, no quota ledger. The accepted upstream shapes (a
+  misdeclared model's "not supported for format" message, quota exhaustion
+  after retries) are documented in the operator runbook.
 - Send no cache control for Go. Caching is gateway-side and keyed on the
   session header.
 - Report cost as unknown unless the operator declares `pricingUsdPer1M`, the
@@ -123,7 +132,8 @@ already serves. No new dependency: the Chat Completions adapter
   acceptance evidence is recorded. The `finalize` layer syncs and archives
   only.
 
-- No layer closes #903, #904, #808, #881, #18, #82, or #37.
+- No layer closes #903, #904, #808, #881, #810, #593, #751, #754, #18, #82,
+  or #37.
 
 ## Non-goals
 
@@ -160,11 +170,18 @@ already serves. No new dependency: the Chat Completions adapter
   existing required-non-blank key path).
 - `apps/api/src/models/model-client.ts` (`ChatIdentity`, `ChatLane`, the
   required `chat` field on both inputs), `model-client-factory.ts` (one
-  dispatch case), a new `opencode-go-model-client.ts` (fixed base URL and
-  headers composed over the completions client), `openai-completions-model-client.ts`
-  (an optional fixed `headers` and an optional per-request header renderer),
-  `anthropic-model-client.ts` (an optional fixed `headers`), and a small
-  shared version helper read from `apps/api/package.json`.
+  dispatch case, and the product token threaded into every client config), a
+  new `opencode-go-model-client.ts` (fixed base URL, fixed headers, the
+  session-header renderer, the `opencode-go` provider name, and the
+  redirect-rejecting `fetch` composed over the completions client),
+  `openai-completions-model-client.ts` (optional `provider` name, optional
+  fixed `headers`, an optional per-request session-header renderer, and
+  per-call headers on both its streaming and structured requests),
+  `openai-model-client.ts` (per-call headers on the structured path;
+  `generateToolBoundObject` carries `headers`), `anthropic-model-client.ts`
+  (per-call headers on both paths), and a version read in
+  `apps/api/src/instance-config/` that fails boot as an `InstanceConfigError`
+  when `apps/api/package.json` is not beside `dist/`.
 - Call sites: `apps/api/src/runs/run-execution.service.ts` (the streaming
   call), `apps/api/src/compaction/compaction.service.ts` (the shared
   summarization call behind `maybeCompact` and `compactForTransition`), and

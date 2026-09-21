@@ -31,7 +31,7 @@ The substrate this change builds on:
   header field and no Chat identifier. Three production modules make four
   calls: the run loop's streaming call
   (`apps/api/src/runs/run-execution.service.ts:1125`, inside `executeRun`, whose
-  input carries `chatId` at `:188`), the single summarization call shared by
+  input carries `chatId` at `:288`), the single summarization call shared by
   both compaction paths (`apps/api/src/compaction/compaction.service.ts:566`,
   inside `summarize`, reached from `maybeCompact` and from
   `compactForTransition`, both of which already hold `chatId`), and the title
@@ -62,7 +62,9 @@ The substrate this change builds on:
   headers, per-call winning (`dist/index.js:580`, `:666`;
   `dist/index.d.ts:271` declares the provider-level `headers`), and appends its
   own token to whatever `User-Agent` is present
-  (`@ai-sdk/provider-utils` `withUserAgentSuffix`, `dist/index.js:884-892`,
+  (`@ai-sdk/provider-utils` `withUserAgentSuffix`, `dist/index.js:884-892` in the
+  4.0.46 copy the Responses and Messages adapters resolve, `:914-922` in the
+  4.0.51 copy the Chat Completions adapter resolves; identical behavior),
   called at `@ai-sdk/openai-compatible/dist/index.js:1789`,
   `@ai-sdk/openai/dist/index.js:7372`, and
   `@ai-sdk/anthropic/dist/index.js:6099`). llame sends no `User-Agent` today,
@@ -123,9 +125,18 @@ workspace metadata. Sources: `docs/research/harnesses/opencode.md`,
 ### D1: One product-named type, `opencode-go`, with a fixed destination and a required key
 
 `providers[].type: "opencode-go"` accepts `{ id, type, key }` and nothing else:
-`key` is schema-required and must resolve nonblank, `baseUrl` is rejected at
-boot, and the endpoint `https://opencode.ai/zen/go/v1` is fixed in llame's
-code. The entry is constructible from `{ type, key }` alone.
+`key` is schema-required and must resolve nonblank, `baseUrl` and `accountId`
+are rejected at boot through the same `"properties": { "<field>": false }`
+shape the Codex variant uses, and the endpoint `https://opencode.ai/zen/go/v1`
+is fixed in llame's code. The entry is constructible from `{ type, key }`
+alone. No ambient environment variable can move or authenticate a Go request:
+`createOpenAICompatible` reads no environment at all
+(`@ai-sdk/openai-compatible/dist/index.js:1780-1789`), and the client always
+passes both `baseURL` and `apiKey` explicitly
+(`openai-completions-model-client.ts:197-203`). Recorded here because #904 will
+compose the `@ai-sdk/openai` and `@ai-sdk/anthropic` adapters, which do read
+`OPENAI_*` and `ANTHROPIC_*`, and must pass the base URL explicitly as the
+Messages client already does.
 
 Rationale: the per-conversation header cannot come from static configuration,
 so a generic `type: "openai-completions"` entry cannot express Go; and a
@@ -181,7 +192,27 @@ carrying a table that is stale on arrival for a single model.
 
 Consequence to hold: `grok-4.6` is unreachable in this change, and the runbook
 says so and names #904. A model the operator declares that the gate rejects
-arrives as an upstream 401 (D7), not as a boot error.
+fails at request time with the gateway's own message (D7), not at boot.
+
+The composed client reports itself as `opencode-go`, not as
+`openai-completions`: the Chat Completions module gains the same optional
+`provider` override the Responses client already exposes for the Codex
+transport (`openai-model-client.ts:398-404`, used at
+`openai-codex-model-client.ts:100`), and the module passes that name to
+`createOpenAICompatible({ name })` as well. Two things follow from the adapter
+and are contract, not accident. Telemetry, run events, and model metadata carry
+`provider: "opencode-go"`, as Codex runs carry `openai-codex`. And the operator's
+`models[].providerOptions` are composed under the namespace the adapter derives
+from that name, `opencodeGo` (`@ai-sdk/openai-compatible/dist/index.js:437-439`,
+`:487-496`), with the Chat Completions wire's reserved paths stripped exactly as
+for an `openai-completions` entry, which is what the shipped requirement "Model
+provider options are forwarded under a fixed precedence" already says: the
+namespace of the adapter the provider `type` selects.
+
+The Go module also installs the redirect-rejecting `fetch` the Codex transport
+uses (`openai-codex-model-client.ts:33-36`): a redirect off the fixed endpoint
+would otherwise carry the credential and the session header to wherever it
+pointed, and `createOpenAICompatible` accepts a `fetch` for exactly this.
 
 Rejected:
 
@@ -244,10 +275,16 @@ that stays stable across every path that must share a cache identity: the run
 loop, the compaction summarizer, and a worker restart all have the Chat id in
 hand and nothing else in common.
 
-Consequence to hold onto: sending the Chat id to a third party makes "chat ids
-are unguessable" permanently unavailable as a security assumption. Any later
-feature that would rely on it — share links, invite-by-id — must not. The
-design records this so it is not rediscovered as a finding.
+Consequence to hold onto: sending the Chat id to third parties (the gateway
+forwards its `x-opencode-*` headers upstream) makes "chat ids are unguessable"
+permanently unavailable as a security assumption. Nothing shipped relies on it
+today: public share links exist (`GET /shared/chats/:id`,
+`apps/api/src/chats/chats.service.ts:383-437`) and are gated by the explicit
+`visibility = 'public'` flag under RLS
+(`chats-repository.ts:517-531`), never by the id being secret, and a
+non-public or absent chat answers 404 either way. Any later feature that would
+rely on secrecy (invite-by-id, unlisted-by-obscurity) must not. The design
+records this so it is not rediscovered as a finding.
 
 Rejected:
 
@@ -294,13 +331,36 @@ Rejected:
 ### D6: Every client identifies llame
 
 Every client — `openai-responses`, `openai-completions`, `anthropic-messages`,
-`openai-codex`, and Go — sends `User-Agent: llame/<version>`, where the version
-is the API package's `version` (`apps/api/package.json`), read once at module
-load by a small helper resolved from the module's own location (the compiled
-entry point and the source tree both sit one directory below the manifest, so
-one relative read covers `nest build`, `nest start`, and Vitest). A manifest
-that cannot be read is a startup error, not a silent fallback to a generic
-name. The Go client additionally sends `x-opencode-client: llame`.
+`openai-codex`, and Go — sends `User-Agent: llame/<version>` on every
+language-model request, where the version is the API package's `version`
+(`apps/api/package.json`). Embedding requests are unchanged. The version is
+read once at boot, inside instance-config loading, and a manifest that cannot
+be read fails startup as an `InstanceConfigError` naming the path, not a raw
+`ENOENT` at import time and not a silent fallback to a generic name; the factory
+threads the resulting token into every client config. The read resolves the
+manifest from the module's own location: `nest-cli.json` sets
+`sourceRoot: "src"`, so `dist/` mirrors `src/` and a helper under
+`src/instance-config/` is two directories below the manifest under `nest build`,
+`nest start`, and Vitest alike. The manifest is therefore a deployment
+prerequisite beside `dist/`, and the post-build contract that already runs
+`dist/instance-config/prompt-built-runtime.contract.js` gains the same check.
+The Go client additionally sends `x-opencode-client: llame`.
+
+Where the header travels matters: llame's headers ride the **per-call**
+`headers` of every SDK call, streaming and structured alike, never only the
+provider-level `headers` of `createOpenAI`/`createOpenAICompatible`/`createAnthropic`.
+`ai` core sets its own per-call `User-Agent` (`withUserAgentSuffix(headers ?? {}, "ai/<version>")`)
+on `generateText` and `generateObject` (`ai/dist/index.js:4552-4559`,
+`:10918-10925`) but not on `streamText`, and every adapter merges
+`combineHeaders(this.config.headers(), options.headers)` with the per-call side
+winning (`@ai-sdk/openai-compatible/dist/index.js:580`, `:666`), so a
+provider-level `User-Agent` survives streaming and is silently replaced by
+`ai/<version>` on every structured request, which is the path every title
+generation takes first (`title.service.ts:117`). Passing the value per call
+makes core append its token after llame's instead. `generateToolBoundObject`'s
+call-settings pick (`openai-model-client.ts:604-611`) widens to carry
+`headers`, and the Anthropic client passes the same headers into its
+`generateObject` dependency.
 
 Rationale: Go's documentation requires a client to identify itself with its own
 user agent "rather than a generic SDK or HTTP-library name", and llame sends
@@ -310,12 +370,14 @@ client sends one (goose, which Go does not list, sends none). The
 change is made for all clients rather than only Go because it is one fact about
 llame, and a per-type switch would be the second convention.
 
-Recorded fact: the adapters append their own `<pkg>/<version>` token after
-whatever `User-Agent` llame sets (`@ai-sdk/provider-utils` `dist/index.js:884-892`),
-so the wire value is `llame/<version> <adapter>/<version>`. The requirement is
-therefore stated as the value naming llame and its version and never being the
-adapter's identifier alone; suppressing the adapter's suffix is not in llame's
-control and not worth a `fetch` wrapper.
+Recorded fact: after llame's token, core and the adapters append their own
+(`withUserAgentSuffix` joins every supplied part), so the observed wire value on
+the Chat Completions wire is
+`llame/<version> ai-sdk/openai-compatible/<version> ai-sdk/provider-utils/<version> runtime/node.js/<major>`,
+with `ai/<version>` added on structured requests. The requirement is therefore
+stated against what llame controls: the value begins with llame's product token
+and version and is never the SDK's identifier alone; the trailing tokens are
+unconstrained.
 
 Not sent: `x-opencode-request` (a message id llame would have to define a
 meaning for), `x-opencode-project` (llame has Projects, and the grouping
@@ -338,33 +400,60 @@ Rejected:
 ### D7: Failures are mirrored, not pre-empted
 
 No boot-time eligibility check, no compiled route or capability table, no
-Go-specific error classification, no typed quota error, no quota ledger, and no
-retry beyond the existing rules. An upstream failure surfaces at request time
-with sanitized diagnostics under the existing failure contract, exactly as it
-does for any other type.
+Go-specific error classification, no Go-specific sanitizer, no typed quota
+error, no quota ledger, and no retry against or fallback to another provider,
+wire, or model. An upstream failure surfaces at request time under the Chat
+Completions module's existing failure contract, exactly as it does for an
+`openai-completions` entry.
+
+What that contract is, stated so the runbook and the tests say the same thing:
+the adapter parses the gateway's error envelope and makes `error.message` the
+error's message (`@ai-sdk/openai-compatible/dist/index.js:49-62`); the run
+loop records that message as the run's failure and shows it to the owner
+(`run-execution.service.ts:1280-1285`, `:1315-1323`), and logs the error's
+stack. The raw response body, the response headers, the request values, and the
+credential never reach owner output, the persisted run, or the log line: the
+adapter attaches them to the `APICallError` object, not to its message or
+stack. The gateway's `metadata` on a 429 (`workspace`, `limitName`) is stripped
+by the adapter's envelope schema and is not part of `error.message`, so it does
+not reach owners today; the focused test in the go-provider layer pins that.
+The SDK's own retry applies as it does everywhere: a 429 is retryable, so the
+request is attempted up to `maxRetries + 1` times with backoff before the
+`RetryError` carrying the last message surfaces; a 401 is not retried.
 
 Rationale: the three published sources for Go's catalogue disagree with each
 other and with the gateway, so any table llame ships is stale on arrival, and
 `available-models` already forbids a compiled-in catalogue. Classification adds
 a mapping llame would have to keep aligned with an undocumented gateway, and a
 typed quota error would promise owner-visible quota state that the gateway does
-not return in a form llame can use.
+not return in a form llame can use. The Messages and Codex clients carry a
+status-keyed sanitizer because their upstream bodies echo request details; the
+Chat Completions module forwards the parsed message for every compatible
+endpoint it serves, and Go gets that module unchanged.
 
 Accepted risks, documented in the runbook and here:
 
 - A model the format gate rejects arrives as HTTP 401 with body `{"type":
 "error","error":{"type":"ModelError","message":"Model <id> is not supported
-for format oa-compat"}}`, which reads like a bad key until the operator reads
-  the body. The runbook states this first, because a misdeclared
-  model is the likeliest operator error.
-- A request missing the session header surfaces on some models as
-  `400 "Model is unavailable"` rather than a named session error. This cannot
-  happen through llame after this change, since the field is required, so the
-  risk is recorded only so the runbook can name it when a hand-made request is
-  being debugged.
-- Quota exhaustion is 429 with `retry-after` and body type `GoUsageLimitError`.
-  The workspace metadata the gateway attaches is never surfaced, and llame
-  reports no quota state of its own.
+for format oa-compat"}}` (or `"Model <id> is not supported"`). The owner sees
+  that message as the run failure; the status is not shown. The runbook states
+  this first, because a misdeclared model is the likeliest operator error, and
+  maps the message to its remedy: declare a chat-accepted model, or wait for
+  #904.
+- Quota exhaustion is 429 with `retry-after` and body type `GoUsageLimitError`;
+  the owner sees the gateway's message after the SDK's retries. Whether the
+  monthly window returns the same class or a 401 `MonthlyLimitError`, which
+  the open-source gateway lists among its 401 classes, is unverified in this
+  change; the live proof records what it observes. llame reports no quota
+  state of its own.
+- Third-party clients have reported a missing session header surfacing on some
+  models as a generic 400 rather than a named session error. It is unverified
+  here and cannot occur through llame after this change, since the field is
+  required; it is recorded only so the runbook can name it when a hand-made
+  request is being debugged.
+- Gateway message text about the operator's subscription is shown to whichever
+  owner's run failed. It is not a credential and names no workspace; it is the
+  same exposure every `openai-completions` entry has today.
 
 Rejected:
 
@@ -373,6 +462,9 @@ Rejected:
 - **A typed quota error and a quota ledger.** The gateway's monthly, weekly,
   and five-hour windows are per model and are not returned as response
   headers; llame would be inventing state.
+- **A Go-specific status-keyed sanitizer** (the Messages and Codex shape). It
+  would replace a message that is already bounded with a fixed string, hiding
+  the one line ("not supported for format") the operator needs to see.
 - **A `MissingSessionID` invariant error.** llame cannot produce that request
   after this change, so the error path would be dead code guarding a state the
   type system already excludes.
@@ -581,19 +673,21 @@ Rejected:
 ## Risks / Trade-offs
 
 - [A model the operator declares is rejected by the gateway's format gate] →
-  it surfaces at request time as a 401 `ModelError`, documented in the runbook
-  as the first thing to check; #904 owns the route override that would reach
-  the one Responses-only model.
+  it surfaces at request time as the gateway's "not supported for format"
+  message, documented in the runbook as the first thing to check; #904 owns
+  the route override that would reach the one Responses-only model.
 - [The Chat id becomes third-party-visible] → recorded as an explicit
   non-assumption in D4 and in the capability's requirement, so no later feature
   treats a chat id as a secret.
-- [A missing session header is misreported on some models] → cannot occur
-  through llame after this change because the field is required (D3); the
-  runbook names it for hand-made requests, and the accepted risk is recorded in
-  D7.
-- [Quota exhaustion is reported as an ordinary upstream failure] → accepted and
-  documented; llame reports no quota state, so no owner surface can be wrong
-  about it.
+- [A missing session header is misreported on some models] → unverified
+  third-party report; cannot occur through llame after this change because the
+  field is required (D3); the runbook names it for hand-made requests.
+- [Quota exhaustion is reported as an ordinary upstream failure, after the
+  SDK's retries] → accepted and documented; llame reports no quota state, so no
+  owner surface can be wrong about it.
+- [The gateway's message text reaches the owner whose run failed] → the same
+  exposure every `openai-completions` entry has; the raw body, headers, request
+  values, and credential never do, and a focused test pins that.
 - [An operator declares a `pricingUsdPer1M` and reads it as a bill] → the
   runbook states it is quota accounting, and the example ships none, so the
   default posture is `costUsd: null`.
@@ -603,25 +697,30 @@ Rejected:
   that is the point (D3): `tsgo --noEmit` enumerates every construction site,
   and the chat-key layer updates each one mechanically rather than leaving a
   default that hides a missed call.
-- [A per-request header renderer on the completions client widens a shared
+- [A per-request session header on the completions client widens a shared
   module for one provider] → it is the same shape the Responses client already
   exposes for the Codex transport (`headers` plus `fetch`), it is optional, and
-  an entry that sets nothing sends the requests it sends today.
-- [The adapter appends its own token to `User-Agent`] → recorded in D6; the
-  requirement is stated against what llame controls, and the focused test
-  asserts the leading llame token.
+  an entry that sets nothing sends the requests it sends today. The renderer
+  returns the value of one header the Go module names; it cannot emit
+  `authorization` or `user-agent`.
+- [Core and the adapters append their own tokens to `User-Agent`, and core
+  replaces a provider-level value on structured requests] → recorded in D6;
+  llame's headers ride the per-call option, and the focused test asserts the
+  leading llame token on a streaming and a structured request.
 - [Upstream overage through "Use balance" is not controllable from llame] →
   stated plainly in the runbook rather than implied to be prevented.
 - [The gateway's first upstream candidate is chosen by a hash of the identity's
-  last four characters] → the raw UUID is uniform there, so no distribution
-  problem exists; recorded in D4's rejected alternatives so the hash question is
-  not reopened.
+  last four characters] → the raw UUID is uniform there for `main`; every
+  `title` value ends in `itle`, so all title requests of an instance share one
+  candidate index. Accepted: title requests are small, one-shot, and cache
+  nothing; recorded so the suffix is not later read as an oversight.
 
 ## Migration Plan
 
 Additive and configuration-only. Existing providers and models are untouched;
-the four existing clients gain a `User-Agent` and nothing else observable, and
-the two new client config fields are set only by the Go client. An
+the four existing clients gain a `User-Agent` on their language-model requests
+and nothing else observable, and the new client config fields are set only by
+the Go client. An
 operator adds an `opencode-go` provider and model entries that reference it,
 then restarts. No database migration and no dependency change. Rollback is
 removal of the added entries plus a restart; historical runs keep their
@@ -644,3 +743,22 @@ no chat history needs reprocessing.
   transport-neutral `chat` field, its `@ai-sdk/openai-compatible` dependency is
   already installed, and its cost rationale is restated against the billing
   model because the pricing shape gained a cache-write rate in the meantime.
+- v2 (2026-09-21): Review round 1 (two independent reviewers). Accepted: the
+  `User-Agent` rides the per-call headers because `ai` core replaces a
+  provider-level value on structured requests (D6); the version is read at
+  boot under the instance-config contract, not at import; the composed client
+  reports `opencode-go` and composes `providerOptions` under the adapter's
+  derived namespace (D2); the Go module reuses the redirect-rejecting `fetch`;
+  D7 states the Chat Completions module's actual failure contract (parsed
+  message forwarded, raw body and headers never) instead of promising a
+  sanitizer it forbids, and the unverified "Model is unavailable" report is
+  labelled as such; D4 records that public share links exist and are gated by
+  visibility, not id secrecy; the `:title` suffix's effect on the gateway's
+  last-four-characters hash is recorded as accepted; `accountId` joins the
+  rejected fields; the "all three wire types" phrase in `instance-config` is
+  replaced by the variant names; the ledger gains verifications for the Go
+  header set, cache control, cost, the failure surface, and the identity's
+  absence from request bodies and persisted parts, and its no-close list matches
+  the design's. Rejected: a Go-specific status-keyed sanitizer (would hide the
+  one message the operator needs); a title lane rendered as a prefix (the
+  suffix is the chosen shape and the effect is bounded).
