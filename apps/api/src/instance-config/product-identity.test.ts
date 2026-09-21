@@ -22,8 +22,12 @@ function errorMessage(err: unknown): string {
 /** A host path no deployment should ever disclose in a boot diagnostic. */
 const CANARY_HOST_PATH = '/canary-host-layout/llame/apps/api/package.json';
 
-/** An absolute path anywhere in a message: at its start or after whitespace. */
-const HOST_ABSOLUTE_PATH = /(?:^|\s)\//u;
+/**
+ * An absolute path anywhere in a message: at its start, or after whitespace or
+ * an opening quote or bracket — the delimiters an `ENOENT` text quotes one
+ * with (`open '/var/...'`).
+ */
+const HOST_ABSOLUTE_PATH = /(?:^|[\s'"([])\//u;
 
 /**
  * Substitutes the manifest contents behind the module's own read seam

@@ -631,8 +631,12 @@ export async function generateToolBoundObject<OBJECT>(
   input: ModelObjectInput<OBJECT>,
   callSettings: Pick<
     Parameters<typeof streamText>[0],
-    'headers' | 'maxOutputTokens' | 'providerOptions'
-  >,
+    'maxOutputTokens' | 'providerOptions'
+  > &
+    // Required, not picked optionally: llame's identity must reach every
+    // structured request, and the compiler — not convention — enforces it
+    // for the clients composed over this helper (design D6).
+    Required<Pick<Parameters<typeof streamText>[0], 'headers'>>,
 ): Promise<OBJECT> {
   const toolName = input.schemaName ?? 'output';
   const result = await generateText({

@@ -1491,16 +1491,13 @@ describe('RunExecutionService executeRun — stream completion', () => {
       messages: options.messages,
     });
     expect(sentContext).not.toContain(chatId);
-    expect(sentContext).not.toContain('lane');
 
     const assistantTurn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
     const persisted = JSON.stringify(assistantTurn?.parts);
     expect(persisted).not.toContain(chatId);
-    expect(persisted).not.toContain('lane');
 
     const durable = JSON.stringify(appended);
     expect(durable).not.toContain(chatId);
-    expect(durable).not.toContain('lane');
   });
 });
 

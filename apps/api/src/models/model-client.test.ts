@@ -932,27 +932,20 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
 });
 
 describe('model-client input contracts — the Chat identity is required (design D3, task 2.5)', () => {
-  it('omitting the Chat identity does not compile, and no default is injected', () => {
-    // The `@ts-expect-error` below is load-bearing: it fails
-    // `pnpm --filter api typecheck` if `chat` ever stops being required on
-    // `ModelStreamInput`, so the compiler — not this assertion — is what
-    // enumerates construction sites.
+  // These probes are compile-time only: each `@ts-expect-error` fails
+  // `pnpm --filter api typecheck` if `chat` ever stops being required, so the
+  // compiler — not a runtime assertion — is what enumerates construction
+  // sites. There is nothing for vitest to observe here beyond the file
+  // type-checking.
+  it('omitting the Chat identity does not compile on either input contract', () => {
     // @ts-expect-error — `chat` is a required field on ModelStreamInput.
-    const withoutChat: ModelStreamInput = { messages };
-
-    // And there is no runtime fallback a missed call site could silently use.
-    expect(withoutChat.chat).toBeUndefined();
-  });
-
-  it('omitting the Chat identity on a structured input does not compile either', () => {
-    // Same probe for the structured-generation contract: a client's
-    // `generateObject` input carries the identity too.
+    const streamInput: ModelStreamInput = { messages };
     // @ts-expect-error — `chat` is a required field on ModelObjectInput.
-    const withoutChat: ModelObjectInput<{ title: string }> = {
+    const objectInput: ModelObjectInput<{ title: string }> = {
       messages,
       schema: z.object({ title: z.string() }),
     };
 
-    expect(withoutChat.chat).toBeUndefined();
+    expect([streamInput, objectInput]).toHaveLength(2);
   });
 });

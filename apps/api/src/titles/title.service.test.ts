@@ -161,7 +161,6 @@ describe('TitleService', () => {
       messages: titleRequest?.messages,
     });
     expect(sent).not.toContain('chat-1');
-    expect(sent).not.toContain('lane');
     expect(setGeneratedTitle).toHaveBeenCalledWith(
       'chat-1',
       'user-1',

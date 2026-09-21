@@ -470,8 +470,10 @@ function scriptedStreamHandlers(
  * One recorded stream call: the model that served it, plus the two input facts
  * a test asserts on — the effort sent and the Chat identity the run derived.
  */
-interface StreamCallRecord extends Pick<ModelStreamInput, 'effort' | 'chat'> {
+interface StreamCallRecord {
   modelId: string;
+  effort: ModelStreamInput['effort'];
+  chat: ModelStreamInput['chat'];
 }
 
 class HarnessModelClient implements ModelClient {

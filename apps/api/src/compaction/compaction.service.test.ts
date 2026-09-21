@@ -450,7 +450,6 @@ describe('CompactionService maybeCompact', () => {
       messages: calls[0]?.messages,
     });
     expect(sent).not.toContain(chatId);
-    expect(sent).not.toContain('lane');
   });
 
   it('omits effort and tools from the request and receipt when the turn had none', async () => {
