@@ -53,7 +53,7 @@
     //   "id": "ollama",
     //   "type": "openai-completions",
     //   "baseUrl": "{env:OLLAMA_BASE_URL:-http://localhost:11434/v1}"
-    // }
+    // },
     // Anthropic's Messages wire, named after the wire like the OpenAI types.
     // A gateway or proxy that speaks Messages is this type with its own
     // baseUrl, never a second type. The example keeps the provider available
@@ -76,7 +76,7 @@
     //   "type": "openai-codex",
     //   "key": "{path:/run/secrets/codex-auth.json|json:/tokens/access_token}",
     //   "accountId": "{path:/run/secrets/codex-auth.json|json:/tokens/account_id}"
-    // }
+    // },
     // An OpenCode Go subscription is key-only: the endpoint is fixed in
     // llame's code, so this entry accepts no baseUrl, and the key is required
     // because the gateway authenticates every request. That is why the
@@ -350,8 +350,11 @@
     // Chat Completions at the fixed gateway endpoint. No `pricingUsdPer1M`:
     // the subscription bills per-model usage windows, not per token, so llame
     // records `costUsd: null` unless an operator declares a rate. The
-    // Contributor models are deliberately absent — they train on prompts; see
-    // docs/opencode-go.md.
+    // gateway's own model list reports no context window either, so the
+    // `contextWindowTokens` below is an operator-declared estimate — check it
+    // against the model's own documentation before relying on compaction
+    // thresholds derived from it. The Contributor models are deliberately
+    // absent — they train on prompts; see docs/opencode-go.md.
     // --- opencode-go block: start ---
     // {
     //   "id": "system:opencode-go:glm-5.3-flash",

@@ -35,8 +35,22 @@ const messages = [
 /** The product token llame's boot-read identity supplies to every client. */
 const USER_AGENT = 'llame/0.0.0-test';
 
-/** The credential the entry's own key resolves to. */
-const CREDENTIAL = 'go-canary-credential';
+/**
+ * The transport-only canaries one failure exchange carries: a value in the
+ * gateway envelope's metadata, one in its `param`, one in a response header,
+ * one in the request body's own content, and the credential the request
+ * authenticates with. Each is declared once and used on BOTH sides of the
+ * check — written into the exchange and listed for absence — so no checked
+ * canary can be one that never left the test.
+ */
+const WORKSPACE_CANARY = 'WORKSPACE-CANARY';
+const LIMIT_NAME_CANARY = 'LIMIT-NAME-CANARY';
+const BODY_PARAM_CANARY = 'BODY-PARAM-CANARY';
+const RESPONSE_HEADER_CANARY = 'RESPONSE-HEADER-CANARY';
+const REQUEST_BODY_CANARY = 'REQUEST-BODY-CANARY';
+
+/** The credential the entry's own key resolves to — the canary the request authenticates with. */
+const CREDENTIAL = 'CREDENTIAL-CANARY';
 
 /** The main-lane Chat identity every turn and compaction request carries. */
 const MAIN_CHAT: ChatIdentity = { id: 'chat-canary-id', lane: 'main' };
@@ -216,24 +230,38 @@ async function streamFailure(
 }
 
 /**
- * Canaries that exist only inside the transport exchange — the gateway
- * envelope's `metadata` and `param`, a response header, the request body's own
- * content, and the credential — and therefore may never appear in a failure's
- * message or stack.
+ * Canaries every failure exchange carries — a response header, the request
+ * body's own content, and the credential — and which therefore may never
+ * appear in a failure's message or stack.
  */
 const TRANSPORT_ONLY_CANARIES: ReadonlyArray<string> = [
-  'WORKSPACE-CANARY',
-  'LIMIT-NAME-CANARY',
-  'BODY-PARAM-CANARY',
-  'RESPONSE-HEADER-CANARY',
-  'REQUEST-BODY-CANARY',
-  'CREDENTIAL-CANARY',
+  RESPONSE_HEADER_CANARY,
+  REQUEST_BODY_CANARY,
+  CREDENTIAL,
 ];
 
-/** The transport-only canaries that leaked into either failure surface. */
-function leakedCanaries(error: Error): Array<string> {
+/**
+ * The canaries only the gateway's error envelope carries, checked on the
+ * exchanges that serve one. Both sets are checked only where the value really
+ * happens to occur: a canary that never left the test would prove nothing.
+ */
+const ENVELOPE_CANARIES: ReadonlyArray<string> = [
+  WORKSPACE_CANARY,
+  LIMIT_NAME_CANARY,
+  BODY_PARAM_CANARY,
+];
+
+/**
+ * The canaries that exist only inside one exchange and leaked into either
+ * failure surface the executor reads: the error's message, and the stack it
+ * logs.
+ */
+function leakedCanaries(
+  error: Error,
+  canaries: ReadonlyArray<string>,
+): Array<string> {
   const surfaces = `${error.message}\n${error.stack ?? ''}`;
-  return TRANSPORT_ONLY_CANARIES.filter((canary) => surfaces.includes(canary));
+  return canaries.filter((canary) => surfaces.includes(canary));
 }
 
 /** The gateway's error envelope, with every transport-only canary in place. */
@@ -243,17 +271,17 @@ function errorEnvelope(errorType: string, message: string): string {
     error: {
       type: errorType,
       message,
-      param: 'BODY-PARAM-CANARY',
+      param: BODY_PARAM_CANARY,
       metadata: {
-        workspace: 'WORKSPACE-CANARY',
-        limitName: 'LIMIT-NAME-CANARY',
+        workspace: WORKSPACE_CANARY,
+        limitName: LIMIT_NAME_CANARY,
       },
     },
   });
 }
 
 const REQUEST_MESSAGES = [
-  { role: 'user', content: `Continue REQUEST-BODY-CANARY` },
+  { role: 'user', content: `Continue ${REQUEST_BODY_CANARY}` },
 ] satisfies Array<ModelMessage>;
 
 describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () => {
@@ -563,7 +591,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
         new Response(errorEnvelope('ModelError', parsedMessage), {
           status: 401,
           statusText: 'Unauthorized',
-          headers: { 'x-gateway-request-id': 'RESPONSE-HEADER-CANARY' },
+          headers: { 'x-gateway-request-id': RESPONSE_HEADER_CANARY },
         }),
     );
     try {
@@ -578,7 +606,12 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
       // failure's message — the owner sees the gateway's own words.
       expect(stub.fetchMock).toHaveBeenCalledTimes(1);
       expect(error.message).toBe(parsedMessage);
-      expect(leakedCanaries(error)).toEqual([]);
+      expect(
+        leakedCanaries(error, [
+          ...TRANSPORT_ONLY_CANARIES,
+          ...ENVELOPE_CANARIES,
+        ]),
+      ).toEqual([]);
     } finally {
       stub.restore();
     }
@@ -594,7 +627,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
           headers: {
             'content-type': 'application/json',
             'retry-after': '0',
-            'x-gateway-request-id': 'RESPONSE-HEADER-CANARY',
+            'x-gateway-request-id': RESPONSE_HEADER_CANARY,
           },
         }),
     );
@@ -627,10 +660,23 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
         'glm-5.3-flash',
         'glm-5.3-flash',
       ]);
+      // The identity is stable across a retry: the SDK re-issuing the request
+      // re-renders the same session value from the same Chat, so no attempt
+      // mints a new identity.
+      expect(
+        stub.fetchMock.mock.calls.map((_, call) =>
+          requestHeaders(stub, call).get('x-opencode-session'),
+        ),
+      ).toEqual([MAIN_CHAT.id, MAIN_CHAT.id, MAIN_CHAT.id]);
       expect(error.message).toBe(
         `Failed after 3 attempts. Last error: ${parsedMessage}`,
       );
-      expect(leakedCanaries(error)).toEqual([]);
+      expect(
+        leakedCanaries(error, [
+          ...TRANSPORT_ONLY_CANARIES,
+          ...ENVELOPE_CANARIES,
+        ]),
+      ).toEqual([]);
     } finally {
       stub.restore();
     }
@@ -639,10 +685,13 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
   it('surfaces the HTTP status text when the failure body is not the envelope', async () => {
     const stub = serveFetch(
       () =>
-        new Response('<html>RESPONSE-HEADER-CANARY</html>', {
+        new Response(`<html>${RESPONSE_HEADER_CANARY}</html>`, {
           status: 502,
           statusText: 'Bad Gateway',
-          headers: { 'retry-after': '0' },
+          headers: {
+            'retry-after': '0',
+            'x-gateway-request-id': RESPONSE_HEADER_CANARY,
+          },
         }),
     );
     try {
@@ -658,7 +707,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
       expect(error.message).toBe(
         'Failed after 3 attempts. Last error: Bad Gateway',
       );
-      expect(leakedCanaries(error)).toEqual([]);
+      expect(leakedCanaries(error, TRANSPORT_ONLY_CANARIES)).toEqual([]);
     } finally {
       stub.restore();
     }
@@ -674,7 +723,12 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
             `data: ${malformedChunk}\n\n`,
             'data: [DONE]\n\n',
           ].join(''),
-          { headers: { 'content-type': 'text/event-stream' } },
+          {
+            headers: {
+              'content-type': 'text/event-stream',
+              'x-gateway-request-id': RESPONSE_HEADER_CANARY,
+            },
+          },
         ),
     );
     try {
@@ -692,7 +746,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
       expect(error.message).toContain('JSON');
       expect(error.message).toContain(malformedChunk);
       expect(error.message).not.toContain('partial');
-      expect(leakedCanaries(error)).toEqual([]);
+      expect(leakedCanaries(error, TRANSPORT_ONLY_CANARIES)).toEqual([]);
     } finally {
       stub.restore();
     }
