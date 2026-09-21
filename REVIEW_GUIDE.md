@@ -98,6 +98,10 @@ path and failure.
 
 ### PR evidence
 
+- Layer scope follows CONTRIBUTING's [review budget](CONTRIBUTING.md#review-budget)
+  and its self-review-before-ready / GitHub-review-after-ready checkpoints
+  ([PR contract](CONTRIBUTING.md#pr-contract)); this guide owns the judgment
+  applied within them.
 - Rebase stacks; do not merge `master` into them. Confirm CI actually scheduled.
 - Verification claims match commands run. Separate environment failures.
 - Verify automated-review claims against code, installed packages, lockfiles,
