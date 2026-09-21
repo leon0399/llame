@@ -69,24 +69,25 @@ assessment.
 16. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
 17. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
 18. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
-19. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
-20. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
-21. [agent-memory](./agent-memory.md) — Derived memory indexes and federated retrieval
-22. [gbrain](./gbrain.md) — File-backed knowledge and provenance-aware recall
-23. [Graphify](./graphify.md) — Derived graph provenance, extraction caches, and MCP query boundaries
-24. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
-25. [beads](./beads.md) — Dependency-aware work tracking, claims, and trace retention
-26. [Fabric](./fabric.md) — File-based prompt composition and drift checks
-27. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
-28. [OKF (Open Knowledge Format)](./open-knowledge-format.md) — Optional authorship, verification, and freshness metadata
-29. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
-30. [Buzz](./buzz.md) — Formal isolation models to compare with runtime enforcement
-31. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
-32. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
-33. [ELAI](./elai.md) — Archived architecture and measurement discipline
-34. [Loki Agent](./loki.md) — Rebranded Hermes fork; managed connector gateway degradation and retry contract, per-child input-token ceilings for delegation
-35. [pi-mono](./pi-mono.md) — Lane-as-branch session tree, composable provider session headers, and a fail-open hook registry
-36. [Kilo Code](./kilocode.md) — Provider-gated header tiers, hard permission rulesets, and a fail-closed headless subagent guard
-37. [MiMo Code](./mimo-code.md) — Frozen prefix snapshots, parent-grant inheritance for subagents, and local dream/distill self-improvement
-38. [Kimi Code](./kimi-code.md) — Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass
-39. [jcode](./jcode.md) — Host-detected gateway headers, per-instance session identity, and a bash-only risk gate
+19. [AX](./ax.md) — Desired-state task sandboxes, snapshot-backed workspaces, and fail-open control-plane gaps
+20. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
+21. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
+22. [agent-memory](./agent-memory.md) — Derived memory indexes and federated retrieval
+23. [gbrain](./gbrain.md) — File-backed knowledge and provenance-aware recall
+24. [Graphify](./graphify.md) — Derived graph provenance, extraction caches, and MCP query boundaries
+25. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
+26. [beads](./beads.md) — Dependency-aware work tracking, claims, and trace retention
+27. [Fabric](./fabric.md) — File-based prompt composition and drift checks
+28. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
+29. [OKF (Open Knowledge Format)](./open-knowledge-format.md) — Optional authorship, verification, and freshness metadata
+30. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
+31. [Buzz](./buzz.md) — Formal isolation models to compare with runtime enforcement
+32. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
+33. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
+34. [ELAI](./elai.md) — Archived architecture and measurement discipline
+35. [Loki Agent](./loki.md) — Rebranded Hermes fork; managed connector gateway degradation and retry contract, per-child input-token ceilings for delegation
+36. [pi-mono](./pi-mono.md) — Lane-as-branch session tree, composable provider session headers, and a fail-open hook registry
+37. [Kilo Code](./kilocode.md) — Provider-gated header tiers, hard permission rulesets, and a fail-closed headless subagent guard
+38. [MiMo Code](./mimo-code.md) — Frozen prefix snapshots, parent-grant inheritance for subagents, and local dream/distill self-improvement
+39. [Kimi Code](./kimi-code.md) — Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass
+40. [jcode](./jcode.md) — Host-detected gateway headers, per-instance session identity, and a bash-only risk gate
