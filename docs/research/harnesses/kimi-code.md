@@ -4,14 +4,23 @@ title: "Kimi Code"
 description: "Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass"
 resource: "https://github.com/MoonshotAI/kimi-code"
 observed:
-  date: "2026-09-15"
-  revision: "486dcd26c76f2854fc351515a45d8f0fc2d31ed6"
+  date: "2026-09-21"
+  revision: "6a52dd781b959328190b0cd66082154b96ef6a47"
 sources:
   - id: packages-kosong-src-catalog-ts-l438-l497
-    resource: "https://github.com/MoonshotAI/kimi-code/blob/486dcd26c76f2854fc351515a45d8f0fc2d31ed6/packages/kosong/src/catalog.ts#L438-L497"
+    resource: "https://github.com/MoonshotAI/kimi-code/blob/6a52dd781b959328190b0cd66082154b96ef6a47/packages/kosong/src/catalog.ts#L438-L497"
     title: "generic gateway resolution"
-  - id: packages-agent-core-v2-src-app-agentidentity-agentidentity-ts-l39-l49
-    resource: "https://github.com/MoonshotAI/kimi-code/blob/486dcd26c76f2854fc351515a45d8f0fc2d31ed6/packages/agent-core-v2/src/app/agentIdentity/agentIdentity.ts#L39-L49"
+  - id: packages-kosong-src-catalog-ts-l26-l29
+    resource: "https://github.com/MoonshotAI/kimi-code/blob/6a52dd781b959328190b0cd66082154b96ef6a47/packages/kosong/src/catalog.ts#L26-L29"
+    title: "opencode named as an example gateway provider"
+  - id: packages-node-sdk-src-config-schema-ts-l47-l58
+    resource: "https://github.com/MoonshotAI/kimi-code/blob/6a52dd781b959328190b0cd66082154b96ef6a47/packages/node-sdk/src/config/schema.ts#L47-L58"
+    title: "static per-provider customHeaders map"
+  - id: packages-kosong-src-providers-request-auth-ts-l18-l30
+    resource: "https://github.com/MoonshotAI/kimi-code/blob/6a52dd781b959328190b0cd66082154b96ef6a47/packages/kosong/src/providers/request-auth.ts#L18-L30"
+    title: "default and per-request header merge at the client factory"
+  - id: packages-agent-core-v2-src-app-agentidentity-agentidentity-ts-l42-l60
+    resource: "https://github.com/MoonshotAI/kimi-code/blob/6a52dd781b959328190b0cd66082154b96ef6a47/packages/agent-core-v2/src/app/agentIdentity/agentIdentity.ts#L42-L60"
     title: "User-Agent product token rewrite"
   - id: packages-agent-core-v2-src-session-subagent-subagentservice-ts-l80-l165
     resource: "https://github.com/MoonshotAI/kimi-code/blob/486dcd26c76f2854fc351515a45d8f0fc2d31ed6/packages/agent-core-v2/src/session/subagent/subagentService.ts#L80-L165"
@@ -34,12 +43,19 @@ sources:
 
 - **Stack:** TypeScript pnpm monorepo; local CLI plus a websocket server and ACP server; engine layout mirrors OpenCode; MIT
 
-Listed by OpenCode Go as lacking automatic session-header support. Confirmed:
-no `x-opencode-session` occurrence in the tree; `opencode` is a generic
-gateway id resolved to a wire protocol and base URL like any
-other[^packages-kosong-src-catalog-ts-l438-l497], and the User-Agent is a
-uniform product-token rewrite for every
-provider[^packages-agent-core-v2-src-app-agentidentity-agentidentity-ts-l39-l49].
+Listed by OpenCode Go as lacking automatic session-header support. Confirmed at
+this revision: no `x-opencode-session` occurrence in the tree, `opencode` is a
+generic gateway id resolved to a wire protocol and base URL like any
+other[^packages-kosong-src-catalog-ts-l438-l497] (the resolver names it only as an
+example of a gateway with per-model
+overrides[^packages-kosong-src-catalog-ts-l26-l29]), and the User-Agent is a
+product-token rewrite of whatever host headers the embedding application supplied
+rather than a provider-specific
+string[^packages-agent-core-v2-src-app-agentidentity-agentidentity-ts-l42-l60]. The only
+header channel is a static per-provider `customHeaders` map from configuration,
+merged with any per-request headers when the wire client is
+built[^packages-node-sdk-src-config-schema-ts-l47-l58][^packages-kosong-src-providers-request-auth-ts-l18-l30];
+nothing derives a session value, so a Go adapter here is configuration, not code.
 
 **Study**
 
@@ -57,6 +73,14 @@ provider[^packages-agent-core-v2-src-app-agentidentity-agentidentity-ts-l39-l49]
    `compaction_summary` message plus a retained
    tail[^packages-agent-core-v2-src-agent-contextmemory-compactionhandoff-ts-l68-l133].
    Low applicability; llame keeps an explicit boundary.
+4. **A construction-time header channel with no session derivation.** Provider
+   configuration accepts an arbitrary `customHeaders` record, and the request
+   builder merges it under any per-request header map before constructing the wire
+   client[^packages-node-sdk-src-config-schema-ts-l47-l58][^packages-kosong-src-providers-request-auth-ts-l18-l30].
+   Every value is static, so the map can carry a fixed header but never a
+   conversation identifier, and the resolver below it remains catalog-driven. High
+   confidence for #881's boundary: an operator-facing header map is useful, but a
+   session channel needs the call site that knows the Chat id.
 
 **Caution**
 
@@ -70,9 +94,15 @@ provider[^packages-agent-core-v2-src-app-agentidentity-agentidentity-ts-l39-l49]
 - No provenance or receipt concept; session state lives in local file
   backends with no tenant partitioning.
 
-[^packages-kosong-src-catalog-ts-l438-l497]: [generic gateway resolution](https://github.com/MoonshotAI/kimi-code/blob/486dcd26c76f2854fc351515a45d8f0fc2d31ed6/packages/kosong/src/catalog.ts#L438-L497)
+[^packages-kosong-src-catalog-ts-l438-l497]: [generic gateway resolution](https://github.com/MoonshotAI/kimi-code/blob/6a52dd781b959328190b0cd66082154b96ef6a47/packages/kosong/src/catalog.ts#L438-L497)
 
-[^packages-agent-core-v2-src-app-agentidentity-agentidentity-ts-l39-l49]: [User-Agent product token rewrite](https://github.com/MoonshotAI/kimi-code/blob/486dcd26c76f2854fc351515a45d8f0fc2d31ed6/packages/agent-core-v2/src/app/agentIdentity/agentIdentity.ts#L39-L49)
+[^packages-kosong-src-catalog-ts-l26-l29]: [opencode named as an example gateway provider](https://github.com/MoonshotAI/kimi-code/blob/6a52dd781b959328190b0cd66082154b96ef6a47/packages/kosong/src/catalog.ts#L26-L29)
+
+[^packages-node-sdk-src-config-schema-ts-l47-l58]: [static per-provider `customHeaders` map](https://github.com/MoonshotAI/kimi-code/blob/6a52dd781b959328190b0cd66082154b96ef6a47/packages/node-sdk/src/config/schema.ts#L47-L58)
+
+[^packages-kosong-src-providers-request-auth-ts-l18-l30]: [default and per-request header merge at the client factory](https://github.com/MoonshotAI/kimi-code/blob/6a52dd781b959328190b0cd66082154b96ef6a47/packages/kosong/src/providers/request-auth.ts#L18-L30)
+
+[^packages-agent-core-v2-src-app-agentidentity-agentidentity-ts-l42-l60]: [User-Agent product token rewrite](https://github.com/MoonshotAI/kimi-code/blob/6a52dd781b959328190b0cd66082154b96ef6a47/packages/agent-core-v2/src/app/agentIdentity/agentIdentity.ts#L42-L60)
 
 [^packages-agent-core-v2-src-session-subagent-subagentservice-ts-l80-l165]: [subagent spawn and allowlist](https://github.com/MoonshotAI/kimi-code/blob/486dcd26c76f2854fc351515a45d8f0fc2d31ed6/packages/agent-core-v2/src/session/subagent/subagentService.ts#L80-L165)
 
