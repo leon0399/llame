@@ -15,10 +15,12 @@ of that injection: the proposal branch exists before any change artifact is
 written, and the finalize branch exists before spec synchronization writes
 canonical specs.
 
-The checked-in workflows are generated with OpenSpec 1.13.1. Keep project
-policy in `openspec/config.yaml`, not in generated skills or commands. When
-upgrading the CLI, regenerate consumers and verify instruction delivery before
-relying on it; missing guidance or a successful command does not grant approval.
+The canonical OpenSpec skills are generated with OpenSpec 1.13.1; the command
+entrypoints are repository-maintained routers that load those skills. Keep
+delivery policy in `openspec/config.yaml`. For CLI upgrades, generate upstream
+workflows in a temporary project and compare their contracts before adopting
+them; preserve the command routers. Verify instruction delivery: missing
+guidance or a successful command does not grant approval.
 
 ## Gates
 
