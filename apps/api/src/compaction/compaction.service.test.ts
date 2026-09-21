@@ -422,6 +422,37 @@ describe('CompactionService maybeCompact', () => {
     expect(Object.keys(calls[0]?.tools ?? {})).toEqual(['search']);
   });
 
+  // provider-api-selection D5: compaction shares the turn's `main` lane because
+  // its prefix IS the conversation's prefix. A different id or lane would put
+  // this request outside the turn's cache identity while looking identical.
+  it('sends the compacted Chat’s own id on the main lane', async () => {
+    const { client, calls } = recordingClient();
+    const setup = makeService(client);
+    mockLiveWindow();
+    vi.spyOn(CompactionsRepository.prototype, 'create').mockResolvedValue(
+      compaction,
+    );
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+
+    await setup.service.maybeCompact({
+      chatId,
+      userId: ownerId,
+      client,
+      system: 'system',
+      toolDeclarations: [validTool],
+      lastTurnTotalTokens: 100,
+    });
+
+    expect(calls[0]?.chat).toStrictEqual({ id: chatId, lane: 'main' });
+    // The identity rides the input field, never the request's own text.
+    const sent = JSON.stringify({
+      system: calls[0]?.system,
+      messages: calls[0]?.messages,
+    });
+    expect(sent).not.toContain(chatId);
+    expect(sent).not.toContain('lane');
+  });
+
   it('omits effort and tools from the request and receipt when the turn had none', async () => {
     const { client, calls } = recordingClient();
     const setup = makeService(client);

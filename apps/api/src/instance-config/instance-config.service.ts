@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import { loadInstanceConfig, resolveConfigPath } from './config-loader';
 import type { LlameConfig } from './llame-config';
+import { loadProductUserAgent } from './product-identity';
 
 /**
  * The only capability most callers need (#268) — narrower than the whole
@@ -21,15 +22,27 @@ export type InstanceConfigReader = {
  * settings (openspec/changes/instance-config; SPEC config-as-code). Loaded
  * once at module init (D6 restart-to-apply, no hot-reload); any load,
  * parse, schema, or interpolation failure throws out of the constructor,
- * which aborts Nest bootstrap before the app starts serving requests.
+ * which aborts Nest bootstrap before the app starts serving requests. The
+ * product identity is read the same way and under the same contract: the
+ * API package manifest must be deployed beside `dist/`, and one that is
+ * missing, unreadable, or version-less aborts bootstrap too.
  */
 @Injectable()
 export class InstanceConfigService {
   readonly configPath?: string;
   readonly config: LlameConfig;
+  /**
+   * llame's own identity (`llame/<version>`) for every language-model request
+   * (design D6 of openspec/changes/opencode-go-provider), read once here so a
+   * misdeployment fails boot rather than a request. Deliberately outside
+   * `InstanceConfigReader`: it is not operator configuration, and the readers
+   * that only need `config` stay unchanged.
+   */
+  readonly productUserAgent: string;
 
   constructor() {
     this.configPath = resolveConfigPath();
     this.config = loadInstanceConfig();
+    this.productUserAgent = loadProductUserAgent();
   }
 }

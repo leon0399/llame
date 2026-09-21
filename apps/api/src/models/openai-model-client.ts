@@ -37,6 +37,19 @@ import { wrapStreamTextResult } from './stream-text-result-proxy';
 export const KEYLESS_PLACEHOLDER_API_KEY = 'keyless-no-credential-configured';
 
 /**
+ * The per-call `headers` every language-model request carries: llame's product
+ * token as the lowercase `user-agent` (design D6). Every wire's client sends
+ * these on each `streamText`/`generateText`/`generateObject` call rather than
+ * on its provider-level headers, because the AI SDK replaces a provider-level
+ * `User-Agent` with its own `ai/<version>` on structured requests; the key is
+ * lowercase so it replaces the adapter's own header instead of duplicating it.
+ * Single-sourced here so no client can drift on the key or the value.
+ */
+export function productUserAgentHeaders(config: { userAgent: string }) {
+  return { 'user-agent': config.userAgent };
+}
+
+/**
  * Best-effort parse of a tool call's raw stringified-JSON `input`
  * (`LanguageModelV3ToolCall.input` is always a string at the provider
  * layer). Falls back to the raw string when it isn't valid JSON, rather
@@ -362,6 +375,15 @@ export type OpenAIModelClientConfig = {
   providerModelId: string;
   modelId: string;
   contextWindowTokens: number;
+  /**
+   * llame's product token and version (`llame/<version>`), read once at boot
+   * under the instance-configuration contract (design D6) and sent as the
+   * lowercase `user-agent` on the PER-CALL headers of every language-model
+   * request this client issues — streaming and structured generation alike.
+   * Per-call rather than provider-level: the AI SDK replaces a
+   * provider-level `User-Agent` with its own token on structured requests.
+   */
+  userAgent: string;
   baseUrl?: string;
   /** Fixed-provider transport headers. */
   headers?: Record<string, string>;
@@ -448,13 +470,14 @@ function responsesProviderOptions(
 }
 
 /**
- * Attaches the request's provider options, composed from four layers under
- * one precedence (design D5): this wire's per-request-kind default (the
- * displayable reasoning summary, which the structured-generation path does
- * not take — see `composeStructuredProviderOptions`), the operator's object,
- * the run's effort, and the client's invariants — each layer replaces or
- * removes what the earlier ones set, never the other way around. The
- * operator's reserved paths are stripped by the composer.
+ * Attaches the request's per-call llame identity header (design D6) and its
+ * provider options, composed from four layers under one precedence (design
+ * D5): this wire's per-request-kind default (the displayable reasoning
+ * summary, which the structured-generation path does not take — see
+ * `composeStructuredProviderOptions`), the operator's object, the run's
+ * effort, and the client's invariants — each layer replaces or removes what
+ * the earlier ones set, never the other way around. The operator's reserved
+ * paths are stripped by the composer.
  *
  * A request whose options compose to nothing (every default removed with
  * `null`, no operator or effort value) carries no `providerOptions` key at
@@ -462,11 +485,12 @@ function responsesProviderOptions(
  * before this layer. `!== undefined` rather than truthiness for the effort —
  * a level meaning "no reasoning" is an instruction to send, not an absence.
  */
-function applyProviderOptions(
+function applyRequestOptions(
   streamOptions: Parameters<typeof streamText>[0],
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
 ): void {
+  streamOptions.headers = productUserAgentHeaders(config);
   const { providerOptions } = responsesProviderOptions(
     composeProviderOptions({
       defaults: { reasoningSummary: 'auto' },
@@ -559,7 +583,7 @@ function runOpenAIStream(
       maxOutputTokens: config.maxOutputTokens,
     }),
   };
-  applyProviderOptions(streamOptions, config, input);
+  applyRequestOptions(streamOptions, config, input);
   applyToolCallingOptions(streamOptions, input);
   applyTextDeltaCallback(streamOptions, input);
   // SDK callbacks return immediately so the `fullStream` reasoning branch can
@@ -596,17 +620,18 @@ function runOpenAIStream(
  * `callSettings` carries the wire's own request options, already composed by
  * the client whose wire `model` belongs to: its `providerOptions` — that
  * client owns its namespace, its reserved paths, and which layers a
- * structured request takes — and the catalog entry's `maxOutputTokens` cap
+ * structured request takes — its `headers` (llame's per-call `user-agent`
+ * among them, design D6), and the catalog entry's `maxOutputTokens` cap
  * (design D17), which is a call setting rather than a provider option. This
  * shared path stays wire-agnostic and composes nothing itself, so a caller
- * that composes to nothing sets neither key.
+ * that composes no options sets neither option key.
  */
 export async function generateToolBoundObject<OBJECT>(
   model: LanguageModelV3,
   input: ModelObjectInput<OBJECT>,
   callSettings: Pick<
     Parameters<typeof streamText>[0],
-    'maxOutputTokens' | 'providerOptions'
+    'headers' | 'maxOutputTokens' | 'providerOptions'
   >,
 ): Promise<OBJECT> {
   const toolName = input.schemaName ?? 'output';
@@ -677,6 +702,7 @@ export function createOpenAIModelClient(
     ...(config.generateObject !== false && {
       generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
         generateToolBoundObject(openai(config.providerModelId), input, {
+          headers: productUserAgentHeaders(config),
           ...composeStructuredProviderOptions(config),
           ...(config.maxOutputTokens !== undefined && {
             maxOutputTokens: config.maxOutputTokens,

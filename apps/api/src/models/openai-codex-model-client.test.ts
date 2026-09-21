@@ -6,10 +6,20 @@ import {
   CODEX_RESPONSES_BASE_URL,
   createOpenAICodexModelClient,
 } from './openai-codex-model-client';
+import type { ChatIdentity } from './model-client';
 
 const messages = [
   { role: 'user', content: 'Use the configured transport.' },
 ] satisfies Array<ModelMessage>;
+
+/**
+ * The Chat identity every input carries (design D3). It is a fact the client
+ * receives: nothing in this suite asserts that a client reads it.
+ */
+const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
+
+/** The product token llame's boot-read identity supplies to every client. */
+const USER_AGENT = 'llame/0.0.0-test';
 
 describe('createOpenAICodexModelClient', () => {
   it('serializes a self-contained non-stored Responses request through the real SDK', async () => {
@@ -36,9 +46,12 @@ describe('createOpenAICodexModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       });
 
-      await expect(client.streamText({ messages }).text).resolves.toBe('done');
+      await expect(
+        client.streamText({ chat: CHAT, messages }).text,
+      ).resolves.toBe('done');
 
       expect(fetchMock).toHaveBeenCalledWith(
         'https://chatgpt.com/backend-api/codex/responses',
@@ -50,6 +63,49 @@ describe('createOpenAICodexModelClient', () => {
       expect(serializedCall).toContain(String.raw`\"store\":false`);
       expect(serializedCall).not.toContain('item_reference');
       expect(serializedCall).not.toContain('previous_response_id');
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  it("carries the configured product token on the request's user-agent (design D6)", async () => {
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        new Response(
+          [
+            'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"item-1"}}\n\n',
+            'data: {"type":"response.output_text.delta","item_id":"item-1","delta":"done"}\n\n',
+            'data: {"type":"response.completed","response":{"incomplete_details":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
+            'data: [DONE]\n\n',
+          ].join(''),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+      );
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = createOpenAICodexModelClient({
+        credential: 'access-token',
+        accountId: 'account-id',
+        providerModelId: 'gpt-test',
+        modelId: 'system:codex:gpt-test',
+        contextWindowTokens: 128_000,
+        userAgent: 'llame/9.9.9-canary',
+      });
+
+      await expect(
+        client.streamText({ chat: CHAT, messages }).text,
+      ).resolves.toBe('done');
+
+      const [, init] = fetchMock.mock.calls[0] ?? [];
+      const headers = new Headers(init?.headers);
+      // The per-call header on the serialized request: llame's token leads,
+      // while the transport's own fixed provider-level headers survive beside
+      // it.
+      expect(headers.get('user-agent')).toMatch(/^llame\/9\.9\.9-canary( |$)/);
+      expect(headers.get('chatgpt-account-id')).toBe('account-id');
     } finally {
       globalThis.fetch = previousFetch;
     }
@@ -79,6 +135,7 @@ describe('createOpenAICodexModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       });
       const replayedMessages: Array<ModelMessage> = [
         { role: 'user', content: 'Find the answer.' },
@@ -108,7 +165,7 @@ describe('createOpenAICodexModelClient', () => {
       ];
 
       await expect(
-        client.streamText({ messages: replayedMessages }).text,
+        client.streamText({ chat: CHAT, messages: replayedMessages }).text,
       ).resolves.toBe('continued');
 
       const serializedCall = JSON.stringify(fetchMock.mock.calls);
@@ -154,11 +211,12 @@ describe('createOpenAICodexModelClient', () => {
         providerModelId: 'gpt-5-codex',
         modelId: 'system:codex:gpt-5-codex',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       });
       const onReasoningDelta = vi.fn();
 
       await expect(
-        client.streamText({ messages, onReasoningDelta }).text,
+        client.streamText({ chat: CHAT, messages, onReasoningDelta }).text,
       ).resolves.toBe('done');
 
       // `store: false` on a reasoning model requests the encrypted reasoning
@@ -222,6 +280,7 @@ describe('createOpenAICodexModelClient', () => {
         providerModelId: 'gpt-5-codex',
         modelId: 'system:codex:gpt-5-codex',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
         providerOptions: {
           // The operator's raw wire field, its summary, its store, and a
           // reserved continuation key all disagree with the client's cap and
@@ -234,7 +293,9 @@ describe('createOpenAICodexModelClient', () => {
         maxOutputTokens: 4321,
       });
 
-      await expect(client.streamText({ messages }).text).resolves.toBe('done');
+      await expect(
+        client.streamText({ chat: CHAT, messages }).text,
+      ).resolves.toBe('done');
 
       expect(fetchMock).toHaveBeenCalledWith(
         `${CODEX_RESPONSES_BASE_URL}/responses`,
@@ -286,11 +347,12 @@ describe('createOpenAICodexModelClient', () => {
           providerModelId: 'gpt-test',
           modelId: 'system:codex:gpt-test',
           contextWindowTokens: 128_000,
+          userAgent: USER_AGENT,
         },
         { createOpenAI: createOpenAIMock, streamText: streamTextMock },
       );
 
-      client.streamText({ messages, effort: 'high' });
+      client.streamText({ chat: CHAT, messages, effort: 'high' });
 
       expect(client).toMatchObject({
         model: 'system:codex:gpt-test',
@@ -368,11 +430,12 @@ describe('createOpenAICodexModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
 
-    client.streamText({ messages, onError });
+    client.streamText({ chat: CHAT, messages, onError });
     const [options] = streamTextMock.mock.calls.at(0) ?? [];
     const upstreamError = Object.assign(
       new Error(`401 unauthorized: Bearer ${secret}`),
@@ -416,11 +479,12 @@ describe('createOpenAICodexModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
 
-    client.streamText({ messages, onError });
+    client.streamText({ chat: CHAT, messages, onError });
     const [options] = streamTextMock.mock.calls.at(0) ?? [];
     await options?.onError?.({
       error: Object.assign(new Error(`429 quota exceeded: ${secret}`), {
@@ -465,16 +529,17 @@ describe('createOpenAICodexModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
 
-    await expect(client.streamText({ messages }).text).rejects.toThrow(
-      'Codex subscription request failed.',
-    );
-    await expect(client.streamText({ messages }).text).rejects.not.toThrow(
-      secret,
-    );
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).rejects.toThrow('Codex subscription request failed.');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).rejects.not.toThrow(secret);
   });
 
   it('classifies a retry-exhausted quota error without exposing its details', async () => {
@@ -505,11 +570,12 @@ describe('createOpenAICodexModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
 
-    client.streamText({ messages, onError });
+    client.streamText({ chat: CHAT, messages, onError });
     const [options] = streamTextMock.mock.calls.at(0) ?? [];
     await options?.onError?.({
       error: new RetryError({
@@ -560,6 +626,7 @@ describe('createOpenAICodexModelClient', () => {
           providerModelId: 'gpt-test',
           modelId: 'system:codex:gpt-test',
           contextWindowTokens: 128_000,
+          userAgent: USER_AGENT,
           ...config,
         },
         { createOpenAI: createOpenAIMock, streamText: streamTextMock },
@@ -582,7 +649,7 @@ describe('createOpenAICodexModelClient', () => {
         },
       });
 
-      client.streamText({ messages, effort: 'high' });
+      client.streamText({ chat: CHAT, messages, effort: 'high' });
 
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -604,7 +671,7 @@ describe('createOpenAICodexModelClient', () => {
         providerOptions: { store: null, reasoningSummary: null },
       });
 
-      client.streamText({ messages });
+      client.streamText({ chat: CHAT, messages });
 
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -621,7 +688,7 @@ describe('createOpenAICodexModelClient', () => {
         maxOutputTokens: 2048,
       });
 
-      client.streamText({ messages });
+      client.streamText({ chat: CHAT, messages });
 
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({

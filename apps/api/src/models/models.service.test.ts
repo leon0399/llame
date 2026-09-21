@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
+import type { ProductIdentityReader } from '../instance-config/product-identity';
 import { loadInstanceConfig } from '../instance-config/config-loader';
 import {
   BUILT_IN_DEFAULTS,
@@ -55,6 +56,9 @@ const DEFAULT_PROVIDER: ProviderConfig = {
   key: null,
   baseUrl: null,
 };
+
+/** The product token llame's boot-read identity supplies to every client. */
+const USER_AGENT = 'llame/0.0.0-test';
 
 // Reproduces the formerly-hardcoded ACTIVE_SYSTEM_MODEL_IDS catalog exactly,
 // as config entries — the shipped llame.config.json.example carries the same
@@ -139,7 +143,8 @@ function createService(overrides: {
   models?: Array<SystemModelCatalogEntry>;
   providers?: Array<ProviderConfig>;
 }): ModelsService {
-  const instanceConfig: InstanceConfigReader = {
+  const instanceConfig: InstanceConfigReader & ProductIdentityReader = {
+    productUserAgent: USER_AGENT,
     config: {
       ...BUILT_IN_DEFAULTS,
       defaults: {
@@ -300,6 +305,7 @@ describe('ModelsService', () => {
       providerModelId: 'gpt-5.4-mini',
       modelId: 'system:openai:gpt-5.4-mini',
       contextWindowTokens: 400_000,
+      userAgent: USER_AGENT,
       pricing: {
         inputUsdPer1M: 0.75,
         cachedInputUsdPer1M: 0.075,
@@ -446,7 +452,7 @@ describe('ModelsService — GET /api/v1/models contract stability (#161, provide
     const config = loadInstanceConfig();
     delete process.env.LLAME_CONFIG_PATH;
 
-    const service = new ModelsService({ config });
+    const service = new ModelsService({ config, productUserAgent: USER_AGENT });
     const response = service.getAvailableModels();
 
     expect(response.defaultModelId).toBe('system:openai:gpt-5.4-mini');

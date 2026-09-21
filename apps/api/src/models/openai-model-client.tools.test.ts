@@ -17,7 +17,7 @@ import {
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
-import { type ModelObjectInput } from './model-client';
+import { type ModelObjectInput, type ChatIdentity } from './model-client';
 import { createOpenAIModelClient } from './openai-model-client';
 import { createAssistantPartCollector } from '../runs/assistant-transcript';
 
@@ -31,6 +31,15 @@ const tools = {
 const messages = [
   { role: 'user', content: 'Use the available tools.' },
 ] satisfies Array<ModelMessage>;
+
+/**
+ * The Chat identity every input carries (design D3). It is a fact the client
+ * receives: nothing in this suite asserts that a client reads it.
+ */
+const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
+
+/** The product token llame's boot-read identity supplies to every client. */
+const USER_AGENT = 'llame/0.0.0-test';
 
 const PROVIDER_USAGE = {
   inputTokens: {
@@ -154,6 +163,7 @@ function buildClient(model: MockLanguageModelV3) {
       providerModelId: 'gpt-test',
       modelId: 'system:openai:gpt-test',
       contextWindowTokens: 128_000,
+      userAgent: USER_AGENT,
     },
     { createOpenAI: () => provider, streamText },
   );
@@ -200,6 +210,7 @@ describe('createOpenAIModelClient — abort handling', () => {
         await errorSettlement;
       });
       const result = client.streamText({
+        chat: CHAT,
         messages,
         abortSignal: abort.signal,
         onError,
@@ -250,7 +261,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     };
 
     await expect(
-      client.streamText({ messages, tools: optionalTools }).text,
+      client.streamText({ chat: CHAT, messages, tools: optionalTools }).text,
     ).resolves.toBe('done');
 
     expect(model.doStreamCalls[0]?.tools).toEqual(
@@ -274,7 +285,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     };
 
     await expect(
-      client.streamText({ messages, tools: providerTools }).text,
+      client.streamText({ chat: CHAT, messages, tools: providerTools }).text,
     ).resolves.toBe('done');
 
     expect(model.doStreamCalls[0]?.tools).toEqual([
@@ -292,7 +303,12 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     const client = buildClient(model);
 
     await expect(
-      client.streamText({ messages, tools, toolChoice: 'none' }).text,
+      client.streamText({
+        chat: CHAT,
+        messages,
+        tools,
+        toolChoice: 'none',
+      }).text,
     ).resolves.toBe('done');
 
     expect(model.doStreamCalls[0]?.toolChoice).toEqual({ type: 'none' });
@@ -309,6 +325,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 
     await expect(
       client.streamText({
+        chat: CHAT,
         messages,
         tools,
         maxSteps: 3,
@@ -332,6 +349,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 
     await expect(
       client.streamText({
+        chat: CHAT,
         messages,
         tools,
         maxSteps: 2,
@@ -358,6 +376,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 
     await expect(
       client.streamText({
+        chat: CHAT,
         messages,
         tools,
         maxSteps: 2,
@@ -378,7 +397,13 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     );
     const client = buildClient(model);
 
-    await client.streamText({ messages, tools, maxSteps: 2 }).consumeStream();
+    const result = client.streamText({
+      chat: CHAT,
+      messages,
+      tools,
+      maxSteps: 2,
+    });
+    await result.consumeStream();
 
     expect(model.doStreamCalls).toHaveLength(3);
     expect(model.doStreamCalls[2]?.tools).toEqual([]);
@@ -404,6 +429,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 
     await expect(
       client.streamText({
+        chat: CHAT,
         messages,
         onTextDelta,
         onReasoningDelta,
@@ -482,6 +508,7 @@ describe('createOpenAIModelClient — reasoning provider metadata', () => {
 
     await expect(
       client.streamText({
+        chat: CHAT,
         messages,
         onTextDelta,
         // Feeds the collector exactly as the run's callback does: every
@@ -561,6 +588,7 @@ describe('createOpenAIModelClient — reasoning provider metadata', () => {
 
     await expect(
       client.streamText({
+        chat: CHAT,
         messages,
         tools,
         onTextDelta: (text) => collector.text(text),
@@ -622,6 +650,7 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
 
       await expect(
         client.streamText({
+          chat: CHAT,
           messages,
           tools,
           maxSteps: 4,
@@ -657,6 +686,7 @@ describe('createOpenAIModelClient — capability surface', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
         pricing: { inputUsdPer1M: 1, outputUsdPer1M: 2 },
         compactionThresholdTokens: 4000,
       },
@@ -676,7 +706,7 @@ describe('createOpenAIModelClient — delta callbacks', () => {
     const client = buildClient(scriptedModel([textResponse('answer')]));
     const onTextDelta = vi.fn();
 
-    await client.streamText({ messages, onTextDelta }).text;
+    await client.streamText({ chat: CHAT, messages, onTextDelta }).text;
 
     expect(onTextDelta.mock.calls).toEqual([['answer']]);
   });
@@ -710,6 +740,7 @@ describe('createOpenAIModelClient — abort settlement failures', () => {
     const abort = new AbortController();
     const handlerFailure = new Error('error handler failed');
     const result = client.streamText({
+      chat: CHAT,
       messages,
       abortSignal: abort.signal,
       onError: () => Promise.reject(handlerFailure),
@@ -733,6 +764,7 @@ describe('createOpenAIModelClient — structured output', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       },
       { createOpenAI: () => provider, streamText },
     );
@@ -779,6 +811,7 @@ describe('createOpenAIModelClient — structured output', () => {
 
     await expect(
       generate({
+        chat: CHAT,
         messages,
         schema: z.object({ title: z.string() }),
       }),
@@ -810,6 +843,7 @@ describe('createOpenAIModelClient — structured output', () => {
 
     await expect(
       generateObject({
+        chat: CHAT,
         messages,
         schema: z.object({ title: z.string() }),
       }),
@@ -833,6 +867,7 @@ describe('createOpenAIModelClient — structured output', () => {
 
     await expect(
       generateObject({
+        chat: CHAT,
         messages,
         schemaName: 'chat_title',
         schema: z.object({ title: z.string() }),
@@ -892,6 +927,7 @@ describe('createOpenAIModelClient — reasoning channel settlement (D18)', () =>
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       },
       { createOpenAI: () => provider, streamText: stream },
     );
@@ -970,6 +1006,7 @@ describe('createOpenAIModelClient — reasoning channel settlement (D18)', () =>
       }> = [];
 
       const result = client.streamText({
+        chat: CHAT,
         messages,
         ...(abortSignal !== undefined && { abortSignal }),
         onReasoningDelta: () => {

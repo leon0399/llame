@@ -26,7 +26,7 @@ import {
   type RecordedRequest,
 } from '../testing/anthropic-model-client-fixtures';
 import type { AnthropicModelClientConfig } from './anthropic-model-client';
-import type { ModelObjectInput } from './model-client';
+import type { ChatIdentity, ModelObjectInput } from './model-client';
 import type { ClientHarness } from '../testing/anthropic-model-client-fixtures';
 
 const titleSchema = jsonSchema<{ title: string }>({
@@ -34,7 +34,14 @@ const titleSchema = jsonSchema<{ title: string }>({
   properties: { title: { type: 'string' } },
 });
 
+/**
+ * The Chat identity every input carries (design D3). It is a fact the client
+ * receives: nothing in this suite asserts that a client reads it.
+ */
+const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
+
 const titleInput: ModelObjectInput<{ title: string }> = {
+  chat: CHAT,
   messages,
   schemaName: 'chat_title',
   schemaDescription: 'A chat title',
@@ -145,6 +152,19 @@ describe('createAnthropicModelClient — structured output (3.8)', () => {
     });
   });
 
+  it("keeps llame's token leading the value on a structured request the SDK would otherwise overwrite", async () => {
+    const { harness } = await generateTitle({
+      userAgent: 'llame/9.9.9-canary',
+    });
+
+    // `generateObject` is the path the SDK gives its own `ai/<version>`
+    // `User-Agent` to; llame's per-call token leads it instead of being
+    // replaced, on the request the real adapter serialized.
+    expect(firstRequest(harness).headers.get('user-agent')).toMatch(
+      /^llame\/9\.9\.9-canary ai\//,
+    );
+  });
+
   it('carries the same client defaults and operator options as streaming, on every request kind', async () => {
     const { harness } = await generateTitle({
       providerOptions: { user_option: 'kept' },
@@ -231,7 +251,12 @@ describe('createAnthropicModelClient — reasoning delivery (3.4)', () => {
     const { deliveries, onReasoningDelta } = captureReasoning();
 
     await expect(
-      client.streamText({ messages, onTextDelta, onReasoningDelta }).text,
+      client.streamText({
+        chat: CHAT,
+        messages,
+        onTextDelta,
+        onReasoningDelta,
+      }).text,
     ).resolves.toBe('answer');
 
     // Exact delivery lists: text travels only on onChunk and reasoning only
@@ -261,7 +286,7 @@ describe('createAnthropicModelClient — reasoning delivery (3.4)', () => {
     const { deliveries, onReasoningDelta } = captureReasoning();
 
     await expect(
-      client.streamText({ messages, onReasoningDelta }).text,
+      client.streamText({ chat: CHAT, messages, onReasoningDelta }).text,
     ).resolves.toBe('answer');
 
     expect(deliveries).toEqual([
@@ -277,7 +302,7 @@ describe('createAnthropicModelClient — reasoning delivery (3.4)', () => {
     const { deliveries, onReasoningDelta } = captureReasoning();
 
     await expect(
-      client.streamText({ messages, onReasoningDelta }).text,
+      client.streamText({ chat: CHAT, messages, onReasoningDelta }).text,
     ).resolves.toBe('answer');
 
     expect(deliveries).toEqual([]);
@@ -320,9 +345,9 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     const client = buildClient(harness, { credential: secret });
     const { errors, onError } = captureErrors();
 
-    await expect(client.streamText({ messages, onError }).text).rejects.toThrow(
-      NoOutputGeneratedError,
-    );
+    await expect(
+      client.streamText({ chat: CHAT, messages, onError }).text,
+    ).rejects.toThrow(NoOutputGeneratedError);
     expect(errors).toEqual([
       new Error(
         'Anthropic authentication failed: the configured credential was rejected.',
@@ -340,9 +365,9 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     const client = buildClient(harness);
     const { errors, onError } = captureErrors();
 
-    await expect(client.streamText({ messages, onError }).text).rejects.toThrow(
-      NoOutputGeneratedError,
-    );
+    await expect(
+      client.streamText({ chat: CHAT, messages, onError }).text,
+    ).rejects.toThrow(NoOutputGeneratedError);
     expect(errors).toEqual([
       new Error('Anthropic request failed: unknown model or endpoint.'),
     ]);
@@ -353,9 +378,9 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     const client = buildClient(harness, { credential: secret });
     const { errors, onError } = captureErrors();
 
-    await expect(client.streamText({ messages, onError }).text).rejects.toThrow(
-      NoOutputGeneratedError,
-    );
+    await expect(
+      client.streamText({ chat: CHAT, messages, onError }).text,
+    ).rejects.toThrow(NoOutputGeneratedError);
     expect(errors).toEqual([
       new Error('Anthropic rate limit reached. Retry manually later.'),
     ]);
@@ -373,9 +398,9 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     const client = buildClient(harness);
     const { errors, onError } = captureErrors();
 
-    await expect(client.streamText({ messages, onError }).text).rejects.toThrow(
-      NoOutputGeneratedError,
-    );
+    await expect(
+      client.streamText({ chat: CHAT, messages, onError }).text,
+    ).rejects.toThrow(NoOutputGeneratedError);
     expect(errors).toEqual([new Error('Anthropic request failed.')]);
     expect(delivered(errors)).not.toContain(secret);
   });
@@ -390,9 +415,9 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     });
     const { errors, onError } = captureErrors();
 
-    await expect(client.streamText({ messages, onError }).text).rejects.toThrow(
-      NoOutputGeneratedError,
-    );
+    await expect(
+      client.streamText({ chat: CHAT, messages, onError }).text,
+    ).rejects.toThrow(NoOutputGeneratedError);
     // The transport failure is reported as the class of failure alone: the
     // SDK's own message ("Cannot connect to API: getaddrinfo ENOTFOUND …")
     // names the host and its cause carries the endpoint's address, so neither
@@ -421,8 +446,12 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     const { texts, onTextDelta } = captureText();
 
     await expect(
-      client.streamText({ messages: canaryMessages, onError, onTextDelta })
-        .text,
+      client.streamText({
+        chat: CHAT,
+        messages: canaryMessages,
+        onError,
+        onTextDelta,
+      }).text,
     ).resolves.toBe('Partial answer.');
 
     // The failure is late: the stream's valid prefix reached the run first and
@@ -453,9 +482,9 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     const client = buildClient(harness);
     const { errors, onError } = captureErrors();
 
-    await expect(client.streamText({ messages, onError }).text).rejects.toThrow(
-      NoOutputGeneratedError,
-    );
+    await expect(
+      client.streamText({ chat: CHAT, messages, onError }).text,
+    ).rejects.toThrow(NoOutputGeneratedError);
     expect(errors).toEqual([new Error('Anthropic request failed.')]);
     expect(delivered(errors)).not.toContain(MESSAGES_CANARIES.prompt);
   });
@@ -467,7 +496,7 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     controller.abort(new DOMException('Aborted', 'AbortError'));
 
     const rejection = await client
-      .streamText({ messages, abortSignal: controller.signal })
+      .streamText({ chat: CHAT, messages, abortSignal: controller.signal })
       .text.then(
         () => undefined,
         (error: unknown) => error,
@@ -492,7 +521,12 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     const { errors, onError } = captureErrors();
 
     await expect(
-      client.streamText({ messages, effort: 'ultra', onError }).text,
+      client.streamText({
+        chat: CHAT,
+        messages,
+        effort: 'ultra',
+        onError,
+      }).text,
     ).rejects.toThrow(NoOutputGeneratedError);
     // The adapter's own rejection is llame-authored, bounded, and actionable,
     // so it is what the run keeps: the refusal names the option argument.

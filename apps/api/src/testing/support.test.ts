@@ -15,6 +15,7 @@ describe('FakeStreamingModelClient', () => {
     const title = client.streamText({
       messages,
       system: TITLE_SYSTEM_PROMPT,
+      chat: { id: 'support-fixture-chat', lane: 'title' },
       abortSignal: abort.signal,
     }).text;
 

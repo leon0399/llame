@@ -36,6 +36,12 @@ export const messages = [
   { role: 'user', content: 'Hi.' },
 ] satisfies Array<ModelMessage>;
 
+/**
+ * The product token llame's boot-read identity supplies to every client:
+ * what the per-call `user-agent` header must carry (design D6).
+ */
+export const USER_AGENT = 'llame/0.0.0-test';
+
 /** A recorded request: where it went, with which headers, and its JSON body. */
 export type RecordedRequest = {
   url: string;
@@ -160,6 +166,7 @@ export function buildClient(
     providerModelId: 'claude-opus-4-8',
     modelId: 'system:anthropic:claude-opus-4-8',
     contextWindowTokens: 200_000,
+    userAgent: USER_AGENT,
     reasoningDeclared: true,
     ...overrides,
   };

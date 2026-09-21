@@ -21,6 +21,7 @@ import { MockLanguageModelV3 } from 'ai/test';
 import { TITLE_SYSTEM_PROMPT } from '../titles/title';
 import {
   MissingModelCredentialError,
+  type ChatIdentity,
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
@@ -328,6 +329,9 @@ export class FakeStreamingModelClient {
   // Title-generation calls (#78) are tracked separately: they are async post-turn
   // work, so counting them in `turns` would make every chat-turn assertion racy.
   readonly titleTurns: Array<Array<ModelMessage>> = [];
+  // The Chat identity every request carried, in issue order — the turn's and
+  // the title lane's side by side (provider-api-selection D3/D5).
+  readonly chatIdentities: Array<ChatIdentity> = [];
   titleResponse: string | Promise<string> = 'Generated Title';
   readonly model = 'system:openai:gpt-5.4-mini';
   readonly provider = 'openai';
@@ -363,6 +367,7 @@ export class FakeStreamingModelClient {
   onFinishCalls = 0;
 
   streamText(input: ModelStreamInput): ReturnType<typeof sdkStreamText> {
+    this.chatIdentities.push(input.chat);
     if (input.system === TITLE_SYSTEM_PROMPT) {
       return this.streamTitleText(input);
     }

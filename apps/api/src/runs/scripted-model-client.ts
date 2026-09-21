@@ -466,6 +466,14 @@ function scriptedStreamHandlers(
   };
 }
 
+/**
+ * One recorded stream call: the model that served it, plus the two input facts
+ * a test asserts on — the effort sent and the Chat identity the run derived.
+ */
+interface StreamCallRecord extends Pick<ModelStreamInput, 'effort' | 'chat'> {
+  modelId: string;
+}
+
 class HarnessModelClient implements ModelClient {
   readonly provider = 'fake';
   readonly contextWindowTokens = 128_000;
@@ -474,14 +482,12 @@ class HarnessModelClient implements ModelClient {
     readonly model: string,
     private readonly behavior: HarnessBehavior,
     /** Shared with the owning ScriptedModelsService so a test can assert what execution actually requested. */
-    private readonly streamCalls: Array<{
-      modelId: string;
-      effort: string | undefined;
-    }> = [],
+    private readonly streamCalls: Array<StreamCallRecord> = [],
   ) {}
 
   streamText(input: ModelStreamInput): ReturnType<typeof sdkStreamText> {
-    this.streamCalls.push({ modelId: this.model, effort: input.effort });
+    const { effort, chat } = input;
+    this.streamCalls.push({ modelId: this.model, effort, chat });
     const behavior = this.behavior;
     const text = behavior.kind === 'complete' ? (behavior.text ?? 'ok') : '';
     const delayMs = behavior.kind === 'complete' ? behavior.delayMs : undefined;
@@ -537,9 +543,8 @@ class HarnessModelClient implements ModelClient {
 export class ScriptedModelsService implements ModelSelectionValidator {
   private readonly behaviors = new Map<string, ScriptedBehavior>();
   readonly createClientCalls: Array<{ modelId: string }> = [];
-  /** Every streamText the executor issued, with the effort it carried. */
-  readonly streamCalls: Array<{ modelId: string; effort: string | undefined }> =
-    [];
+  /** Every streamText the executor issued, with the effort and Chat identity it carried. */
+  readonly streamCalls: Array<StreamCallRecord> = [];
 
   register(modelId: string, behavior: ScriptedBehavior): void {
     this.behaviors.set(modelId, behavior);

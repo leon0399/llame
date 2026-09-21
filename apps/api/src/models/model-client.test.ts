@@ -2,8 +2,8 @@ import type { ModelMessage } from 'ai';
 import {
   NoOutputGeneratedError,
   simulateReadableStream,
+  streamText,
   type StreamTextOnErrorCallback,
-  type streamText,
   type TextStreamPart,
   type ToolSet,
 } from 'ai';
@@ -15,6 +15,9 @@ import { z } from 'zod';
 import {
   MissingModelCredentialError,
   resolveModelCredential,
+  type ChatIdentity,
+  type ModelObjectInput,
+  type ModelStreamInput,
 } from './model-client';
 import {
   createOpenAIModelClient,
@@ -41,6 +44,15 @@ const messages = [
     content: 'Hello',
   },
 ] satisfies Array<ModelMessage>;
+
+/**
+ * The Chat identity every input carries (design D3). It is a fact the client
+ * receives: nothing in this suite asserts that a client reads it.
+ */
+const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
+
+/** The product token llame's boot-read identity supplies to every client. */
+const USER_AGENT = 'llame/0.0.0-test';
 
 /**
  * Minimal provider usage the AI SDK's `doGenerate` contract requires from a
@@ -104,6 +116,7 @@ describe('ModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
@@ -112,6 +125,7 @@ describe('ModelClient', () => {
     const onError = vi.fn();
     const onFinish = vi.fn();
     client.streamText({
+      chat: CHAT,
       messages,
       system: 'stable system',
       abortSignal,
@@ -159,10 +173,11 @@ describe('ModelClient', () => {
         providerModelId: 'gpt-local',
         modelId: 'system:local:gpt-local',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
-    client.streamText({ messages });
+    client.streamText({ chat: CHAT, messages });
 
     expect(client).toMatchObject({
       model: 'system:local:gpt-local',
@@ -200,11 +215,12 @@ describe('ModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
         baseUrl: 'https://openrouter.ai/api/v1',
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
-    client.streamText({ messages });
+    client.streamText({ chat: CHAT, messages });
 
     expect(client).toMatchObject({
       model: 'system:openai:gpt-test',
@@ -236,6 +252,7 @@ describe('ModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
         pricing,
         compactionThresholdTokens: 64_000,
       },
@@ -263,10 +280,11 @@ describe('ModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
-    client.streamText({ messages });
+    client.streamText({ chat: CHAT, messages });
 
     expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
     expect(streamTextMock).toHaveBeenCalledWith(
@@ -326,10 +344,11 @@ describe('ModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
-    client.streamText({ messages, onReasoningDelta });
+    client.streamText({ chat: CHAT, messages, onReasoningDelta });
 
     await vi.waitFor(() => expect(onReasoningDelta).toHaveBeenCalledTimes(3));
     // Every delivery of the part, once, in stream order, with the adapter's id
@@ -391,10 +410,12 @@ describe('ModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
     client.streamText({
+      chat: CHAT,
       messages,
       // The empty-summary item's deliveries are all metadata-only, so this is
       // exactly what the run's stream callback does with them.
@@ -433,6 +454,7 @@ describe('ModelClient', () => {
           providerModelId: 'gpt-test',
           modelId: 'system:openai:gpt-test',
           contextWindowTokens: 128_000,
+          userAgent: USER_AGENT,
         },
         { createOpenAI: createOpenAIMock, streamText: streamTextMock },
       );
@@ -444,7 +466,7 @@ describe('ModelClient', () => {
     it.each(['xhigh', 'Very-High_2'])(
       'sends %s through the Responses wire verbatim',
       (effort) => {
-        build().streamText({ messages, effort });
+        build().streamText({ chat: CHAT, messages, effort });
 
         expect(streamTextMock).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -457,7 +479,7 @@ describe('ModelClient', () => {
     );
 
     it('sends the effort alongside the automatic reasoning summary, not instead of it', () => {
-      build().streamText({ messages, effort: 'max' });
+      build().streamText({ chat: CHAT, messages, effort: 'max' });
 
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -472,7 +494,7 @@ describe('ModelClient', () => {
     // instruction to the provider, and dropping it would silently fall back to
     // the provider's own default instead.
     it('sends a level denoting disabled reasoning rather than dropping it', () => {
-      build().streamText({ messages, effort: 'none' });
+      build().streamText({ chat: CHAT, messages, effort: 'none' });
 
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -501,6 +523,7 @@ describe('ModelClient', () => {
           providerModelId: 'gpt-test',
           modelId: 'system:openai:gpt-test',
           contextWindowTokens: 128_000,
+          userAgent: USER_AGENT,
           ...overrides,
         },
         { createOpenAI: createOpenAIMock, streamText: streamTextMock },
@@ -511,7 +534,7 @@ describe('ModelClient', () => {
       const client = build({
         providerOptions: { reasoningSummary: 'concise' },
       });
-      client.streamText({ messages });
+      client.streamText({ chat: CHAT, messages });
 
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -525,7 +548,7 @@ describe('ModelClient', () => {
     // request carries no provider options at all.
     it('lets an operator null remove the automatic reasoning summary', () => {
       const client = build({ providerOptions: { reasoningSummary: null } });
-      client.streamText({ messages });
+      client.streamText({ chat: CHAT, messages });
 
       const [streamTextCall] = streamTextMock.mock.calls[0] ?? [];
       expect(streamTextCall).toMatchObject({ messages });
@@ -534,7 +557,7 @@ describe('ModelClient', () => {
 
     it('keeps the run effort above the operator reasoning effort', () => {
       const client = build({ providerOptions: { reasoningEffort: 'low' } });
-      client.streamText({ messages, effort: 'high' });
+      client.streamText({ chat: CHAT, messages, effort: 'high' });
 
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -563,7 +586,7 @@ describe('ModelClient', () => {
         const client = build({
           providerOptions: { [key]: value, vendorNote: 'kept' },
         });
-        client.streamText({ messages });
+        client.streamText({ chat: CHAT, messages });
 
         expect(streamTextMock).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -607,13 +630,14 @@ describe('ModelClient', () => {
         providerModelId: 'gpt-test',
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
         // `serviceTier` is a Responses option the adapter parses with a
         // closed enum; `cheap` is not one of its values.
         providerOptions: { serviceTier: 'cheap' },
         fetch: fetchMock,
       });
 
-      const result = client.streamText({ messages, onError });
+      const result = client.streamText({ chat: CHAT, messages, onError });
 
       // The request fails with no output at all (reading `text` is what
       // consumes the stream) ...
@@ -635,7 +659,7 @@ describe('ModelClient', () => {
 
     it('forwards the configured output cap as the streaming maxOutputTokens', () => {
       const client = build({ maxOutputTokens: 2048 });
-      client.streamText({ messages });
+      client.streamText({ chat: CHAT, messages });
 
       expect(streamTextMock).toHaveBeenCalledWith(
         expect.objectContaining({ maxOutputTokens: 2048 }),
@@ -673,6 +697,7 @@ describe('ModelClient', () => {
             providerModelId: 'gpt-test',
             modelId: 'system:openai:gpt-test',
             contextWindowTokens: 128_000,
+            userAgent: USER_AGENT,
             ...overrides,
           },
           { createOpenAI: createOpenAIMock, streamText: streamTextMock },
@@ -694,6 +719,7 @@ describe('ModelClient', () => {
 
         await expect(
           client.generateObject({
+            chat: CHAT,
             messages,
             schema: z.object({ title: z.string() }),
           }),
@@ -758,5 +784,175 @@ describe('ModelClient', () => {
         expect(generateCall?.maxOutputTokens).toBeUndefined();
       });
     });
+  });
+});
+
+/** The Responses stream a stubbed transport answers the requests below with. */
+function responsesStream(): Response {
+  return new Response(
+    [
+      'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"item-1"}}\n\n',
+      'data: {"type":"response.output_text.delta","item_id":"item-1","delta":"done"}\n\n',
+      'data: {"type":"response.completed","response":{"incomplete_details":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
+      'data: [DONE]\n\n',
+    ].join(''),
+    { headers: { 'content-type': 'text/event-stream' } },
+  );
+}
+
+/**
+ * llame's product identity (design D6): every language-model request carries
+ * `User-Agent: llame/<version>` on its PER-CALL headers — never only the
+ * provider-level ones, which the AI SDK replaces with its own token on
+ * structured requests. The streaming test below runs the REAL
+ * `@ai-sdk/openai` adapter and the real `streamText` with a stubbed
+ * transport, so the assertion reads the request the SDK actually serialized;
+ * the structured one reads the headers the SDK's `generateText` handed the
+ * provider layer.
+ */
+describe("createOpenAIModelClient — llame's product identity (design D6)", () => {
+  /**
+   * A distinctive token, so the assertions prove the CONFIGURED value reaches
+   * the request rather than a hardcoded product string.
+   */
+  const PRODUCT_USER_AGENT = 'llame/9.9.9-canary';
+
+  function buildClient() {
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(() => Promise.resolve(responsesStream()));
+    const client = createOpenAIModelClient({
+      credential: 'sk-test',
+      providerModelId: 'gpt-test',
+      modelId: 'system:openai:gpt-test',
+      contextWindowTokens: 128_000,
+      userAgent: PRODUCT_USER_AGENT,
+      fetch: fetchMock,
+    });
+    return { client, fetchMock };
+  }
+
+  it("carries the configured token on the streaming request's user-agent", async () => {
+    const { client, fetchMock } = buildClient();
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('done');
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const userAgent = new Headers(init?.headers).get('user-agent');
+    // llame's token leads; the SDK's own tokens follow it (design D6 leaves
+    // everything after llame's product token unconstrained).
+    expect(userAgent).toMatch(/^llame\/9\.9\.9-canary( |$)/);
+  });
+
+  it("keeps llame's token leading the value on a structured request the SDK would otherwise overwrite", async () => {
+    const providerModel = new MockLanguageModelV3({
+      provider: 'openai.responses',
+      modelId: 'gpt-test',
+      doGenerate: () =>
+        Promise.resolve({
+          content: [
+            {
+              type: 'tool-call',
+              toolCallId: 'call-0',
+              toolName: 'output',
+              input: '{"title":"A title"}',
+            },
+          ],
+          finishReason: { unified: 'tool-calls', raw: undefined },
+          usage: PROVIDER_USAGE,
+          warnings: [],
+        }),
+    });
+    // The same partial DI mock the suite uses elsewhere: a bare callable is
+    // not assignable to the SDK's full provider type.
+    const createOpenAIStub = vi.mocked(vi.fn<typeof createOpenAI>(), {
+      partial: true,
+    });
+    createOpenAIStub.mockReturnValue(responsesProviderMock(providerModel));
+    const client = createOpenAIModelClient(
+      {
+        credential: 'sk-test',
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+        userAgent: PRODUCT_USER_AGENT,
+      },
+      { createOpenAI: createOpenAIStub, streamText },
+    );
+    if (!client.generateObject) {
+      throw new Error('the Responses model client must expose generateObject');
+    }
+
+    await expect(
+      client.generateObject({
+        chat: CHAT,
+        messages,
+        schema: z.object({ title: z.string() }),
+      }),
+    ).resolves.toEqual({ title: 'A title' });
+
+    // The SDK appends its own token after llame's on this path instead of
+    // replacing the value: the header begins with llame's product token.
+    expect(providerModel.doGenerateCalls[0]?.headers?.['user-agent']).toMatch(
+      /^llame\/9\.9\.9-canary ai\//,
+    );
+  });
+
+  // Spec "A client with no consumer sends nothing extra": the identity is a
+  // required fact the client receives, and this client renders nothing from
+  // it — two requests differing only in the identity they were given are the
+  // same request on the wire, and neither carries the Chat's id.
+  it('receives the Chat identity it was given and renders nothing from it', async () => {
+    const { client, fetchMock } = buildClient();
+    const chatId = 'CANARY-CHAT-ID-1a2b3c';
+
+    await expect(
+      client.streamText({
+        chat: { id: chatId, lane: 'title' },
+        messages,
+      }).text,
+    ).resolves.toBe('done');
+    await expect(
+      client.streamText({
+        chat: { id: 'other-chat-id', lane: 'main' },
+        messages,
+      }).text,
+    ).resolves.toBe('done');
+
+    const requests = fetchMock.mock.calls.map(([, init]) => ({
+      body: init?.body,
+      headers: Object.fromEntries(new Headers(init?.headers).entries()),
+    }));
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toEqual(requests[1]);
+    expect(JSON.stringify(requests)).not.toContain(chatId);
+  });
+});
+
+describe('model-client input contracts — the Chat identity is required (design D3, task 2.5)', () => {
+  it('omitting the Chat identity does not compile, and no default is injected', () => {
+    // The `@ts-expect-error` below is load-bearing: it fails
+    // `pnpm --filter api typecheck` if `chat` ever stops being required on
+    // `ModelStreamInput`, so the compiler — not this assertion — is what
+    // enumerates construction sites.
+    // @ts-expect-error — `chat` is a required field on ModelStreamInput.
+    const withoutChat: ModelStreamInput = { messages };
+
+    // And there is no runtime fallback a missed call site could silently use.
+    expect(withoutChat.chat).toBeUndefined();
+  });
+
+  it('omitting the Chat identity on a structured input does not compile either', () => {
+    // Same probe for the structured-generation contract: a client's
+    // `generateObject` input carries the identity too.
+    // @ts-expect-error — `chat` is a required field on ModelObjectInput.
+    const withoutChat: ModelObjectInput<{ title: string }> = {
+      messages,
+      schema: z.object({ title: z.string() }),
+    };
+
+    expect(withoutChat.chat).toBeUndefined();
   });
 });

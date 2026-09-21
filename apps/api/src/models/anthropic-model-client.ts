@@ -20,6 +20,7 @@ import {
   bindReasoningChannel,
   deferTerminalCallbacks,
   KEYLESS_PLACEHOLDER_API_KEY,
+  productUserAgentHeaders,
   trackAbortSettlement,
 } from './openai-model-client';
 
@@ -114,6 +115,15 @@ export type AnthropicModelClientConfig = {
   providerModelId: string;
   modelId: string;
   contextWindowTokens: number;
+  /**
+   * llame's product token and version (`llame/<version>`), read once at boot
+   * under the instance-configuration contract (design D6) and sent as the
+   * lowercase `user-agent` on the PER-CALL headers of every language-model
+   * request this client issues — streaming and structured generation alike.
+   * Per-call rather than provider-level: the AI SDK replaces a
+   * provider-level `User-Agent` with its own token on structured requests.
+   */
+  userAgent: string;
   pricing?: TokenPrice;
   compactionThresholdTokens?: number;
   /**
@@ -340,6 +350,9 @@ function buildStreamOptions(
     abortSignal: input.abortSignal,
     onError,
     maxRetries: NO_AUTOMATIC_RETRY,
+    // llame's identity rides every request (design D6), per call: the
+    // provider-level headers cannot carry it on structured requests.
+    headers: productUserAgentHeaders(config),
     ...messagesProviderOptions(composeMessagesOptions(config, input.effort)),
     ...(config.maxOutputTokens !== undefined && {
       maxOutputTokens: config.maxOutputTokens,
@@ -415,6 +428,9 @@ async function runAnthropicObject<OBJECT>(
       system: input.system,
       abortSignal: input.abortSignal,
       maxRetries: NO_AUTOMATIC_RETRY,
+      // llame's identity rides every request (design D6), per call: this
+      // path's request would otherwise present as the bare adapter's token.
+      headers: productUserAgentHeaders(config),
       ...(input.schemaName !== undefined && { schemaName: input.schemaName }),
       ...(input.schemaDescription !== undefined && {
         schemaDescription: input.schemaDescription,

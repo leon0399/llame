@@ -49,6 +49,9 @@ const model = {
   referencesSkills: false,
 };
 
+/** The product token llame's boot-read identity supplies to every client. */
+const USER_AGENT = 'llame/0.0.0-test';
+
 describe('createModelClient wire dispatch', () => {
   beforeEach(() => {
     createResponsesClientMock.mockClear();
@@ -59,6 +62,7 @@ describe('createModelClient wire dispatch', () => {
   it('routes an openai-responses provider to the Responses client whatever its id', () => {
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'third-party-responses',
           type: 'openai-responses',
@@ -84,6 +88,7 @@ describe('createModelClient wire dispatch', () => {
   it('routes an openai-completions provider whose id is openai to the completions client', () => {
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'openai',
           type: 'openai-completions',
@@ -108,6 +113,7 @@ describe('createModelClient wire dispatch', () => {
   it('routes an openai-responses provider pointed at a local host to the Responses client', () => {
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'ollama',
           type: 'openai-responses',
@@ -131,6 +137,7 @@ describe('createModelClient wire dispatch', () => {
   it('resolves two providers of one type independently', () => {
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'local-ollama',
           type: 'openai-completions',
@@ -143,6 +150,7 @@ describe('createModelClient wire dispatch', () => {
     );
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'openrouter',
           type: 'openai-completions',
@@ -175,6 +183,7 @@ describe('createModelClient wire dispatch', () => {
   it('routes openai-codex to the fixed subscription transport regardless of id', () => {
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'personal-codex',
           type: 'openai-codex',
@@ -218,8 +227,14 @@ describe('createModelClient wire dispatch', () => {
       });
     }
 
-    createModelClient({ provider: responsesProvider, model }, dependencies);
-    createModelClient({ provider: completionsProvider, model }, dependencies);
+    createModelClient(
+      { provider: responsesProvider, model, userAgent: USER_AGENT },
+      dependencies,
+    );
+    createModelClient(
+      { provider: completionsProvider, model, userAgent: USER_AGENT },
+      dependencies,
+    );
 
     expect(createResponsesClientMock).toHaveBeenCalledTimes(1);
     expect(createCompletionsClientMock).toHaveBeenCalledTimes(1);
@@ -255,7 +270,11 @@ describe('createModelClient wire dispatch', () => {
     ] as const;
     for (const provider of providers) {
       createModelClient(
-        { provider, model: { ...entry, provider: provider.id } },
+        {
+          provider,
+          model: { ...entry, provider: provider.id },
+          userAgent: USER_AGENT,
+        },
         dependencies,
       );
     }
@@ -282,6 +301,7 @@ describe('createModelClient wire dispatch', () => {
   it('leaves providerOptions and maxOutputTokens absent when the entry declares neither', () => {
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'completions-entry',
           type: 'openai-completions',
@@ -322,6 +342,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
   it('routes an anthropic-messages provider to the Messages client whatever its id', () => {
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'third-party-anthropic',
           type: 'anthropic-messages',
@@ -351,6 +372,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
     try {
       createModelClient(
         {
+          userAgent: USER_AGENT,
           provider: {
             id: 'anthropic',
             type: 'anthropic-messages',
@@ -377,6 +399,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
   it('marks reasoningDeclared from the entry reasoning vocabulary', () => {
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'anthropic',
           type: 'anthropic-messages',
@@ -404,6 +427,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
   it('resolves two same-type providers each with their own credential and endpoint', () => {
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'anthropic-hosted',
           type: 'anthropic-messages',
@@ -416,6 +440,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
     );
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'anthropic-gateway',
           type: 'anthropic-messages',
@@ -448,6 +473,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
   it('carries the model providerOptions and maxOutputTokens into the Messages client config', () => {
     createModelClient(
       {
+        userAgent: USER_AGENT,
         provider: {
           id: 'anthropic',
           type: 'anthropic-messages',

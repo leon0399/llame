@@ -65,6 +65,10 @@ describeIfDb('Reasoning effort — persisted, then executed verbatim', () => {
     );
     return {
       runId,
+      // The turn's Chat identity as the executor derived it: the run's own
+      // chat on the main lane (provider-api-selection D3). Read from the run
+      // row so a wrong derivation fails the entry comparison below.
+      chat: { id: (await runRow(runId))?.chatId, lane: 'main' as const },
       sent: harness.models.streamCalls.filter((c) => c.modelId === modelId),
     };
   }
@@ -73,18 +77,18 @@ describeIfDb('Reasoning effort — persisted, then executed verbatim', () => {
   // neither the column nor the executor trims a token llame never constrains.
   it('stores the effort concretely and sends exactly that value', async () => {
     const modelId = `effort-stored-${Date.now()}`;
-    const { runId, sent } = await execute(modelId, ' Very-High_2 ');
+    const { runId, sent, chat } = await execute(modelId, ' Very-High_2 ');
 
     expect((await runRow(runId))?.effort).toBe(' Very-High_2 ');
-    expect(sent).toEqual([{ modelId, effort: ' Very-High_2 ' }]);
+    expect(sent).toEqual([{ modelId, effort: ' Very-High_2 ', chat }]);
   });
 
   it('sends no effort at all for a run that stored none', async () => {
     const modelId = `effort-absent-${Date.now()}`;
-    const { runId, sent } = await execute(modelId);
+    const { runId, sent, chat } = await execute(modelId);
 
     expect((await runRow(runId))?.effort).toBeNull();
-    expect(sent).toEqual([{ modelId, effort: undefined }]);
+    expect(sent).toEqual([{ modelId, effort: undefined, chat }]);
   });
 
   // A level meaning "do not reason" must reach the provider. Dropping it would
@@ -92,9 +96,9 @@ describeIfDb('Reasoning effort — persisted, then executed verbatim', () => {
   // the owner asked for.
   it('sends a disabling level rather than treating it as no selection', async () => {
     const modelId = `effort-none-${Date.now()}`;
-    const { sent } = await execute(modelId, 'none');
+    const { sent, chat } = await execute(modelId, 'none');
 
-    expect(sent).toEqual([{ modelId, effort: 'none' }]);
+    expect(sent).toEqual([{ modelId, effort: 'none', chat }]);
   });
 
   // The receipt property: execution never re-resolves or re-validates against
@@ -102,9 +106,9 @@ describeIfDb('Reasoning effort — persisted, then executed verbatim', () => {
   // ever declared — still executes as stored.
   it('sends a stored level the current catalog would reject', async () => {
     const modelId = `effort-withdrawn-${Date.now()}`;
-    const { runId, sent } = await execute(modelId, 'retired-level');
+    const { runId, sent, chat } = await execute(modelId, 'retired-level');
 
     expect((await runRow(runId))?.effort).toBe('retired-level');
-    expect(sent).toEqual([{ modelId, effort: 'retired-level' }]);
+    expect(sent).toEqual([{ modelId, effort: 'retired-level', chat }]);
   });
 });

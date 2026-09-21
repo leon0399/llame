@@ -21,9 +21,16 @@ import {
   textBlock,
 } from '../testing/anthropic-model-client-fixtures';
 import { ANTHROPIC_DEFAULT_BASE_URL } from './anthropic-model-client';
+import type { ChatIdentity } from './model-client';
 import { KEYLESS_PLACEHOLDER_API_KEY } from './openai-model-client';
 
 const hello = messageEnvelope(textBlock(0, 'hello'));
+
+/**
+ * The Chat identity every input carries (design D3). It is a fact the client
+ * receives: nothing in this suite asserts that a client reads it.
+ */
+const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
 
 const FINISH_USAGE = {
   inputTokens: 0,
@@ -76,7 +83,9 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
     const harness = buildHarness({ streamEvents: hello });
     const client = buildClient(harness);
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     expect(client).toMatchObject({
       model: 'system:anthropic:claude-opus-4-8',
@@ -99,7 +108,9 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
       baseUrl: 'https://api.z.ai/api/anthropic',
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     expect(firstRequest(harness).url).toBe(
       'https://api.z.ai/api/anthropic/messages',
@@ -113,7 +124,9 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
       const client = buildClient(harness, {
         baseUrl: 'https://api.z.ai/api/anthropic',
       });
-      await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+      await expect(
+        client.streamText({ chat: CHAT, messages }).text,
+      ).resolves.toBe('hello');
     } finally {
       vi.unstubAllEnvs();
     }
@@ -123,11 +136,30 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
     );
   });
 
+  it("carries the configured product token on the request's user-agent (design D6)", async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, {
+      userAgent: 'llame/9.9.9-canary',
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
+
+    // The per-call header, on the serialized request the real adapter POSTed:
+    // llame's token leads, and the SDK's own tokens follow it.
+    expect(firstRequest(harness).headers.get('user-agent')).toMatch(
+      /^llame\/9\.9\.9-canary( |$)/,
+    );
+  });
+
   it('passes the keyless placeholder instead of omitting the api key', async () => {
     const harness = buildHarness({ streamEvents: hello });
     const client = buildClient(harness, { credential: undefined });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     expect(harness.settings[0]).toEqual({
       apiKey: KEYLESS_PLACEHOLDER_API_KEY,
@@ -170,7 +202,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
     const client = buildClient(harness);
 
     await expect(
-      client.streamText({ messages, effort: 'high' }).text,
+      client.streamText({ chat: CHAT, messages, effort: 'high' }).text,
     ).resolves.toBe('hello');
 
     const { body } = firstRequest(harness);
@@ -197,7 +229,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
     });
 
     await expect(
-      client.streamText({ messages, effort: 'xhigh' }).text,
+      client.streamText({ chat: CHAT, messages, effort: 'xhigh' }).text,
     ).resolves.toBe('hello');
 
     expect(firstRequest(harness).body['output_config']).toEqual({
@@ -212,7 +244,9 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
       providerOptions: { effort: 'medium' },
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     const { body } = firstRequest(harness);
     expect(body['output_config']).toEqual({ effort: 'medium' });
@@ -224,7 +258,9 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
     const harness = buildHarness({ streamEvents: hello });
     const client = buildClient(harness, { reasoningDeclared: false });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     const { body } = firstRequest(harness);
     expect(body).not.toHaveProperty('thinking');
@@ -238,7 +274,9 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
       providerOptions: { thinking: { display: null } },
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     expect(firstRequest(harness).body['thinking']).toEqual({
       type: 'adaptive',
@@ -261,7 +299,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
     });
 
     await expect(
-      client.streamText({ messages, effort: 'high' }).text,
+      client.streamText({ chat: CHAT, messages, effort: 'high' }).text,
     ).resolves.toBe('hello');
 
     const { body } = firstRequest(harness);
@@ -280,7 +318,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
     });
 
     await expect(
-      client.streamText({ messages, effort: 'high' }).text,
+      client.streamText({ chat: CHAT, messages, effort: 'high' }).text,
     ).resolves.toBe('hello');
 
     expect(firstRequest(harness).body['thinking']).toEqual({
@@ -299,7 +337,9 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
       const harness = buildHarness({ streamEvents: hello });
       const client = buildClient(harness, { providerOptions: { thinking } });
 
-      await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+      await expect(
+        client.streamText({ chat: CHAT, messages }).text,
+      ).resolves.toBe('hello');
 
       // llame's own drop instruction survives on the adaptive shape; the
       // operator value never does.
@@ -337,7 +377,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
       });
 
       await expect(
-        client.streamText({ messages: replayMessages }).text,
+        client.streamText({ chat: CHAT, messages: replayMessages }).text,
       ).resolves.toBe('hello');
 
       expect(firstRequest(harness).body['messages']).toEqual([
@@ -373,7 +413,9 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
       },
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     // Not an empty object: the adapter's thinking union admits no such shape.
     expect(firstRequest(harness).body).not.toHaveProperty('thinking');
@@ -385,7 +427,9 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
       providerOptions: { future_option: { nested: [1, 2, 3] } },
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     // The adapter drops the unknown key under its own ceiling; the request
     // keeps the entry's model, the defaults, and the endpoint.
@@ -409,7 +453,9 @@ describe('createAnthropicModelClient — cache control default (3.6)', () => {
       providerOptions: { cacheControl: null },
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     expect(firstRequest(harness).body).not.toHaveProperty('cache_control');
   });
@@ -420,7 +466,9 @@ describe('createAnthropicModelClient — cache control default (3.6)', () => {
       providerOptions: { cacheControl: { type: 'ephemeral', ttl: '1h' } },
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     expect(firstRequest(harness).body['cache_control']).toEqual({
       type: 'ephemeral',
@@ -432,7 +480,9 @@ describe('createAnthropicModelClient — cache control default (3.6)', () => {
     const harness = buildHarness({ streamEvents: hello });
     const client = buildClient(harness);
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     // The envelope reports no cache_creation/cache_read usage: an endpoint
     // that ignores the option completes without cache reads and without a
@@ -448,7 +498,9 @@ describe('createAnthropicModelClient — output limits (D17)', () => {
     const harness = buildHarness({ streamEvents: hello });
     const client = buildClient(harness, { maxOutputTokens: 2048 });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     expect(firstRequest(harness).body['max_tokens']).toBe(2048);
   });
@@ -466,7 +518,9 @@ describe('createAnthropicModelClient — output limits (D17)', () => {
         reasoningDeclared: false,
       });
 
-      await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+      await expect(
+        client.streamText({ chat: CHAT, messages }).text,
+      ).resolves.toBe('hello');
       expect(firstRequest(harness).body['max_tokens']).toBe(maxTokens);
     }
   });
@@ -479,7 +533,9 @@ describe('createAnthropicModelClient — output limits (D17)', () => {
       maxOutputTokens: 200_000,
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('hello');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
 
     expect(firstRequest(harness).body['max_tokens']).toBe(64_000);
   });
@@ -594,6 +650,7 @@ describe('createAnthropicModelClient — reasoning channel settlement (D18)', ()
       }> = [];
 
       const result = client.streamText({
+        chat: CHAT,
         messages,
         ...(abortSignal !== undefined && { abortSignal }),
         onReasoningDelta: () => {

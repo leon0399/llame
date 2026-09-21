@@ -1451,6 +1451,57 @@ describe('RunExecutionService executeRun — stream completion', () => {
     expect(execution.titles.maybeGenerateTitle).not.toHaveBeenCalled();
     expect(execution.compaction.maybeCompact).toHaveBeenCalledTimes(1);
   });
+
+  // provider-api-selection D3: the run loop hands the client the fact — this
+  // Chat, the main lane — and the client renders or ignores it. The lane is
+  // load-bearing: a title request over the same Chat must not share it (D5).
+  it('hands the streaming request its Chat identity on the main lane', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    expect(capturing.streamOptions().chat).toStrictEqual({
+      id: chatId,
+      lane: 'main',
+    });
+  });
+
+  // D3: the identity is a routing fact, not model-visible content — it must not
+  // ride the request's system prompt or messages, a persisted message part, or
+  // any durable output of the turn.
+  it('keeps the Chat identity out of the request context and persisted output', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onTextDelta?.('part');
+    await options.onFinish?.({
+      text: 'part done',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+    });
+
+    const sentContext = JSON.stringify({
+      system: options.system,
+      messages: options.messages,
+    });
+    expect(sentContext).not.toContain(chatId);
+    expect(sentContext).not.toContain('lane');
+
+    const assistantTurn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+    const persisted = JSON.stringify(assistantTurn?.parts);
+    expect(persisted).not.toContain(chatId);
+    expect(persisted).not.toContain('lane');
+
+    const durable = JSON.stringify(appended);
+    expect(durable).not.toContain(chatId);
+    expect(durable).not.toContain('lane');
+  });
 });
 
 describe('RunExecutionService executeRun — stream failure', () => {

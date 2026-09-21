@@ -6,6 +6,7 @@ import {
 } from 'ai';
 
 import { createFakeModelClient, ZERO_USAGE } from './fake-model-client';
+import type { ChatIdentity } from './model-client';
 
 /**
  * A tool whose `inputSchema` the AI SDK cannot prepare, so reaching it at all
@@ -49,12 +50,19 @@ const messages = [
   },
 ] satisfies Array<ModelMessage>;
 
+/**
+ * The Chat identity every input carries (design D3). It is a fact the client
+ * receives: nothing in this suite asserts that a client reads it.
+ */
+const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
+
 describe('createFakeModelClient', () => {
   it('fires callbacks when a response stream is consumed', async () => {
     const client = createFakeModelClient(['done']);
     const onTextDelta = vi.fn();
     const onFinish = vi.fn();
     const result = client.streamText({
+      chat: CHAT,
       messages,
       onTextDelta,
       onFinish,
@@ -78,6 +86,7 @@ describe('createFakeModelClient', () => {
     const onTextDelta = vi.fn();
     const onFinish = vi.fn();
     const result = client.streamText({
+      chat: CHAT,
       messages,
       onTextDelta,
       onFinish,
@@ -103,7 +112,11 @@ describe('createFakeModelClient', () => {
       finish = () => resolve();
     });
     const onFinish = vi.fn(() => finishPromise);
-    const textPromise = client.streamText({ messages, onFinish }).text;
+    const textPromise = client.streamText({
+      chat: CHAT,
+      messages,
+      onFinish,
+    }).text;
     let textResolved = false;
 
     void textPromise.then(() => {
@@ -126,6 +139,7 @@ describe('createFakeModelClient', () => {
 
     await expect(
       client.streamText({
+        chat: CHAT,
         messages,
         onFinish: () => Promise.reject(error),
       }).text,
@@ -136,22 +150,24 @@ describe('createFakeModelClient', () => {
     const client = createFakeModelClient(['first', 'second']);
 
     await expect(
-      collectText(client.streamText({ messages }).textStream),
+      collectText(client.streamText({ chat: CHAT, messages }).textStream),
     ).resolves.toBe('first');
     await expect(
-      collectText(client.streamText({ messages }).textStream),
+      collectText(client.streamText({ chat: CHAT, messages }).textStream),
     ).resolves.toBe('second');
     await expect(
-      collectText(client.streamText({ messages }).textStream),
+      collectText(client.streamText({ chat: CHAT, messages }).textStream),
     ).resolves.toBe('first');
   });
 
   it('keeps text and full-stream surfaces in agreement', async () => {
     const client = createFakeModelClient(['same']);
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('same');
     await expect(
-      collectFullText(client.streamText({ messages }).fullStream),
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('same');
+    await expect(
+      collectFullText(client.streamText({ chat: CHAT, messages }).fullStream),
     ).resolves.toBe('same');
   });
 
@@ -177,8 +193,9 @@ async function collectParts(
 
 describe('createFakeModelClient stream shape', () => {
   it('emits no text delta at all for an empty response', async () => {
+    const client = createFakeModelClient([]);
     const parts = await collectParts(
-      createFakeModelClient([]).streamText({ messages }).fullStream,
+      client.streamText({ chat: CHAT, messages }).fullStream,
     );
 
     expect(parts.map(({ type }) => type)).toStrictEqual([
@@ -192,8 +209,9 @@ describe('createFakeModelClient stream shape', () => {
   });
 
   it('opens and closes the text block under one id', async () => {
+    const client = createFakeModelClient(['done']);
     const parts = await collectParts(
-      createFakeModelClient(['done']).streamText({ messages }).fullStream,
+      client.streamText({ chat: CHAT, messages }).fullStream,
     );
 
     const ids = parts
@@ -212,7 +230,8 @@ describe('createFakeModelClient stream shape', () => {
   });
 
   it('reports the fake provider and model on the completed step', async () => {
-    const result = createFakeModelClient(['done']).streamText({ messages });
+    const client = createFakeModelClient(['done']);
+    const result = client.streamText({ chat: CHAT, messages });
     await result.text;
 
     expect((await result.steps)[0]?.model).toStrictEqual({
@@ -226,13 +245,14 @@ describe('createFakeModelClient stream shape', () => {
     // reached `streamText` at all.
     await expect(
       createFakeModelClient(['done']).streamText({
+        chat: CHAT,
         messages,
         tools: unpreparableTools(),
       }).text,
     ).rejects.toThrow(NoOutputGeneratedError);
 
     await expect(
-      createFakeModelClient(['done']).streamText({ messages }).text,
+      createFakeModelClient(['done']).streamText({ chat: CHAT, messages }).text,
     ).resolves.toBe('done');
   });
 });

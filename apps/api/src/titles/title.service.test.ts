@@ -50,6 +50,7 @@ function makeService(client?: ModelClient) {
       providers: [provider],
       models: [titleModel],
     },
+    productUserAgent: 'llame/0.0.0-test',
   });
   const resolveTitleModelConfig = vi
     .spyOn(models, 'resolveTitleModelConfig')
@@ -120,7 +121,12 @@ describe('TitleService', () => {
     });
 
     expect(createClient).toHaveBeenCalledWith(titleModel.id);
-    expect(generateObject).toHaveBeenCalled();
+    // provider-api-selection D5: the title prompt is a different conversation
+    // over the same Chat, so it carries that Chat's id on the `title` lane —
+    // the turn's identity with only the lane changed.
+    expect(generateObject).toHaveBeenCalledWith(
+      expect.objectContaining({ chat: { id: 'chat-1', lane: 'title' } }),
+    );
     expect(setGeneratedTitle).toHaveBeenCalledWith(
       'chat-1',
       'user-1',
@@ -135,6 +141,7 @@ describe('TitleService', () => {
       .fn<NonNullable<ModelClient['generateObject']>>()
       .mockRejectedValue(new Error('tool calling unsupported'));
     Object.assign(client, { generateObject });
+    const streamText = vi.spyOn(client, 'streamText');
     const { service, setGeneratedTitle } = makeService(client);
 
     await service.maybeGenerateTitle({
@@ -143,6 +150,18 @@ describe('TitleService', () => {
       userText: 'A user request',
     });
 
+    // The fallback path is the same title-lane request over the text route.
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({ chat: { id: 'chat-1', lane: 'title' } }),
+    );
+    // ...and the identity is not smuggled into the prompt text itself.
+    const titleRequest = streamText.mock.calls[0]?.[0];
+    const sent = JSON.stringify({
+      system: titleRequest?.system,
+      messages: titleRequest?.messages,
+    });
+    expect(sent).not.toContain('chat-1');
+    expect(sent).not.toContain('lane');
     expect(setGeneratedTitle).toHaveBeenCalledWith(
       'chat-1',
       'user-1',
