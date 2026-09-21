@@ -20,7 +20,10 @@ import { type ToolPermissionMap } from '../tools/permissions/types';
  * `baseUrl`; `anthropic-messages` executes the Messages API through
  * `@ai-sdk/anthropic` at its optional `baseUrl` (the Anthropic API by
  * default, a Messages-speaking gateway when configured); `openai-codex`
- * uses the personal Codex subscription backend.
+ * uses the personal Codex subscription backend; `opencode-go` executes the
+ * Chat Completions wire against the OpenCode Go subscription gateway, at a
+ * destination fixed in llame's code, from a required `key` and no endpoint
+ * field of its own.
  * This set is strict-closed on purpose — a schema that advertised a `type`
  * it cannot execute would fail at request time instead of at the offending
  * config path.
@@ -74,11 +77,27 @@ export type OpenAICodexProviderConfig = {
   accountId: string;
 };
 
+/**
+ * OpenCode Go subscription gateway (opencode-go-provider D1). The entry is
+ * key-only by construction: the destination is a constant in llame's code
+ * (`OPENCODE_GO_BASE_URL`, models/opencode-go-model-client.ts), so there is no
+ * `baseUrl` field to resolve or store and no ambient variable that can move a
+ * request. The gateway authenticates every request, so `key` is schema-required
+ * and must resolve nonblank — unlike the other wire types, a Go entry never
+ * loads keyless.
+ */
+export type OpenCodeGoProviderConfig = {
+  id: string;
+  type: 'opencode-go';
+  key: string;
+};
+
 export type ProviderConfig =
   | OpenAIResponsesProviderConfig
   | OpenAICompletionsProviderConfig
   | AnthropicMessagesProviderConfig
-  | OpenAICodexProviderConfig;
+  | OpenAICodexProviderConfig
+  | OpenCodeGoProviderConfig;
 
 /** Resolved private Streamable HTTP server configuration. */
 export type McpRemoteServerConfig = {
@@ -202,6 +221,12 @@ export type RawProviderEntry =
       type: 'openai-codex';
       key: string | null;
       accountId: string | null;
+    }
+  | {
+      id: string;
+      type: 'opencode-go';
+      /** Schema-required for this branch; may still be `null`/blank after interpolation. */
+      key: string | null;
     };
 
 /**

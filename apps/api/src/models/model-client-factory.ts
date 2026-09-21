@@ -1,6 +1,7 @@
 import type {
   AnthropicMessagesProviderConfig,
   OpenAICodexProviderConfig,
+  OpenCodeGoProviderConfig,
   OpenAICompletionsProviderConfig,
   OpenAIResponsesProviderConfig,
   ProviderConfig,
@@ -14,12 +15,14 @@ import {
 import { createOpenAICompletionsModelClient } from './openai-completions-model-client';
 import { createOpenAICodexModelClient } from './openai-codex-model-client';
 import { createOpenAIModelClient } from './openai-model-client';
+import { createOpenCodeGoModelClient } from './opencode-go-model-client';
 
 type ModelClientDependencies = {
   createOpenAIModelClient: typeof createOpenAIModelClient;
   createOpenAICompletionsModelClient?: typeof createOpenAICompletionsModelClient;
   createOpenAICodexModelClient?: typeof createOpenAICodexModelClient;
   createAnthropicModelClient?: typeof createAnthropicModelClient;
+  createOpenCodeGoModelClient?: typeof createOpenCodeGoModelClient;
 };
 
 /**
@@ -53,6 +56,7 @@ export function createModelClient(
     createOpenAIModelClient,
     createOpenAICompletionsModelClient,
     createOpenAICodexModelClient,
+    createOpenCodeGoModelClient,
   },
 ): ModelClient {
   const { provider, model, userAgent } = input;
@@ -65,6 +69,8 @@ export function createModelClient(
       return createMessagesClient(provider, model, userAgent, dependencies);
     case 'openai-codex':
       return createCodexClient(provider, model, userAgent, dependencies);
+    case 'opencode-go':
+      return createOpenCodeGoClient(provider, model, userAgent, dependencies);
     default: {
       // Unreachable while the JSON Schema's `providerType` enum stays in
       // sync with the cases above (config-loader rejects any other `type` at
@@ -163,12 +169,32 @@ function createCodexClient(
   )(config);
 }
 
+function createOpenCodeGoClient(
+  provider: OpenCodeGoProviderConfig,
+  model: SystemModelCatalogEntry,
+  userAgent: string,
+  dependencies: ModelClientDependencies,
+): ModelClient {
+  const config: Parameters<typeof createOpenCodeGoModelClient>[0] = {
+    credential: provider.key,
+    providerModelId: model.providerModelId,
+    modelId: model.id,
+    contextWindowTokens: model.contextWindowTokens,
+    userAgent,
+  };
+  assignModelMetadata(config, model);
+  return (
+    dependencies.createOpenCodeGoModelClient ?? createOpenCodeGoModelClient
+  )(config);
+}
+
 function assignModelMetadata(
   config:
     | Parameters<typeof createOpenAIModelClient>[0]
     | Parameters<typeof createOpenAICompletionsModelClient>[0]
     | Parameters<typeof createAnthropicModelClient>[0]
-    | Parameters<typeof createOpenAICodexModelClient>[0],
+    | Parameters<typeof createOpenAICodexModelClient>[0]
+    | Parameters<typeof createOpenCodeGoModelClient>[0],
   model: SystemModelCatalogEntry,
 ): void {
   const pricing = toTokenPrice(model.pricingUsdPer1M);

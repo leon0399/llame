@@ -16,9 +16,12 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   `llame.config.json`. Each provider entry declares the wire it speaks:
   `openai-responses` for the Responses API, `openai-completions` for
   OpenAI-compatible Chat Completions endpoints, `anthropic-messages` for the
-  Anthropic Messages wire (the Claude API, or a gateway that speaks it), or
+  Anthropic Messages wire (the Claude API, or a gateway that speaks it),
   `openai-codex` for the
-  Codex subscription, whose transport and endpoint are fixed by construction.
+  Codex subscription, whose transport and endpoint are fixed by construction,
+  or `opencode-go` for the
+  OpenCode Go subscription, whose Chat Completions endpoint is fixed in
+  llame's code.
 - Owner-only Projects for organizing chats, with pinning and reversible archive.
 - Bounded tool loop: `search_conversations`, optional line-ranged
   `conversation_read`, and operator-configured Streamable HTTP MCP tools.
@@ -77,6 +80,14 @@ as `x-api-key`. The client always passes an explicit base URL, so an ambient
 and it sends the same non-empty placeholder as the OpenAI clients in keyless
 mode, because the adapter requires an API key to be present. The `type` alone
 selects the client: no `id`, `baseUrl`, or host is inspected.
+`opencode-go` calls the OpenCode Go subscription gateway's Chat Completions
+route at an endpoint fixed in llame's code, so the entry declares
+`{ id, type, key }` and nothing else: `key` interpolates like any other
+credential and must resolve nonblank, because the gateway authenticates every
+request, while `baseUrl` and `accountId` are rejected at boot, and no `id` or
+ambient variable moves or authenticates a request. See
+[docs/opencode-go.md](docs/opencode-go.md) for its route ceiling, accepted
+upstream failures, per-model privacy terms, and quota boundaries.
 **Breaking**: `type: "openai"` is deleted — re-declare every entry that used it
 as one of those two wires, or startup fails naming the entry. `openai-codex`
 is unchanged.
@@ -252,6 +263,8 @@ read-only. See [docs/mcp-tools.md](docs/mcp-tools.md).
   operator runbook
 - [docs/codex-subscription.md](docs/codex-subscription.md): ChatGPT/Codex
   subscription operator runbook
+- [docs/opencode-go.md](docs/opencode-go.md): OpenCode Go subscription
+  operator runbook
 - [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
   peer harness / protocol prior art (noncanonical)
 

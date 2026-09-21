@@ -76,12 +76,13 @@
     },
     "providerType": {
       "type": "string",
-      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"anthropic-messages\" executes the Messages API through @ai-sdk/anthropic at its optional baseUrl (the Anthropic API by default); \"openai-codex\" uses the personal Codex subscription endpoint. This enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
+      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"anthropic-messages\" executes the Messages API through @ai-sdk/anthropic at its optional baseUrl (the Anthropic API by default); \"openai-codex\" uses the personal Codex subscription endpoint; \"opencode-go\" executes the Chat Completions wire against the OpenCode Go subscription gateway, at the endpoint fixed in llame's code, from a required `key` and no destination field of its own. This enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
       "enum": [
         "openai-responses",
         "openai-completions",
         "anthropic-messages",
-        "openai-codex"
+        "openai-codex",
+        "opencode-go"
       ]
     },
     "providerEntry": {
@@ -98,15 +99,15 @@
         "type": { "$ref": "#/$defs/providerType" },
         "key": {
           "$ref": "#/$defs/nullableString",
-          "description": "Provider credential. Absent, null, or a resolved-empty `{env:...}` token means keyless (e.g. a local Ollama with no auth) — the client is constructed without raising a missing-credential error."
+          "description": "Provider credential. Absent, null, or a resolved-empty `{env:...}` token means keyless (e.g. a local Ollama with no auth) — the client is constructed without raising a missing-credential error. Required (and nonblank after interpolation) for `type: \"openai-codex\"` and `type: \"opencode-go\"`, whose upstreams authenticate every request; such an entry fails startup naming the entry and the field rather than loading keyless."
         },
         "baseUrl": {
           "$ref": "#/$defs/nullableString",
-          "description": "Provider endpoint base URL. Required (and nonblank after interpolation) for `type: \"openai-completions\"`; absent/null uses the client implementation's own default (OpenAI's hosted API for `type: \"openai-responses\"`, the Anthropic API for `type: \"anthropic-messages\"`). For `type: \"anthropic-messages\"` a present, non-null `baseUrl` must resolve nonblank: a configured endpoint that resolves empty fails startup naming the field rather than falling back to the Anthropic API. The client always passes an explicit base URL, so an ambient `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` never moves a request."
+          "description": "Provider endpoint base URL. Required (and nonblank after interpolation) for `type: \"openai-completions\"`; absent/null uses the client implementation's own default (OpenAI's hosted API for `type: \"openai-responses\"`, the Anthropic API for `type: \"anthropic-messages\"`). For `type: \"anthropic-messages\"` a present, non-null `baseUrl` must resolve nonblank: a configured endpoint that resolves empty fails startup naming the field rather than falling back to the Anthropic API. Rejected outright for `type: \"openai-codex\"` and `type: \"opencode-go\"`, whose destinations are fixed in llame's code. The client always passes an explicit base URL, so an ambient `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` never moves a request."
         },
         "accountId": {
           "$ref": "#/$defs/nullableString",
-          "description": "Codex subscription account identifier. Required for `type: \"openai-codex\"`; resolved values stay private."
+          "description": "Codex subscription account identifier. Required for `type: \"openai-codex\"`; rejected for every other type. Resolved values stay private."
         }
       },
       "allOf": [
@@ -130,6 +131,13 @@
           "then": {
             "required": ["key", "accountId"],
             "properties": { "baseUrl": false }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "opencode-go" } } },
+          "then": {
+            "required": ["key"],
+            "properties": { "baseUrl": false, "accountId": false }
           }
         }
       ]

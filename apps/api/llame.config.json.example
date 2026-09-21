@@ -36,7 +36,10 @@
   // `openai-responses` for the Responses API (baseUrl optional) or
   // `openai-completions` for Chat Completions (baseUrl required),
   // `anthropic-messages` for the Anthropic Messages API (baseUrl optional,
-  // defaulting to the Anthropic API at https://api.anthropic.com/v1). Omit key for a keyless endpoint.
+  // defaulting to the Anthropic API at https://api.anthropic.com/v1), or
+  // `opencode-go` for the OpenCode Go subscription gateway (Chat Completions
+  // at an endpoint fixed in llame's code; key required, no baseUrl). Omit key
+  // for a keyless endpoint.
   "providers": [
     {
       "id": "openai",
@@ -74,6 +77,22 @@
     //   "key": "{path:/run/secrets/codex-auth.json|json:/tokens/access_token}",
     //   "accountId": "{path:/run/secrets/codex-auth.json|json:/tokens/account_id}"
     // }
+    // An OpenCode Go subscription is key-only: the endpoint is fixed in
+    // llame's code, so this entry accepts no baseUrl, and the key is required
+    // because the gateway authenticates every request. That is why the
+    // provider AND its two models ship commented out — an unconfigured
+    // required key cannot boot. Uncomment every line between the two
+    // `opencode-go block` markers in this file (this provider and the two
+    // models in `models[]`), set OPENCODE_GO_API_KEY, and restart. See
+    // docs/opencode-go.md for the credential, the fixed endpoint, the route
+    // ceiling, and the per-model privacy divergence.
+    // --- opencode-go block: start ---
+    // {
+    //   "id": "opencode-go",
+    //   "type": "opencode-go",
+    //   "key": "{env:OPENCODE_GO_API_KEY}"
+    // },
+    // --- opencode-go block: end ---
   ],
 
   // Executable model catalog. Each provider must name a providers[].id.
@@ -326,6 +345,35 @@
       "modelPage": "https://platform.claude.com/docs/en/models/sonnet-5/overview",
       "releasedAt": "2026-06-29",
     },
+    // OpenCode Go's two shipped models — uncomment with the provider block in
+    // `providers[]` above (both blocks carry the same markers). Both execute
+    // Chat Completions at the fixed gateway endpoint. No `pricingUsdPer1M`:
+    // the subscription bills per-model usage windows, not per token, so llame
+    // records `costUsd: null` unless an operator declares a rate. The
+    // Contributor models are deliberately absent — they train on prompts; see
+    // docs/opencode-go.md.
+    // --- opencode-go block: start ---
+    // {
+    //   "id": "system:opencode-go:glm-5.3-flash",
+    //   "provider": "opencode-go",
+    //   "providerModelId": "glm-5.3-flash",
+    //   "name": "GLM-5.3 Flash",
+    //   "description": "Fast general-purpose coding model on the OpenCode Go subscription.",
+    //   "contextWindowTokens": 200000,
+    // },
+    // {
+    //   "id": "system:opencode-go:deepseek-v4.1-flash",
+    //   "provider": "opencode-go",
+    //   "providerModelId": "deepseek-v4.1-flash",
+    //   "name": "DeepSeek V4.1 Flash",
+    //   "description": "Low-cost reasoning model on the OpenCode Go subscription.",
+    //   "contextWindowTokens": 200000,
+    //   "reasoning": {
+    //     "effortLevels": ["low", "medium", "high"],
+    //     "defaultEffort": "medium"
+    //   },
+    // },
+    // --- opencode-go block: end ---
   ],
 
   // Optional declared embedding models, reusing a providers[] connection

@@ -37,7 +37,15 @@ type OpenAICodexModelClientConfig = {
   compactionThresholdTokens?: number;
 };
 
-function rejectRedirects(fetchImplementation: typeof globalThis.fetch) {
+/**
+ * Rejects redirects at the transport: under `redirect: 'manual'` a 3xx comes
+ * back as a non-followed response instead of a second request, so neither a
+ * fixed transport's headers (the Codex account id) nor a composing client's
+ * session header and request body can be carried to wherever a redirect
+ * points. Exported for the Go transport, which pins a fixed endpoint the same
+ * way and must not follow a hop off it (design D2).
+ */
+export function rejectRedirects(fetchImplementation: typeof globalThis.fetch) {
   return (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) =>
     fetchImplementation(input, { ...init, redirect: 'manual' });
 }

@@ -23,6 +23,7 @@ import {
   type OpenAICodexProviderConfig,
   type OpenAICompletionsProviderConfig,
   type OpenAIResponsesProviderConfig,
+  type OpenCodeGoProviderConfig,
   type ProviderConfig,
   type RawProviderEntry,
   type RawInstanceConfig,
@@ -1219,6 +1220,8 @@ function resolveProviders(
         return resolveAnthropicMessagesProvider(entry, env);
       case 'openai-codex':
         return resolveCodexProvider(entry, env);
+      case 'opencode-go':
+        return resolveOpenCodeGoProvider(entry, env);
       default: {
         // Unreachable while the JSON Schema's `providerType` enum stays in
         // sync with the cases above (assertValidRaw rejects any other `type`
@@ -1331,9 +1334,30 @@ function resolveCodexProvider(
 }
 
 /**
+ * Go-subscription variant (opencode-go-provider D1): `key` is schema-required
+ * AND must survive interpolation nonblank, because the gateway authenticates
+ * every request — an entry that resolved to keyless would fail at the first
+ * request instead of at boot. The destination is a constant in the client
+ * (models/opencode-go-model-client.ts), so no endpoint field is resolved or
+ * stored here and none can move a request; the schema has already rejected
+ * one at the offending config path.
+ */
+function resolveOpenCodeGoProvider(
+  entry: Extract<RawProviderEntry, { type: 'opencode-go' }>,
+  env: NodeJS.ProcessEnv,
+): OpenCodeGoProviderConfig {
+  return {
+    id: entry.id,
+    type: entry.type,
+    key: requireNonBlankString(`providers[${entry.id}].key`, entry.key, env),
+  };
+}
+
+/**
  * Resolve a setting that is schema-required and must survive interpolation
- * nonblank — the Codex credentials and the completions `baseUrl`. The error
- * names the config path, never the resolved value.
+ * nonblank — the Codex credentials, the Go subscription key, and the
+ * completions `baseUrl`. The error names the config path, never the resolved
+ * value.
  */
 function requireNonBlankString(
   configPath: string,

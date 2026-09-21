@@ -72,15 +72,30 @@ its declared wire; embedding requests are wire-independent and exempt from it.
 Boot validates shape only, so an endpoint that does not serve its declared wire
 fails on the first request under the existing failure contract, never at boot.
 
-| `type`               | Wire             | Client                       | `baseUrl`                    |
-| -------------------- | ---------------- | ---------------------------- | ---------------------------- |
-| `openai-responses`   | Responses        | `@ai-sdk/openai`             | optional; defaults to OpenAI |
-| `openai-completions` | Chat Completions | `@ai-sdk/openai-compatible`  | required                     |
-| `openai-codex`       | Responses        | Codex subscription transport | rejected                     |
+| `type`               | Wire             | Client                       | Credential                          | `baseUrl`                       |
+| -------------------- | ---------------- | ---------------------------- | ----------------------------------- | ------------------------------- |
+| `openai-responses`   | Responses        | `@ai-sdk/openai`             | optional `key`                      | optional; defaults to OpenAI    |
+| `openai-completions` | Chat Completions | `@ai-sdk/openai-compatible`  | optional `key`                      | required                        |
+| `anthropic-messages` | Messages         | `@ai-sdk/anthropic`          | optional `key`; sent as `x-api-key` | optional; defaults to Anthropic |
+| `openai-codex`       | Responses        | Codex subscription transport | `key` and `accountId`               | rejected                        |
+| `opencode-go`        | Chat Completions | Go subscription transport    | `key`                               | rejected; fixed in code         |
 
 An `openai-completions` `baseUrl` is required and must resolve non-blank after
 interpolation; an `openai-responses` `baseUrl` is optional and falls back to
-the OpenAI API. `openai-responses` is not "official OpenAI": Ollama >= 0.13.3,
+the OpenAI API; an `anthropic-messages` `baseUrl` is optional and defaults to
+the Anthropic API. `openai-codex` and `opencode-go` reject `baseUrl` because
+each endpoint is fixed in code: the Codex Responses endpoint, and the OpenCode
+Go gateway at `https://opencode.ai/zen/go/v1`, whose `type` executes the Chat
+Completions module with the Go transport (a fixed base URL, its own headers,
+redirect rejection, and a required credential). `accountId` is accepted by
+`openai-codex` alone; every other variant rejects it. A `key` is optional for
+the two OpenAI wires and for Messages, where an absent or empty resolution is
+keyless; `openai-codex` requires nonblank `key` and `accountId`, and
+`opencode-go` requires a nonblank `key`, because the gateway authenticates
+every request. Operator procedure:
+[docs/opencode-go.md](../../docs/opencode-go.md).
+
+`openai-responses` is not "official OpenAI": Ollama >= 0.13.3,
 vLLM, and llama.cpp serve `/v1/responses`, while DeepSeek, GLM, LM Studio,
 older Ollama, and most gateways serve Chat Completions.
 

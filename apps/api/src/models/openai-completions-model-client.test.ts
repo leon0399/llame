@@ -534,6 +534,25 @@ describe('createOpenAICompletionsModelClient — structured output (design D4)',
       /^llame\/9\.9\.9-canary ai\//,
     );
   });
+
+  it("renders the configured session header from the request's Chat (design D3)", async () => {
+    const { generateCall } = await generateTitle({
+      sessionHeader: (chat) => ({
+        name: 'x-test-session',
+        value: `${chat.lane}:${chat.id}`,
+      }),
+    });
+
+    // The renderer names one header and reads the request's own Chat identity,
+    // so the structured path — the one every title generation takes — carries
+    // the identity beside llame's token instead of dropping it.
+    expect(generateCall?.headers).toMatchObject({
+      'x-test-session': `main:${CHAT.id}`,
+    });
+    expect(generateCall?.headers?.['user-agent']).toMatch(
+      /^llame\/0\.0\.0-test( |$)/,
+    );
+  });
 });
 
 describe("createOpenAICompletionsModelClient — llame's product identity (design D6)", () => {
@@ -577,6 +596,149 @@ describe("createOpenAICompletionsModelClient — llame's product identity (desig
       expect(new Headers(init?.headers).get('user-agent')).toMatch(
         /^llame\/9\.9\.9-canary( |$)/,
       );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+});
+
+describe('createOpenAICompletionsModelClient — configured provider name (design D2)', () => {
+  it("composes the operator's options under the namespace the adapter derives from that name", async () => {
+    const model = scriptedModel([textResponse('answer')]);
+    const { client } = buildClient(model, {
+      overrides: {
+        provider: 'acme-wire',
+        providerOptions: { user: 'run-owner' },
+      },
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('answer');
+
+    // The name reaches the adapter factory and is what the client reports,
+    // and the options namespace follows it: the adapter camel-cases the
+    // configured name (`acme-wire` -> `acmeWire`) and reads the record under
+    // that key, so a hardcoded `openaiCompletions` would drop them.
+    expect(client.provider).toBe('acme-wire');
+    expect(createOpenAICompatibleMock).toHaveBeenCalledWith({
+      name: 'acme-wire',
+      baseURL: 'https://api.deepseek.com/v1',
+      apiKey: 'sk-test',
+    });
+    expect(model.doStreamCalls[0]?.providerOptions).toEqual({
+      acmeWire: { user: 'run-owner' },
+    });
+  });
+
+  it("renders the configured session header from the request's Chat on the streaming path (design D3)", async () => {
+    const model = scriptedModel([textResponse('answer')]);
+    const { client } = buildClient(model, {
+      overrides: {
+        sessionHeader: (chat) => ({
+          name: 'x-test-session',
+          value: `${chat.lane}:${chat.id}`,
+        }),
+      },
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('answer');
+
+    expect(model.doStreamCalls[0]?.headers).toMatchObject({
+      'x-test-session': `main:${CHAT.id}`,
+      'user-agent': USER_AGENT,
+    });
+  });
+});
+
+describe('createOpenAICompletionsModelClient — no provider override and no renderer configured (design D2/D3)', () => {
+  it('sends the requests it sent before this layer, on both language-model paths', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      // The REAL adapter and the real SDK, only the transport stubbed: every
+      // header key here is one llame sends, so an added session header — or
+      // any other transport addition — fails this test.
+      globalThis.fetch = vi
+        .fn<typeof globalThis.fetch>()
+        .mockResolvedValue(
+          new Response(
+            [
+              'data: {"id":"chunk-1","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":null}]}\n\n',
+              'data: {"id":"chunk-1","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n\n',
+              'data: [DONE]\n\n',
+            ].join(''),
+            { headers: { 'content-type': 'text/event-stream' } },
+          ),
+        );
+      const client = createOpenAICompletionsModelClient({
+        credential: 'sk-test',
+        providerModelId: 'deepseek-chat',
+        modelId: 'system:deepseek:deepseek-chat',
+        contextWindowTokens: 128_000,
+        baseUrl: 'https://api.deepseek.com/v1',
+        userAgent: USER_AGENT,
+      });
+
+      await expect(
+        client.streamText({ chat: CHAT, messages }).text,
+      ).resolves.toBe('done');
+
+      const streamingInit = vi.mocked(globalThis.fetch).mock.calls[0]?.[1];
+      expect([...new Headers(streamingInit?.headers).keys()].sort()).toEqual([
+        'authorization',
+        'content-type',
+        'user-agent',
+      ]);
+
+      globalThis.fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 'chatcmpl-1',
+            object: 'chat.completion',
+            created: 0,
+            model: 'deepseek-chat',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: 'call-1',
+                      type: 'function',
+                      function: {
+                        name: 'chat_title',
+                        arguments: '{"title":"A title"}',
+                      },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+      const object = await client.generateObject?.({
+        chat: CHAT,
+        messages,
+        schemaName: 'chat_title',
+        schema: z.object({ title: z.string() }),
+      });
+
+      expect(object).toEqual({ title: 'A title' });
+      const structuredInit = vi.mocked(globalThis.fetch).mock.calls[0]?.[1];
+      expect([...new Headers(structuredInit?.headers).keys()].sort()).toEqual([
+        'authorization',
+        'content-type',
+        'user-agent',
+      ]);
     } finally {
       globalThis.fetch = previousFetch;
     }
