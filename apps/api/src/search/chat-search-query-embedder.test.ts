@@ -13,7 +13,10 @@ import * as openaiBackend from './openai-embedding-backend';
 function configWith(
   overrides: Partial<LlameConfig> = {},
 ): InstanceConfigService {
-  return { config: { ...BUILT_IN_DEFAULTS, ...overrides } };
+  return {
+    config: { ...BUILT_IN_DEFAULTS, ...overrides },
+    productUserAgent: 'llame/test',
+  };
 }
 
 const TEST_MODEL: EmbeddingModelCatalogEntry = {

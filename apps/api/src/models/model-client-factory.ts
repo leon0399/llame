@@ -36,6 +36,12 @@ export function createModelClient(
   input: {
     provider: ProviderConfig;
     model: SystemModelCatalogEntry;
+    /**
+     * llame's product token and version (`llame/<version>`), read once at
+     * boot under the instance-configuration contract (design D6) and threaded
+     * into every client config, which sends it per call.
+     */
+    userAgent: string;
   },
   /**
    * Test seam (anti-slop/no-module-mocking): overrides the per-provider
@@ -49,16 +55,16 @@ export function createModelClient(
     createOpenAICodexModelClient,
   },
 ): ModelClient {
-  const { provider, model } = input;
+  const { provider, model, userAgent } = input;
   switch (provider.type) {
     case 'openai-responses':
-      return createResponsesClient(provider, model, dependencies);
+      return createResponsesClient(provider, model, userAgent, dependencies);
     case 'openai-completions':
-      return createCompletionsClient(provider, model, dependencies);
+      return createCompletionsClient(provider, model, userAgent, dependencies);
     case 'anthropic-messages':
-      return createMessagesClient(provider, model, dependencies);
+      return createMessagesClient(provider, model, userAgent, dependencies);
     case 'openai-codex':
-      return createCodexClient(provider, model, dependencies);
+      return createCodexClient(provider, model, userAgent, dependencies);
     default: {
       // Unreachable while the JSON Schema's `providerType` enum stays in
       // sync with the cases above (config-loader rejects any other `type` at
@@ -75,6 +81,7 @@ export function createModelClient(
 function createResponsesClient(
   provider: OpenAIResponsesProviderConfig,
   model: SystemModelCatalogEntry,
+  userAgent: string,
   dependencies: ModelClientDependencies,
 ): ModelClient {
   const config: Parameters<typeof createOpenAIModelClient>[0] = {
@@ -83,6 +90,7 @@ function createResponsesClient(
     providerModelId: model.providerModelId,
     modelId: model.id,
     contextWindowTokens: model.contextWindowTokens,
+    userAgent,
   };
   assignModelMetadata(config, model);
   return dependencies.createOpenAIModelClient(config);
@@ -91,6 +99,7 @@ function createResponsesClient(
 function createCompletionsClient(
   provider: OpenAICompletionsProviderConfig,
   model: SystemModelCatalogEntry,
+  userAgent: string,
   dependencies: ModelClientDependencies,
 ): ModelClient {
   const config: Parameters<typeof createOpenAICompletionsModelClient>[0] = {
@@ -99,6 +108,7 @@ function createCompletionsClient(
     providerModelId: model.providerModelId,
     modelId: model.id,
     contextWindowTokens: model.contextWindowTokens,
+    userAgent,
   };
   assignModelMetadata(config, model);
   return (
@@ -109,6 +119,7 @@ function createCompletionsClient(
 function createMessagesClient(
   provider: AnthropicMessagesProviderConfig,
   model: SystemModelCatalogEntry,
+  userAgent: string,
   dependencies: ModelClientDependencies,
 ): ModelClient {
   const config: Parameters<typeof createAnthropicModelClient>[0] = {
@@ -120,6 +131,7 @@ function createMessagesClient(
     providerModelId: model.providerModelId,
     modelId: model.id,
     contextWindowTokens: model.contextWindowTokens,
+    userAgent,
     // The client's adaptive-thinking default is gated on the entry's
     // `reasoning` declaration (D11): presence of the vocabulary is the
     // declaration, so this boolean is the whole signal the client needs.
@@ -134,6 +146,7 @@ function createMessagesClient(
 function createCodexClient(
   provider: OpenAICodexProviderConfig,
   model: SystemModelCatalogEntry,
+  userAgent: string,
   dependencies: ModelClientDependencies,
 ): ModelClient {
   const config: Parameters<typeof createOpenAICodexModelClient>[0] = {
@@ -142,6 +155,7 @@ function createCodexClient(
     providerModelId: model.providerModelId,
     modelId: model.id,
     contextWindowTokens: model.contextWindowTokens,
+    userAgent,
   };
   assignModelMetadata(config, model);
   return (

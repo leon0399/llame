@@ -214,6 +214,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     models.createClientCalls.length = 0;
     models.client.turns.length = 0;
     models.client.titleTurns.length = 0;
+    models.client.chatIdentities.length = 0;
     models.client.titleResponse = 'Generated Title';
     models.client.responses = ['fake assistant'];
     models.client.usage = {
@@ -1024,6 +1025,16 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     }, 10_000);
     expect((await readChat()).body).toMatchObject({ title: 'Generated Title' });
     expect(models.client.titleTurns.length).toBeGreaterThanOrEqual(1);
+    // provider-api-selection D3/D5: both requests are this Chat's — the turn on
+    // the main lane, the titler on the title lane; only the lane differs.
+    expect(
+      models.client.chatIdentities.find((identity) => identity.lane === 'main'),
+    ).toStrictEqual({ id: newChatId, lane: 'main' });
+    expect(
+      models.client.chatIdentities.find(
+        (identity) => identity.lane === 'title',
+      ),
+    ).toStrictEqual({ id: newChatId, lane: 'title' });
     expect(models.createClientCalls).toContainEqual(
       expect.objectContaining({ modelId: 'system:openai:gpt-5.4-mini' }),
     );

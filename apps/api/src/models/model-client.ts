@@ -18,8 +18,37 @@ export type ModelStreamResult = StreamTextResult<
   OutputInterface<string, string, never>
 >;
 
+/**
+ * Which conversation a language-model request belongs to: the Chat's own
+ * turn (and every request that reuses its prefix, including compaction) or
+ * the unrelated title prompt over the same Chat.
+ */
+export type ChatLane = 'main' | 'title';
+
+/**
+ * The Chat a language-model request is made for, supplied by the call site as
+ * FACTS — the Chat's id and the lane — never as a rendered header value or a
+ * transport name. Each client renders the identity in the form its own
+ * provider requires, or ignores it entirely when its provider has no consumer
+ * for it.
+ *
+ * The identity is not a credential and is not model-visible: it reaches no
+ * model context, no persisted part, and no owner-visible output. It exists
+ * only for the provider-bound rendering a client chooses to make.
+ */
+export type ChatIdentity = {
+  id: string;
+  lane: ChatLane;
+};
+
 export interface ModelStreamInput {
   messages: Array<ModelMessage>;
+  /**
+   * The Chat this request belongs to (required: every call site supplies it,
+   * so the type checker enumerates every construction site rather than
+   * letting a default hide a missing identity).
+   */
+  chat: ChatIdentity;
   system?: string;
   abortSignal?: AbortSignal;
   /**
@@ -121,6 +150,8 @@ export interface ModelStreamInput {
 
 export interface ModelObjectInput<OBJECT> {
   messages: Array<ModelMessage>;
+  /** The Chat this structured-generation request belongs to. */
+  chat: ChatIdentity;
   system?: string;
   abortSignal?: AbortSignal;
   /**

@@ -1125,6 +1125,7 @@ export class RunExecutionService {
       return client.streamText({
         system,
         messages,
+        chat: { id: input.chatId, lane: 'main' },
         abortSignal: input.abortSignal,
         // Absent → no provider option at all, leaving the provider default.
         ...(effort !== undefined && { effort }),

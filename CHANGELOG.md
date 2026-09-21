@@ -1,5 +1,27 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-21
+
+- llame identifies itself on every language-model request. Each request now
+  carries `User-Agent: llame/<version>`, taken from the API package's own
+  manifest and read once at boot under the instance-configuration contract —
+  a deployment whose `apps/api/package.json` is missing beside `dist/` fails
+  startup naming that requirement rather than sending a bare SDK identity.
+  The value rides each request's own headers rather than the provider
+  connection's, because the AI SDK replaces a connection-level `User-Agent`
+  with its own token on structured requests; whatever the SDK appends follows
+  llame's token instead of replacing it. Embedding requests are unchanged.
+
+- Every model request carries its Chat's identity and lane. Both model-client
+  input contracts now require a transport-neutral `{ id, lane }`: the turn and
+  both compaction paths send the Chat's own id on the `main` lane, so a
+  summarization request shares the conversation's identity, and title
+  generation sends the same id on the `title` lane. Call sites supply facts
+  only — no rendered header value, no transport name — and each client renders
+  the identity in its provider's own form or ignores it, so no request changes
+  shape today. The identity reaches no model context, no persisted part, and
+  no owner-visible output.
+
 # 2026-09-20
 
 - Providers can speak the Anthropic Messages wire: `type: "anthropic-messages"`

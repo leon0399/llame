@@ -24,6 +24,7 @@ import {
   awaitSettlementAfter,
   generateToolBoundObject,
   KEYLESS_PLACEHOLDER_API_KEY,
+  productUserAgentHeaders,
   trackAbortSettlement,
 } from './openai-model-client';
 
@@ -38,6 +39,15 @@ export type OpenAICompletionsModelClientConfig = {
   providerModelId: string;
   modelId: string;
   contextWindowTokens: number;
+  /**
+   * llame's product token and version (`llame/<version>`), read once at boot
+   * under the instance-configuration contract (design D6) and sent as the
+   * lowercase `user-agent` on the PER-CALL headers of every language-model
+   * request this client issues — streaming and structured generation alike.
+   * Per-call rather than provider-level: the AI SDK replaces a
+   * provider-level `User-Agent` with its own token on structured requests.
+   */
+  userAgent: string;
   /** Required: the compatible adapter has no default endpoint. */
   baseUrl: string;
   pricing?: TokenPrice;
@@ -152,6 +162,9 @@ function runOpenAICompatibleStream(
     onError: input.onError,
     onAbort: settlement.onAbort,
     onFinish: input.onFinish,
+    // llame's identity rides every request (design D6), per call: the
+    // provider-level headers cannot carry it on structured requests.
+    headers: productUserAgentHeaders(config),
     ...providerOptions,
     // The catalog output limit, provider-neutral like `providerOptions`:
     // the adapter derives the wire's `max_tokens` from this setting.
@@ -214,6 +227,7 @@ export function createOpenAICompletionsModelClient(
       runOpenAICompatibleStream(provider, config, dependencies, input),
     generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
       generateToolBoundObject(provider(config.providerModelId), input, {
+        headers: productUserAgentHeaders(config),
         ...composeStructuredProviderOptions(config),
         ...(config.maxOutputTokens !== undefined && {
           maxOutputTokens: config.maxOutputTokens,

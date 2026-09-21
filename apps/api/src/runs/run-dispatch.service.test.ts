@@ -18,7 +18,7 @@ const job: RunJob = {
 };
 
 function config(): InstanceConfigService {
-  return { config: BUILT_IN_DEFAULTS };
+  return { config: BUILT_IN_DEFAULTS, productUserAgent: 'llame/test' };
 }
 
 function tenantDb(failure = new Error('unused transaction')): TenantDbService {

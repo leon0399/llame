@@ -19,7 +19,7 @@ import {
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
-import { type ModelObjectInput } from './model-client';
+import { type ChatIdentity, type ModelObjectInput } from './model-client';
 import {
   createOpenAICompletionsModelClient,
   type OpenAICompletionsModelClientConfig,
@@ -42,6 +42,15 @@ const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
 const messages = [
   { role: 'user', content: 'Use the available tools.' },
 ] satisfies Array<ModelMessage>;
+
+/**
+ * The Chat identity every input carries (design D3). It is a fact the client
+ * receives: nothing in this suite asserts that a client reads it.
+ */
+const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
+
+/** The product token llame's boot-read identity supplies to every client. */
+const USER_AGENT = 'llame/0.0.0-test';
 
 const PROVIDER_USAGE = {
   inputTokens: {
@@ -125,6 +134,7 @@ function buildClient(
     providerModelId: 'deepseek-chat',
     modelId: 'system:deepseek:deepseek-chat',
     contextWindowTokens: 128_000,
+    userAgent: USER_AGENT,
     baseUrl: 'https://api.deepseek.com/v1',
     ...overrides,
   };
@@ -153,7 +163,7 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
       stream: streamTextMock,
     });
 
-    client.streamText({ messages, system: 'stable system' });
+    client.streamText({ chat: CHAT, messages, system: 'stable system' });
 
     expect(client).toMatchObject({
       model: 'system:deepseek:deepseek-chat',
@@ -183,7 +193,7 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
     const { client } = buildClient(model);
 
     await expect(
-      client.streamText({ messages, effort: 'high' }).text,
+      client.streamText({ chat: CHAT, messages, effort: 'high' }).text,
     ).resolves.toBe('answer');
 
     // The approved namespace (provider-api-selection D5): the camel-case of
@@ -203,7 +213,7 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
     });
 
     await expect(
-      client.streamText({ messages, effort: 'high' }).text,
+      client.streamText({ chat: CHAT, messages, effort: 'high' }).text,
     ).resolves.toBe('answer');
 
     // Precedence (provider-api-selection): the run's effort wins the shared
@@ -221,7 +231,9 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
       },
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('answer');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('answer');
 
     expect(model.doStreamCalls[0]?.providerOptions).toEqual({
       openaiCompletions: { user: 'run-owner', strictJsonSchema: false },
@@ -241,7 +253,9 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
       },
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('answer');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('answer');
 
     // The reserved wire seats never reach the composed object; the surviving
     // operator key does, and the request still executes against the entry's
@@ -258,7 +272,9 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
       overrides: { providerOptions: { model: 'smuggled-model' } },
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('answer');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('answer');
 
     expect(model.doStreamCalls[0]?.providerOptions).toBeUndefined();
   });
@@ -271,7 +287,9 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
       },
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('answer');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('answer');
 
     // No allow-list: llame neither validates nor rewrites the key, so the
     // adapter drops or forwards it under its own ceiling (D5).
@@ -286,7 +304,9 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
       overrides: { maxOutputTokens: 4096 },
     });
 
-    await expect(client.streamText({ messages }).text).resolves.toBe('answer');
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('answer');
 
     // The AI SDK call setting, not a body key: the adapter derives the wire
     // limit from it (D17) — here the Chat Completions adapter's `max_tokens`.
@@ -301,7 +321,7 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
     streamTextMock.mockReturnValue({});
     const { client } = buildClient(model, { stream: streamTextMock });
 
-    client.streamText({ messages });
+    client.streamText({ chat: CHAT, messages });
 
     // The AI SDK materializes `maxOutputTokens` (undefined) into every call
     // setting it builds for the adapter, so `doStreamCalls` can never show
@@ -379,6 +399,7 @@ describe('createOpenAICompletionsModelClient — keyless provider', () => {
       providerModelId: 'llama-local',
       modelId: 'system:local:llama-local',
       contextWindowTokens: 32_000,
+      userAgent: USER_AGENT,
       baseUrl: 'http://localhost:11434/v1',
     });
 
@@ -433,6 +454,7 @@ describe('createOpenAICompletionsModelClient — structured output (design D4)',
 
     await expect(
       generateObject({
+        chat: CHAT,
         messages,
         schemaName: 'chat_title',
         schema: z.object({ title: z.string() }),
@@ -499,6 +521,66 @@ describe('createOpenAICompletionsModelClient — structured output (design D4)',
     // the adapter's model received.
     expect(generateCall?.maxOutputTokens).toBe(2048);
   });
+
+  it("keeps llame's token leading the value on the forced-tool structured request (design D6)", async () => {
+    const { generateCall } = await generateTitle({
+      userAgent: 'llame/9.9.9-canary',
+    });
+
+    // The AI SDK gives this path its own `ai/<version>` User-Agent, which
+    // replaces a provider-level header: llame's per-call token leads the value
+    // instead, with the SDK's token following it.
+    expect(generateCall?.headers?.['user-agent']).toMatch(
+      /^llame\/9\.9\.9-canary ai\//,
+    );
+  });
+});
+
+describe("createOpenAICompletionsModelClient — llame's product identity (design D6)", () => {
+  it("carries the configured token on the streaming request's user-agent", async () => {
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        new Response(
+          [
+            'data: {"id":"chunk-1","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":null}]}\n\n',
+            'data: {"id":"chunk-1","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n\n',
+            'data: [DONE]\n\n',
+          ].join(''),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+      );
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      // The REAL `@ai-sdk/openai-compatible` adapter and the real `streamText`
+      // — only the transport is stubbed, so the assertion reads the request
+      // the SDK serialized.
+      const client = createOpenAICompletionsModelClient({
+        credential: 'sk-test',
+        providerModelId: 'deepseek-chat',
+        modelId: 'system:deepseek:deepseek-chat',
+        contextWindowTokens: 128_000,
+        baseUrl: 'https://api.deepseek.com/v1',
+        userAgent: 'llame/9.9.9-canary',
+      });
+
+      await expect(
+        client.streamText({ chat: CHAT, messages }).text,
+      ).resolves.toBe('done');
+
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        'https://api.deepseek.com/v1/chat/completions',
+      );
+      const [, init] = fetchMock.mock.calls[0] ?? [];
+      expect(new Headers(init?.headers).get('user-agent')).toMatch(
+        /^llame\/9\.9\.9-canary( |$)/,
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
 });
 
 describe('createOpenAICompletionsModelClient — reasoning deltas and the tool loop (reasoning-output)', () => {
@@ -543,6 +625,7 @@ describe('createOpenAICompletionsModelClient — reasoning deltas and the tool l
 
     await expect(
       client.streamText({
+        chat: CHAT,
         messages,
         tools,
         maxSteps: 2,
@@ -580,7 +663,7 @@ describe('createOpenAICompletionsModelClient — reasoning deltas and the tool l
     const onReasoningDelta = vi.fn();
 
     await expect(
-      client.streamText({ messages, onReasoningDelta }).text,
+      client.streamText({ chat: CHAT, messages, onReasoningDelta }).text,
     ).resolves.toBe('answer');
 
     expect(onReasoningDelta).not.toHaveBeenCalled();

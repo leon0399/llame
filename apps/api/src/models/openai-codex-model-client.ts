@@ -19,6 +19,13 @@ type OpenAICodexModelClientConfig = {
   modelId: string;
   contextWindowTokens: number;
   /**
+   * llame's product token and version (`llame/<version>`), forwarded to the
+   * Responses client, which sends it on the per-call headers of every
+   * request (design D6). The transport's own fixed provider-level headers are
+   * untouched by it.
+   */
+  userAgent: string;
+  /**
    * Operator request options (`models[].providerOptions`), forwarded to the
    * Responses client as its inner record: it wraps them under `openai` and
    * strips the wire's reserved paths (design D5).
@@ -73,6 +80,7 @@ export function createOpenAICodexModelClient(
       providerModelId: config.providerModelId,
       modelId: config.modelId,
       contextWindowTokens: config.contextWindowTokens,
+      userAgent: config.userAgent,
       baseUrl: CODEX_RESPONSES_BASE_URL,
       headers: {
         'ChatGPT-Account-ID': config.accountId,

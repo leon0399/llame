@@ -1,7 +1,14 @@
 import { tool, type ModelMessage } from 'ai';
 import { z } from 'zod';
 
+import type { ChatIdentity } from '../models/model-client';
 import { ScriptedModelsService } from './scripted-model-client';
+
+/** The Chat identity this suite's scripted requests claim. */
+const chat: ChatIdentity = {
+  id: '7b1f4c2a-3d5e-4a68-9f02-1c8d6b3e5a47',
+  lane: 'main',
+};
 
 const messages = [
   { role: 'user', content: 'Hello' },
@@ -48,6 +55,7 @@ describe('ScriptedModelsService', () => {
 
     await expect(
       client.streamText({
+        chat,
         messages,
         effort: 'high',
         onTextDelta: (text) => textDeltas.push(text),
@@ -61,7 +69,7 @@ describe('ScriptedModelsService', () => {
     expect(finishes).toHaveLength(1);
     expect(service.createClientCalls).toEqual([{ modelId: 'complete' }]);
     expect(service.streamCalls).toEqual([
-      { modelId: 'complete', effort: 'high' },
+      { modelId: 'complete', effort: 'high', chat },
     ]);
   });
 
@@ -76,6 +84,7 @@ describe('ScriptedModelsService', () => {
 
     await expect(
       service.createClient('complete').streamText({
+        chat,
         messages,
         onTextDelta: (text) => observedDeltas.push(text),
         onFinish: (event) => {
@@ -100,6 +109,7 @@ describe('ScriptedModelsService', () => {
       });
       const finishes: Array<unknown> = [];
       const result = service.createClient('delayed').streamText({
+        chat,
         messages,
         onFinish: (event) => {
           finishes.push(event);
@@ -124,6 +134,7 @@ describe('ScriptedModelsService', () => {
 
     await expect(
       service.createClient('hang').streamText({
+        chat,
         messages,
         abortSignal: abort.signal,
       }).text,
@@ -170,6 +181,7 @@ describe('ScriptedModelsService', () => {
     const error = vi.fn();
     await expect(
       service.createClient('provider-error').streamText({
+        chat,
         messages,
         onError: error,
       }).text,
@@ -205,6 +217,7 @@ describe('ScriptedModelsService', () => {
 
     await expect(
       client.streamText({
+        chat,
         messages,
         tools,
         maxSteps: 5,
@@ -216,7 +229,7 @@ describe('ScriptedModelsService', () => {
     expect(search).toHaveBeenCalledOnce();
     expect(read).toHaveBeenCalledTimes(2);
     expect(service.streamCalls).toEqual([
-      { modelId: 'recall', effort: undefined },
+      { modelId: 'recall', effort: undefined, chat },
     ]);
   });
 
@@ -229,6 +242,7 @@ describe('ScriptedModelsService', () => {
 
     await expect(
       service.createClient('recall-default').streamText({
+        chat,
         messages,
         tools: recallTools(),
         maxSteps: 3,
@@ -252,6 +266,7 @@ describe('ScriptedModelsService', () => {
 
     await expect(
       service.createClient('empty-recall').streamText({
+        chat,
         messages,
         tools,
       }).text,
@@ -268,6 +283,7 @@ describe('ScriptedModelsService', () => {
       service.register('hang', { kind: 'hang' });
       const abort = new AbortController();
       const hanging = service.createClient('hang').streamText({
+        chat,
         messages,
         abortSignal: abort.signal,
       }).text;
@@ -281,6 +297,7 @@ describe('ScriptedModelsService', () => {
       });
       const delayedAbort = new AbortController();
       const delayed = service.createClient('delayed').streamText({
+        chat,
         messages,
         abortSignal: delayedAbort.signal,
       }).text;
@@ -312,6 +329,7 @@ describe('ScriptedModelsService', () => {
     };
 
     await service.createClient('recall-args').streamText({
+      chat,
       messages,
       tools,
       maxSteps: 5,
@@ -350,6 +368,7 @@ describe('ScriptedModelsService', () => {
 
     await expect(
       service.createClient('recall-once').streamText({
+        chat,
         messages,
         tools,
         maxSteps: 5,
@@ -395,6 +414,7 @@ describe('ScriptedModelsService', () => {
     const search = vi.fn(() => sourceResult);
     await expect(
       service.createClient('invalid-recall').streamText({
+        chat,
         messages: priorMessages,
         tools: recallTools(search),
       }).text,
@@ -465,6 +485,7 @@ describe('ScriptedModelsService observable contract', () => {
 
     await expect(
       service.createClient('provider-error').streamText({
+        chat,
         messages,
         onError: ({ error }) => {
           errors.push(error);
@@ -493,6 +514,7 @@ describe('ScriptedModelsService observable contract', () => {
       limit: number;
     }> = [];
     const result = service.createClient('recall').streamText({
+      chat,
       messages,
       tools: {
         search_conversations: tool({
@@ -552,6 +574,7 @@ describe('ScriptedModelsService observable contract', () => {
     });
 
     const result = service.createClient('single-read').streamText({
+      chat,
       messages,
       tools: recallTools(),
       maxSteps: 5,
@@ -579,6 +602,7 @@ describe('ScriptedModelsService observable contract', () => {
     const search = vi.fn(() => sourceResult);
 
     const result = service.createClient('text-output-recall').streamText({
+      chat,
       messages: priorSearchMessages('search_conversations'),
       tools: recallTools(search),
       maxSteps: 5,
@@ -601,6 +625,7 @@ describe('ScriptedModelsService observable contract', () => {
     });
 
     const result = service.createClient('foreign-output-recall').streamText({
+      chat,
       messages: priorSearchMessages('conversation_read'),
       tools: recallTools(),
       maxSteps: 5,
@@ -627,7 +652,7 @@ describe('ScriptedModelsService observable contract', () => {
       let settled = false;
       const pending = service
         .createClient('delayed')
-        .streamText({ messages }).text;
+        .streamText({ chat, messages }).text;
       void pending.then(() => {
         settled = true;
       });
@@ -652,6 +677,7 @@ describe('ScriptedModelsService observable contract', () => {
       });
       const abort = new AbortController();
       const pending = service.createClient('delayed').streamText({
+        chat,
         messages,
         abortSignal: abort.signal,
       }).text;
@@ -672,6 +698,7 @@ describe('ScriptedModelsService observable contract', () => {
     });
 
     const result = service.createClient('recall-without-tools').streamText({
+      chat,
       messages,
       maxSteps: 1,
     });
@@ -685,6 +712,7 @@ describe('ScriptedModelsService observable contract', () => {
 
     await expect(
       service.createClient('choice-without-tools').streamText({
+        chat,
         messages,
         toolChoice: 'required',
       }).text,

@@ -13,6 +13,7 @@ import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
+import { type ProductIdentityReader } from '../instance-config/product-identity';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { searchConversationsTool } from '../tools/search-conversations';
@@ -26,7 +27,8 @@ type SqlClient = Sql;
 const CODEX_MODEL_ID = 'system:codex:gpt-test';
 
 function configuredCodexModels(): ModelsService {
-  const instanceConfig: InstanceConfigReader = {
+  const instanceConfig: InstanceConfigReader & ProductIdentityReader = {
+    productUserAgent: 'llame/0.0.0-test',
     config: {
       ...BUILT_IN_DEFAULTS,
       defaults: {

@@ -87,3 +87,16 @@ import '../skills/skill-target';
 
 // Same proof for `tools/prompts/*.md`, via the search-result notice.
 import '../tools/search-conversations';
+
+// Verify the built runtime reads llame's version from the manifest beside
+// dist/ (design D6 of openspec/changes/opencode-go-provider). The call makes
+// `product-identity` resolve `apps/api/package.json` from its own compiled
+// location — `dist/instance-config` here — so a deployment layout that drops
+// the manifest fails this build step rather than every model request. Like
+// the asset proofs above, the call IS the assertion: it throws an
+// InstanceConfigError naming the logical requirement, and the token's
+// composition is pinned by the unit tests instead of re-derived here (this
+// file is a build step, not a unit under test).
+import { loadProductUserAgent } from './product-identity';
+
+loadProductUserAgent();

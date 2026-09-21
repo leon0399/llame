@@ -4,6 +4,7 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
+import type { ProductIdentityReader } from '../instance-config/product-identity';
 import type { ProviderConfig } from '../instance-config/llame-config';
 import {
   toPublicModel,
@@ -116,7 +117,8 @@ export class ModelsService {
 
   constructor(
     @Inject(InstanceConfigService)
-    private readonly instanceConfig: InstanceConfigReader,
+    private readonly instanceConfig: InstanceConfigReader &
+      ProductIdentityReader,
     @Optional()
     @Inject(CREATE_MODEL_CLIENT)
     private readonly createModelClientOverride?: typeof createModelClient,
@@ -231,6 +233,7 @@ export class ModelsService {
     return (this.createModelClientOverride ?? createModelClient)({
       provider,
       model,
+      userAgent: this.instanceConfig.productUserAgent,
     });
   }
 

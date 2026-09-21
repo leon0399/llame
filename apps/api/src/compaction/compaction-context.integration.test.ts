@@ -1132,6 +1132,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     );
 
     expect(targetCalls).toHaveLength(1);
+    // D5: compaction shares the turn's identity — literally the value the
+    // target turn's own request carried, not a re-derived lookalike.
+    expect(sourceCalls[0].chat).toStrictEqual(targetCalls[0].chat);
+    expect(targetCalls[0].chat).toStrictEqual({
+      id: seeded.chat.id,
+      lane: 'main',
+    });
     expect(targetCalls[0].system).toBe('Test prompt: default');
     expect(Object.keys(targetCalls[0].tools ?? {})).toEqual([
       'search_conversations',

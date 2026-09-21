@@ -74,7 +74,9 @@ export class TitleService {
 
     const client = this.models.createClient(titleModel.id);
 
-    const title = sanitizeTitle(await this.requestTitle(client, userText));
+    const title = sanitizeTitle(
+      await this.requestTitle(client, input.chatId, userText),
+    );
     if (title.length === 0) {
       return;
     }
@@ -98,6 +100,7 @@ export class TitleService {
    */
   private async requestTitle(
     client: ModelClient,
+    chatId: string,
     userText: string,
   ): Promise<string> {
     // SAFETY: without an annotation, `role: 'user'` widens to string in this
@@ -117,6 +120,7 @@ export class TitleService {
         const object = await client.generateObject({
           system: TITLE_SYSTEM_PROMPT,
           messages,
+          chat: { id: chatId, lane: 'title' },
           abortSignal,
           schema: TITLE_OBJECT_SCHEMA,
           schemaName: TITLE_SCHEMA_NAME,
@@ -136,6 +140,7 @@ export class TitleService {
     const result = client.streamText({
       system: TITLE_SYSTEM_PROMPT,
       messages,
+      chat: { id: chatId, lane: 'title' },
       abortSignal,
     });
 

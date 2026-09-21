@@ -223,6 +223,7 @@ export class CompactionService {
     const startedAt = Date.now();
     const inference = await this.summarize({
       client: input.client,
+      chatId: input.chatId,
       system: request.system,
       messages: request.messages,
       toolDeclarations: input.toolDeclarations,
@@ -394,6 +395,7 @@ export class CompactionService {
     try {
       inference = await this.summarize({
         client: sourceClient,
+        chatId: input.chatId,
         system: request.system,
         messages: request.messages,
         toolDeclarations: [],
@@ -534,6 +536,13 @@ export class CompactionService {
 
   private async summarize(input: {
     client: ModelClient;
+    /**
+     * The Chat being compacted — both callers' own chat. Compaction shares
+     * the turn's `main` lane (provider-api-selection D5) because its request
+     * prefix IS the conversation's prefix; a separate identity would forfeit
+     * exactly the cache reuse the shared prefix exists for.
+     */
+    chatId: string;
     system: string;
     messages: Array<ModelMessage>;
     toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
@@ -566,6 +575,7 @@ export class CompactionService {
     const result = input.client.streamText({
       system: input.system,
       messages: input.messages,
+      chat: { id: input.chatId, lane: 'main' },
       abortSignal: input.abortSignal,
       ...(input.effort !== undefined && { effort: input.effort }),
       ...(input.toolDeclarations.length > 0 && { tools }),
