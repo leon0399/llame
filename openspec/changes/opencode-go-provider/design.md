@@ -801,3 +801,13 @@ no chat history needs reprocessing.
   header export is recorded under D3; stale "two misreports" counts and
   citations are corrected. No round-1 finding regressed; no new blocking or
   structural finding.
+- v4 (2026-09-21): Rebased onto `master` at `1311ca16` and reprocessed under
+  the delivery rules that landed with #900 and #901: the research is moved out
+  of this stack into two standalone docs stacks so the proposal branch starts
+  from `master`; every layer records its branch, parent, ownership, authored
+  size against its parent (this layer measured; the others estimated within the
+  2,000-line budget), exit evidence, and issue responsibility; every layer
+  gains separate self-review and GitHub-review checkpoints, with finalize's
+  recorded as post-archive gates; the finalize entry boundary precedes any
+  spec synchronization; and the proposal gains an assumptions and open
+  decisions section. No requirement, decision, or delta changed.

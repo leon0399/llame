@@ -120,21 +120,51 @@ already serves. No new dependency: the Chat Completions adapter
   every client uses, and the per-reasoning-part provider-metadata channel.
   Nothing here duplicates or reverses either change, and this change adds no
   adapter dependency of its own.
-- Delivery stack, in order:
+- The research the design cites (`docs/research/harnesses/opencode-v2.md`
+  and the Go sections of nine sibling references) is published as two
+  standalone docs stacks, `research/opencode-family-go-handling` and
+  `research/peer-harness-go-handling`, outside this stack. They are evidence,
+  not a build dependency, and merge independently.
+- Delivery stack, in order, each layer sized within the review budget against
+  its parent (measured 1,546 authored lines for this layer; estimates of about
+  800, 1,200, and 300 for the others, recorded and re-measured in `tasks.md`):
 
   ```text
-  master <- opencode-go-provider/research <- opencode-go-provider/proposal <- opencode-go-provider/chat-key <- opencode-go-provider/go-provider <- opencode-go-provider/finalize
+  master <- opencode-go-provider/proposal <- opencode-go-provider/chat-key <- opencode-go-provider/go-provider <- opencode-go-provider/finalize
   ```
 
   The `chat-key` layer owns the `chat` field, the derivation at every call
-  site, the test doubles, and the `User-Agent` on the four existing clients. It
-  closes no issue. The `go-provider` layer owns the provider type end to end
-  and is the only layer that closes an issue: it closes #809 after its
-  acceptance evidence is recorded. The `finalize` layer syncs and archives
-  only.
+  site, the test doubles, the version read at boot, and the `User-Agent` on
+  the four existing clients. It closes no issue. The `go-provider` layer owns
+  the provider type end to end, its operator documentation, changelog entry,
+  and live proof, and is the only layer that closes an issue: it closes #809
+  after its acceptance evidence is recorded. The `finalize` layer syncs and
+  archives only.
 
 - No layer closes #903, #904, #808, #881, #810, #593, #751, #754, #18, #82,
   or #37.
+
+## Assumptions and open decisions
+
+Assumptions the design rests on, each falsifiable by the live proof
+(`tasks.md` 3.8) or a focused check:
+
+- The gateway accepts `/chat/completions` for the two example models and
+  requires only `x-opencode-session` for a conversation identity; the other
+  `x-opencode-*` headers are logged, not required.
+- The gateway's error envelope is `{ "type": "error", "error": { "type", "message" } }`
+  with any `metadata` as a top-level sibling, so the Chat Completions adapter's
+  parser yields the message and drops the metadata.
+- `@ai-sdk/openai-compatible@2.0.75` forwards per-call `headers` on both its
+  streaming and its structured requests, and `ai@6.0.256` sets its own
+  per-call `User-Agent` only on `generateText`/`generateObject`.
+- `apps/api/package.json` is deployed beside `dist/`; the boot-time read
+  fails otherwise, by design.
+
+Decisions deliberately left to the live proof rather than settled here: which
+status and body class a monthly-window rejection returns, and whether a
+usage-limit message names a workspace. Neither changes the contract; both
+change the runbook's wording.
 
 ## Non-goals
 
