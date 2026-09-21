@@ -1,0 +1,72 @@
+## 1. Proposal layer
+
+Delivery stack:
+
+```text
+master <- opencode-go-provider/research <- opencode-go-provider/proposal <- opencode-go-provider/chat-key <- opencode-go-provider/go-provider <- opencode-go-provider/finalize
+```
+
+This change follows the merged and archived `openai-compatible-provider`
+change (PRs #884, #886, #888, #889, #890, closing issue #883), which owns the
+wire-named `openai-responses` / `openai-completions` types, the type-dispatch
+factory, and `@ai-sdk/openai-compatible@2.0.75`, and the merged and archived
+`anthropic-provider` change, which owns `anthropic-messages`, the per-model
+`providerOptions` composition, and the reasoning-part provider-metadata
+channel. No layer of this change duplicates or reverses either, and no layer
+adds a dependency: the Chat Completions adapter is already installed.
+
+The proposal layer owns this ledger, the proposal, the design, and the three
+delta specs. The `chat-key` layer owns the `chat` field on both model-client
+input contracts, the derivation at every call site, the test doubles, and the
+`User-Agent` on the four existing clients; it closes no issue. The
+`go-provider` layer owns `type: "opencode-go"` end to end and is the only layer
+that closes an issue: its delivery owner closes #809 after its acceptance
+evidence is recorded. The `finalize` layer owns canonical spec synchronization
+and archive movement only. No layer closes issues #903, #904, #808, #881, #18, #82, or #37.
+
+Use `$gh-stack` for every stack operation and `$openspec-apply-change` for
+implementation. Create the `chat-key` layer only after explicit proposal-PR
+approval; publication and merge each require their own authorization.
+
+- [ ] 1.1 [proposal] Complete two independent adversarial reviews of the proposal, design, and delta specs; verify each finding against the repository, the AI SDK's built types, the pinned adapters' built source, the gateway's open-source handler, and the peer-harness findings digests; commit each substantive revision separately; verify convergence with no new substantive finding.
+- [ ] 1.2 [proposal] Verify the artifacts record the substrate and the dependency correctly: every claim about the factory, the client input contracts, the three production call sites, the loader, the embedding allowlist, and the per-call header support cites a real file and line; the design carries every decision D1-D15 with its rationale and rejected alternatives, the accepted risks, and the deferred items with their issue numbers; and both MODIFIED blocks reproduce master's requirement text and scenarios losslessly. Recorded programmatic diff (master versus delta, scenario names and scenario bullets): `instance-config` "Provider list configuration" 11 master scenarios, 0 missing, 4 added (`OpenCode Go provider loads by shape`, `OpenCode Go provider rejects a base URL`, `OpenCode Go provider requires a non-empty key`, `OpenCode Go provider cannot back embeddings`), master order preserved, every master bullet preserved in place; `provider-api-selection` "Provider type selects the wire API" 9 master scenarios, 0 missing, 1 added (`An OpenCode Go-typed provider uses Chat Completions at the fixed endpoint`), master order preserved, every master bullet preserved in place; the requirement-paragraph edits are exactly three insertions in `instance-config` (the enum clause, the variant clause, the exclusion list) and one insertion in `provider-api-selection` (the Go wire clause), with every other paragraph byte-identical.
+- [ ] 1.3 [proposal] Validate with `pnpm exec openspec validate opencode-go-provider --strict`, `pnpm exec prettier --check openspec/changes/opencode-go-provider`, and `pnpm exec markdownlint-cli2 "openspec/changes/opencode-go-provider/**/*.md"`; inspect the actual artifact diff and obtain publication authorization plus explicit approval of the published revision before implementation starts.
+
+## 2. Chat-key layer
+
+Owns the required `chat` field, its derivation at every call site, and llame's
+`User-Agent` on the four existing clients. Branch:
+`opencode-go-provider/chat-key`. Closes no issue.
+
+- [ ] 2.1 [chat-key] Add `ChatIdentity` and `ChatLane` to `apps/api/src/models/model-client.ts` and the required `chat` field to `ModelStreamInput` and `ModelObjectInput`, with the doc comments stating that call sites supply facts, that a client renders the identity in its provider's own form or ignores it, and that the value is never a credential and never reaches model context or owner output; verify with `pnpm --filter api typecheck` that the field's requirement makes the compiler enumerate every construction site, and with a focused unit test that a client receives the identity it was given.
+- [ ] 2.2 [chat-key] Derive the identity at every production call site: the run loop's streaming call in `apps/api/src/runs/run-execution.service.ts` sends `{ id: input.chatId, lane: 'main' }`, the shared summarization call in `apps/api/src/compaction/compaction.service.ts` sends the same lane and id for both `maybeCompact` and `compactForTransition`, and `apps/api/src/titles/title.service.ts` sends `{ id: input.chatId, lane: 'title' }` on both its structured and its text path; verify with focused tests that a recorded streaming call, a recorded compaction call, and a recorded title call each carry the expected `{ id, lane }`, that the compaction value equals the turn's, and that the title value differs only by lane.
+- [ ] 2.3 [chat-key] Update every test double and client test the compiler reports, including the doubles in `apps/api/src/testing/fake-streaming-model-client.ts`, `apps/api/src/runs/scripted-model-client.ts`, and `apps/api/src/worker-mode.integration.test.ts`, and every client test that constructs an input for `streamText` or `generateObject`; verify with `pnpm --filter api typecheck` clean and the affected unit and integration projects green, and confirm no call site was given a default value to make it compile.
+- [ ] 2.4 [chat-key] Send `User-Agent: llame/<version>` from all four existing clients: add a small shared helper that reads the version from `apps/api/package.json` relative to the module's own location, thread it through the Responses and Codex clients' existing `headers` config, and add an optional fixed `headers` config to the Chat Completions client (forwarded to `createOpenAICompatible`) and to the Anthropic client (forwarded to `createAnthropic`); verify with one focused test per client type asserting the header value on a single request, including that the value begins with llame's product token and version and that the adapter's own appended suffix is the only other token present.
+- [ ] 2.5 [chat-key] Prove the field is required by type rather than by convention: verify that omitting `chat` at a construction site fails `pnpm --filter api typecheck`, and that the title lane reaches a client as `title` while the turn and compaction lanes reach it as `main`; keep both as focused tests, with the compile-level check expressed as a type-level assertion or a documented typecheck probe rather than a runtime default.
+- [ ] 2.6 [chat-key] Add the changelog entry for the layer: llame now identifies itself on every provider request, and every model request carries its Chat's identity and lane.
+- [ ] 2.7 [chat-key] Run affected API lint, typecheck, coverage, and build checks plus Markdown lint, formatting, and diff checks; publish the authorized layer and verify terminal checks and resolved actionable feedback before creating the `go-provider` layer.
+
+## 3. Go-provider layer
+
+Owns provider type `opencode-go` end to end and the closure of #809. Branch:
+`opencode-go-provider/go-provider`.
+
+- [ ] 3.1 [go-provider] Add `"opencode-go"` to the `providerType` schema enum with its description, the `providerEntry` conditional (`key` required, `baseUrl` and `accountId` rejected), the `OpenCodeGoProviderConfig` type and `ProviderConfig` union, the `RawProviderEntry` variant, and one loader case resolving `key` through the existing required-non-blank path; verify with focused configuration tests that an entry with a nonblank key loads as authored with no endpoint field, that an entry declaring `baseUrl` fails boot naming the offending path, that an entry whose key is omitted or resolves empty fails boot naming the entry and field, and that no endpoint is contacted at boot.
+- [ ] 3.2 [go-provider] Add `apps/api/src/models/opencode-go-model-client.ts` exporting the fixed endpoint constant and a client composed over the Chat Completions module with that base URL, the entry's credential, and Go's fixed headers, plus the factory case dispatching on `type`; verify with focused factory tests that a `type: "opencode-go"` provider routes to the Go client whatever its `id`, that the request base URL is the fixed endpoint even when an ambient `OPENAI_BASE_URL` is set, and that no other type's dispatch changed.
+- [ ] 3.3 [go-provider] Render the Chat identity as the gateway's session header on every language-model request the Go client makes, including the structured-generation path, by adding the optional per-request header renderer to the Chat Completions client and widening the shared structured-generation call-settings pick to carry headers; verify with focused tests that a main-lane request sends the Chat id verbatim, a title-lane request sends `<id>:title`, a structured request (the title path) carries the header too, a compaction request carries the same value as the turn, and a client with no renderer configured sends no session header at all.
+- [ ] 3.4 [go-provider] Verify the embedding exclusion needs no code change and is enforced: the loader and the embedding worker already allow only the two OpenAI wire types; verify with a focused configuration test that an `embeddingModels[]` entry referencing an `opencode-go` provider fails startup identifying the unsupported binding, and with the same test at the backend-construction path.
+- [ ] 3.5 [go-provider] Add the `opencode-go` provider and its two models to `apps/api/llame.config.json.example`, both chat-accepted, with `reasoning` declared where the model reasons and no `pricingUsdPer1M`, and leave the Contributor models out; verify the example still parses and boots by loading it through the configuration loader in a focused test and asserting both models resolve against the provider.
+- [ ] 3.6 [go-provider] Write `docs/opencode-go.md` with the named sections: obtaining and configuring the subscription key, the fixed endpoint and the Chat Completions route ceiling with its owning issue, the two accepted misreported failures, the per-model privacy divergence with the excluded models named, the subscription usage windows, and the upstream "Use balance" toggle llame can neither observe nor set; verify against the new capability's runbook requirement scenario by scenario.
+- [ ] 3.7 [go-provider] Document the type where operators and agents look for it: the README provider section, and the `apps/api/AGENTS.md` wire matrix, whose row set currently omits `anthropic-messages` as well, so the table enumerates every executable type again; verify each row matches the schema enum and the factory switch.
+- [ ] 3.8 [go-provider] Run the bounded live proof against the real gateway with an operator key and record it as `live-proof.md` in this change directory: streaming text, an authorized tool round trip, cancellation, a title request, a compaction request, and a second request over a reused prefix reporting the gateway's cache reuse where the gateway exposes it, with the model, versions, and outcomes recorded and no credential, workspace, or account value printed; stop for a proposal revision if required behavior cannot be met.
+- [ ] 3.9 [go-provider] Add the changelog entry covering the provider type, the Chat identity on every provider request, and llame's client identity; then close #809 with explicit authorization after verifying every acceptance addition is met and recorded: an eligible model completes a real run with streaming, tool round trips, cancellation, and persisted observations; the fixed endpoint, the required key, the rejection of a destination field, the session header on the main, compaction, and title requests, the User-Agent on every client type, and the embedding exclusion are all covered by tests; and missing keys, unsupported models, exhausted quota, and upstream errors are bounded and secret-free.
+- [ ] 3.10 [go-provider] Run affected API lint, typecheck, coverage, integration, and build checks plus Markdown lint, formatting, and diff checks; publish the authorized layer and verify terminal checks and resolved actionable feedback before creating the finalize layer.
+
+## 4. Finalize layer
+
+Branch: `opencode-go-provider/finalize`. Spec synchronization and archive only.
+
+- [ ] 4.1 [finalize] Use `$openspec-sync-specs` to synchronize the new `opencode-go-provider` capability and the `instance-config` and `provider-api-selection` deltas; verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass and that the canonical specs carry every requirement and scenario from the deltas with every shipped scenario name and bullet preserved.
+- [ ] 4.2 [finalize] Verify every implementation and proposal task is complete and that no layer added a dependency, a compiled model or route table, or a Go-specific error type, then use `$openspec-archive-change`; verify the archive preserves checked history and passes strict `--specs` and `--all` validation, `pnpm lint:markdown`, `pnpm exec prettier --check`, and `git diff --check`.
+
+Post-archive delivery gate (not a pre-archive checklist task): publish only with authorization, complete the required review and CI monitoring, and verify stack bases and terminal checks immediately before requesting explicit merge permission for each layer.
