@@ -85,7 +85,7 @@ A model client built for an `opencode-go` entry SHALL report `opencode-go` as it
 The client SHALL send the Chat's identity as the gateway's session header on
 every language-model request it makes, including requests that are not the
 conversation's main turn: the Chat's own identifier, sent verbatim, for the
-main turn and for compaction, and the Chat's identifier with a `title` suffix
+main turn and for compaction, and the Chat's identifier under a `title:` prefix
 for title generation. The value SHALL be the same for every request that
 belongs to the same lane of the same Chat, and SHALL remain stable across
 retries, worker restarts, compaction, and model switches within that Chat.
@@ -110,7 +110,7 @@ SHALL add nothing to owner-visible output.
 #### Scenario: Title generation carries the title lane
 
 - **WHEN** the title service generates a title through an `opencode-go` provider
-- **THEN** the request carries the Chat's identifier with the `title` suffix
+- **THEN** the request carries the Chat's identifier under the `title:` prefix
 - **AND** a title failure leaves the completed answer unaffected under the existing title contract
 
 #### Scenario: The identity survives a retry, a restart, and a compaction

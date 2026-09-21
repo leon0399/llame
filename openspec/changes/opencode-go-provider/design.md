@@ -274,7 +274,7 @@ Rejected:
 ### D4: The session value is the raw `chats.id`
 
 `x-opencode-session` carries the Chat's own id, sent verbatim for `main` and as
-`<id>:title` for `title`. It is stable across retries, worker restarts,
+`title:<id>` for `title`. It is stable across retries, worker restarts,
 compaction, and model switches within the Chat.
 
 Rationale: the reference implementations send raw internal session ids, and
@@ -316,27 +316,41 @@ Rejected:
   forfeits the prefix cache exactly where the request reuses the parent
   prefix.
 
-### D5: Lanes are a `:title` suffix, and compaction shares `main`
+### D5: The title lane is a `title:` prefix, and compaction shares `main`
 
-The only lane marker is `:title`, and only title generation carries it.
-Compaction shares `main` because its request prefix is the conversation's
+The only lane marker is the `title:` prefix, and only title generation carries
+it. Compaction shares `main` because its request prefix is the conversation's
 prefix; sharing is what makes it a cache hit.
 
 Rationale: the title prompt is a different conversation over the same Chat, so
-giving it its own lane keeps it from competing with the turn's cache identity,
-while compaction exists to reuse the turn's prefix and therefore must not get
-its own. OpenCode shares the conversation id across auxiliary work; pi-mono
-mints a fresh id for compaction and forfeits the hit. No other lane exists,
+giving it its own identity keeps it from competing with the turn's cache and
+routing state, while compaction exists to reuse the turn's prefix and therefore
+must not get its own. The marker is a prefix, not a suffix, because the
+gateway's first upstream candidate is chosen by a hash of the identity's last
+four characters: a suffix would end every title identity in the same four
+characters and pin every title request of an instance to one candidate, while
+a prefix leaves the UUID tail uniform for both lanes. No peer renders a lane
+this way, and none renders it the same way as another: OpenCode reuses the
+conversation id for titles and gives a child agent its own id plus
+`x-parent-session-id`; pi-mono suffixes `<id>:<lane>`; oh-my-pi and OpenClaw
+mint a fresh UUID per title or standalone call. A prefixed identity is a
+distinct session per conversation, which is OpenCode's own shape for anything
+that is not the main turn, without a second header. No other lane exists,
 because no other auxiliary request exists.
 
 Rejected:
 
-- **A lane per auxiliary call kind** (`:compaction`, `:title`, `:subagent`). It
+- **A lane per auxiliary call kind** (`compaction:`, `title:`, `subagent:`). It
   multiplies identities the gateway cannot know about, and the only lane that
   needs separating is the one whose prompt is unrelated to the conversation.
-- **No lane at all.** The title prompt shares no prefix with the conversation,
-  so sharing gains nothing, and an unrelated prompt would then take part in the
-  gateway's per-session routing and cache state for the conversation.
+- **No lane at all** (OpenCode's title behavior). The title prompt shares no
+  prefix with the conversation, so sharing gains nothing, and an unrelated
+  prompt would then take part in the gateway's per-session routing and cache
+  state for the conversation.
+- **A `:title` suffix** (pi-mono's shape). Pins every title request to one
+  upstream candidate through the last-four-characters hash.
+- **A fresh UUID per title** (oh-my-pi, OpenClaw). Stable across retries only
+  by accident of timing, and it gives the gateway nothing to correlate.
 
 ### D6: Every client identifies llame
 
@@ -732,10 +746,9 @@ Rejected:
 - [Upstream overage through "Use balance" is not controllable from llame] →
   stated plainly in the runbook rather than implied to be prevented.
 - [The gateway's first upstream candidate is chosen by a hash of the identity's
-  last four characters] → the raw UUID is uniform there for `main`; every
-  `title` value ends in `itle`, so all title requests of an instance share one
-  candidate index. Accepted: title requests are small, one-shot, and cache
-  nothing; recorded so the suffix is not later read as an oversight.
+  last four characters] → both lanes end in the raw UUID's tail, so the title
+  lane spreads across candidates like the main lane; this is why the lane is a
+  prefix (D5).
 
 ## Migration Plan
 
@@ -811,3 +824,12 @@ no chat history needs reprocessing.
   recorded as post-archive gates; the finalize entry boundary precedes any
   spec synchronization; and the proposal gains an assumptions and open
   decisions section. No requirement, decision, or delta changed.
+- v5 (2026-09-21): Owner decision after the review summary: the title lane is
+  rendered as a `title:` prefix instead of a `:title` suffix, so both lanes
+  keep the UUID tail the gateway hashes for upstream selection (D5, D4, the
+  capability's session requirement, task 3.3). Peer shapes surveyed for the
+  decision: OpenCode reuses the conversation id for titles and gives child
+  agents their own id with `x-parent-session-id`; pi-mono suffixes; oh-my-pi
+  and OpenClaw mint a fresh UUID. The spec home stays `provider-api-selection`,
+  and the review-round decisions on provider identifier, failure contract,
+  redirects, and version source are confirmed.

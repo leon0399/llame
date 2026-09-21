@@ -42,7 +42,7 @@ do.
   letting a silent default creep in.
 - Send that identity as `x-opencode-session` on every language-model request
   llame makes for a Chat: the Chat's own id verbatim for the main turn and for
-  both compaction paths, and `<id>:title` for title generation. The value is
+  both compaction paths, and `title:<id>` for title generation. The value is
   stable across retries, worker restarts, compaction, and model switches
   within the Chat. The generic sticky-gateway header (#881) reads the same
   field later.
