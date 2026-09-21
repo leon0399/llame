@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, userEvent, waitFor } from "storybook/test";
+import { expect, fn, screen, userEvent, waitFor } from "storybook/test";
 import type { UIMessage } from "ai";
 
+import type { AvailableModel } from "@/lib/services/models/queries";
 import { ChatMessageRow } from "./chat-message-row";
 import { ChatMarkdownProvider } from "./use-chat-markdown-ready";
 
@@ -170,5 +171,167 @@ export const LiveStreaming: Story = {
   args: { message: STREAMING_MESSAGE },
   play: async (context) => {
     await expectGroupedSummaryRun(context);
+  },
+};
+
+/** A thinking block whose text the provider withheld: signed, persisted with
+ *  empty text, and therefore never shown — but its signature is what replay
+ *  needs, so it must survive rendering byte-identical. */
+const WITHHELD_SIGNATURE = "opaque-withheld-thinking-signature";
+const VISIBLE_THOUGHT_HEADING = "**Visible thinking heading**";
+const ANSWER_BEFORE_THOUGHT = "Answer recorded before the visible thought.";
+const ANSWER_AFTER_THOUGHT = "Answer recorded after the visible thought.";
+
+function withheldTextMessage(): UIMessage {
+  return {
+    id: "assistant-withheld",
+    role: "assistant",
+    parts: [
+      {
+        type: "reasoning",
+        text: "",
+        state: "done",
+        providerMetadata: { anthropic: { signature: WITHHELD_SIGNATURE } },
+      },
+      // A whitespace-only delivery joins the same run: still nothing to show.
+      { type: "reasoning", text: "\n  \n", state: "done" },
+      { type: "text", text: ANSWER_BEFORE_THOUGHT },
+      { type: "reasoning", text: VISIBLE_THOUGHT_HEADING, state: "done" },
+      { type: "text", text: ANSWER_AFTER_THOUGHT },
+    ],
+  };
+}
+
+const WITHHELD_MESSAGE = withheldTextMessage();
+const withheldPartsAtLoad = JSON.stringify(WITHHELD_MESSAGE.parts);
+
+/**
+ * A turn that carries a signed, withheld-text thinking block followed by a
+ * visible summary: the empty run renders no Thinking panel at all, the visible
+ * run still renders exactly one, and the transcript keeps its stored order.
+ *
+ * @summary a segment with no text renders no Thinking panel
+ */
+export const WithheldTextReasoning: Story = {
+  tags: ["ai-generated"],
+  args: { message: WITHHELD_MESSAGE },
+  play: async ({ canvas }) => {
+    // Exactly one panel: the withheld run's parts contribute none. Waits out
+    // the Streamdown-backed renderers the row gates its transcript on.
+    const [visiblePanel] = await waitFor(
+      () => {
+        const found = canvas.getAllByRole("button", {
+          name: /thinking|thought/i,
+        });
+        expect(found).toHaveLength(1);
+        return found;
+      },
+      { timeout: 15_000 },
+    );
+
+    // The opaque signature is replay input, never display state.
+    expect(canvas.queryByText(WITHHELD_SIGNATURE)).toBeNull();
+
+    // The skipped run leaves no gap and moves nothing: answer, panel, answer.
+    const answerBeforeThought = canvas.getByText(ANSWER_BEFORE_THOUGHT);
+    const answerAfterThought = canvas.getByText(ANSWER_AFTER_THOUGHT);
+    expect(
+      visiblePanel.compareDocumentPosition(answerBeforeThought) &
+        Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    expect(
+      visiblePanel.compareDocumentPosition(answerAfterThought) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    // The visible run still renders its text in full.
+    await userEvent.click(visiblePanel);
+    await waitFor(() => {
+      expect(renderedTitlesIn(visiblePanel)).toEqual([
+        "Visible thinking heading",
+      ]);
+    });
+
+    // Rendering never rewrites a persisted part.
+    expect(JSON.stringify(WITHHELD_MESSAGE.parts)).toBe(withheldPartsAtLoad);
+  },
+};
+
+/** The catalog entry an operator-declared Claude model resolves to, so the
+ *  badge and the Cost & model column name the model instead of echoing its id. */
+const CLAUDE_SONNET_MODEL: AvailableModel = {
+  id: "system:anthropic:claude-sonnet-5",
+  source: "system",
+  name: "Claude Sonnet 5",
+  contextWindowTokens: 1_000_000,
+};
+
+const CACHE_WRITE_ANSWER = "Summarized the cached document.";
+
+/**
+ * The telemetry of a cache-heavy Anthropic turn: the provider reports the
+ * cache-creation count separately, as a subset of the input total that Input
+ * already includes.
+ */
+const CACHE_WRITE_MESSAGE: UIMessage = {
+  id: "assistant-cache-write",
+  role: "assistant",
+  metadata: {
+    usage: {
+      inputTokens: 12_800,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 11_200,
+      outputTokens: 20,
+      totalTokens: 12_820,
+      reasoningTokens: 0,
+      modelId: CLAUDE_SONNET_MODEL.id,
+      latencyMs: 900,
+      costUsd: 0.01,
+      status: "completed",
+    },
+  },
+  parts: [{ type: "text", text: CACHE_WRITE_ANSWER }],
+};
+
+/**
+ * A completed turn whose long prompt was written to the provider's cache:
+ * hovering the usage badge reveals the reported cache-creation tokens as an
+ * "of which cache write" row beneath Input, so the largest line of a
+ * cache-heavy turn stays visible without inflating the Input total.
+ *
+ * @summary the usage hover card shows the turn's cache-write tokens
+ */
+export const CacheWriteUsage: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: CACHE_WRITE_MESSAGE,
+    availableModels: [CLAUDE_SONNET_MODEL],
+  },
+  play: async ({ canvas }) => {
+    // The row withholds the transcript — footer included — until the
+    // Streamdown-backed renderers load, so the first query waits on that chunk
+    // like the sibling stories do.
+    const trigger = await waitFor(
+      () => canvas.getByRole("button", { name: /^Message usage:/ }),
+      { timeout: 15_000 },
+    );
+    await expect(trigger).toHaveTextContent("Claude Sonnet 5 · 900ms");
+
+    await userEvent.hover(trigger);
+
+    // The breakdown portals out of the canvas into the document body, so the
+    // card's rows are queried through `screen` rather than `canvas`.
+    const cacheWriteRow = await waitFor(
+      () => {
+        const row = screen.getByText("of which cache write").parentElement;
+        expect(row).toBeVisible();
+        return row;
+      },
+      // Hovering opens the card immediately (delay=0); this covers the
+      // positioner's first measurement, which lands a frame later.
+      { timeout: 2000 },
+    );
+
+    await expect(cacheWriteRow).toHaveTextContent("11.2k");
   },
 };

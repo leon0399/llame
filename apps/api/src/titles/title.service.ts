@@ -113,7 +113,7 @@ export class TitleService {
     if (client.generateObject) {
       try {
         // Typed end-to-end: the schema handle carries GeneratedTitle, and the
-        // client validated the forced tool call's input against it.
+        // client validates the provider's structured result against it.
         const object = await client.generateObject({
           system: TITLE_SYSTEM_PROMPT,
           messages,

@@ -15,6 +15,14 @@ export class ModelPricingResponse {
 
   @ApiPropertyOptional()
   output?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Declared cache-write (cache-creation) rate. Absent means the operator ' +
+      'declared none: cache-write tokens are then billed at `input`. Only the ' +
+      'declared rate is published — never the resolved fallback.',
+  })
+  cacheWrite?: number;
 }
 
 export class EffortLevelResponse {

@@ -1,3 +1,4 @@
+import type { createAnthropicModelClient } from './anthropic-model-client';
 import type {
   OpenAICompletionsProviderConfig,
   OpenAIResponsesProviderConfig,
@@ -6,12 +7,12 @@ import type { createOpenAICompletionsModelClient } from './openai-completions-mo
 import type { createOpenAICodexModelClient } from './openai-codex-model-client';
 import type { createOpenAIModelClient } from './openai-model-client';
 import { createModelClient } from './model-client-factory';
-
 // Test seam (anti-slop/no-module-mocking): overrides the per-provider client
 // constructors via createModelClient's own dependency-injection param instead
 // of module-mocking the client modules — this suite only verifies routing
 // (which provider-derived args createModelClient constructs and which client
 // it selects), not any client's behavior.
+
 const createResponsesClientMock = vi.mocked(
   vi.fn<typeof createOpenAIModelClient>(),
   { partial: true },
@@ -297,5 +298,177 @@ describe('createModelClient wire dispatch', () => {
     const config = createCompletionsClientMock.mock.calls[0]?.[0];
     expect(config).not.toHaveProperty('providerOptions');
     expect(config).not.toHaveProperty('maxOutputTokens');
+  });
+});
+describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)', () => {
+  const createMessagesClientMock = vi.mocked(
+    vi.fn<typeof createAnthropicModelClient>(),
+    { partial: true },
+  );
+  createMessagesClientMock.mockReturnValue({ model: 'fake' });
+
+  const messagesDependencies = {
+    ...dependencies,
+    createAnthropicModelClient: createMessagesClientMock,
+  };
+
+  beforeEach(() => {
+    createMessagesClientMock.mockClear();
+    createResponsesClientMock.mockClear();
+    createCompletionsClientMock.mockClear();
+    createCodexClientMock.mockClear();
+  });
+
+  it('routes an anthropic-messages provider to the Messages client whatever its id', () => {
+    createModelClient(
+      {
+        provider: {
+          id: 'third-party-anthropic',
+          type: 'anthropic-messages',
+          key: 'sk-key',
+          baseUrl: 'https://api.z.ai/api/anthropic',
+        },
+        model: { ...model, provider: 'third-party-anthropic' },
+      },
+      messagesDependencies,
+    );
+
+    expect(createMessagesClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credential: 'sk-key',
+        baseUrl: 'https://api.z.ai/api/anthropic',
+        providerModelId: 'model',
+        reasoningDeclared: false,
+      }),
+    );
+    expect(createResponsesClientMock).not.toHaveBeenCalled();
+    expect(createCompletionsClientMock).not.toHaveBeenCalled();
+    expect(createCodexClientMock).not.toHaveBeenCalled();
+  });
+
+  it('supplies the Anthropic default base URL when the entry configures none, even with an ambient ANTHROPIC_BASE_URL', () => {
+    vi.stubEnv('ANTHROPIC_BASE_URL', 'https://ambient.example.test');
+    try {
+      createModelClient(
+        {
+          provider: {
+            id: 'anthropic',
+            type: 'anthropic-messages',
+            key: 'sk-key',
+            baseUrl: null,
+          },
+          model: { ...model, provider: 'anthropic' },
+        },
+        messagesDependencies,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    // The default is the factory's decision, taken from the entry alone —
+    // the ambient variable never reaches the client config.
+    expect(createMessagesClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseUrl: 'https://api.anthropic.com/v1',
+      }),
+    );
+  });
+
+  it('marks reasoningDeclared from the entry reasoning vocabulary', () => {
+    createModelClient(
+      {
+        provider: {
+          id: 'anthropic',
+          type: 'anthropic-messages',
+          key: 'sk-key',
+          baseUrl: null,
+        },
+        model: {
+          ...model,
+          provider: 'anthropic',
+          reasoning: {
+            effortLevels: [{ value: 'high' }],
+            defaultEffort: 'high',
+            cacheInvalidatedByEffortChange: false,
+          },
+        },
+      },
+      messagesDependencies,
+    );
+
+    expect(createMessagesClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningDeclared: true }),
+    );
+  });
+
+  it('resolves two same-type providers each with their own credential and endpoint', () => {
+    createModelClient(
+      {
+        provider: {
+          id: 'anthropic-hosted',
+          type: 'anthropic-messages',
+          key: 'sk-hosted',
+          baseUrl: null,
+        },
+        model: { ...model, provider: 'anthropic-hosted' },
+      },
+      messagesDependencies,
+    );
+    createModelClient(
+      {
+        provider: {
+          id: 'anthropic-gateway',
+          type: 'anthropic-messages',
+          key: null,
+          baseUrl: 'https://api.z.ai/api/anthropic',
+        },
+        model: { ...model, provider: 'anthropic-gateway' },
+      },
+      messagesDependencies,
+    );
+
+    expect(createMessagesClientMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        credential: 'sk-hosted',
+        baseUrl: 'https://api.anthropic.com/v1',
+        modelId: 'system:test:model',
+      }),
+    );
+    expect(createMessagesClientMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        credential: undefined,
+        baseUrl: 'https://api.z.ai/api/anthropic',
+        modelId: 'system:test:model',
+      }),
+    );
+  });
+
+  it('carries the model providerOptions and maxOutputTokens into the Messages client config', () => {
+    createModelClient(
+      {
+        provider: {
+          id: 'anthropic',
+          type: 'anthropic-messages',
+          key: 'sk-key',
+          baseUrl: null,
+        },
+        model: {
+          ...model,
+          provider: 'anthropic',
+          providerOptions: { thinking: { display: null } },
+          maxOutputTokens: 8192,
+        },
+      },
+      messagesDependencies,
+    );
+
+    expect(createMessagesClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: { thinking: { display: null } },
+        maxOutputTokens: 8192,
+      }),
+    );
   });
 });

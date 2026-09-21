@@ -9,13 +9,17 @@ import {
   simulateReadableStream,
   streamText,
   tool,
+  type OnFinishEvent,
   type ModelMessage,
+  type TextStreamPart,
+  type ToolSet,
 } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
 import { type ModelObjectInput } from './model-client';
 import { createOpenAIModelClient } from './openai-model-client';
+import { createAssistantPartCollector } from '../runs/assistant-transcript';
 
 const tools = {
   echo: tool({
@@ -37,6 +41,52 @@ const PROVIDER_USAGE = {
   },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
+
+const FINISH_USAGE = {
+  inputTokens: 0,
+  inputTokenDetails: {
+    noCacheTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  },
+  outputTokens: 0,
+  outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+  totalTokens: 0,
+};
+
+const FINISH_EVENT = {
+  stepNumber: 0,
+  model: { provider: 'test', modelId: 'test' },
+  functionId: undefined,
+  metadata: undefined,
+  experimental_context: undefined,
+  content: [],
+  text: '',
+  reasoning: [],
+  reasoningText: undefined,
+  files: [],
+  sources: [],
+  toolCalls: [],
+  staticToolCalls: [],
+  dynamicToolCalls: [],
+  toolResults: [],
+  staticToolResults: [],
+  dynamicToolResults: [],
+  finishReason: 'stop',
+  rawFinishReason: undefined,
+  usage: FINISH_USAGE,
+  warnings: undefined,
+  request: {},
+  response: {
+    id: 'test',
+    timestamp: new Date(0),
+    modelId: 'test',
+    messages: [],
+  },
+  providerMetadata: undefined,
+  steps: [],
+  totalUsage: FINISH_USAGE,
+} satisfies OnFinishEvent<ToolSet>;
 
 function providerResponse(
   content: Array<LanguageModelV3StreamPart>,
@@ -362,14 +412,18 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
 
     // Exact call lists, not `toHaveBeenCalledWith`: each chunk must reach its
     // own callback exactly once, so a chunk routed to both cannot pass. The
-    // adapter part id rides along to decide persisted part boundaries.
+    // adapter part id rides along to decide persisted part boundaries — scoped
+    // to the provider step, because an adapter may number its parts per
+    // response and restart at zero on a later step (design D18).
     expect(onTextDelta.mock.calls).toEqual([['done']]);
-    expect(onReasoningDelta.mock.calls).toEqual([['think', 'reasoning']]);
+    expect(onReasoningDelta.mock.calls).toEqual([
+      ['think', '0:reasoning', undefined],
+    ]);
   });
 });
 
 describe('createOpenAIModelClient — reasoning provider metadata', () => {
-  it('carries every part of a reasoning item with its end part’s metadata', async () => {
+  it('delivers every part of a reasoning item with its own metadata, in order', async () => {
     // Recorded Responses shape with `store: false`: a new summary of the same
     // reasoning item ends the previous, still-open summary immediately with
     // the item id alone, and the item's completion ends its last summary with
@@ -423,40 +477,112 @@ describe('createOpenAIModelClient — reasoning provider metadata', () => {
       ),
     ]);
     const client = buildClient(model);
-    const onTextDelta = vi.fn();
-    const onReasoningDelta = vi.fn();
+    const collector = createAssistantPartCollector();
+    const onTextDelta = vi.fn((text: string) => collector.text(text));
 
     await expect(
-      client.streamText({ messages, onTextDelta, onReasoningDelta }).text,
+      client.streamText({
+        messages,
+        onTextDelta,
+        // Feeds the collector exactly as the run's callback does: every
+        // delivery carries its own id and metadata, and the part a summary
+        // belongs to is decided by that id, never by arrival order.
+        onReasoningDelta: (text, partId, providerMetadata) =>
+          collector.reasoning(text, partId, providerMetadata),
+      }).text,
     ).resolves.toBe('done');
 
-    // Reading the reasoning ends off `fullStream` must not swallow the stream
-    // the caller consumes: the text still resolves, and the delta text and
-    // part ids are exactly what `onChunk` delivered before the mirror.
-    await vi.waitFor(() =>
-      expect(
-        onReasoningDelta.mock.calls.filter((call) => call.length === 3),
-      ).toHaveLength(2),
-    );
+    // Reading the whole reasoning channel off `fullStream` must not swallow
+    // the stream the caller consumes: the text still resolves exactly once,
+    // and every part's text and metadata arrive once, in stream order, under
+    // the id scoped to this provider step.
     expect(onTextDelta.mock.calls).toEqual([['done']]);
-    expect(
-      onReasoningDelta.mock.calls.filter((call) => call.length === 2),
-    ).toEqual([
-      ['think', 'rs_1:0'],
-      ['more', 'rs_1:1'],
+    expect(collector.parts()).toEqual([
+      {
+        type: 'reasoning',
+        text: 'think',
+        providerMetadata: { openai: { itemId: 'rs_1' } },
+      },
+      {
+        type: 'reasoning',
+        text: 'more',
+        providerMetadata: {
+          openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' },
+        },
+      },
+      { type: 'text', text: 'done' },
     ]);
-    // Every part of the item carries its `itemId`; the item's encrypted
-    // content rides the one part the adapter attached it to, and the
-    // placeholder start is never forwarded.
-    expect(
-      onReasoningDelta.mock.calls.filter((call) => call.length === 3),
-    ).toEqual([
-      ['', 'rs_1:0', { openai: { itemId: 'rs_1' } }],
-      [
-        '',
-        'rs_1:1',
-        { openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' } },
-      ],
+  });
+
+  it('keeps the withheld blocks of consecutive steps apart when the adapter restarts their ids', async () => {
+    // Anthropic numbers a response's content blocks from zero, so a tool turn
+    // that withholds thinking text in two consecutive steps delivers two
+    // different blocks as id `0`. The signature is what a later request
+    // replays, so neither block may lose it to the other.
+    const model = scriptedModel([
+      providerResponse(
+        [
+          { type: 'reasoning-start', id: '0' },
+          {
+            type: 'reasoning-delta',
+            id: '0',
+            delta: '',
+            providerMetadata: { anthropic: { signature: 'SIG_STEP_1' } },
+          },
+          { type: 'reasoning-end', id: '0' },
+          {
+            type: 'tool-call',
+            toolCallId: 'call-1',
+            toolName: 'echo',
+            input: '{"value":"first"}',
+          },
+        ],
+        'tool-calls',
+      ),
+      providerResponse(
+        [
+          { type: 'reasoning-start', id: '0' },
+          {
+            type: 'reasoning-delta',
+            id: '0',
+            delta: '',
+            providerMetadata: { anthropic: { signature: 'SIG_STEP_2' } },
+          },
+          { type: 'reasoning-end', id: '0' },
+          { type: 'text-start', id: 'answer' },
+          { type: 'text-delta', id: 'answer', delta: 'done' },
+          { type: 'text-end', id: 'answer' },
+        ],
+        'stop',
+      ),
+    ]);
+    const client = buildClient(model);
+    const collector = createAssistantPartCollector();
+
+    await expect(
+      client.streamText({
+        messages,
+        tools,
+        onTextDelta: (text) => collector.text(text),
+        onReasoningDelta: (text, partId, providerMetadata) =>
+          collector.reasoning(text, partId, providerMetadata),
+      }).text,
+    ).resolves.toBe('done');
+
+    // Two parts, one per block, each with its own signature, in step order,
+    // ahead of the answer the last step produced.
+    expect(collector.parts()).toEqual([
+      {
+        type: 'reasoning',
+        text: '',
+        providerMetadata: { anthropic: { signature: 'SIG_STEP_1' } },
+      },
+      {
+        type: 'reasoning',
+        text: '',
+        providerMetadata: { anthropic: { signature: 'SIG_STEP_2' } },
+      },
+      { type: 'text', text: 'done' },
     ]);
   });
 });
@@ -713,4 +839,162 @@ describe('createOpenAIModelClient — structured output', () => {
       }),
     ).rejects.toThrow("Model did not produce a valid 'chat_title' tool call");
   });
+});
+
+describe('createOpenAIModelClient — reasoning channel settlement (D18)', () => {
+  type Terminal = (
+    options: Parameters<typeof streamText>[0],
+  ) => void | Promise<void>;
+
+  function buildRacingClient(terminal: Terminal, settlementFails = false) {
+    const provider = vi.fn<OpenAIProvider>();
+    provider.mockReturnValue(
+      new MockLanguageModelV3({
+        provider: 'openai.responses',
+        modelId: 'gpt-test',
+      }),
+    );
+    const stream = vi.mocked(vi.fn<typeof streamText>(), { partial: true });
+    stream.mockImplementation((options) => ({
+      fullStream: simulateReadableStream<TextStreamPart<ToolSet>>({
+        chunks: [
+          {
+            type: 'reasoning-start',
+            id: 'rs_1:0',
+            providerMetadata: { openai: { itemId: 'rs_1' } },
+          },
+          {
+            type: 'reasoning-delta',
+            id: 'rs_1:0',
+            text: 'think',
+          },
+          {
+            type: 'reasoning-end',
+            id: 'rs_1:0',
+            providerMetadata: {
+              openai: {
+                itemId: 'rs_1',
+                reasoningEncryptedContent: 'enc-1',
+              },
+            },
+          },
+        ],
+        chunkDelayInMs: 0,
+      }),
+      consumeStream: async () => {
+        await terminal(options);
+        if (settlementFails) throw new Error('stream settlement failed');
+      },
+    }));
+    return createOpenAIModelClient(
+      {
+        credential: 'sk-test',
+        providerModelId: 'gpt-test',
+        modelId: 'system:openai:gpt-test',
+        contextWindowTokens: 128_000,
+      },
+      { createOpenAI: () => provider, streamText: stream },
+    );
+  }
+
+  const runTimeout = new Error('run-timeout');
+  const terminalPaths: Array<{
+    path: string;
+    terminal: Terminal;
+    settlementFails?: boolean;
+    abortSignal?: AbortSignal;
+    callbackFailure?: Error;
+    rejection?: string;
+    expected: { callback: string; deliveries: number; message?: string };
+  }> = [
+    {
+      path: "the SDK's finish callback",
+      terminal: async (options) => {
+        await options.onFinish?.(FINISH_EVENT);
+      },
+      expected: { callback: 'onFinish', deliveries: 3 },
+    },
+    {
+      path: 'the abort settlement',
+      terminal: async (options) => {
+        await options.onAbort?.({ steps: [] });
+      },
+      abortSignal: AbortSignal.abort(runTimeout),
+      expected: { callback: 'onError', deliveries: 3, message: 'run-timeout' },
+    },
+    {
+      path: 'a failed stream settlement',
+      terminal: (options) => {
+        void options.onError?.({ error: new Error('upstream failed') });
+      },
+      settlementFails: true,
+      rejection: 'stream settlement failed',
+      expected: {
+        callback: 'onError',
+        deliveries: 3,
+        message: 'upstream failed',
+      },
+    },
+    {
+      path: 'a failed terminal persistence callback',
+      terminal: (options) => {
+        void options.onError?.({ error: new Error('upstream failed') });
+      },
+      settlementFails: true,
+      callbackFailure: new Error('terminal persistence failed'),
+      rejection: 'terminal persistence failed',
+      expected: {
+        callback: 'onError',
+        deliveries: 3,
+        message: 'upstream failed',
+      },
+    },
+  ];
+
+  it.each(terminalPaths)(
+    'runs $path only after the reasoning channel has landed',
+    async ({
+      terminal,
+      settlementFails,
+      abortSignal,
+      callbackFailure,
+      rejection,
+      expected,
+    }) => {
+      const client = buildRacingClient(terminal, settlementFails === true);
+      let deliveries = 0;
+      const observed: Array<{
+        callback: string;
+        deliveries: number;
+        message?: string;
+      }> = [];
+
+      const result = client.streamText({
+        messages,
+        ...(abortSignal !== undefined && { abortSignal }),
+        onReasoningDelta: () => {
+          deliveries += 1;
+        },
+        onFinish: () => {
+          observed.push({ callback: 'onFinish', deliveries });
+        },
+        onError: ({ error }) => {
+          observed.push({
+            callback: 'onError',
+            deliveries,
+            ...(error instanceof Error && { message: error.message }),
+          });
+          if (callbackFailure !== undefined) throw callbackFailure;
+        },
+      });
+      const settlement = result.consumeStream();
+
+      if (rejection !== undefined) {
+        await expect(settlement).rejects.toThrow(rejection);
+      } else {
+        await settlement;
+      }
+      expect(observed).toEqual([expected]);
+    },
+  );
 });

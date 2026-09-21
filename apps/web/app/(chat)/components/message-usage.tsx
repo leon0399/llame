@@ -49,6 +49,13 @@ import { effortDisplayLabel } from "@/lib/services/models/effort";
 export type TurnUsage = {
   inputTokens?: number;
   cachedInputTokens?: number;
+  /**
+   * Provider-reported cache-creation tokens. They are a SUBSET of
+   * `inputTokens` (the adapter's input total includes them), reported
+   * separately so a cached turn's largest line stays visible; llame never
+   * infers or backfills the count.
+   */
+  cacheWriteTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
   reasoningTokens?: number;
@@ -81,6 +88,7 @@ function num(value: unknown): number | undefined {
 type RawTurnUsage = {
   inputTokens?: unknown;
   cachedInputTokens?: unknown;
+  cacheWriteTokens?: unknown;
   outputTokens?: unknown;
   totalTokens?: unknown;
   reasoningTokens?: unknown;
@@ -105,6 +113,7 @@ export function parseTurnUsage(metadata: unknown): TurnUsage | null {
   return {
     inputTokens: num(u.inputTokens),
     cachedInputTokens: num(u.cachedInputTokens),
+    cacheWriteTokens: num(u.cacheWriteTokens),
     outputTokens: num(u.outputTokens),
     totalTokens: num(u.totalTokens),
     reasoningTokens: num(u.reasoningTokens),
@@ -230,6 +239,15 @@ function buildTokenSection(usage: TurnUsage): UsageSection | null {
       value: fmtTokens(usage.cachedInputTokens),
     });
   }
+  if (usage.cacheWriteTokens !== undefined) {
+    // A sibling subset row of Input, like "of which cached": the adapter's
+    // input total already includes these tokens, so showing them as their own
+    // row is the only way the largest line of a cached turn stays visible.
+    rows.push({
+      label: "of which cache write",
+      value: fmtTokens(usage.cacheWriteTokens),
+    });
+  }
   if (usage.outputTokens !== undefined) {
     rows.push({ label: "Output", value: fmtTokens(usage.outputTokens) });
   }
@@ -332,7 +350,11 @@ function UsageSectionColumn({ section }: { section: UsageSection }) {
           key={row.label}
           className={cn(
             "flex items-center justify-between gap-4.5 text-xs",
-            (row.label === "of which cached" || row.label === "at effort") &&
+            // Subset and qualifier rows sit beneath the row they qualify:
+            // cached input and cache writes beneath Input, effort beneath Model.
+            (row.label === "of which cached" ||
+              row.label === "of which cache write" ||
+              row.label === "at effort") &&
               "pl-3.5",
           )}
         >

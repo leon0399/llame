@@ -401,6 +401,20 @@ describe('resolveEmbeddingBackendConfig', () => {
       'embeddingModels[embed-a].provider: "codex" does not support embeddings',
     );
   });
+  it('rejects an anthropic-messages provider, which cannot back embeddings', () => {
+    expect(() =>
+      resolveEmbeddingBackendConfig({ ...MODEL, provider: 'anthropic' }, [
+        {
+          id: 'anthropic',
+          type: 'anthropic-messages',
+          key: 'sk-anthropic',
+          baseUrl: null,
+        },
+      ]),
+    ).toThrow(
+      'embeddingModels[embed-a].provider: "anthropic" does not support embeddings',
+    );
+  });
 });
 
 describe('SearchEmbedWorker.embedChat', () => {

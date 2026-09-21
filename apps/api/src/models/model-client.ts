@@ -3,14 +3,20 @@ import type {
   FlexibleSchema,
   LanguageModelUsage,
   ModelMessage,
+  OutputInterface,
   ProviderMetadata,
   StreamTextOnErrorCallback,
-  streamText,
+  StreamTextResult,
   ToolChoice,
   ToolSet,
 } from 'ai';
 
 import type { TokenPrice } from './model-catalog';
+
+export type ModelStreamResult = StreamTextResult<
+  ToolSet,
+  OutputInterface<string, string, never>
+>;
 
 export interface ModelStreamInput {
   messages: Array<ModelMessage>;
@@ -72,25 +78,33 @@ export interface ModelStreamInput {
    */
   onTextDelta?: (text: string) => void;
   /**
-   * Called for each streamed reasoning ("thinking") delta from a reasoning
-   * model. Same narrow seam as onTextDelta — providers map their reasoning
-   * chunks onto plain text; absent/empty for non-reasoning models. `partId`
-   * is the adapter's reasoning part id when its wire supplies one (the
-   * Responses wire ids every summary `${itemId}:${summaryIndex}`). It decides
-   * persisted part boundaries and is transport plumbing, never display state;
-   * an undefined id means the wire gave no information, not "no part".
+   * Called for each reasoning ("thinking") delivery from a reasoning model:
+   * the delta text (possibly empty), the id of the provider part it belongs to,
+   * and the opaque metadata that part carries. Same narrow seam as
+   * onTextDelta — providers map their reasoning onto plain text, and a client
+   * whose adapter supplies part metadata delivers text and metadata from ONE
+   * consumer of its stream, so the deliveries keep the stream's order (design
+   * D18).
+   *
+   * `partId` decides persisted part boundaries and is transport plumbing,
+   * never display state. It is the adapter's own part id scoped to the
+   * provider invocation and step, so a wire that numbers its parts per
+   * provider response (restarting at zero on each step of a tool loop) still
+   * yields one id per part within the turn. An undefined id means the wire
+   * gave no information, not "no part".
    *
    * `providerMetadata` is the opaque metadata the adapter bound to that part
-   * (design D15): on the Responses wire the `reasoning-end` stream part
-   * carries the item's `itemId` and its `reasoningEncryptedContent` for the
-   * part the adapter attaches it to. It travels with the persisted part and
-   * is replayed with it on a request that continues the same Chat; llame
+   * (design D15): on the Responses wire the item's `itemId` and its
+   * `reasoningEncryptedContent`, on the Messages wire a thinking block's
+   * `signature` or its redacted payload. It travels with the persisted part
+   * and is replayed with it on a request that continues the same Chat; llame
    * never reads inside it. A wire that supplies none (Chat Completions)
    * leaves it undefined.
    *
-   * A call may carry metadata with empty text: the adapter's end part has no
-   * delta of its own, so the metadata is bound to the part `partId` names
-   * rather than to a text fragment.
+   * A call may carry metadata with empty text: that is how a part whose text
+   * the provider withheld arrives — a signed thinking block, a redacted one,
+   * a Responses item whose summary is empty — and such a delivery starts the
+   * part its metadata belongs to rather than binding to a text fragment.
    */
   onReasoningDelta?: (
     text: string,
@@ -141,12 +155,16 @@ export interface ModelClient {
    * `contextWindowTokens x COMPACTION_WINDOW_RATIO` (see compaction.ts).
    */
   readonly compactionThresholdTokens?: number;
-  streamText(input: ModelStreamInput): ReturnType<typeof streamText>;
+  streamText(input: ModelStreamInput): ModelStreamResult;
   /**
-   * Schema-constrained single object generation via an API-level REQUIRED tool
-   * call (toolChoice pinned to the schema's tool). Optional: not every
-   * OpenAI-compatible endpoint supports tool calling, and fakes may omit it —
-   * callers must keep a plain-text fallback.
+   * Schema-constrained single object generation. How the object is obtained
+   * is the client's: the OpenAI clients pin a REQUIRED tool call to the
+   * schema's tool, while the Messages client asks for the AI SDK's JSON
+   * response format and lets the adapter choose its mechanism — the native
+   * structured-output format on models its capability table supports, its
+   * own JSON tool otherwise (anthropic-provider D12). Optional: not every
+   * OpenAI-compatible endpoint supports tool calling, and fakes may omit
+   * it — callers must keep a plain-text fallback.
    */
   generateObject?<OBJECT>(input: ModelObjectInput<OBJECT>): Promise<OBJECT>;
 }

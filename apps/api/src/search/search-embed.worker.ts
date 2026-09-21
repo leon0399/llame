@@ -88,7 +88,15 @@ export function resolveEmbeddingBackendConfig(
       `embeddingModels[${model.id}].provider: "${model.provider}" is not defined in providers[] — cannot build the embed backend`,
     );
   }
-  if (provider.type === 'openai-codex') {
+  // Only the OpenAI wires back embeddings (config-loader's own boot check
+  // above rejects any other reference): the check is an allowlist, not a
+  // denial of the one type known when it was written — `anthropic-messages`
+  // has no embedding model entry point in the adapter, so it is rejected
+  // here exactly like the subscription backend.
+  if (
+    provider.type !== 'openai-responses' &&
+    provider.type !== 'openai-completions'
+  ) {
     throw new Error(
       `embeddingModels[${model.id}].provider: "${model.provider}" does not support embeddings`,
     );

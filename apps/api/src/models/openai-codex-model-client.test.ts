@@ -166,26 +166,30 @@ describe('createOpenAICodexModelClient', () => {
       expect(JSON.stringify(fetchMock.mock.calls)).toContain(
         String.raw`\"include\":[\"reasoning.encrypted_content\"]`,
       );
-      await vi.waitFor(() =>
-        expect(
-          onReasoningDelta.mock.calls.filter((call) => call.length === 3),
-        ).toHaveLength(2),
-      );
-      // The Responses wire ids every summary `${itemId}:${summaryIndex}`, so
-      // each summary persists as its own part.
-      expect(
-        onReasoningDelta.mock.calls.filter((call) => call.length === 2),
-      ).toEqual([
-        ['think', 'rs_1:0'],
-        ['more', 'rs_1:1'],
-      ]);
-      expect(
-        onReasoningDelta.mock.calls.filter((call) => call.length === 3),
-      ).toEqual([
-        ['', 'rs_1:0', { openai: { itemId: 'rs_1' } }],
+      // Every delivery the Responses stream made for the item, once, in stream
+      // order: each summary's start, its text, and the end that concludes it
+      // (the item's last end carries the encryption this request asked for),
+      // with the wire's `${itemId}:${summaryIndex}` id scoped to the provider
+      // step that produced it.
+      const itemMetadata = { openai: { itemId: 'rs_1' } };
+      await vi.waitFor(() => expect(onReasoningDelta).toHaveBeenCalledTimes(6));
+      expect(onReasoningDelta.mock.calls).toEqual([
         [
           '',
-          'rs_1:1',
+          '0:rs_1:0',
+          { openai: { itemId: 'rs_1', reasoningEncryptedContent: null } },
+        ],
+        ['think', '0:rs_1:0', itemMetadata],
+        ['', '0:rs_1:0', itemMetadata],
+        [
+          '',
+          '0:rs_1:1',
+          { openai: { itemId: 'rs_1', reasoningEncryptedContent: null } },
+        ],
+        ['more', '0:rs_1:1', itemMetadata],
+        [
+          '',
+          '0:rs_1:1',
           { openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc-1' } },
         ],
       ]);

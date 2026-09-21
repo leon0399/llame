@@ -1589,6 +1589,71 @@ describe('buildContext', () => {
       expect(contentText(result.messages[1].content)).toContain('How are you?');
     });
 
+    it('drops the superseded prefix’s signed reasoning and replays blocks after the boundary (D9)', () => {
+      const signedPart = (signature: string, text: string) => ({
+        type: 'reasoning' as const,
+        text,
+        providerMetadata: { anthropic: { signature } },
+      });
+      const supersededAssistant = msg({
+        role: 'assistant',
+        seq: 4,
+        parts: [
+          signedPart('SIG_SUPERSEDED', 'thinking before the rewrite'),
+          { type: 'text', text: 'answer before the rewrite' },
+        ],
+      });
+      const liveUser = msg({
+        role: 'user',
+        senderUserId: 'user-alice',
+        seq: 5,
+        parts: [{ type: 'text', text: 'continue' }],
+      });
+      const liveAssistant = msg({
+        role: 'assistant',
+        seq: 6,
+        parts: [
+          // A block whose text the provider withheld: the signature is all it
+          // has, and it is what the continuation must carry (D18).
+          signedPart('SIG_LIVE', ''),
+          { type: 'text', text: 'answer after the rewrite' },
+        ],
+      });
+
+      const { messages } = buildContext(
+        [userMsg1, supersededAssistant, liveUser, liveAssistant],
+        {
+          systemPrompt,
+          requestKind: 'continuation',
+          compaction: compactionWithHistory('stored checkpoint', 4, [
+            {
+              role: 'user',
+              parts: [{ type: 'text', text: 'stored checkpoint' }],
+            },
+          ]),
+        },
+      );
+
+      // The rewrite replaced the prefix, so the superseded turn's block and its
+      // signature are gone from the request entirely …
+      const serialized = JSON.stringify(messages);
+      expect(serialized).not.toContain('SIG_SUPERSEDED');
+      expect(serialized).not.toContain('answer before the rewrite');
+      // … while the block after the boundary replays unchanged, empty text and
+      // signature alike, ahead of the answer it preceded.
+      expect(messages).toContainEqual({
+        role: 'assistant',
+        content: [
+          {
+            type: 'reasoning',
+            text: '',
+            providerOptions: { anthropic: { signature: 'SIG_LIVE' } },
+          },
+          { type: 'text', text: 'answer after the rewrite' },
+        ],
+      });
+    });
+
     it('keeps the system prompt byte-identical with and without compaction', () => {
       const without = buildContext([userMsg2], {
         systemPrompt,

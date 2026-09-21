@@ -2,6 +2,77 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-20
 
+- Providers can speak the Anthropic Messages wire: `type: "anthropic-messages"`
+  (#208). Named after the wire like the OpenAI types, so a proxy or gateway
+  that speaks Messages is a `baseUrl`, not a second type: `baseUrl` is
+  optional and defaults to the Anthropic API, `key` interpolates like any
+  other credential and an empty resolution means keyless (the adapter still
+  receives the non-empty placeholder it requires), the credential is sent as
+  `x-api-key`, and the client always passes an explicit base URL, so an
+  ambient `ANTHROPIC_BASE_URL` cannot move a request off the configured
+  endpoint. The `type` alone selects the client: no `id`, `baseUrl`, or host
+  is inspected. `fallbacks`, `mcpServers`, `container`, and
+  `thinking.blockBinding` are stripped from `models[].providerOptions`, and
+  `sendReasoning: true` is an invariant, so no operator option can name
+  another model, attach provider-side tool servers, share a provider-side
+  container across owners, or switch replay off. Structured generation uses
+  the adapter's JSON response format rather than a forced tool call — the
+  current flagship models reject forced tool use, and every model rejects it
+  under manual thinking — so the adapter's native `output_config.format` is
+  requested where its capability table supports it and its own JSON tool
+  otherwise, still falling through to the caller's existing plain-text
+  fallback. `models[].maxOutputTokens` is forwarded as the wire's `max_tokens`
+  field; absent, the adapter fills it from its model-id table (128k for the
+  recognized current models and any unrecognized `claude-` id, 4096 for an id
+  without `claude-`), adding a manual thinking budget to it silently and
+  clamping above a ceiling it knows for a recognized model.
+
+- Anthropic thinking is persisted and replayed, not just streamed. Each
+  thinking or redacted-thinking block's signature (and redacted payload) is
+  stored as opaque provider metadata on its reasoning part and replayed
+  complete, unmodified, and in its original order on later requests for the
+  same chat — including after a model switch, and including a block whose text
+  the provider withheld, which persists with empty text and its signature
+  because the signature is what replay needs. llame never prunes thinking
+  inside the retained context, and a compacted prefix's blocks go with the
+  prefix. Every request that carries adaptive thinking asks the provider to
+  drop blocks whose bound prefix no longer matches, so a compaction or
+  prompt-receipt change cannot turn a working chat into a rejected run. When a
+  model entry declares `reasoning`, the client defaults to adaptive thinking
+  with summarized display and forwards the run's effort verbatim as the
+  adapter's effort option (`output_config.effort`), whose closed enum is
+  `low`, `medium`, `high`, `xhigh`, and `max` — a declared level outside it
+  fails that request before any call, and llame neither translates nor invents
+  levels. `{ "thinking": { "display": null } }` keeps adaptive thinking and
+  the drop instruction while dropping the display, while a manual-budget or
+  disabled shape replaces it and gives the instruction up: the README states
+  that ceiling and its remedy (declare `reasoning` for a model that thinks by
+  default). An entry that declares no `reasoning` sends no thinking
+  configuration and no effort, and an operator `effort` there is forwarded as
+  written. Every request carries the top-level ephemeral cache control with
+  the provider's 5-minute lifetime, replaceable with the longer lifetime or
+  removable with `cacheControl: null`; llame authors no block-level
+  breakpoints.
+
+- Cache-write tokens are reported and priced once. Run and assistant telemetry
+  carry the provider's cache-creation count beside cached input, the
+  `assistant_turn_completed` log line and the web usage panel enumerate it
+  (shown as an `of which cache write` row beneath Input, the way cached input
+  is), and `costUsd` prices it at the model entry's new optional
+  `pricingUsdPer1M.cacheWrite` rate — or at that entry's input rate when none
+  is declared, which leaves the computed cost exactly as it was before the
+  field existed. The adapter's input total already includes those tokens, so
+  the uncached term subtracts reads and writes before pricing — reads capped
+  at the input total, writes at the remainder — and no count is ever inferred:
+  a turn that reports none records zero, and a model entry with no
+  `pricingUsdPer1M` keeps `costUsd: null`.
+
+- A reasoning segment whose grouped text is empty renders no Thinking panel.
+  A provider that withholds the thinking text still returns the block signed,
+  so the part persists and replays exactly like any other while the chat shows
+  nothing for it rather than an empty panel; persistence, replay, export, and
+  search are unchanged, and the parts are never rewritten for display.
+
 - Model entries carry provider-native request options
   (`models[].providerOptions`). One free-form object serves every wire — no
   llame vocabulary and no per-provider field — and every client composes it

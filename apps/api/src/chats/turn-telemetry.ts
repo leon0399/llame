@@ -11,6 +11,13 @@ export type TurnStatus = 'completed' | 'aborted' | 'error';
 export type TurnTelemetry = {
   inputTokens: number;
   cachedInputTokens: number;
+  /**
+   * Provider-reported cache-creation tokens, bounded in order against
+   * `inputTokens` (cache reads first, then writes at the remainder) so the
+   * recorded counts are exactly the ones `costUsd` prices. Always numeric:
+   * 0 when the provider reports no cache-creation count, never estimated.
+   */
+  cacheWriteTokens: number;
   outputTokens: number;
   totalTokens: number;
   reasoningTokens?: number;
@@ -57,6 +64,15 @@ export function buildTurnTelemetry(
     tokenCount(input.usage?.cachedInputTokens),
     inputTokens,
   );
+  // Cache-creation tokens the provider bills, read from the AI SDK's
+  // normalized detail field every wire fills. Bounded at what cache reads left
+  // of the input total, the same way `cachedInputTokens` is bounded at the
+  // input total, so an inconsistent provider report can never make the priced
+  // subsets exceed the input they are subtracted from.
+  const cacheWriteTokens = Math.min(
+    tokenCount(input.usage?.inputTokenDetails?.cacheWriteTokens),
+    inputTokens - cachedInputTokens,
+  );
   const outputTokens = tokenCount(input.usage?.outputTokens);
   // Floor the total to the component sum: providers sometimes omit totalTokens (yielding 0)
   // even when input/output were consumed, which would under-report aggregate usage.
@@ -70,6 +86,7 @@ export function buildTurnTelemetry(
   return {
     inputTokens,
     cachedInputTokens,
+    cacheWriteTokens,
     outputTokens,
     totalTokens,
     ...(reasoningTokens !== undefined && { reasoningTokens }),
@@ -81,6 +98,7 @@ export function buildTurnTelemetry(
     costUsd: calculateCostUsd({
       inputTokens,
       cachedInputTokens,
+      cacheWriteTokens,
       outputTokens,
       price: input.price,
     }),
@@ -109,6 +127,7 @@ export function emitCompletedTurnTelemetryLog(
       inReplyTo: input.inReplyTo,
       inputTokens: input.telemetry.inputTokens,
       cachedInputTokens: input.telemetry.cachedInputTokens,
+      cacheWriteTokens: input.telemetry.cacheWriteTokens,
       outputTokens: input.telemetry.outputTokens,
       totalTokens: input.telemetry.totalTokens,
       ...(input.telemetry.reasoningTokens !== undefined && {
@@ -131,6 +150,7 @@ export function emitCompletedTurnTelemetryLog(
 function calculateCostUsd(input: {
   inputTokens: number;
   cachedInputTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   price: TokenPrice | undefined;
 }): number | null {
@@ -139,15 +159,26 @@ function calculateCostUsd(input: {
     return null;
   }
 
+  // Both cache subsets are re-bounded here, in order — reads at the input
+  // total, writes at the remainder — so the uncached remainder can never go
+  // negative and a cache-write token is charged exactly once: at the declared
+  // cache-write rate when the entry has one, otherwise at the input rate.
   const cachedInputTokens = Math.min(
     input.cachedInputTokens,
     input.inputTokens,
   );
-  const uncachedInputTokens = input.inputTokens - cachedInputTokens;
+  const cacheWriteTokens = Math.min(
+    input.cacheWriteTokens,
+    input.inputTokens - cachedInputTokens,
+  );
+  const uncachedInputTokens =
+    input.inputTokens - cachedInputTokens - cacheWriteTokens;
   const cachedInputUsdPer1M = price.cachedInputUsdPer1M ?? price.inputUsdPer1M;
+  const cacheWriteUsdPer1M = price.cacheWriteUsdPer1M ?? price.inputUsdPer1M;
   const cost =
     (uncachedInputTokens * price.inputUsdPer1M +
       cachedInputTokens * cachedInputUsdPer1M +
+      cacheWriteTokens * cacheWriteUsdPer1M +
       input.outputTokens * price.outputUsdPer1M) /
     1_000_000;
 
