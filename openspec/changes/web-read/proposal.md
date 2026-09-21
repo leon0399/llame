@@ -19,7 +19,7 @@ converts HTML locally (peer survey in `design.md`). Issue #913.
   allowlisted, since a web locator needs no host authority; absolute paths
   without accepted native authority keep failing closed.
 - Publisher Markdown before local rendering: the first request negotiates
-  `Accept: text/markdown, text/html;q=0.8, text/plain;q=0.7, */*;q=0.5`; an
+  `Accept: text/markdown, text/plain;q=0.9, text/html;q=0.8, */*;q=0.5`; an
   HTML response is followed by its `Link` or `<head>` Markdown alternate, the
   llms.txt suffix probe, a local Readability and Turndown render, an `llms.txt`
   walk only when that render fails the quality gate, then the raw body with a

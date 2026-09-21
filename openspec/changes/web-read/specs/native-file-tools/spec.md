@@ -261,10 +261,11 @@ first 2 KiB of the body, else as UTF-8.
 ### Requirement: Web HTML reads prefer publisher Markdown
 
 The first request for a page SHALL send `Accept: text/markdown,
-text/html;q=0.8, text/plain;q=0.7, */*;q=0.5`, so a publisher that serves
-Markdown for agents is used without a second request. A response that is
-`text/markdown`, or `text/plain` that is not HTML-shaped, SHALL be returned as
-the render with `method` `negotiated`. Otherwise the tool SHALL try, in order,
+text/plain;q=0.9, text/html;q=0.8, */*;q=0.5`, so a publisher that serves
+Markdown or plain text for agents is used without a second request or a
+local conversion. A response that is `text/markdown`, or `text/plain` that is
+not HTML-shaped, SHALL be returned as the render with `method` `negotiated`
+and no HTML conversion SHALL run. Otherwise the tool SHALL try, in order,
 a Markdown alternate announced by the response's `Link` header or by a `<link
 rel="alternate" type="text/markdown">` element in the page head, fetched as an
 absolute URL and reported as `method` `alternate`; then the publisher's

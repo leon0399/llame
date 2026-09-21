@@ -241,11 +241,16 @@ The substrate, on current `master`:
 
 - **Decision**: one ordered pipeline, described in
   [The adapter pipeline](#the-adapter-pipeline): negotiate with
-  `Accept: text/markdown, ...` on the first request, then the announced
-  alternate, then the Markdown suffix probe, then a local Readability and
-  Turndown render, then the `llms.txt` walk only after that render fails the
-  gate, then the raw body with a note. Every candidate passes the same quality
-  gate. `:raw` returns the first response body untouched.
+  `Accept: text/markdown, text/plain;q=0.9, text/html;q=0.8, */*;q=0.5` on
+  the first request, then the announced alternate, then the Markdown suffix
+  probe, then a local Readability and Turndown render, then the `llms.txt`
+  walk only after that render fails the gate, then the raw body with a note.
+  Plain text ranks above HTML so a server that can serve both hands over text
+  that needs no conversion (omp's negotiation retry uses the same order); the
+  trade is that a negotiated plain variant carries no links or headings,
+  which the model can recover with `:raw` or by reading the announced
+  alternate. Every candidate passes the same quality gate. `:raw` returns the
+  first response body untouched.
 - **Alternatives rejected**: rendering locally first (it discards the
   publisher's own Markdown, which is higher fidelity and cheaper to read; every
   peer harness renders locally, so the negotiation is this change's
@@ -352,7 +357,7 @@ same `Accept` header and is subject to the same bounds, status, content-type,
 and redirect rules as the first request.
 
 1. **Negotiation.** The first request sends
-   `Accept: text/markdown, text/html;q=0.8, text/plain;q=0.7, */*;q=0.5`. A
+   `Accept: text/markdown, text/plain;q=0.9, text/html;q=0.8, */*;q=0.5`. A
    `text/markdown` body, or a `text/plain` body that is not HTML-shaped, is
    the render: `method: "negotiated"`.
 2. **Announced alternate.** A Markdown URL announced by the response's `Link`
@@ -494,7 +499,8 @@ new path.
 
 - v1 (2026-09-21): Initial proposal for #913, from the settled decisions
   D1-D13. Records the adapter order against llmstxt.org v2 and Cloudflare
-  Markdown for Agents, the shared quality gate taken from omp's pipeline, the
+  Markdown for Agents with plain text ranked above HTML in `Accept` (Leo's
+  first-read change), the shared quality gate taken from omp's pipeline, the
   peer survey's redirect and SSRF comparison, the four new `apps/api`
   dependencies with licenses and the linkedom spike, the single version seam
   the `opencode-go-provider` change owns, and the four deferrals with their
