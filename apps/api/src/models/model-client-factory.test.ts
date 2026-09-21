@@ -6,6 +6,7 @@ import type {
 import type { createOpenAICompletionsModelClient } from './openai-completions-model-client';
 import type { createOpenAICodexModelClient } from './openai-codex-model-client';
 import type { createOpenAIModelClient } from './openai-model-client';
+import type { createOpenCodeGoModelClient } from './opencode-go-model-client';
 import { createModelClient } from './model-client-factory';
 // Test seam (anti-slop/no-module-mocking): overrides the per-provider client
 // constructors via createModelClient's own dependency-injection param instead
@@ -494,6 +495,86 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
       expect.objectContaining({
         providerOptions: { thinking: { display: null } },
         maxOutputTokens: 8192,
+      }),
+    );
+  });
+});
+
+describe('createModelClient opencode-go dispatch (opencode-go-provider 3.2)', () => {
+  const createGoClientMock = vi.mocked(
+    vi.fn<typeof createOpenCodeGoModelClient>(),
+    { partial: true },
+  );
+  createGoClientMock.mockReturnValue({ model: 'fake' });
+
+  const goDependencies = {
+    ...dependencies,
+    createOpenCodeGoModelClient: createGoClientMock,
+  };
+
+  beforeEach(() => {
+    createGoClientMock.mockClear();
+    createResponsesClientMock.mockClear();
+    createCompletionsClientMock.mockClear();
+    createCodexClientMock.mockClear();
+  });
+
+  it('routes the type to the Go transport whatever the entry is named', () => {
+    createModelClient(
+      {
+        userAgent: USER_AGENT,
+        provider: {
+          id: 'my-go-subscription',
+          type: 'opencode-go',
+          key: 'go-key',
+        },
+        model: { ...model, provider: 'my-go-subscription' },
+      },
+      goDependencies,
+    );
+
+    expect(createGoClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credential: 'go-key',
+        providerModelId: 'model',
+      }),
+    );
+    // The entry declares a key and no destination, so no endpoint value
+    // reaches the client: the fixed URL is the client's own.
+    expect(createGoClientMock.mock.calls[0]?.[0]).not.toHaveProperty('baseUrl');
+    expect(createResponsesClientMock).not.toHaveBeenCalled();
+    expect(createCompletionsClientMock).not.toHaveBeenCalled();
+    expect(createCodexClientMock).not.toHaveBeenCalled();
+  });
+
+  it('carries the product token and the model metadata into the Go client config', () => {
+    createModelClient(
+      {
+        userAgent: 'llame/9.9.9-canary',
+        provider: {
+          id: 'go',
+          type: 'opencode-go',
+          key: 'go-key',
+        },
+        model: {
+          ...model,
+          provider: 'go',
+          providerOptions: { user: 'run-owner' },
+          maxOutputTokens: 8192,
+          pricingUsdPer1M: { input: 1.5, output: 6 },
+          compactionThresholdTokens: 4000,
+        },
+      },
+      goDependencies,
+    );
+
+    expect(createGoClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userAgent: 'llame/9.9.9-canary',
+        providerOptions: { user: 'run-owner' },
+        maxOutputTokens: 8192,
+        pricing: { inputUsdPer1M: 1.5, outputUsdPer1M: 6 },
+        compactionThresholdTokens: 4000,
       }),
     );
   });

@@ -22,6 +22,26 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   shape today. The identity reaches no model context, no persisted part, and
   no owner-visible output.
 
+- Providers can be OpenCode Go subscriptions: `type: "opencode-go"` (#809).
+  The entry is `{ id, type, key }` and nothing else — the subscription key
+  interpolates like any other credential and must resolve nonblank, because
+  the gateway authenticates every request — while `baseUrl` and `accountId`
+  are rejected at boot and the Chat Completions route lives at an endpoint
+  fixed in llame's code, so no `id`, ambient variable, or configuration value
+  can move or authenticate a request. Redirects are not followed and boot
+  contacts nothing. Runs report the provider as `opencode-go` rather than as
+  the wire module it is composed over, and operator `providerOptions` compose
+  under the namespace the Chat Completions adapter derives from that name.
+  Every request for a Chat carries its identity as the gateway's session
+  header: the Chat's own id for the turn and for compaction, which reuses the
+  conversation's prefix identity, and `title:<id>` for title generation. llame
+  sends `x-opencode-client: llame` beside its `User-Agent`, and sends no
+  cache-control field or cache-breakpoint marker, because caching here is the
+  gateway's own and is keyed on that session identity. Cost is unknown unless
+  the operator declares `pricingUsdPer1M`, and a declared price is llame's own
+  accounting of a subscription quota rather than a per-token bill. Operator
+  runbook: [docs/opencode-go.md](docs/opencode-go.md).
+
 # 2026-09-20
 
 - Providers can speak the Anthropic Messages wire: `type: "anthropic-messages"`

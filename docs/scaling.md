@@ -54,6 +54,10 @@ services:
     deploy: { replicas: 3 }
 ```
 
+Both commands run from `apps/api`, so deploy `apps/api/package.json` beside
+`dist/`: boot reads llame's version from that manifest and fails startup when
+it is absent.
+
 To isolate a job class, define a profile containing only that group and remove
 the group from general profiles. pg-boss queue subscription is the router; add
 no parallel routing layer.

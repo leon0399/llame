@@ -5,12 +5,13 @@
  * default — the environment reaches config only via {env:...} interpolation
  * tokens inside the file (no bare env-var fallback).
  */
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import { toPublicModel } from '../models/model-catalog';
+import { resolveEmbeddingBackendConfig } from '../search/search-embed.worker';
 import {
   renderSystemPromptTemplate,
   type TemporalAnchor,
@@ -24,7 +25,10 @@ import {
   loadInstanceConfig as loadInstanceConfigFromPath,
   resolveConfigPath,
 } from './config-loader';
-import { BUILT_IN_DEFAULTS } from './llame-config';
+import {
+  BUILT_IN_DEFAULTS,
+  DEFAULT_EMBEDDING_BATCH_SIZE,
+} from './llame-config';
 
 /** Narrows a `catch`-clause `unknown` to its message without a cast; fails the test loudly if the caught value is not an `Error`. */
 function errorMessage(err: unknown): string {
@@ -2441,6 +2445,223 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
     expect(() => loadInstanceConfig()).toThrow(
       /embeddingModels\[claude-embedding\]\.provider.*anthropic-messages/u,
     );
+  });
+});
+
+describe('loadInstanceConfig — opencode-go providers (opencode-go-provider, task 3.1)', () => {
+  it('loads a key-only entry as authored, with no endpoint field and no network at boot', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      writeConfig(`{
+        "providers": [{
+          "id": "opencode-go",
+          "type": "opencode-go",
+          "key": "{env:OPENCODE_GO_API_KEY}"
+        }]
+      }`);
+
+      // Exact equality is also the "no endpoint field" proof: a resolved
+      // `baseUrl` or `accountId` would have to appear in this object.
+      expect(
+        loadInstanceConfig({ OPENCODE_GO_API_KEY: 'go-key' }).providers,
+      ).toEqual([{ id: 'opencode-go', type: 'opencode-go', key: 'go-key' }]);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it.each(['baseUrl', 'accountId'] as const)(
+    'rejects the forbidden %s field, naming the offending configuration path',
+    (field) => {
+      writeConfig(`{
+        "providers": [{
+          "id": "opencode-go",
+          "type": "opencode-go",
+          "key": "go-key",
+          "${field}": "https://untrusted.example.test"
+        }]
+      }`);
+
+      try {
+        loadInstanceConfig();
+        expect.unreachable(`expected a forbidden ${field} to fail`);
+      } catch (error) {
+        // The destination is fixed in llame's code, so the entry is rejected
+        // rather than loaded with the field ignored.
+        expect(errorMessage(error)).toContain(
+          `/providers[opencode-go]/${field}`,
+        );
+      }
+    },
+  );
+
+  it('fails boot naming the entry and field when key is omitted', () => {
+    writeConfig(
+      '{ "providers": [{ "id": "opencode-go", "type": "opencode-go" }] }',
+    );
+
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected a missing Go key to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toContain('/providers[opencode-go]');
+      expect(errorMessage(error)).toContain(
+        "must have required property 'key'",
+      );
+    }
+  });
+
+  it('fails boot naming the entry and field when the key resolves empty, exposing no resolved sibling value', () => {
+    const secret = 'go-secret-canary';
+    writeConfig(`{
+      "providers": [
+        {
+          "id": "openai",
+          "type": "openai-responses",
+          "key": "{env:OPENCODE_GO_SIBLING_KEY}"
+        },
+        {
+          "id": "opencode-go",
+          "type": "opencode-go",
+          "key": "{env:OPENCODE_GO_BLANK:-}"
+        }
+      ]
+    }`);
+
+    try {
+      // The sibling credential is already resolved in memory when the Go key
+      // fails (providers resolve in order), so a leak would be observable here.
+      loadInstanceConfig({
+        OPENCODE_GO_SIBLING_KEY: secret,
+        OPENCODE_GO_BLANK: '',
+      });
+      expect.unreachable('expected a blank Go key to fail');
+    } catch (error) {
+      // Exact equality proves the diagnostic carries the entry-qualified field
+      // path and nothing else — no resolved value, canary, or token source.
+      expect(errorMessage(error)).toBe(
+        'providers[opencode-go].key: must resolve to a nonblank string',
+      );
+      expect(errorMessage(error)).not.toContain(secret);
+    }
+  });
+
+  it('rejects an opencode-go provider as an embedding backend', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "opencode-go",
+        "type": "opencode-go",
+        "key": "go-key"
+      }],
+      "embeddingModels": [{
+        "id": "go-embedding",
+        "provider": "opencode-go",
+        "providerModelId": "text-embedding-3-small",
+        "dimensions": 1536
+      }]
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /embeddingModels\[go-embedding\]\.provider.*opencode-go/u,
+    );
+  });
+
+  it('rejects the same binding at the worker backend-construction path', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "opencode-go",
+        "type": "opencode-go",
+        "key": "go-key"
+      }]
+    }`);
+    const { providers } = loadInstanceConfig();
+
+    // The worker re-checks the allowlist when it builds the embed backend, so
+    // the exclusion does not depend on the loader having run first.
+    expect(() =>
+      resolveEmbeddingBackendConfig(
+        {
+          id: 'go-embedding',
+          provider: 'opencode-go',
+          providerModelId: 'text-embedding-3-small',
+          dimensions: 1536,
+          batchSize: DEFAULT_EMBEDDING_BATCH_SIZE,
+          distanceMetric: 'cosine',
+        },
+        providers,
+      ),
+    ).toThrow(
+      'embeddingModels[go-embedding].provider: "opencode-go" does not support embeddings',
+    );
+  });
+});
+
+describe('loadInstanceConfig — llame.config.json.example opencode-go entries (opencode-go-provider, task 3.5)', () => {
+  const EXAMPLE_PATH = path.resolve(
+    __dirname,
+    '../../llame.config.json.example',
+  );
+
+  /**
+   * The example ships the credential-gated Go entries commented out: the type
+   * requires a key, so an unconfigured entry cannot boot. This restores exactly
+   * the lines the two `opencode-go block` markers delimit, so the assertions
+   * below run against the shipped text rather than a hand-copied fixture.
+   */
+  function withGoBlocksUncommented(example: string): string {
+    let inBlock = false;
+    return example
+      .split('\n')
+      .map((line) => {
+        if (line.includes('opencode-go block: start')) {
+          inBlock = true;
+          return line;
+        }
+        if (line.includes('opencode-go block: end')) {
+          inBlock = false;
+          return line;
+        }
+        return inBlock ? line.replace(/^(\s*)\/\/ ?/u, '$1') : line;
+      })
+      .join('\n');
+  }
+
+  it('ships both Go blocks commented out, so the example still boots unconfigured', () => {
+    process.env.LLAME_CONFIG_PATH = EXAMPLE_PATH;
+    const config = loadInstanceConfig();
+
+    expect(config.providers.map((p) => p.type)).not.toContain('opencode-go');
+    expect(config.models.map((m) => m.provider)).not.toContain('opencode-go');
+  });
+
+  it('loads both shipped Go models against the Go provider once the blocks are uncommented', () => {
+    writeConfig(withGoBlocksUncommented(readFileSync(EXAMPLE_PATH, 'utf8')));
+    const config = loadInstanceConfig({ OPENCODE_GO_API_KEY: 'go-key' });
+
+    expect(config.providers).toContainEqual({
+      id: 'opencode-go',
+      type: 'opencode-go',
+      key: 'go-key',
+    });
+
+    const goModels = config.models.filter((m) => m.provider === 'opencode-go');
+    expect(goModels.map((m) => m.id)).toEqual([
+      'system:opencode-go:glm-5.3-flash',
+      'system:opencode-go:deepseek-v4.1-flash',
+    ]);
+    expect(goModels.map((m) => m.providerModelId)).toEqual([
+      'glm-5.3-flash',
+      'deepseek-v4.1-flash',
+    ]);
+    // The subscription bills per usage window, not per token, so the example
+    // declares no rate on either model and cost stays unknown.
+    for (const model of goModels) {
+      expect(model.pricingUsdPer1M).toBeUndefined();
+    }
+    // Only the model that reasons declares an effort vocabulary.
+    expect(goModels[0].reasoning).toBeUndefined();
+    expect(goModels[1].reasoning?.defaultEffort).toBe('medium');
   });
 });
 
