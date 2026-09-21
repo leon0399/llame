@@ -121,10 +121,10 @@ already serves. No new dependency: the Chat Completions adapter
   Nothing here duplicates or reverses either change, and this change adds no
   adapter dependency of its own.
 - The research the design cites (`docs/research/harnesses/opencode-v2.md`
-  and the Go sections of nine sibling references) is published as two
-  standalone docs stacks, `research/opencode-family-go-handling` and
-  `research/peer-harness-go-handling`, outside this stack. They are evidence,
-  not a build dependency, and merge independently.
+  and the Go sections of thirteen sibling references) is published as one
+  standalone docs PR (#906, branch `research/opencode-family-go-handling`)
+  outside this stack. It is evidence, not a build dependency, and merges
+  independently.
 - Delivery stack, in order, each layer sized within the review budget against
   its parent (measured 1,546 authored lines for this layer; estimates of about
   800, 1,200, and 300 for the others, recorded and re-measured in `tasks.md`):

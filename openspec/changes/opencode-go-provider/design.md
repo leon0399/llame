@@ -816,7 +816,7 @@ no chat history needs reprocessing.
   structural finding.
 - v4 (2026-09-21): Rebased onto `master` at `1311ca16` and reprocessed under
   the delivery rules that landed with #900 and #901: the research is moved out
-  of this stack into two standalone docs stacks so the proposal branch starts
+  of this stack into a standalone docs PR (#906) so the proposal branch starts
   from `master`; every layer records its branch, parent, ownership, authored
   size against its parent (this layer measured; the others estimated within the
   2,000-line budget), exit evidence, and issue responsibility; every layer

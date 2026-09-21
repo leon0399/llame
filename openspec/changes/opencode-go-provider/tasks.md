@@ -14,9 +14,9 @@ factory, and `@ai-sdk/openai-compatible@2.0.75`, and the merged and archived
 `providerOptions` composition, and the reasoning-part provider-metadata
 channel. No layer of this change duplicates or reverses either, and no layer
 adds a dependency: the Chat Completions adapter is already installed. The
-research the design cites lives in two standalone docs stacks
-(`research/opencode-family-go-handling`, `research/peer-harness-go-handling`)
-that are not part of this stack and gate nothing here.
+research the design cites lives in one standalone docs PR (#906, branch
+`research/opencode-family-go-handling`) that is not part of this stack and
+gates nothing here.
 
 Layers, each with its branch, parent, ownership, authored-size estimate against
 its parent (tests, specs, and docs included; no generated output is involved),
