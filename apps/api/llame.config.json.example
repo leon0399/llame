@@ -98,6 +98,38 @@
         "defaultEffort": "medium",
         "cacheInvalidatedByEffortChange": true
       },
+      // Optional provider-native request options for the adapter this
+      // provider's `type` selects, keyed as that adapter documents them
+      // (`reasoningSummary` on the Responses wire, `reasoningEffort` on Chat
+      // Completions); llame places them under the wire's provider-options
+      // namespace itself (`openai`, or `openaiCompletions` for Chat
+      // Completions). Server-only and free-form: boot checks only that the
+      // value is an object and rejects {env:...}/{path:...} syntax in any
+      // string value at any depth before resolving anything. Not a credential
+      // channel — contents are never redacted, so never put a secret in it.
+      // Precedence, highest first: client invariants (Codex always sends
+      // store:false and reasoningSummary:auto), the run's resolved effort
+      // when this model declares `reasoning`, this object, then per-request
+      // defaults (the Responses client defaults reasoningSummary:auto on
+      // streaming and compaction only). Objects merge recursively key by key;
+      // arrays and scalars replace the value beneath them; null at any depth
+      // removes a default, never an invariant. Reserved keys are
+      // stripped before composition: conversation, previousResponseId,
+      // instructions, systemMessageMode, allowedTools on the Responses wire;
+      // model, max_tokens, tool_choice on the Chat Completions wire. A value
+      // the adapter recognizes and rejects fails that request; an unknown key
+      // is dropped by the Responses adapter and forwarded into the request
+      // body by openai-completions.
+      // "providerOptions": { "reasoningSummary": "detailed" },
+      // Optional per-model output-token limit (positive integer or whole-value
+      // interpolation token, validated after resolution), sent as every
+      // request's maxOutputTokens setting: max_output_tokens on the Responses
+      // wire and max_tokens on Chat Completions, with no max_completion_tokens
+      // remapping — a model that requires that field rejects a declared
+      // limit. Absent leaves the adapter's default (no limit on the OpenAI
+      // wires). This caps provider output; runs.maxOutputTokens above does
+      // not.
+      // "maxOutputTokens": 32000,
       "knowledgeCutoff": "2026-02",
       "website": "https://openai.com",
       "releasedAt": "2026-07-09",

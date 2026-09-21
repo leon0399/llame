@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { InstanceConfigError } from '@workspace/config-interpolation';
+import { toPublicModel } from '../models/model-catalog';
 import {
   renderSystemPromptTemplate,
   type TemporalAnchor,
@@ -55,6 +56,8 @@ const ENV_KEYS = [
   'RUN_MAX_OUTPUT_TOKENS_SRC',
   'RUN_TIMEOUT_SECONDS_SRC',
   'TRUST_PROXY_SRC',
+  'IC_MODEL_MAX_OUTPUT_TOKENS',
+  'PROVIDER_OPTIONS_SECRET',
 ] as const;
 
 let originalEnv: Record<string, string | undefined>;
@@ -2089,6 +2092,159 @@ describe('loadInstanceConfig — models[].reasoning (add-reasoning-effort)', () 
     expect(() => loadInstanceConfig()).toThrow(
       /\/models\/0\/id: must NOT have fewer than 1 characters/,
     );
+  });
+});
+
+// The JSONC parser builds every nested record with a null prototype, and
+// `providerOptions` is retained verbatim, so it is compared with `toEqual`:
+// full content equality without `toStrictEqual`'s extra prototype type check,
+// which no parser-produced record can satisfy.
+describe('loadInstanceConfig — models[].providerOptions / models[].maxOutputTokens (anthropic-provider, task 2.1)', () => {
+  /** Write a one-model config whose `models[]` entry carries `fields`, the providerOptions/maxOutputTokens keys under test. */
+  function writeModel(fields: string): void {
+    const entry = `{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000${fields} }`;
+    writeConfig(`{ ${SINGLE_PROVIDER_JSON}, "models": [${entry}] }`);
+  }
+
+  /** Runs the loader and returns the message it failed with. */
+  function failureMessage(): string {
+    try {
+      loadInstanceConfig();
+    } catch (error) {
+      return errorMessage(error);
+    }
+    throw new Error('expected loadInstanceConfig to fail');
+  }
+
+  it('retains an unrecognized providerOptions object verbatim, nested containers included', () => {
+    const providerOptions = {
+      reasoningSummary: 'detailed',
+      thinking: {
+        type: 'adaptive',
+        budget_tokens: 2048,
+        nested: { list: [1, 'two', true, null] },
+      },
+    };
+    writeModel(`, "providerOptions": ${JSON.stringify(providerOptions)}`);
+
+    expect(loadInstanceConfig().models[0].providerOptions).toEqual(
+      providerOptions,
+    );
+  });
+
+  it.each([
+    ['null', 'null'],
+    ['an array', '[{ "reasoningSummary": "auto" }]'],
+    ['a string', '"reasoningSummary"'],
+    ['a number', '1'],
+    ['a boolean', 'true'],
+  ])(
+    'rejects %s providerOptions, naming the model id and the field',
+    (_description, literal) => {
+      writeModel(`, "providerOptions": ${literal}`);
+
+      expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+      expect(() => loadInstanceConfig()).toThrow(
+        /models\[m\]\/providerOptions: must be object/,
+      );
+    },
+  );
+
+  it.each([
+    ['{env:...}', '{env:PROVIDER_OPTIONS_SECRET}'],
+    ['{path:...}', '{path:/run/secrets/provider-option}'],
+  ])(
+    'rejects %s syntax in a string value at any depth without exposing a resolved value',
+    (_kind, token) => {
+      process.env.PROVIDER_OPTIONS_SECRET = 'resolved-provider-options-secret';
+      writeModel(
+        `, "providerOptions": { "gateway": { "headers": [{ "x-api-key": ${JSON.stringify(token)} }] } }`,
+      );
+
+      const message = failureMessage();
+      expect(message).toMatch(
+        /models\[m\]\.providerOptions: provider options must not contain/,
+      );
+      // Rejection happens BEFORE resolution, so no resolved value (and no
+      // other provider-options content) can ride along in the diagnostic.
+      expect(message).not.toContain('resolved-provider-options-secret');
+    },
+  );
+
+  it('resolves a literal maxOutputTokens', () => {
+    writeModel(', "maxOutputTokens": 4096');
+
+    expect(loadInstanceConfig().models[0].maxOutputTokens).toBe(4096);
+  });
+
+  it('resolves a whole-value interpolation token to a positive integer', () => {
+    process.env.IC_MODEL_MAX_OUTPUT_TOKENS = '2048';
+    writeModel(', "maxOutputTokens": "{env:IC_MODEL_MAX_OUTPUT_TOKENS}"');
+
+    expect(loadInstanceConfig().models[0].maxOutputTokens).toBe(2048);
+  });
+
+  it.each([
+    ['zero', '0'],
+    ['a fraction', '1.5'],
+    ['a negative number', '-5'],
+  ])(
+    'rejects a literal maxOutputTokens of %s before resolution',
+    (_kind, literal) => {
+      writeModel(`, "maxOutputTokens": ${literal}`);
+
+      expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+      expect(() => loadInstanceConfig()).toThrow(
+        /models\[m\]\/maxOutputTokens/,
+      );
+    },
+  );
+
+  it.each([
+    ['zero', '0'],
+    ['a fraction', '1.5'],
+    ['a negative number', '-5'],
+  ])(
+    'fails boot naming the model id and field when maxOutputTokens resolves to %s',
+    (_kind, resolved) => {
+      process.env.IC_MODEL_MAX_OUTPUT_TOKENS = resolved;
+      writeModel(', "maxOutputTokens": "{env:IC_MODEL_MAX_OUTPUT_TOKENS}"');
+
+      expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+      expect(() => loadInstanceConfig()).toThrow(
+        /models\[m\]\.maxOutputTokens: must be a positive integer/,
+      );
+    },
+  );
+
+  it('leaves both fields absent when the model declares neither', () => {
+    writeModel('');
+
+    const entry = loadInstanceConfig().models[0];
+    expect(entry).not.toHaveProperty('providerOptions');
+    expect(entry).not.toHaveProperty('maxOutputTokens');
+  });
+
+  it('keeps both fields out of the public model projection while retaining them for execution', () => {
+    writeModel(
+      ', "maxOutputTokens": 4096, "providerOptions": { "reasoningSummary": "detailed" }',
+    );
+
+    const entry = loadInstanceConfig().models[0];
+    expect(entry.maxOutputTokens).toBe(4096);
+    expect(entry.providerOptions).toEqual({
+      reasoningSummary: 'detailed',
+    });
+
+    const publicModel = toPublicModel(entry);
+    expect(publicModel).not.toHaveProperty('providerOptions');
+    expect(publicModel).not.toHaveProperty('maxOutputTokens');
+    // The projection still carries what the catalog DOES publish.
+    expect(publicModel).toMatchObject({
+      id: 'm',
+      source: 'system',
+      contextWindowTokens: 1000,
+    });
   });
 });
 

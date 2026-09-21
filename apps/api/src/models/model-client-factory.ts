@@ -129,4 +129,15 @@ function assignModelMetadata(
   if (model.compactionThresholdTokens !== undefined) {
     config.compactionThresholdTokens = model.compactionThresholdTokens;
   }
+  // The operator's provider-options object and the catalog output limit ride
+  // the model entry, not the provider entry (provider-api-selection): every
+  // client unwraps them from its own config at request time. Copied by
+  // reference like the resolved entry the loader already retains — overloads
+  // stay absent here, so a client without the option simply never sends it.
+  if (model.providerOptions !== undefined) {
+    config.providerOptions = model.providerOptions;
+  }
+  if (model.maxOutputTokens !== undefined) {
+    config.maxOutputTokens = model.maxOutputTokens;
+  }
 }

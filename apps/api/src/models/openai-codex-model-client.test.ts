@@ -194,6 +194,60 @@ describe('createOpenAICodexModelClient', () => {
     }
   });
 
+  it('composes the catalog cap and the invariants into the real request body', async () => {
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        new Response(
+          [
+            'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"item-1"}}\n\n',
+            'data: {"type":"response.output_text.delta","item_id":"item-1","delta":"done"}\n\n',
+            'data: {"type":"response.completed","response":{"incomplete_details":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
+            'data: [DONE]\n\n',
+          ].join(''),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+      );
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = createOpenAICodexModelClient({
+        credential: 'access-token',
+        accountId: 'account-id',
+        providerModelId: 'gpt-5-codex',
+        modelId: 'system:codex:gpt-5-codex',
+        contextWindowTokens: 128_000,
+        providerOptions: {
+          // The operator's raw wire field, its summary, its store, and a
+          // reserved continuation key all disagree with the client's cap and
+          // invariants; none of them may win.
+          max_output_tokens: 1,
+          reasoningSummary: 'concise',
+          store: true,
+          previousResponseId: 'resp_operator',
+        },
+        maxOutputTokens: 4321,
+      });
+
+      await expect(client.streamText({ messages }).text).resolves.toBe('done');
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${CODEX_RESPONSES_BASE_URL}/responses`,
+        expect.anything(),
+      );
+      const serializedCall = JSON.stringify(fetchMock.mock.calls);
+      expect(serializedCall).toContain(String.raw`\"max_output_tokens\":4321`);
+      expect(serializedCall).toContain(String.raw`\"store\":false`);
+      expect(serializedCall).toContain(String.raw`\"summary\":\"auto\"`);
+      expect(serializedCall).not.toContain(String.raw`\"max_output_tokens\":1`);
+      expect(serializedCall).not.toContain(String.raw`\"summary\":\"concise\"`);
+      expect(serializedCall).not.toContain('previous_response_id');
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   it('uses the fixed Responses transport with private subscription headers and no remote storage', async () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',
@@ -471,5 +525,112 @@ describe('createOpenAICodexModelClient', () => {
       ),
     });
     expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
+  });
+
+  describe('provider-options invariants (provider-options)', () => {
+    function build(
+      config: Partial<Parameters<typeof createOpenAICodexModelClient>[0]> = {},
+    ) {
+      const providerModel = new MockLanguageModelV3({
+        provider: 'openai.responses',
+        modelId: 'gpt-test',
+      });
+      const provider = Object.assign(
+        vi.fn(() => providerModel),
+        {
+          chat: vi.fn(() => providerModel),
+        },
+      );
+      const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
+        partial: true,
+      });
+      createOpenAIMock.mockReturnValue(provider);
+      const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
+        partial: true,
+      });
+      streamTextMock.mockReturnValue({});
+      const client = createOpenAICodexModelClient(
+        {
+          credential: 'access-token',
+          accountId: 'account-id',
+          providerModelId: 'gpt-test',
+          modelId: 'system:codex:gpt-test',
+          contextWindowTokens: 128_000,
+          ...config,
+        },
+        { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+      );
+      return { client, streamTextMock };
+    }
+
+    // The subscription transport's invariants sit above the operator's
+    // object (design D5): `store` stays false and the summary stays the
+    // pinned display value, while the run's effort still overrides the
+    // operator's. The reserved keys are stripped on this wire too.
+    it('keeps store:false and the pinned summary over the operator object', () => {
+      const { client, streamTextMock } = build({
+        providerOptions: {
+          store: true,
+          reasoningSummary: 'concise',
+          reasoningEffort: 'low',
+          previousResponseId: 'resp_operator',
+          allowedTools: { toolNames: ['hosted_search'], mode: 'required' },
+        },
+      });
+
+      client.streamText({ messages, effort: 'high' });
+
+      expect(streamTextMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerOptions: {
+            openai: {
+              reasoningSummary: 'auto',
+              reasoningEffort: 'high',
+              store: false,
+            },
+          },
+        }),
+      );
+    });
+
+    // A `null` removes a client default (design D5) but cannot reach an
+    // invariant: both keys are re-set after the removal.
+    it('cannot remove an invariant with an operator null', () => {
+      const { client, streamTextMock } = build({
+        providerOptions: { store: null, reasoningSummary: null },
+      });
+
+      client.streamText({ messages });
+
+      expect(streamTextMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerOptions: {
+            openai: { reasoningSummary: 'auto', store: false },
+          },
+        }),
+      );
+    });
+
+    it('forwards the operator options and the catalog cap without the invariants losing', () => {
+      const { client, streamTextMock } = build({
+        providerOptions: { textVerbosity: 'low' },
+        maxOutputTokens: 2048,
+      });
+
+      client.streamText({ messages });
+
+      expect(streamTextMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerOptions: {
+            openai: {
+              reasoningSummary: 'auto',
+              store: false,
+              textVerbosity: 'low',
+            },
+          },
+          maxOutputTokens: 2048,
+        }),
+      );
+    });
   });
 });

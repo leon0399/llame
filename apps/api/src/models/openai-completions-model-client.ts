@@ -16,6 +16,10 @@ import {
 } from './model-client';
 import type { TokenPrice } from './model-catalog';
 import {
+  type ProviderOptionRecord,
+  composeProviderOptions,
+} from './provider-options';
+import {
   applyToolCallingOptions,
   awaitSettlementAfter,
   generateToolBoundObject,
@@ -38,6 +42,16 @@ export type OpenAICompletionsModelClientConfig = {
   baseUrl: string;
   pricing?: TokenPrice;
   compactionThresholdTokens?: number;
+  /**
+   * Operator-authored provider-native options, keyed as the adapter
+   * documents them (provider-api-selection): carried by the factory from
+   * the model entry and composed at request time rather than sent verbatim —
+   * with the run's effort on a streaming request, alone on a
+   * structured-generation one.
+   */
+  providerOptions?: ProviderOptionRecord;
+  /** Optional catalog output limit, forwarded as the request's `maxOutputTokens` setting. */
+  maxOutputTokens?: number;
 };
 
 /**
@@ -53,6 +67,73 @@ export type OpenAICompletionsModelClientDependencies = {
   ) => StreamTextResult<ToolSet, OutputInterface<string, string, never>>;
 };
 
+/**
+ * Chat Completions option paths an operator may not set (design D5): the
+ * adapter spreads unknown keys over them into the request body, so any of
+ * them would retarget the request — the wire's model identifier, its own raw
+ * output-limit field, and its tool choice. `max_tokens` in particular stays
+ * the catalog output limit's seat (D17), never an option's. Stripped from the
+ * operator's record before composition, so no value (including `null`)
+ * reaches the request.
+ */
+const COMPLETIONS_RESERVED_PROVIDER_OPTION_PATHS: ReadonlyArray<string> = [
+  'model',
+  'max_tokens',
+  'tool_choice',
+];
+
+/**
+ * One composed record under this adapter's `openaiCompletions` namespace —
+ * the camel-case of the provider name configured above, not the adapter's own
+ * `openaiCompatible` key — for a streaming and a structured-generation
+ * request alike. An empty composition contributes nothing, so a request that
+ * composes to nothing sends exactly the body it sent before this layer.
+ */
+function completionsProviderOptions(
+  composed: ProviderOptionRecord | undefined,
+): Pick<Parameters<typeof streamText>[0], 'providerOptions'> {
+  return composed === undefined
+    ? {}
+    : { providerOptions: { openaiCompletions: composed } };
+}
+
+function composeCompletionsOptions(
+  config: OpenAICompletionsModelClientConfig,
+  input: ModelStreamInput,
+): Pick<Parameters<typeof streamText>[0], 'providerOptions'> {
+  // Composed request options (provider-api-selection D5): the operator's
+  // object under the run's effort as `reasoningEffort`, no defaults and no
+  // invariants on this wire.
+  return completionsProviderOptions(
+    composeProviderOptions({
+      operator: config.providerOptions,
+      ...(input.effort !== undefined && {
+        effort: { reasoningEffort: input.effort },
+      }),
+      reservedPaths: COMPLETIONS_RESERVED_PROVIDER_OPTION_PATHS,
+    }),
+  );
+}
+
+/**
+ * The structured-generation path's options: the same operator record and
+ * reserved stripping as streaming, and nothing else — `ModelObjectInput`
+ * carries no effort, and this wire defaults no option and pins no invariant
+ * (provider-api-selection: the entry's options reach every language-model
+ * request). Composes to nothing for an entry that configures no options,
+ * which leaves this path's option-free request exactly as it was.
+ */
+function composeStructuredProviderOptions(
+  config: OpenAICompletionsModelClientConfig,
+): Pick<Parameters<typeof streamText>[0], 'providerOptions'> {
+  return completionsProviderOptions(
+    composeProviderOptions({
+      operator: config.providerOptions,
+      reservedPaths: COMPLETIONS_RESERVED_PROVIDER_OPTION_PATHS,
+    }),
+  );
+}
+
 function runOpenAICompatibleStream(
   provider: OpenAICompatibleProvider,
   config: OpenAICompletionsModelClientConfig,
@@ -60,6 +141,7 @@ function runOpenAICompatibleStream(
   input: ModelStreamInput,
 ) {
   const settlement = trackAbortSettlement(input);
+  const providerOptions = composeCompletionsOptions(config, input);
   const streamOptions: Parameters<typeof streamText>[0] = {
     // Chat Completions at the entry's required base URL (design D1): the
     // compatible provider callable is that wire's chat model.
@@ -70,21 +152,17 @@ function runOpenAICompatibleStream(
     onError: input.onError,
     onAbort: settlement.onAbort,
     onFinish: input.onFinish,
-    // The adapter itself reads `openaiCompatible` — its own non-deprecated
-    // key, independent of the provider name configured above — and maps
-    // `reasoningEffort` onto the wire's `reasoning_effort`.
-    ...(input.effort !== undefined && {
-      providerOptions: {
-        openaiCompatible: { reasoningEffort: input.effort },
-      },
+    ...providerOptions,
+    // The catalog output limit, provider-neutral like `providerOptions`:
+    // the adapter derives the wire's `max_tokens` from this setting.
+    ...(config.maxOutputTokens !== undefined && {
+      maxOutputTokens: config.maxOutputTokens,
     }),
   };
+  // The shared tool loop (the SDK auto-executes tools and re-calls the
+  // model): without these settings `streamText` stops after one step, so a
+  // tool-requesting step would end the turn with no text at all.
   applyToolCallingOptions(streamOptions, input);
-  // Reasoning is the adapter's own normalized output (design D5): the
-  // adapter turns an endpoint's `reasoning_content ?? reasoning` into
-  // `reasoning-delta` chunks and re-injects `reasoning_content` outbound, so
-  // this client only forwards the normalized delta text — no vendor parser,
-  // SSE handling, tag extraction, or middleware.
   if (input.onTextDelta || input.onReasoningDelta) {
     streamOptions.onChunk = ({ chunk }) => {
       if (chunk.type === 'text-delta') {
@@ -135,6 +213,11 @@ export function createOpenAICompletionsModelClient(
     streamText: (input: ModelStreamInput) =>
       runOpenAICompatibleStream(provider, config, dependencies, input),
     generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
-      generateToolBoundObject(provider(config.providerModelId), input),
+      generateToolBoundObject(provider(config.providerModelId), input, {
+        ...composeStructuredProviderOptions(config),
+        ...(config.maxOutputTokens !== undefined && {
+          maxOutputTokens: config.maxOutputTokens,
+        }),
+      }),
   };
 }

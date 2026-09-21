@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://llame.dev/schema/llame.config.schema.json",
   "title": "llame instance configuration",
-  "description": "Operator-owned instance configuration for llame (config-as-code, openspec/changes/instance-config + providers-and-models-as-code). Optional; a setting absent from this file takes its documented built-in default (there is no bare environment-variable fallback — the environment reaches settings only via {env:...} tokens written in this file). String values may contain {env:NAME}, {env:NAME:-default}, {path:LOCATION}, and {path:LOCATION|json:POINTER} interpolation tokens (RFC 6901; POINTER must select a JSON string), resolved once at boot, except models[].systemPromptFile, which is always a literal host path handled by the dedicated prompt loader, and skills.directories, whose intentionally public source paths reject interpolation syntax outright. This document is both the editor-facing schema (referenced via the top-level $schema key) and the boot-time validator — the same artifact, so they cannot drift.",
+  "description": "Operator-owned instance configuration for llame (config-as-code, openspec/changes/instance-config + providers-and-models-as-code). Optional; a setting absent from this file takes its documented built-in default (there is no bare environment-variable fallback — the environment reaches settings only via {env:...} tokens written in this file). String values may contain {env:NAME}, {env:NAME:-default}, {path:LOCATION}, and {path:LOCATION|json:POINTER} interpolation tokens (RFC 6901; POINTER must select a JSON string), resolved once at boot, except models[].systemPromptFile, which is always a literal host path handled by the dedicated prompt loader, skills.directories, whose intentionally public source paths reject interpolation syntax outright, and models[].providerOptions, whose string values reject interpolation syntax at any depth. This document is both the editor-facing schema (referenced via the top-level $schema key) and the boot-time validator — the same artifact, so they cannot drift.",
   "type": "object",
   "additionalProperties": false,
   "$defs": {
@@ -309,6 +309,10 @@
           "$ref": "#/$defs/numberOrToken",
           "description": "Optional explicit compaction trigger threshold for this model, overriding the `contextWindowTokens x COMPACTION_WINDOW_RATIO` default. Internal execution config — not returned by `GET /api/v1/models`."
         },
+        "maxOutputTokens": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "Optional per-model output-token limit, forwarded as the `maxOutputTokens` setting of every request this entry serves. Absent: the adapter's own default applies. What the adapter puts on the wire is the adapter's (each documents any transformation it applies). Internal execution config — not returned by `GET /api/v1/models`."
+        },
         "systemPromptFile": {
           "type": "string",
           "description": "Optional literal host path to this model's complete replacement system prompt. Relative paths resolve from the active llame.config.json directory; absolute paths remain absolute. This field does not support {env:...} or {path:...} secret interpolation. Prompt files are Handlebars templates. Renderable paths are exactly {{model.id}} and {{model.name}}; a leading backslash emits a literal expression. Conditionals ({{#if}} / {{#unless}}), comments, and whitespace control are supported. Rendering is single-pass and never re-evaluates its own output. Any other path, a helper, a partial, or unescaped {{{...}}} output fails startup naming the construct; a path with no value renders empty rather than failing. Missing, unreadable, non-file, empty, or invalid prompt content fails startup without falling back to the project default. Prompt contents are owner-visible; the host path is never returned by the public model catalog."
@@ -318,6 +322,10 @@
           "description": "Optional per-model whole-file replacements for llame-owned tool descriptions, keyed by registered llame-owned tool id. Wins over the instance-wide tools.promptFiles entry for the same id, which wins over the packaged default. Relative paths resolve from the active llame.config.json directory; absolute paths remain absolute. Keys naming an unregistered or MCP-authored tool are rejected at boot. Missing, unreadable, or empty files fail this execution worker's startup without falling back.",
           "propertyNames": { "type": "string", "minLength": 1 },
           "additionalProperties": { "type": ["string", "null"], "minLength": 1 }
+        },
+        "providerOptions": {
+          "type": "object",
+          "description": "Optional provider-native request options for the adapter this entry's provider type selects, keyed as that adapter documents them (e.g. `reasoningSummary` on a Responses model, `thinking` or `effort` on an anthropic-messages model). Typed free-form: the closed-schema rule applies to this key itself, never to its contents — keys and values are not validated against the adapter or the provider at boot, and the object is retained unchanged. This is not a credential channel: contents are never redacted, and {env:...}/{path:...} syntax in any string value at any depth fails boot before any token is resolved. Server-only — never returned by `GET /api/v1/models`; how it reaches the provider is specified by `provider-api-selection`."
         },
         "pricingUsdPer1M": { "$ref": "#/$defs/modelPricing" },
         "name": { "type": "string" },

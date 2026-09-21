@@ -1,5 +1,40 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-20
+
+- Model entries carry provider-native request options
+  (`models[].providerOptions`). One free-form object serves every wire — no
+  llame vocabulary and no per-provider field — and every client composes it
+  under one precedence, highest first: client invariants, the run's resolved
+  effort, the entry's object, then per-request client defaults. Objects merge
+  recursively key by key, while arrays and scalars replace the value beneath
+  them, and `null` at any depth removes a default but never an invariant.
+  Reserved keys are stripped before composition —
+  `conversation`, `previousResponseId`, `instructions`, `systemMessageMode`,
+  and `allowedTools` on the Responses wire; `model`, `max_tokens`, and
+  `tool_choice` on the Chat Completions wire — so an option can never
+  retarget the model, the output limit, the prompt, the tool choice, or
+  provider-side continuation state. The Codex client keeps `store: false` and
+  `reasoningSummary: 'auto'` as invariants, and the Responses client keeps
+  `reasoningSummary: 'auto'` as a streaming and compaction default with none
+  on structured generation; an entry that declares no `providerOptions` sends
+  exactly the bodies it sent before. Boot validates shape only — the value
+  must be an object, and interpolation syntax anywhere inside it fails
+  startup before resolving — so it is not a credential channel, its contents
+  are not redacted, and it is never returned by `GET /api/v1/models`. The
+  adapter is the validator at request time: a value it recognizes and rejects
+  fails that request, an unknown key is dropped by the Responses adapter or
+  forwarded into the request body by `@ai-sdk/openai-compatible`.
+
+- `models[].maxOutputTokens` is an optional positive integer (or whole-value
+  interpolation token) forwarded as every request's `maxOutputTokens` setting.
+  The Responses adapter sends it as `max_output_tokens`; the Chat Completions
+  adapter sends it as `max_tokens` with no `max_completion_tokens` remapping,
+  so declaring it on an entry fronting a model that requires that field is
+  rejected by that model — a documented ceiling. Absent, the adapter's own
+  default applies: no limit on either OpenAI wire. Server-only like
+  `providerOptions`.
+
 # 2026-09-19
 
 - The migration folder is internally consistent again, and CI enforces it. Two

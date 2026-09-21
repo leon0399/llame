@@ -8,6 +8,7 @@ import {
 } from './openai-model-client';
 import type { ModelClient } from './model-client';
 import type { TokenPrice } from './model-catalog';
+import type { ProviderOptionRecord } from './provider-options';
 
 export const CODEX_RESPONSES_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 
@@ -17,6 +18,14 @@ type OpenAICodexModelClientConfig = {
   providerModelId: string;
   modelId: string;
   contextWindowTokens: number;
+  /**
+   * Operator request options (`models[].providerOptions`), forwarded to the
+   * Responses client as its inner record: it wraps them under `openai` and
+   * strips the wire's reserved paths (design D5).
+   */
+  providerOptions?: ProviderOptionRecord;
+  /** Catalog `models[].maxOutputTokens`, forwarded to every request. */
+  maxOutputTokens?: number;
   pricing?: TokenPrice;
   compactionThresholdTokens?: number;
 };
@@ -72,7 +81,21 @@ export function createOpenAICodexModelClient(
         Originator: 'llame',
       },
       fetch: rejectRedirects(globalThis.fetch),
-      storeResponses: false,
+      // Client invariants (design D5): the subscription transport never
+      // stores a response server-side, and the displayable reasoning summary
+      // stays pinned because subscription-access-openai-codex mandates
+      // persisting that text. No operator value — `null` included — can
+      // remove or replace either.
+      providerOptionInvariants: {
+        store: false,
+        reasoningSummary: 'auto',
+      },
+      ...(config.providerOptions !== undefined && {
+        providerOptions: config.providerOptions,
+      }),
+      ...(config.maxOutputTokens !== undefined && {
+        maxOutputTokens: config.maxOutputTokens,
+      }),
       generateObject: false,
       provider: 'openai-codex',
       sanitizeError: sanitizeCodexError,

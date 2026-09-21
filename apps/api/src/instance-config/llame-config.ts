@@ -257,6 +257,22 @@ export type RawModelEntry = {
   providerModelId: string;
   contextWindowTokens: unknown;
   compactionThresholdTokens?: unknown;
+  /**
+   * Per-model output-token limit (anthropic-provider D6): still unresolved —
+   * a literal positive integer or a whole-value `{env:}`/`{path:}` token,
+   * resolved and re-bounded after interpolation exactly like
+   * `contextWindowTokens`.
+   */
+  maxOutputTokens?: unknown;
+  /**
+   * The operator's provider-native request options for the adapter this
+   * entry's provider `type` selects. Stays `unknown` because the loader proves
+   * it itself: it must be a JSON record at every depth, any `{env:…}`/
+   * `{path:…}` syntax in a string value at any depth is rejected, and it is
+   * otherwise retained verbatim (providers-and-models-as-code; the published
+   * schema declares it as a typed free-form object).
+   */
+  providerOptions?: unknown;
   systemPromptFile?: string;
   /** Per-tool description file overrides for this model. Keys are registered llame-owned tool IDs; null falls through. */
   toolPromptFiles?: Readonly<Record<string, string | null>>;
