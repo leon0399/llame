@@ -126,7 +126,7 @@ already serves. No new dependency: the Chat Completions adapter
   outside this stack. It is evidence, not a build dependency, and merges
   independently.
 - Delivery stack, in order, each layer sized within the review budget against
-  its parent (measured 1,665 authored lines for this layer at publication, insertions
+  its parent (measured 1,673 authored lines for this layer at publication, insertions
   plus deletions against `master`; estimates of about
   800, 1,200, and 300 for the others, recorded and re-measured in `tasks.md`):
 

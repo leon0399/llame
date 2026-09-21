@@ -837,3 +837,11 @@ no chat history needs reprocessing.
   and OpenClaw mint a fresh UUID. The spec home stays `provider-api-selection`,
   and the review-round decisions on provider identifier, failure contract,
   redirects, and version source are confirmed.
+- v6 (2026-09-21): First GitHub review round on #905 disposed. Accepted: the
+  boot diagnostic for an unreadable manifest names the logical requirement,
+  never the resolved absolute path (D6). Rejected for this change and filed as
+  #908: bounding the SDK parse-error message for a malformed stream chunk,
+  which is pre-existing behavior of the shared Chat Completions module. The
+  authored-size figure now follows one convention, `git diff --shortstat
+master` insertions plus deletions at publication, in the ledger, the
+  proposal, and the PR body.

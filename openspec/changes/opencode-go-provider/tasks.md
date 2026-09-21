@@ -23,7 +23,7 @@ its parent (tests, specs, and docs included; no generated output is involved),
 exit evidence, and issue responsibility:
 
 - `opencode-go-provider/proposal` (parent `master`): this ledger, the proposal,
-  the design, and the three delta specs. Measured 1,665 authored lines at
+  the design, and the three delta specs. Measured 1,673 authored lines at
   publication (`git diff --shortstat master`, insertions plus deletions). Exit:
   the OpenSpec proposal, Product Markdown, and Any change verification rows,
   two adversarial review rounds committed separately, and Leo's approval of
