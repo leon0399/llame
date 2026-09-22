@@ -243,6 +243,22 @@ describe('web locator dispatch', () => {
     },
   );
 
+  it('refuses a fragment locator before any request', async () => {
+    const result = await nativeReadTool.execute(webContext(), {
+      path: 'https://example.test/guide#top',
+    });
+
+    // The fragment never reaches the server, so the request would target a URL
+    // the submitted text did not name; the refusal names the text to send
+    // instead, and nothing is fetched.
+    expect(result).toMatchObject({ status: 'error', type: 'invalid_path' });
+    expect(result).toHaveProperty(
+      'message',
+      'Write this locator as https://example.test/guide',
+    );
+    expect(fetchDouble).not.toHaveBeenCalled();
+  });
+
   it('still reads the lowercase spelling of the same locator', async () => {
     const result = await nativeReadTool.execute(webContext(), {
       path: 'https://example.test/guide',

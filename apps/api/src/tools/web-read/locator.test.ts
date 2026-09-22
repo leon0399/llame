@@ -18,15 +18,37 @@ describe('parseWebLocator', () => {
     });
   });
 
-  it('keeps a trailing separator, a query, and a fragment in the URL', () => {
+  it('keeps a trailing separator and a query in the URL', () => {
     expect(parseWebLocator('https://example.test/dir/')).toEqual({
       url: 'https://example.test/dir/',
     });
-    expect(parseWebLocator('https://example.test/guide?x=1#top')).toEqual({
-      url: 'https://example.test/guide?x=1#top',
-    });
     expect(parseWebLocator('https://example.test:8080/guide')).toEqual({
       url: 'https://example.test:8080/guide',
+    });
+  });
+
+  it('refuses a fragment, naming the locator without it', () => {
+    // The fragment never leaves the process, so it is text the request would
+    // drop: a locator carrying one is refused before it can reach policy as a
+    // URL other than the one fetched.
+    const fragment = parseWebLocator('https://example.test/guide?x=1#top');
+    expect(fragment).toMatchObject({ type: 'invalid_path' });
+    expect(fragment).toHaveProperty(
+      'message',
+      'Write this locator as https://example.test/guide?x=1',
+    );
+    // A bare `#` is a fragment too, and one `new URL` keeps in `href` while
+    // the request would drop it, so the delimiter decides and not `hash`.
+    const bare = parseWebLocator('https://example.test/guide#');
+    expect(bare).toMatchObject({ type: 'invalid_path' });
+    expect(bare).toHaveProperty(
+      'message',
+      'Write this locator as https://example.test/guide',
+    );
+    // The spelling the refusal named is admitted, so the whole cost of the
+    // fragment is one resubmission.
+    expect(parseWebLocator('https://example.test/guide?x=1')).toEqual({
+      url: 'https://example.test/guide?x=1',
     });
   });
 
@@ -69,9 +91,10 @@ describe('parseWebLocator', () => {
     });
   });
 
-  it('keeps a colon in a query or a fragment out of the selector grammar', () => {
-    // Every locator here is its own serialization, so each one is fetched as
-    // written: the colon is URL text, never a selector that truncates it.
+  it('keeps a query colon out of the selector grammar and refuses a fragment', () => {
+    // Every query locator here is its own serialization, so each one is
+    // fetched as written: the colon is URL text, never a selector that
+    // truncates it.
     expect(parseWebLocator('https://example.test/path?mode=raw')).toEqual({
       url: 'https://example.test/path?mode=raw',
     });
@@ -89,14 +112,23 @@ describe('parseWebLocator', () => {
     expect(parseWebLocator('https://example.test/a?mode=1:4-5')).toEqual({
       url: 'https://example.test/a?mode=1:4-5',
     });
-    expect(parseWebLocator('https://example.test/a#x:raw')).toEqual({
-      url: 'https://example.test/a#x:raw',
-    });
+    // A fragment is refused before the gate is asked, so no colon after one
+    // is ever read as a selector: the request drops the fragment, and the
+    // refusal names the same locator without it.
+    const afterFragment = parseWebLocator('https://example.test/a#x:raw');
+    expect(afterFragment).toMatchObject({ type: 'invalid_path' });
+    expect(afterFragment).toHaveProperty(
+      'message',
+      'Write this locator as https://example.test/a',
+    );
+    const beforeFragment = parseWebLocator('https://example.test/a:raw#x');
+    expect(beforeFragment).toMatchObject({ type: 'invalid_path' });
+    expect(beforeFragment).toHaveProperty(
+      'message',
+      'Write this locator as https://example.test/a:raw',
+    );
     // A query after a colon in the path leaves that colon literal too: a
     // selector cannot sit in front of a query, so none is read out of one.
-    expect(parseWebLocator('https://example.test/a:raw#x')).toEqual({
-      url: 'https://example.test/a:raw#x',
-    });
     expect(parseWebLocator('https://example.test/a:b?x=1')).toEqual({
       url: 'https://example.test/a:b?x=1',
     });

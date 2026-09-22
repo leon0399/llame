@@ -35,7 +35,9 @@ type SplitLocator = { url: string; selector?: string };
  * hold one: every colon the query or the fragment opened — `?time=10:30:00`,
  * `#x:raw`, or `?b/c:10-20`, whose last slash sits inside the query — is URL
  * text, and splitting at one would request a URL the model never wrote and
- * silently drop the rest of its own locator.
+ * silently drop the rest of its own locator. Admission refuses a fragment
+ * before the split, so the `#` half of the test is this helper's own
+ * invariant rather than a state its caller can reach.
  */
 function opensSelector(text: string, index: number): boolean {
   if (index <= text.lastIndexOf('/')) return false;
@@ -54,8 +56,9 @@ function splitSelector(text: string): SplitLocator {
 }
 
 /**
- * Admit one URL text: parsable, web scheme, no credentials. Only an admitted
- * text may reach a message that names it or a request that uses it.
+ * Admit one URL text: parsable, web scheme, no credentials, no fragment. Only
+ * an admitted text may reach a message that names it or a request that uses
+ * it.
  */
 function parseWebUrl(
   text: string,
@@ -71,6 +74,16 @@ function parseWebUrl(
   }
   if (url.username !== '' || url.password !== '') {
     return { type: 'invalid_path', message: CREDENTIALS_MESSAGE };
+  }
+  // A fragment never reaches the server, so admitting it would let the locator
+  // text policy matched differ from the requested URL; a bare `#` is a
+  // fragment too, and leaves `hash` empty, so the delimiter itself is read.
+  const delimiter = url.href.indexOf('#');
+  if (delimiter !== -1) {
+    return {
+      type: 'invalid_path',
+      message: `Write this locator as ${url.href.slice(0, delimiter)}`,
+    };
   }
   return { href: url.href };
 }
@@ -102,11 +115,12 @@ const WEB_SCHEME_PREFIX = /^(?:https?):\/\//u;
  * Parse one submitted locator. `invalid_path` covers a locator that is not
  * its own WHATWG serialization — including a scheme the model spelled in
  * uppercase, which the URL parser would silently lower-case — a non-web
- * scheme, and userinfo; a suffix outside the selector grammar is the
- * caller's `invalid_selector`. Every message names the canonical spelling
- * the model should send instead, so a reject clause written against that
- * spelling cannot be evaded by an uppercase, encoded, or default-port
- * variant.
+ * scheme, userinfo, and a fragment, which the request would drop; a suffix
+ * outside the selector grammar is the caller's `invalid_selector`. Every
+ * message names the canonical spelling the model should send instead, so a
+ * reject clause written against that spelling cannot be evaded by an
+ * uppercase, encoded, or default-port variant, and no admitted locator
+ * carries text the request would drop.
  */
 export function parseWebLocator(
   submitted: string,
