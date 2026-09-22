@@ -618,6 +618,24 @@ new path.
   address-check finding was rejected as the same settled deferral. pullfrog:
   the port example now follows the empty-path refusal (`https://host:8080`
   fails `invalid_path` instead of selecting a line).
+- v5 (2026-09-22): Corrections found while implementing the `fetch` layer. The
+  shipped selector grammar has no bare `:N` form (`packages/native-file-tools/src/path.ts`
+  `SELECTOR_SUFFIX`), so `https://w.example/docs/2024:10` fails
+  `invalid_selector` rather than selecting line 10; the requirement, its
+  scenario, and task 2.3's verification now say so and name `:10-20` as the
+  form that selects. The port case is stated once, with its reason: the split
+  leaves `https://example.test`, which is not its own serialization, so the
+  call fails `invalid_path` naming `https://example.test/`.
+- v6 (2026-09-22): The `fetch` layer's GitHub review round. A locator carrying
+  a fragment is refused with `invalid_path` naming the fragment-free spelling:
+  the request drops a fragment, so admitting one would let the text a
+  permission clause matched differ from the URL fetched, which the policy
+  layer's hop admission builds on. A colon inside a query or fragment is no
+  longer read as a selector, the canonical-spelling hint encodes every colon
+  of the last path segment so one resubmission is admitted, a comma selector
+  serves through a shared in-memory multi-range walk in `native-file-tools`,
+  and an aborted run stops before the synchronous render. The resolved-address
+  finding was rejected again as the settled deferral to #914.
 - v10 (2026-09-22): Review corrections to the delta text, with no behaviour
   change: a selector is split only from a locator carrying no `?` and no `#`,
   so a colon in a query is part of the URL; a probe's redirect is followed

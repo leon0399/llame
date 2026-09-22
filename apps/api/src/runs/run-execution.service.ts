@@ -76,6 +76,7 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
+import { type ProductIdentityReader } from '../instance-config/product-identity';
 import { resolveConfigPath } from '../instance-config/config-loader';
 import {
   createToolPromptRenderer,
@@ -409,6 +410,15 @@ export type RunExecutor = Pick<
 /** The search capability needed after an assistant turn commits. */
 export type ChatSearchIndexer = Pick<SearchIndexService, 'reindexChat'>;
 
+/**
+ * The injected instance configuration, plus the boot-time product identity
+ * when the value is the real service. A test double that carries only
+ * `config` leaves the identity unset, and a web read fails closed rather
+ * than issuing a request with no `User-Agent`.
+ */
+type InstanceConfigWithIdentity = InstanceConfigReader &
+  Partial<ProductIdentityReader>;
+
 @Injectable()
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
@@ -421,7 +431,7 @@ export class RunExecutionService {
     @Inject(TitleService)
     private readonly titles: TitleCapability,
     @Inject(InstanceConfigService)
-    private readonly instanceConfig: InstanceConfigReader,
+    private readonly instanceConfig: InstanceConfigWithIdentity,
     @Inject(SearchIndexService)
     private readonly searchIndex: ChatSearchIndexer,
     @Inject(SearchReindexDispatchService)
@@ -816,6 +826,7 @@ export class RunExecutionService {
       nativeDeliverySequence: claim.nativeDeliverySequence,
       onNativeMutationUnknown: () =>
         nativeAbort?.abort(NATIVE_MUTATION_ABORT_REASON),
+      productUserAgent: this.instanceConfig.productUserAgent,
       userId: input.userId,
       chatId: input.chatId,
       tenantDb: this.tenantDb,
@@ -1650,6 +1661,7 @@ export class RunExecutionService {
       runId: input.runId,
       nativeExecutorId: this.instanceConfig.config.tools.nativeExecutorId,
       nativeDeliverySequence,
+      productUserAgent: this.instanceConfig.productUserAgent,
       userId: input.userId,
       chatId: input.chatId,
       tenantDb: this.tenantDb,

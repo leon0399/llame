@@ -32,6 +32,7 @@ import {
   resolveSkillLocator,
 } from '../skills/skill-target';
 import { type Tool, type ToolContext, type ToolResult } from './types';
+import { executeWebRead } from './web-read/execute';
 
 type NativeCall =
   | { operation: 'read'; input: { path: string } }
@@ -58,7 +59,9 @@ let nativeMutations: Promise<void> = Promise.resolve();
  * The scheme of the `path` argument selects the authority: an absolute path
  * runs under the trusted host process's OS authority, while `kb://` resolves
  * through the Run owner's current Knowledge access on every call and never
- * binds the Run to an executor. An unimplemented scheme fails closed.
+ * binds the Run to an executor. `http://` and `https://` are fetched by the
+ * API process's own outbound HTTP and bind no executor either. An
+ * unimplemented scheme fails closed.
  */
 function executeNative(
   context: ToolContext,
@@ -71,6 +74,12 @@ function executeNative(
     }
     if (scheme.scheme === SKILL_LOCATOR_SCHEME) {
       return executeSkill(context, call, scheme.rest);
+    }
+    if (scheme.scheme === 'http' || scheme.scheme === 'https') {
+      // The lower-cased scheme selects the branch; the branch itself re-reads
+      // the submitted text, so `HTTPS://` is refused there rather than
+      // fetched under a spelling policy never matched.
+      return executeWebRead(context, call);
     }
     return Promise.resolve(unknownSchemeResult());
   }
