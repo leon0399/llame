@@ -120,7 +120,10 @@ serialization: a locator whose `href` differs from the submitted text
 (uppercase scheme or host, a percent-encoded or Unicode host, an explicit
 default port, an empty path, or unencoded path or query characters) SHALL
 fail with `invalid_path` before any request, and the error SHALL name the
-canonical spelling so the model can resubmit it. Policy therefore matches
+canonical spelling so the model can resubmit it. A locator carrying a
+fragment SHALL fail the same way, naming the spelling without it, because the
+request drops a fragment and an admitted one would let the matched text
+differ from the requested URL. Policy therefore matches
 the same text the request uses, and every derived locator is canonical by
 construction. A locator carrying userinfo SHALL fail with `invalid_path`
 before any request, so the tool never sends credentials the model embedded
@@ -155,27 +158,17 @@ trailing suffix that is present but outside the grammar fails as
 `invalid_selector`: `https://w.example/wiki/Special:Search` and
 `https://w.example/docs/2024:10` both do, while
 `https://w.example/docs/2024:10-20` selects lines 10 through 20.
-||||||| parent of a1909f69 (feat(tools): read http(s) locators with negotiation and a local render)
-empty-path locator `https://example.test`, which fails as `invalid_path`
-rather than selecting a line),
-and a literal colon in the last path segment SHALL be written as `%3A`
-(`https://w.example/wiki/Special%3ASearch`), because
-`https://w.example/wiki/Special:Search` fails as `invalid_selector` and
-`https://w.example/docs/2024:10` selects line 10 of
-`https://w.example/docs/2024`.
-=======
 empty-path locator `https://example.test`, which is not its own
 serialization, so the call fails as `invalid_path` naming the canonical
 `https://example.test/` rather than selecting a line),
-and a literal colon in the last path segment SHALL be written as `%3A`
-(`https://w.example/wiki/Special%3ASearch`), because a trailing colon is
-always read as a selector split and the shipped grammar admits only `raw`,
-`raw:N-M`, `N-M`, `N+K`, and comma lists of those: `Search` and a bare line
-number are outside it, so `https://w.example/wiki/Special:Search` and
-`https://w.example/docs/2024:10` both fail as `invalid_selector`
-(`https://w.example/docs/2024:10-20` selects lines 10 through 20 of
-`https://w.example/docs/2024`).
->>>>>>> a1909f69 (feat(tools): read http(s) locators with negotiation and a local render)
+and a literal colon in the last path segment of a query-free locator SHALL be
+written as `%3A` (`https://w.example/wiki/Special%3ASearch`), because a
+trailing colon is always read as a selector split and the shipped grammar
+admits only `raw`, `raw:N-M`, `N-M`, `N+K`, and comma lists of those:
+`Search` and a bare line number are outside it, so
+`https://w.example/wiki/Special:Search` and `https://w.example/docs/2024:10`
+both fail as `invalid_selector` (`https://w.example/docs/2024:10-20` selects
+lines 10 through 20 of `https://w.example/docs/2024`).
 
 #### Scenario: A web locator is fetched by the API process
 

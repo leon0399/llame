@@ -625,6 +625,13 @@ new path.
   own failure disqualifies the candidate while a spent call bound fails the
   call; each derived-locator record carries the call's policy-instance ID plus
   its own decision, reason, and clause reference, never the call's.
+- v10 (2026-09-22): Review corrections to the delta text, with no behaviour
+  change: a selector is split only from a locator carrying no `?` and no `#`,
+  so a colon in a query is part of the URL; a probe's redirect is followed
+  under the shared rules before any terminal status is judged, and only its
+  own failure disqualifies the candidate while a spent call bound fails the
+  call; each derived-locator record carries the call's policy-instance ID plus
+  its own decision, reason, and clause reference, never the call's.
 - v5 (2026-09-22): Corrections found while implementing the `fetch` layer. The
   shipped selector grammar has no bare `:N` form (`packages/native-file-tools/src/path.ts`
   `SELECTOR_SUFFIX`), so `https://w.example/docs/2024:10` fails
@@ -633,6 +640,23 @@ new path.
   form that selects. The port case is stated once, with its reason: the split
   leaves `https://example.test`, which is not its own serialization, so the
   call fails `invalid_path` naming `https://example.test/`.
+- v6 (2026-09-22): The `fetch` layer's GitHub review round. A locator carrying
+  a fragment is refused with `invalid_path` naming the fragment-free spelling:
+  the request drops a fragment, so admitting one would let the text a
+  permission clause matched differ from the URL fetched, which the policy
+  layer's hop admission builds on. A colon inside a query or fragment is no
+  longer read as a selector, the canonical-spelling hint encodes every colon
+  of the last path segment so one resubmission is admitted, a comma selector
+  serves through a shared in-memory multi-range walk in `native-file-tools`,
+  and an aborted run stops before the synchronous render. The resolved-address
+  finding was rejected again as the settled deferral to #914.
+- v10 (2026-09-22): Review corrections to the delta text, with no behaviour
+  change: a selector is split only from a locator carrying no `?` and no `#`,
+  so a colon in a query is part of the URL; a probe's redirect is followed
+  under the shared rules before any terminal status is judged, and only its
+  own failure disqualifies the candidate while a spent call bound fails the
+  call; each derived-locator record carries the call's policy-instance ID plus
+  its own decision, reason, and clause reference, never the call's.
 - v11 (2026-09-22): Review round on the published stack. A probe's own
   refused hop now disqualifies only that candidate, matching the settled rule
   for a refused probe locator, so a hostile page cannot end a read of itself
