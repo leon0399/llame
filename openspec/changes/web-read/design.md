@@ -130,14 +130,16 @@ The substrate, on current `master`:
   locator is the `Location` value resolved against the redirecting request's
   URL by the WHATWG URL parser and serialized as its `href` (lowercase
   punycode host, default port dropped, empty path as `/`, path and query
-  percent-encoded, fragment retained); a redirect without a parsable
-  `Location`, or a resolved locator with userinfo or a non-`http(s)` scheme,
-  fails the call with `invalid_redirect` before any request and without
-  repeating the target. Every derived locator (a hop, an announced alternate,
-  a suffix candidate, an `llms.txt` candidate) is evaluated against the
-  `read` permission group before its request through the same evaluator and
-  projection the call used, as if the model had submitted it: a rejected hop
-  ends the call with a `permission_denied` error whose message is a fixed
+  percent-encoded, fragment dropped before admission and before the request);
+  a redirect without a parsable `Location`, or a resolved locator with
+  userinfo or a non-`http(s)` scheme, fails with `invalid_redirect` before any
+  request and without repeating the target; on the call's own request it ends
+  the read, while a probe's own redirect disqualifies only that candidate.
+  Every derived locator (a hop, an announced alternate, a suffix candidate, an
+  `llms.txt` candidate) is evaluated against the `read` permission group before
+  its request through the same evaluator and projection the call used, as if
+  the model had submitted it: a rejected hop ends the call with a
+  `permission_denied` error whose message is a fixed
   template and whose result carries the locator's origin and path as `rejectedUrl`, query and
   fragment removed so a signed query in a `Location` never reaches the
   model, bounded to 2,048 characters with control characters removed (the
@@ -239,10 +241,13 @@ The substrate, on current `master`:
   body cap aborted with `body_too_large`, and no retries. A non-2xx status
   other than a followed redirect status on the first request or a hop fails
   the call with `http_status` naming the status, and a 429 also carries
-  `Retry-After` when present; a probe's non-2xx status or refused content
-  type only disqualifies that candidate,
-  because the suffix probe and the `llms.txt` walk expect 404 as their
-  ordinary answer. Request count per call is bounded: one alternate, one
+  `Retry-After` when present; a probe's own failure — its non-2xx status, a
+  content type the read refuses, an oversized body, a headers timeout, an
+  unfollowable redirect, or a transport failure — disqualifies only that
+  candidate, because the suffix probe and the `llms.txt` walk expect 404 as
+  their ordinary answer. A spent call bound (`call_timeout`,
+  `too_many_redirects`), the caller's abort, and a refused hop end the call
+  from every probe. Request count per call is bounded: one alternate, one
   suffix probe, four `llms.txt` candidates, and 20 redirects in total
   (`too_many_redirects`), so at most 27 requests. Only `http` and `https` are
   admitted, userinfo in the locator fails `invalid_path`, and
@@ -404,9 +409,11 @@ The substrate, on current `master`:
 
 Ordered, for an HTML first response and without `:raw`. Every step requests
 with the same `Accept` header, under the same bounds, headers, per-hop
-admission, and redirect rules as the first request; a probe's non-2xx status
-or refused content type disqualifies that candidate and the pipeline
-continues.
+admission, and redirect rules as the first request; a probe's own failure — its
+non-2xx status, a refused content type, an oversized body, a headers timeout,
+an unfollowable redirect, or a transport failure — disqualifies that candidate
+and the pipeline continues, while a spent call bound, the caller's abort, or a
+refused hop ends the call from every probe.
 
 1. **Negotiation.** The first request sends
    `Accept: text/markdown, text/plain;q=0.9, text/html;q=0.8, */*;q=0.5`. A
@@ -636,6 +643,45 @@ new path.
   serves through a shared in-memory multi-range walk in `native-file-tools`,
   and an aborted run stops before the synchronous render. The resolved-address
   finding was rejected again as the settled deferral to #914.
+- v7 (2026-09-22): The `policy` layer's implementation decisions. A hop's
+  fragment is dropped before admission and before the request rather than
+  refused: the model cannot fix a server's `Location`, and dropping it keeps
+  the invariant a submitted fragment is refused for, that the text policy
+  matches is the URL fetched. A winning publisher-Markdown probe reports its
+  own response as `finalUrl`, since that response produced the content.
+  Derived-locator decisions reach run execution through a trusted
+  `onDerivedDecision` callback on the tool context and are recorded beside
+  the call decision in the completion payload, bounded at 27 entries, the
+  per-call request budget.
+- v8 (2026-09-22): The `policy` layer's GitHub review round. An announced
+  candidate's fragment is dropped before admission and before its request,
+  the same treatment a hop's fragment gets, and a candidate that carries
+  credentials is refused instead of fetched; the transport's own failure
+  messages are bounded and carry no locator; only a candidate-local failure
+  disqualifies a probe, so a spent deadline, redirect budget, or abort fails
+  the call from the `llms.txt` walk too; a refused hop's bounded target is
+  persisted beside its error and re-attached on replay; and the
+  derived-decision bound is corrected to 26, since the submitted locator is
+  decided at the execution gate rather than recorded as a derived decision.
+- v9 (2026-09-22): The `policy` layer's follow-up review round. The
+  candidate-local failure set is completed: a probe's `headers_timeout` and
+  `invalid_redirect` join `http_status`, `unsupported_content_type`,
+  `body_too_large`, and `network_error` as failures that disqualify only that
+  candidate, because the 10-second header bound is re-armed for each request
+  and an unfollowable redirect is that response's own defect; `call_timeout`,
+  `too_many_redirects`, `aborted`, and a hop's `permission_denied` still end
+  the call from every probe, the `llms.txt` walk included, and D3, D7, the
+  pipeline section, the runbook, the tasks file, and the changelog now state
+  that set. D3 no longer says a hop retains its fragment: a hop's fragment is
+  dropped before admission and before the request, as v7 decided. A stored
+  `rejectedUrl` is validated before it is re-attached: only a canonical
+  absolute `http(s)` WHATWG serialization — no userinfo, query, fragment, or
+  control characters, within the 2,048-character bound — on a
+  `permission_denied` error from the native `read` tool passes, enforced when
+  the tool-activity part is built, when it is re-read from the completion
+  payload, and when it is replayed to the model; any other tool or error type
+  is stored and replayed without it, so a mutated stored part cannot inject a
+  locator.
 - v10 (2026-09-22): Review corrections to the delta text, with no behaviour
   change: a selector is split only from a locator carrying no `?` and no `#`,
   so a colon in a query is part of the URL; a probe's redirect is followed
@@ -653,3 +699,44 @@ new path.
   rather than a portless address the next request would send elsewhere. The
   provenance scenario and task 3.2 now say a derived record carries its own
   reason and clause, matching the requirement.
+- v12 (2026-09-22): Live testing settled the two readings of `:N` and the
+  anchor question. A colon opens a selector only after the path separator, so
+  `https://example.test:88` is port 88, `https://example.test/:88` is line 88
+  of the root, and `https://example.test:88/:88` is both; a pathless locator is
+  admitted as its serialization, since the empty path's slash addresses the
+  same endpoint. A bare `N` joins the shipped selector grammar in
+  `packages/native-file-tools`, because a result's own line prefixes teach a
+  model to write it and refusing it bought nothing. A fragment is cut rather
+  than refused: the request drops it anyway, and refusing cost a call on the
+  anchored links models actually read. That admission is safe because
+  permission matching now projects a web locator through the read tool's own
+  parser, so the text a clause matches is the text the request uses — free text
+  inside a fragment cannot satisfy an allow the requested URL does not, which
+  the old verbatim matching would have permitted.
+- v13 (2026-09-22): A third live run found four defects in what the tool
+  returns and says. A `text/plain` body was treated as HTML on its first tag
+  alone, so a README opening with `<div align="center">` was Readability-
+  extracted down to three lines; the test is now an HTML document opener. A
+  readability render lost the page title, which Readability strips as the
+  article's own heading, so `https://example.com/` never named itself; the
+  title now leads the render. A host's root dot survived into the requested
+  URL, so `https://grokipedia.com./page` side-stepped a clause written for the
+  host; it is dropped before the locator is judged. A malformed port answered
+  with the generic "write an absolute URL", which is false — the locator is
+  absolute — so it now names the port rule, and the selector-miss message
+  names `:N` alongside the ranges.
+- v14 (2026-09-22): Normalization replaces refusal, and the permission
+  decision follows the same chain rule redirect hops use. Anything the WHATWG
+  parser can normalize — scheme and host case, an encoded or Unicode host, an
+  explicit default port, a host's root dot, an empty path, unencoded
+  characters, a fragment — is now requested rather than refused, because none
+  of it addresses a different resource and every refusal cost a call. The
+  decision is taken over both texts: a reject matching the submitted spelling
+  or the normalized one refuses, so an encoded host cannot slip past a clause
+  written for the host, while the allow is decided on the normalized text,
+  because an allow names the resource the call will reach and the two spellings
+  are one resource. A redirect hop stays a separate resource with its own
+  allow. A `text/plain` body is no longer sniffed for markup at all: only a
+  declared HTML type is rendered, since guessing structure on a body the
+  publisher called plain text is what discarded all but three lines of a
+  README.

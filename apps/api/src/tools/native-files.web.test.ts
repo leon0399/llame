@@ -7,9 +7,9 @@ import {
 } from './native-files';
 import { type ToolContext } from './types';
 import { createWebReadExecutor } from './web-read/execute';
-import { fetchWebDocument } from './web-read/http-client';
+import { createWebFetchSession } from './web-read/http-client';
 import { parseWebLocator } from './web-read/locator';
-import { renderWebDocument } from './web-read/pipeline';
+import { renderWebContent } from './web-read/pipeline';
 import { buildWebReadResult } from './web-read/result';
 
 const MARKDOWN = '# Guide\n\nA publisher-provided body for agents.\n';
@@ -233,30 +233,30 @@ describe('web locator dispatch', () => {
     ['Https://example.test/guide', 'https://example.test/guide'],
     ['HTTP://example.test/guide', 'http://example.test/guide'],
   ])(
-    'refuses the uppercase-scheme locator %s before any request',
+    'dispatches the uppercase-scheme locator %s to %s',
     async (path, canonical) => {
       const result = await nativeReadTool.execute(webContext(), { path });
 
-      expect(result).toMatchObject({ status: 'error', type: 'invalid_path' });
-      expect(JSON.stringify(result)).toContain(canonical);
-      expect(fetchDouble).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ status: 'success', path: canonical });
+      expect(fetchDouble).toHaveBeenCalledTimes(1);
+      expect(fetchDouble.mock.calls[0]?.[0]).toBe(canonical);
     },
   );
 
-  it('refuses a fragment locator before any request', async () => {
+  it('fetches a fragment locator without the fragment', async () => {
     const result = await nativeReadTool.execute(webContext(), {
       path: 'https://example.test/guide#top',
     });
 
-    // The fragment never reaches the server, so the request would target a URL
-    // the submitted text did not name; the refusal names the text to send
-    // instead, and nothing is fetched.
-    expect(result).toMatchObject({ status: 'error', type: 'invalid_path' });
-    expect(result).toHaveProperty(
-      'message',
-      'Write this locator as https://example.test/guide',
-    );
-    expect(fetchDouble).not.toHaveBeenCalled();
+    // The anchor never reaches the server, so it is cut before policy and
+    // before the request: the page is read, and `finalUrl` names the
+    // fragment-free locator that produced it.
+    expect(result).toMatchObject({
+      status: 'success',
+      finalUrl: 'https://example.test/guide',
+    });
+    expect(fetchDouble).toHaveBeenCalledTimes(1);
+    expect(fetchDouble.mock.calls[0]?.[0]).toBe('https://example.test/guide');
   });
 
   it('still reads the lowercase spelling of the same locator', async () => {
@@ -274,8 +274,8 @@ describe('web locator dispatch', () => {
   it('runs through the collaborators the executor was bound with', async () => {
     const execute = createWebReadExecutor({
       parseWebLocator,
-      fetchWebDocument,
-      renderWebDocument,
+      createWebFetchSession,
+      renderWebContent,
       buildWebReadResult,
       fetch: fetchDouble,
     });
@@ -295,18 +295,20 @@ describe('web locator dispatch', () => {
 
   it('does not start the render when the fetch resolves after the Run aborted', async () => {
     const abort = new AbortController();
-    const render = vi.fn(renderWebDocument);
-    // The client disposes its deadline, and the listener that reports a caller
-    // abort, before the body reaches this layer, so an abort that lands once
-    // the fetch has resolved is visible only to the guard under test.
-    const fetchThenAbort: typeof fetchWebDocument = async (
-      url,
-      options,
-      deps,
-    ) => {
-      const response = await fetchWebDocument(url, options, deps);
-      abort.abort();
-      return response;
+    const render = vi.fn(renderWebContent);
+    // The client's deadline, and the listener that reports a caller abort, are
+    // released when the session is disposed, so an abort that lands once the
+    // fetch has resolved is visible only to the guard under test.
+    const fetchThenAbort: typeof createWebFetchSession = (options, deps) => {
+      const session = createWebFetchSession(options, deps);
+      return {
+        fetch: async (url) => {
+          const response = await session.fetch(url);
+          abort.abort();
+          return response;
+        },
+        dispose: session.dispose,
+      };
     };
     fetchDouble.mockImplementationOnce(() =>
       Promise.resolve(
@@ -318,8 +320,8 @@ describe('web locator dispatch', () => {
     );
     const execute = createWebReadExecutor({
       parseWebLocator,
-      fetchWebDocument: fetchThenAbort,
-      renderWebDocument: render,
+      createWebFetchSession: fetchThenAbort,
+      renderWebContent: render,
       buildWebReadResult,
       fetch: fetchDouble,
     });
@@ -337,5 +339,56 @@ describe('web locator dispatch', () => {
     expect(fetchDouble).toHaveBeenCalledTimes(1);
     expect(render).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain(PARAGRAPH_TEXT);
+  });
+
+  it('disposes the call session on both the rendered and the refused path', async () => {
+    // The executor's `finally` is the only thing that releases the call timer
+    // and the listener on the caller's signal, so the double wraps the real
+    // session and counts its release on each path.
+    const dispose = vi.fn();
+    const sessionDouble: typeof createWebFetchSession = (options, deps) => {
+      const session = createWebFetchSession(options, deps);
+      return {
+        fetch: session.fetch,
+        dispose: () => {
+          session.dispose();
+          dispose();
+        },
+      };
+    };
+    const execute = createWebReadExecutor({
+      parseWebLocator,
+      createWebFetchSession: sessionDouble,
+      renderWebContent,
+      buildWebReadResult,
+      fetch: fetchDouble,
+    });
+
+    const rendered = await execute(webContext(), {
+      operation: 'read',
+      input: { path: 'https://example.test/guide' },
+    });
+
+    expect(rendered).toMatchObject({
+      status: 'success',
+      method: 'negotiated',
+    });
+    expect(dispose).toHaveBeenCalledTimes(1);
+
+    fetchDouble.mockImplementationOnce(() =>
+      Promise.resolve(
+        new Response('no such page', {
+          status: 404,
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+        }),
+      ),
+    );
+    const refused = await execute(webContext(), {
+      operation: 'read',
+      input: { path: 'https://example.test/guide' },
+    });
+
+    expect(refused).toMatchObject({ status: 'error', type: 'http_status' });
+    expect(dispose).toHaveBeenCalledTimes(2);
   });
 });

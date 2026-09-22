@@ -1,5 +1,66 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-22
+
+- The native `read` tool reads the web: an absolute `http://` or `https://`
+  locator is now a fourth `read` target beside absolute paths, `kb://`, and
+  `skill://` (#913). The read is fetched by the API process's own outbound HTTP
+  under the selectors, result bound, and `read` permission group a file read
+  already uses — there is no web tool id, `tools.allowed` entry, configuration
+  key, or advertisement condition, and `edit` and `write` reject a web locator
+  with `invalid_path` before any request. `read` is now advertised whenever
+  `tools.allowed` names it, because a web locator needs no native executor
+  identity. A submitted locator must be its own WHATWG URL serialization — an
+  uppercase, percent-encoded, or default-port variant, as well as a fragment
+  and userinfo, is refused with `invalid_path` rather than normalized — so the
+  text policy matched is the text the request sends, and no request carries a
+  credential.
+
+- A web read prefers what the publisher serves for agents. The first request
+  sends `Accept: text/markdown, text/plain;q=0.9, text/html;q=0.8, */*;q=0.5`,
+  and a Markdown or non-HTML plain-text body becomes the content ungated and
+  unconverted; otherwise the pipeline tries an announced Markdown alternate, a
+  `.md` suffix probe, a local Readability render converted with Turndown and
+  GFM tables, an `llms.txt` walk only after that render fails its quality gate,
+  and finally the raw body with a note. The result names the winning adapter as
+  `method` — `negotiated`, `alternate`, `md-suffix`, `readability`,
+  `llms-txt`, `text`, or `raw` — beside `finalUrl`, and a call issues at most
+  one alternate, one suffix probe, four `llms.txt` candidates, and 20
+  redirects.
+
+- Every derived locator is admitted like a submitted one. Redirects are
+  followed on any host for 301, 302, 303, 307, and 308, and each hop — the
+  `Location` value resolved against the redirecting request and serialized by
+  the WHATWG parser into the form policy sees, lowercase punycode host, no
+  default port, and a fragment dropped before admission and before the request
+  — is evaluated against the `read` group before its request. A redirect
+  without a parsable `Location`, or a hop carrying userinfo or a non-web
+  scheme, fails with `invalid_redirect` without naming the target, and
+  exceeding 20 hops fails the call with `too_many_redirects`. A refused hop
+  ends the call with `permission_denied`, the fixed hop message, and
+  `rejectedUrl` carrying the target's origin and path with query and fragment
+  removed; a refused probe locator only disqualifies its candidate, as does a
+  probe's own failure — its status, refused content type, oversized body,
+  headers timeout, unfollowable redirect, or failed transport. Each
+  derived-locator decision is recorded privately beside the call's own when the
+  call settles, with the same policy-instance id, in owner-scoped tool activity
+  and stored tool-part metadata, and never through the model-visible result.
+
+- The shipped recommended policy gains two `read.path` rejects: `^http://`,
+  which refuses cleartext HTTP, and a grokipedia clause covering subdomains and
+  a trailing-dot spelling. The web surface adds the error types
+  `headers_timeout`, `call_timeout`, `body_too_large`, `http_status` (with
+  `Retry-After` on a 429), `unsupported_content_type`, `invalid_redirect`,
+  `too_many_redirects`, `network_error`, and `aborted`, reuses
+  `invalid_path` and `invalid_selector` for locator refusals, and reports
+  `executor_unavailable` when instance configuration resolved no boot-time
+  version for `User-Agent: llame/<version>`. Four dependencies join the API
+  for the local render — `@mozilla/readability`, `turndown`,
+  `turndown-plugin-gfm`, and `linkedom` — and no HTTP client is added. Nothing
+  is cached, so a selector read refetches (#915); no address is inspected
+  before connecting (#914); and PDF and image bodies stay refused with their
+  type named (#916). Operator runbook: [docs/web-read.md](docs/web-read.md).
+
 # 2026-09-21
 
 - llame identifies itself on every language-model request. Each request now

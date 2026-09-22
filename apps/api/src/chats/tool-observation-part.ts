@@ -15,6 +15,7 @@ import type {
 
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
+import { isRejectedHopUrl } from '../tools/permissions/messages';
 import type { CompactionReplacementMessage } from '../db/schema/chats';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { loadPackagedTemplate } from '../prompts/template-engine';
@@ -52,6 +53,24 @@ const TOOL_CALL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/u;
 const TOOL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 const TOOL_OUTCOME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/u;
 
+/** The native `read` tool — the one tool whose refused redirect hop reports a
+ *  target (tools/web-read/http-client.ts). */
+const READ_TOOL_NAME = 'read';
+
+/** The error type a refused redirect hop reports. */
+const HOP_REJECTION_OUTCOME = 'permission_denied';
+
+/**
+ * Whether an observation is the native `read` tool's refused redirect hop —
+ * the only record that carries a `rejectedUrl`, on the way in as well as on
+ * the way back out. Any other tool or error type stores and replays the
+ * observation without it, whatever a stored part holds; a target that is
+ * carried is still validated by `isRejectedHopUrl` before it is rendered.
+ */
+export function isHopRejection(toolName: string, errorType: string): boolean {
+  return toolName === READ_TOOL_NAME && errorType === HOP_REJECTION_OUTCOME;
+}
+
 interface StoredToolPart {
   type: `tool-${string}`;
   toolCallId: string;
@@ -59,6 +78,13 @@ interface StoredToolPart {
   input: unknown;
   output?: unknown;
   errorText?: string;
+  /**
+   * The refused redirect target a hop rejection stored beside its error, part
+   * of the model-visible result rather than the excluded decision metadata;
+   * `isRejectedHopUrl` validates it and `isHopRejection` proves the record is
+   * a hop rejection before either reader renders it.
+   */
+  errorRejectedUrl?: unknown;
   outcome?: unknown;
   resultProviderMetadata?: unknown;
 }
@@ -167,15 +193,25 @@ function isNativeToolName(toolName: string): boolean {
 function resolveResultBody(
   part: StoredToolPart,
   native: boolean,
+  hopRejection: boolean,
 ): string | null {
   if (part.state === 'output-available' && part.output !== undefined) {
     return serializePayload(part.output, native);
   }
-  return isString(part.errorText) && part.errorText.length > 0
-    ? native
-      ? serializeNativeModelOutput(part.errorText)
-      : part.errorText
-    : null;
+  if (!isString(part.errorText) || part.errorText.length === 0) return null;
+  const body = native
+    ? serializeNativeModelOutput(part.errorText)
+    : part.errorText;
+  // The fixed hop message points the model at `rejectedUrl`, which the stored
+  // part keeps beside its error: re-attach the stored locator to the body the
+  // model reads — never to the message itself — so a target refused on an
+  // earlier turn stays identifiable on every turn that replays that part. The
+  // part must still be the native `read` tool's hop rejection and the stored
+  // value the exact locator `rejectedHopUrl` writes, or nothing is attached.
+  const rejectedUrl = part.errorRejectedUrl;
+  return hopRejection && isRejectedHopUrl(rejectedUrl)
+    ? `${body}\nrejectedUrl: ${rejectedUrl}`
+    : body;
 }
 
 function resultText(outcome: string, body: string | null): string {
@@ -428,7 +464,11 @@ function storedObservations(
           ? 'incomplete'
           : outcome,
       input: part.input,
-      resultBody: resolveResultBody(part, isNativeToolName(toolName)),
+      resultBody: resolveResultBody(
+        part,
+        isNativeToolName(toolName),
+        isHopRejection(toolName, outcome),
+      ),
     });
   });
   return observations;

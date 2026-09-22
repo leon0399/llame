@@ -1,5 +1,13 @@
-import { passesQualityGate, renderWebDocument } from './pipeline';
-import type { WebResponse } from './http-client';
+import { REJECTED_HOP_MESSAGE } from '../permissions/messages';
+import type { PermissionDecision } from '../permissions/types';
+import type { DerivedLocatorKind } from './admission';
+import type { WebFetchFailure, WebResponse } from './http-client';
+import {
+  passesQualityGate,
+  renderWebContent,
+  renderWebDocument,
+} from './pipeline';
+import type { WebPipelineDeps, WebRender } from './pipeline';
 
 const BASE_URL = 'https://docs.example.test/guides/adapter-pipelines';
 
@@ -91,7 +99,105 @@ const response = (
   contentType: string,
   body: string,
   finalUrl = BASE_URL,
-): WebResponse => ({ finalUrl, contentType, body });
+  link?: string,
+): WebResponse => ({
+  finalUrl,
+  contentType,
+  body,
+  ...(link !== undefined && { link }),
+});
+
+/** A publisher Markdown body: over the gate's length, long lines, no markup. */
+const PUBLISHER_MARKDOWN = `# Adapter pipelines for agent web reads
+
+A publisher that serves Markdown for agents hands over the higher-fidelity body
+without a local conversion, so the read costs one request and keeps the
+publisher's own headings, links, and tables.
+`;
+
+/** An `llms.txt` index: short link lines the quality gate refuses, and exactly
+ *  what the walk's length-and-shape rule exists to accept. */
+const LLMS_TXT = `# Example Docs
+
+- [Adapter pipelines](https://docs.example.test/guides/adapter-pipelines)
+- [Negotiation](https://docs.example.test/guides/negotiation)
+- [Local render](https://docs.example.test/guides/render)
+`;
+
+/** The answer every real probe expects: the candidate is simply not there. */
+const NOT_FOUND: WebFetchFailure = {
+  type: 'http_status',
+  message: 'The server answered HTTP 404.',
+};
+
+/** The `read` group's own allow, shaped as the evaluator reports it. */
+const ALLOWED: PermissionDecision = {
+  policyId: 'test-policy',
+  decision: 'allow',
+  reason: 'matched_allow',
+  reference: { groupId: 'read', list: 'allow', clauseIndex: null },
+};
+
+/** A `read` clause that admits no derived locator at all. */
+const REFUSED: PermissionDecision = {
+  policyId: 'test-policy',
+  decision: 'reject',
+  reason: 'no_allow',
+  reference: null,
+};
+
+type PipelineHarness = {
+  readonly deps: WebPipelineDeps;
+  readonly requested: Array<string>;
+  readonly admitted: Array<string>;
+};
+
+/**
+ * A pipeline over an injected client and policy: `answers` names the URLs the
+ * site serves (every other request answers 404), and `refused` names the
+ * locators the `read` group rejects. Both calls are recorded, so a test can
+ * tell a locator that was decided from one that was requested.
+ */
+function makePipeline(
+  answers: Record<string, WebResponse | WebFetchFailure>,
+  refused: ReadonlyArray<string> = [],
+): PipelineHarness {
+  const requested: Array<string> = [];
+  const admitted: Array<string> = [];
+
+  return {
+    requested,
+    admitted,
+    deps: {
+      fetch: (url) => {
+        requested.push(url);
+
+        return Promise.resolve(answers[url] ?? NOT_FOUND);
+      },
+      admit: (kind: DerivedLocatorKind, url: string) => {
+        admitted.push(url);
+
+        return refused.includes(url) ? REFUSED : ALLOWED;
+      },
+    },
+  };
+}
+
+/** The pipeline's render, failing the test when the call failed instead. */
+async function runPipeline(
+  page: WebResponse,
+  harness: PipelineHarness,
+  options: { readonly raw: boolean } = { raw: false },
+): Promise<WebRender> {
+  const result = await renderWebContent(page, options, harness.deps);
+  if ('type' in result) {
+    throw new Error(
+      `the pipeline failed with ${result.type}: ${result.message}`,
+    );
+  }
+
+  return result;
+}
 
 describe('renderWebDocument', () => {
   it('takes a negotiated Markdown body as served', () => {
@@ -181,18 +287,62 @@ describe('renderWebDocument', () => {
     expect(render.content).not.toContain('<article>');
   });
 
-  it('renders a text/plain body that is HTML-shaped', () => {
-    const render = renderWebDocument(
-      response('text/plain', PLAIN_SERVED_HTML),
-      {
-        raw: false,
-      },
-    );
+  it('returns a text/plain body as served, whatever it looks like', () => {
+    // Rendering guesses at structure, and guessing on a body the publisher
+    // declared as plain text costs more than it returns: only a declared
+    // HTML type is rendered, so an HTML document served as `text/plain` is
+    // returned as its own text and a Markdown file that opens with an inline
+    // block keeps every line.
+    const html = renderWebDocument(response('text/plain', PLAIN_SERVED_HTML), {
+      raw: false,
+    });
+    expect(html.method).toBe('negotiated');
+    expect(html.content).toBe(PLAIN_SERVED_HTML);
+
+    const readme = [
+      '<div align="center">',
+      '  <img src="logo.svg" alt="Logo">',
+      '</div>',
+      '',
+      '# The project',
+      '',
+      'A paragraph long enough to clear the quality gate on its own, which is',
+      'what a real README has after its banner block and what the reader must',
+      'return untouched rather than extract.',
+    ].join('\n');
+    const render = renderWebDocument(response('text/plain', readme), {
+      raw: false,
+    });
+    expect(render.method).toBe('negotiated');
+    expect(render.content).toBe(readme);
+  });
+
+  it('leads a readability render with the page title', () => {
+    // Readability treats the title as the article's own heading and strips
+    // it, so `https://example.com/` rendered three lines that never said
+    // "Example Domain".
+    const page = [
+      '<!doctype html><html><head><title>Example Domain</title></head><body>',
+      '<div><p>This domain is for use in documentation examples without',
+      'needing permission. Avoid use in operations, and read the referenced',
+      'document for the policy that governs it.</p></div>',
+      '</body></html>',
+    ].join('\n');
+
+    const render = renderWebDocument(response('text/html', page), {
+      raw: false,
+    });
 
     expect(render.method).toBe('readability');
-    expect(render.content).toContain('## Rendered from a text/plain response');
-    expect(render.content).toContain('renders its main content instead');
-    expect(render.content).not.toContain('<article>');
+    expect(render.content.startsWith('# Example Domain\n')).toBe(true);
+
+    // A page whose content already opens with its title is not given a
+    // second one.
+    const titled = page.replace('<div>', '<div><h1>Example Domain</h1>');
+    const second = renderWebDocument(response('text/html', titled), {
+      raw: false,
+    });
+    expect(second.content.split('Example Domain')).toHaveLength(2);
   });
 
   it('renders an article to Markdown with GFM tables, fenced code, and links', () => {
@@ -356,6 +506,20 @@ describe('passesQualityGate', () => {
     expect(passesQualityGate(lines(2))).toBe(false);
   });
 
+  it('keeps a long document whose lines are mostly short', () => {
+    // A reference page — the CommonMark spec renders 6821 non-blank lines,
+    // 88 percent of them under 40 characters — is a document, not chrome, and
+    // the fallback would be the raw HTML of the same page. The exemption is
+    // 40 substantial lines: 39 long lines among 400 short ones still fail.
+    const document = (longCount: number): string =>
+      [
+        ...Array.from({ length: longCount }, () => LONG_LINE),
+        ...Array.from({ length: 400 }, () => SHORT_LINE),
+      ].join('\n');
+    expect(passesQualityGate(document(40))).toBe(true);
+    expect(passesQualityGate(document(39))).toBe(false);
+  });
+
   it('counts only lines that hold text', () => {
     // Seven short and three long lines are exactly 70 percent short, so the
     // text passes; a blank line counted as a short line would tip it over.
@@ -401,5 +565,693 @@ describe('passesQualityGate', () => {
     const paddedBody = `\n${'a'.repeat(1023 - 'captcha'.length)}captcha\n`;
 
     expect(passesQualityGate(paddedBody)).toBe(false);
+  });
+});
+
+describe('renderWebContent', () => {
+  /** The page URL the pipeline resolves every derived locator against. */
+  const PAGE = BASE_URL;
+
+  /** `ARTICLE_HTML` plus the head declaration the alternate adapter reads. */
+  const ARTICLE_WITH_HEAD_ALTERNATE_HTML = ARTICLE_HTML.replace(
+    '<head>',
+    '<head><link rel="alternate" type="text/markdown" href="/guides/adapter-pipelines.md">',
+  );
+
+  /** The same announcement inside the body, where markup a contributor wrote —
+   *  a comment, an issue body — lands on a page that renders it. */
+  const ARTICLE_WITH_BODY_ALTERNATE_HTML = ARTICLE_HTML.replace(
+    '<body>',
+    '<body><link rel="alternate" type="text/markdown" href="/injected.md">',
+  );
+
+  /** The same announcement inside a bare fragment, which the wrapper re-parse
+   *  puts in a `body` the head never holds. */
+  const FRAGMENT_WITH_ALTERNATE_HTML = FRAGMENT_HTML.replace(
+    '<div>',
+    '<div><link rel="alternate" type="text/markdown" href="/injected.md">',
+  );
+
+  const linkHeader = (target: string, relation = 'alternate'): string =>
+    `<${target}>; rel="${relation}"; type="text/markdown"`;
+
+  it('fetches a Markdown alternate announced by the Link header', async () => {
+    const alternate = `${PAGE}.md`;
+    const harness = makePipeline({
+      [alternate]: response('text/markdown', PUBLISHER_MARKDOWN, alternate),
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE, linkHeader(alternate)),
+      harness,
+    );
+
+    expect(render.method).toBe('alternate');
+    expect(render.content).toBe(PUBLISHER_MARKDOWN);
+    expect(render.finalUrl).toBe(alternate);
+    expect(harness.requested).toEqual([alternate]);
+  });
+
+  it.each([
+    ['a relation that is not an alternate', linkHeader(PAGE, 'canonical')],
+    [
+      'a type that is not Markdown',
+      '<%s>; rel="alternate"; type="application/pdf"',
+    ],
+    ['a value that carries no target', 'rel="alternate"; type="text/markdown"'],
+  ])('ignores a Link header carrying %s', async (_name, header) => {
+    const alternate = 'https://docs.example.test/md/guide.md';
+    const harness = makePipeline({});
+
+    const render = await runPipeline(
+      response(
+        'text/html',
+        ARTICLE_HTML,
+        PAGE,
+        header.replace('%s', alternate),
+      ),
+      harness,
+    );
+
+    expect(render.method).toBe('readability');
+    expect(harness.requested).not.toContain(alternate);
+  });
+
+  it('fetches a head alternate resolved against the page URL', async () => {
+    const alternate = `${PAGE}.md`;
+    const harness = makePipeline({
+      [alternate]: response('text/markdown', PUBLISHER_MARKDOWN, alternate),
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_WITH_HEAD_ALTERNATE_HTML, PAGE),
+      harness,
+    );
+
+    expect(render.method).toBe('alternate');
+    expect(render.content).toBe(PUBLISHER_MARKDOWN);
+    expect(render.finalUrl).toBe(alternate);
+    expect(harness.requested).toEqual([alternate]);
+  });
+
+  it.each([
+    ['a body', ARTICLE_WITH_BODY_ALTERNATE_HTML, '## Negotiation'],
+    ['a wrapped fragment', FRAGMENT_WITH_ALTERNATE_HTML, '## Fragment render'],
+  ])('ignores an alternate link in %s', async (_name, html, prose) => {
+    const injected = 'https://docs.example.test/injected.md';
+    // The injected locator answers with Markdown, so only the head scoping
+    // keeps it from becoming the content: markup a contributor wrote must not
+    // choose what the read returns.
+    const harness = makePipeline({
+      [injected]: response('text/markdown', PUBLISHER_MARKDOWN, injected),
+    });
+
+    const render = await runPipeline(
+      response('text/html', html, PAGE),
+      harness,
+    );
+
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain(prose);
+    expect(harness.requested).not.toContain(injected);
+  });
+
+  it('reads a relation and type spelled differently, and finds a later value', async () => {
+    const alternate = `${PAGE}.md`;
+    const harness = makePipeline({
+      [alternate]: response('text/markdown', PUBLISHER_MARKDOWN, alternate),
+    });
+    // A non-alternate value first, an unquoted relation, and a parameterized
+    // type in another case: the second value is the announcement.
+    const header = [
+      '<https://docs.example.test/api>; rel=describedby; type=application/json',
+      `<${alternate}>; rel="Alternate"; type="TEXT/MARKDOWN; charset=utf-8"`,
+    ].join(', ');
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE, header),
+      harness,
+    );
+
+    expect(render.method).toBe('alternate');
+    expect(harness.requested).toEqual([alternate]);
+  });
+
+  it('drops the fragment of an announced alternate before admission and request', async () => {
+    const alternate = `${PAGE}.md`;
+    const harness = makePipeline({
+      [alternate]: response('text/markdown', PUBLISHER_MARKDOWN, alternate),
+    });
+
+    const render = await runPipeline(
+      response(
+        'text/html',
+        ARTICLE_HTML,
+        PAGE,
+        linkHeader(`${alternate}#section`),
+      ),
+      harness,
+    );
+
+    // A fragment never leaves the process, so admission and the request see
+    // the fragment-free text — the locator the hop path would hand the client.
+    expect(render.method).toBe('alternate');
+    expect(render.finalUrl).toBe(alternate);
+    expect(harness.admitted).toEqual([alternate]);
+    expect(harness.requested).toEqual([alternate]);
+  });
+
+  it('blocks a fragment-bearing announcement with a reject on the fragment-free URL', async () => {
+    const target = 'https://blocked.example/doc';
+    // The reject clause names the URL the request would use; the announcement
+    // carries a fragment, which the request would drop.
+    const harness = makePipeline(
+      { [target]: response('text/markdown', PUBLISHER_MARKDOWN, target) },
+      [target],
+    );
+
+    const render = await runPipeline(
+      response(
+        'text/html',
+        ARTICLE_HTML,
+        PAGE,
+        linkHeader(`${target}#section`),
+      ),
+      harness,
+    );
+
+    // The candidate is admitted as the text the clause matches, so the blocked
+    // resource is never requested; the page's own suffix probe is the only
+    // request the call makes.
+    expect(harness.admitted).toContain(target);
+    expect(render.method).toBe('readability');
+    expect(harness.requested).toEqual([`${PAGE}.md`]);
+  });
+
+  it.each([
+    ['a non-web target', '<file:///etc/passwd>'],
+    ['a target that is not a URL', '<https://>'],
+    ['an empty target', '<   >'],
+    [
+      'a target that carries credentials',
+      '<https://user:secret@evil.test/page.md>',
+    ],
+  ])('ignores an announced alternate with %s', async (_name, target) => {
+    const harness = makePipeline({});
+
+    const render = await runPipeline(
+      response(
+        'text/html',
+        ARTICLE_HTML,
+        PAGE,
+        `${target}; rel="alternate"; type="text/markdown"`,
+      ),
+      harness,
+    );
+
+    expect(render.method).toBe('readability');
+    // Only the suffix probe was issued: the announcement never became a
+    // request of its own.
+    expect(harness.requested).toEqual([`${PAGE}.md`]);
+  });
+
+  it('ignores an announced alternate that carries credentials', async () => {
+    const announced = 'https://user:secret@evil.test/page.md';
+    // The real client cannot construct this request and repeats the URL
+    // verbatim in its `network_error`, so admitting the announcement would put
+    // the credential into the result the model reads.
+    const harness = makePipeline({
+      [announced]: {
+        type: 'network_error',
+        message: `Request cannot be constructed from a URL that includes credentials: ${announced}`,
+      },
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE, linkHeader(announced)),
+      harness,
+    );
+
+    expect(render.method).toBe('readability');
+    // The refused announcement never became a request, and nothing that came
+    // out of the call names the credential or the host it pointed at.
+    expect(harness.requested).toEqual([`${PAGE}.md`]);
+    expect(JSON.stringify(render)).not.toContain('secret');
+    expect(JSON.stringify(render)).not.toContain('evil.test');
+  });
+
+  it.each([
+    [
+      'https://docs.example.test/a/b.html',
+      'https://docs.example.test/a/b.html.md',
+    ],
+    ['https://docs.example.test/a/b', 'https://docs.example.test/a/b.md'],
+    [
+      'https://docs.example.test/a/b/',
+      'https://docs.example.test/a/b/index.md',
+    ],
+  ])('probes the Markdown suffix of %s', async (pageUrl, candidate) => {
+    const harness = makePipeline({
+      [candidate]: response('text/markdown', PUBLISHER_MARKDOWN, candidate),
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, pageUrl),
+      harness,
+    );
+
+    expect(render.method).toBe('md-suffix');
+    expect(render.content).toBe(PUBLISHER_MARKDOWN);
+    expect(render.finalUrl).toBe(candidate);
+    expect(harness.requested).toEqual([candidate]);
+  });
+
+  it('reports where a probe landed when the probe itself followed a redirect', async () => {
+    const alternate = `${PAGE}.md`;
+    const landed = 'https://cdn.example.test/guides/adapter-pipelines.md';
+    const harness = makePipeline({
+      [alternate]: response('text/markdown', PUBLISHER_MARKDOWN, landed),
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE, linkHeader(alternate)),
+      harness,
+    );
+
+    expect(render.method).toBe('alternate');
+    // The probe's own response, not the URL the pipeline requested, is where
+    // the content came from.
+    expect(render.finalUrl).toBe(landed);
+  });
+
+  it('renders the page when the suffix probe finds nothing', async () => {
+    const harness = makePipeline({});
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE),
+      harness,
+    );
+
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain('## Negotiation');
+    expect(render.finalUrl).toBeUndefined();
+    expect(harness.requested).toEqual([`${PAGE}.md`]);
+  });
+
+  it('disqualifies a candidate whose content type the client refused', async () => {
+    const harness = makePipeline({
+      [`${PAGE}.md`]: {
+        type: 'unsupported_content_type',
+        message: 'Unsupported content type "application/pdf".',
+      },
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE),
+      harness,
+    );
+
+    expect(render.method).toBe('readability');
+  });
+
+  it('disqualifies a Markdown candidate that is markup', async () => {
+    // Long and line-wise nothing like a stub, so only the shape test keeps an
+    // HTML error page from becoming the content.
+    const errorPage = `<html><body><p>${'not found here '.repeat(20)}</p></body></html>`;
+    const harness = makePipeline({
+      [`${PAGE}.md`]: response('text/html', errorPage, `${PAGE}.md`),
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE),
+      harness,
+    );
+
+    expect(render.method).toBe('readability');
+  });
+
+  it('disqualifies an alternate whose host never answers headers', async () => {
+    const alternate = 'https://cdn.example.test/guides/adapter-pipelines.md';
+    const harness = makePipeline({
+      [alternate]: {
+        type: 'headers_timeout',
+        message: 'The server sent no response headers within 10 seconds.',
+      },
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE, linkHeader(alternate)),
+      harness,
+    );
+
+    // The client re-arms the header bound for every request, so the silent
+    // host spent only its own allowance: the call keeps the page render it has
+    // and never asks that candidate again.
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain('## Negotiation');
+    expect(render.finalUrl).toBeUndefined();
+    expect(harness.requested).toEqual([alternate, `${PAGE}.md`]);
+  });
+
+  it('disqualifies an alternate whose redirect lands on a refused host', async () => {
+    const alternate = 'https://cdn.example.test/guides/adapter-pipelines.md';
+    const refused = 'https://evil.example.test/steal?token=secret';
+    const harness = makePipeline({
+      [alternate]: {
+        type: 'permission_denied',
+        message: REJECTED_HOP_MESSAGE,
+        rejectedUrl: 'https://evil.example.test/steal',
+      },
+      // The refused target answers Markdown, so a read that requested it
+      // anyway would take it as the alternate instead of the page render.
+      [refused]: response('text/markdown', PUBLISHER_MARKDOWN, refused),
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE, linkHeader(alternate)),
+      harness,
+    );
+
+    // The candidate is admitted before its request, so the only locator of its
+    // chain the `read` group can refuse is the hop it redirects to. That
+    // refusal is the candidate's own bad answer, exactly as a directly-refused
+    // alternate locator is, so the page render the call already holds decides
+    // and the refused target is never requested.
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain('## Negotiation');
+    expect(render.finalUrl).toBeUndefined();
+    expect(harness.requested).toEqual([alternate, `${PAGE}.md`]);
+  });
+
+  it('disqualifies a probe that answered a redirect it cannot follow', async () => {
+    const pageUrl = 'https://docs.example.test/a/b/c';
+    const candidate = `${pageUrl}.md`;
+    const harness = makePipeline({
+      [candidate]: {
+        type: 'invalid_redirect',
+        message: 'The server answered with a redirect this tool cannot follow.',
+      },
+      [`${pageUrl}/llms.txt`]: response(
+        'text/markdown',
+        LLMS_TXT,
+        `${pageUrl}/llms.txt`,
+      ),
+    });
+
+    const render = await runPipeline(
+      response('text/html', NAV_ONLY_HTML, pageUrl),
+      harness,
+    );
+
+    // The followable `Location` the response lacked is that candidate's own
+    // defect, so the walk still decides.
+    expect(render.method).toBe('llms-txt');
+    expect(render.content).toBe(LLMS_TXT);
+    expect(harness.requested).toEqual([candidate, `${pageUrl}/llms.txt`]);
+  });
+
+  it('disqualifies a suffix candidate whose redirect lands on a refused host', async () => {
+    const harness = makePipeline({
+      [`${PAGE}.md`]: {
+        type: 'permission_denied',
+        message: REJECTED_HOP_MESSAGE,
+        rejectedUrl: 'https://evil.example.test/guides/adapter-pipelines.md',
+      },
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE),
+      harness,
+    );
+
+    // A refused hop of the sibling's own chain is that candidate's answer
+    // alone, so the page render stands, exactly as it does for an alternate
+    // whose hop was refused.
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain('## Negotiation');
+    expect(render.finalUrl).toBeUndefined();
+    expect(harness.requested).toEqual([`${PAGE}.md`]);
+  });
+
+  it('probes the suffix of the path, without the page query or fragment', async () => {
+    const candidate = 'https://docs.example.test/a/b.md';
+    const harness = makePipeline({
+      [candidate]: response('text/markdown', PUBLISHER_MARKDOWN, candidate),
+    });
+
+    const render = await runPipeline(
+      response(
+        'text/html',
+        ARTICLE_HTML,
+        'https://docs.example.test/a/b?x=1#top',
+      ),
+      harness,
+    );
+
+    expect(render.method).toBe('md-suffix');
+    expect(harness.requested).toEqual([candidate]);
+  });
+
+  it('probes nothing for a page that is not a web locator', async () => {
+    // The client only ever reports an http(s) final URL, so this is the
+    // fail-safe: a locator the tool could not have fetched derives nothing.
+    const harness = makePipeline({});
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, 'file:///etc/passwd'),
+      harness,
+    );
+
+    expect(render.method).toBe('readability');
+    expect(harness.requested).toEqual([]);
+  });
+
+  it('skips a refused alternate without failing the call', async () => {
+    const alternate = 'https://evil.example/guide.md';
+    const harness = makePipeline({}, [alternate]);
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE, linkHeader(alternate)),
+      harness,
+    );
+
+    // Decided before any request, and the call still ends with content.
+    expect(harness.admitted).toContain(alternate);
+    expect(harness.requested).not.toContain(alternate);
+    expect(render.method).toBe('readability');
+  });
+
+  it('walks llms.txt from the page scope to the root after a gated render', async () => {
+    const pageUrl = 'https://docs.example.test/a/b/c';
+    const root = 'https://docs.example.test/llms.txt';
+    const harness = makePipeline({
+      [root]: response('text/plain', LLMS_TXT, root),
+    });
+
+    const render = await runPipeline(
+      response('text/html', NAV_ONLY_HTML, pageUrl),
+      harness,
+    );
+
+    expect(render.method).toBe('llms-txt');
+    expect(render.content).toBe(LLMS_TXT);
+    expect(render.finalUrl).toBe(root);
+    expect(harness.requested).toEqual([
+      `${pageUrl}.md`,
+      `${pageUrl}/llms.txt`,
+      'https://docs.example.test/a/b/llms.txt',
+      'https://docs.example.test/a/llms.txt',
+      root,
+    ]);
+  });
+
+  it('leaves the raw fallback standing when an llms.txt candidate fails on its own', async () => {
+    const pageUrl = 'https://docs.example.test/a/b/c';
+    const failure: WebFetchFailure = {
+      type: 'network_error',
+      message: 'The transport failed.',
+    };
+    const harness = makePipeline({ [`${pageUrl}/llms.txt`]: failure });
+
+    const render = await runPipeline(
+      response('text/html', NAV_ONLY_HTML, pageUrl),
+      harness,
+    );
+
+    // A candidate-local failure — here the page's own scope answering
+    // `network_error` — is the candidate's own answer and cannot cost the call
+    // the fallback it already holds.
+    expect(render.method).toBe('raw');
+    expect(render.content).toBe(NAV_ONLY_HTML);
+  });
+
+  it('disqualifies an llms.txt candidate whose redirect lands on a refused host', async () => {
+    const pageUrl = 'https://docs.example.test/a/b/c';
+    const root = 'https://docs.example.test/llms.txt';
+    const harness = makePipeline({
+      [`${pageUrl}/llms.txt`]: {
+        type: 'permission_denied',
+        message: REJECTED_HOP_MESSAGE,
+        rejectedUrl: 'https://evil.example.test/llms.txt',
+      },
+      [root]: response('text/plain', LLMS_TXT, root),
+    });
+
+    const render = await runPipeline(
+      response('text/html', NAV_ONLY_HTML, pageUrl),
+      harness,
+    );
+
+    // The refused hop belongs to the page scope's own chain, so it disqualifies
+    // that candidate alone and the walk goes on to the root instead of ending
+    // the call.
+    expect(render.method).toBe('llms-txt');
+    expect(render.content).toBe(LLMS_TXT);
+    expect(render.finalUrl).toBe(root);
+    expect(harness.requested).toEqual([
+      `${pageUrl}.md`,
+      `${pageUrl}/llms.txt`,
+      'https://docs.example.test/a/b/llms.txt',
+      'https://docs.example.test/a/llms.txt',
+      root,
+    ]);
+  });
+
+  it.each([
+    ['call_timeout', 'The web read exceeded its 30-second budget.'],
+    ['too_many_redirects', 'The read followed more than 20 redirects.'],
+    ['aborted', 'The web read was cancelled.'],
+  ])(
+    'fails the call when an llms.txt candidate answers %s',
+    async (type, message) => {
+      const pageUrl = 'https://docs.example.test/a/b/c';
+      const failure: WebFetchFailure = { type, message };
+      const harness = makePipeline({ [`${pageUrl}/llms.txt`]: failure });
+
+      const result = await renderWebContent(
+        response('text/html', NAV_ONLY_HTML, pageUrl),
+        { raw: false },
+        harness.deps,
+      );
+
+      // A bound of the call is spent, so the walk stops there and the render
+      // the call already holds is not what it reports.
+      expect(result).toStrictEqual(failure);
+      expect(harness.requested).toEqual([
+        `${pageUrl}.md`,
+        `${pageUrl}/llms.txt`,
+      ]);
+    },
+  );
+
+  it('bounds the call to one alternate, one suffix probe, and four llms.txt candidates', async () => {
+    const pageUrl = 'https://docs.example.test/a/b/c/d';
+    const alternate = `${pageUrl}.md`;
+    const harness = makePipeline({});
+
+    const render = await runPipeline(
+      response('text/html', NAV_ONLY_HTML, pageUrl, linkHeader(alternate)),
+      harness,
+    );
+
+    expect(render.method).toBe('raw');
+    expect(render.finalUrl).toBeUndefined();
+    expect(harness.requested).toEqual([
+      alternate,
+      `${pageUrl}.md`,
+      `${pageUrl}/llms.txt`,
+      'https://docs.example.test/a/b/c/llms.txt',
+      'https://docs.example.test/a/b/llms.txt',
+      'https://docs.example.test/llms.txt',
+    ]);
+    expect(
+      harness.requested.filter((url) => url.endsWith('llms.txt')),
+    ).toHaveLength(4);
+  });
+
+  it('ends the call when a probe fails for more than its own candidate', async () => {
+    const failure: WebFetchFailure = {
+      type: 'too_many_redirects',
+      message: 'The read followed more than 20 redirects.',
+    };
+    const harness = makePipeline({ [`${PAGE}.md`]: failure });
+
+    const result = await renderWebContent(
+      response('text/html', ARTICLE_HTML, PAGE),
+      { raw: false },
+      harness.deps,
+    );
+
+    expect(result).toStrictEqual(failure);
+  });
+
+  it.each([
+    ['call_timeout', 'The web read exceeded its 30-second budget.'],
+    ['too_many_redirects', 'The read followed more than 20 redirects.'],
+  ])(
+    'fails the call when the alternate probe answers %s',
+    async (type, message) => {
+      const alternate = `${PAGE}.md`;
+      const failure: WebFetchFailure = { type, message };
+      const harness = makePipeline({ [alternate]: failure });
+
+      const result = await renderWebContent(
+        response('text/html', ARTICLE_HTML, PAGE, linkHeader(alternate)),
+        { raw: false },
+        harness.deps,
+      );
+
+      // The probe spent a bound of the call itself, so the call ends at the
+      // first probe and the page render it already holds is not what it
+      // reports.
+      expect(result).toStrictEqual(failure);
+      expect(harness.requested).toEqual([alternate]);
+    },
+  );
+
+  it.each([
+    [
+      'a negotiated Markdown body',
+      'text/markdown',
+      PUBLISHER_MARKDOWN,
+      'negotiated',
+    ],
+    [
+      'a negotiated plain-text body',
+      'text/plain',
+      PUBLISHER_MARKDOWN,
+      'negotiated',
+    ],
+    [
+      'a body outside the negotiation set',
+      'application/json',
+      '{"a":1}',
+      'text',
+    ],
+  ])('issues no probe for %s', async (_name, contentType, body, method) => {
+    const harness = makePipeline({});
+
+    const render = await runPipeline(
+      response(contentType, body, PAGE),
+      harness,
+    );
+
+    expect(render.method).toBe(method);
+    expect(render.finalUrl).toBeUndefined();
+    expect(harness.requested).toEqual([]);
+  });
+
+  it('makes no probe request in raw mode', async () => {
+    const harness = makePipeline({});
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE, linkHeader(`${PAGE}.md`)),
+      harness,
+      { raw: true },
+    );
+
+    expect(render.finalUrl).toBeUndefined();
+    expect(render).toStrictEqual({ method: 'raw', content: ARTICLE_HTML });
+    expect(harness.requested).toEqual([]);
   });
 });

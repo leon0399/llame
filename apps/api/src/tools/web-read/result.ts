@@ -4,6 +4,7 @@ import {
   measureNativeModelOutput,
   selectMultiRangeLines,
   selectSourceLines,
+  splitSourceLines,
   type ReadSuccess,
   type ReadTarget,
 } from '@workspace/native-file-tools';
@@ -30,12 +31,14 @@ type WebResultEnvelope = {
   notes?: ReadonlyArray<string>;
 };
 
+/** The envelope reports where the content came from: a probe that won names
+ *  its own response's URL, and every other render names the call's. */
 function webResultEnvelope(
   response: WebResponse,
   render: WebRender,
 ): WebResultEnvelope {
   const envelope: WebResultEnvelope = {
-    finalUrl: response.finalUrl,
+    finalUrl: render.finalUrl ?? response.finalUrl,
     method: render.method,
   };
   const notes = render.notes ?? [];
@@ -70,6 +73,36 @@ export function buildWebReadResult(
     return { ...read, ...envelope };
   } catch (error) {
     if (!(error instanceof NativeFileError)) throw error;
-    return { status: 'error', type: error.type, message: error.message };
+    return {
+      status: 'error',
+      type: error.type,
+      // `NativeFileError` defaults its message to its type, which tells the
+      // model nothing; only wording the thrower chose is worth passing on,
+      // and only a selector failure earns selector guidance.
+      message:
+        error.message === error.type && error.type === 'invalid_selector'
+          ? selectorFailureMessage(render.content, locator.selector)
+          : error.message,
+    };
   }
+}
+
+/**
+ * A selector the render could not serve carries no message of its own, and a
+ * bare error type tells the model nothing it can act on: a page's length is
+ * unknown until it is read, so the count it should have selected within is
+ * the one fact worth reporting.
+ */
+function selectorFailureMessage(
+  content: string,
+  selector: string | undefined,
+): string {
+  const lines = splitSourceLines(content).length;
+  const written = selector === undefined ? '' : `:${selector} `;
+  // A render with no lines has no range to point at, so the sentence that
+  // would name one is left out rather than naming `1-0`.
+  if (lines === 0) {
+    return `The selector ${written}selected no line of this page, which rendered no text.`;
+  }
+  return `The selector ${written}selected no line of this page, which rendered ${lines} line${lines === 1 ? '' : 's'} numbered from 1. Write :N, :N-M, or :N+K within 1-${lines}, or omit the selector to read from the start.`;
 }

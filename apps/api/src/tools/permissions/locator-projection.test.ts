@@ -77,6 +77,29 @@ describe('projectNativeFilePath', () => {
     expect(projectNativeFilePath('/tmp/file:1-2')).toBe('/tmp/file:1-2');
   });
 
+  it('projects a web locator to the text its request will use', () => {
+    // The fragment the request drops is gone before matching, the pathless
+    // host carries the slash its request carries, and the selector stays,
+    // because it trails the URL in the text a clause was written against.
+    expect(projectNativeFilePath('https://example.test/guide#top')).toBe(
+      'https://example.test/guide',
+    );
+    expect(projectNativeFilePath('https://example.test:88')).toBe(
+      'https://example.test:88/',
+    );
+    expect(projectNativeFilePath('https://example.test/guide:10-20')).toBe(
+      'https://example.test/guide:10-20',
+    );
+    // A spelling the parser normalizes projects to what will be requested.
+    expect(projectNativeFilePath('https://EXAMPLE.test/x')).toBe(
+      'https://example.test/x',
+    );
+    // A locator the read tool refuses outright is matched as written.
+    expect(projectNativeFilePath('https://user:secret@example.test/x')).toBe(
+      'https://user:secret@example.test/x',
+    );
+  });
+
   it('leaves an invalid locator unchanged', () => {
     expect(projectNativeFilePath('kb://Space/%2F')).toBe('kb://Space/%2F');
   });
@@ -165,5 +188,37 @@ describe('native file permission projection', () => {
     expect(
       decideNative(map, 'mcp__docs__fetch', { url: 'kb://Space/notes/%61' }),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+
+  it('does not let a fragment satisfy an allow the request would not', () => {
+    // A fragment is free text the request never sends. Matched as submitted,
+    // `#/docs/` would satisfy an allow written for a documentation path while
+    // the request went elsewhere; the projection cuts it first.
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '/docs/' }] },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'https://evil.test/x#/docs/' }),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+    expect(
+      decideNative(map, 'read', { path: 'https://example.test/docs/a#top' }),
+    ).toMatchObject({ decision: 'allow' });
+  });
+
+  it('rejects a pathless host against a clause written with its slash', () => {
+    // `https://example.test:88` is requested as `https://example.test:88/`,
+    // so that is the text a reject clause is matched against.
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: '^https://example\\.test:88/' }],
+      },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'https://example.test:88' }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+    expect(
+      decideNative(map, 'read', { path: 'https://example.test:88/page:10' }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
 });

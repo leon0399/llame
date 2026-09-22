@@ -9,6 +9,8 @@ import {
 import { isString } from '@workspace/runtime-safety';
 
 import { nativeReadTool } from './native-files';
+import { compileToolPermissionMap } from './permissions/compile-permissions';
+import { type CompiledPolicy } from './permissions/types';
 import { type ToolContext, type ToolResult } from './types';
 
 /** The instance identity a web read sends, asserted on the fixture's side. */
@@ -16,6 +18,7 @@ const USER_AGENT = 'llame/0.0.0-test';
 
 const MARKDOWN_BODY =
   '# Adapter pipelines\n\nServed by the publisher for agents.\n';
+const MOVED_BODY = '# Moved\n\nServed at the redirect target.\n';
 const PLAIN_BODY = 'Adapter pipelines\n\nServed as plain text for agents.\n';
 const JSON_BODY = '{"adapter":"markdown","requests":1}';
 const NOT_FOUND_BODY = 'The fixture has no such page.';
@@ -28,6 +31,47 @@ const REDIRECT_LOCATION = '/moved-target';
  *  short circuit cannot make this case pass. */
 const OVERSIZED_BYTES = 6 * 1024 * 1024;
 const OVERSIZED_CHUNK_BYTES = 64 * 1024;
+
+/** Admits every derived locator, so a redirect case exercises the hop loop
+ *  rather than the operator's own rules. */
+const ADMIT_EVERY_LOCATOR = compileToolPermissionMap(
+  { read: { allow: true } },
+  'test-policy',
+);
+
+/** Admits the redirecting locator and nothing else, so the hop it names is
+ *  refused by a `read` rule exactly as the example configuration would. */
+const REFUSE_HOP_TARGET = compileToolPermissionMap(
+  {
+    read: {
+      allow: [
+        {
+          field: 'path',
+          regex: String.raw`^http://127\.0\.0\.1:\d+/redirect$`,
+        },
+      ],
+    },
+  },
+  'test-policy',
+);
+
+/** Admits exactly the pages the refused-probe case submits, so every locator
+ *  the pipeline derives from one of them — its announced alternate, its `.md`
+ *  sibling, its `llms.txt` candidates — is refused by the same `read` rule,
+ *  exactly as an operator's path clause would refuse it. */
+const ADMIT_PAGE_ONLY = compileToolPermissionMap(
+  {
+    read: {
+      allow: [
+        {
+          field: 'path',
+          regex: String.raw`^http://127\.0\.0\.1:\d+/(?:announced|suffix|guides/adapter-pipelines)$`,
+        },
+      ],
+    },
+  },
+  'test-policy',
+);
 
 /** Served when a request did not rank `text/markdown` first, so a read that
  *  failed to negotiate renders this instead of the Markdown body. */
@@ -64,6 +108,34 @@ const NAV_ONLY_HTML = `<!doctype html><html><head><title>Sign in</title></head><
 <nav><a href="/login">Sign in</a><a href="/help">Help</a></nav>
 <main><h1>Sign in</h1><form><label>Email <input name="email"></label><button>Continue</button></form></main>
 </body></html>`;
+
+/** A page that announces its own Markdown alternate in the `Link` header. */
+const ANNOUNCED_PAGE_HTML = `<!doctype html><html><head><title>Announced</title></head><body>
+<main><article><h1>Announced alternate</h1><p>This markup exists only to carry the announcement: the read is expected to take the Markdown URL the response names instead of converting it.</p></article></main>
+</body></html>`;
+
+/** What the announced Markdown alternate serves: over the quality gate's
+ *  length, on long lines, and free of markup. */
+const ALTERNATE_BODY = `# Announced alternate
+
+The publisher served this Markdown at the URL its page announced, so the read took the higher-fidelity body instead of converting markup.
+`;
+
+/** What the page's Markdown suffix sibling serves, long enough to pass the
+ *  same gate the render does. */
+const SUFFIX_BODY = `# Suffix sibling
+
+The publisher keeps this Markdown beside the page, so the read takes the sibling file instead of converting the page's own markup.
+`;
+
+/** An `llms.txt` index: short link lines, which only the walk's
+ *  length-and-shape rule accepts. */
+const LLMS_TXT_BODY = `# Fixture Docs
+
+- [Adapter pipelines](https://fixture.test/adapter-pipelines)
+- [Negotiation](https://fixture.test/negotiation)
+- [Local render](https://fixture.test/render)
+`;
 
 /** One request the fixture server observed, in arrival order. */
 type FixtureRequest = {
@@ -164,6 +236,35 @@ function routeRequest(
     case '/nav-only':
       send(response, 200, 'text/html; charset=utf-8', NAV_ONLY_HTML);
       return;
+    case '/announced':
+      sendWithHeaders(
+        response,
+        200,
+        {
+          'content-type': 'text/html; charset=utf-8',
+          // A relative target, resolved against this page's own URL.
+          link: '</announced.md>; rel="alternate"; type="text/markdown"',
+        },
+        ANNOUNCED_PAGE_HTML,
+      );
+      return;
+    case '/announced.md':
+      send(response, 200, 'text/markdown; charset=utf-8', ALTERNATE_BODY);
+      return;
+    case '/suffix':
+      send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+      return;
+    case '/suffix.md':
+      send(response, 200, 'text/markdown; charset=utf-8', SUFFIX_BODY);
+      return;
+    case '/guides/adapter-pipelines':
+      // A gated page under two scopes: its failed render walks the page's own
+      // scope first, then this one, where the index lives.
+      send(response, 200, 'text/html; charset=utf-8', NAV_ONLY_HTML);
+      return;
+    case '/guides/llms.txt':
+      send(response, 200, 'text/plain; charset=utf-8', LLMS_TXT_BODY);
+      return;
     case '/oversized':
       serveOversizedBody(response);
       return;
@@ -177,6 +278,17 @@ function routeRequest(
       return;
     case '/redirect':
       sendWithHeaders(response, 302, { location: REDIRECT_LOCATION }, 'Moved');
+      return;
+    case '/redirect-signed':
+      sendWithHeaders(
+        response,
+        302,
+        { location: `${REDIRECT_LOCATION}?token=secret#part` },
+        'Moved',
+      );
+      return;
+    case REDIRECT_LOCATION:
+      send(response, 200, 'text/markdown; charset=utf-8', MOVED_BODY);
       return;
     case '/rate-limited':
       sendWithHeaders(
@@ -260,7 +372,8 @@ function contentOf(result: ToolResult): string {
   return content;
 }
 
-/** A refused read, whose shape is exactly `{ status, type, message }`: neither
+/** A refused read, whose shape is `{ status, type, message }` plus, for the
+ *  hop refusal alone, the locator's origin and path as `rejectedUrl`: neither
  *  the response body nor a success field such as `method` or `finalUrl` rides
  *  along with a failure. */
 function errorOf(result: ToolResult): {
@@ -270,7 +383,11 @@ function errorOf(result: ToolResult): {
   if (result.status !== 'error') {
     throw new TypeError('The read succeeded where the case expects a refusal.');
   }
-  expect(Object.keys(result).sort()).toEqual(['message', 'status', 'type']);
+  expect(Object.keys(result).sort()).toEqual(
+    result.type === 'permission_denied'
+      ? ['message', 'rejectedUrl', 'status', 'type']
+      : ['message', 'status', 'type'],
+  );
   return result;
 }
 
@@ -291,9 +408,17 @@ describe('web read over a fixture server', () => {
     fixture.requests.length = 0;
   });
 
-  /** The real tool, over the real `globalThis.fetch`. */
-  const read = (path: string): Promise<ToolResult> =>
-    Promise.resolve(nativeReadTool.execute(webContext(), { path }));
+  /** The real tool, over the real `globalThis.fetch`, under a policy that
+   *  admits every derived locator unless a case binds its own. */
+  const read = (
+    path: string,
+    policy: CompiledPolicy = ADMIT_EVERY_LOCATOR,
+  ): Promise<ToolResult> =>
+    Promise.resolve(
+      nativeReadTool.execute(webContext({ permissionPolicy: policy }), {
+        path,
+      }),
+    );
 
   const urlOf = (path: string): string => `${fixture.origin}${path}`;
 
@@ -382,7 +507,12 @@ describe('web read over a fixture server', () => {
     expect(markdown).not.toContain('HEADER SENTINEL');
     expect(markdown).not.toContain('NAV SENTINEL');
     expect(markdown).not.toContain('FOOTER SENTINEL');
-    expect(fixture.requests).toHaveLength(1);
+    // The publisher serves no Markdown suffix, so its 404 disqualifies the
+    // candidate and the local render decides.
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/article',
+      '/article.md',
+    ]);
   });
 
   it('falls back to the raw body with a note', async () => {
@@ -398,7 +528,101 @@ describe('web read over a fixture server', () => {
       expect.stringMatching(/could not be converted/i),
     ]);
     expect(contentOf(result)).toContain('Sign in');
-    expect(fixture.requests).toHaveLength(1);
+    // The render fails the gate, so the read probes the suffix and then walks
+    // `llms.txt` from the page's own scope to the root before the raw body is
+    // the last resort.
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/nav-only',
+      '/nav-only.md',
+      '/nav-only/llms.txt',
+      '/llms.txt',
+    ]);
+  });
+
+  it('fetches the Markdown alternate a page announces', async () => {
+    const result = await read(urlOf('/announced'));
+
+    expect(result).toMatchObject({ status: 'success', method: 'alternate' });
+    // The probe's own response, not the page's URL, is where the content
+    // came from.
+    expect(result).toHaveProperty('finalUrl', urlOf('/announced.md'));
+    expect(contentOf(result)).toContain('# Announced alternate');
+    expect(contentOf(result)).toContain('took the higher-fidelity body');
+    expect(result).not.toHaveProperty('notes');
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/announced',
+      '/announced.md',
+    ]);
+    // A probe negotiates exactly as the first request did.
+    expect(fixture.requests[1].accept).toBe(fixture.requests[0].accept);
+    expect(fixture.requests[1].userAgent).toBe(USER_AGENT);
+  });
+
+  it('fetches the page’s Markdown suffix sibling', async () => {
+    const result = await read(urlOf('/suffix'));
+
+    expect(result).toMatchObject({ status: 'success', method: 'md-suffix' });
+    expect(result).toHaveProperty('finalUrl', urlOf('/suffix.md'));
+    expect(contentOf(result)).toContain('# Suffix sibling');
+    expect(contentOf(result)).toContain('takes the sibling file');
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/suffix',
+      '/suffix.md',
+    ]);
+  });
+
+  it('walks llms.txt from the page scope outward after a gated render', async () => {
+    const result = await read(urlOf('/guides/adapter-pipelines'));
+
+    expect(result).toMatchObject({ status: 'success', method: 'llms-txt' });
+    // The winning index is the content's source, so it is the reported URL.
+    expect(result).toHaveProperty('finalUrl', urlOf('/guides/llms.txt'));
+    expect(contentOf(result)).toContain('Fixture Docs');
+    // The suffix 404s, the page's own scope has no index, and the enclosing
+    // scope's index wins before the walk reaches the site root.
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/guides/adapter-pipelines',
+      '/guides/adapter-pipelines.md',
+      '/guides/adapter-pipelines/llms.txt',
+      '/guides/llms.txt',
+    ]);
+  });
+
+  it('renders the page instead of fetching a probe the read group refuses', async () => {
+    // One case per kind the pipeline derives: the announced alternate, the
+    // `.md` sibling, and the `llms.txt` walk. Each page is admitted and every
+    // locator derived from it is refused, so a probe the pipeline checked is
+    // skipped without a request and the local render decides.
+    const announced = await read(urlOf('/announced'), ADMIT_PAGE_ONLY);
+    expect(announced).toMatchObject({
+      status: 'success',
+      method: 'readability',
+    });
+    expect(contentOf(announced)).toContain('carry the announcement');
+
+    const suffix = await read(urlOf('/suffix'), ADMIT_PAGE_ONLY);
+    expect(suffix).toMatchObject({ status: 'success', method: 'readability' });
+    expect(contentOf(suffix)).toContain('## Negotiation');
+
+    // This page's render fails the gate, so the walk would decide the read if
+    // a candidate were admitted: refused, the render's own raw fallback is
+    // what remains.
+    const walked = await read(
+      urlOf('/guides/adapter-pipelines'),
+      ADMIT_PAGE_ONLY,
+    );
+    expect(walked).toMatchObject({ status: 'success', method: 'raw' });
+    expect(contentOf(walked)).toContain('Sign in');
+
+    // The decisive record: not one probe URL reached the server, so an
+    // admission check the pipeline skipped for any kind but `alternate` — or
+    // an executor that handed the pipeline an admitting check of its own —
+    // would show up here.
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/announced',
+      '/suffix',
+      '/guides/adapter-pipelines',
+    ]);
   });
 
   it('refuses a streamed body past the 5 MiB cap', async () => {
@@ -420,15 +644,49 @@ describe('web read over a fixture server', () => {
     expect(fixture.requests).toHaveLength(1);
   });
 
-  it('refuses a 302 instead of following it', async () => {
+  it('follows a 302 the read group admits and reports the final URL', async () => {
     const result = await read(urlOf('/redirect'));
+
+    expect(result).toMatchObject({ status: 'success', method: 'negotiated' });
+    expect(result).toHaveProperty('finalUrl', urlOf('/moved-target'));
+    expect(result).toHaveProperty(
+      'content',
+      '1: # Moved\n2: \n3: Served at the redirect target.\n',
+    );
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/redirect',
+      '/moved-target',
+    ]);
+    // Every hop identifies llame and negotiates exactly as the first request
+    // did, and the result enumerates no hop chain.
+    expect(fixture.requests[1].accept).toBe(fixture.requests[0].accept);
+    expect(fixture.requests[1].userAgent).toBe(USER_AGENT);
+    expect(result).not.toHaveProperty('hops');
+  });
+
+  it('ends the call at a hop the read group refuses, without fetching it', async () => {
+    const result = await read(urlOf('/redirect'), REFUSE_HOP_TARGET);
     const error = errorOf(result);
 
-    expect(error.type).toBe('http_status');
-    expect(error.message).toMatch(/HTTP 302 .*redirect/iu);
-    // The one request is the redirecting locator; its target is never fetched.
-    expect(fixture.requests).toHaveLength(1);
-    expect(fixture.requests[0].path).toBe('/redirect');
+    expect(error.type).toBe('permission_denied');
+    expect(result).toHaveProperty('rejectedUrl', urlOf('/moved-target'));
+    // The message is the fixed template: it names no locator, rule, or clause.
+    expect(error.message).not.toContain('moved-target');
+    expect(error.message).not.toContain('127.0.0.1');
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/redirect',
+    ]);
+  });
+
+  it('reports a refused hop’s origin and path without its query or fragment', async () => {
+    const result = await read(urlOf('/redirect-signed'), REFUSE_HOP_TARGET);
+
+    expect(result).toHaveProperty('rejectedUrl', urlOf('/moved-target'));
+    // A signed query in a `Location` never reaches the model.
+    expect(JSON.stringify(result)).not.toContain('secret');
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/redirect-signed',
+    ]);
   });
 
   it('fails a 404 without its body', async () => {
@@ -475,10 +733,13 @@ describe('web read over a fixture server', () => {
     expect(contentOf(selected)).toBe(
       `${renderedLines.slice(3, 11).join('\n')}\n`,
     );
-    // No cache: the second read issues its own request.
+    // No cache: the second read issues its own request and its own suffix
+    // probe, both of which answer exactly as they did the first time.
     expect(fixture.requests.map((request) => request.path)).toEqual([
       '/article',
+      '/article.md',
       '/article',
+      '/article.md',
     ]);
   });
 
@@ -494,5 +755,40 @@ describe('web read over a fixture server', () => {
     expect(result).toHaveProperty('content', ARTICLE_HTML);
     expect(result).not.toHaveProperty('notes');
     expect(fixture.requests).toHaveLength(1);
+  });
+
+  it('reads a port, a line, and an anchor from one real origin', async () => {
+    // The fixture listens on an explicit port, so this exercises the two
+    // readings of `:N` against a real socket: the one before the path
+    // separator is the port the request connects to, the one after the last
+    // separator is the line the result shows.
+    const line = await read(`${urlOf('/plain')}:2`);
+
+    expect(line).toMatchObject({
+      status: 'success',
+      requestedRange: { startLine: 2, endLine: 2 },
+      shownRange: { startLine: 1, endLine: 3 },
+    });
+    expect(line).toHaveProperty('finalUrl', urlOf('/plain'));
+
+    // The pathless origin carries no selector at all: its `:<port>` is the
+    // port, and the request goes to the serialized root — which this fixture
+    // does not serve, so the read fails on the origin's own answer rather
+    // than on the locator.
+    const root = await read(fixture.origin);
+    expect(root).toMatchObject({ status: 'error', type: 'http_status' });
+
+    // An anchor is cut before the request, so the page is read and the origin
+    // never sees the fragment.
+    const anchored = await read(`${urlOf('/plain')}#section`);
+    expect(anchored).toMatchObject({ status: 'success' });
+    expect(anchored).toHaveProperty('finalUrl', urlOf('/plain'));
+    expect(contentOf(anchored)).toBe(contentOf(await read(urlOf('/plain'))));
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/plain',
+      '/',
+      '/plain',
+      '/plain',
+    ]);
   });
 });

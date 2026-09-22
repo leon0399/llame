@@ -5,24 +5,26 @@
 After validating the call schema, the evaluator SHALL match originally submitted parsed argument values. It SHALL NOT match trusted context, inserted defaults, object keys, JSON serialization syntax, or stringified non-string values. The SDK validation adapter SHALL preserve untransformed submitted values for admission while the executor receives separately validated/defaulted arguments. A selected field SHALL match only an own top-level string property; an omitted or non-string field SHALL not match. All-fields rejection SHALL independently traverse every submitted string value in nested objects and arrays without concatenation.
 
 A `read` call whose `path` is an `http://` or `https://` locator SHALL be
-matched as the submitted text: the shared native locator projection SHALL
-return a web locator unchanged, and the evaluator SHALL apply no URL
-normalization. The web read itself refuses, before any request, a submitted
-locator that is not its own WHATWG URL serialization (uppercase scheme or
-host, percent-encoded or Unicode host, explicit default port, empty path,
-unencoded path or query characters), so an admitted spelling is the
-canonical one and an encoded or upper-case variant of a rejected host never
-reaches the network. Each derived locator a web read issues, meaning a
+decided over two texts: the locator as submitted, and the locator the shared
+native projection returns, which is the text the request will use — its
+fragment cut, its host, port, and encoding normalized. A reject clause
+matching either text SHALL refuse the call, so a spelling cannot be arranged
+to miss a reject; the allow SHALL be decided on the projected text, because
+an allow names the resource the call will reach and the two texts address one
+resource. The evaluator itself normalizes nothing: the projection is the read
+tool's own parser, so the text matched and the text requested cannot drift.
+Each derived locator a web read issues, meaning a
 redirect hop, an announced alternate, a suffix candidate, or an `llms.txt`
 candidate, SHALL be evaluated against the `read` group as if the model had
-submitted it. A hop locator is the `Location` value resolved against the
-redirecting request's URL by the WHATWG URL parser and serialized as its
-`href`, so it is canonical in the same way (lowercase host, internationalized
-host as punycode, default port dropped, empty path as `/`, path and query
-percent-encoded, fragment retained), and the evaluator itself still
-normalizes nothing. A derived locator is decided through the same evaluator
-and the same projection, with no trusted context and no relaxation carried
-over from the admitted call or from an earlier derived locator.
+submitted it — a hop is a different resource, so it earns its own allow
+rather than inheriting one. A hop locator is the `Location` value resolved
+against the redirecting request's URL by the WHATWG URL parser and serialized
+as its `href`, so it is canonical in the same way (lowercase host,
+internationalized host as punycode, default port dropped, empty path as `/`,
+path and query percent-encoded, fragment retained). A derived locator is
+decided through the same evaluator and the same projection, with no trusted
+context and no relaxation carried over from the admitted call or from an
+earlier derived locator.
 
 Known incompatible code-owned fields SHALL fail configuration validation. If an exact MCP rule targets a field absent from or incompatible with its currently admitted input declaration, the call SHALL fail closed with a safe policy diagnostic, without changing tool visibility or silently dropping the clause. This applies to both allow and reject field clauses. No field semantics SHALL be inferred from arbitrary MCP names.
 
@@ -53,12 +55,13 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 - **WHEN** a configured reject names `url` but the admitted MCP tool declaration only defines `query`
 - **THEN** the call is rejected with a policy-configuration diagnostic rather than ignoring the reject
 
-#### Scenario: A web locator is matched as submitted
+#### Scenario: A web locator is matched as submitted and as requested
 
 - **WHEN** a `read` group allows `path` with regex `^https://docs\.example\.com/`
 - **AND** a call submits `https://docs.example.com/guide:raw`
-- **THEN** the allow matches the submitted value and the call proceeds
-- **AND** a call submitting `https://DOCS.example.com/guide` does not match it and is rejected as `no_allow`, because policy performs no URL normalization
+- **THEN** the allow matches and the call proceeds
+- **AND** a call submitting `https://DOCS.example.com/guide` also proceeds, because the allow is decided on the locator the request will use
+- **AND** a reject naming that host refuses every spelling of it, including `https://DOCS.example.com/guide` and `https://docs%2Eexample.com/guide`, because a reject matching either the submitted text or the requested one refuses the call
 
 #### Scenario: A redirect hop is evaluated as a submitted locator
 
@@ -188,9 +191,10 @@ alternative for `read`: replacing the group's whole-tool allow with field
 allows for `^/`, `^kb://`, `^skill://`, and `^https://docs\.example\.com/`
 admits only those authorities, and the runbook SHALL state that such a clause
 matches the canonical locator text (lowercase punycode host, no default
-port, percent-encoded path) rather than the address the host resolves to,
-and that a noncanonical submitted spelling is refused by the tool rather
-than normalized by policy.
+port, no root dot, percent-encoded path) rather than the address the host
+resolves to, and that a noncanonical submitted spelling is normalized to
+that text before the allow is decided, while a reject refuses the call when
+it matches either the submitted spelling or the normalized one.
 
 The following table is the authoritative recommended reject list, shipped in the example. Regex cells contain engine input, not JSON string escaping. The example stores these compiled-ready spellings directly; operators copy them, and configuration interpolation still applies to operator-authored values. Operator JSON examples must escape backslashes and opening interpolation braces appropriately.
 
@@ -227,7 +231,7 @@ The following table is the authoritative recommended reject list, shipped in the
 | A newly discovered MCP tool, even in an allowed namespace              | Reject until an explicit permission group is supplied.                       |
 | `read: http://example.test/page`                                       | Reject F5; cleartext HTTP is refused by default.                             |
 | `read: https://grokipedia.com/page` or `https://grokipedia.com./page`  | Reject F6; subdomains and a trailing dot are covered.                        |
-| `read: https://g%72okipedia.com/page` or `HTTPS://Grokipedia.com/page` | Allowed by policy, then refused by the tool as noncanonical; no request.     |
+| `read: https://g%72okipedia.com/page` or `HTTPS://Grokipedia.com/page` | Rejected by F6, which matches the normalized text; no request.               |
 | `read: https://docs.example.com/guide`                                 | Allow; the recommended `read` group stays whole-tool, so HTTPS remains open. |
 
 The recommended rules SHALL be covered by the preceding example matrix, including both rejection and routine-work acceptance cases, and SHALL match the shipped example. Native path rejects SHALL NOT be represented as Bash confinement, search-result filtering, directory-listing filtering, or hidden-backing-path policy.

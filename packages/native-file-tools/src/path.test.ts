@@ -296,18 +296,21 @@ describe("native path schemes", () => {
 
   it.each([
     [undefined, { offset: 0, raw: false }],
+    ["11", { offset: 10, limit: 1, raw: false }],
     ["11-13", { offset: 10, limit: 3, raw: false }],
     ["11+3", { offset: 10, limit: 3, raw: false }],
+    ["11,20-21", { offset: 10, raw: false }],
     ["raw", { offset: 0, raw: true }],
     ["raw:1-2", { offset: 0, limit: 2, raw: true }],
+    ["raw:7", { offset: 6, limit: 1, raw: true }],
   ])("applies the split selector %s", (selector, expected) => {
-    expect(applySelectorSuffix("/root/a.md", selector)).toEqual({
+    expect(applySelectorSuffix("/root/a.md", selector)).toMatchObject({
       path: "/root/a.md",
       ...expected,
     });
   });
 
-  it.each(["0-1", "2-1", "raw:x", "nonsense"])(
+  it.each(["0", "0-1", "2-1", "raw:x", "nonsense", "1-"])(
     "rejects the split selector %s",
     (selector) => {
       expect(() => applySelectorSuffix("/root/a.md", selector)).toThrow(

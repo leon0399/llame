@@ -21,13 +21,21 @@ import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { type ProviderMetadata } from 'ai';
 import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
-import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';
+import {
+  isHopRejection,
+  normalizeToolObservationOutcome,
+} from '../chats/tool-observation-part';
 import { type ToolResult } from '../tools/types';
+import { isRejectedHopUrl } from '../tools/permissions/messages';
 import {
   type PermissionClauseReference,
   type PermissionDecision,
   type PermissionDecisionReason,
 } from '../tools/permissions/types';
+import {
+  isDerivedLocatorKind,
+  type DerivedDecisionRecord,
+} from '../tools/web-read/admission';
 import { isSystemOriginPayload } from './tool-activity-origin';
 
 /**
@@ -48,6 +56,16 @@ export type ToolActivityPart = {
   errorText?: string;
   /** Provider-portable structured outcome: success or the ToolResult error type. */
   outcome: string;
+  /**
+   * The refused redirect target a `permission_denied` hop rejection named in
+   * its live result (web-read design D3), kept beside the stored error.
+   * Unlike `permission` and `derivedDecisions` this is part of the
+   * model-visible result, so it follows `errorText` into replay; it is stored
+   * as the tool bounded it — origin and path only, control characters
+   * stripped, at most 2,048 characters — and only the native `read` tool's
+   * hop rejection records one.
+   */
+  errorRejectedUrl?: string;
   /** SDK-supported result metadata marking an error produced by run termination
    *  rather than by the tool itself. Persisted so the UI can render
    *  "Cancelled" without parsing error text, and survives the live transport. */
@@ -58,6 +76,14 @@ export type ToolActivityPart = {
    * exports, and search; it never contains policy bodies or matched input.
    */
   permission?: PermissionDecision;
+  /**
+   * The decisions this call's derived locators — redirect hops, announced
+   * alternates, suffix and `llms.txt` candidates — received before their
+   * requests, each with the kind of locator it judged
+   * (openspec/changes/web-read D3). Same exclusion contract as `permission`,
+   * and never part of the model-visible result.
+   */
+  derivedDecisions?: ReadonlyArray<DerivedDecisionRecord>;
 };
 
 /** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
@@ -252,7 +278,17 @@ export type ToolActivityPartInput = {
   readonly input: unknown;
   readonly result: ToolResult;
   readonly permission?: PermissionDecision;
+  readonly derivedDecisions?: ReadonlyArray<DerivedDecisionRecord>;
 };
+
+/**
+ * How many derived-locator decisions one settled part may carry: the
+ * per-call request budget's 20 redirect hops, one announced alternate, one
+ * suffix probe, and four `llms.txt` candidates produce a decision each
+ * (20 + 1 + 1 + 4 = 26). The budget's 27th request — the submitted locator —
+ * is decided at the execution gate rather than here and produces none.
+ */
+export const MAX_DERIVED_DECISIONS = 26;
 
 /**
  * Exported for `RunExecutionService`'s live-stream path, which shapes tool
@@ -261,7 +297,8 @@ export type ToolActivityPartInput = {
 export function toolActivityPart(
   call: ToolActivityPartInput,
 ): ToolActivityPart {
-  const { toolCallId, toolName, input, result, permission } = call;
+  const { toolCallId, toolName, input, result, permission, derivedDecisions } =
+    call;
   const part: ToolActivityPart =
     result.status === 'success'
       ? {
@@ -286,6 +323,18 @@ export function toolActivityPart(
           }),
         };
   if (permission !== undefined) part.permission = permission;
+  if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
+    part.derivedDecisions = derivedDecisions;
+  }
+  // Beside the stored error the model reads, not the excluded metadata: only
+  // the native `read` tool's refused hop carries a target, so a result from
+  // any other tool or error type stores none.
+  const refusedTarget =
+    result.status === 'error' && isHopRejection(toolName, result.type)
+      ? result.rejectedUrl
+      : undefined;
+  if (refusedTarget !== undefined) part.errorRejectedUrl = refusedTarget;
+
   return part;
 }
 
@@ -360,18 +409,17 @@ function permissionClauseFromPayload(
   return { groupId, list, clauseIndex };
 }
 
-/** Re-read the safe decision metadata from a `tool.requested` payload. */
-function permissionFromPayload(
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadField` and the `isRecord`/`isString` guards below parse it before any field is trusted.
-  payload: unknown,
+/** Re-read one stored decision record's safe metadata: an opaque policy id, a
+ *  decision, a static reason, and a bounded clause reference. */
+function permissionDecisionFrom(
+  value: unknown,
 ): PermissionDecision | undefined {
-  const permission = eventPayloadField(payload, 'permission');
-  if (!isRecord(permission)) return undefined;
-  const policyId = permission['policyId'];
-  const decision = permission['decision'];
-  const reason = permission['reason'];
+  if (!isRecord(value)) return undefined;
+  const policyId = value['policyId'];
+  const decision = value['decision'];
+  const reason = value['reason'];
   if (!isString(policyId)) return undefined;
-  const reference = permissionClauseFromPayload(permission['reference']);
+  const reference = permissionClauseFromPayload(value['reference']);
   if (decision === 'allow') {
     return reason === 'matched_allow'
       ? { policyId, decision: 'allow', reason: 'matched_allow', reference }
@@ -380,7 +428,80 @@ function permissionFromPayload(
   if (decision !== 'reject' || !isPermissionRejectionReason(reason)) {
     return undefined;
   }
+
   return { policyId, decision: 'reject', reason, reference };
+}
+
+/** Re-read the safe decision metadata from a `tool.requested` payload. */
+function permissionFromPayload(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; the field read and the guard above parse it before anything is trusted.
+  payload: unknown,
+): PermissionDecision | undefined {
+  return permissionDecisionFrom(eventPayloadField(payload, 'permission'));
+}
+
+/** Re-read one stored derived-locator record: the kind of locator judged,
+ *  beside the same safe decision metadata a call decision carries. */
+function derivedDecisionRecordFrom(
+  value: unknown,
+): DerivedDecisionRecord | undefined {
+  if (!isRecord(value)) return undefined;
+  const kind = value['kind'];
+  if (!isDerivedLocatorKind(kind)) return undefined;
+  const decision = permissionDecisionFrom(value);
+
+  return decision === undefined ? undefined : { ...decision, kind };
+}
+
+/**
+ * Re-read the derived-locator decisions a `tool.completed` payload recorded
+ * when the call settled. Stored jsonb is untrusted on the way back in, so
+ * malformed entries are dropped and the list is bounded as it was on the way
+ * out; an empty list is absent, like the metadata every other part omits.
+ */
+function derivedDecisionsFromPayload(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadField` and the `Array.isArray` test below parse it before any entry is trusted.
+  payload: unknown,
+): ReadonlyArray<DerivedDecisionRecord> | undefined {
+  const value = eventPayloadField(payload, 'derivedDecisions');
+  if (!Array.isArray(value)) return undefined;
+  const decisions = value.slice(0, MAX_DERIVED_DECISIONS).flatMap((entry) => {
+    const decision = derivedDecisionRecordFrom(entry);
+
+    return decision === undefined ? [] : [decision];
+  });
+
+  return decisions.length === 0 ? undefined : decisions;
+}
+
+/**
+ * Re-read one `tool.completed` payload's result: the success record as stored,
+ * or the error the completion described. Stored jsonb is untrusted on the way
+ * back in, so an unreadable record is dropped and only the exact locator a
+ * hop rejection writes is carried into the rebuilt error — and only when the
+ * call that completed was the native `read` tool's refused hop.
+ */
+function toolResultFromPayload(
+  output: unknown,
+  toolName: string,
+): ToolResult | undefined {
+  if (!isRecord(output)) return undefined;
+  const status = output['status'];
+  if (status === 'success') return { ...output, status };
+  const type = output['type'];
+  const message = output['message'];
+  if (status !== 'error' || !isString(type) || !isString(message)) {
+    return undefined;
+  }
+  const rejectedUrl = output['rejectedUrl'];
+
+  return {
+    status,
+    type,
+    message,
+    ...(isHopRejection(toolName, type) &&
+      isRejectedHopUrl(rejectedUrl) && { rejectedUrl }),
+  };
 }
 
 /**
@@ -466,21 +587,14 @@ class DurableAssistantReconstructor {
       return;
     }
     const request = this.openToolCalls.get(toolCallId);
-    const output = eventPayloadField(event.payload, 'output');
-    if (!request || !isRecord(output)) {
+    if (!request) {
       return;
     }
-    const status = output['status'];
-    let result: ToolResult;
-    if (status === 'success') {
-      result = { ...output, status };
-    } else if (
-      status === 'error' &&
-      isString(output['type']) &&
-      isString(output['message'])
-    ) {
-      result = { status, type: output['type'], message: output['message'] };
-    } else {
+    const result = toolResultFromPayload(
+      eventPayloadField(event.payload, 'output'),
+      request.toolName,
+    );
+    if (result === undefined) {
       return;
     }
     this.completedToolCallIds.add(toolCallId);
@@ -492,6 +606,10 @@ class DurableAssistantReconstructor {
         input: request.toolInput,
         result,
         permission: request.permission,
+        // The call decision rides on the request; the derived-locator
+        // decisions only exist once the call settled, so they are read from
+        // this completion payload.
+        derivedDecisions: derivedDecisionsFromPayload(event.payload),
       }),
     );
   }

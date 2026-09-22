@@ -11,6 +11,10 @@ import {
 } from './tool-observation-part';
 import type { MessagePart, StoredMessage } from './context-builder';
 import {
+  REJECTED_URL_BOUND,
+  rejectedHopUrl,
+} from '../tools/permissions/messages';
+import {
   isRecord,
   isString,
   type UnknownRecord,
@@ -309,6 +313,99 @@ describe('projectToolObservations', () => {
     expect(text).toContain('Payload:\nBOOM');
     expect(text).not.toContain('stale payload');
   });
+
+  it('re-attaches the exact locator a hop rejection wrote to the error the model replays', () => {
+    const refusedUrl = rejectedHopUrl(
+      'https://blocked.example.test/page?token=secret#frag',
+    );
+    const projection = projectToolObservations([
+      toolPart({
+        type: 'tool-read',
+        state: 'output-error',
+        input: { path: 'https://docs.example.test/a' },
+        output: undefined,
+        errorText: 'Tool call stopped by operator permissions.',
+        outcome: 'permission_denied',
+        errorRejectedUrl: refusedUrl,
+      }),
+    ]);
+
+    const text = toolOutputText(projection?.toolResultParts[0]?.output);
+    expect(text).toContain('Payload:');
+    expect(text).toContain('Tool call stopped by operator permissions.');
+    expect(text).toContain('rejectedUrl: https://blocked.example.test/page');
+    // The producer stripped the query and fragment before storing; neither
+    // reaches the model.
+    expect(text).not.toContain('secret');
+  });
+
+  it.each([
+    ['a non-string value', 42],
+    ['an empty string', ''],
+    [
+      'a value past the bound',
+      `https://blocked.example.test/${'a'.repeat(REJECTED_URL_BOUND)}`,
+    ],
+    [
+      'a locator carrying userinfo',
+      'https://user:secret@blocked.example.test/page',
+    ],
+    [
+      'a locator carrying a query',
+      'https://blocked.example.test/page?token=secret',
+    ],
+    ['a locator carrying a fragment', 'https://blocked.example.test/page#frag'],
+    [
+      'a locator carrying a control character',
+      'https://blocked.example.test/pa\u0007ge',
+    ],
+    ['a non-web scheme', 'ftp://blocked.example.test/page'],
+    ['a relative locator', '/page'],
+    ['a noncanonical spelling', 'https://BLOCKED.example.test/page'],
+    ['an explicit default port', 'https://blocked.example.test:443/page'],
+    ['an unserialized path', 'https://blocked.example.test/a b'],
+  ])('replays no refused target for %s', (_name, errorRejectedUrl) => {
+    const projection = projectToolObservations([
+      toolPart({
+        type: 'tool-read',
+        state: 'output-error',
+        input: { path: 'https://docs.example.test/a' },
+        output: undefined,
+        errorText: 'BOOM',
+        outcome: 'permission_denied',
+        errorRejectedUrl,
+      }),
+    ]);
+
+    const text = toolOutputText(projection?.toolResultParts[0]?.output);
+    expect(text).toContain('Payload:');
+    expect(text).toContain('BOOM');
+    expect(text).not.toContain('rejectedUrl');
+  });
+
+  it.each([
+    ['another tool', 'tool-knowledge_search', 'permission_denied'],
+    ['another error type', 'tool-read', 'timeout'],
+  ] as const)(
+    'ignores a refused target stored on %s',
+    (_name, type, outcome) => {
+      const projection = projectToolObservations([
+        toolPart({
+          type,
+          state: 'output-error',
+          output: undefined,
+          errorText: 'BOOM',
+          outcome,
+          errorRejectedUrl: 'https://blocked.example.test/page',
+        }),
+      ]);
+
+      const text = toolOutputText(projection?.toolResultParts[0]?.output);
+      expect(text).toContain('Payload:');
+      expect(text).toContain('BOOM');
+      expect(text).not.toContain('rejectedUrl');
+    },
+  );
 
   it('marks a cleared payload incomplete ONLY for an incomplete successful Knowledge result', () => {
     const bulk = 'R'.repeat(TOOL_REPLAY_CALL_LIMIT * 2);

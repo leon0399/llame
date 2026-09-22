@@ -29,6 +29,14 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   create-or-replace `write`, with durable mutation fencing, plus host `bash`
   with per-call literal `cwd` and additive `env`, fresh processes, and bounded
   output. See [native file setup](docs/native-files.md).
+- Web reads through that same native `read` tool: absolute `http://` and
+  `https://` locators, publisher Markdown first (negotiated, announced
+  alternates, a `.md` suffix probe, `llms.txt`), a bounded local render, and
+  permission admission through that same `read` group for every locator it
+  derives rather than receives — each redirect hop, announced alternate,
+  `.md` suffix, and `llms.txt` candidate — before its request, under 10 s
+  header, 30 s call, and 5 MiB body bounds. See
+  [web read setup](docs/web-read.md).
 - Owner-scoped Markdown Knowledge Spaces: `knowledge_search` over live files
   (including uncommitted changes), plus `kb://` reads through the native
   `read` tool, operator-configured and allowlisted.

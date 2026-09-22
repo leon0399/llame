@@ -115,19 +115,27 @@ The native `read` tool SHALL accept an absolute `http://` or `https://`
 locator as its `path` and SHALL fetch it with the API process's own outbound
 HTTP. No other web scheme SHALL be admitted, and `edit` and `write` SHALL
 reject a web locator with `invalid_path` before any request. A submitted web
-locator, after its selector is split off, SHALL be its own WHATWG URL
-serialization: a locator whose `href` differs from the submitted text
-(uppercase scheme or host, a percent-encoded or Unicode host, an explicit
-default port, an empty path, or unencoded path or query characters) SHALL
-fail with `invalid_path` before any request, and the error SHALL name the
-canonical spelling so the model can resubmit it. A locator carrying a
-fragment SHALL fail the same way, naming the spelling without it, because the
-request drops a fragment and an admitted one would let the matched text
-differ from the requested URL. Policy therefore matches
-the same text the request uses, and every derived locator is canonical by
-construction. A locator carrying userinfo SHALL fail with `invalid_path`
-before any request, so the tool never sends credentials the model embedded
-in a URL. Availability and
+locator, after any fragment is cut and its selector is split off, SHALL be
+normalized to its WHATWG URL serialization and requested as that text: an
+uppercase scheme or host, a percent-encoded or Unicode host, an explicit
+default port, a host's root dot, an empty path, and unencoded path or query
+characters SHALL each be normalized rather than refused, because none of them
+addresses a different resource and refusing them cost a call that taught the
+model nothing it could carry to the next locator. A fragment SHALL be cut
+before anything else reads the locator, because the request drops it anyway.
+What no normalization can repair SHALL still fail before any request: a text
+that is not a URL, a scheme outside `http` and `https`, a suffix outside the
+selector grammar, and userinfo, which SHALL fail with `invalid_path` so the
+tool never sends credentials the model embedded in a URL, and whose message
+SHALL NOT echo them.
+
+Because the text requested is no longer always the text submitted, the
+permission decision SHALL be taken over both: any reject clause matching
+either the submitted locator or its normalized form SHALL refuse the call, so
+a spelling cannot be arranged to miss a reject, while the allow SHALL be
+decided on the normalized form, because an allow names the resource the call
+will reach and the two texts are one resource. A redirect hop is a different
+resource and SHALL keep being admitted in its own right. Availability and
 restriction for the web SHALL come only from the `read` permission group's
 `path` clauses: a prefix allow admits the web, and a prefix or domain reject
 removes a host. No web tool id, `tools.allowed` entry, configuration block, or
@@ -140,25 +148,33 @@ represented as permission from the publisher. The scheme split and trailing
 selector rules that protect a `scheme://` prefix SHALL apply unchanged: the
 scheme's own colon is never read as a selector, and the shipped
 trailing-selector split (the last colon after the last slash) governs the
-rest. A selector SHALL be split only from a locator that carries no `?` and
-no `#`, so a colon inside a query or a fragment is part of the URL and never
-a selector (`https://example.test/search?at=2026:10` is fetched as written).
-A locator whose authority ends in a port SHALL therefore carry a path
-after the port (`https://example.test:8080/` is a URL with no selector, while
-`https://example.test:8080` reads the port as a selector and leaves the
-empty-path locator `https://example.test`, which is not its own
-serialization, so the call fails as `invalid_path`; the named spelling SHALL
-be the submitted locator's own serialization, `https://example.test:8080/`,
-because a hint built from the split remainder would drop the port and name
-another endpoint),
-and a literal colon in the last path segment of a query-free locator SHALL be
+rest. A selector SHALL be split only from a locator that has a path and
+carries no `?` and no `#`, so a colon inside a query is part of the URL
+(`https://example.test/search?at=2026:10` is fetched as written) and the only
+colon of a pathless locator opens its port: `https://example.test:88` is port
+88, `https://example.test/:88` is line 88 of the site root, and
+`https://example.test:88/:88` is line 88 served from port 88.
+A literal colon in the last path segment of a query-free locator SHALL be
 written as `%3A` (`https://w.example/wiki/Special%3ASearch`), because a
 trailing colon is always read as a selector split and the shipped grammar
-admits only `raw`, `raw:N-M`, `N-M`, `N+K`, and comma lists of those:
-`Search` and a bare line number are outside it, so
-`https://w.example/wiki/Special:Search` and `https://w.example/docs/2024:10`
-both fail as `invalid_selector` (`https://w.example/docs/2024:10-20` selects
-lines 10 through 20 of `https://w.example/docs/2024`).
+admits `raw`, `raw:N`, `raw:N-M`, `N`, `N-M`, `N+K`, and comma lists of
+those: `Search` is outside it, so `https://w.example/wiki/Special:Search`
+fails as `invalid_selector`, while `https://w.example/docs/2024:10` selects
+line 10 and `https://w.example/docs/2024:10-20` lines 10 through 20 of
+`https://w.example/docs/2024`.
+Each refusal that remains SHALL name the spelling that would work rather than
+the rule that was broken: a selector written straight after the authority
+(`https://example.test:1-5`, which is not a URL at all because `1-5` is not a
+port) SHALL be answered with the authority's own serialization carrying that
+selector (`https://example.test/:1-5`); a port that is not a number
+(`https://example.test:abc/`) SHALL be answered by naming that rule and the
+same locator without a port, rather than by the generic message, since the
+locator is absolute and only its port is broken; a suffix that meant a line the
+grammar cannot serve (`:12+`) SHALL be answered with the line forms first and
+the literal colon's encoding second; and a selector the render could not
+serve — past its end, or with no line in it — SHALL be answered with the
+number of lines the page rendered, which the model cannot know before reading
+it.
 
 #### Scenario: A web locator is fetched by the API process
 
@@ -178,17 +194,19 @@ lines 10 through 20 of `https://w.example/docs/2024`).
 - **THEN** it returns `invalid_path`
 - **AND** no request is issued
 
-#### Scenario: A noncanonical locator is refused before policy can be bypassed
+#### Scenario: A noncanonical spelling is normalized, not refused
 
-- **WHEN** the model reads `https://g%72okipedia.com/page`, `HTTPS://Example.test/guide`, or `https://example.test:443/guide`
-- **THEN** the read returns `invalid_path` naming the canonical spelling (`https://grokipedia.com/page`, `https://example.test/guide`) and issues no request
-- **AND** a reject clause written against the canonical spelling cannot be evaded by an encoded, uppercase, or default-port variant
+- **WHEN** the model reads `https://g%72okipedia.com/page`, `HTTPS://Example.test/guide`, `https://example.test:443/guide`, or `https://example.test./guide`
+- **THEN** the read requests the normalized locator (`https://grokipedia.com/page`, `https://example.test/guide`) without a refusal first
+- **AND** a reject clause written against the canonical spelling still refuses every one of those variants, because the decision is taken over the submitted text and the normalized text alike
+- **AND** a reject clause written against the submitted spelling, such as one naming `%72`, also refuses
 
-#### Scenario: A canonical-spelling hint keeps the port the model submitted
+#### Scenario: A pathless host reads its port, a path reads its line
 
-- **WHEN** the model reads `https://example.test:8080`, whose `:8080` the selector split takes and whose remainder is the empty-path `https://example.test`
-- **THEN** the read returns `invalid_path` naming `https://example.test:8080/`, not `https://example.test/`
-- **AND** resubmitting the named spelling is admitted and requests the port the model wrote
+- **WHEN** the model reads `https://example.test:88`, which has no path for a selector to trail
+- **THEN** the read requests `https://example.test:88/` on port 88, and the permission decision matched that same text
+- **AND** `https://example.test/:88` requests the site root and returns line 88 of its render
+- **AND** `https://example.test:88/:88` requests the root on port 88 and returns line 88 of it
 
 #### Scenario: Userinfo in a locator fails closed
 
@@ -198,10 +216,22 @@ lines 10 through 20 of `https://w.example/docs/2024`).
 
 #### Scenario: A colon in the last path segment is a selector unless encoded
 
-- **WHEN** the model reads `https://w.example/wiki/Special:Search` or `https://w.example/docs/2024:10`
-- **THEN** the read fails with `invalid_selector` and issues no request, because the split-off suffix is present but outside the grammar (`Search` is not a selector, and there is no bare line number)
-- **AND** `https://w.example/wiki/Special%3ASearch` is fetched as written and `https://w.example/docs/2024:10-20` selects lines 10 through 20 of `https://w.example/docs/2024`
-- **AND** a locator whose split leaves a text that is not its own serialization, such as `https://example.test:8080` (the port is read as the suffix and `https://example.test` serializes as `https://example.test/`), fails with `invalid_path` naming the canonical form instead
+- **WHEN** the model reads `https://w.example/wiki/Special:Search`
+- **THEN** the read fails with `invalid_selector` and issues no request, because the split-off suffix is present but outside the grammar
+- **AND** `https://w.example/wiki/Special%3ASearch` is fetched as written, while `https://w.example/docs/2024:10` selects line 10 and `https://w.example/docs/2024:10-20` lines 10 through 20 of `https://w.example/docs/2024`
+
+#### Scenario: A refused locator names the spelling that works
+
+- **WHEN** the model reads `https://example.test:1-5`, which no URL parser accepts because `1-5` is not a port
+- **THEN** the read returns `invalid_path` naming `https://example.test/:1-5`, and resubmitting that reads lines 1 through 5 of the page
+- **AND** reading `https://example.test/guide:12+` returns `invalid_selector` naming the `:N`, `:N-M`, and `:N+K` forms before the `%3A` spelling
+- **AND** a suffix outside the grammar with no line number in it, such as `https://w.example/wiki/Special:Search`, still names only the encoded spelling
+
+#### Scenario: A selector the page cannot serve reports the page's length
+
+- **WHEN** the model reads `https://example.test/guide:100-200` and the render is 3 lines long
+- **THEN** the read returns `invalid_selector` reporting that the page rendered 3 lines
+- **AND** the message does not repeat the error type as its text
 
 #### Scenario: A local-only allow does not admit the web
 
@@ -297,10 +327,15 @@ A web read SHALL accept only text bodies: `text/*` media types,
 `application/json`, `application/xml`, and any type whose subtype carries a
 `+json` or `+xml` suffix. `text/markdown` SHALL be handled as Markdown. Every
 other content type SHALL fail with `unsupported_content_type` naming the
-received type, and its body SHALL NOT be returned as content. A `text/plain`
-body that is HTML-shaped SHALL follow the HTML path rather than being returned
-as plain text. A non-HTML text body SHALL be returned as the content
-unchanged. Text SHALL be decoded with the charset from the `Content-Type`
+received type, and its body SHALL NOT be returned as content. Only a
+declared HTML type — `text/html` or `application/xhtml+xml` — SHALL be
+rendered. A `text/plain` body SHALL be returned as served whatever it
+contains, because a conversion guesses at structure and guessing on a body
+the publisher declared as plain text costs more than it returns: a Markdown
+file that opens with a block of inline HTML was extracted as an article and
+lost every line after it. Any other accepted text body SHALL be returned as
+the content unchanged. Text SHALL be decoded with the
+charset from the `Content-Type`
 parameter when present, else with a `<meta charset>` declaration found in the
 first 2 KiB of the body, else as UTF-8.
 
@@ -308,7 +343,7 @@ first 2 KiB of the body, else as UTF-8.
 
 - **WHEN** a locator serves `application/json`
 - **THEN** the read returns the body text unchanged with `method` `text`
-- **AND** a first response that is `text/plain` and not HTML-shaped is returned unchanged with `method` `negotiated`
+- **AND** a first response that is `text/plain` is returned unchanged with `method` `negotiated`
 
 #### Scenario: A binary body is refused with its type named
 
@@ -316,10 +351,11 @@ first 2 KiB of the body, else as UTF-8.
 - **THEN** the read fails with `unsupported_content_type` naming that type
 - **AND** no conversion or extraction is attempted
 
-#### Scenario: HTML served as text/plain is rendered
+#### Scenario: Only a declared HTML type is rendered
 
 - **WHEN** a response declares `text/plain` and its body is an HTML document
-- **THEN** the body follows the HTML path instead of being returned as plain text
+- **THEN** the body is returned as served with `method` `negotiated`, not extracted
+- **AND** a `text/plain` README that opens with a block of inline HTML, such as `<div align="center">`, keeps every line
 
 #### Scenario: A declared charset is honored
 
@@ -332,8 +368,8 @@ first 2 KiB of the body, else as UTF-8.
 The first request for a page SHALL send `Accept: text/markdown,
 text/plain;q=0.9, text/html;q=0.8, */*;q=0.5`, so a publisher that serves
 Markdown or plain text for agents is used without a second request or a
-local conversion. A first response that is `text/markdown`, or `text/plain`
-that is not HTML-shaped, SHALL be returned as the content with `method`
+local conversion. A first response that is `text/markdown` or
+`text/plain` SHALL be returned as the content with `method`
 `negotiated`, ungated and unconverted: the publisher's agent-facing body is
 taken as it is. Otherwise, for an HTML body, the tool SHALL try, in order,
 a Markdown alternate announced by the response's `Link` header or by a `<link
@@ -347,7 +383,10 @@ and the local render alike: more than 100 non-whitespace characters, not
 HTML-shaped for a Markdown candidate, and not low quality, where a candidate
 is low quality when it is under 1,024 characters and contains a JavaScript
 or captcha gate phrase, or when more than 70 percent of its non-blank lines
-are shorter than 40 characters. Every derived locator, meaning an alternate,
+are shorter than 40 characters and fewer than 40 of them reach that length,
+since a render that carries 40 substantial lines is a document whatever its
+shape and the fallback it would be sent to is the same page's raw HTML.
+Every derived locator, meaning an alternate,
 a suffix candidate, an `llms.txt` candidate, or a redirect hop, SHALL be
 evaluated against the `read` permission group before its request through
 the same evaluator and the same projection the call used, as if the model
@@ -413,7 +452,10 @@ Only when no publisher Markdown candidate wins SHALL the tool render locally:
 Readability main-content extraction over the response body, converted to
 Markdown with GFM tables and reported as `method` `readability`. When
 Readability finds no article, the whole body SHALL be converted instead and
-reported with the same method. Only when that render fails the quality gate
+reported with the same method. The render SHALL open with the page's title as
+a heading unless its own first line already is that title, because Readability
+treats the title as the article's heading and strips it, leaving a page that
+never names itself. Only when that render fails the quality gate
 SHALL the tool probe `llms.txt`, requesting at most four candidates from the
 deepest path segment up to the site root (the three deepest scopes and the
 root) until one is accepted, reported as `method` `llms-txt`. An `llms.txt`
@@ -434,6 +476,12 @@ content-type rule.
 
 - **WHEN** an HTML page offers no negotiated body, no alternate, and no passing suffix candidate
 - **THEN** Readability's main content is returned as Markdown with GFM tables and `method` `readability`
+
+#### Scenario: A render names the page it came from
+
+- **WHEN** Readability strips the page title as the article's own heading, as it does for `https://example.com/`
+- **THEN** the render opens with that title as a heading
+- **AND** a render whose first line already is the title is not given a second one
 
 #### Scenario: A Readability miss converts the whole body
 
@@ -477,7 +525,9 @@ resolved against the redirecting request's URL by the WHATWG URL parser and
 serialized as its `href`, so a relative `Location` becomes absolute and the
 serialization is what policy sees: lowercase host, an internationalized host
 as punycode, default port dropped, empty path as `/`, path and query
-percent-encoded, fragment retained. A redirect status without a parsable
+percent-encoded. A fragment SHALL be dropped from the resolved locator
+before admission and before the request, so the text policy matches is
+exactly the URL the next request uses. A redirect status without a parsable
 `Location`, or a resolved locator that carries userinfo or a scheme other
 than `http` or `https`, SHALL fail the call with `invalid_redirect` before
 any request and SHALL NOT name the target. Before a hop's request is sent, the `read`
@@ -496,7 +546,9 @@ redirect it announced. When the
 redirect budget is exhausted the call SHALL fail with `too_many_redirects`
 and SHALL issue no further request. The result SHALL name the URL of the
 response that produced the content as `finalUrl` and SHALL NOT enumerate the
-hop chain. The `read` tool description SHALL state that redirects are
+hop chain: when a publisher-Markdown probe won, that is the probe's own
+final URL, including any redirect it followed, rather than the page's.
+The `read` tool description SHALL state that redirects are
 followed and that `finalUrl` reports where the content came from, so the
 model does not re-fetch a page to learn its location. This change SHALL NOT
 resolve a hostname to check its address before connecting: a `path` clause is

@@ -523,4 +523,80 @@ describe('runTool permission gate', () => {
       });
     },
   );
+
+  const pathTool: Tool<{ path: string }> = {
+    id: 'read',
+    description: 'reads a locator',
+    classification: 'read_only',
+    inputSchema: z.strictObject({ path: z.string() }),
+    execute: (_ctx, { path }) => ({ status: 'success', path }),
+  };
+
+  it('rejects a spelling written to miss a reject clause', async () => {
+    // The request will go to `https://grokipedia.com/page`, so a reject
+    // written for that host must catch every spelling of it: the encoded
+    // host, the uppercase host, the default port, and the root dot all
+    // normalize to the rejected text, and the submitted text is matched too.
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: '^https://grokipedia\\.com/' }],
+      },
+    };
+    for (const path of [
+      'https://grokipedia.com/page',
+      'https://g%72okipedia.com/page',
+      'https://GROKIPEDIA.com/page',
+      'https://grokipedia.com:443/page',
+      'https://grokipedia.com./page',
+      'https://grokipedia.com/page#top',
+    ]) {
+      expect(await runTool(pathTool, { path }, contextWith(map), 5)).toEqual({
+        status: 'error',
+        type: 'permission_denied',
+        message: EXPLICIT_REJECT,
+      });
+    }
+  });
+
+  it('rejects on the submitted spelling even when the request would not', async () => {
+    // An operator may reject the encoded spelling itself. Matching only the
+    // normalized text would let it through, so both texts are judged.
+    const map: ToolPermissionMap = {
+      read: { allow: true, reject: [{ field: 'path', literal: '%72' }] },
+    };
+    expect(
+      await runTool(
+        pathTool,
+        { path: 'https://g%72okipedia.com/page' },
+        contextWith(map),
+        5,
+      ),
+    ).toMatchObject({ type: 'permission_denied', message: EXPLICIT_REJECT });
+  });
+
+  it('allows a normalizable spelling of an allowed resource', async () => {
+    // The allow names the resource, and the two texts are one resource, so
+    // the call that will request the allowed URL is admitted rather than
+    // dead-ended on a spelling the operator did not enumerate.
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^https://example\\.test/' }] },
+    };
+    expect(
+      await runTool(
+        pathTool,
+        { path: 'https://EXAMPLE.test/guide:1-5' },
+        contextWith(map),
+        5,
+      ),
+    ).toMatchObject({ status: 'success' });
+    expect(
+      await runTool(
+        pathTool,
+        { path: 'https://other.test/guide' },
+        contextWith(map),
+        5,
+      ),
+    ).toMatchObject({ type: 'permission_denied', message: NO_ALLOW });
+  });
 });

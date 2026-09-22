@@ -10,6 +10,7 @@ import {
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { type CompiledPolicy } from './permissions/types';
+import { type DerivedDecision } from './web-read/admission';
 
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
@@ -61,6 +62,8 @@ export interface ToolContext {
   readonly nativeDeliverySequence?: number;
   /** Stops this Run when a native mutation cannot be safely settled. */
   readonly onNativeMutationUnknown?: () => void;
+  /** Trusted per-call sink for a web read's derived-locator decisions; never model-visible. */
+  readonly onDerivedDecision?: (decision: DerivedDecision) => void;
   /** Boot-time instance-config identity (`llame/<version>`) every web request sends. */
   readonly productUserAgent?: string;
   readonly userId: string;

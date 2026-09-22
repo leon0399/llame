@@ -31,16 +31,20 @@ type SplitLocator = { url: string; selector?: string };
 
 /**
  * Whether the colon at `index` may begin a selector, which only ever trails
- * the last path segment. A locator that carries a query or a fragment cannot
- * hold one: every colon the query or the fragment opened — `?time=10:30:00`,
- * `#x:raw`, or `?b/c:10-20`, whose last slash sits inside the query — is URL
- * text, and splitting at one would request a URL the model never wrote and
- * silently drop the rest of its own locator. Admission refuses a fragment
- * before the split, so the `#` half of the test is this helper's own
- * invariant rather than a state its caller can reach.
+ * the last segment of a path. A locator with no path at all cannot hold one:
+ * the only colon after its scheme opens the port, so `https://example.test:88`
+ * is port 88 and `https://example.test/:88` is line 88 of the site root. A
+ * locator that carries a query or a fragment cannot hold one either: every
+ * colon the query or the fragment opened — `?time=10:30:00`, `#x:raw`, or
+ * `?b/c:10-20`, whose last slash sits inside the query — is URL text, and
+ * splitting at one would request a URL the model never wrote and silently
+ * drop the rest of its own locator.
  */
 function opensSelector(text: string, index: number): boolean {
-  if (index <= text.lastIndexOf('/')) return false;
+  const authority = text.indexOf('//') + 2;
+  const lastSlash = text.lastIndexOf('/');
+  if (lastSlash < authority) return false;
+  if (index <= lastSlash) return false;
   return !/[?#]/u.test(text);
 }
 
@@ -56,9 +60,9 @@ function splitSelector(text: string): SplitLocator {
 }
 
 /**
- * Admit one URL text: parsable, web scheme, no credentials, no fragment. Only
- * an admitted text may reach a message that names it or a request that uses
- * it.
+ * Admit one URL text: parsable, web scheme, no credentials. The caller has
+ * already cut any fragment off, so only an admitted, fragment-free text
+ * reaches a message that names it or a request that uses it.
  */
 function parseWebUrl(
   text: string,
@@ -75,17 +79,33 @@ function parseWebUrl(
   if (url.username !== '' || url.password !== '') {
     return { type: 'invalid_path', message: CREDENTIALS_MESSAGE };
   }
-  // A fragment never reaches the server, so admitting it would let the locator
-  // text policy matched differ from the requested URL; a bare `#` is a
-  // fragment too, and leaves `hash` empty, so the delimiter itself is read.
-  const delimiter = url.href.indexOf('#');
-  if (delimiter !== -1) {
-    return {
-      type: 'invalid_path',
-      message: `Write this locator as ${url.href.slice(0, delimiter)}`,
-    };
+  return { href: canonicalHref(url) };
+}
+
+/**
+ * The URL's serialization with its host's root dot dropped.
+ * `https://example.test./` is the same host as `https://example.test/` — the
+ * trailing dot is the DNS root — but the URL parser keeps it, so a clause
+ * written for the host would miss the dotted spelling. Every locator the tool
+ * requests, submitted or derived, is serialized through here, so the text
+ * policy matches and the text requested carry the same host.
+ */
+export function canonicalHref(url: URL): string {
+  if (url.hostname.endsWith('.')) {
+    url.hostname = url.hostname.slice(0, -1);
   }
-  return { href: url.href };
+  return url.href;
+}
+
+/**
+ * The locator without the fragment the request would drop anyway. A page's
+ * anchor is ordinary text in the links a model reads, so refusing it cost a
+ * call and taught nothing; cutting it here keeps one text for the policy
+ * decision, the message, and the request. A bare `#` is a fragment too.
+ */
+export function stripFragment(text: string): string {
+  const delimiter = text.indexOf('#');
+  return delimiter === -1 ? text : text.slice(0, delimiter);
 }
 
 /**
@@ -105,61 +125,102 @@ function encodedSuggestion(href: string, selector: string): string {
 }
 
 /**
- * The two admitted schemes, as the model must spell them. The submitted text
- * is the text policy matched, so a scheme written in any other case is a
- * locator that is not its own serialization rather than one to lower-case.
+ * A suffix that meant a line the grammar cannot serve (`:0`, `:12+`). The
+ * ranges the model can write are named first and the literal-colon spelling
+ * second, because that model asked for a line, not a path.
  */
-const WEB_SCHEME_PREFIX = /^(?:https?):\/\//u;
+const LINE_SELECTOR_ATTEMPT = /^\d+[-+]?$/u;
+
+function invalidSelectorMessage(href: string, selector: string): string {
+  const encoded = encodedSuggestion(href, selector);
+  if (!LINE_SELECTOR_ATTEMPT.test(selector)) return encoded;
+  const start = selector.replace(/[-+]$/u, '');
+  return `A line selector is :N, :N-M, or :N+K, and a line number starts at 1, so line ${start} is :${start}. For a literal colon, ${lowerFirst(encoded)}`;
+}
+
+function lowerFirst(text: string): string {
+  return `${text[0].toLowerCase()}${text.slice(1)}`;
+}
 
 /**
- * Parse one submitted locator. `invalid_path` covers a locator that is not
- * its own WHATWG serialization — including a scheme the model spelled in
- * uppercase, which the URL parser would silently lower-case — a non-web
- * scheme, userinfo, and a fragment, which the request would drop; a suffix
- * outside the selector grammar is the caller's `invalid_selector`. Every
- * message names the canonical spelling the model should send instead, so a
- * reject clause written against that spelling cannot be evaded by an
- * uppercase, encoded, or default-port variant, and no admitted locator
- * carries text the request would drop.
+ * The hint for a locator the URL parser rejected outright. Two of those are
+ * worth naming rather than answering with "write an absolute URL", which
+ * tells a model that wrote a nearly correct locator nothing: a selector
+ * written straight after the authority (`https://example.test:1-5`) sits
+ * where the port belongs, and a port that is not a number
+ * (`https://example.test:abc/`) is the only broken part of an otherwise
+ * absolute URL.
+ */
+function unparsableLocator(text: string): WebLocatorError {
+  const generic: WebLocatorError = {
+    type: 'invalid_path',
+    message: INVALID_URL_MESSAGE,
+  };
+  const colon = text.lastIndexOf(':');
+  if (colon <= text.indexOf('//') + 1) return generic;
+  const suffix = text.slice(colon + 1);
+  const target = parseWebUrl(text.slice(0, colon));
+  if ('type' in target) return generic;
+  if (isSelectorSuffix(suffix)) {
+    return {
+      type: 'invalid_path',
+      message: `Write this locator as ${target.href}:${suffix}`,
+    };
+  }
+  // What follows the colon is where the port belongs, so say so and name the
+  // same locator without one rather than inventing a number.
+  const slash = suffix.indexOf('/');
+  const port = slash === -1 ? suffix : suffix.slice(0, slash);
+  if (!/^\d*$/u.test(port)) {
+    return {
+      type: 'invalid_path',
+      message: `A port must be a number: write this locator with one, or as ${target.href}`,
+    };
+  }
+  return generic;
+}
+
+/**
+ * Parse one submitted locator into the URL the request will use. Anything the
+ * WHATWG parser can normalize — an uppercase scheme or host, an explicit
+ * default port, a host's root dot, an encoded or Unicode host, unencoded path
+ * and query characters, a fragment the request drops — is normalized rather
+ * than refused, because refusing it cost a call and taught a model nothing it
+ * could carry to the next locator. What is refused is what no normalization
+ * can fix: a text that is not a URL, a scheme that is not `http`/`https`, a
+ * suffix outside the selector grammar, and userinfo, which the tool must
+ * never send. Permission matching sees both texts, so a spelling cannot be
+ * arranged to miss a reject clause.
+ *
+ * A colon opens a selector only after the path separator, so
+ * `https://example.test:88` is port 88 while `https://example.test/:88` is
+ * line 88.
  */
 export function parseWebLocator(
   submitted: string,
 ): WebLocator | WebLocatorError {
+  const text = stripFragment(submitted);
   // Admitted whole before the split: a userinfo the split would cut through
   // (`https://user:secret@host`) is refused here, so no later message can
   // name a credential.
-  const admitted = parseWebUrl(submitted);
-  if ('type' in admitted) return admitted;
-  // Read from the submitted text, never from a scheme the dispatcher
-  // lower-cased: policy matched that text, so an uppercase scheme is refused
-  // here, naming the spelling the model should resubmit.
-  if (!WEB_SCHEME_PREFIX.test(submitted)) {
-    return {
-      type: 'invalid_path',
-      message: `Write this locator as ${admitted.href}`,
-    };
+  const admitted = parseWebUrl(text);
+  if ('type' in admitted) {
+    return admitted.message === INVALID_URL_MESSAGE
+      ? unparsableLocator(text)
+      : admitted;
   }
-  const { url, selector } = splitSelector(submitted);
-  // And admitted again after it, because only the URL that will actually be
-  // requested may reach policy or the network.
+  const { url, selector } = splitSelector(text);
+  // The URL half is parsed in its own right, because that is the text the
+  // request and the permission decision use.
   const target = parseWebUrl(url);
   if ('type' in target) return target;
-  if (target.href !== url) {
-    // Name the whole submitted locator's serialization, not the split
-    // remainder's: the split consumes a port (`https://example.test:8080`
-    // leaves `https://example.test`), and a hint that dropped it would send
-    // the next request to a different endpoint. The whole text keeps the port
-    // and any real selector, and re-splits the same way on resubmission.
-    return {
-      type: 'invalid_path',
-      message: `Write this locator as ${admitted.href}`,
-    };
-  }
   if (selector !== undefined && !isSelectorSuffix(selector)) {
     return {
       type: 'invalid_selector',
-      message: encodedSuggestion(target.href, selector),
+      message: invalidSelectorMessage(target.href, selector),
     };
   }
-  return selector === undefined ? { url } : { url, selector };
+  return selector === undefined
+    ? { url: target.href }
+    : { url: target.href, selector };
 }
