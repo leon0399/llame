@@ -77,9 +77,10 @@ export function buildWebReadResult(
       status: 'error',
       type: error.type,
       // `NativeFileError` defaults its message to its type, which tells the
-      // model nothing; only wording the thrower chose is worth passing on.
+      // model nothing; only wording the thrower chose is worth passing on,
+      // and only a selector failure earns selector guidance.
       message:
-        error.message === error.type
+        error.message === error.type && error.type === 'invalid_selector'
           ? selectorFailureMessage(render.content, locator.selector)
           : error.message,
     };
@@ -98,5 +99,10 @@ function selectorFailureMessage(
 ): string {
   const lines = splitSourceLines(content).length;
   const written = selector === undefined ? '' : `:${selector} `;
+  // A render with no lines has no range to point at, so the sentence that
+  // would name one is left out rather than naming `1-0`.
+  if (lines === 0) {
+    return `The selector ${written}selected no line of this page, which rendered no text.`;
+  }
   return `The selector ${written}selected no line of this page, which rendered ${lines} line${lines === 1 ? '' : 's'} numbered from 1. Write :N, :N-M, or :N+K within 1-${lines}, or omit the selector to read from the start.`;
 }

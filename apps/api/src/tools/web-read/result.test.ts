@@ -296,4 +296,18 @@ describe('buildWebReadResult', () => {
       ),
     ).toThrow('the render never produced text');
   });
+
+  it('names no range when the render has no lines', () => {
+    const result = buildWebReadResult(
+      { url: GUIDE_URL, selector: '2-3' },
+      { finalUrl: GUIDE_URL, contentType: 'text/plain', body: '' },
+      { method: 'text', content: '' },
+    );
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The selector :2-3 selected no line of this page, which rendered no text.',
+    });
+  });
 });

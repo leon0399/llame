@@ -653,13 +653,6 @@ new path.
   `onDerivedDecision` callback on the tool context and are recorded beside
   the call decision in the completion payload, bounded at 27 entries, the
   per-call request budget.
-  the call decision in the completion payload, bounded at 27 entries, the
-  per-call request budget.
-  the call decision in the completion payload, bounded at 26 entries: the
-  per-call request budget's 20 hops, one alternate, one suffix, and four
-  `llms.txt` candidates produce a decision each (20 + 1 + 1 + 4 = 26), while
-  the submitted locator — the budget's 27th request — is decided at the
-  execution gate and produces none.
 - v8 (2026-09-22): The `policy` layer's GitHub review round. An announced
   candidate's fragment is dropped before admission and before its request,
   the same treatment a hop's fragment gets, and a candidate that carries
