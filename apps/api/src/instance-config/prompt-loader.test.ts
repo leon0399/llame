@@ -19,7 +19,7 @@ import type {
 } from '../models/model-catalog';
 import { isValidSkillName } from '../skills/skill-name';
 import { resolvePackagedToolDescriptionPath } from '../prompts/tool-descriptions';
-import type { WebRenderMethod } from '../tools/web-read/pipeline';
+import { WEB_RENDER_METHODS } from '../tools/web-read/pipeline';
 import { isRecord } from '@workspace/runtime-safety';
 
 let tmpDir: string;
@@ -1437,32 +1437,25 @@ describe('prompt template rejection messages', () => {
 });
 
 /**
- * The methods this branch's `WebRenderMethod` union can produce. An exhaustive
- * record rather than a plain list: a member added, removed, or renamed in
- * `apps/api/src/tools/web-read/pipeline.ts` fails this file's typecheck, so the
- * assertions below cannot drift from the union they are about.
+ * The methods this branch can report, read from the list the pipeline derives
+ * its union from, so the assertions below cannot drift from it and hold on
+ * every layer of the stack: the `policy` layer's probe adapters widen that
+ * list, and this test then requires the description to name them too.
  */
-const PRODUCIBLE_WEB_RENDER_METHODS = {
-  negotiated: true,
-  readability: true,
-  text: true,
-  raw: true,
-} satisfies Readonly<Record<WebRenderMethod, true>>;
+const PRODUCIBLE_WEB_RENDER_METHODS: ReadonlyArray<string> = WEB_RENDER_METHODS;
 
 /**
- * The method values the packaged `read` description names that this branch
- * cannot produce yet. An announced alternate, the Markdown suffix probe, and
- * the `llms.txt` walk are the `policy` layer's derived-locator adapters
- * (`tasks.md` 3.1b), so the description — which travels with the stack and
- * documents the change's method vocabulary — names them before their producers
- * exist. The containment "every described method is producible" therefore only
- * becomes true on that layer, and belongs there rather than here.
+ * The method values the packaged `read` description may name beyond what this
+ * branch produces. The announced alternate, the Markdown suffix probe, and the
+ * `llms.txt` walk are the `policy` layer's derived-locator adapters
+ * (`tasks.md` 3.1b), and the description travels with the stack, so it
+ * documents the change's whole vocabulary before their producers exist.
  */
-const PENDING_WEB_RENDER_METHODS = {
-  alternate: true,
-  'md-suffix': true,
-  'llms-txt': true,
-} satisfies Readonly<Record<'alternate' | 'md-suffix' | 'llms-txt', true>>;
+const PENDING_WEB_RENDER_METHODS: ReadonlyArray<string> = [
+  'alternate',
+  'md-suffix',
+  'llms-txt',
+];
 
 /** The description's own `method` vocabulary: the parenthesized, comma- or
  *  `or`-separated list the sentence introducing `method` publishes. */
@@ -1740,7 +1733,7 @@ describe('llame-owned tool description templates', () => {
 
     // Every method this branch can report must be documented ...
     expect(described).toEqual(
-      expect.arrayContaining(Object.keys(PRODUCIBLE_WEB_RENDER_METHODS)),
+      expect.arrayContaining([...PRODUCIBLE_WEB_RENDER_METHODS]),
     );
     // ... and the description may name nothing outside the change's
     // vocabulary: the producible set plus the `policy` layer's three probe
@@ -1748,8 +1741,8 @@ describe('llame-owned tool description templates', () => {
     expect(
       described.filter(
         (method) =>
-          !Object.hasOwn(PRODUCIBLE_WEB_RENDER_METHODS, method) &&
-          !Object.hasOwn(PENDING_WEB_RENDER_METHODS, method),
+          !PRODUCIBLE_WEB_RENDER_METHODS.includes(method) &&
+          !PENDING_WEB_RENDER_METHODS.includes(method),
       ),
     ).toEqual([]);
   });

@@ -5,7 +5,16 @@ import { gfm } from 'turndown-plugin-gfm';
 
 import type { WebResponse } from './http-client';
 
-export type WebRenderMethod = 'negotiated' | 'readability' | 'text' | 'raw';
+/** Every adapter a web read can report, in pipeline order. Declared as values
+ *  so a caller can enumerate them; the union is derived from this list. */
+export const WEB_RENDER_METHODS = [
+  'negotiated',
+  'readability',
+  'text',
+  'raw',
+] as const;
+
+export type WebRenderMethod = (typeof WEB_RENDER_METHODS)[number];
 
 export type WebRender = {
   readonly method: WebRenderMethod;
