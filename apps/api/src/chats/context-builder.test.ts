@@ -2099,6 +2099,51 @@ describe('buildContext', () => {
       }
     });
 
+    it('keeps a reasoning boundary between calls in a compaction request', () => {
+      // A compaction request carries no reasoning text, but the reasoning part
+      // still ended a step: grouping the calls on both sides of it would hand
+      // the summarizer a causal order that never happened, with the second
+      // call standing ahead of the result that prompted it.
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'first',
+            state: 'output-available',
+            input: { query: 'first' },
+            output: { status: 'success', value: 'FIRST' },
+            outcome: 'success',
+          },
+          { type: 'reasoning', text: 'That answered half of it.' },
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'second',
+            state: 'output-available',
+            input: { query: 'second' },
+            output: { status: 'success', value: 'SECOND' },
+            outcome: 'success',
+          },
+        ],
+      });
+
+      const { messages } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'compaction',
+      });
+
+      expect(messages.map(({ role }) => role)).toEqual([
+        'assistant',
+        'tool',
+        'assistant',
+        'tool',
+      ]);
+      expect(JSON.stringify(messages[0])).toContain('first');
+      expect(JSON.stringify(messages[0])).not.toContain('second');
+      expect(JSON.stringify(messages[2])).toContain('second');
+      expect(JSON.stringify(messages)).not.toContain('That answered half');
+    });
+
     it('compaction supersedes raw tool payloads (2.10)', () => {
       const assistant = msg({
         role: 'assistant',

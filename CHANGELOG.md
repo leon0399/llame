@@ -10,7 +10,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `reasoning_content` beside `tool_calls` in thinking mode rejected the rest,
   which left a chat whose turn called tools in parallel unable to continue.
   Reasoning or text recorded after a step's calls still opens the next step,
-  so stored order is unchanged.
+  so stored order is unchanged, and a reasoning part closes the step it ended
+  even in a compaction request, whose prefix carries no reasoning text. Two
+  calls stored with nothing between them replay as one step, which is what
+  parallel calls were on the wire and what stored parts cannot currently
+  distinguish from a sequential pair (#599).
 
 - The native `read` tool reads the web: an absolute `http://` or `https://`
   locator is now a fourth `read` target beside absolute paths, `kb://`, and

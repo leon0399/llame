@@ -405,13 +405,18 @@ class AssistantHistoryEmitter {
   }
 
   /**
-   * Reasoning recorded after this step already produced text or calls opens
-   * the next step, so a turn's stored order of reasoning against text holds.
+   * Close the step a reasoning part ended, whether or not its text travels in
+   * this request kind. The reasoning itself opens the next step, so a turn's
+   * stored order of reasoning against text and calls holds.
    */
-  appendReasoning(part: PromptReasoningPart): void {
+  closeStep(): void {
     if (this.pendingText.length > 0 || this.pendingToolPairs.length > 0) {
       this.flushStep();
     }
+  }
+
+  appendReasoning(part: PromptReasoningPart): void {
+    this.closeStep();
     this.pendingReasoning.push(part);
   }
 
@@ -498,9 +503,11 @@ function pushAssistantHistory(
       continue;
     }
     if (isReasoningPart(part)) {
-      // A reasoning part recorded after a step's calls opens the next step,
-      // which `appendReasoning` handles; within a step it keeps its stored
-      // position ahead of the text and calls that followed it.
+      // A reasoning part is a step boundary whether or not its text travels:
+      // a compaction request omits the text but must still close the step the
+      // reasoning ended, or the calls on both sides of it would replay as one
+      // turn and the summarizer would read a causal order that never happened.
+      emitter.closeStep();
       if (requestKind === 'continuation') {
         // The part's opaque provider metadata (D15) crosses unchanged as the
         // prompt part's `providerOptions`; llame reads no key inside it. A

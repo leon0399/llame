@@ -751,10 +751,17 @@ dropped atomically until the projection fits, with one bounded omission count
 and marker. An unmatched call or result SHALL never be emitted.
 
 Visible assistant text and retained tool occurrences SHALL keep their current
-chronology. Because ordinary stored messages do not prove parallel or step
-boundaries, consecutive calls SHALL continue to project conservatively as
-standalone sequential matched pairs. This behavior SHALL NOT be generalized or
-rewritten by this change; its research/refactor is scoped by #599.
+chronology. Stored parts carry no step boundary, so model replay SHALL treat a
+run of consecutive tool parts with no reasoning or text between them as one
+model step: every call in the run SHALL ride one assistant message, followed by
+one tool message per result in stored order, with pairing by `toolCallId`
+unchanged. A reasoning or text part between calls SHALL close that step,
+whether or not its own text travels in the request kind being built. This shape
+is what the step produced on the wire when the calls were parallel, and it is
+what a backend requiring `reasoning_content` beside `tool_calls` accepts; when
+the calls were sequential it presents them as one step, which is the loss
+stored parts cannot currently avoid, and which #599 scopes. Compaction
+replacement records SHALL still hold one complete pair each.
 
 Compaction SHALL replace the semantic observation ledger with final
 message-shaped replacement records. Ordinary and transition compaction SHALL:
