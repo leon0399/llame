@@ -141,13 +141,14 @@ alternates or suffixes.
 
 A probe answers for itself only: its non-2xx status, a content type the read
 refuses, an oversized body, a headers timeout, an unfollowable redirect, a
-transport failure, or a failed gate disqualifies that candidate and the
-pipeline continues, because the suffix probe and the `llms.txt` walk expect 404
-as their ordinary answer. From every probe, the call's own spent bounds — its
-30-second deadline and its 20-hop budget — the caller's abort, and a refused
-hop end the call. One call issues at most one alternate request, one suffix
-probe, and four `llms.txt` candidates; with 20 redirects that is at most 27
-requests.
+transport failure, a refusal inside its own redirect chain, or a failed gate
+disqualifies that candidate and the pipeline continues, because the suffix
+probe and the `llms.txt` walk expect 404 as their ordinary answer. From every
+probe, only the call's own spent bounds — its 30-second deadline and its
+20-hop budget — and the caller's abort end the read; a refused hop on the
+call's own request chain ends it too, and reports the refused target. One call
+issues at most one alternate request, one suffix probe, and four `llms.txt`
+candidates; with 20 redirects that is at most 27 requests.
 
 ## Derived locators and permission admission
 

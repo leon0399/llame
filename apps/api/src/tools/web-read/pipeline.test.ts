@@ -1,3 +1,4 @@
+import { REJECTED_HOP_MESSAGE } from '../permissions/messages';
 import type { PermissionDecision } from '../permissions/types';
 import type { DerivedLocatorKind } from './admission';
 import type { WebFetchFailure, WebResponse } from './http-client';
@@ -854,6 +855,36 @@ describe('renderWebContent', () => {
     expect(harness.requested).toEqual([alternate, `${PAGE}.md`]);
   });
 
+  it('disqualifies an alternate whose redirect lands on a refused host', async () => {
+    const alternate = 'https://cdn.example.test/guides/adapter-pipelines.md';
+    const refused = 'https://evil.example.test/steal?token=secret';
+    const harness = makePipeline({
+      [alternate]: {
+        type: 'permission_denied',
+        message: REJECTED_HOP_MESSAGE,
+        rejectedUrl: 'https://evil.example.test/steal',
+      },
+      // The refused target answers Markdown, so a read that requested it
+      // anyway would take it as the alternate instead of the page render.
+      [refused]: response('text/markdown', PUBLISHER_MARKDOWN, refused),
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE, linkHeader(alternate)),
+      harness,
+    );
+
+    // The candidate is admitted before its request, so the only locator of its
+    // chain the `read` group can refuse is the hop it redirects to. That
+    // refusal is the candidate's own bad answer, exactly as a directly-refused
+    // alternate locator is, so the page render the call already holds decides
+    // and the refused target is never requested.
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain('## Negotiation');
+    expect(render.finalUrl).toBeUndefined();
+    expect(harness.requested).toEqual([alternate, `${PAGE}.md`]);
+  });
+
   it('disqualifies a probe that answered a redirect it cannot follow', async () => {
     const pageUrl = 'https://docs.example.test/a/b/c';
     const candidate = `${pageUrl}.md`;
@@ -879,6 +910,29 @@ describe('renderWebContent', () => {
     expect(render.method).toBe('llms-txt');
     expect(render.content).toBe(LLMS_TXT);
     expect(harness.requested).toEqual([candidate, `${pageUrl}/llms.txt`]);
+  });
+
+  it('disqualifies a suffix candidate whose redirect lands on a refused host', async () => {
+    const harness = makePipeline({
+      [`${PAGE}.md`]: {
+        type: 'permission_denied',
+        message: REJECTED_HOP_MESSAGE,
+        rejectedUrl: 'https://evil.example.test/guides/adapter-pipelines.md',
+      },
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE),
+      harness,
+    );
+
+    // A refused hop of the sibling's own chain is that candidate's answer
+    // alone, so the page render stands, exactly as it does for an alternate
+    // whose hop was refused.
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain('## Negotiation');
+    expect(render.finalUrl).toBeUndefined();
+    expect(harness.requested).toEqual([`${PAGE}.md`]);
   });
 
   it('probes the suffix of the path, without the page query or fragment', async () => {
@@ -973,13 +1027,42 @@ describe('renderWebContent', () => {
     expect(render.content).toBe(NAV_ONLY_HTML);
   });
 
+  it('disqualifies an llms.txt candidate whose redirect lands on a refused host', async () => {
+    const pageUrl = 'https://docs.example.test/a/b/c';
+    const root = 'https://docs.example.test/llms.txt';
+    const harness = makePipeline({
+      [`${pageUrl}/llms.txt`]: {
+        type: 'permission_denied',
+        message: REJECTED_HOP_MESSAGE,
+        rejectedUrl: 'https://evil.example.test/llms.txt',
+      },
+      [root]: response('text/plain', LLMS_TXT, root),
+    });
+
+    const render = await runPipeline(
+      response('text/html', NAV_ONLY_HTML, pageUrl),
+      harness,
+    );
+
+    // The refused hop belongs to the page scope's own chain, so it disqualifies
+    // that candidate alone and the walk goes on to the root instead of ending
+    // the call.
+    expect(render.method).toBe('llms-txt');
+    expect(render.content).toBe(LLMS_TXT);
+    expect(render.finalUrl).toBe(root);
+    expect(harness.requested).toEqual([
+      `${pageUrl}.md`,
+      `${pageUrl}/llms.txt`,
+      'https://docs.example.test/a/b/llms.txt',
+      'https://docs.example.test/a/llms.txt',
+      root,
+    ]);
+  });
+
   it.each([
     ['call_timeout', 'The web read exceeded its 30-second budget.'],
     ['too_many_redirects', 'The read followed more than 20 redirects.'],
-    [
-      'permission_denied',
-      'A redirect target was refused before its content was read.',
-    ],
+    ['aborted', 'The web read was cancelled.'],
   ])(
     'fails the call when an llms.txt candidate answers %s',
     async (type, message) => {

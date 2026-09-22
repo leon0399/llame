@@ -173,14 +173,20 @@ async function publisherMarkdown(
 /** The failures that answer for one candidate alone, by the types the client
  *  reports: the site has nothing at that locator, refuses its content type or
  *  size, the transport to it failed, it answered no headers before the bound
- *  the client arms for its own request expired, or it answered a redirect the
- *  client cannot follow. Each is that candidate's own bad answer — the header
- *  bound is re-armed for every request, so a host that accepts TCP and stays
- *  silent spends only its own allowance, and a redirect without a followable
- *  `Location` is that response's defect — so the next candidate decides.
+ *  the client arms for its own request expired, it answered a redirect the
+ *  client cannot follow, or a redirect it did answer named a hop the `read`
+ *  group refused. Each is that candidate's own bad answer — the header bound
+ *  is re-armed for every request, so a host that accepts TCP and stays silent
+ *  spends only its own allowance; a redirect without a followable `Location`
+ *  is that response's defect; and a refused hop is the candidate's own, since
+ *  the candidate itself is admitted before its request, so the only locator of
+ *  its chain the group can refuse is one it redirects to — so the next
+ *  candidate decides. The call's own request chain is never among them: the
+ *  executor fetches the submitted locator and the hops it follows, so a
+ *  refusal there ends the read before a candidate is derived.
  *  Every other failure spends a bound of the call — its 30-second deadline,
- *  its redirect budget, the caller's abort, or a hop the `read` group refused
- *  — and is the call's, from every probe. */
+ *  its redirect budget, or the caller's abort — and is the call's, from every
+ *  probe. */
 const CANDIDATE_FAILURES = {
   http_status: true,
   unsupported_content_type: true,
@@ -188,17 +194,18 @@ const CANDIDATE_FAILURES = {
   network_error: true,
   headers_timeout: true,
   invalid_redirect: true,
+  permission_denied: true,
 };
 
 /**
  * Probes one kind's candidates in order and returns the first winning render,
  * or the failure that ends the call. A candidate the `read` group refuses, one
  * that answers a failure of its own — its status, its content type, its body's
- * size, the transport to it, its own silent wait for headers, or a redirect it
- * served without a followable `Location` — and one whose body fails the gate
- * are each disqualified without failing the call, so the next candidate
- * decides, and a later `llms.txt` candidate still leaves the render that
- * already exists.
+ * size, the transport to it, its own silent wait for headers, a redirect it
+ * served without a followable `Location`, or a hop of its own chain the `read`
+ * group refused — and one whose body fails the gate are each disqualified
+ * without failing the call, so the next candidate decides, and a later
+ * `llms.txt` candidate still leaves the render that already exists.
  *
  * A failure of a bound the call has already paid ends the call from every
  * probe, the walk included: a call past its deadline or redirect budget must
