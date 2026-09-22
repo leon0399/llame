@@ -227,7 +227,9 @@ response answers a non-2xx status, or a refused content type, or which fails
 on a bound of its own (a headers timeout, an oversized body, a transport
 failure, or a redirect it cannot follow), SHALL disqualify only that
 candidate, and the pipeline SHALL continue; a probe that exhausts the call's
-deadline or its redirect budget, or a refused hop, SHALL fail the call. A
+deadline or its redirect budget SHALL fail the call, while a refusal inside
+a probe's own redirect chain disqualifies only that candidate, as a refused
+probe locator does. A
 call SHALL issue at most one alternate request, one suffix-probe request,
 and four `llms.txt` requests, and SHALL follow at most 20 redirects in total
 across all of its requests.
