@@ -324,8 +324,11 @@ The substrate, on current `master`:
 ### D11: The example keeps `read` open and adds two rejects
 
 - **Decision**: `apps/api/llame.config.json.example` keeps
-  `"read": { "allow": true }` and gains two `read.path` rejects: `^http://`
-  and grokipedia with its subdomains. The new `docs/web-read.md` runbook shows
+  `"read": { "allow": true }` and gains two case-insensitive `read.path`
+  rejects: `(?i)^http://` and grokipedia with its subdomains and a trailing
+  dot. Submitted locators are matched verbatim while the scheme dispatch
+  lowercases, so `HTTP://` would otherwise slip past a case-sensitive clause.
+  The new `docs/web-read.md` runbook shows
   the narrower alternative, replacing the whole-tool allow with field allows
   for `^/`, `^kb://`, `^skill://`, and `^https://docs\.example\.com/`, and the
   recommended-policy requirement names both rejects and the alternative.
