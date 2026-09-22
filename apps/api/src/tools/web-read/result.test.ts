@@ -1,6 +1,7 @@
 import { measureNativeModelOutput } from '@workspace/native-file-tools';
 import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
 
+import { type WebRender } from './pipeline';
 import { buildWebReadResult } from './result';
 
 const GUIDE_URL = 'https://example.test/guide';
@@ -251,5 +252,24 @@ describe('buildWebReadResult', () => {
       type: 'invalid_selector',
     });
     expect(result).toHaveProperty('message', expect.any(String));
+  });
+
+  it('propagates a failure that is not the reader’s own', () => {
+    // The catch maps the reader's own refusals and nothing else: a defect
+    // raised while the render is read must surface, not be dressed as a read
+    // failure the model would report as the page's answer.
+    const failing = {
+      method: 'text',
+      get content(): string {
+        throw new Error('the render never produced text');
+      },
+    } satisfies WebRender;
+    expect(() =>
+      buildWebReadResult(
+        { url: GUIDE_URL },
+        { finalUrl: GUIDE_URL, contentType: 'text/plain', body: '' },
+        failing,
+      ),
+    ).toThrow('the render never produced text');
   });
 });

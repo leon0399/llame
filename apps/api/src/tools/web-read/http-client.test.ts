@@ -1,3 +1,5 @@
+import { getEventListeners } from 'node:events';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { fetchWebDocument } from './http-client';
@@ -6,6 +8,24 @@ import type { WebFetchDeps, WebFetchFailure, WebResponse } from './http-client';
 const URL_ = 'https://docs.example.test/guides/adapter-pipelines.html';
 const USER_AGENT = 'llame/1.2.3';
 const CAP_BYTES = 5 * 1024 * 1024;
+
+/** The request's own abort signal: the client always sends one, and it is the
+ *  only handle a test has on what the client does with that signal. */
+function signalOf(init: RequestInit | undefined): AbortSignal {
+  const signal = init?.signal;
+  if (signal === null || signal === undefined) {
+    throw new Error('the client sent no request signal');
+  }
+  return signal;
+}
+
+/** How many `abort` listeners a signal carries, or `-1` when the test never
+ *  saw the signal, so a missing capture fails an assertion rather than
+ *  passing one. */
+function abortListeners(signal: AbortSignal | undefined): number {
+  if (signal === undefined) return -1;
+  return getEventListeners(signal, 'abort').length;
+}
 
 /** A transport double for one scripted response. `fetch` is a spy, so a test
  *  can prove the client asked exactly once: nothing is retried. */
@@ -144,10 +164,39 @@ describe('web fetch client', () => {
     });
   });
 
-  it('lowercases the media type but keeps the parameters as received', async () => {
-    const deps = serving(
-      textResponse('# Title\n', 'Text/Markdown; charset=UTF-8'),
-    );
+  it.each([
+    // No parameters: the whole header is the media type.
+    { header: 'TEXT/MARKDOWN', contentType: 'text/markdown' },
+    // Parameters: the space before them belongs to the media type, and
+    // trimming it away is what keeps this JSON body readable at all.
+    {
+      header: 'application/json ; charset=UTF-8',
+      contentType: 'application/json; charset=UTF-8',
+    },
+  ])(
+    'folds the media type of $header but keeps the parameters as received',
+    async ({ header, contentType }) => {
+      const deps = serving(textResponse('# Title\n', header));
+
+      const result = await fetchWebDocument(
+        URL_,
+        { userAgent: USER_AGENT },
+        deps,
+      );
+
+      expect(result).toStrictEqual({
+        finalUrl: URL_,
+        contentType,
+        body: '# Title\n',
+      });
+    },
+  );
+
+  it('folds away a non-HTTP space around the media type', async () => {
+    // `Headers` normalizes HTTP whitespace only, so a no-break space — U+00A0,
+    // which a server can send — arrives with the value: the client names the
+    // body's media type instead of refusing a body it can read.
+    const deps = serving(textResponse('# Title\n', '\u00a0TEXT/MARKDOWN'));
 
     const result = await fetchWebDocument(
       URL_,
@@ -157,7 +206,7 @@ describe('web fetch client', () => {
 
     expect(result).toStrictEqual({
       finalUrl: URL_,
-      contentType: 'text/markdown; charset=UTF-8',
+      contentType: 'text/markdown',
       body: '# Title\n',
     });
   });
@@ -213,8 +262,10 @@ describe('web fetch client', () => {
       await fetchWebDocument(URL_, { userAgent: USER_AGENT }, deps),
     );
 
-    expect(result).toHaveProperty('type', 'unsupported_content_type');
-    expect(result).toHaveProperty('message', expect.any(String));
+    expect(result).toStrictEqual({
+      type: 'unsupported_content_type',
+      message: 'The response declares no content type.',
+    });
   });
 
   it.each([404, 500])('fails HTTP %i without its body', async (status) => {
@@ -348,10 +399,10 @@ describe('web fetch client', () => {
     expect(cancelled).toHaveBeenCalled();
   });
 
-  it('accepts a body of exactly the cap', async () => {
+  it('accepts a body whose declared length is exactly the cap', async () => {
     // The over-cap side is pinned by the tests around this one, but a cap
-    // shrunk below 5 MiB would keep every one of them green: this holds the
-    // inside of the boundary.
+    // shrunk below 5 MiB, or a declared length read as being past it, would
+    // keep every one of them green: this holds the inside of both boundaries.
     const deps = serving(
       new Response(
         new ReadableStream<Uint8Array>({
@@ -360,7 +411,12 @@ describe('web fetch client', () => {
             controller.close();
           },
         }),
-        { headers: { 'content-type': 'text/plain' } },
+        {
+          headers: {
+            'content-type': 'text/plain',
+            'content-length': String(CAP_BYTES),
+          },
+        },
       ),
     );
 
@@ -424,7 +480,10 @@ describe('web fetch client', () => {
     );
 
     expect(result).toHaveProperty('type', 'call_timeout');
-    expect(result).toHaveProperty('message', expect.any(String));
+    expect(result).toHaveProperty(
+      'message',
+      'The web read exceeded its 30-second budget.',
+    );
   });
 
   it('decodes a body with the charset its content type declares', async () => {
@@ -544,7 +603,7 @@ describe('web fetch client', () => {
     const result = refusalOf(await pending);
 
     expect(result).toHaveProperty('type', 'aborted');
-    expect(result).toHaveProperty('message', expect.any(String));
+    expect(result).toHaveProperty('message', 'The web read was cancelled.');
   });
 
   it('issues no request when the caller has already aborted', async () => {
@@ -559,7 +618,7 @@ describe('web fetch client', () => {
     );
 
     expect(result).toHaveProperty('type', 'aborted');
-    expect(result).toHaveProperty('message', expect.any(String));
+    expect(result).toHaveProperty('message', 'The web read was cancelled.');
     expect(deps.fetch).not.toHaveBeenCalled();
   });
 
@@ -580,7 +639,10 @@ describe('web fetch client', () => {
     const result = refusalOf(await pending);
 
     expect(result).toHaveProperty('type', 'headers_timeout');
-    expect(result).toHaveProperty('message', expect.any(String));
+    expect(result).toHaveProperty(
+      'message',
+      'The server sent no response headers within 10 seconds.',
+    );
   });
 
   it('never lets a caller extend the 30-second call bound', async () => {
@@ -608,7 +670,10 @@ describe('web fetch client', () => {
     const result = refusalOf(await pending);
 
     expect(result).toHaveProperty('type', 'call_timeout');
-    expect(result).toHaveProperty('message', expect.any(String));
+    expect(result).toHaveProperty(
+      'message',
+      'The web read exceeded its 30-second budget.',
+    );
     expect(cancelled).toHaveBeenCalled();
   });
 
@@ -631,7 +696,224 @@ describe('web fetch client', () => {
     );
 
     expect(result).toHaveProperty('type', 'call_timeout');
-    expect(result).toHaveProperty('message', expect.any(String));
+    expect(result).toHaveProperty(
+      'message',
+      'The web read exceeded its 30-second budget.',
+    );
+    expect(cancelled).toHaveBeenCalled();
+  });
+
+  it('reassembles a body that arrives in several chunks', async () => {
+    const parts = ['web ', 'read ', 'client'];
+    const deps = serving(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            for (const part of parts) controller.enqueue(Buffer.from(part));
+            controller.close();
+          },
+        }),
+        { headers: { 'content-type': 'text/plain' } },
+      ),
+    );
+
+    const result = await fetchWebDocument(
+      URL_,
+      { userAgent: USER_AGENT },
+      deps,
+    );
+
+    expect(result).toStrictEqual({
+      finalUrl: URL_,
+      contentType: 'text/plain',
+      body: 'web read client',
+    });
+  });
+
+  it('ignores a declared length that is not a run of digits', async () => {
+    // `1e10` is past the cap read as a number, but an HTTP `Content-Length` is
+    // digits only: a hint this client must not act on.
+    const deps = serving(
+      new Response('ok', {
+        headers: { 'content-type': 'text/plain', 'content-length': '1e10' },
+      }),
+    );
+
+    const result = await fetchWebDocument(
+      URL_,
+      { userAgent: USER_AGENT },
+      deps,
+    );
+
+    expect(result).toHaveProperty('body', 'ok');
+  });
+
+  it.each([
+    {
+      status: 500,
+      retryAfter: '120',
+      message: 'The server answered HTTP 500.',
+    },
+    { status: 429, retryAfter: '', message: 'The server answered HTTP 429.' },
+  ])(
+    'echoes no retry delay the HTTP $status answer does not carry',
+    async ({ status, retryAfter, message }) => {
+      const deps = serving(
+        new Response('no', {
+          status,
+          headers: { 'retry-after': retryAfter },
+        }),
+      );
+
+      const result = refusalOf(
+        await fetchWebDocument(URL_, { userAgent: USER_AGENT }, deps),
+      );
+
+      expect(result).toStrictEqual({ type: 'http_status', message });
+    },
+  );
+
+  it('reports a transport failure that is not an Error without its message', async () => {
+    // An Error-shaped reason that is not an `Error` to `instanceof`, which is
+    // what a transport handing over a plain rejection value produces: the
+    // client falls back to its own message instead of echoing one it cannot
+    // trust.
+    const cause = new Error('socket hang up');
+    Object.setPrototypeOf(cause, Object.prototype);
+    const deps: WebFetchDeps = { fetch: () => Promise.reject(cause) };
+
+    const result = refusalOf(
+      await fetchWebDocument(URL_, { userAgent: USER_AGENT }, deps),
+    );
+
+    expect(result).toStrictEqual({
+      type: 'network_error',
+      message: 'The request failed.',
+    });
+  });
+
+  it('takes its abort listeners off both signals when the read is over', async () => {
+    const caller = new AbortController();
+    let request: AbortSignal | undefined;
+    let boundWhileCalling = -1;
+    const deps: WebFetchDeps = {
+      fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
+        request = signalOf(init);
+        boundWhileCalling = abortListeners(caller.signal);
+        return Promise.resolve(textResponse('done', 'text/plain'));
+      },
+    };
+
+    const result = await fetchWebDocument(
+      URL_,
+      { userAgent: USER_AGENT, signal: caller.signal },
+      deps,
+    );
+
+    expect(result).toHaveProperty('body', 'done');
+    // The caller's signal carries the client's listener for the whole call,
+    // and neither signal carries one once the call is over. The request
+    // signal's own listener, held over the same stretch, is pinned by the
+    // cancel test below.
+    expect(boundWhileCalling).toBe(1);
+    expect(abortListeners(caller.signal)).toBe(0);
+    expect(abortListeners(request)).toBe(0);
+  });
+
+  it('stops listening to the caller’s signal the moment it aborts', async () => {
+    const caller = new AbortController();
+    let answer: (() => void) | undefined;
+    const deps: WebFetchDeps = {
+      fetch: () =>
+        new Promise<Response>((resolve) => {
+          answer = () => resolve(textResponse('late', 'text/plain'));
+        }),
+    };
+
+    const pending = fetchWebDocument(
+      URL_,
+      { userAgent: USER_AGENT, signal: caller.signal },
+      deps,
+    );
+    caller.abort();
+    // The call is still waiting on the transport here, so a listener the abort
+    // had already consumed would still be attached: the registration is a one
+    // shot, not a standing one.
+    const stillBound = abortListeners(caller.signal);
+
+    answer?.();
+    const result = refusalOf(await pending);
+
+    expect(stillBound).toBe(0);
+    expect(result).toHaveProperty('type', 'aborted');
+  });
+
+  it('unbinds from the request’s signal before its abort handling runs', async () => {
+    let request: AbortSignal | undefined;
+    const stillBound: Array<number> = [];
+    const deps: WebFetchDeps = {
+      fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
+        request = signalOf(init);
+        return Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              // No chunk ever arrives: only the client's own cancel ends this.
+              pull: () => new Promise<void>(() => undefined),
+              cancel: () => {
+                stillBound.push(abortListeners(request));
+              },
+            }),
+            { headers: { 'content-type': 'text/plain' } },
+          ),
+        );
+      },
+    };
+
+    const result = refusalOf(
+      await fetchWebDocument(
+        URL_,
+        { userAgent: USER_AGENT, deadlineMs: 20 },
+        deps,
+      ),
+    );
+
+    expect(result).toHaveProperty('type', 'call_timeout');
+    // The request signal carried the listener when the read began, and the
+    // client had already taken it off as its own cancel ran.
+    expect(stillBound).toEqual([0]);
+  });
+
+  it('cancels a body the call aborted before the reader was attached', async () => {
+    const caller = new AbortController();
+    const cancelled = vi.fn();
+    const deps: WebFetchDeps = {
+      fetch: () => {
+        // The caller gives up in the instant between the headers and the body,
+        // so the request signal has already fired by the time the reader is
+        // attached and its listener will never run.
+        caller.abort();
+        return Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              pull: () =>
+                Promise.reject(new Error('the transport tore the body down')),
+              cancel: cancelled,
+            }),
+            { headers: { 'content-type': 'text/plain' } },
+          ),
+        );
+      },
+    };
+
+    const result = refusalOf(
+      await fetchWebDocument(
+        URL_,
+        { userAgent: USER_AGENT, signal: caller.signal },
+        deps,
+      ),
+    );
+
+    expect(result).toHaveProperty('type', 'aborted');
     expect(cancelled).toHaveBeenCalled();
   });
 });

@@ -10,6 +10,14 @@ describe('parseWebLocator', () => {
     });
   });
 
+  it('omits the selector key for a locator that carries none', () => {
+    // The selector is absent, not present-and-undefined: a locator without
+    // one is the two-field shape, exactly as the type spells it.
+    expect(parseWebLocator('https://example.test/guide')).toStrictEqual({
+      url: 'https://example.test/guide',
+    });
+  });
+
   it('keeps a trailing separator, a query, and a fragment in the URL', () => {
     expect(parseWebLocator('https://example.test/dir/')).toEqual({
       url: 'https://example.test/dir/',
@@ -207,9 +215,40 @@ describe('parseWebLocator', () => {
     expect(JSON.stringify(result)).not.toContain('secret');
   });
 
+  it('refuses a locator that carries only one of the two userinfo parts', () => {
+    // Either half alone is a credential: the guard asks whether either part
+    // is present, so a lone username and a lone password are both refused.
+    for (const locator of [
+      'https://user@example.test/guide',
+      'https://:secret@example.test/guide',
+    ]) {
+      const result = parseWebLocator(locator);
+      expect(result).toMatchObject({ type: 'invalid_path' });
+      expect(result).toHaveProperty(
+        'message',
+        expect.stringContaining('credentials'),
+      );
+    }
+  });
+
+  it('refuses an uppercase scheme with the whole locator, selector included', () => {
+    // The refusal names the spelling the model resubmits, so it carries the
+    // selector: a hint without it would silently change the requested read.
+    const result = parseWebLocator('HTTPS://example.test/guide:10-20');
+    expect(result).toMatchObject({ type: 'invalid_path' });
+    expect(result).toHaveProperty(
+      'message',
+      expect.stringContaining('https://example.test/guide:10-20'),
+    );
+  });
+
   it('refuses a non-web scheme and a degenerate locator', () => {
-    expect(parseWebLocator('ftp://example.test/guide')).toMatchObject({
+    // The scheme is judged before every other admission: a scheme outside the
+    // two admitted ones gets the shape refusal, never a spelling hint that
+    // echoes it back as something to resubmit.
+    expect(parseWebLocator('ftp://example.test/guide')).toEqual({
       type: 'invalid_path',
+      message: 'Write this locator as an absolute http:// or https:// URL.',
     });
     expect(parseWebLocator('https://')).toMatchObject({
       type: 'invalid_path',

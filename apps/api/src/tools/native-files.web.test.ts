@@ -14,6 +14,22 @@ import { buildWebReadResult } from './web-read/result';
 
 const MARKDOWN = '# Guide\n\nA publisher-provided body for agents.\n';
 
+/** A markup body whose lines are told apart by name, so a read that converts
+ *  and numbers it cannot be confused with one that returns it verbatim. */
+const PAGE_LINES = [
+  '<html>',
+  '<body>',
+  '<article>',
+  '<h1>Guide</h1>',
+  '<p>A paragraph of enough words to pass the conversion gate.</p>',
+  '<p>A second paragraph of enough words to pass the gate.</p>',
+  '<p>A third paragraph of enough words to pass the gate.</p>',
+  '</article>',
+  '</body>',
+  '</html>',
+];
+const PAGE_HTML = `${PAGE_LINES.join('\n')}\n`;
+
 /** The sentence the large body repeats. Rendering ~1 MiB of markup is the work
  *  a cancelled call must not start, and the sentence would reach the result if
  *  it did. */
@@ -49,6 +65,18 @@ describe('web locator dispatch', () => {
     vi.stubGlobal('fetch', fetchDouble);
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  /** One response for the next request, carrying the body a test needs. */
+  const respondWith = (body: string, contentType: string): void => {
+    fetchDouble.mockImplementationOnce(() =>
+      Promise.resolve(
+        new Response(body, {
+          status: 200,
+          headers: { 'content-type': contentType },
+        }),
+      ),
+    );
+  };
 
   it('reads an https locator and returns the web result', async () => {
     const result = await nativeReadTool.execute(webContext(), {
@@ -123,7 +151,81 @@ describe('web locator dispatch', () => {
     });
 
     expect(result).toMatchObject({ status: 'error', type: 'invalid_path' });
+    // The two web schemes are not a catch-all: a scheme outside them keeps
+    // the unknown-scheme refusal rather than the web locator's own.
+    expect(result).toHaveProperty(
+      'message',
+      'This path scheme is not available.',
+    );
     expect(fetchDouble).not.toHaveBeenCalled();
+  });
+
+  it('reads an http locator through the same branch as https', async () => {
+    const result = await nativeReadTool.execute(webContext(), {
+      path: 'http://example.test/guide',
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      finalUrl: 'http://example.test/guide',
+      method: 'negotiated',
+    });
+    expect(fetchDouble).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns the body verbatim for a :raw read', async () => {
+    respondWith(PAGE_HTML, 'text/html; charset=utf-8');
+    const result = await nativeReadTool.execute(webContext(), {
+      path: 'https://example.test/guide:raw',
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      representation: 'raw',
+      method: 'raw',
+      content: PAGE_HTML,
+      shownRange: { startLine: 1, endLine: PAGE_LINES.length },
+    });
+  });
+
+  it('returns an unnumbered window for a :raw line selector', async () => {
+    respondWith(PAGE_HTML, 'text/html; charset=utf-8');
+    const result = await nativeReadTool.execute(webContext(), {
+      path: 'https://example.test/guide:raw:4-5',
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      representation: 'raw',
+      method: 'raw',
+      content: `${PAGE_LINES[3]}\n${PAGE_LINES[4]}\n`,
+      requestedRange: { startLine: 4, endLine: 5 },
+      shownRange: { startLine: 4, endLine: 5 },
+    });
+  });
+
+  it('numbers the converted window for a selector that is not raw', async () => {
+    respondWith(PAGE_HTML, 'text/html; charset=utf-8');
+    const result = await nativeReadTool.execute(webContext(), {
+      path: 'https://example.test/guide:4-5',
+    });
+
+    // The window is the converted text, numbered: a read that skipped the
+    // conversion would hand back the markup's own fourth and fifth lines.
+    expect(result).toHaveProperty(
+      'content',
+      expect.stringMatching(/^3: A paragraph of enough words/u),
+    );
+    expect(result).toHaveProperty(
+      'content',
+      expect.not.stringContaining('<p>'),
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      representation: 'text',
+      method: 'readability',
+      requestedRange: { startLine: 4, endLine: 5 },
+    });
   });
 
   it.each([

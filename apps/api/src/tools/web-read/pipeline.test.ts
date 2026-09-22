@@ -64,6 +64,29 @@ const XHTML_DOCUMENT = `<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml
 <p>The pipeline treats this media type as HTML, extracts the article with Readability, and converts the result to Markdown instead of returning the XHTML source.</p>
 </article></body></html>`;
 
+/** Prose long enough to clear the quality gate once it is converted. */
+const FRAGMENT_PROSE =
+  'The adapter pipeline keeps the body a publisher already served when it is Markdown, and otherwise extracts the main content locally with Readability before converting it to Markdown with Turndown.';
+
+/** A body served as markup without an `html` root, which linkedom leaves bare. */
+const FRAGMENT_HTML = `<div><h2>Fragment render</h2><p>${FRAGMENT_PROSE}</p></div>`;
+
+/** The same fragment shape, with a stray `body` element inside its root. */
+const STRAY_BODY_FRAGMENT_HTML = `<div><body><p>Sign in to continue.</p></body><p>${FRAGMENT_PROSE}</p></div>`;
+
+/** An `html` document whose body holds no elements, so its only text is the head's. */
+const BODY_LESS_HTML = `<!doctype html><html><head>
+<title>Adapter pipelines for agent web reads: negotiation, local render, the quality gate, and every bound the tool applies | Example Docs</title>
+</head><body></body></html>`;
+
+/** The challenge phrase is split by a tag, so only the converted text carries it. */
+const SPLIT_CHALLENGE_HTML = `<!doctype html><html><head><title>Console</title></head><body>
+<p>The server wants to capt<span>cha</span> this request before serving the page.</p></body></html>`;
+
+/** The challenge phrase sits in a comment, so only the served body carries it. */
+const COMMENT_CHALLENGE_HTML = `<!doctype html><html><head><title>Console</title></head><body>
+<!-- challenge marker: verify you are human --><p>Sign in to continue to the console.</p></body></html>`;
+
 const response = (
   contentType: string,
   body: string,
@@ -84,6 +107,24 @@ describe('renderWebDocument', () => {
     expect(render.method).toBe('negotiated');
     expect(render.content).toBe(body);
     expect(render.notes).toBeUndefined();
+  });
+
+  it('accepts a media type with whitespace before its parameters', () => {
+    const body = '# Adapter pipelines\n\nServed by the publisher for agents.\n';
+
+    const markdown = renderWebDocument(
+      response('text/markdown ; charset=utf-8', body),
+      { raw: false },
+    );
+    const html = renderWebDocument(
+      response('text/html ; charset=utf-8', ARTICLE_HTML),
+      { raw: false },
+    );
+
+    expect(markdown.method).toBe('negotiated');
+    expect(markdown.content).toBe(body);
+    expect(html.method).toBe('readability');
+    expect(html.content).toContain('## Negotiation');
   });
 
   it('takes a negotiated plain-text body as served', () => {
@@ -175,6 +216,41 @@ describe('renderWebDocument', () => {
     expect(render.content).not.toContain('Privacy');
   });
 
+  it('renders a markup fragment that has no html root', () => {
+    const render = renderWebDocument(response('text/html', FRAGMENT_HTML), {
+      raw: false,
+    });
+
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain('## Fragment render');
+    expect(render.content).toContain('extracts the main content locally');
+    expect(render.content).not.toContain('<div>');
+  });
+
+  it('renders a fragment whose root holds a stray body element', () => {
+    // The fragment root is not `html`, so the served markup is wrapped before
+    // Readability sees it; the prose outside the stray body element survives.
+    const render = renderWebDocument(
+      response('text/html', STRAY_BODY_FRAGMENT_HTML),
+      { raw: false },
+    );
+
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain('extracts the main content locally');
+    expect(render.content).not.toContain('<p>');
+  });
+
+  it('renders an html document whose body holds no elements', () => {
+    // An empty body holds no text of its own, so the head's title is all the
+    // page has: the wrapper is what puts it in front of Readability.
+    const render = renderWebDocument(response('text/html', BODY_LESS_HTML), {
+      raw: false,
+    });
+
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain('negotiation, local render');
+  });
+
   it('converts the whole body when Readability finds no article', () => {
     const render = renderWebDocument(response('text/html', IMAGE_INDEX_HTML), {
       raw: false,
@@ -210,6 +286,30 @@ describe('renderWebDocument', () => {
     expect(render.notes).toHaveLength(2);
     expect(render.notes?.[1]).toMatch(/challenge/i);
     expect(render.notes?.[1]).toMatch(/enable javascript/i);
+  });
+
+  it('names a challenge that only the converted text carries', () => {
+    const render = renderWebDocument(
+      response('text/html', SPLIT_CHALLENGE_HTML),
+      { raw: false },
+    );
+
+    expect(render.method).toBe('raw');
+    expect(render.content).toBe(SPLIT_CHALLENGE_HTML);
+    expect(render.notes).toHaveLength(2);
+    expect(render.notes?.[1]).toMatch(/detected \(captcha\)/i);
+  });
+
+  it('names a challenge that only the served body carries', () => {
+    const render = renderWebDocument(
+      response('text/html', COMMENT_CHALLENGE_HTML),
+      { raw: false },
+    );
+
+    expect(render.method).toBe('raw');
+    expect(render.content).toBe(COMMENT_CHALLENGE_HTML);
+    expect(render.notes).toHaveLength(2);
+    expect(render.notes?.[1]).toMatch(/detected \(verify you are human\)/i);
   });
 
   it('returns the body untouched in raw mode', () => {
@@ -256,10 +356,50 @@ describe('passesQualityGate', () => {
     expect(passesQualityGate(lines(2))).toBe(false);
   });
 
+  it('counts only lines that hold text', () => {
+    // Seven short and three long lines are exactly 70 percent short, so the
+    // text passes; a blank line counted as a short line would tip it over.
+    const text = [
+      SHORT_LINE,
+      '',
+      LONG_LINE,
+      SHORT_LINE,
+      '  ',
+      LONG_LINE,
+      SHORT_LINE,
+      '',
+      LONG_LINE,
+      SHORT_LINE,
+      SHORT_LINE,
+      SHORT_LINE,
+      SHORT_LINE,
+    ].join('\n');
+
+    expect(passesQualityGate(text)).toBe(true);
+  });
+
+  it('measures every line after trimming its whitespace', () => {
+    // Eight lines padded to 40 characters but holding 39 of text are short, so
+    // the text fails; measuring the padding instead would pass it.
+    const padded = ` ${'a'.repeat(39)}`;
+    const text = [
+      ...Array.from({ length: 8 }, () => padded),
+      ...Array.from({ length: 2 }, () => LONG_LINE),
+    ].join('\n');
+
+    expect(passesQualityGate(text)).toBe(false);
+  });
+
   it('treats a gate phrase under 1,024 characters as low quality', () => {
     const shortBody = `${'a'.repeat(1023 - 'captcha'.length)}captcha`;
 
     expect(passesQualityGate(shortBody)).toBe(false);
     expect(passesQualityGate(`${shortBody}a`)).toBe(true);
+  });
+
+  it('measures the gate-phrase bound after trimming the surrounding whitespace', () => {
+    const paddedBody = `\n${'a'.repeat(1023 - 'captcha'.length)}captcha\n`;
+
+    expect(passesQualityGate(paddedBody)).toBe(false);
   });
 });
