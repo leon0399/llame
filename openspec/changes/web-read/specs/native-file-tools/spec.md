@@ -336,10 +336,10 @@ are shorter than 40 characters. Every derived locator, meaning an alternate,
 a suffix candidate, an `llms.txt` candidate, or a redirect hop, SHALL be
 evaluated against the `read` permission group before its request through
 the same evaluator and the same projection the call used, as if the model
-had submitted it; a rejected probe locator SHALL disqualify that candidate
-without failing the call and its decision SHALL be recorded like a hop
-decision, so a hostile page cannot make a read of itself fail by announcing
-a refused alternate. A probe request SHALL send the same `Accept` header and
+had submitted it; a rejected probe locator, or a rejected hop inside a
+probe's own redirect chain, SHALL disqualify that candidate without failing
+the call and its decision SHALL be recorded like a hop decision, so a hostile
+page cannot make a read of itself fail by announcing a refused alternate. A probe request SHALL send the same `Accept` header and
 SHALL count against the call's total time, body, request, and redirect
 bounds; a failure of its own disqualifies the
 candidate without failing the call, while a spent call bound fails it. A candidate that fails the gate SHALL
