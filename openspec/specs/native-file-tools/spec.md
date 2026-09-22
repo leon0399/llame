@@ -845,20 +845,25 @@ represented as permission from the publisher. The scheme split and trailing
 selector rules that protect a `scheme://` prefix SHALL apply unchanged: the
 scheme's own colon is never read as a selector, and the shipped
 trailing-selector split (the last colon after the last slash) governs the
-rest. A locator whose authority ends in a port SHALL therefore carry a path
+rest. A selector SHALL be split only from a locator that carries no `?` and
+no `#`, so a colon inside a query or a fragment is part of the URL and never
+a selector (`https://example.test/search?at=2026:10` is fetched as written).
+A locator whose authority ends in a port SHALL therefore carry a path
 after the port (`https://example.test:8080/` is a URL with no selector, while
 `https://example.test:8080` reads the port as a selector and leaves the
 empty-path locator `https://example.test`, which is not its own
-serialization, so the call fails as `invalid_path` naming the canonical
-`https://example.test/` rather than selecting a line),
-and a literal colon in the last path segment SHALL be written as `%3A`
-(`https://w.example/wiki/Special%3ASearch`), because a trailing colon is
-always read as a selector split and the shipped grammar admits only `raw`,
-`raw:N-M`, `N-M`, `N+K`, and comma lists of those: `Search` and a bare line
-number are outside it, so `https://w.example/wiki/Special:Search` and
-`https://w.example/docs/2024:10` both fail as `invalid_selector`
-(`https://w.example/docs/2024:10-20` selects lines 10 through 20 of
-`https://w.example/docs/2024`).
+serialization, so the call fails as `invalid_path`; the named spelling SHALL
+be the submitted locator's own serialization, `https://example.test:8080/`,
+because a hint built from the split remainder would drop the port and name
+another endpoint),
+and a literal colon in the last path segment of a query-free locator SHALL be
+written as `%3A` (`https://w.example/wiki/Special%3ASearch`), because a
+trailing colon is always read as a selector split and the shipped grammar
+admits only `raw`, `raw:N-M`, `N-M`, `N+K`, and comma lists of those:
+`Search` and a bare line number are outside it, so
+`https://w.example/wiki/Special:Search` and `https://w.example/docs/2024:10`
+both fail as `invalid_selector` (`https://w.example/docs/2024:10-20` selects
+lines 10 through 20 of `https://w.example/docs/2024`).
 
 #### Scenario: A web locator is fetched by the API process
 
@@ -883,6 +888,12 @@ number are outside it, so `https://w.example/wiki/Special:Search` and
 - **WHEN** the model reads `https://g%72okipedia.com/page`, `HTTPS://Example.test/guide`, or `https://example.test:443/guide`
 - **THEN** the read returns `invalid_path` naming the canonical spelling (`https://grokipedia.com/page`, `https://example.test/guide`) and issues no request
 - **AND** a reject clause written against the canonical spelling cannot be evaded by an encoded, uppercase, or default-port variant
+
+#### Scenario: A canonical-spelling hint keeps the port the model submitted
+
+- **WHEN** the model reads `https://example.test:8080`, whose `:8080` the selector split takes and whose remainder is the empty-path `https://example.test`
+- **THEN** the read returns `invalid_path` naming `https://example.test:8080/`, not `https://example.test/`
+- **AND** resubmitting the named spelling is admitted and requests the port the model wrote
 
 #### Scenario: Userinfo in a locator fails closed
 
@@ -1050,8 +1061,8 @@ probe's own redirect chain, SHALL disqualify that candidate without failing
 the call and its decision SHALL be recorded like a hop decision, so a hostile
 page cannot make a read of itself fail by announcing a refused alternate. A probe request SHALL send the same `Accept` header and
 SHALL count against the call's total time, body, request, and redirect
-bounds; its non-2xx status or refused content type disqualifies the
-candidate without failing the call. A candidate that fails the gate SHALL
+bounds; a failure of its own disqualifies the
+candidate without failing the call, while a spent call bound fails it. A candidate that fails the gate SHALL
 NOT become the content, and a fetched candidate SHALL NOT be searched for
 further alternates
 or suffixes.
