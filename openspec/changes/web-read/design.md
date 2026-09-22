@@ -625,3 +625,13 @@ new path.
   own failure disqualifies the candidate while a spent call bound fails the
   call; each derived-locator record carries the call's policy-instance ID plus
   its own decision, reason, and clause reference, never the call's.
+- v11 (2026-09-22): Review round on the published stack. A probe's own
+  refused hop now disqualifies only that candidate, matching the settled rule
+  for a refused probe locator, so a hostile page cannot end a read of itself
+  through a redirect it announces; only the call's own spent bounds, its
+  abort, and a refusal on its own request chain end the read. A
+  canonical-spelling refusal names the submitted locator's own serialization,
+  so `https://example.test:8080` is answered with `https://example.test:8080/`
+  rather than a portless address the next request would send elsewhere. The
+  provenance scenario and task 3.2 now say a derived record carries its own
+  reason and clause, matching the requirement.

@@ -144,7 +144,10 @@ A locator whose authority ends in a port SHALL therefore carry a path
 after the port (`https://example.test:8080/` is a URL with no selector, while
 `https://example.test:8080` reads the port as a selector and leaves the
 empty-path locator `https://example.test`, which fails as `invalid_path`
-rather than selecting a line),
+rather than selecting a line; the named spelling SHALL be the submitted
+locator's own serialization, `https://example.test:8080/`, because a hint
+built from the split remainder would drop the port and name another
+endpoint),
 and a literal colon in the last path segment of a query-free locator SHALL be
 written as `%3A` (`https://w.example/wiki/Special%3ASearch`), because a
 trailing suffix that is present but outside the grammar fails as
@@ -175,6 +178,12 @@ trailing suffix that is present but outside the grammar fails as
 - **WHEN** the model reads `https://g%72okipedia.com/page`, `HTTPS://Example.test/guide`, or `https://example.test:443/guide`
 - **THEN** the read returns `invalid_path` naming the canonical spelling (`https://grokipedia.com/page`, `https://example.test/guide`) and issues no request
 - **AND** a reject clause written against the canonical spelling cannot be evaded by an encoded, uppercase, or default-port variant
+
+#### Scenario: A canonical-spelling hint keeps the port the model submitted
+
+- **WHEN** the model reads `https://example.test:8080`, whose `:8080` the selector split takes and whose remainder is the empty-path `https://example.test`
+- **THEN** the read returns `invalid_path` naming `https://example.test:8080/`, not `https://example.test/`
+- **AND** resubmitting the named spelling is admitted and requests the port the model wrote
 
 #### Scenario: Userinfo in a locator fails closed
 
