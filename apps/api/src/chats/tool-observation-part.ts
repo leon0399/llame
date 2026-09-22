@@ -46,6 +46,25 @@ const renderToolOutputUntrusted = loadPackagedTemplate<{
   hasPayload: boolean;
 }>(__dirname, 'tool-output-untrusted');
 
+/**
+ * The bound `rejectedHopUrl` applies before a refused hop locator is stored
+ * (tools/permissions/messages.ts). It is re-checked here because both readers
+ * of a stored target — the `tool.completed` payload a durable part is rebuilt
+ * from and the stored part replayed to the model — read untrusted jsonb: a
+ * value outside the bound is not the locator the tool wrote, so it is dropped
+ * rather than trusted.
+ */
+export const STORED_REJECTED_URL_MAX_LENGTH = 2048;
+
+/** Whether a stored `rejectedUrl` is the bounded locator a hop rejection wrote. */
+export function isStoredRejectedUrl(value: unknown): value is string {
+  return (
+    isString(value) &&
+    value.length > 0 &&
+    value.length <= STORED_REJECTED_URL_MAX_LENGTH
+  );
+}
+
 const TOOL_CALL_ID_MAX_LENGTH = 1024;
 const TOOL_NAME_MAX_LENGTH = 64;
 const TOOL_CALL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/u;
@@ -59,6 +78,12 @@ interface StoredToolPart {
   input: unknown;
   output?: unknown;
   errorText?: string;
+  /**
+   * The refused redirect target a hop rejection stored beside its error, part
+   * of the model-visible result rather than the excluded decision metadata;
+   * `isStoredRejectedUrl` validates it before it is read.
+   */
+  errorRejectedUrl?: unknown;
   outcome?: unknown;
   resultProviderMetadata?: unknown;
 }
@@ -171,11 +196,18 @@ function resolveResultBody(
   if (part.state === 'output-available' && part.output !== undefined) {
     return serializePayload(part.output, native);
   }
-  return isString(part.errorText) && part.errorText.length > 0
-    ? native
-      ? serializeNativeModelOutput(part.errorText)
-      : part.errorText
-    : null;
+  if (!isString(part.errorText) || part.errorText.length === 0) return null;
+  const body = native
+    ? serializeNativeModelOutput(part.errorText)
+    : part.errorText;
+  // The fixed hop message points the model at `rejectedUrl`, which the stored
+  // part keeps beside its error: re-attach the stored locator to the body the
+  // model reads — never to the message itself — so a target refused on an
+  // earlier turn stays identifiable on every turn that replays that part.
+  const rejectedUrl = part.errorRejectedUrl;
+  return isStoredRejectedUrl(rejectedUrl)
+    ? `${body}\nrejectedUrl: ${rejectedUrl}`
+    : body;
 }
 
 function resultText(outcome: string, body: string | null): string {

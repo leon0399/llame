@@ -21,7 +21,10 @@ import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { type ProviderMetadata } from 'ai';
 import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
-import { normalizeToolObservationOutcome } from '../chats/tool-observation-part';
+import {
+  isStoredRejectedUrl,
+  normalizeToolObservationOutcome,
+} from '../chats/tool-observation-part';
 import { type ToolResult } from '../tools/types';
 import {
   type PermissionClauseReference,
@@ -52,6 +55,15 @@ export type ToolActivityPart = {
   errorText?: string;
   /** Provider-portable structured outcome: success or the ToolResult error type. */
   outcome: string;
+  /**
+   * The refused redirect target a `permission_denied` hop rejection named in
+   * its live result (web-read design D3), kept beside the stored error.
+   * Unlike `permission` and `derivedDecisions` this is part of the
+   * model-visible result, so it follows `errorText` into replay; it is stored
+   * as the tool bounded it — origin and path only, control characters
+   * stripped, at most 2,048 characters.
+   */
+  errorRejectedUrl?: string;
   /** SDK-supported result metadata marking an error produced by run termination
    *  rather than by the tool itself. Persisted so the UI can render
    *  "Cancelled" without parsing error text, and survives the live transport. */
@@ -313,6 +325,12 @@ export function toolActivityPart(
   if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
     part.derivedDecisions = derivedDecisions;
   }
+  // Beside the stored error the model reads, not the excluded metadata.
+  const refusedTarget =
+    result.status === 'error' && result.type === 'permission_denied'
+      ? result.rejectedUrl
+      : undefined;
+  if (refusedTarget !== undefined) part.errorRejectedUrl = refusedTarget;
 
   return part;
 }
@@ -454,6 +472,31 @@ function derivedDecisionsFromPayload(
 }
 
 /**
+ * Re-read one `tool.completed` payload's result: the success record as stored,
+ * or the error the completion described. Stored jsonb is untrusted on the way
+ * back in, so an unreadable record is dropped and only the bounded locator a
+ * hop rejection writes is carried into the rebuilt error.
+ */
+function toolResultFromPayload(output: unknown): ToolResult | undefined {
+  if (!isRecord(output)) return undefined;
+  const status = output['status'];
+  if (status === 'success') return { ...output, status };
+  const type = output['type'];
+  const message = output['message'];
+  if (status !== 'error' || !isString(type) || !isString(message)) {
+    return undefined;
+  }
+  const rejectedUrl = output['rejectedUrl'];
+
+  return {
+    status,
+    type,
+    message,
+    ...(isStoredRejectedUrl(rejectedUrl) && { rejectedUrl }),
+  };
+}
+
+/**
  * Replays the append-only event log into `createAssistantPartCollector`. A
  * class rather than a closure/for-loop so each event type is its own method,
  * mirroring `RunEventTranslatorImpl` (run-stream-bridge.ts).
@@ -536,21 +579,10 @@ class DurableAssistantReconstructor {
       return;
     }
     const request = this.openToolCalls.get(toolCallId);
-    const output = eventPayloadField(event.payload, 'output');
-    if (!request || !isRecord(output)) {
-      return;
-    }
-    const status = output['status'];
-    let result: ToolResult;
-    if (status === 'success') {
-      result = { ...output, status };
-    } else if (
-      status === 'error' &&
-      isString(output['type']) &&
-      isString(output['message'])
-    ) {
-      result = { status, type: output['type'], message: output['message'] };
-    } else {
+    const result = toolResultFromPayload(
+      eventPayloadField(event.payload, 'output'),
+    );
+    if (!request || result === undefined) {
       return;
     }
     this.completedToolCallIds.add(toolCallId);

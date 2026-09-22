@@ -638,10 +638,65 @@ describe('renderWebContent', () => {
     expect(harness.requested).toEqual([alternate]);
   });
 
+  it('drops the fragment of an announced alternate before admission and request', async () => {
+    const alternate = `${PAGE}.md`;
+    const harness = makePipeline({
+      [alternate]: response('text/markdown', PUBLISHER_MARKDOWN, alternate),
+    });
+
+    const render = await runPipeline(
+      response(
+        'text/html',
+        ARTICLE_HTML,
+        PAGE,
+        linkHeader(`${alternate}#section`),
+      ),
+      harness,
+    );
+
+    // A fragment never leaves the process, so admission and the request see
+    // the fragment-free text — the locator the hop path would hand the client.
+    expect(render.method).toBe('alternate');
+    expect(render.finalUrl).toBe(alternate);
+    expect(harness.admitted).toEqual([alternate]);
+    expect(harness.requested).toEqual([alternate]);
+  });
+
+  it('blocks a fragment-bearing announcement with a reject on the fragment-free URL', async () => {
+    const target = 'https://blocked.example/doc';
+    // The reject clause names the URL the request would use; the announcement
+    // carries a fragment, which the request would drop.
+    const harness = makePipeline(
+      { [target]: response('text/markdown', PUBLISHER_MARKDOWN, target) },
+      [target],
+    );
+
+    const render = await runPipeline(
+      response(
+        'text/html',
+        ARTICLE_HTML,
+        PAGE,
+        linkHeader(`${target}#section`),
+      ),
+      harness,
+    );
+
+    // The candidate is admitted as the text the clause matches, so the blocked
+    // resource is never requested; the page's own suffix probe is the only
+    // request the call makes.
+    expect(harness.admitted).toContain(target);
+    expect(render.method).toBe('readability');
+    expect(harness.requested).toEqual([`${PAGE}.md`]);
+  });
+
   it.each([
     ['a non-web target', '<file:///etc/passwd>'],
     ['a target that is not a URL', '<https://>'],
     ['an empty target', '<   >'],
+    [
+      'a target that carries credentials',
+      '<https://user:secret@evil.test/page.md>',
+    ],
   ])('ignores an announced alternate with %s', async (_name, target) => {
     const harness = makePipeline({});
 
@@ -659,6 +714,31 @@ describe('renderWebContent', () => {
     // Only the suffix probe was issued: the announcement never became a
     // request of its own.
     expect(harness.requested).toEqual([`${PAGE}.md`]);
+  });
+
+  it('ignores an announced alternate that carries credentials', async () => {
+    const announced = 'https://user:secret@evil.test/page.md';
+    // The real client cannot construct this request and repeats the URL
+    // verbatim in its `network_error`, so admitting the announcement would put
+    // the credential into the result the model reads.
+    const harness = makePipeline({
+      [announced]: {
+        type: 'network_error',
+        message: `Request cannot be constructed from a URL that includes credentials: ${announced}`,
+      },
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE, linkHeader(announced)),
+      harness,
+    );
+
+    expect(render.method).toBe('readability');
+    // The refused announcement never became a request, and nothing that came
+    // out of the call names the credential or the host it pointed at.
+    expect(harness.requested).toEqual([`${PAGE}.md`]);
+    expect(JSON.stringify(render)).not.toContain('secret');
+    expect(JSON.stringify(render)).not.toContain('evil.test');
   });
 
   it.each([
@@ -823,7 +903,7 @@ describe('renderWebContent', () => {
     ]);
   });
 
-  it('leaves the raw fallback standing when the llms.txt walk fails', async () => {
+  it('leaves the raw fallback standing when an llms.txt candidate fails on its own', async () => {
     const pageUrl = 'https://docs.example.test/a/b/c';
     const failure: WebFetchFailure = {
       type: 'network_error',
@@ -836,12 +916,42 @@ describe('renderWebContent', () => {
       harness,
     );
 
-    // The walk runs after the render exists, so a probe that fails — here the
-    // page's own scope — answers for itself and cannot cost the call the
-    // fallback it already holds.
+    // A candidate-local failure — here the page's own scope answering
+    // `network_error` — is the candidate's own answer and cannot cost the call
+    // the fallback it already holds.
     expect(render.method).toBe('raw');
     expect(render.content).toBe(NAV_ONLY_HTML);
   });
+
+  it.each([
+    ['call_timeout', 'The web read exceeded its 30-second budget.'],
+    ['too_many_redirects', 'The read followed more than 20 redirects.'],
+    [
+      'permission_denied',
+      'A redirect target was refused before its content was read.',
+    ],
+  ])(
+    'fails the call when an llms.txt candidate answers %s',
+    async (type, message) => {
+      const pageUrl = 'https://docs.example.test/a/b/c';
+      const failure: WebFetchFailure = { type, message };
+      const harness = makePipeline({ [`${pageUrl}/llms.txt`]: failure });
+
+      const result = await renderWebContent(
+        response('text/html', NAV_ONLY_HTML, pageUrl),
+        { raw: false },
+        harness.deps,
+      );
+
+      // A bound of the call is spent, so the walk stops there and the render
+      // the call already holds is not what it reports.
+      expect(result).toStrictEqual(failure);
+      expect(harness.requested).toEqual([
+        `${pageUrl}.md`,
+        `${pageUrl}/llms.txt`,
+      ]);
+    },
+  );
 
   it('bounds the call to one alternate, one suffix probe, and four llms.txt candidates', async () => {
     const pageUrl = 'https://docs.example.test/a/b/c/d';

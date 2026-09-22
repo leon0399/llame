@@ -5,6 +5,7 @@ import {
   buildCompactionToolReplacementRecords,
   normalizeToolObservationOutcome,
   projectToolObservations,
+  STORED_REJECTED_URL_MAX_LENGTH,
   TOOL_OUTCOME_MAX_LENGTH,
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
@@ -308,6 +309,45 @@ describe('projectToolObservations', () => {
     const text = toolOutputText(projection?.toolResultParts[0]?.output);
     expect(text).toContain('Payload:\nBOOM');
     expect(text).not.toContain('stale payload');
+  });
+
+  it('re-attaches a stored refused target to the error the model replays', () => {
+    const refusedUrl = 'https://blocked.example.test/page';
+    const projection = projectToolObservations([
+      toolPart({
+        type: 'tool-read',
+        state: 'output-error',
+        output: undefined,
+        errorText: 'Tool call stopped by operator permissions.',
+        outcome: 'permission_denied',
+        errorRejectedUrl: refusedUrl,
+      }),
+    ]);
+
+    const text = toolOutputText(projection?.toolResultParts[0]?.output);
+    expect(text).toContain('Payload:');
+    expect(text).toContain('Tool call stopped by operator permissions.');
+    expect(text).toContain(`rejectedUrl: ${refusedUrl}`);
+  });
+
+  it.each([
+    ['a non-string value', 42],
+    ['an empty string', ''],
+    ['a value past the bound', 'a'.repeat(STORED_REJECTED_URL_MAX_LENGTH + 1)],
+  ])('replays no stored refused target for %s', (_name, errorRejectedUrl) => {
+    const projection = projectToolObservations([
+      toolPart({
+        state: 'output-error',
+        output: undefined,
+        errorText: 'BOOM',
+        outcome: 'permission_denied',
+        errorRejectedUrl,
+      }),
+    ]);
+
+    const text = toolOutputText(projection?.toolResultParts[0]?.output);
+    expect(text).toContain('Payload:\nBOOM');
+    expect(text).not.toContain('rejectedUrl');
   });
 
   it('marks a cleared payload incomplete ONLY for an incomplete successful Knowledge result', () => {

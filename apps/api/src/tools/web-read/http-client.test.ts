@@ -655,6 +655,72 @@ describe('web fetch client', () => {
     );
   });
 
+  it('reports a rejected transport whose message names the request URL without it', async () => {
+    // Node's own error when the request URL carries credentials, verbatim:
+    // neither the locator nor the credential it carried may reach the model.
+    const locator = 'https://user:secret@evil.test/x';
+    const deps: TestDeps = {
+      fetch: () =>
+        Promise.reject(
+          new TypeError(
+            `Request cannot be constructed from a URL that includes credentials: ${locator}`,
+          ),
+        ),
+    };
+
+    const result = refusalOf(await fetchOne(deps, {}, locator));
+
+    expect(result).toStrictEqual({
+      type: 'network_error',
+      message: 'The request failed.',
+    });
+    expect(JSON.stringify(result)).not.toContain('evil.test');
+    expect(JSON.stringify(result)).not.toContain('secret');
+  });
+
+  it('reports a rejected transport whose message names another URL without it', async () => {
+    const deps: TestDeps = {
+      fetch: () =>
+        Promise.reject(new Error('fetch failed: https://evil.test/x')),
+    };
+
+    const result = refusalOf(await fetchOne(deps));
+
+    expect(result).toStrictEqual({
+      type: 'network_error',
+      message: 'The request failed.',
+    });
+    expect(JSON.stringify(result)).not.toContain('evil.test');
+  });
+
+  it('strips and bounds a transport message before echoing it', async () => {
+    // A transport is free to hand over kilobytes of control characters, so the
+    // echo is stripped and bounded like every other server-controlled one.
+    const deps: TestDeps = {
+      fetch: () => Promise.reject(new Error(`\u0000${'a'.repeat(4096)}\u0007`)),
+    };
+
+    const result = refusalOf(await fetchOne(deps));
+
+    expect(result).toStrictEqual({
+      type: 'network_error',
+      message: 'a'.repeat(64),
+    });
+  });
+
+  it('surfaces an ordinary transport message unchanged', async () => {
+    const deps: TestDeps = {
+      fetch: () => Promise.reject(new Error('fetch failed')),
+    };
+
+    const result = refusalOf(await fetchOne(deps));
+
+    expect(result).toStrictEqual({
+      type: 'network_error',
+      message: 'fetch failed',
+    });
+  });
+
   it('reports a caller abort as aborted', async () => {
     const controller = new AbortController();
     const pending = fetchOne(

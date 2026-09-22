@@ -141,9 +141,9 @@ async function runHtmlPipeline(
     deps,
   );
 
-  // The walk runs after the render exists, so it is additive: a probe that
-  // fails cannot cost the call that render, while the pre-render probes above
-  // end the call on a failure of their own, having no content to fall back on.
+  // A candidate that answers for itself cannot cost the call the render the
+  // walk runs after; a failure of the call's own bound — its deadline, its
+  // redirect budget — is still the call's, from here as from every probe.
   return walked ?? rendered;
 }
 
@@ -170,19 +170,30 @@ async function publisherMarkdown(
   );
 }
 
+/** The failures that answer for one candidate alone, by the types the client
+ *  reports: the site has nothing at that locator, refuses its content type or
+ *  size, or the transport to it failed. Every other failure spends a bound of
+ *  the call — its deadline, its redirect budget, the caller's abort, or a hop
+ *  the `read` group refused — and is the call's, from every probe. */
+const CANDIDATE_FAILURES = {
+  http_status: true,
+  unsupported_content_type: true,
+  body_too_large: true,
+  network_error: true,
+};
+
 /**
  * Probes one kind's candidates in order and returns the first winning render,
  * or the failure that ends the call. A candidate the `read` group refuses, one
- * that answers a non-2xx status or a refused content type, and one whose body
- * fails the gate are each disqualified without failing the call, so the next
- * candidate decides.
+ * that answers a failure of its own — its status, its content type, its body's
+ * size, or the transport to it — and one whose body fails the gate are each
+ * disqualified without failing the call, so the next candidate decides, and a
+ * later `llms.txt` candidate still leaves the render that already exists.
  *
- * What a deeper failure means is the kind's alone, because it depends on when
- * the kind runs. `alternate` and `suffix` probe before the page has been
- * rendered, so a failure of the probe's own ends the call: there is no content
- * to fall back on. The `llms.txt` walk runs only after a render exists, so no
- * probe outcome may cost the call that render — every failure is the
- * candidate's own answer, and the render stands when no candidate wins.
+ * A failure of a bound the call has already paid ends the call from every
+ * probe, the walk included: a call past its deadline or redirect budget must
+ * not keep probing, and the render the walk runs after is not an outcome it
+ * may still report.
  */
 async function firstDecisiveProbe(
   kind: ProbeKind,
@@ -193,16 +204,10 @@ async function firstDecisiveProbe(
     if (deps.admit(kind, url).decision !== 'allow') continue;
     const fetched = await deps.fetch(url);
     if ('type' in fetched) {
-      // A 404 or a refused body is a probe's ordinary answer, so only that
-      // candidate is disqualified; a deeper failure is the call's, except in
-      // the `llms.txt` walk, which runs after a render exists and so answers
-      // for its own candidates even then.
-      const disqualified =
-        fetched.type === 'http_status' ||
-        fetched.type === 'unsupported_content_type' ||
-        kind === 'llms-txt';
-      if (!disqualified) return fetched;
-      continue;
+      // Only the failures a candidate answers for itself are disqualified; a
+      // deeper failure is the call's, and the walk may not swallow it either.
+      if (Object.hasOwn(CANDIDATE_FAILURES, fetched.type)) continue;
+      return fetched;
     }
     if (passesProbeGate(kind, fetched.body)) {
       // The probe's own response is where the content came from, so its final
@@ -332,7 +337,14 @@ function webUrl(value: string): URL | undefined {
 
 /** Resolves an announced target against the page's URL. A non-web scheme is
  *  not a candidate, so a `file://` or `javascript:` announcement is ignored
- *  rather than requested. */
+ *  rather than requested, and neither is one carrying credentials: the
+ *  locator parser refuses a submitted `user:secret@` locator, and an
+ *  announcement must not reach a request the model would have been refused
+ *  for — or the client's failure message, which repeats the URL verbatim. A
+ *  fragment never leaves the process, so it is dropped before admission and
+ *  before the request, exactly as the hop path drops a redirect's: the text
+ *  policy matches is then the URL the request uses, so an exact reject cannot
+ *  miss the fragment-free text. */
 function resolveCandidate(value: string, base: string): string | undefined {
   let url: URL;
   try {
@@ -340,10 +352,13 @@ function resolveCandidate(value: string, base: string): string | undefined {
   } catch {
     return undefined;
   }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+  if (url.username !== '' || url.password !== '') return undefined;
+  // An empty fragment setter drops the `#` delimiter with it, so a bare `#`
+  // leaves no trace either.
+  url.hash = '';
 
-  return url.protocol === 'http:' || url.protocol === 'https:'
-    ? url.href
-    : undefined;
+  return url.href;
 }
 
 /** Whether a `Link` relation names an alternate Markdown representation. */

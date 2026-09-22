@@ -80,6 +80,11 @@ const CHARSET_SCAN_BYTES = 2048;
 const ECHO_BOUND = 64;
 const CONTROL_CHARACTERS = /\p{Cc}/gu;
 
+/** No echoed message carries a URL: a transport's own words can embed the
+ *  request's locator whole, credentials included, and every locator this client
+ *  requests is an absolute `http(s)` one. */
+const URL_IN_MESSAGE = /https?:\/\//iu;
+
 function boundedEcho(value: string): string {
   // Strip first: the bound then counts the characters the model will read.
   return value.replace(CONTROL_CHARACTERS, '').slice(0, ECHO_BOUND);
@@ -197,16 +202,23 @@ function startCallDeadline(options: WebFetchOptions): CallDeadline {
 
 /** A transport failure the client did not itself cause: the abort reason when
  *  the call aborted, the cause's own message otherwise — never the whole error
- *  object, which can carry request and header details. */
+ *  object, which can carry request and header details. The message is stripped
+ *  and bounded like every other echo, and one that names a URL is not echoed at
+ *  all: Node's own errors embed the request's URL, credentials included. */
 function transportFailure(
   error: unknown,
   deadline: CallDeadline,
 ): WebFetchFailure {
   const reason = deadline.reason();
   if (reason !== undefined) return abortFailure(reason);
+  const message =
+    error instanceof Error ? error.message.replace(CONTROL_CHARACTERS, '') : '';
   return {
     type: 'network_error',
-    message: error instanceof Error ? error.message : 'The request failed.',
+    message:
+      message === '' || URL_IN_MESSAGE.test(message)
+        ? 'The request failed.'
+        : message.slice(0, ECHO_BOUND),
   };
 }
 

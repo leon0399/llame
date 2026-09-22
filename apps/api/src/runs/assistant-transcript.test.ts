@@ -4,7 +4,11 @@ import {
   toolActivityPart,
   type ToolActivityPart,
 } from './assistant-transcript';
-import { projectToolObservations } from '../chats/tool-observation-part';
+import {
+  STORED_REJECTED_URL_MAX_LENGTH,
+  projectToolObservations,
+} from '../chats/tool-observation-part';
+import { REJECTED_HOP_MESSAGE } from '../tools/permissions/messages';
 import type { RunEvent } from '../db/schema';
 import type { ToolResult } from '../tools/types';
 
@@ -288,6 +292,49 @@ describe('toolActivityPart', () => {
       }
     },
   );
+
+  it('stores the refused target a hop rejection names beside its error', () => {
+    const refusedUrl = 'https://blocked.example.test/page';
+    const part = toolActivityPart({
+      toolCallId: 'call-1',
+      toolName: 'read',
+      input: { path: 'https://docs.example.test/a' },
+      result: {
+        status: 'error',
+        type: 'permission_denied',
+        message: REJECTED_HOP_MESSAGE,
+        rejectedUrl: refusedUrl,
+      },
+    });
+
+    expect(part).toEqual({
+      type: 'tool-read',
+      toolCallId: 'call-1',
+      state: 'output-error',
+      input: { path: 'https://docs.example.test/a' },
+      errorText: REJECTED_HOP_MESSAGE,
+      outcome: 'permission_denied',
+      errorRejectedUrl: refusedUrl,
+    });
+    // The locator rides beside the fixed message, never inside it.
+    expect(part.errorText).not.toContain('blocked.example.test');
+  });
+
+  it('stores no refused target for an error that is not a hop rejection', () => {
+    const part = toolActivityPart({
+      toolCallId: 'call-1',
+      toolName: 'search',
+      input: { query: 'q' },
+      result: {
+        status: 'error',
+        type: 'network_error',
+        message: 'failed',
+        rejectedUrl: 'https://blocked.example.test/page',
+      },
+    });
+
+    expect(part).not.toHaveProperty('errorRejectedUrl');
+  });
 });
 
 describe('reconstructDurableAssistant', () => {
@@ -676,6 +723,113 @@ describe('reconstructDurableAssistant', () => {
     expect(
       JSON.stringify(projectToolObservations(result.collector.parts())),
     ).not.toContain('policy-instance-7c1f');
+  });
+
+  it('reloads a refused hop target from storage and re-attaches it to model replay', () => {
+    const refusedUrl = 'https://blocked.example.test/page';
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: { path: 'https://docs.example.test/a' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: {
+          status: 'error',
+          type: 'permission_denied',
+          message: REJECTED_HOP_MESSAGE,
+          rejectedUrl: refusedUrl,
+        },
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      {
+        type: 'tool-read',
+        toolCallId: 'call-1',
+        state: 'output-error',
+        input: { path: 'https://docs.example.test/a' },
+        errorText: REJECTED_HOP_MESSAGE,
+        outcome: 'permission_denied',
+        errorRejectedUrl: refusedUrl,
+      },
+    ]);
+    // The next turn replays the part: the model reads the fixed message plus
+    // the target it names, so the blocked locator stays identifiable.
+    const serialized = JSON.stringify(
+      projectToolObservations(result.collector.parts()),
+    );
+    expect(serialized).toContain(REJECTED_HOP_MESSAGE);
+    expect(serialized).toContain(`rejectedUrl: ${refusedUrl}`);
+  });
+
+  it.each([
+    ['the bound itself', 'a'.repeat(STORED_REJECTED_URL_MAX_LENGTH), true],
+    ['a non-string value', 42, false],
+    ['an empty string', '', false],
+    [
+      'a value past the bound',
+      'a'.repeat(STORED_REJECTED_URL_MAX_LENGTH + 1),
+      false,
+    ],
+  ] as const)(
+    're-reads %s from storage only while it is the bounded locator',
+    (_name, rejectedUrl, accepted) => {
+      const result = reconstructDurableAssistant([
+        event('tool.requested', {
+          toolCallId: 'call-1',
+          toolName: 'read',
+          input: {},
+        }),
+        event('tool.completed', {
+          toolCallId: 'call-1',
+          output: {
+            status: 'error',
+            type: 'permission_denied',
+            message: 'rejected',
+            rejectedUrl,
+          },
+        }),
+      ]);
+      const [part] = result.collector.parts();
+
+      expect(part).toMatchObject({ outcome: 'permission_denied' });
+      if (accepted) {
+        expect(part).toHaveProperty('errorRejectedUrl', rejectedUrl);
+      } else {
+        expect(part).not.toHaveProperty('errorRejectedUrl');
+        expect(
+          JSON.stringify(projectToolObservations(result.collector.parts())),
+        ).not.toContain('rejectedUrl');
+      }
+    },
+  );
+
+  it('replays an ordinary error observation unchanged', () => {
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'search',
+        input: { query: 'needle' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: {
+          status: 'error',
+          type: 'timeout',
+          message: 'Tool timed out.',
+        },
+      }),
+    ]);
+    const [part] = result.collector.parts();
+
+    expect(part).not.toHaveProperty('errorRejectedUrl');
+    const serialized = JSON.stringify(
+      projectToolObservations(result.collector.parts()),
+    );
+    expect(serialized).toContain('Tool timed out.');
+    expect(serialized).not.toContain('rejectedUrl');
   });
 
   it('ignores malformed, duplicate, and orphaned tool events while exposing open calls', () => {
