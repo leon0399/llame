@@ -756,4 +756,39 @@ describe('web read over a fixture server', () => {
     expect(result).not.toHaveProperty('notes');
     expect(fixture.requests).toHaveLength(1);
   });
+
+  it('reads a port, a line, and an anchor from one real origin', async () => {
+    // The fixture listens on an explicit port, so this exercises the two
+    // readings of `:N` against a real socket: the one before the path
+    // separator is the port the request connects to, the one after the last
+    // separator is the line the result shows.
+    const line = await read(`${urlOf('/plain')}:2`);
+
+    expect(line).toMatchObject({
+      status: 'success',
+      requestedRange: { startLine: 2, endLine: 2 },
+      shownRange: { startLine: 1, endLine: 3 },
+    });
+    expect(line).toHaveProperty('finalUrl', urlOf('/plain'));
+
+    // The pathless origin carries no selector at all: its `:<port>` is the
+    // port, and the request goes to the serialized root — which this fixture
+    // does not serve, so the read fails on the origin's own answer rather
+    // than on the locator.
+    const root = await read(fixture.origin);
+    expect(root).toMatchObject({ status: 'error', type: 'http_status' });
+
+    // An anchor is cut before the request, so the page is read and the origin
+    // never sees the fragment.
+    const anchored = await read(`${urlOf('/plain')}#section`);
+    expect(anchored).toMatchObject({ status: 'success' });
+    expect(anchored).toHaveProperty('finalUrl', urlOf('/plain'));
+    expect(contentOf(anchored)).toBe(contentOf(await read(urlOf('/plain'))));
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/plain',
+      '/',
+      '/plain',
+      '/plain',
+    ]);
+  });
 });

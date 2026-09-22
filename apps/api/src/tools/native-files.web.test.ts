@@ -243,20 +243,20 @@ describe('web locator dispatch', () => {
     },
   );
 
-  it('refuses a fragment locator before any request', async () => {
+  it('fetches a fragment locator without the fragment', async () => {
     const result = await nativeReadTool.execute(webContext(), {
       path: 'https://example.test/guide#top',
     });
 
-    // The fragment never reaches the server, so the request would target a URL
-    // the submitted text did not name; the refusal names the text to send
-    // instead, and nothing is fetched.
-    expect(result).toMatchObject({ status: 'error', type: 'invalid_path' });
-    expect(result).toHaveProperty(
-      'message',
-      'Write this locator as https://example.test/guide',
-    );
-    expect(fetchDouble).not.toHaveBeenCalled();
+    // The anchor never reaches the server, so it is cut before policy and
+    // before the request: the page is read, and `finalUrl` names the
+    // fragment-free locator that produced it.
+    expect(result).toMatchObject({
+      status: 'success',
+      finalUrl: 'https://example.test/guide',
+    });
+    expect(fetchDouble).toHaveBeenCalledTimes(1);
+    expect(fetchDouble.mock.calls[0]?.[0]).toBe('https://example.test/guide');
   });
 
   it('still reads the lowercase spelling of the same locator', async () => {

@@ -706,3 +706,17 @@ new path.
   rather than a portless address the next request would send elsewhere. The
   provenance scenario and task 3.2 now say a derived record carries its own
   reason and clause, matching the requirement.
+- v12 (2026-09-22): Live testing settled the two readings of `:N` and the
+  anchor question. A colon opens a selector only after the path separator, so
+  `https://example.test:88` is port 88, `https://example.test/:88` is line 88
+  of the root, and `https://example.test:88/:88` is both; a pathless locator is
+  admitted as its serialization, since the empty path's slash addresses the
+  same endpoint. A bare `N` joins the shipped selector grammar in
+  `packages/native-file-tools`, because a result's own line prefixes teach a
+  model to write it and refusing it bought nothing. A fragment is cut rather
+  than refused: the request drops it anyway, and refusing cost a call on the
+  anchored links models actually read. That admission is safe because
+  permission matching now projects a web locator through the read tool's own
+  parser, so the text a clause matches is the text the request uses — free text
+  inside a fragment cannot satisfy an allow the requested URL does not, which
+  the old verbatim matching would have permitted.

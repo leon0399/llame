@@ -82,11 +82,16 @@ export function parsePathScheme(
   };
 }
 
+/**
+ * One member of a range selector. A bare `N` is the single line N, the form a
+ * caller writes when it wants one line and the form a result's own line
+ * prefixes teach it to write.
+ */
 function parseRange(value: string) {
-  const match = /^(\d+)([-+])(\d+)$/.exec(value);
+  const match = /^(\d+)(?:([-+])(\d+))?$/.exec(value);
   if (!match) throw new NativeFileError("invalid_selector");
   const start = Number(match[1]);
-  const operand = Number(match[3]);
+  const operand = match[3] === undefined ? start : Number(match[3]);
   const end = match[2] === "+" ? start + (operand - 1) : operand;
   if (
     !Number.isSafeInteger(start) ||
@@ -214,7 +219,7 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
  * ranges this shape admits but the bounds do not.
  */
 const SELECTOR_SUFFIX =
-  /^(?:raw(?::\d+-\d+(?:,\d+-\d+)*)?|\d+[-+]\d+(?:,\d+[-+]\d+)*)$/u;
+  /^(?:raw(?::\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)?|\d+(?:[-+]\d+)?(?:,\d+(?:[-+]\d+)?)*)$/u;
 
 export function isSelectorSuffix(value: string): boolean {
   return SELECTOR_SUFFIX.test(value);

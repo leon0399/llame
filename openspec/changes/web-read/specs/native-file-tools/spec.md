@@ -115,19 +115,23 @@ The native `read` tool SHALL accept an absolute `http://` or `https://`
 locator as its `path` and SHALL fetch it with the API process's own outbound
 HTTP. No other web scheme SHALL be admitted, and `edit` and `write` SHALL
 reject a web locator with `invalid_path` before any request. A submitted web
-locator, after its selector is split off, SHALL be its own WHATWG URL
-serialization: a locator whose `href` differs from the submitted text
-(uppercase scheme or host, a percent-encoded or Unicode host, an explicit
-default port, an empty path, or unencoded path or query characters) SHALL
-fail with `invalid_path` before any request, and the error SHALL name the
-canonical spelling so the model can resubmit it. A locator carrying a
-fragment SHALL fail the same way, naming the spelling without it, because the
-request drops a fragment and an admitted one would let the matched text
-differ from the requested URL. Policy therefore matches
-the same text the request uses, and every derived locator is canonical by
-construction. A locator carrying userinfo SHALL fail with `invalid_path`
-before any request, so the tool never sends credentials the model embedded
-in a URL. Availability and
+locator, after any fragment is cut and its selector is split off, SHALL be
+its own WHATWG URL serialization: a locator whose `href` differs from that
+text (uppercase scheme or host, a percent-encoded or Unicode host, an
+explicit default port, or unencoded path or query characters) SHALL fail with
+`invalid_path` before any request, and the error SHALL name the canonical
+spelling so the model can resubmit it. A locator with no path is the single
+exception: its serialization differs only by the empty path's slash, which
+addresses the same endpoint, so `https://example.test:88` SHALL be admitted
+and requested as `https://example.test:88/`. A fragment SHALL be cut before
+anything else reads the locator, because the request drops it anyway; the
+permission decision, every message that names the locator, and the request
+SHALL therefore all use the same fragment-free text, and free text inside a
+fragment SHALL NOT be able to satisfy a clause the requested URL does not.
+Policy SHALL match that canonical text, and every derived locator is
+canonical by construction. A locator carrying userinfo SHALL fail with
+`invalid_path` before any request, so the tool never sends credentials the
+model embedded in a URL. Availability and
 restriction for the web SHALL come only from the `read` permission group's
 `path` clauses: a prefix allow admits the web, and a prefix or domain reject
 removes a host. No web tool id, `tools.allowed` entry, configuration block, or
@@ -140,34 +144,30 @@ represented as permission from the publisher. The scheme split and trailing
 selector rules that protect a `scheme://` prefix SHALL apply unchanged: the
 scheme's own colon is never read as a selector, and the shipped
 trailing-selector split (the last colon after the last slash) governs the
-rest. A selector SHALL be split only from a locator that carries no `?` and
-no `#`, so a colon inside a query or a fragment is part of the URL and never
-a selector (`https://example.test/search?at=2026:10` is fetched as written).
-A locator whose authority ends in a port SHALL therefore carry a path
-after the port (`https://example.test:8080/` is a URL with no selector, while
-`https://example.test:8080` reads the port as a selector and leaves the
-empty-path locator `https://example.test`, which is not its own
-serialization, so the call fails as `invalid_path`; the named spelling SHALL
-be the submitted locator's own serialization, `https://example.test:8080/`,
-because a hint built from the split remainder would drop the port and name
-another endpoint),
-and a literal colon in the last path segment of a query-free locator SHALL be
+rest. A selector SHALL be split only from a locator that has a path and
+carries no `?` and no `#`, so a colon inside a query is part of the URL
+(`https://example.test/search?at=2026:10` is fetched as written) and the only
+colon of a pathless locator opens its port: `https://example.test:88` is port
+88, `https://example.test/:88` is line 88 of the site root, and
+`https://example.test:88/:88` is line 88 served from port 88.
+A literal colon in the last path segment of a query-free locator SHALL be
 written as `%3A` (`https://w.example/wiki/Special%3ASearch`), because a
 trailing colon is always read as a selector split and the shipped grammar
-admits only `raw`, `raw:N-M`, `N-M`, `N+K`, and comma lists of those:
-`Search` and a bare line number are outside it, so
-`https://w.example/wiki/Special:Search` and `https://w.example/docs/2024:10`
-both fail as `invalid_selector` (`https://w.example/docs/2024:10-20` selects
-lines 10 through 20 of `https://w.example/docs/2024`).
+admits `raw`, `raw:N`, `raw:N-M`, `N`, `N-M`, `N+K`, and comma lists of
+those: `Search` is outside it, so `https://w.example/wiki/Special:Search`
+fails as `invalid_selector`, while `https://w.example/docs/2024:10` selects
+line 10 and `https://w.example/docs/2024:10-20` lines 10 through 20 of
+`https://w.example/docs/2024`.
 Each of these refusals SHALL name the spelling that would work rather than
 the rule that was broken: a selector written straight after the authority
 (`https://example.test:1-5`, which is not a URL at all because `1-5` is not a
 port) SHALL be answered with the authority's own serialization carrying that
-selector (`https://example.test/:1-5`); a suffix of bare line numbers
-(`:1`, `:12+`) SHALL be answered with the range forms first and the literal
-colon's encoding second; and a selector the render could not serve — past its
-end, or with no line in it — SHALL be answered with the number of lines the
-page rendered, which the model cannot know before reading it.
+selector (`https://example.test/:1-5`); a suffix that meant a line the
+grammar cannot serve (`:12+`) SHALL be answered with the line forms first and
+the literal colon's encoding second; and a selector the render could not
+serve — past its end, or with no line in it — SHALL be answered with the
+number of lines the page rendered, which the model cannot know before reading
+it.
 
 #### Scenario: A web locator is fetched by the API process
 
@@ -193,11 +193,12 @@ page rendered, which the model cannot know before reading it.
 - **THEN** the read returns `invalid_path` naming the canonical spelling (`https://grokipedia.com/page`, `https://example.test/guide`) and issues no request
 - **AND** a reject clause written against the canonical spelling cannot be evaded by an encoded, uppercase, or default-port variant
 
-#### Scenario: A canonical-spelling hint keeps the port the model submitted
+#### Scenario: A pathless host reads its port, a path reads its line
 
-- **WHEN** the model reads `https://example.test:8080`, whose `:8080` the selector split takes and whose remainder is the empty-path `https://example.test`
-- **THEN** the read returns `invalid_path` naming `https://example.test:8080/`, not `https://example.test/`
-- **AND** resubmitting the named spelling is admitted and requests the port the model wrote
+- **WHEN** the model reads `https://example.test:88`, which has no path for a selector to trail
+- **THEN** the read requests `https://example.test:88/` on port 88, and the permission decision matched that same text
+- **AND** `https://example.test/:88` requests the site root and returns line 88 of its render
+- **AND** `https://example.test:88/:88` requests the root on port 88 and returns line 88 of it
 
 #### Scenario: Userinfo in a locator fails closed
 
@@ -207,17 +208,16 @@ page rendered, which the model cannot know before reading it.
 
 #### Scenario: A colon in the last path segment is a selector unless encoded
 
-- **WHEN** the model reads `https://w.example/wiki/Special:Search` or `https://w.example/docs/2024:10`
-- **THEN** the read fails with `invalid_selector` and issues no request, because the split-off suffix is present but outside the grammar (`Search` is not a selector, and there is no bare line number)
-- **AND** `https://w.example/wiki/Special%3ASearch` is fetched as written and `https://w.example/docs/2024:10-20` selects lines 10 through 20 of `https://w.example/docs/2024`
-- **AND** a locator whose split leaves a text that is not its own serialization, such as `https://example.test:8080` (the port is read as the suffix and `https://example.test` serializes as `https://example.test/`), fails with `invalid_path` naming the canonical form instead
+- **WHEN** the model reads `https://w.example/wiki/Special:Search`
+- **THEN** the read fails with `invalid_selector` and issues no request, because the split-off suffix is present but outside the grammar
+- **AND** `https://w.example/wiki/Special%3ASearch` is fetched as written, while `https://w.example/docs/2024:10` selects line 10 and `https://w.example/docs/2024:10-20` lines 10 through 20 of `https://w.example/docs/2024`
 
 #### Scenario: A refused locator names the spelling that works
 
-- **WHEN** the model reads `https://example.test:1-5`, which no URL parser accepts
+- **WHEN** the model reads `https://example.test:1-5`, which no URL parser accepts because `1-5` is not a port
 - **THEN** the read returns `invalid_path` naming `https://example.test/:1-5`, and resubmitting that reads lines 1 through 5 of the page
-- **AND** reading `https://example.test/guide:1` returns `invalid_selector` naming the `:N-M` and `:N+K` forms before the `%3A` spelling
-- **AND** a suffix outside the grammar with no line numbers in it, such as `https://w.example/wiki/Special:Search`, still names only the encoded spelling
+- **AND** reading `https://example.test/guide:12+` returns `invalid_selector` naming the `:N`, `:N-M`, and `:N+K` forms before the `%3A` spelling
+- **AND** a suffix outside the grammar with no line number in it, such as `https://w.example/wiki/Special:Search`, still names only the encoded spelling
 
 #### Scenario: A selector the page cannot serve reports the page's length
 

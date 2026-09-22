@@ -27,28 +27,26 @@ describe('parseWebLocator', () => {
     });
   });
 
-  it('refuses a fragment, naming the locator without it', () => {
-    // The fragment never leaves the process, so it is text the request would
-    // drop: a locator carrying one is refused before it can reach policy as a
-    // URL other than the one fetched.
-    const fragment = parseWebLocator('https://example.test/guide?x=1#top');
-    expect(fragment).toMatchObject({ type: 'invalid_path' });
-    expect(fragment).toHaveProperty(
-      'message',
-      'Write this locator as https://example.test/guide?x=1',
-    );
-    // A bare `#` is a fragment too, and one `new URL` keeps in `href` while
-    // the request would drop it, so the delimiter decides and not `hash`.
-    const bare = parseWebLocator('https://example.test/guide#');
-    expect(bare).toMatchObject({ type: 'invalid_path' });
-    expect(bare).toHaveProperty(
-      'message',
-      'Write this locator as https://example.test/guide',
-    );
-    // The spelling the refusal named is admitted, so the whole cost of the
-    // fragment is one resubmission.
-    expect(parseWebLocator('https://example.test/guide?x=1')).toEqual({
+  it('drops a fragment rather than refusing the locator', () => {
+    // A page's anchor is ordinary text in the links a model reads. The
+    // request drops it either way, so it is cut here: one fragment-free text
+    // is what policy matches, what a message names, and what is fetched.
+    expect(parseWebLocator('https://example.test/guide?x=1#top')).toEqual({
       url: 'https://example.test/guide?x=1',
+    });
+    // A bare `#` is a fragment too, and one `new URL` keeps in `href`.
+    expect(parseWebLocator('https://example.test/guide#')).toEqual({
+      url: 'https://example.test/guide',
+    });
+    // A fragment cannot smuggle clause-matching text into the locator: it is
+    // gone before policy, and gone before the request.
+    expect(parseWebLocator('https://evil.test/x#/docs/')).toEqual({
+      url: 'https://evil.test/x',
+    });
+    // The colon inside a fragment is never a selector, and the fragment that
+    // held it leaves with it.
+    expect(parseWebLocator('https://example.test/guide#x:raw')).toEqual({
+      url: 'https://example.test/guide',
     });
   });
 
@@ -65,14 +63,12 @@ describe('parseWebLocator', () => {
       url: 'https://example.test/docs/2024',
       selector: '5+10',
     });
-    // The shipped grammar has no bare line number, so a digit-only last
-    // segment needs its colon encoded rather than selected.
-    const digitOnly = parseWebLocator('https://example.test/report:10');
-    expect(digitOnly).toMatchObject({ type: 'invalid_selector' });
-    expect(digitOnly).toHaveProperty(
-      'message',
-      expect.stringContaining('https://example.test/report%3A10'),
-    );
+    // A bare line number is a selector: `:10` is line 10, the form a result's
+    // own line prefixes teach the model to write.
+    expect(parseWebLocator('https://example.test/report:10')).toEqual({
+      url: 'https://example.test/report',
+      selector: '10',
+    });
     expect(parseWebLocator('https://example.test/guide:raw')).toEqual({
       url: 'https://example.test/guide',
       selector: 'raw',
@@ -91,7 +87,7 @@ describe('parseWebLocator', () => {
     });
   });
 
-  it('keeps a query colon out of the selector grammar and refuses a fragment', () => {
+  it('keeps a query colon out of the selector grammar and cuts a fragment', () => {
     // Every query locator here is its own serialization, so each one is
     // fetched as written: the colon is URL text, never a selector that
     // truncates it.
@@ -112,21 +108,15 @@ describe('parseWebLocator', () => {
     expect(parseWebLocator('https://example.test/a?mode=1:4-5')).toEqual({
       url: 'https://example.test/a?mode=1:4-5',
     });
-    // A fragment is refused before the gate is asked, so no colon after one
-    // is ever read as a selector: the request drops the fragment, and the
-    // refusal names the same locator without it.
-    const afterFragment = parseWebLocator('https://example.test/a#x:raw');
-    expect(afterFragment).toMatchObject({ type: 'invalid_path' });
-    expect(afterFragment).toHaveProperty(
-      'message',
-      'Write this locator as https://example.test/a',
-    );
-    const beforeFragment = parseWebLocator('https://example.test/a:raw#x');
-    expect(beforeFragment).toMatchObject({ type: 'invalid_path' });
-    expect(beforeFragment).toHaveProperty(
-      'message',
-      'Write this locator as https://example.test/a:raw',
-    );
+    // The fragment is cut before the gate is asked, so no colon inside one is
+    // ever read as a selector, and a selector written ahead of one still is.
+    expect(parseWebLocator('https://example.test/a#x:raw')).toEqual({
+      url: 'https://example.test/a',
+    });
+    expect(parseWebLocator('https://example.test/a:raw#x')).toEqual({
+      url: 'https://example.test/a',
+      selector: 'raw',
+    });
     // A query after a colon in the path leaves that colon literal too: a
     // selector cannot sit in front of a query, so none is read out of one.
     expect(parseWebLocator('https://example.test/a:b?x=1')).toEqual({
@@ -158,31 +148,51 @@ describe('parseWebLocator', () => {
   });
 
   it('encodes every colon of the suggested spelling in one refusal', () => {
-    const refused = parseWebLocator('https://example.test/a:b:10');
+    const refused = parseWebLocator('https://example.test/a:b:c');
     expect(refused).toMatchObject({ type: 'invalid_selector' });
     // The hint encodes the colon the split left in the segment as well, so
     // the resubmitted locator is admitted rather than split once more.
-    const spelling = 'https://example.test/a%3Ab%3A10';
+    const spelling = 'https://example.test/a%3Ab%3Ac';
     expect(refused).toHaveProperty(
       'message',
       expect.stringContaining(spelling),
     );
     expect(parseWebLocator(spelling)).toEqual({ url: spelling });
+    // A colon left in the path is URL text once the suffix is a real
+    // selector: `/a:b` is the page and `10` is its line.
+    expect(parseWebLocator('https://example.test/a:b:10')).toEqual({
+      url: 'https://example.test/a:b',
+      selector: '10',
+    });
   });
 
-  it('keeps a port with no path out of the selector grammar', () => {
-    // The split reads `:8080` as a selector, and the URL it leaves behind is
-    // the empty-path locator, which is not its own serialization. The hint
-    // names the submitted locator's own spelling, port included: a hint of
-    // `https://example.test/` would point the next request at another
-    // endpoint.
-    const portOnly = parseWebLocator('https://example.test:8080');
-    expect(portOnly).toMatchObject({
-      type: 'invalid_path',
-      message: 'Write this locator as https://example.test:8080/',
+  it('reads a port on a pathless host as the port', () => {
+    // No path means no place a selector could trail, so `:8080` is the port
+    // it looks like. The empty path's slash is the one difference from the
+    // serialization that is admitted, because it changes no endpoint.
+    expect(parseWebLocator('https://example.test:8080')).toEqual({
+      url: 'https://example.test:8080/',
     });
     expect(parseWebLocator('https://example.test:8080/')).toEqual({
       url: 'https://example.test:8080/',
+    });
+    expect(parseWebLocator('https://example.test')).toEqual({
+      url: 'https://example.test/',
+    });
+    // Both at once: the digits before the path separator are the port, the
+    // digits after the last one are the line.
+    expect(parseWebLocator('https://example.test:88/:88')).toEqual({
+      url: 'https://example.test:88/',
+      selector: '88',
+    });
+    expect(parseWebLocator('https://example.test:88/docs:88-90')).toEqual({
+      url: 'https://example.test:88/docs',
+      selector: '88-90',
+    });
+    // The same digits after the path separator are a line, not a port.
+    expect(parseWebLocator('https://example.test:8080/:88')).toEqual({
+      url: 'https://example.test:8080/',
+      selector: '88',
     });
   });
 
@@ -230,19 +240,17 @@ describe('parseWebLocator', () => {
     });
   });
 
-  it('names the range forms for a suffix that meant line numbers', () => {
-    // The shipped grammar has no bare `:N`, and telling a model that asked
-    // for line 1 to percent-encode the colon answers a question it did not
-    // ask, so the ranges come first and the literal colon second.
-    expect(parseWebLocator('https://example.test/guide:1')).toEqual({
-      type: 'invalid_selector',
-      message:
-        'A line selector is :N-M or :N+K, so one line is :1-1. For a literal colon, write this locator as https://example.test/guide%3A1',
+  it('names the range forms for a suffix outside the line grammar', () => {
+    // `:0` looks like a line but no file has one, and telling that model to
+    // percent-encode the colon answers a question it did not ask.
+    expect(parseWebLocator('https://example.test/guide:0')).toEqual({
+      url: 'https://example.test/guide',
+      selector: '0',
     });
     expect(parseWebLocator('https://example.test/guide:12+')).toEqual({
       type: 'invalid_selector',
       message:
-        'A line selector is :N-M or :N+K, so one line is :12-12. For a literal colon, write this locator as https://example.test/guide%3A12+',
+        'A line selector is :N, :N-M, or :N+K, and a line number starts at 1, so line 12 is :12. For a literal colon, write this locator as https://example.test/guide%3A12+',
     });
     // A suffix that is a word still gets the encoding hint alone.
     expect(parseWebLocator('https://w.example/wiki/Special:Search')).toEqual({
@@ -269,7 +277,7 @@ describe('parseWebLocator', () => {
     ['https://Example.test/Guide', 'https://example.test/Guide'],
     ['https://g%72okipedia.com/page', 'https://grokipedia.com/page'],
     ['https://example.test:443/guide', 'https://example.test/guide'],
-    ['https://example.test', 'https://example.test/'],
+    ['https://example.test/a?q=x y', 'https://example.test/a?q=x%20y'],
     ['https://example.test/a b', 'https://example.test/a%20b'],
   ])(
     'refuses the noncanonical locator %s with its canonical spelling',
