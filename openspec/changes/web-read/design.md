@@ -618,20 +618,6 @@ new path.
   address-check finding was rejected as the same settled deferral. pullfrog:
   the port example now follows the empty-path refusal (`https://host:8080`
   fails `invalid_path` instead of selecting a line).
-- v10 (2026-09-22): Review corrections to the delta text, with no behaviour
-  change: a selector is split only from a locator carrying no `?` and no `#`,
-  so a colon in a query is part of the URL; a probe's redirect is followed
-  under the shared rules before any terminal status is judged, and only its
-  own failure disqualifies the candidate while a spent call bound fails the
-  call; each derived-locator record carries the call's policy-instance ID plus
-  its own decision, reason, and clause reference, never the call's.
-- v10 (2026-09-22): Review corrections to the delta text, with no behaviour
-  change: a selector is split only from a locator carrying no `?` and no `#`,
-  so a colon in a query is part of the URL; a probe's redirect is followed
-  under the shared rules before any terminal status is judged, and only its
-  own failure disqualifies the candidate while a spent call bound fails the
-  call; each derived-locator record carries the call's policy-instance ID plus
-  its own decision, reason, and clause reference, never the call's.
 - v5 (2026-09-22): Corrections found while implementing the `fetch` layer. The
   shipped selector grammar has no bare `:N` form (`packages/native-file-tools/src/path.ts`
   `SELECTOR_SUFFIX`), so `https://w.example/docs/2024:10` fails
