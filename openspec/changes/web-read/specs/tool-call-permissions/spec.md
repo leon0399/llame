@@ -85,8 +85,9 @@ through the model-visible result, and run execution SHALL record those
 decisions beside the call decision in the completion payload when the tool
 call settles, so the same owner-scoped tool activity and the same stored
 tool-part metadata carry them, each with the same policy-instance ID as the
-call decision, the locator's decision, its static reason, and a bounded
-deterministic clause reference when one matched; durable transcript
+call decision plus the locator's own decision, its own static reason, and its
+own bounded deterministic clause reference when one matched — never the call
+decision's reason or clause; durable transcript
 reconstruction SHALL read them from the same payload it reads the call
 decision from. A call that never settles loses its derived-locator records
 with its result. The existing `tool.requested` rule SHALL continue to cover

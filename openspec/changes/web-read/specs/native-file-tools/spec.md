@@ -137,16 +137,20 @@ represented as permission from the publisher. The scheme split and trailing
 selector rules that protect a `scheme://` prefix SHALL apply unchanged: the
 scheme's own colon is never read as a selector, and the shipped
 trailing-selector split (the last colon after the last slash) governs the
-rest. A locator whose authority ends in a port SHALL therefore carry a path
+rest. A selector SHALL be split only from a locator that carries no `?` and
+no `#`, so a colon inside a query or a fragment is part of the URL and never
+a selector (`https://example.test/search?at=2026:10` is fetched as written).
+A locator whose authority ends in a port SHALL therefore carry a path
 after the port (`https://example.test:8080/` is a URL with no selector, while
 `https://example.test:8080` reads the port as a selector and leaves the
 empty-path locator `https://example.test`, which fails as `invalid_path`
 rather than selecting a line),
-and a literal colon in the last path segment SHALL be written as `%3A`
-(`https://w.example/wiki/Special%3ASearch`), because
-`https://w.example/wiki/Special:Search` fails as `invalid_selector` and
-`https://w.example/docs/2024:10` selects line 10 of
-`https://w.example/docs/2024`.
+and a literal colon in the last path segment of a query-free locator SHALL be
+written as `%3A` (`https://w.example/wiki/Special%3ASearch`), because a
+trailing suffix that is present but outside the grammar fails as
+`invalid_selector`: `https://w.example/wiki/Special:Search` and
+`https://w.example/docs/2024:10` both do, while
+`https://w.example/docs/2024:10-20` selects lines 10 through 20.
 
 #### Scenario: A web locator is fetched by the API process
 
@@ -215,11 +219,15 @@ present) on the first request, or on a
 redirect hop, SHALL fail the call with `http_status` naming the status; a 429
 SHALL additionally carry the `Retry-After` value when the response supplies
 one. A status error SHALL NOT return the response body and SHALL NOT report
-response headers other than that `Retry-After` delay. A probe request (an
-alternate, a suffix candidate, or an `llms.txt` candidate) that answers a
-non-2xx status or a refused content type SHALL disqualify only that
-candidate, and the pipeline SHALL continue; a probe whose redirects exhaust
-the call's redirect budget SHALL fail the call with `too_many_redirects`. A
+response headers other than that `Retry-After` delay. A redirect answer to a
+probe request SHALL be followed under the shared redirect rules before any
+terminal status is judged. A probe request (an
+alternate, a suffix candidate, or an `llms.txt` candidate) whose terminal
+response answers a non-2xx status, or a refused content type, or which fails
+on a bound of its own (a headers timeout, an oversized body, a transport
+failure, or a redirect it cannot follow), SHALL disqualify only that
+candidate, and the pipeline SHALL continue; a probe that exhausts the call's
+deadline or its redirect budget, or a refused hop, SHALL fail the call. A
 call SHALL issue at most one alternate request, one suffix-probe request,
 and four `llms.txt` requests, and SHALL follow at most 20 redirects in total
 across all of its requests.
@@ -331,8 +339,8 @@ without failing the call and its decision SHALL be recorded like a hop
 decision, so a hostile page cannot make a read of itself fail by announcing
 a refused alternate. A probe request SHALL send the same `Accept` header and
 SHALL count against the call's total time, body, request, and redirect
-bounds; its non-2xx status or refused content type disqualifies the
-candidate without failing the call. A candidate that fails the gate SHALL
+bounds; a failure of its own disqualifies the
+candidate without failing the call, while a spent call bound fails it. A candidate that fails the gate SHALL
 NOT become the content, and a fetched candidate SHALL NOT be searched for
 further alternates
 or suffixes.
