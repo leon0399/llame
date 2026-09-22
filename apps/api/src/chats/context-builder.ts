@@ -378,10 +378,19 @@ type PromptReasoningPart = Extract<
  * omission notice), and a turn ending on reasoning flushes it as its own
  * assistant message. Reasoning text is passed through byte-identically, with
  * the part's opaque provider metadata riding along as `providerOptions`.
+ *
+ * Consecutive tool parts are batched the same way text is. Stored parts carry
+ * no step boundary, but a run of tool parts with no reasoning or text between
+ * them is what one model step emitted: the wire shape it came from is a single
+ * assistant message holding every call, and a backend that requires reasoning
+ * beside `tool_calls` (DeepSeek in thinking mode) rejects a request that splits
+ * the run into one message per call, because only the first would carry the
+ * turn's reasoning.
  */
 class AssistantHistoryEmitter {
   private readonly pendingText: Array<string> = [];
   private readonly pendingReasoning: Array<PromptReasoningPart> = [];
+  private readonly pendingToolPairs: Array<ProjectedToolObservationPair> = [];
   private omissionRendered = false;
 
   constructor(
@@ -389,38 +398,57 @@ class AssistantHistoryEmitter {
     private readonly projection: ToolObservationProjection | null,
   ) {}
 
+  /** Text or reasoning after a step's calls belongs to the next step. */
   appendText(text: string): void {
+    if (this.pendingToolPairs.length > 0) this.flushStep();
     this.pendingText.push(text);
   }
 
+  /**
+   * Reasoning recorded after this step already produced text or calls opens
+   * the next step, so a turn's stored order of reasoning against text holds.
+   */
   appendReasoning(part: PromptReasoningPart): void {
+    if (this.pendingText.length > 0 || this.pendingToolPairs.length > 0) {
+      this.flushStep();
+    }
     this.pendingReasoning.push(part);
   }
 
-  flushPendingText(): void {
+  appendToolPair(pair: ProjectedToolObservationPair): void {
+    this.pendingToolPairs.push(pair);
+  }
+
+  /**
+   * One assistant message for everything the step produced — its reasoning,
+   * its text, and every call it made — then each call's result in its own
+   * tool message. That is the shape the step arrived in, and the shape a
+   * backend that requires reasoning beside `tool_calls` accepts.
+   */
+  flushStep(): void {
+    const reasoning = this.takePendingReasoning();
     const text = this.pendingText.join('\n');
     this.pendingText.length = 0;
-    if (text.length > 0) {
-      this.pushAssistantText(text);
+    const pairs = this.pendingToolPairs.splice(0);
+    if (reasoning.length === 0 && text.length === 0 && pairs.length === 0) {
+      return;
     }
-  }
-
-  flushPendingToolPair(pair: ProjectedToolObservationPair): void {
-    const reasoning = this.takePendingReasoning();
-    this.result.push(
-      reasoning.length === 0
-        ? { role: 'assistant', content: [pair.toolCallPart] }
-        : { role: 'assistant', content: [...reasoning, pair.toolCallPart] },
-      { role: 'tool', content: [pair.toolResultPart] },
-    );
-  }
-
-  flushPendingReasoning(): void {
-    if (this.pendingReasoning.length === 0) return;
+    // A turn of plain text stays a plain-text message.
+    if (reasoning.length === 0 && pairs.length === 0) {
+      this.result.push({ role: 'assistant', content: text });
+      return;
+    }
     this.result.push({
       role: 'assistant',
-      content: this.takePendingReasoning(),
+      content: [
+        ...reasoning,
+        ...(text.length > 0 ? [{ type: 'text' as const, text }] : []),
+        ...pairs.map((pair) => pair.toolCallPart),
+      ],
     });
+    for (const pair of pairs) {
+      this.result.push({ role: 'tool', content: [pair.toolResultPart] });
+    }
   }
 
   appendOmissionWhenDue(partIndex: number): void {
@@ -433,10 +461,13 @@ class AssistantHistoryEmitter {
     ) {
       return;
     }
-    this.flushPendingText();
-    this.pushAssistantText(
-      renderToolObservationOmission(projection.omittedCount),
-    );
+    // The notice is its own message: it stands for the observations that are
+    // not replayed, not for anything the step said.
+    this.flushStep();
+    this.result.push({
+      role: 'assistant',
+      content: renderToolObservationOmission(projection.omittedCount),
+    });
     this.omissionRendered = true;
   }
 
@@ -444,22 +475,6 @@ class AssistantHistoryEmitter {
     const reasoning = [...this.pendingReasoning];
     this.pendingReasoning.length = 0;
     return reasoning;
-  }
-
-  /**
-   * Every assistant text message takes the reasoning collected ahead of it, so
-   * the stored order of reasoning against text and tool calls holds.
-   */
-  private pushAssistantText(text: string): void {
-    const reasoning = this.takePendingReasoning();
-    this.result.push(
-      reasoning.length === 0
-        ? { role: 'assistant', content: text }
-        : {
-            role: 'assistant',
-            content: [...reasoning, { type: 'text' as const, text }],
-          },
-    );
   }
 }
 
@@ -483,10 +498,10 @@ function pushAssistantHistory(
       continue;
     }
     if (isReasoningPart(part)) {
-      // Text recorded before the reasoning flushes first: the reasoning part
-      // belongs in its stored position, not hoisted or pushed behind it.
+      // A reasoning part recorded after a step's calls opens the next step,
+      // which `appendReasoning` handles; within a step it keeps its stored
+      // position ahead of the text and calls that followed it.
       if (requestKind === 'continuation') {
-        emitter.flushPendingText();
         // The part's opaque provider metadata (D15) crosses unchanged as the
         // prompt part's `providerOptions`; llame reads no key inside it. A
         // part without metadata emits the bare part — no undefined key.
@@ -502,13 +517,11 @@ function pushAssistantHistory(
 
     const pair = pairsByPartIndex.get(partIndex);
     if (!pair) continue;
-    emitter.flushPendingText();
-    emitter.flushPendingToolPair(pair);
+    emitter.appendToolPair(pair);
   }
 
   emitter.appendOmissionWhenDue(Number.POSITIVE_INFINITY);
-  emitter.flushPendingText();
-  emitter.flushPendingReasoning();
+  emitter.flushStep();
 }
 
 /**

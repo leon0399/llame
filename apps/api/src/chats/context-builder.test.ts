@@ -2047,6 +2047,58 @@ describe('buildContext', () => {
       }
     });
 
+    it('carries one turn’s reasoning with every call that turn made', () => {
+      // A step that called three tools stores three consecutive tool parts
+      // after one reasoning part. Replaying each call as its own assistant
+      // message left the second and third without `reasoning_content`, which
+      // DeepSeek's thinking mode rejects with 400 while `tools` are present.
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', text: 'Read three pages at once.' },
+          ...['call_00', 'call_01', 'call_02'].map((toolCallId) => ({
+            type: 'tool-search_conversations',
+            toolCallId,
+            state: 'output-available',
+            input: { query: toolCallId },
+            output: { status: 'success', value: `RESULT ${toolCallId}` },
+            outcome: 'success',
+          })),
+          { type: 'reasoning', text: 'Now answer.' },
+          { type: 'text', text: 'Three pages read.' },
+        ],
+      });
+
+      const { messages } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+
+      expect(messages.map(({ role }) => role)).toEqual([
+        'user',
+        'assistant',
+        'tool',
+        'tool',
+        'tool',
+        'assistant',
+      ]);
+      expect(messages[1].content).toEqual([
+        { type: 'reasoning', text: 'Read three pages at once.' },
+        expect.objectContaining({ type: 'tool-call', toolCallId: 'call_00' }),
+        expect.objectContaining({ type: 'tool-call', toolCallId: 'call_01' }),
+        expect.objectContaining({ type: 'tool-call', toolCallId: 'call_02' }),
+      ]);
+      // The reasoning recorded after the calls opens the next step instead of
+      // joining the one that made them.
+      expect(messages[5].content).toEqual([
+        { type: 'reasoning', text: 'Now answer.' },
+        { type: 'text', text: 'Three pages read.' },
+      ]);
+      for (const message of messages) {
+        expect(() => modelMessageSchema.parse(message)).not.toThrow();
+      }
+    });
+
     it('compaction supersedes raw tool payloads (2.10)', () => {
       const assistant = msg({
         role: 'assistant',
@@ -2275,26 +2327,25 @@ describe('buildContext', () => {
         requestKind: 'continuation',
       });
 
+      // The text a step produced rides the same assistant message as the call
+      // it made, which is the shape the step was generated in; the text after
+      // the result keeps its own position.
       expect(messages.map(({ role }) => role)).toEqual([
-        'assistant',
         'assistant',
         'tool',
         'assistant',
       ]);
       expect(messages[0]).toEqual({
         role: 'assistant',
-        content: 'Before call.',
-      });
-      expect(messages[1]).toEqual({
-        role: 'assistant',
         content: [
+          { type: 'text', text: 'Before call.' },
           expect.objectContaining({
             type: 'tool-call',
             toolCallId: 'call-middle',
           }),
         ],
       });
-      expect(messages[2]).toEqual({
+      expect(messages[1]).toEqual({
         role: 'tool',
         content: [
           expect.objectContaining({
@@ -2303,13 +2354,13 @@ describe('buildContext', () => {
           }),
         ],
       });
-      expect(messages[3]).toEqual({
+      expect(messages[2]).toEqual({
         role: 'assistant',
         content: 'After call.',
       });
     });
 
-    it('conservatively serializes consecutive calls in request order', () => {
+    it('replays consecutive calls as one assistant turn in request order', () => {
       const assistant = msg({
         role: 'assistant',
         parts: [
@@ -2338,18 +2389,21 @@ describe('buildContext', () => {
         requestKind: 'continuation',
       });
 
+      // Consecutive stored tool parts came from one model step, whose wire
+      // shape was a single assistant message carrying every call. Splitting
+      // them leaves the later calls without the turn's reasoning, which a
+      // thinking-mode backend rejects.
       expect(messages.map(({ role }) => role)).toEqual([
         'assistant',
         'tool',
-        'assistant',
         'tool',
         'assistant',
       ]);
       expect(JSON.stringify(messages[0])).toContain('call-first');
+      expect(JSON.stringify(messages[0])).toContain('call-second');
       expect(JSON.stringify(messages[1])).toContain('call-first');
       expect(JSON.stringify(messages[2])).toContain('call-second');
-      expect(JSON.stringify(messages[3])).toContain('call-second');
-      expect(messages[4]).toEqual({ role: 'assistant', content: 'Done.' });
+      expect(messages[3]).toEqual({ role: 'assistant', content: 'Done.' });
     });
 
     it('caps an oversized input over the complete serialized pair envelope', () => {
@@ -2501,11 +2555,13 @@ describe('buildContext', () => {
       expect(serializedObservations).not.toContain('many-000');
       expect(serializedObservations).toContain('many-219');
 
+      // 80 surviving calls now ride one assistant message, each result still
+      // its own tool message.
       const pairedMessages = observationMessages.slice(1);
-      expect(pairedMessages).toHaveLength(160);
+      expect(pairedMessages).toHaveLength(81);
       expect(
         pairedMessages.filter(({ role }) => role === 'assistant'),
-      ).toHaveLength(80);
+      ).toHaveLength(1);
       expect(pairedMessages.filter(({ role }) => role === 'tool')).toHaveLength(
         80,
       );
