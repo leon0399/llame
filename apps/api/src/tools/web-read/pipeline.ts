@@ -5,6 +5,7 @@ import { gfm } from 'turndown-plugin-gfm';
 
 import type { AdmitDerivedLocator, DerivedLocatorKind } from './admission';
 import type { WebFetchFailure, WebResponse } from './http-client';
+import { canonicalHref } from './locator';
 
 /** Every adapter a web read can report, in pipeline order. Declared as values
  *  so a caller can enumerate them; the union is derived from this list. */
@@ -384,7 +385,7 @@ function resolveCandidate(value: string, base: string): string | undefined {
   // leaves no trace either.
   url.hash = '';
 
-  return url.href;
+  return canonicalHref(url);
 }
 
 /** Whether a `Link` relation names an alternate Markdown representation. */

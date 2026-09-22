@@ -1,5 +1,6 @@
 import { REJECTED_HOP_MESSAGE, rejectedHopUrl } from '../permissions/messages';
 import { type AdmitDerivedLocator } from './admission';
+import { canonicalHref } from './locator';
 
 export type WebResponse = {
   readonly finalUrl: string;
@@ -282,7 +283,7 @@ function hopLocator(base: string, location: string | null): HopResolution {
   // An empty fragment setter drops the `#` delimiter with it, so a bare `#`
   // leaves no trace either.
   resolved.hash = '';
-  return { url: resolved.href };
+  return { url: canonicalHref(resolved) };
 }
 
 /** What one redirect response leaves the call with: the locator to fetch next,

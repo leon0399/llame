@@ -1405,4 +1405,36 @@ describe('web fetch redirects', () => {
     expect(hopSettled).toHaveBeenCalled();
     expect(refusalOf(await refused)).toHaveProperty('type', 'headers_timeout');
   });
+
+  it('drops a root dot from a hop, so a host clause still matches', async () => {
+    // The redirect target is serialized for policy and for the request alike;
+    // `example.test.` and `example.test` are one host, and a clause written
+    // for the host must not miss the dotted spelling a server sends.
+    const admitted: Array<string> = [];
+    const requested: Array<string> = [];
+    const response = await fetchOne({
+      admit: (_kind, url) => {
+        admitted.push(url);
+        return ALLOW;
+      },
+      fetch: (input: RequestInfo | URL) => {
+        requested.push(input instanceof Request ? input.url : String(input));
+        return Promise.resolve(
+          requested.length === 1
+            ? new Response(null, {
+                status: 302,
+                headers: { location: 'https://example.test./guide' },
+              })
+            : new Response('page', {
+                status: 200,
+                headers: { 'content-type': 'text/plain' },
+              }),
+        );
+      },
+    });
+
+    expect(admitted).toEqual(['https://example.test/guide']);
+    expect(requested[1]).toBe('https://example.test/guide');
+    expect(response).toMatchObject({ finalUrl: 'https://example.test/guide' });
+  });
 });

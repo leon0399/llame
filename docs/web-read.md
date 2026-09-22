@@ -140,7 +140,7 @@ something to report; there is no `url`, `contentType`, `markdownTokens`,
 
 | `method`      | Source of the content                                                                                           |
 | ------------- | --------------------------------------------------------------------------------------------------------------- |
-| `negotiated`  | the first response itself: `text/markdown`, or `text/plain` that does not open an HTML document                 |
+| `negotiated`  | the first response itself: `text/markdown` or `text/plain`, returned as served                                  |
 | `alternate`   | a Markdown URL announced by a `Link` header or a head `<link rel="alternate" type="text/markdown">`             |
 | `md-suffix`   | the publisher's `.md` suffix probe: `/a/b.html` → `/a/b.html.md`, `/a/b` → `/a/b.md`, `/a/b/` → `/a/b/index.md` |
 | `readability` | local extraction and conversion of the HTML body                                                                |
@@ -264,16 +264,19 @@ is each rejected as `no_allow` without a fetch or a file open.
 What the clause matches is locator text, not an address:
 
 - A `kb://` locator is projected before matching (selector removed, path
-  re-encoded); a web locator is matched as submitted, selector included, so
-  `^https://docs\.example\.com/` still admits `.../guide:raw`.
-- A noncanonical submitted spelling matches no such clause: `HTTPS://docs.example.com/guide`
-  is rejected as `no_allow`, and under a whole-tool allow the same call reaches
-  the tool, which refuses it as `invalid_path`. Either way no request is issued.
-- The clause admits a hostname, never the address that name resolves to, and a
-  trailing-dot host is a different text: `https://docs.example.com./` does not
-  match `^https://docs\.example\.com/` even though it resolves to the same
-  server. A host rule that must cover both spellings tolerates the dot, as the
-  recommended grokipedia clause does with its `\.?`.
+  re-encoded); a web locator is matched twice, as submitted and as requested,
+  selector included, so `^https://docs\.example\.com/` admits
+  `.../guide:raw` and `HTTPS://docs.example.com/guide` alike.
+- A reject is the stricter of the two: it refuses the call when it matches
+  either text, so a clause naming the host catches the encoded, uppercase,
+  default-port, and root-dot spellings of it. An allow is decided on the
+  requested text, since that is the resource the call reaches.
+- The clause admits a hostname, never the address that name resolves to. A
+  host's root dot is dropped before matching, for a submitted locator and for
+  a redirect hop alike, so `https://docs.example.com./` is matched and
+  requested as `https://docs.example.com/`; the recommended grokipedia clause
+  keeps its `\.?` anyway, because an operator's own clause should not depend
+  on that normalization.
 
 ## Threat model
 

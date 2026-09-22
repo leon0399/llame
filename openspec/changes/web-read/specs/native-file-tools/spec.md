@@ -327,12 +327,14 @@ A web read SHALL accept only text bodies: `text/*` media types,
 `application/json`, `application/xml`, and any type whose subtype carries a
 `+json` or `+xml` suffix. `text/markdown` SHALL be handled as Markdown. Every
 other content type SHALL fail with `unsupported_content_type` naming the
-received type, and its body SHALL NOT be returned as content. A `text/plain`
-body SHALL follow the HTML path only when it opens an HTML _document_ — a
-doctype, `<html>`, `<head>`, or `<body>` — and not merely because its first
-tag is one: a Markdown file may begin with a block of inline HTML, and
-extracting one as an article discards the rest of it. A non-HTML text body
-SHALL be returned as the content unchanged. Text SHALL be decoded with the
+received type, and its body SHALL NOT be returned as content. Only a
+declared HTML type — `text/html` or `application/xhtml+xml` — SHALL be
+rendered. A `text/plain` body SHALL be returned as served whatever it
+contains, because a conversion guesses at structure and guessing on a body
+the publisher declared as plain text costs more than it returns: a Markdown
+file that opens with a block of inline HTML was extracted as an article and
+lost every line after it. Any other accepted text body SHALL be returned as
+the content unchanged. Text SHALL be decoded with the
 charset from the `Content-Type`
 parameter when present, else with a `<meta charset>` declaration found in the
 first 2 KiB of the body, else as UTF-8.
@@ -341,7 +343,7 @@ first 2 KiB of the body, else as UTF-8.
 
 - **WHEN** a locator serves `application/json`
 - **THEN** the read returns the body text unchanged with `method` `text`
-- **AND** a first response that is `text/plain` and not HTML-shaped is returned unchanged with `method` `negotiated`
+- **AND** a first response that is `text/plain` is returned unchanged with `method` `negotiated`
 
 #### Scenario: A binary body is refused with its type named
 
@@ -349,11 +351,11 @@ first 2 KiB of the body, else as UTF-8.
 - **THEN** the read fails with `unsupported_content_type` naming that type
 - **AND** no conversion or extraction is attempted
 
-#### Scenario: HTML served as text/plain is rendered, Markdown is not
+#### Scenario: Only a declared HTML type is rendered
 
-- **WHEN** a response declares `text/plain` and its body opens an HTML document
-- **THEN** the body follows the HTML path instead of being returned as plain text
-- **AND** a `text/plain` body that merely opens with an inline tag, such as a README beginning `<div align="center">`, is returned unchanged with `method` `negotiated`
+- **WHEN** a response declares `text/plain` and its body is an HTML document
+- **THEN** the body is returned as served with `method` `negotiated`, not extracted
+- **AND** a `text/plain` README that opens with a block of inline HTML, such as `<div align="center">`, keeps every line
 
 #### Scenario: A declared charset is honored
 
@@ -366,8 +368,8 @@ first 2 KiB of the body, else as UTF-8.
 The first request for a page SHALL send `Accept: text/markdown,
 text/plain;q=0.9, text/html;q=0.8, */*;q=0.5`, so a publisher that serves
 Markdown or plain text for agents is used without a second request or a
-local conversion. A first response that is `text/markdown`, or `text/plain`
-that is not HTML-shaped, SHALL be returned as the content with `method`
+local conversion. A first response that is `text/markdown` or
+`text/plain` SHALL be returned as the content with `method`
 `negotiated`, ungated and unconverted: the publisher's agent-facing body is
 taken as it is. Otherwise, for an HTML body, the tool SHALL try, in order,
 a Markdown alternate announced by the response's `Link` header or by a `<link

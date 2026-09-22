@@ -79,15 +79,22 @@ function parseWebUrl(
   if (url.username !== '' || url.password !== '') {
     return { type: 'invalid_path', message: CREDENTIALS_MESSAGE };
   }
-  // `https://example.test./` is the same host as `https://example.test/` —
-  // the trailing dot is the DNS root — but the URL parser keeps it, so a
-  // reject clause written for the host would miss the dotted spelling. The
-  // canonical form has no root dot, so neither does the text policy matches
-  // or the request.
+  return { href: canonicalHref(url) };
+}
+
+/**
+ * The URL's serialization with its host's root dot dropped.
+ * `https://example.test./` is the same host as `https://example.test/` — the
+ * trailing dot is the DNS root — but the URL parser keeps it, so a clause
+ * written for the host would miss the dotted spelling. Every locator the tool
+ * requests, submitted or derived, is serialized through here, so the text
+ * policy matches and the text requested carry the same host.
+ */
+export function canonicalHref(url: URL): string {
   if (url.hostname.endsWith('.')) {
     url.hostname = url.hostname.slice(0, -1);
   }
-  return { href: url.href };
+  return url.href;
 }
 
 /**
