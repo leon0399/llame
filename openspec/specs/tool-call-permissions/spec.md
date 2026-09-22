@@ -72,7 +72,8 @@ submitted it. A hop locator is the `Location` value resolved against the
 redirecting request's URL by the WHATWG URL parser and serialized as its
 `href`, so it is canonical in the same way (lowercase host, internationalized
 host as punycode, default port dropped, empty path as `/`, path and query
-percent-encoded, fragment retained), and the evaluator itself still
+percent-encoded, fragment dropped so the matched text is the URL the
+next request uses), and the evaluator itself still
 normalizes nothing. A derived locator is decided through the same evaluator
 and the same projection, with no trusted context and no relaxation carried
 over from the admitted call or from an earlier derived locator.
