@@ -274,7 +274,7 @@ describe('buildWebReadResult', () => {
       status: 'error',
       type: 'invalid_selector',
       message:
-        'The selector :5000-5010 did not select any line of this page, which rendered 1 line. Write :N-M or :N+K within 1-1, or omit the selector to read from the start.',
+        'The selector :5000-5010 selected no line of this page, which rendered 1 line numbered from 1. Write :N, :N-M, or :N+K within 1-1, or omit the selector to read from the start.',
     });
   });
 

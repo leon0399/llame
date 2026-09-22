@@ -98,5 +98,5 @@ function selectorFailureMessage(
 ): string {
   const lines = splitSourceLines(content).length;
   const written = selector === undefined ? '' : `:${selector} `;
-  return `The selector ${written}did not select any line of this page, which rendered ${lines} line${lines === 1 ? '' : 's'}. Write :N-M or :N+K within 1-${lines}, or omit the selector to read from the start.`;
+  return `The selector ${written}selected no line of this page, which rendered ${lines} line${lines === 1 ? '' : 's'} numbered from 1. Write :N, :N-M, or :N+K within 1-${lines}, or omit the selector to read from the start.`;
 }

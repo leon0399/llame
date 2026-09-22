@@ -228,15 +228,46 @@ describe('parseWebLocator', () => {
     }
   });
 
-  it('keeps the generic message when nothing recovers the locator', () => {
-    // The suffix is outside the grammar, so there is no spelling to name.
+  it('says what a malformed port is, rather than "write an absolute URL"', () => {
+    // The locator is absolute; only its port is broken, so naming the rule it
+    // broke is what the model can act on.
+    expect(parseWebLocator('https://example.test:notaport/')).toEqual({
+      type: 'invalid_path',
+      message:
+        'A port must be a number: write this locator with one, or as https://example.test/',
+    });
     expect(parseWebLocator('https://example.test:notaselector')).toEqual({
       type: 'invalid_path',
-      message: 'Write this locator as an absolute http:// or https:// URL.',
+      message:
+        'A port must be a number: write this locator with one, or as https://example.test/',
     });
+  });
+
+  it('keeps the generic message when nothing recovers the locator', () => {
     expect(parseWebLocator('ftp://example.test:1-5')).toEqual({
       type: 'invalid_path',
       message: 'Write this locator as an absolute http:// or https:// URL.',
+    });
+    expect(parseWebLocator('not a locator at all')).toEqual({
+      type: 'invalid_path',
+      message: 'Write this locator as an absolute http:// or https:// URL.',
+    });
+  });
+
+  it('drops a host’s root dot so a host clause cannot be side-stepped', () => {
+    // `example.test.` and `example.test` are one host, but the URL parser
+    // keeps the dot, so a reject written for the host would miss it.
+    expect(parseWebLocator('https://example.test./')).toEqual({
+      type: 'invalid_path',
+      message: 'Write this locator as https://example.test/',
+    });
+    expect(parseWebLocator('https://example.test.')).toEqual({
+      type: 'invalid_path',
+      message: 'Write this locator as https://example.test/',
+    });
+    expect(parseWebLocator('https://example.test./guide:1-5')).toEqual({
+      type: 'invalid_path',
+      message: 'Write this locator as https://example.test/guide:1-5',
     });
   });
 

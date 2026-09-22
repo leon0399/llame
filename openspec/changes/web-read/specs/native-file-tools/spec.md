@@ -123,7 +123,10 @@ explicit default port, or unencoded path or query characters) SHALL fail with
 spelling so the model can resubmit it. A locator with no path is the single
 exception: its serialization differs only by the empty path's slash, which
 addresses the same endpoint, so `https://example.test:88` SHALL be admitted
-and requested as `https://example.test:88/`. A fragment SHALL be cut before
+and requested as `https://example.test:88/`. A host's root dot SHALL be
+dropped before the locator is judged, so `https://example.test./` is refused
+as noncanonical and names `https://example.test/`: the two spell one host, and
+a clause written for it must not be side-stepped by the dotted form. A fragment SHALL be cut before
 anything else reads the locator, because the request drops it anyway; the
 permission decision, every message that names the locator, and the request
 SHALL therefore all use the same fragment-free text, and free text inside a
@@ -162,7 +165,10 @@ Each of these refusals SHALL name the spelling that would work rather than
 the rule that was broken: a selector written straight after the authority
 (`https://example.test:1-5`, which is not a URL at all because `1-5` is not a
 port) SHALL be answered with the authority's own serialization carrying that
-selector (`https://example.test/:1-5`); a suffix that meant a line the
+selector (`https://example.test/:1-5`); a port that is not a number
+(`https://example.test:abc/`) SHALL be answered by naming that rule and the
+same locator without a port, rather than by the generic message, since the
+locator is absolute and only its port is broken; a suffix that meant a line the
 grammar cannot serve (`:12+`) SHALL be answered with the line forms first and
 the literal colon's encoding second; and a selector the render could not
 serve — past its end, or with no line in it — SHALL be answered with the
@@ -320,9 +326,12 @@ A web read SHALL accept only text bodies: `text/*` media types,
 `+json` or `+xml` suffix. `text/markdown` SHALL be handled as Markdown. Every
 other content type SHALL fail with `unsupported_content_type` naming the
 received type, and its body SHALL NOT be returned as content. A `text/plain`
-body that is HTML-shaped SHALL follow the HTML path rather than being returned
-as plain text. A non-HTML text body SHALL be returned as the content
-unchanged. Text SHALL be decoded with the charset from the `Content-Type`
+body SHALL follow the HTML path only when it opens an HTML _document_ — a
+doctype, `<html>`, `<head>`, or `<body>` — and not merely because its first
+tag is one: a Markdown file may begin with a block of inline HTML, and
+extracting one as an article discards the rest of it. A non-HTML text body
+SHALL be returned as the content unchanged. Text SHALL be decoded with the
+charset from the `Content-Type`
 parameter when present, else with a `<meta charset>` declaration found in the
 first 2 KiB of the body, else as UTF-8.
 
@@ -338,10 +347,11 @@ first 2 KiB of the body, else as UTF-8.
 - **THEN** the read fails with `unsupported_content_type` naming that type
 - **AND** no conversion or extraction is attempted
 
-#### Scenario: HTML served as text/plain is rendered
+#### Scenario: HTML served as text/plain is rendered, Markdown is not
 
-- **WHEN** a response declares `text/plain` and its body is an HTML document
+- **WHEN** a response declares `text/plain` and its body opens an HTML document
 - **THEN** the body follows the HTML path instead of being returned as plain text
+- **AND** a `text/plain` body that merely opens with an inline tag, such as a README beginning `<div align="center">`, is returned unchanged with `method` `negotiated`
 
 #### Scenario: A declared charset is honored
 
@@ -438,7 +448,10 @@ Only when no publisher Markdown candidate wins SHALL the tool render locally:
 Readability main-content extraction over the response body, converted to
 Markdown with GFM tables and reported as `method` `readability`. When
 Readability finds no article, the whole body SHALL be converted instead and
-reported with the same method. Only when that render fails the quality gate
+reported with the same method. The render SHALL open with the page's title as
+a heading unless its own first line already is that title, because Readability
+treats the title as the article's heading and strips it, leaving a page that
+never names itself. Only when that render fails the quality gate
 SHALL the tool probe `llms.txt`, requesting at most four candidates from the
 deepest path segment up to the site root (the three deepest scopes and the
 root) until one is accepted, reported as `method` `llms-txt`. An `llms.txt`
@@ -459,6 +472,12 @@ content-type rule.
 
 - **WHEN** an HTML page offers no negotiated body, no alternate, and no passing suffix candidate
 - **THEN** Readability's main content is returned as Markdown with GFM tables and `method` `readability`
+
+#### Scenario: A render names the page it came from
+
+- **WHEN** Readability strips the page title as the article's own heading, as it does for `https://example.com/`
+- **THEN** the render opens with that title as a heading
+- **AND** a render whose first line already is the title is not given a second one
 
 #### Scenario: A Readability miss converts the whole body
 

@@ -720,3 +720,15 @@ new path.
   parser, so the text a clause matches is the text the request uses — free text
   inside a fragment cannot satisfy an allow the requested URL does not, which
   the old verbatim matching would have permitted.
+- v13 (2026-09-22): A third live run found four defects in what the tool
+  returns and says. A `text/plain` body was treated as HTML on its first tag
+  alone, so a README opening with `<div align="center">` was Readability-
+  extracted down to three lines; the test is now an HTML document opener. A
+  readability render lost the page title, which Readability strips as the
+  article's own heading, so `https://example.com/` never named itself; the
+  title now leads the render. A host's root dot survived into the requested
+  URL, so `https://grokipedia.com./page` side-stepped a clause written for the
+  host; it is dropped before the locator is judged. A malformed port answered
+  with the generic "write an absolute URL", which is false — the locator is
+  absolute — so it now names the port rule, and the selector-miss message
+  names `:N` alongside the ranges.

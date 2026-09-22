@@ -79,6 +79,14 @@ function parseWebUrl(
   if (url.username !== '' || url.password !== '') {
     return { type: 'invalid_path', message: CREDENTIALS_MESSAGE };
   }
+  // `https://example.test./` is the same host as `https://example.test/` —
+  // the trailing dot is the DNS root — but the URL parser keeps it, so a
+  // reject clause written for the host would miss the dotted spelling. The
+  // canonical form has no root dot, so neither does the text policy matches
+  // or the request.
+  if (url.hostname.endsWith('.')) {
+    url.hostname = url.hostname.slice(0, -1);
+  }
   return { href: url.href };
 }
 
@@ -135,29 +143,41 @@ function lowerFirst(text: string): string {
 const WEB_SCHEME_PREFIX = /^(?:https?):\/\//u;
 
 /**
- * The hint for a locator the URL parser rejected outright. A selector written
- * straight after the authority (`https://example.test:1-5`) sits where the
- * port belongs, so the whole text fails to parse and the generic message
- * would leave the model guessing at a locator that is nearly right. When the
- * text before the last colon is a web URL and the suffix is a real selector,
- * the spelling that works is that URL's serialization — which supplies the
- * path the selector needs — carrying the same selector.
+ * The hint for a locator the URL parser rejected outright. Two of those are
+ * worth naming rather than answering with "write an absolute URL", which
+ * tells a model that wrote a nearly correct locator nothing: a selector
+ * written straight after the authority (`https://example.test:1-5`) sits
+ * where the port belongs, and a port that is not a number
+ * (`https://example.test:abc/`) is the only broken part of an otherwise
+ * absolute URL.
  */
-function selectorOnAuthority(text: string): WebLocatorError {
+function unparsableLocator(text: string): WebLocatorError {
   const generic: WebLocatorError = {
     type: 'invalid_path',
     message: INVALID_URL_MESSAGE,
   };
   const colon = text.lastIndexOf(':');
   if (colon <= text.indexOf('//') + 1) return generic;
-  const selector = text.slice(colon + 1);
-  if (!isSelectorSuffix(selector)) return generic;
+  const suffix = text.slice(colon + 1);
   const target = parseWebUrl(text.slice(0, colon));
   if ('type' in target) return generic;
-  return {
-    type: 'invalid_path',
-    message: `Write this locator as ${target.href}:${selector}`,
-  };
+  if (isSelectorSuffix(suffix)) {
+    return {
+      type: 'invalid_path',
+      message: `Write this locator as ${target.href}:${suffix}`,
+    };
+  }
+  // What follows the colon is where the port belongs, so say so and name the
+  // same locator without one rather than inventing a number.
+  const slash = suffix.indexOf('/');
+  const port = slash === -1 ? suffix : suffix.slice(0, slash);
+  if (!/^\d*$/u.test(port)) {
+    return {
+      type: 'invalid_path',
+      message: `A port must be a number: write this locator with one, or as ${target.href}`,
+    };
+  }
+  return generic;
 }
 
 /**
@@ -183,7 +203,7 @@ export function parseWebLocator(
   const admitted = parseWebUrl(text);
   if ('type' in admitted) {
     return admitted.message === INVALID_URL_MESSAGE
-      ? selectorOnAuthority(text)
+      ? unparsableLocator(text)
       : admitted;
   }
   // Read from the submitted text, never from a scheme the dispatcher

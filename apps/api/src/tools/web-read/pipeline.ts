@@ -408,8 +408,15 @@ function linkParameters(value: string): Map<string, string> {
   return parameters;
 }
 
-/** A body whose first non-whitespace character opens a tag is treated as markup. */
-const HTML_MARKUP_START = /^\s*<[a-z!/?]/i;
+/**
+ * A body that opens an HTML *document*. A Markdown file may legally begin
+ * with a block of inline HTML — the Rust README opens with `<div align=
+ * "center">` and is served as `text/plain` — so the first tag alone cannot
+ * decide: readability-extracting such a file threw away all but three lines
+ * of it.
+ */
+const HTML_MARKUP_START =
+  /^\s*(?:<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>])/i;
 
 const EMPTY_BODY = /^\s*$/;
 
@@ -487,12 +494,30 @@ export function passesQualityGate(text: string): boolean {
  *  afterwards; the whole body is converted when it finds no article. */
 function renderPage(response: WebResponse, page: ParsedWebDocument): WebRender {
   const article = new Readability(page.document).parse();
-  const converted = convertToMarkdown(article?.content ?? page.bodyHtml);
+  const converted = titled(
+    article?.title,
+    convertToMarkdown(article?.content ?? page.bodyHtml),
+  );
   if (passesQualityGate(converted)) {
     return { method: 'readability', content: converted };
   }
 
   return unconverted(response, converted);
+}
+
+/**
+ * Readability treats the page title as the article's own heading and strips
+ * it from the content, so a converted page can arrive with no name at all —
+ * `https://example.com/` rendered three lines that never said "Example
+ * Domain". The title leads the render unless the content already opens with
+ * it.
+ */
+function titled(title: string | null | undefined, content: string): string {
+  const trimmed = title?.trim() ?? '';
+  if (trimmed.length === 0) return content;
+  const opener = content.trimStart().split('\n', 1)[0] ?? '';
+  if (opener.replace(/^#+\s*/u, '') === trimmed) return content;
+  return `# ${trimmed}\n\n${content}`;
 }
 
 /** The response body as served, with the note explaining why it is not converted. */

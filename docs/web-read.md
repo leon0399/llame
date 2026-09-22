@@ -75,6 +75,7 @@ message names the spelling to resubmit:
 | `HTTPS://Example.test/guide`         | uppercase scheme or host | `https://example.test/guide`  |
 | `https://g%72okipedia.com/page`      | percent-encoded host     | `https://grokipedia.com/page` |
 | `https://example.test:443/guide`     | explicit default port    | `https://example.test/guide`  |
+| `https://example.test./`             | host root dot            | `https://example.test/`       |
 | `https://example.test/a b`           | unencoded path character | `https://example.test/a%20b`  |
 | `https://user:secret@example.test/x` | userinfo                 | nothing from the locator      |
 | `ftp://example.test/guide`           | non-web scheme           | an absolute `http(s)://` URL  |
@@ -95,7 +96,8 @@ two readings of `:N`:
   `https://example.test:88/:88` is line 88 served from port 88.
 - `https://example.test:1-5` is not a URL at all: `1-5` sits where the port
   belongs. The refusal names `https://example.test/:1-5`, the same selector on
-  the serialized authority.
+  the serialized authority, and `https://example.test:abc/` is answered with
+  "a port must be a number" rather than the generic message.
 - A literal colon in the last path segment is written `%3A`:
   `https://w.example/wiki/Special%3ASearch`, because
   `https://w.example/wiki/Special:Search` splits at the colon and `Search` is
@@ -126,7 +128,7 @@ something to report; there is no `url`, `contentType`, `markdownTokens`,
 
 | `method`      | Source of the content                                                                                           |
 | ------------- | --------------------------------------------------------------------------------------------------------------- |
-| `negotiated`  | the first response itself: `text/markdown`, or `text/plain` that is not HTML-shaped                             |
+| `negotiated`  | the first response itself: `text/markdown`, or `text/plain` that does not open an HTML document                 |
 | `alternate`   | a Markdown URL announced by a `Link` header or a head `<link rel="alternate" type="text/markdown">`             |
 | `md-suffix`   | the publisher's `.md` suffix probe: `/a/b.html` → `/a/b.html.md`, `/a/b` → `/a/b.md`, `/a/b/` → `/a/b/index.md` |
 | `readability` | local extraction and conversion of the HTML body                                                                |
@@ -153,7 +155,10 @@ shape, and the raw HTML of the same page is never the better answer. An
 candidate is judged on length and shape only, because an index file is short
 link lines by construction. `readability` is Readability's main-content
 extraction converted to Markdown with GFM tables, and it converts the whole
-body when Readability finds no article. A candidate that fails the gate never
+body when Readability finds no article. The render opens with the page's title
+as a heading, because Readability strips it as the article's own heading —
+without it `https://example.com/` rendered three lines that never named the
+page. A candidate that fails the gate never
 becomes the content, and a fetched candidate is not searched for further
 alternates or suffixes.
 

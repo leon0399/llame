@@ -301,6 +301,58 @@ describe('renderWebDocument', () => {
     expect(render.content).not.toContain('<article>');
   });
 
+  it('keeps a text/plain Markdown file that opens with an HTML block', () => {
+    // The Rust README opens with `<div align="center">` and is served as
+    // `text/plain`. Reading the first tag as "this is a document" sent it
+    // through Readability, which kept three lines of a 200-line file.
+    const readme = [
+      '<div align="center">',
+      '  <img src="logo.svg" alt="Logo">',
+      '</div>',
+      '',
+      '# The project',
+      '',
+      'A paragraph long enough to clear the quality gate on its own, which is',
+      'what a real README has after its banner block and what the reader must',
+      'return untouched rather than extract.',
+    ].join('\n');
+
+    const render = renderWebDocument(response('text/plain', readme), {
+      raw: false,
+    });
+
+    expect(render.method).toBe('negotiated');
+    expect(render.content).toBe(readme);
+  });
+
+  it('leads a readability render with the page title', () => {
+    // Readability treats the title as the article's own heading and strips
+    // it, so `https://example.com/` rendered three lines that never said
+    // "Example Domain".
+    const page = [
+      '<!doctype html><html><head><title>Example Domain</title></head><body>',
+      '<div><p>This domain is for use in documentation examples without',
+      'needing permission. Avoid use in operations, and read the referenced',
+      'document for the policy that governs it.</p></div>',
+      '</body></html>',
+    ].join('\n');
+
+    const render = renderWebDocument(response('text/html', page), {
+      raw: false,
+    });
+
+    expect(render.method).toBe('readability');
+    expect(render.content.startsWith('# Example Domain\n')).toBe(true);
+
+    // A page whose content already opens with its title is not given a
+    // second one.
+    const titled = page.replace('<div>', '<div><h1>Example Domain</h1>');
+    const second = renderWebDocument(response('text/html', titled), {
+      raw: false,
+    });
+    expect(second.content.split('Example Domain')).toHaveLength(2);
+  });
+
   it('renders an article to Markdown with GFM tables, fenced code, and links', () => {
     const render = renderWebDocument(response('text/html', ARTICLE_HTML), {
       raw: false,
