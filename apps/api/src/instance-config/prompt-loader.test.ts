@@ -1728,7 +1728,12 @@ describe('llame-owned tool description templates', () => {
   });
 
   it('teaches the two readings of a colon with examples that parse that way', () => {
-    const rendered = renderPackagedReadDescription(['read']);
+    // Backticks are the author's choice, not the claim: the examples are
+    // matched on their text so a template that code-formats them still counts.
+    const rendered = renderPackagedReadDescription(['read']).replaceAll(
+      '`',
+      '',
+    );
 
     expect(rendered).toContain(
       'A colon is a selector only after the path separator',
