@@ -51,6 +51,83 @@ describe('parseWebLocator', () => {
       url: 'https://example.test/guide',
       selector: 'raw:10-20',
     });
+    expect(parseWebLocator('https://example.test/doc:raw')).toEqual({
+      url: 'https://example.test/doc',
+      selector: 'raw',
+    });
+    expect(parseWebLocator('https://example.test/a/b:4-5')).toEqual({
+      url: 'https://example.test/a/b',
+      selector: '4-5',
+    });
+  });
+
+  it('keeps a colon in a query or a fragment out of the selector grammar', () => {
+    // Every locator here is its own serialization, so each one is fetched as
+    // written: the colon is URL text, never a selector that truncates it.
+    expect(parseWebLocator('https://example.test/path?mode=raw')).toEqual({
+      url: 'https://example.test/path?mode=raw',
+    });
+    expect(parseWebLocator('https://example.test/path?mode:raw')).toEqual({
+      url: 'https://example.test/path?mode:raw',
+    });
+    expect(parseWebLocator('https://example.test/path?mode=:raw')).toEqual({
+      url: 'https://example.test/path?mode=:raw',
+    });
+    const queryColons = 'https://example.test/search?time=10:30:00';
+    expect(parseWebLocator(queryColons)).toEqual({ url: queryColons });
+    expect(parseWebLocator('https://example.test/a?b/c:10-20')).toEqual({
+      url: 'https://example.test/a?b/c:10-20',
+    });
+    expect(parseWebLocator('https://example.test/a?mode=1:4-5')).toEqual({
+      url: 'https://example.test/a?mode=1:4-5',
+    });
+    expect(parseWebLocator('https://example.test/a#x:raw')).toEqual({
+      url: 'https://example.test/a#x:raw',
+    });
+    // A query after a colon in the path leaves that colon literal too: a
+    // selector cannot sit in front of a query, so none is read out of one.
+    expect(parseWebLocator('https://example.test/a:raw#x')).toEqual({
+      url: 'https://example.test/a:raw#x',
+    });
+    expect(parseWebLocator('https://example.test/a:b?x=1')).toEqual({
+      url: 'https://example.test/a:b?x=1',
+    });
+  });
+
+  it('refuses a noncanonical query locator with its canonical query', () => {
+    const defaultPort = parseWebLocator(
+      'https://example.test:443/path?mode=:raw',
+    );
+    expect(defaultPort).toMatchObject({ type: 'invalid_path' });
+    expect(defaultPort).toHaveProperty(
+      'message',
+      expect.stringContaining('https://example.test/path?mode=:raw'),
+    );
+    const spelling = 'https://example.test/search?time=10:30:00';
+    const uppercaseHost = parseWebLocator(
+      'https://Example.test/search?time=10:30:00',
+    );
+    expect(uppercaseHost).toMatchObject({ type: 'invalid_path' });
+    expect(uppercaseHost).toHaveProperty(
+      'message',
+      expect.stringContaining(spelling),
+    );
+    // The query colon stays literal, because encoding it would name a
+    // different URL; the named spelling is admitted on the next attempt.
+    expect(parseWebLocator(spelling)).toEqual({ url: spelling });
+  });
+
+  it('encodes every colon of the suggested spelling in one refusal', () => {
+    const refused = parseWebLocator('https://example.test/a:b:10');
+    expect(refused).toMatchObject({ type: 'invalid_selector' });
+    // The hint encodes the colon the split left in the segment as well, so
+    // the resubmitted locator is admitted rather than split once more.
+    const spelling = 'https://example.test/a%3Ab%3A10';
+    expect(refused).toHaveProperty(
+      'message',
+      expect.stringContaining(spelling),
+    );
+    expect(parseWebLocator(spelling)).toEqual({ url: spelling });
   });
 
   it('keeps a port with no path out of the selector grammar', () => {

@@ -22,9 +22,11 @@ export type {
   ReadSuccess,
   FileFailure,
   LineRange,
+  MultiReadSuccess,
   DirectorySuccess,
   DirectoryFailure,
 } from "./read";
+export { selectMultiRangeLines } from "./stream-read";
 export {
   editFile,
   createFile,

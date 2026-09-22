@@ -13,6 +13,16 @@ function renderedLines(count: number): string {
   ).join('\n');
 }
 
+/** Lines `first` through `last` exactly as the reader emits them: numbered,
+ *  or verbatim for a `:raw` read, each with its source line delimiter. */
+function readWindow(first: number, last: number, raw = false): string {
+  return Array.from(
+    { length: last - first + 1 },
+    (_, index) =>
+      `${raw ? '' : `${first + index}: `}line ${first + index} ${'x'.repeat(60)}\n`,
+  ).join('');
+}
+
 describe('buildWebReadResult', () => {
   it('assembles the native read result with the web envelope', () => {
     const result = buildWebReadResult(
@@ -82,6 +92,103 @@ describe('buildWebReadResult', () => {
     expect(result).toHaveProperty(
       'content',
       expect.not.stringContaining('line 30'),
+    );
+  });
+
+  it('applies a comma selector to the rendered text', () => {
+    const result = buildWebReadResult(
+      { url: GUIDE_URL, selector: '4-5,7-8' },
+      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      { method: 'readability', content: renderedLines(12) },
+    );
+    expect(result).toMatchObject({
+      path: GUIDE_URL,
+      representation: 'text',
+      requestedRanges: [
+        { startLine: 4, endLine: 5 },
+        { startLine: 7, endLine: 8 },
+      ],
+      shownRanges: [{ startLine: 3, endLine: 9 }],
+      truncated: false,
+      finalUrl: GUIDE_URL,
+      method: 'readability',
+    });
+    expect(result).toHaveProperty('content', readWindow(3, 9));
+    expect(result).not.toHaveProperty('nextOffset');
+    expect(result).not.toHaveProperty('requestedRange');
+    expect(result).not.toHaveProperty('shownRange');
+  });
+
+  it('merges touching comma ranges into one requested range and block', () => {
+    const result = buildWebReadResult(
+      { url: GUIDE_URL, selector: '4-5,6-7' },
+      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      { method: 'readability', content: renderedLines(12) },
+    );
+    expect(result).toMatchObject({
+      requestedRanges: [{ startLine: 4, endLine: 7 }],
+      shownRanges: [{ startLine: 3, endLine: 8 }],
+      truncated: false,
+    });
+    expect(result).toHaveProperty('content', readWindow(3, 8));
+  });
+
+  it('clips a comma selector whose later range starts past EOF', () => {
+    const result = buildWebReadResult(
+      { url: GUIDE_URL, selector: '2-3,99-100' },
+      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      { method: 'readability', content: renderedLines(12) },
+    );
+    expect(result).toMatchObject({
+      requestedRanges: [
+        { startLine: 2, endLine: 3 },
+        { startLine: 99, endLine: 100 },
+      ],
+      shownRanges: [{ startLine: 1, endLine: 4 }],
+      truncated: false,
+    });
+    expect(result).toHaveProperty('content', readWindow(1, 4));
+    expect(result).not.toHaveProperty('nextOffset');
+  });
+
+  it('rolls a later comma range back when the render exhausts the bound', () => {
+    const result = buildWebReadResult(
+      { url: GUIDE_URL, selector: '1-200,400-500' },
+      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      { method: 'readability', content: renderedLines(600) },
+    );
+    expect(result).toMatchObject({
+      shownRanges: [{ startLine: 1, endLine: 201 }],
+      truncated: true,
+      nextOffset: 398,
+    });
+    expect(result).toHaveProperty('content', readWindow(1, 201));
+    expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
+      RESULT_TRUNCATE_CHARS,
+    );
+  });
+
+  it('returns raw comma ranges verbatim', () => {
+    const result = buildWebReadResult(
+      { url: GUIDE_URL, selector: 'raw:4-5,7-8' },
+      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      { method: 'readability', content: renderedLines(12) },
+    );
+    expect(result).toMatchObject({
+      representation: 'raw',
+      requestedRanges: [
+        { startLine: 4, endLine: 5 },
+        { startLine: 7, endLine: 8 },
+      ],
+      shownRanges: [
+        { startLine: 4, endLine: 5 },
+        { startLine: 7, endLine: 8 },
+      ],
+      truncated: false,
+    });
+    expect(result).toHaveProperty(
+      'content',
+      readWindow(4, 5, true) + readWindow(7, 8, true),
     );
   });
 

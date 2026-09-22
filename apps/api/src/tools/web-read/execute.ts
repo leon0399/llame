@@ -39,6 +39,15 @@ const REAL_WEB_READ_DEPS: WebReadDeps = {
   buildWebReadResult,
 };
 
+/** The failure `fetchWebDocument` reports for a caller abort, repeated for the
+ *  window that client cannot cover: it disposes its deadline, and with it the
+ *  listener that turns an abort into that failure, before this layer renders. */
+const ABORTED: ToolResult = {
+  status: 'error',
+  type: 'aborted',
+  message: 'The web read was cancelled.',
+};
+
 /**
  * A web locator is read-only, needs no executor identity, and is fetched by
  * the API process's own outbound HTTP. `edit` and `write` fail before any
@@ -93,6 +102,10 @@ async function fetchAndRender(
   if ('type' in response) {
     return { status: 'error', type: response.type, message: response.message };
   }
+  // The client's deadline is disposed with the fetch, and the render below runs
+  // synchronously over a body of up to 5 MiB, where no abort can interrupt it,
+  // so a call the Run has already given up on must not start that render.
+  if (context.abortSignal?.aborted === true) return ABORTED;
   return deps.buildWebReadResult(
     locator,
     response,

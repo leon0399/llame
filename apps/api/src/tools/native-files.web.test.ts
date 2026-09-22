@@ -14,6 +14,12 @@ import { buildWebReadResult } from './web-read/result';
 
 const MARKDOWN = '# Guide\n\nA publisher-provided body for agents.\n';
 
+/** The sentence the large body repeats. Rendering ~1 MiB of markup is the work
+ *  a cancelled call must not start, and the sentence would reach the result if
+ *  it did. */
+const PARAGRAPH_TEXT = 'A guide paragraph for agents.';
+const LARGE_HTML = `<html><body><article>${`<p>${PARAGRAPH_TEXT}</p>`.repeat(40_000)}</article></body></html>`;
+
 /** A context with no Run identity at all: a web read needs none. */
 function webContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -167,5 +173,51 @@ describe('web locator dispatch', () => {
       method: 'negotiated',
     });
     expect(fetchDouble.mock.calls[0]?.[0]).toBe('https://example.test/guide');
+  });
+
+  it('does not start the render when the fetch resolves after the Run aborted', async () => {
+    const abort = new AbortController();
+    const render = vi.fn(renderWebDocument);
+    // The client disposes its deadline, and the listener that reports a caller
+    // abort, before the body reaches this layer, so an abort that lands once
+    // the fetch has resolved is visible only to the guard under test.
+    const fetchThenAbort: typeof fetchWebDocument = async (
+      url,
+      options,
+      deps,
+    ) => {
+      const response = await fetchWebDocument(url, options, deps);
+      abort.abort();
+      return response;
+    };
+    fetchDouble.mockImplementationOnce(() =>
+      Promise.resolve(
+        new Response(LARGE_HTML, {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        }),
+      ),
+    );
+    const execute = createWebReadExecutor({
+      parseWebLocator,
+      fetchWebDocument: fetchThenAbort,
+      renderWebDocument: render,
+      buildWebReadResult,
+      fetch: fetchDouble,
+    });
+
+    const result = await execute(webContext({ abortSignal: abort.signal }), {
+      operation: 'read',
+      input: { path: 'https://example.test/guide' },
+    });
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'aborted',
+      message: 'The web read was cancelled.',
+    });
+    expect(fetchDouble).toHaveBeenCalledTimes(1);
+    expect(render).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain(PARAGRAPH_TEXT);
   });
 });

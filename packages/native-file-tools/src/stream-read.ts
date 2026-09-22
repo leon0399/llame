@@ -251,40 +251,128 @@ function finishMultiWindow(
   return result;
 }
 
+/**
+ * Where the single-pass multi-range walk stands: the expanded selection, the
+ * range and source line under inspection, the lines emitted against the
+ * shared ceiling, and the result built so far.
+ */
+type MultiRangeWalk = {
+  expanded: Array<{ offset: number; limit: number }>;
+  rangeIndex: number;
+  count: number;
+  emitted: number;
+  rangeSnapshot: RangeSnapshot | undefined;
+  result: MultiReadSuccess;
+};
+
+/**
+ * One step of the walk: `continue` while selected lines remain, `halted`
+ * when this line ends the read with the result as it stands, and
+ * `exhausted` when no selected line can follow, so the caller applies the
+ * EOF rule.
+ */
+type MultiRangeStep = "continue" | "halted" | "exhausted";
+
+function startMultiRangeWalk(target: ReadTarget): MultiRangeWalk {
+  return {
+    expanded: target.expandedRanges ?? [],
+    rangeIndex: 0,
+    count: 0,
+    emitted: 0,
+    rangeSnapshot: undefined,
+    result: emptyMultiReadResult(target),
+  };
+}
+
+/**
+ * Feed one source line to the walk. The line source is what differs between
+ * a file-backed read and one over text already in hand; everything the walk
+ * decides from the line is shared.
+ */
+function stepMultiRangeWalk(
+  walk: MultiRangeWalk,
+  text: string | undefined,
+  target: ReadTarget,
+): MultiRangeStep {
+  const { expanded, result } = walk;
+  const index = walk.count++;
+  walk.rangeIndex = activeRangeIndex(expanded, walk.rangeIndex, index);
+  if (walk.rangeIndex >= expanded.length) return "exhausted";
+  if (index < expanded[walk.rangeIndex].offset) return "continue";
+  if (text === undefined) {
+    // An oversized line is omitted and skipped without ending the read.
+    result.truncated = true;
+    const entry = entrySnapshot(expanded, walk.rangeIndex, index, result);
+    if (entry !== undefined) walk.rangeSnapshot = entry;
+    return "continue";
+  }
+  const cursor: MultiCursor = {
+    expanded,
+    rangeIndex: walk.rangeIndex,
+    index,
+    text,
+  };
+  const admission = admitRangeLine(cursor, walk.emitted, result);
+  if (!admission.admitted) {
+    haltRefusedRange(
+      walk.rangeIndex,
+      walk.rangeSnapshot,
+      admission.nextOffset,
+      result,
+    );
+    return "halted";
+  }
+  if (admission.snapshot !== undefined) walk.rangeSnapshot = admission.snapshot;
+  if (haltAfterAppend(cursor, walk.rangeSnapshot, result, target))
+    return "halted";
+  walk.emitted += 1;
+  return "continue";
+}
+
 async function collectMultiWindow(
   file: FileHandle,
   target: ReadTarget,
   signal: AbortSignal | undefined,
 ): Promise<MultiReadSuccess> {
-  const expanded = target.expandedRanges ?? [];
-  const result = emptyMultiReadResult(target);
-  let emitted = 0,
-    count = 0,
-    rangeIndex = 0;
-  let rangeSnapshot: RangeSnapshot | undefined;
+  const walk = startMultiRangeWalk(target);
   for await (const text of sourceLines(file, signal)) {
-    const index = count++;
-    rangeIndex = activeRangeIndex(expanded, rangeIndex, index);
-    if (rangeIndex >= expanded.length) break;
-    if (index < expanded[rangeIndex].offset) continue;
-    if (text === undefined) {
-      // An oversized line is omitted and skipped without ending the read.
-      result.truncated = true;
-      const entry = entrySnapshot(expanded, rangeIndex, index, result);
-      if (entry !== undefined) rangeSnapshot = entry;
-      continue;
-    }
-    const cursor: MultiCursor = { expanded, rangeIndex, index, text };
-    const admission = admitRangeLine(cursor, emitted, result);
-    if (!admission.admitted) {
-      haltRefusedRange(rangeIndex, rangeSnapshot, admission.nextOffset, result);
-      return result;
-    }
-    if (admission.snapshot !== undefined) rangeSnapshot = admission.snapshot;
-    if (haltAfterAppend(cursor, rangeSnapshot, result, target)) return result;
-    emitted += 1;
+    const step = stepMultiRangeWalk(walk, text, target);
+    if (step === "halted") return walk.result;
+    if (step === "exhausted") break;
   }
-  return finishMultiWindow(result, target, count);
+  return finishMultiWindow(walk.result, target, walk.count);
+}
+
+/**
+ * The in-memory counterpart of `sourceLines`: the same line sequence for a
+ * source already in hand, and the same `undefined` for a line too large to
+ * fit any result.
+ */
+function* memorySourceLines(source: string): Generator<string | undefined> {
+  for (const line of splitSourceLines(source)) {
+    yield line.length > MAX_RESULT_CODE_UNITS ? undefined : line;
+  }
+}
+
+/**
+ * Select lines from an in-memory source for a comma request: the same walk,
+ * context, shared ceiling, result budget, rollback, and continuation rules a
+ * file-backed multi-range read reports. `selectSourceLines` serves the
+ * single-range target; this is its multi-range twin for callers holding the
+ * text instead of a path.
+ */
+export function selectMultiRangeLines(
+  source: string,
+  target: ReadTarget,
+): MultiReadSuccess {
+  if (target.ranges === undefined) throw new NativeFileError("invalid_input");
+  const walk = startMultiRangeWalk(target);
+  for (const text of memorySourceLines(source)) {
+    const step = stepMultiRangeWalk(walk, text, target);
+    if (step === "halted") return walk.result;
+    if (step === "exhausted") break;
+  }
+  return finishMultiWindow(walk.result, target, walk.count);
 }
 
 export async function streamFileWindow(

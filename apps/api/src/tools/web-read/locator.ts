@@ -13,9 +13,10 @@ export type WebLocatorError = {
 };
 
 /**
- * The shipped trailing-selector split, reused unchanged: the `:raw` forms
+ * The shipped trailing-selector grammar, reused unchanged: the `:raw` forms
  * first, else the last colon after the last slash. A URL's own scheme colon
- * can never win, because it always precedes the authority's slashes.
+ * can never win, because it always precedes the authority's slashes; whether
+ * a match may split at all is `opensSelector`'s call.
  */
 const RAW_SELECTOR = /:raw(?::([^:/]*))?$/u;
 
@@ -28,14 +29,27 @@ const CREDENTIALS_MESSAGE =
 /** A locator split from its trailing selector, before either is validated. */
 type SplitLocator = { url: string; selector?: string };
 
+/**
+ * Whether the colon at `index` may begin a selector, which only ever trails
+ * the last path segment. A locator that carries a query or a fragment cannot
+ * hold one: every colon the query or the fragment opened — `?time=10:30:00`,
+ * `#x:raw`, or `?b/c:10-20`, whose last slash sits inside the query — is URL
+ * text, and splitting at one would request a URL the model never wrote and
+ * silently drop the rest of its own locator.
+ */
+function opensSelector(text: string, index: number): boolean {
+  if (index <= text.lastIndexOf('/')) return false;
+  return !/[?#]/u.test(text);
+}
+
 function splitSelector(text: string): SplitLocator {
   const raw = RAW_SELECTOR.exec(text);
-  if (raw) {
+  if (raw !== null && opensSelector(text, raw.index)) {
     const suffix = raw[1] === undefined ? 'raw' : `raw:${raw[1]}`;
     return { url: text.slice(0, raw.index), selector: suffix };
   }
   const colon = text.lastIndexOf(':');
-  if (colon <= text.lastIndexOf('/')) return { url: text };
+  if (!opensSelector(text, colon)) return { url: text };
   return { url: text.slice(0, colon), selector: text.slice(colon + 1) };
 }
 
@@ -61,9 +75,20 @@ function parseWebUrl(
   return { href: url.href };
 }
 
-/** The spelling the model resubmits for a suffix that meant a literal colon. */
+/**
+ * The spelling the model resubmits for a suffix that meant a literal colon.
+ * Every colon of the last path segment is encoded, not only the one the split
+ * took: a hint that leaves an earlier one behind splits again on the next
+ * attempt, so the model pays another cycle per colon. The scheme, host, and
+ * port colons precede the last slash and stay as the model wrote them.
+ */
 function encodedSuggestion(href: string, selector: string): string {
-  return `Write this locator as ${href}%3A${selector.replaceAll(':', '%3A')}`;
+  const lastSlash = href.lastIndexOf('/');
+  const segment = `${href.slice(lastSlash + 1)}:${selector}`.replaceAll(
+    ':',
+    '%3A',
+  );
+  return `Write this locator as ${href.slice(0, lastSlash + 1)}${segment}`;
 }
 
 /**
