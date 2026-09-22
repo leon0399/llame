@@ -118,27 +118,35 @@ The substrate, on current `master`:
 
 ### D3: Redirects are followed, and each hop is admitted
 
-- **Decision**: a web read follows redirects on any host, up to 20 in total
-  per call, with `redirect: "manual"` so the tool owns the loop. The hop
+- **Decision**: a web read follows 301, 302, 303, 307, and 308 responses on
+  any host, up to 20 in total per call, with `redirect: "manual"` so the tool
+  owns the loop, and sends no cookie or credential on any request. The hop
   locator is the `Location` value resolved against the redirecting request's
-  URL by the WHATWG URL parser and serialized as its `href`; a resolved
-  locator with userinfo or a non-`http(s)` scheme fails the call with
-  `invalid_redirect` before any request and without repeating the target.
-  Before each hop's request, the `read` permission group is evaluated against
-  that locator through the same evaluator and the same projection the call
-  used, as if the model had submitted it. A rejected hop ends the call with a
-  `permission_denied` error whose message is a fixed template and whose
-  result carries the locator as `rejectedUrl`, bounded to 2,048 characters
-  with control characters removed; the rejected target's body is never read
-  and no further request leaves the process. The executor hands each hop
-  decision to the runner through a trusted callback on the tool context (the
-  runner already owns the call decision it passes to `onAdmitted`), and the
-  runner records the hop decisions with the call's decision metadata when the
-  call settles, in the owner-scoped tool activity and the stored tool-part
-  metadata, each with the same policy-instance ID, decision, static reason,
-  and clause reference the call decision carries. The result reports
-  `finalUrl` and no hop chain, and the `read` description says redirects are
-  followed and that `finalUrl` reports where the content came from.
+  URL by the WHATWG URL parser and serialized as its `href` (lowercase
+  punycode host, default port dropped, empty path as `/`, path and query
+  percent-encoded, fragment retained); a redirect without a parsable
+  `Location`, or a resolved locator with userinfo or a non-`http(s)` scheme,
+  fails the call with `invalid_redirect` before any request and without
+  repeating the target. Every derived locator (a hop, an announced alternate,
+  a suffix candidate, an `llms.txt` candidate) is evaluated against the
+  `read` permission group before its request through the same evaluator and
+  projection the call used, as if the model had submitted it: a rejected hop
+  ends the call with a `permission_denied` error whose message is a fixed
+  template and whose result carries the locator as `rejectedUrl`, bounded to
+  2,048 characters with control characters removed (the shared `ToolResult`
+  error variant in `packages/runtime-safety` gains that optional field); a
+  rejected probe locator only disqualifies its candidate, so a hostile page
+  cannot make reads of itself fail by announcing a refused alternate. The
+  rejected target's body is never read. The executor hands each
+  derived-locator decision to run execution through a trusted callback on
+  the tool context that `run-execution.service.ts` constructs; run execution
+  already owns the call decision it receives from the runner's `onAdmitted`
+  and writes to the completion payload, and it records the derived-locator
+  decisions beside it when the call settles, so tool activity, the stored
+  tool-part metadata, and `assistant-transcript.ts`'s durable reconstruction
+  all read them from the one payload. The result reports `finalUrl` and no
+  hop chain, and the `read` description says redirects are followed and that
+  `finalUrl` reports where the content came from.
 - **Alternatives rejected**: automatic `redirect: "follow"` (hops become
   invisible, so no rule can decide between requests and a rejected target
   would be fetched before any check); returning cross-host redirect metadata
@@ -220,10 +228,11 @@ The substrate, on current `master`:
 
 - **Decision**: 10 s to response headers (`headers_timeout`), 30 s total for
   the call across every request it issues (`call_timeout`), a 5 MiB streamed
-  body cap aborted with `body_too_large`, and no retries. Any non-2xx status
-  on the first request or a hop fails the call with `http_status` naming the
-  status, and a 429 also carries `Retry-After` when present; a probe's
-  non-2xx status or refused content type only disqualifies that candidate,
+  body cap aborted with `body_too_large`, and no retries. A non-2xx status
+  other than a followed redirect status on the first request or a hop fails
+  the call with `http_status` naming the status, and a 429 also carries
+  `Retry-After` when present; a probe's non-2xx status or refused content
+  type only disqualifies that candidate,
   because the suffix probe and the `llms.txt` walk expect 404 as their
   ordinary answer. Request count per call is bounded: one alternate, one
   suffix probe, four `llms.txt` candidates, and 20 redirects in total
@@ -275,8 +284,9 @@ The substrate, on current `master`:
   that needs no conversion (omp's negotiation retry uses the same order); the
   trade is that a negotiated plain variant carries no links or headings,
   which the model can recover with `:raw` or by reading the announced
-  alternate. Every candidate passes the same quality gate. `:raw` returns the
-  first response body untouched.
+  alternate. Alternates, suffix candidates, and `llms.txt` candidates are
+  derived locators admitted by policy before their request (D3). `:raw`
+  returns the final response body untouched.
 - **Alternatives rejected**: rendering locally first (it discards the
   publisher's own Markdown, which is higher fidelity and cheaper to read; every
   peer harness renders locally, so the negotiation is this change's
@@ -336,7 +346,8 @@ The substrate, on current `master`:
 ### D12: Result shape
 
 - **Decision**: the native read success object — `content`, the requested and
-  shown range or ranges, `nextOffset`, `truncated`, and `path` as submitted —
+  shown range or ranges, `nextOffset`, `truncated`, and `path` as the locator
+  with its selector stripped, as a local read reports it —
   plus `finalUrl`, `method`, and `notes` only when non-empty. No `url`,
   `contentType`, `markdownTokens`, text header, or frontmatter, and no
   `realPath`. The rendered text is measured against the existing native result
@@ -557,3 +568,21 @@ new path.
   actual structure, D4 states the outbound exfiltration consequence, D11 says
   `read` must also be allowlisted, and the proposal names the candidate
   resolver and portable policy fixture.
+- v3 (2026-09-21): Adversarial review round 2 (two independent reviewers,
+  15 findings, all accepted; MODIFIED blocks re-verified lossless). Followed
+  redirect statuses are named and take precedence over `http_status`; a
+  redirect without a parsable `Location` fails `invalid_redirect`; every
+  derived locator (hop, alternate, suffix, `llms.txt`) is admitted by policy
+  before its request, a rejected probe disqualifying only its candidate; the
+  hop serialization note lists punycode, percent-encoding, and fragment
+  retention; F5 and F6 are case-insensitive and F6 covers a trailing dot,
+  because submitted locators are matched verbatim while the scheme dispatch
+  lowercases; `rejectedUrl` is declared as an optional field on the shared
+  `ToolResult` error variant; the provenance seam is run execution's
+  completion payload, not the runner; the candidate resolver is
+  `knowledge-tool-candidate-resolver.ts`; `:raw` returns the final response
+  after hops; `path` is selector-stripped in the requirement text; the
+  `fetch` layer ships neither hops nor probes, so no derived locator is
+  fetched before its admission exists; the non-breaking claim is qualified
+  by D13; and the `knowledge-submit` reconciliation names the
+  `knowledge_submit` classification sentence and scenario it must keep.

@@ -193,22 +193,31 @@ body SHALL be streamed against a 5 MiB cap and aborted past it with
 body is read. `Accept-Encoding` SHALL be left to the runtime. A web call
 SHALL NOT retry: a transport failure, a timeout, and an error status SHALL
 each be reported to the model as an error observation with no second
-attempt. A non-2xx status on the first request, or on a redirect hop, SHALL
-fail the call with `http_status` naming the status; a 429 SHALL additionally
-carry the `Retry-After` value when the response supplies one. A status error
-SHALL NOT return the response body and SHALL NOT report response headers
-other than that `Retry-After` delay. A probe request (an alternate, a suffix
-candidate, or an `llms.txt` candidate) that answers a non-2xx status or a
-refused content type SHALL disqualify only that candidate, and the pipeline
-SHALL continue. A call SHALL issue at most one alternate request, one
-suffix-probe request, and four `llms.txt` requests, and SHALL follow at most
-20 redirects in total across all of its requests.
+attempt. A non-2xx status other than a followed redirect status (301, 302,
+303, 307, 308 with a `Location` header) on the first request, or on a
+redirect hop, SHALL fail the call with `http_status` naming the status; a 429
+SHALL additionally carry the `Retry-After` value when the response supplies
+one. A status error SHALL NOT return the response body and SHALL NOT report
+response headers other than that `Retry-After` delay. A probe request (an
+alternate, a suffix candidate, or an `llms.txt` candidate) that answers a
+non-2xx status or a refused content type SHALL disqualify only that
+candidate, and the pipeline SHALL continue; a probe whose redirects exhaust
+the call's redirect budget SHALL fail the call with `too_many_redirects`. A
+call SHALL issue at most one alternate request, one suffix-probe request,
+and four `llms.txt` requests, and SHALL follow at most 20 redirects in total
+across all of its requests.
 
 #### Scenario: Every request identifies llame
 
 - **WHEN** any web request of an admitted read is inspected
 - **THEN** its `User-Agent` is `llame/<version>` with the boot-time version
 - **AND** the value does not vary between the call's requests
+
+#### Scenario: A redirect is followed, not failed, and a bare redirect fails closed
+
+- **WHEN** the first response is 302 with a `Location` header and policy admits the target
+- **THEN** the hop is followed and the call does not fail with `http_status`
+- **AND** a 302 without a parsable `Location` fails the call with `invalid_redirect`
 
 #### Scenario: Slow headers fail at the header bound
 
@@ -296,12 +305,19 @@ and the local render alike: more than 100 non-whitespace characters, not
 HTML-shaped for a Markdown candidate, and not low quality, where a candidate
 is low quality when it is under 1,024 characters and contains a JavaScript
 or captcha gate phrase, or when more than 70 percent of its non-blank lines
-are shorter than 40 characters. A probe request SHALL send the same `Accept`
-header, SHALL count against the call's total time, body, request, and
-redirect bounds, and SHALL be admitted per hop like the first request; its
-non-2xx status or refused content type disqualifies the candidate without
-failing the call. A candidate that fails the gate SHALL NOT become the
-content, and a fetched candidate SHALL NOT be searched for further alternates
+are shorter than 40 characters. Every derived locator, meaning an alternate,
+a suffix candidate, an `llms.txt` candidate, or a redirect hop, SHALL be
+evaluated against the `read` permission group before its request through
+the same evaluator and the same projection the call used, as if the model
+had submitted it; a rejected probe locator SHALL disqualify that candidate
+without failing the call and its decision SHALL be recorded like a hop
+decision, so a hostile page cannot make a read of itself fail by announcing
+a refused alternate. A probe request SHALL send the same `Accept` header and
+SHALL count against the call's total time, body, request, and redirect
+bounds; its non-2xx status or refused content type disqualifies the
+candidate without failing the call. A candidate that fails the gate SHALL
+NOT become the content, and a fetched candidate SHALL NOT be searched for
+further alternates
 or suffixes.
 
 #### Scenario: Negotiated Markdown wins without a second request
@@ -337,6 +353,12 @@ or suffixes.
 - **THEN** the candidate fails the gate
 - **AND** the pipeline continues past it
 
+#### Scenario: A refused alternate is skipped, not fetched
+
+- **WHEN** the `read` group's only allow is `^https://docs\.example\.com/` and a page on that host announces `Link: <https://evil.example/x.md>; rel="alternate"; type="text/markdown"`
+- **THEN** the alternate locator is rejected before any request, no request reaches `evil.example`, and the decision is recorded like a hop decision
+- **AND** the pipeline continues with the suffix probe and the local render, and the call does not fail
+
 #### Scenario: Probes carry the negotiated accept header
 
 - **WHEN** any alternate or suffix probe request is inspected
@@ -361,8 +383,9 @@ JavaScript or captcha challenge SHALL fail the gate, be returned with
 `method` `raw`, and carry a note naming the detected challenge. A text body
 outside the negotiation set (JSON, XML, and other `text/*` types) SHALL be
 returned unchanged with `method` `text`. `:raw` SHALL skip every probe and
-conversion and return the first response's body untouched with `method`
-`raw`; a `:raw` read of a refused content type SHALL still fail under the
+conversion and return, untouched and with `method` `raw`, the body of the
+final response after any followed redirects, with `finalUrl` naming that
+response; a `:raw` read of a refused content type SHALL still fail under the
 content-type rule.
 
 #### Scenario: A page without publisher Markdown is rendered
@@ -399,20 +422,23 @@ content-type rule.
 #### Scenario: Raw mode fetches once
 
 - **WHEN** the model reads `https://example.test/guide:raw`
-- **THEN** the first response's body is returned untouched with `method` `raw` and no Readability or Turndown step runs
+- **THEN** the body of the final response is returned untouched with `method` `raw`, `finalUrl` names that response, and no Readability or Turndown step runs
 - **AND** no alternate, suffix, or `llms.txt` request is issued
 
 ### Requirement: Web reads follow redirects under per-hop permission admission
 
-A web read SHALL follow redirect responses on any host, up to 20 in total
-per call, and SHALL request each hop with the same bounds and headers as the
-first. The hop locator SHALL be the `Location` value resolved against the
-redirecting request's URL by the WHATWG URL parser and serialized as its
-`href`, so a relative `Location` becomes absolute and the serialization is
-what policy sees (lowercase host, default port dropped, empty path as `/`); a
-hop whose resolved locator carries userinfo or a scheme other than `http` or
-`https` SHALL fail the call with `invalid_redirect` before any request and
-SHALL NOT name the target. Before a hop's request is sent, the `read`
+A web read SHALL follow 301, 302, 303, 307, and 308 responses on any host,
+up to 20 in total per call, and SHALL request each hop with the same bounds
+and headers as the first, sending no cookie, `Authorization`, or other
+credential on any request. The hop locator SHALL be the `Location` value
+resolved against the redirecting request's URL by the WHATWG URL parser and
+serialized as its `href`, so a relative `Location` becomes absolute and the
+serialization is what policy sees: lowercase host, an internationalized host
+as punycode, default port dropped, empty path as `/`, path and query
+percent-encoded, fragment retained. A redirect status without a parsable
+`Location`, or a resolved locator that carries userinfo or a scheme other
+than `http` or `https`, SHALL fail the call with `invalid_redirect` before
+any request and SHALL NOT name the target. Before a hop's request is sent, the `read`
 permission group SHALL be evaluated against that locator as if the model had
 submitted it, through the same evaluator and the same projection the call
 used. A rejected hop SHALL end the call with a `permission_denied` error
@@ -474,7 +500,8 @@ resolves to.
 
 A successful web read SHALL return the native read success object — `content`,
 the requested and shown range or ranges, `nextOffset`, `truncated`, and `path`
-as submitted — extended with `finalUrl` and `method`, plus `notes` only when
+as the locator with its selector stripped, as a local read reports it —
+extended with `finalUrl` and `method`, plus `notes` only when
 the tool has something to report. `method` SHALL be one of `negotiated`,
 `alternate`, `md-suffix`, `readability`, `llms-txt`, `text`, or `raw`, and
 SHALL name the adapter that produced the returned content. The result SHALL
