@@ -688,7 +688,7 @@ describe('reconstructDurableAssistant', () => {
 
     const [part] = result.collector.parts();
     expect(part).toMatchObject({
-      derivedDecisions: Array.from({ length: 27 }, () => decision),
+      derivedDecisions: Array.from({ length: 26 }, () => decision),
     });
   });
 

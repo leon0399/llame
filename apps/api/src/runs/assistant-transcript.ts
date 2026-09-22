@@ -280,14 +280,13 @@ export type ToolActivityPartInput = {
 };
 
 /**
- * The per-call request budget a web read can spend — 20 redirect hops, one
- * announced alternate, one suffix probe, four `llms.txt` candidates, and the
- * request for the submitted locator — which bounds the derived-locator
- * decisions one settled part may carry. The submitted locator is decided at
- * the execution gate rather than here, so at most 26 of those requests
- * produce a decision this list can hold.
+ * How many derived-locator decisions one settled part may carry: the
+ * per-call request budget's 20 redirect hops, one announced alternate, one
+ * suffix probe, and four `llms.txt` candidates produce a decision each
+ * (20 + 1 + 1 + 4 = 26). The budget's 27th request — the submitted locator —
+ * is decided at the execution gate rather than here and produces none.
  */
-export const MAX_DERIVED_DECISIONS = 27;
+export const MAX_DERIVED_DECISIONS = 26;
 
 /**
  * Exported for `RunExecutionService`'s live-stream path, which shapes tool

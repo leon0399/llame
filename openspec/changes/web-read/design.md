@@ -646,6 +646,23 @@ new path.
   `onDerivedDecision` callback on the tool context and are recorded beside
   the call decision in the completion payload, bounded at 27 entries, the
   per-call request budget.
+  the call decision in the completion payload, bounded at 27 entries, the
+  per-call request budget.
+  the call decision in the completion payload, bounded at 26 entries: the
+  per-call request budget's 20 hops, one alternate, one suffix, and four
+  `llms.txt` candidates produce a decision each (20 + 1 + 1 + 4 = 26), while
+  the submitted locator — the budget's 27th request — is decided at the
+  execution gate and produces none.
+- v8 (2026-09-22): The `policy` layer's GitHub review round. An announced
+  candidate's fragment is dropped before admission and before its request,
+  the same treatment a hop's fragment gets, and a candidate that carries
+  credentials is refused instead of fetched; the transport's own failure
+  messages are bounded and carry no locator; only a candidate-local failure
+  disqualifies a probe, so a spent deadline, redirect budget, or abort fails
+  the call from the `llms.txt` walk too; a refused hop's bounded target is
+  persisted beside its error and re-attached on replay; and the
+  derived-decision bound is corrected to 26, since the submitted locator is
+  decided at the execution gate rather than recorded as a derived decision.
 - v10 (2026-09-22): Review corrections to the delta text, with no behaviour
   change: a selector is split only from a locator carrying no `?` and no `#`,
   so a colon in a query is part of the URL; a probe's redirect is followed

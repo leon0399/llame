@@ -2259,8 +2259,8 @@ describe('RunExecutionService executeRun — tool loop', () => {
       reason: 'explicit_reject',
       reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
     };
-    // A web read's request budget is 27, so 30 decisions land as 27 records,
-    // each keeping the kind of locator it judged.
+    // A web read's derived-decision list is bounded at 26, so 30 decisions
+    // land as 26 records, each keeping the kind of locator it judged.
     let captured: ToolContext | undefined;
     const execute = vi.fn((context: ToolContext) => {
       captured = context;
@@ -2289,7 +2289,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     );
     const expected: ReadonlyArray<DerivedDecisionRecord> = [
       { ...rejected, kind: 'hop' },
-      ...Array.from({ length: 26 }, () => ({
+      ...Array.from({ length: 25 }, () => ({
         ...allowed,
         kind: 'alternate' as const,
       })),
