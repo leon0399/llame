@@ -143,6 +143,7 @@ a selector (`https://example.test/search?at=2026:10` is fetched as written).
 A locator whose authority ends in a port SHALL therefore carry a path
 after the port (`https://example.test:8080/` is a URL with no selector, while
 `https://example.test:8080` reads the port as a selector and leaves the
+<<<<<<< HEAD
 empty-path locator `https://example.test`, which fails as `invalid_path`
 rather than selecting a line; the named spelling SHALL be the submitted
 locator's own serialization, `https://example.test:8080/`, because a hint
@@ -154,6 +155,27 @@ trailing suffix that is present but outside the grammar fails as
 `invalid_selector`: `https://w.example/wiki/Special:Search` and
 `https://w.example/docs/2024:10` both do, while
 `https://w.example/docs/2024:10-20` selects lines 10 through 20.
+||||||| parent of a1909f69 (feat(tools): read http(s) locators with negotiation and a local render)
+empty-path locator `https://example.test`, which fails as `invalid_path`
+rather than selecting a line),
+and a literal colon in the last path segment SHALL be written as `%3A`
+(`https://w.example/wiki/Special%3ASearch`), because
+`https://w.example/wiki/Special:Search` fails as `invalid_selector` and
+`https://w.example/docs/2024:10` selects line 10 of
+`https://w.example/docs/2024`.
+=======
+empty-path locator `https://example.test`, which is not its own
+serialization, so the call fails as `invalid_path` naming the canonical
+`https://example.test/` rather than selecting a line),
+and a literal colon in the last path segment SHALL be written as `%3A`
+(`https://w.example/wiki/Special%3ASearch`), because a trailing colon is
+always read as a selector split and the shipped grammar admits only `raw`,
+`raw:N-M`, `N-M`, `N+K`, and comma lists of those: `Search` and a bare line
+number are outside it, so `https://w.example/wiki/Special:Search` and
+`https://w.example/docs/2024:10` both fail as `invalid_selector`
+(`https://w.example/docs/2024:10-20` selects lines 10 through 20 of
+`https://w.example/docs/2024`).
+>>>>>>> a1909f69 (feat(tools): read http(s) locators with negotiation and a local render)
 
 #### Scenario: A web locator is fetched by the API process
 
@@ -193,9 +215,10 @@ trailing suffix that is present but outside the grammar fails as
 
 #### Scenario: A colon in the last path segment is a selector unless encoded
 
-- **WHEN** the model reads `https://w.example/wiki/Special:Search`
-- **THEN** the read fails with `invalid_selector` and issues no request
-- **AND** `https://w.example/wiki/Special%3ASearch` is fetched as written
+- **WHEN** the model reads `https://w.example/wiki/Special:Search` or `https://w.example/docs/2024:10`
+- **THEN** the read fails with `invalid_selector` and issues no request, because the split-off suffix is present but outside the grammar (`Search` is not a selector, and there is no bare line number)
+- **AND** `https://w.example/wiki/Special%3ASearch` is fetched as written and `https://w.example/docs/2024:10-20` selects lines 10 through 20 of `https://w.example/docs/2024`
+- **AND** a locator whose split leaves a text that is not its own serialization, such as `https://example.test:8080` (the port is read as the suffix and `https://example.test` serializes as `https://example.test/`), fails with `invalid_path` naming the canonical form instead
 
 #### Scenario: A local-only allow does not admit the web
 

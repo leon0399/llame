@@ -87,23 +87,19 @@ export class KnowledgeToolCandidateResolver {
   /**
    * `bash` needs an accepted native host. The native file tools also serve
    * `kb://` locators, which need no executor identity, so a Knowledge root
-   * alone admits them, and `skill://` locators, which need only a configured
-   * skill source and admit `read` alone; an absolute path on such a process
-   * still fails closed with `executor_unavailable` at execution.
+   * alone admits `edit` and `write`, and `skill://` and web locators, which
+   * need no host authority at all, admit `read` alone; an absolute path on
+   * such a process still fails closed with `executor_unavailable` at
+   * execution.
    */
   private admitsHostCapability(tool: Tool): boolean {
     const { nativeExecutorId } = this.instanceConfig.config.tools;
     if (isBashTool(tool)) return nativeExecutorId !== undefined;
     if (!isNativeFileTool(tool)) return true;
-    if (
+    if (tool.id === 'read') return true;
+    return (
       nativeExecutorId !== undefined ||
       this.instanceConfig.config.knowledge.root !== undefined
-    ) {
-      return true;
-    }
-    return (
-      tool.id === 'read' &&
-      this.instanceConfig.config.skills.directories.length > 0
     );
   }
 

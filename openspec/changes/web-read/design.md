@@ -625,6 +625,14 @@ new path.
   own failure disqualifies the candidate while a spent call bound fails the
   call; each derived-locator record carries the call's policy-instance ID plus
   its own decision, reason, and clause reference, never the call's.
+- v5 (2026-09-22): Corrections found while implementing the `fetch` layer. The
+  shipped selector grammar has no bare `:N` form (`packages/native-file-tools/src/path.ts`
+  `SELECTOR_SUFFIX`), so `https://w.example/docs/2024:10` fails
+  `invalid_selector` rather than selecting line 10; the requirement, its
+  scenario, and task 2.3's verification now say so and name `:10-20` as the
+  form that selects. The port case is stated once, with its reason: the split
+  leaves `https://example.test`, which is not its own serialization, so the
+  call fails `invalid_path` naming `https://example.test/`.
 - v11 (2026-09-22): Review round on the published stack. A probe's own
   refused hop now disqualifies only that candidate, matching the settled rule
   for a refused probe locator, so a hostile page cannot end a read of itself

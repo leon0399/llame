@@ -61,6 +61,8 @@ export interface ToolContext {
   readonly nativeDeliverySequence?: number;
   /** Stops this Run when a native mutation cannot be safely settled. */
   readonly onNativeMutationUnknown?: () => void;
+  /** Boot-time instance-config identity (`llame/<version>`) every web request sends. */
+  readonly productUserAgent?: string;
   readonly userId: string;
   readonly chatId: string;
   readonly tenantDb: TenantRunner;
