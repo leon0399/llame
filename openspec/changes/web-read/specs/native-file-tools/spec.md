@@ -484,9 +484,9 @@ and fragment removed (origin and path only, so a signed query string in a
 `Location` never reaches the model), bounded to 2,048 characters with
 control characters removed, and whose message is the fixed hop template;
 the rejected target's body SHALL NEVER be read. A rejected hop inside a
-probe's own redirect chain SHALL disqualify that candidate instead, under the
-adapter rule, so a page cannot end a read of itself through a redirect it
-announced. When the
+probe's own redirect chain SHALL disqualify that candidate instead, as a
+refused probe locator does, so a page cannot end a read of itself through a
+redirect it announced. When the
 redirect budget is exhausted the call SHALL fail with `too_many_redirects`
 and SHALL issue no further request. The result SHALL name the URL of the
 response that produced the content as `finalUrl` and SHALL NOT enumerate the

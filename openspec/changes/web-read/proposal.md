@@ -29,7 +29,7 @@ converts HTML locally (peer survey in `design.md`). Issue #913.
   note. `:raw` returns the final response body untouched.
 - Redirects are followed on any host, up to 20 per call; each hop's resolved
   `Location` is evaluated against the `read` group as if the model had
-  submitted it. A rejected hop ends the call with `permission_denied`, the
+  submitted it. A rejected hop on the call's own chain ends the call, while one inside a probe's redirect chain disqualifies that candidate with `permission_denied`, the
   fixed hop message, and the locator's origin and path in a bounded
   `rejectedUrl` field; its
   body is never read, and hop decisions reach the runner through the tool
