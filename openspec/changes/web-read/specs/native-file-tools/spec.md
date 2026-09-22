@@ -114,9 +114,17 @@ there.
 The native `read` tool SHALL accept an absolute `http://` or `https://`
 locator as its `path` and SHALL fetch it with the API process's own outbound
 HTTP. No other web scheme SHALL be admitted, and `edit` and `write` SHALL
-reject a web locator with `invalid_path` before any request. A locator
-carrying userinfo SHALL fail with `invalid_path` before any request, so the
-tool never sends credentials the model embedded in a URL. Availability and
+reject a web locator with `invalid_path` before any request. A submitted web
+locator, after its selector is split off, SHALL be its own WHATWG URL
+serialization: a locator whose `href` differs from the submitted text
+(uppercase scheme or host, a percent-encoded or Unicode host, an explicit
+default port, an empty path, or unencoded path or query characters) SHALL
+fail with `invalid_path` before any request, and the error SHALL name the
+canonical spelling so the model can resubmit it. Policy therefore matches
+the same text the request uses, and every derived locator is canonical by
+construction. A locator carrying userinfo SHALL fail with `invalid_path`
+before any request, so the tool never sends credentials the model embedded
+in a URL. Availability and
 restriction for the web SHALL come only from the `read` permission group's
 `path` clauses: a prefix allow admits the web, and a prefix or domain reject
 removes a host. No web tool id, `tools.allowed` entry, configuration block, or
@@ -156,6 +164,12 @@ and a literal colon in the last path segment SHALL be written as `%3A`
 - **THEN** it returns `invalid_path`
 - **AND** no request is issued
 
+#### Scenario: A noncanonical locator is refused before policy can be bypassed
+
+- **WHEN** the model reads `https://g%72okipedia.com/page`, `HTTPS://Example.test/guide`, or `https://example.test:443/guide`
+- **THEN** the read returns `invalid_path` naming the canonical spelling (`https://grokipedia.com/page`, `https://example.test/guide`) and issues no request
+- **AND** a reject clause written against the canonical spelling cannot be evaded by an encoded, uppercase, or default-port variant
+
 #### Scenario: Userinfo in a locator fails closed
 
 - **WHEN** the model reads `https://user:secret@example.test/guide`
@@ -193,8 +207,9 @@ body SHALL be streamed against a 5 MiB cap and aborted past it with
 body is read. `Accept-Encoding` SHALL be left to the runtime. A web call
 SHALL NOT retry: a transport failure, a timeout, and an error status SHALL
 each be reported to the model as an error observation with no second
-attempt. A non-2xx status other than a followed redirect status (301, 302,
-303, 307, 308 with a `Location` header) on the first request, or on a
+attempt. A non-2xx status other than a redirect status (301, 302, 303, 307,
+308, which the redirect requirement governs whether or not a `Location` is
+present) on the first request, or on a
 redirect hop, SHALL fail the call with `http_status` naming the status; a 429
 SHALL additionally carry the `Retry-After` value when the response supplies
 one. A status error SHALL NOT return the response body and SHALL NOT report

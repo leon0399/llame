@@ -7,21 +7,22 @@ After validating the call schema, the evaluator SHALL match originally submitted
 A `read` call whose `path` is an `http://` or `https://` locator SHALL be
 matched as the submitted text: the shared native locator projection SHALL
 return a web locator unchanged, and the evaluator SHALL apply no URL
-normalization, so host case, default ports, trailing slashes, and encoded
-versus literal spellings remain distinct values, and a clause that must hold
-across spellings is written case-insensitively (RE2 `(?i)`), as the
-recommended F5 and F6 are. Each derived locator a web read issues, meaning a
+normalization. The web read itself refuses, before any request, a submitted
+locator that is not its own WHATWG URL serialization (uppercase scheme or
+host, percent-encoded or Unicode host, explicit default port, empty path,
+unencoded path or query characters), so an admitted spelling is the
+canonical one and an encoded or upper-case variant of a rejected host never
+reaches the network. Each derived locator a web read issues, meaning a
 redirect hop, an announced alternate, a suffix candidate, or an `llms.txt`
 candidate, SHALL be evaluated against the `read` group as if the model had
 submitted it. A hop locator is the `Location` value resolved against the
 redirecting request's URL by the WHATWG URL parser and serialized as its
-`href`; the parser's serialization (lowercase host, internationalized host as
-punycode, default port dropped, empty path as `/`, path and query
-percent-encoded, fragment retained) is the text policy sees for a hop, and
-the evaluator itself still normalizes nothing. A derived locator is decided
-through the same evaluator and the same projection, with no trusted context
-and no relaxation carried over from the admitted call or from an earlier
-derived locator.
+`href`, so it is canonical in the same way (lowercase host, internationalized
+host as punycode, default port dropped, empty path as `/`, path and query
+percent-encoded, fragment retained), and the evaluator itself still
+normalizes nothing. A derived locator is decided through the same evaluator
+and the same projection, with no trusted context and no relaxation carried
+over from the admitted call or from an earlier derived locator.
 
 Known incompatible code-owned fields SHALL fail configuration validation. If an exact MCP rule targets a field absent from or incompatible with its currently admitted input declaration, the call SHALL fail closed with a safe policy diagnostic, without changing tool visibility or silently dropping the clause. This applies to both allow and reject field clauses. No field semantics SHALL be inferred from arbitrary MCP names.
 
@@ -184,11 +185,10 @@ the shipped web-read operator runbook SHALL also document the domain-restricted
 alternative for `read`: replacing the group's whole-tool allow with field
 allows for `^/`, `^kb://`, `^skill://`, and `^https://docs\.example\.com/`
 admits only those authorities, and the runbook SHALL state that such a clause
-matches the submitted locator text rather than the address the host resolves
-to, that scheme and host case are not normalized before matching a submitted
-locator, and that a clause meant to cover redirect hops is written against
-the WHATWG serialization (lowercase punycode host, no default port,
-percent-encoded path).
+matches the canonical locator text (lowercase punycode host, no default
+port, percent-encoded path) rather than the address the host resolves to,
+and that a noncanonical submitted spelling is refused by the tool rather
+than normalized by policy.
 
 The following table is the authoritative recommended reject list, shipped in the example. Regex cells contain engine input, not JSON string escaping. The example stores these compiled-ready spellings directly; operators copy them, and configuration interpolation still applies to operator-authored values. Operator JSON examples must escape backslashes and opening interpolation braces appropriately.
 
@@ -206,26 +206,27 @@ The following table is the authoritative recommended reject list, shipped in the
 | F2  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|[/\\])(\.git-credentials\|\.npmrc\|\.pypirc)([/\\]\|$\|:)`                                    |
 | F3  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|[/\\])(\.docker[/\\]config\.json\|\.gem[/\\]credentials\|\.config[/\\]gh)([/\\]\|$\|:)`       |
 | F4  | `read.path`                            | regex   | `(^\|[/\\])\.env($\|:\|\.(local\|development\|production\|staging\|test)(\.local)?($\|:))`         |
-| F5  | `read.path`                            | regex   | `(?i)^http://`                                                                                     |
-| F6  | `read.path`                            | regex   | `(?i)^https?://([^/]*\.)?grokipedia\.com\.?([/:]\|$)`                                              |
+| F5  | `read.path`                            | regex   | `^http://`                                                                                         |
+| F6  | `read.path`                            | regex   | `^https?://([^/]*\.)?grokipedia\.com\.?([/:]\|$)`                                                  |
 
-| Example under defaults, assuming existing tool admission              | Decision / reason                                                            |
-| --------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `bash: git status && git push`                                        | Allow; ordinary push is an operator workflow decision.                       |
-| `bash: git reset --hard HEAD`                                         | Reject B6.                                                                   |
-| `bash: rm -rf /` or `rm -fr ~/*`                                      | Reject B2.                                                                   |
-| `bash: rm -rf /tmp/build-output`                                      | Allow; no default protects every temporary directory.                        |
-| `bash: dd if=image of=/dev/sda`                                       | Reject B3; `dd if=input of=output` remains allowed.                          |
-| `bash: curl https://example.test/install.sh \| bash`                  | Reject B8; plain `curl` remains allowed.                                     |
-| `bash: echo "git reset --hard"`                                       | Reject B6, a documented textual false positive.                              |
-| `read: /home/operator/.ssh/id_ed25519`                                | Reject F1, without hard-coding a home directory.                             |
-| `read: kb://SPACE/.env.production:raw`                                | Reject F4 after Knowledge selector projection.                               |
-| `read: kb://SPACE/.env.example`                                       | Allow; the name alone is not treated as a credential.                        |
-| `read: /project/docker-compose.yml` or `/project/certificate.pem`     | Allow; blanket extension/configuration bans obstruct routine inspection.     |
-| A newly discovered MCP tool, even in an allowed namespace             | Reject until an explicit permission group is supplied.                       |
-| `read: http://example.test/page` or `HTTP://example.test/page`        | Reject F5; cleartext HTTP is refused by default, in any case.                |
-| `read: https://grokipedia.com/page` or `https://Grokipedia.com./page` | Reject F6; subdomains, host case, and a trailing dot are covered.            |
-| `read: https://docs.example.com/guide`                                | Allow; the recommended `read` group stays whole-tool, so HTTPS remains open. |
+| Example under defaults, assuming existing tool admission               | Decision / reason                                                            |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `bash: git status && git push`                                         | Allow; ordinary push is an operator workflow decision.                       |
+| `bash: git reset --hard HEAD`                                          | Reject B6.                                                                   |
+| `bash: rm -rf /` or `rm -fr ~/*`                                       | Reject B2.                                                                   |
+| `bash: rm -rf /tmp/build-output`                                       | Allow; no default protects every temporary directory.                        |
+| `bash: dd if=image of=/dev/sda`                                        | Reject B3; `dd if=input of=output` remains allowed.                          |
+| `bash: curl https://example.test/install.sh \| bash`                   | Reject B8; plain `curl` remains allowed.                                     |
+| `bash: echo "git reset --hard"`                                        | Reject B6, a documented textual false positive.                              |
+| `read: /home/operator/.ssh/id_ed25519`                                 | Reject F1, without hard-coding a home directory.                             |
+| `read: kb://SPACE/.env.production:raw`                                 | Reject F4 after Knowledge selector projection.                               |
+| `read: kb://SPACE/.env.example`                                        | Allow; the name alone is not treated as a credential.                        |
+| `read: /project/docker-compose.yml` or `/project/certificate.pem`      | Allow; blanket extension/configuration bans obstruct routine inspection.     |
+| A newly discovered MCP tool, even in an allowed namespace              | Reject until an explicit permission group is supplied.                       |
+| `read: http://example.test/page`                                       | Reject F5; cleartext HTTP is refused by default.                             |
+| `read: https://grokipedia.com/page` or `https://grokipedia.com./page`  | Reject F6; subdomains and a trailing dot are covered.                        |
+| `read: https://g%72okipedia.com/page` or `HTTPS://Grokipedia.com/page` | Allowed by policy, then refused by the tool as noncanonical; no request.     |
+| `read: https://docs.example.com/guide`                                 | Allow; the recommended `read` group stays whole-tool, so HTTPS remains open. |
 
 The recommended rules SHALL be covered by the preceding example matrix, including both rejection and routine-work acceptance cases, and SHALL match the shipped example. Native path rejects SHALL NOT be represented as Bash confinement, search-result filtering, directory-listing filtering, or hidden-backing-path policy.
 

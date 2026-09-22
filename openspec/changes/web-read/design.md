@@ -79,6 +79,12 @@ The substrate, on current `master`:
   configuration block. `edit` and `write` return `invalid_path` for a web
   locator. A web read requires and binds no native executor identity, offers
   no sibling suggestions, and treats a trailing separator as part of the URL.
+  A submitted locator must be its own WHATWG serialization; an uppercase,
+  percent-encoded-host, default-port, or otherwise noncanonical spelling is
+  refused with `invalid_path` naming the canonical form, so policy always
+  sees the text the request would use and an encoded variant of a rejected
+  host cannot reach the network. Derived locators are canonical by
+  construction.
   `read` becomes eligible for advertisement whenever it is allowlisted (D13),
   since a web locator needs no host authority. Restriction is the `read`
   permission group's `path` clauses over the
@@ -324,10 +330,11 @@ The substrate, on current `master`:
 ### D11: The example keeps `read` open and adds two rejects
 
 - **Decision**: `apps/api/llame.config.json.example` keeps
-  `"read": { "allow": true }` and gains two case-insensitive `read.path`
-  rejects: `(?i)^http://` and grokipedia with its subdomains and a trailing
-  dot. Submitted locators are matched verbatim while the scheme dispatch
-  lowercases, so `HTTP://` would otherwise slip past a case-sensitive clause.
+  `"read": { "allow": true }` and gains two `read.path` rejects: `^http://`
+  and grokipedia with its subdomains and a trailing dot. The clauses are
+  case-sensitive like the rest of the map because the tool refuses every
+  noncanonical spelling before a request (D1); a trailing-dot host is
+  canonical, hence the `\.?`.
   The new `docs/web-read.md` runbook shows
   the narrower alternative, replacing the whole-tool allow with field allows
   for `^/`, `^kb://`, `^skill://`, and `^https://docs\.example\.com/`, and the
@@ -427,7 +434,7 @@ captcha gate phrase, or more than 70 percent of non-blank lines shorter than
 
 A text body outside the negotiation set (JSON, XML, other `text/*`) skips the
 pipeline and is returned unchanged as `method: "text"`. `:raw` skips every
-step and returns the first response body untouched.
+step and returns the final response body untouched.
 
 ## Dependencies
 
@@ -589,3 +596,13 @@ new path.
   fetched before its admission exists; the non-breaking claim is qualified
   by D13; and the `knowledge-submit` reconciliation names the
   `knowledge_submit` classification sentence and scenario it must keep.
+- v4 (2026-09-22): GitHub review round on the ready PR. Accepted: a
+  submitted web locator must be its own WHATWG serialization, refused as
+  `invalid_path` otherwise, which closes the encoded-host bypass of a reject
+  clause (Codex) and makes the case-insensitive F5/F6 spelling from v3
+  unnecessary; the `http_status` rule now names every redirect status as the
+  redirect requirement's, with or without a `Location` (Codex); two stale
+  "first response body" phrases aligned to the final response (pullfrog).
+  Rejected with replies: a resolved-address check (Leo's settled deferral to
+  #914, D2) and an egress gate or provenance rule for outbound URLs (settled
+  in D4; the operator's `read` group is the boundary).

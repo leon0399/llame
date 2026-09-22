@@ -15,7 +15,10 @@ converts HTML locally (peer survey in `design.md`). Issue #913.
   `kb://`, and `skill://`. No new tool id, `tools.allowed` entry, or
   configuration block: availability and restriction are the `read` permission
   group's `path` clauses. `edit` and `write` reject a web locator with
-  `invalid_path`. `read` becomes eligible for advertisement whenever it is
+  `invalid_path`, and a submitted locator that is not its own WHATWG
+  serialization is refused with `invalid_path` naming the canonical form, so
+  an encoded or uppercase spelling cannot slip past a reject clause. `read`
+  becomes eligible for advertisement whenever it is
   allowlisted, since a web locator needs no host authority; absolute paths
   without accepted native authority keep failing closed.
 - Publisher Markdown before local rendering: the first request negotiates
@@ -23,7 +26,7 @@ converts HTML locally (peer survey in `design.md`). Issue #913.
   HTML response is followed by its `Link` or `<head>` Markdown alternate, the
   llms.txt suffix probe, a local Readability and Turndown render, an `llms.txt`
   walk only when that render fails the quality gate, then the raw body with a
-  note. `:raw` returns the first response body untouched.
+  note. `:raw` returns the final response body untouched.
 - Redirects are followed on any host, up to 20 per call; each hop's resolved
   `Location` is evaluated against the `read` group as if the model had
   submitted it. A rejected hop ends the call with `permission_denied`, the
@@ -45,7 +48,7 @@ converts HTML locally (peer survey in `design.md`). Issue #913.
 - `User-Agent: llame/<version>`, no rotation. `robots.txt` and
   `content-signal` are not consulted. No cache: a selector read refetches.
 - The example config keeps `read`'s whole-tool allow and adds two
-  case-insensitive `read.path` rejects: `(?i)^http://` and grokipedia with
+  `read.path` rejects: `^http://` and grokipedia with
   subdomains and a trailing dot. A new operator runbook, `docs/web-read.md`,
   shows the domain-allowlist alternative.
 
