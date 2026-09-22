@@ -1238,12 +1238,16 @@ than `http` or `https`, SHALL fail the call with `invalid_redirect` before
 any request and SHALL NOT name the target. Before a hop's request is sent, the `read`
 permission group SHALL be evaluated against that locator as if the model had
 submitted it, through the same evaluator and the same projection the call
-used. A rejected hop SHALL end the call with a `permission_denied` error
+used. A rejected hop on the call's own request chain SHALL end the call with
+a `permission_denied` error
 whose result carries the rejected locator as `rejectedUrl` with its query
 and fragment removed (origin and path only, so a signed query string in a
 `Location` never reaches the model), bounded to 2,048 characters with
 control characters removed, and whose message is the fixed hop template;
-the rejected target's body SHALL NEVER be read. When the
+the rejected target's body SHALL NEVER be read. A rejected hop inside a
+probe's own redirect chain SHALL disqualify that candidate instead, under the
+adapter rule, so a page cannot end a read of itself through a redirect it
+announced. When the
 redirect budget is exhausted the call SHALL fail with `too_many_redirects`
 and SHALL issue no further request. The result SHALL name the URL of the
 response that produced the content as `finalUrl` and SHALL NOT enumerate the
