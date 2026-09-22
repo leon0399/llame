@@ -31,13 +31,6 @@ const REJECTED_URL_BOUND = 2048;
 const CONTROL_CHARACTERS = /\p{Cc}/gu;
 const QUERY_OR_FRAGMENT = /[?#][\s\S]*$/u;
 
-/** The non-fatal `permission_denied` observation for a refused redirect hop:
- *  the fixed message plus the bounded locator, never the locator inside the
- *  message. Assignable to `ToolResult`'s error variant. */
-export type RejectedHopResult = Extract<ToolResult, { status: 'error' }> & {
-  readonly rejectedUrl: string;
-};
-
 /** The non-fatal `permission_denied` observation for a rejected call. */
 export function permissionDeniedResult(
   reason: PermissionRejectionReason,
@@ -68,17 +61,6 @@ function originAndPath(locator: string): string {
     // loses its query and fragment text rather than being echoed whole.
     return locator.replace(QUERY_OR_FRAGMENT, '');
   }
-}
-
-/** The non-fatal `permission_denied` observation for a rejected redirect hop.
- *  `locator` is the hop's serialized WHATWG href. */
-export function rejectedHopResult(locator: string): RejectedHopResult {
-  return {
-    status: 'error',
-    type: 'permission_denied',
-    message: REJECTED_HOP_MESSAGE,
-    rejectedUrl: rejectedHopUrl(locator),
-  };
 }
 
 function messageFor(reason: PermissionRejectionReason): string {

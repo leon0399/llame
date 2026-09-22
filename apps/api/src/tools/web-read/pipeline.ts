@@ -141,6 +141,9 @@ async function runHtmlPipeline(
     deps,
   );
 
+  // The walk runs after the render exists, so it is additive: a probe that
+  // fails cannot cost the call that render, while the pre-render probes above
+  // end the call on a failure of their own, having no content to fall back on.
   return walked ?? rendered;
 }
 
@@ -168,11 +171,18 @@ async function publisherMarkdown(
 }
 
 /**
- * Probes one kind's candidates in order and returns the first decisive
- * outcome: the winning render, or the failure that ends the call. A candidate
- * the `read` group refuses, one that answers a non-2xx status or a refused
- * content type, and one whose body fails the gate are each disqualified
- * without failing the call, so the next adapter decides.
+ * Probes one kind's candidates in order and returns the first winning render,
+ * or the failure that ends the call. A candidate the `read` group refuses, one
+ * that answers a non-2xx status or a refused content type, and one whose body
+ * fails the gate are each disqualified without failing the call, so the next
+ * candidate decides.
+ *
+ * What a deeper failure means is the kind's alone, because it depends on when
+ * the kind runs. `alternate` and `suffix` probe before the page has been
+ * rendered, so a failure of the probe's own ends the call: there is no content
+ * to fall back on. The `llms.txt` walk runs only after a render exists, so no
+ * probe outcome may cost the call that render — every failure is the
+ * candidate's own answer, and the render stands when no candidate wins.
  */
 async function firstDecisiveProbe(
   kind: ProbeKind,
@@ -184,10 +194,13 @@ async function firstDecisiveProbe(
     const fetched = await deps.fetch(url);
     if ('type' in fetched) {
       // A 404 or a refused body is a probe's ordinary answer, so only that
-      // candidate is disqualified; every other failure is the call's.
+      // candidate is disqualified; a deeper failure is the call's, except in
+      // the `llms.txt` walk, which runs after a render exists and so answers
+      // for its own candidates even then.
       const disqualified =
         fetched.type === 'http_status' ||
-        fetched.type === 'unsupported_content_type';
+        fetched.type === 'unsupported_content_type' ||
+        kind === 'llms-txt';
       if (!disqualified) return fetched;
       continue;
     }
@@ -246,12 +259,16 @@ function announcedAlternate(response: WebResponse): string | undefined {
 }
 
 /** A head `<link rel="alternate" type="text/markdown">`, resolved against the
- *  page's own URL. */
+ *  page's own URL. Only the head announces: a `link` in the body is page
+ *  content, and a page that renders third-party HTML — a wiki page, a comment,
+ *  an issue body — would otherwise let a contributor point the read at a
+ *  locator of their choosing. A fragment announces nothing either, because
+ *  `parseWebDocument` puts its markup in a `body` outside the wrapper's head. */
 function headAlternate(
   page: ParsedWebDocument | undefined,
   finalUrl: string,
 ): string | undefined {
-  const links = page?.document.querySelectorAll('link[rel]') ?? [];
+  const links = page?.document.head.querySelectorAll('link[rel]') ?? [];
   for (const link of links) {
     const rel = link.getAttribute('rel') ?? '';
     const type = link.getAttribute('type') ?? '';

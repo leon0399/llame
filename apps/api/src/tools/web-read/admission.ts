@@ -19,6 +19,33 @@ export type DerivedDecision = {
   readonly decision: PermissionDecision;
 };
 
+/**
+ * A {@link DerivedDecision} as run execution records it beside the call
+ * decision: the decision plus the kind of locator it judged, so stored
+ * provenance tells a refused hop from a refused `llms.txt` candidate. The
+ * locator itself is never recorded — a hop's is server-chosen text.
+ */
+export type DerivedDecisionRecord = PermissionDecision & {
+  readonly kind: DerivedLocatorKind;
+};
+
+/** Every kind, exhaustive by construction so the guard below and the type
+ *  above cannot drift apart. */
+const KIND_NAMES: Readonly<Record<DerivedLocatorKind, true>> = {
+  hop: true,
+  alternate: true,
+  suffix: true,
+  'llms-txt': true,
+};
+
+/** Whether a stored provenance record names a kind this build knows: stored
+ *  jsonb is untrusted on the way back in. */
+export function isDerivedLocatorKind(
+  value: unknown,
+): value is DerivedLocatorKind {
+  return typeof value === 'string' && Object.hasOwn(KIND_NAMES, value);
+}
+
 /** Evaluates the `read` group against a derived locator exactly as a submitted one. */
 export type AdmitDerivedLocator = (
   kind: DerivedLocatorKind,

@@ -10,6 +10,7 @@ import {
   type CompiledPolicy,
   type PermissionDecision,
 } from '../tools/permissions/types';
+import { type DerivedDecisionRecord } from '../tools/web-read/admission';
 import { nativeEditTool, nativeReadTool } from '../tools/native-files';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { NativeFilesRepository } from './native-files-repository';
@@ -2258,14 +2259,15 @@ describe('RunExecutionService executeRun — tool loop', () => {
       reason: 'explicit_reject',
       reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
     };
-    // A web read's budget is 27 requests, so 30 decisions land as 27 records.
+    // A web read's request budget is 27, so 30 decisions land as 27 records,
+    // each keeping the kind of locator it judged.
     let captured: ToolContext | undefined;
     const execute = vi.fn((context: ToolContext) => {
       captured = context;
       const sink = context.onDerivedDecision;
       for (let index = 0; index < 30; index += 1) {
         sink?.({
-          kind: 'hop',
+          kind: index === 0 ? 'hop' : 'alternate',
           url: `https://example.test/hop-${index}`,
           decision: index === 0 ? rejected : allowed,
         });
@@ -2285,7 +2287,13 @@ describe('RunExecutionService executeRun — tool loop', () => {
       undefined,
       toolOptions,
     );
-    const expected = [rejected, ...Array.from({ length: 26 }, () => allowed)];
+    const expected: ReadonlyArray<DerivedDecisionRecord> = [
+      { ...rejected, kind: 'hop' },
+      ...Array.from({ length: 26 }, () => ({
+        ...allowed,
+        kind: 'alternate' as const,
+      })),
+    ];
 
     await execution.service.executeRun(executionInput(capturing.client));
     const options = capturing.streamOptions();
@@ -2300,7 +2308,8 @@ describe('RunExecutionService executeRun — tool loop', () => {
     // Nothing reaches the model-visible result: the sink is the only channel.
     expect(settled).toStrictEqual({ status: 'success', hits: 2 });
     // The request is durable before the executor runs, so the records attach
-    // to the completion — bounded, and beside the call decision.
+    // to the completion — bounded, kind included, and beside the call
+    // decision.
     expect(
       appended.find((entry) => entry.type === 'tool.requested')?.payload,
     ).not.toHaveProperty('derivedDecisions');

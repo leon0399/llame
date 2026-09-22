@@ -49,9 +49,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   a trailing-dot spelling. The web surface adds the error types
   `headers_timeout`, `call_timeout`, `body_too_large`, `http_status` (with
   `Retry-After` on a 429), `unsupported_content_type`, `invalid_redirect`,
-  `too_many_redirects`, `network_error`, and `aborted`, and reuses
-  `invalid_path` and `invalid_selector` for locator refusals. Four dependencies
-  join the API for the local render — `@mozilla/readability`, `turndown`,
+  `too_many_redirects`, `network_error`, and `aborted`, reuses
+  `invalid_path` and `invalid_selector` for locator refusals, and reports
+  `executor_unavailable` when instance configuration resolved no boot-time
+  version for `User-Agent: llame/<version>`. Four dependencies join the API
+  for the local render — `@mozilla/readability`, `turndown`,
   `turndown-plugin-gfm`, and `linkedom` — and no HTTP client is added. Nothing
   is cached, so a selector read refetches (#915); no address is inspected
   before connecting (#914); and PDF and image bodies stay refused with their

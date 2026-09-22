@@ -28,6 +28,10 @@ import {
   type PermissionDecision,
   type PermissionDecisionReason,
 } from '../tools/permissions/types';
+import {
+  isDerivedLocatorKind,
+  type DerivedDecisionRecord,
+} from '../tools/web-read/admission';
 import { isSystemOriginPayload } from './tool-activity-origin';
 
 /**
@@ -61,10 +65,11 @@ export type ToolActivityPart = {
   /**
    * The decisions this call's derived locators — redirect hops, announced
    * alternates, suffix and `llms.txt` candidates — received before their
-   * requests (openspec/changes/web-read D3). Same exclusion contract as
-   * `permission`, and never part of the model-visible result.
+   * requests, each with the kind of locator it judged
+   * (openspec/changes/web-read D3). Same exclusion contract as `permission`,
+   * and never part of the model-visible result.
    */
-  derivedDecisions?: ReadonlyArray<PermissionDecision>;
+  derivedDecisions?: ReadonlyArray<DerivedDecisionRecord>;
 };
 
 /** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
@@ -259,14 +264,16 @@ export type ToolActivityPartInput = {
   readonly input: unknown;
   readonly result: ToolResult;
   readonly permission?: PermissionDecision;
-  readonly derivedDecisions?: ReadonlyArray<PermissionDecision>;
+  readonly derivedDecisions?: ReadonlyArray<DerivedDecisionRecord>;
 };
 
 /**
  * The per-call request budget a web read can spend — 20 redirect hops, one
  * announced alternate, one suffix probe, four `llms.txt` candidates, and the
- * first request — which bounds the derived-locator decisions one settled part
- * may carry.
+ * request for the submitted locator — which bounds the derived-locator
+ * decisions one settled part may carry. The submitted locator is decided at
+ * the execution gate rather than here, so at most 26 of those requests
+ * produce a decision this list can hold.
  */
 export const MAX_DERIVED_DECISIONS = 27;
 
@@ -412,6 +419,19 @@ function permissionFromPayload(
   return permissionDecisionFrom(eventPayloadField(payload, 'permission'));
 }
 
+/** Re-read one stored derived-locator record: the kind of locator judged,
+ *  beside the same safe decision metadata a call decision carries. */
+function derivedDecisionRecordFrom(
+  value: unknown,
+): DerivedDecisionRecord | undefined {
+  if (!isRecord(value)) return undefined;
+  const kind = value['kind'];
+  if (!isDerivedLocatorKind(kind)) return undefined;
+  const decision = permissionDecisionFrom(value);
+
+  return decision === undefined ? undefined : { ...decision, kind };
+}
+
 /**
  * Re-read the derived-locator decisions a `tool.completed` payload recorded
  * when the call settled. Stored jsonb is untrusted on the way back in, so
@@ -421,11 +441,11 @@ function permissionFromPayload(
 function derivedDecisionsFromPayload(
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadField` and the `Array.isArray` test below parse it before any entry is trusted.
   payload: unknown,
-): ReadonlyArray<PermissionDecision> | undefined {
+): ReadonlyArray<DerivedDecisionRecord> | undefined {
   const value = eventPayloadField(payload, 'derivedDecisions');
   if (!Array.isArray(value)) return undefined;
   const decisions = value.slice(0, MAX_DERIVED_DECISIONS).flatMap((entry) => {
-    const decision = permissionDecisionFrom(entry);
+    const decision = derivedDecisionRecordFrom(entry);
 
     return decision === undefined ? [] : [decision];
   });

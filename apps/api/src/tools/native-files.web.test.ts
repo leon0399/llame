@@ -340,4 +340,55 @@ describe('web locator dispatch', () => {
     expect(render).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain(PARAGRAPH_TEXT);
   });
+
+  it('disposes the call session on both the rendered and the refused path', async () => {
+    // The executor's `finally` is the only thing that releases the call timer
+    // and the listener on the caller's signal, so the double wraps the real
+    // session and counts its release on each path.
+    const dispose = vi.fn();
+    const sessionDouble: typeof createWebFetchSession = (options, deps) => {
+      const session = createWebFetchSession(options, deps);
+      return {
+        fetch: session.fetch,
+        dispose: () => {
+          session.dispose();
+          dispose();
+        },
+      };
+    };
+    const execute = createWebReadExecutor({
+      parseWebLocator,
+      createWebFetchSession: sessionDouble,
+      renderWebContent,
+      buildWebReadResult,
+      fetch: fetchDouble,
+    });
+
+    const rendered = await execute(webContext(), {
+      operation: 'read',
+      input: { path: 'https://example.test/guide' },
+    });
+
+    expect(rendered).toMatchObject({
+      status: 'success',
+      method: 'negotiated',
+    });
+    expect(dispose).toHaveBeenCalledTimes(1);
+
+    fetchDouble.mockImplementationOnce(() =>
+      Promise.resolve(
+        new Response('no such page', {
+          status: 404,
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+        }),
+      ),
+    );
+    const refused = await execute(webContext(), {
+      operation: 'read',
+      input: { path: 'https://example.test/guide' },
+    });
+
+    expect(refused).toMatchObject({ status: 'error', type: 'http_status' });
+    expect(dispose).toHaveBeenCalledTimes(2);
+  });
 });

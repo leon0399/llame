@@ -95,7 +95,10 @@ import {
   type CompiledPolicy,
   type PermissionDecision,
 } from '../tools/permissions/types';
-import { type DerivedDecision } from '../tools/web-read/admission';
+import {
+  type DerivedDecision,
+  type DerivedDecisionRecord,
+} from '../tools/web-read/admission';
 import {
   ORIGIN_SKILL_ACTIVATION,
   type ToolActivityOrigin,
@@ -391,11 +394,12 @@ type ToolCompletedEventPayload = {
   /**
    * The decisions this call's derived locators (redirect hops, announced
    * alternates, suffix and `llms.txt` candidates) received before their
-   * requests. Recorded here rather than on the request, because they are not
-   * known until the executor has run; owner-scoped like `permission`, and
-   * never part of the model-visible result.
+   * requests, each with the kind of locator it judged. Recorded here rather
+   * than on the request, because they are not known until the executor has
+   * run; owner-scoped like `permission`, and never part of the model-visible
+   * result.
    */
-  derivedDecisions?: ReadonlyArray<PermissionDecision>;
+  derivedDecisions?: ReadonlyArray<DerivedDecisionRecord>;
   /** Mirrors the request's origin, so recovery needs no second lookup. */
   origin?: ToolActivityOrigin;
 };
@@ -875,7 +879,7 @@ export class RunExecutionService {
         toolInput: unknown;
         permission?: PermissionDecision;
         /** Derived-locator decisions, collected while the executor runs. */
-        derivedDecisions?: Array<PermissionDecision>;
+        derivedDecisions?: Array<DerivedDecisionRecord>;
         /** Absent means model-origin (tool-activity-origin.ts). */
         origin?: ToolActivityOrigin;
       }
@@ -927,9 +931,10 @@ export class RunExecutionService {
     // A derived-locator decision (a hop, an announced alternate, a suffix or
     // `llms.txt` candidate) reaches run execution through the tool context
     // while the executor runs — after `tool.requested` is already durable — so
-    // it is collected on the open call and recorded with it at settlement. A
-    // call that never settles loses its records with its result, and the
-    // per-call request budget bounds what a single call can add.
+    // it is collected on the open call, with the kind of locator it judged,
+    // and recorded with the call at settlement. A call that never settles
+    // loses its records with its result, and the per-call request budget
+    // bounds what a single call can add.
     const recordDerivedDecision = (
       toolCallId: string,
       decision: DerivedDecision,
@@ -938,7 +943,7 @@ export class RunExecutionService {
       if (open === undefined) return;
       const decisions = (open.derivedDecisions ??= []);
       if (decisions.length >= MAX_DERIVED_DECISIONS) return;
-      decisions.push(decision.decision);
+      decisions.push({ ...decision.decision, kind: decision.kind });
     };
     const recordToolCompleted = (
       toolCallId: string,

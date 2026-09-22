@@ -519,6 +519,20 @@ describe('renderWebContent', () => {
     '<head><link rel="alternate" type="text/markdown" href="/guides/adapter-pipelines.md">',
   );
 
+  /** The same announcement inside the body, where markup a contributor wrote —
+   *  a comment, an issue body — lands on a page that renders it. */
+  const ARTICLE_WITH_BODY_ALTERNATE_HTML = ARTICLE_HTML.replace(
+    '<body>',
+    '<body><link rel="alternate" type="text/markdown" href="/injected.md">',
+  );
+
+  /** The same announcement inside a bare fragment, which the wrapper re-parse
+   *  puts in a `body` the head never holds. */
+  const FRAGMENT_WITH_ALTERNATE_HTML = FRAGMENT_HTML.replace(
+    '<div>',
+    '<div><link rel="alternate" type="text/markdown" href="/injected.md">',
+  );
+
   const linkHeader = (target: string, relation = 'alternate'): string =>
     `<${target}>; rel="${relation}"; type="text/markdown"`;
 
@@ -579,6 +593,28 @@ describe('renderWebContent', () => {
     expect(render.content).toBe(PUBLISHER_MARKDOWN);
     expect(render.finalUrl).toBe(alternate);
     expect(harness.requested).toEqual([alternate]);
+  });
+
+  it.each([
+    ['a body', ARTICLE_WITH_BODY_ALTERNATE_HTML, '## Negotiation'],
+    ['a wrapped fragment', FRAGMENT_WITH_ALTERNATE_HTML, '## Fragment render'],
+  ])('ignores an alternate link in %s', async (_name, html, prose) => {
+    const injected = 'https://docs.example.test/injected.md';
+    // The injected locator answers with Markdown, so only the head scoping
+    // keeps it from becoming the content: markup a contributor wrote must not
+    // choose what the read returns.
+    const harness = makePipeline({
+      [injected]: response('text/markdown', PUBLISHER_MARKDOWN, injected),
+    });
+
+    const render = await runPipeline(
+      response('text/html', html, PAGE),
+      harness,
+    );
+
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain(prose);
+    expect(harness.requested).not.toContain(injected);
   });
 
   it('reads a relation and type spelled differently, and finds a later value', async () => {
@@ -785,6 +821,26 @@ describe('renderWebContent', () => {
       'https://docs.example.test/a/llms.txt',
       root,
     ]);
+  });
+
+  it('leaves the raw fallback standing when the llms.txt walk fails', async () => {
+    const pageUrl = 'https://docs.example.test/a/b/c';
+    const failure: WebFetchFailure = {
+      type: 'network_error',
+      message: 'The transport failed.',
+    };
+    const harness = makePipeline({ [`${pageUrl}/llms.txt`]: failure });
+
+    const render = await runPipeline(
+      response('text/html', NAV_ONLY_HTML, pageUrl),
+      harness,
+    );
+
+    // The walk runs after the render exists, so a probe that fails — here the
+    // page's own scope — answers for itself and cannot cost the call the
+    // fallback it already holds.
+    expect(render.method).toBe('raw');
+    expect(render.content).toBe(NAV_ONLY_HTML);
   });
 
   it('bounds the call to one alternate, one suffix probe, and four llms.txt candidates', async () => {

@@ -524,8 +524,9 @@ describe('reconstructDurableAssistant', () => {
       reference: { groupId: 'read', list: 'allow' as const, clauseIndex: null },
     };
     const derivedDecisions = [
-      permission,
+      { ...permission, kind: 'alternate' as const },
       {
+        kind: 'suffix' as const,
         policyId: 'policy-1',
         decision: 'reject' as const,
         reason: 'no_allow' as const,
@@ -564,6 +565,7 @@ describe('reconstructDurableAssistant', () => {
 
   it('drops malformed derived-locator decisions and keeps the valid ones', () => {
     const valid = {
+      kind: 'hop' as const,
       policyId: 'policy-1',
       decision: 'reject' as const,
       reason: 'no_allow' as const,
@@ -581,6 +583,10 @@ describe('reconstructDurableAssistant', () => {
         derivedDecisions: [
           { policyId: 'policy-1', decision: 'maybe' },
           'not-a-record',
+          // A sound decision still needs the kind of locator it judged: an
+          // unknown or absent one is dropped rather than guessed at.
+          { ...valid, kind: 'redirect' },
+          { policyId: 'policy-1', decision: 'allow', reason: 'matched_allow' },
           valid,
         ],
       }),
@@ -614,6 +620,7 @@ describe('reconstructDurableAssistant', () => {
 
   it('bounds a stored derived-decision list to the per-call budget', () => {
     const decision = {
+      kind: 'llms-txt' as const,
       policyId: 'policy-1',
       decision: 'allow' as const,
       reason: 'matched_allow' as const,
@@ -640,6 +647,7 @@ describe('reconstructDurableAssistant', () => {
 
   it('keeps derived-locator decisions out of the observable result and model replay', () => {
     const decision = {
+      kind: 'hop' as const,
       policyId: 'policy-instance-7c1f',
       decision: 'reject' as const,
       reason: 'explicit_reject' as const,

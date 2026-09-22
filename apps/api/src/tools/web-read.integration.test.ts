@@ -55,6 +55,24 @@ const REFUSE_HOP_TARGET = compileToolPermissionMap(
   'test-policy',
 );
 
+/** Admits exactly the pages the refused-probe case submits, so every locator
+ *  the pipeline derives from one of them — its announced alternate, its `.md`
+ *  sibling, its `llms.txt` candidates — is refused by the same `read` rule,
+ *  exactly as an operator's path clause would refuse it. */
+const ADMIT_PAGE_ONLY = compileToolPermissionMap(
+  {
+    read: {
+      allow: [
+        {
+          field: 'path',
+          regex: String.raw`^http://127\.0\.0\.1:\d+/(?:announced|suffix|guides/adapter-pipelines)$`,
+        },
+      ],
+    },
+  },
+  'test-policy',
+);
+
 /** Served when a request did not rank `text/markdown` first, so a read that
  *  failed to negotiate renders this instead of the Markdown body. */
 const NEGOTIATION_FALLBACK_HTML =
@@ -354,9 +372,9 @@ function contentOf(result: ToolResult): string {
   return content;
 }
 
-/** A refused read, whose shape is `{ status, type, message }` plus, for a
- *  refused hop, the locator's origin and path as `rejectedUrl`: neither the
- *  response body nor a success field such as `method` or `finalUrl` rides
+/** A refused read, whose shape is `{ status, type, message }` plus, for the
+ *  hop refusal alone, the locator's origin and path as `rejectedUrl`: neither
+ *  the response body nor a success field such as `method` or `finalUrl` rides
  *  along with a failure. */
 function errorOf(result: ToolResult): {
   readonly type: string;
@@ -365,9 +383,11 @@ function errorOf(result: ToolResult): {
   if (result.status !== 'error') {
     throw new TypeError('The read succeeded where the case expects a refusal.');
   }
-  const expected = ['message', 'status', 'type'];
-  const keys = Object.keys(result).sort();
-  expect(keys.filter((key) => key !== 'rejectedUrl')).toEqual(expected);
+  expect(Object.keys(result).sort()).toEqual(
+    result.type === 'permission_denied'
+      ? ['message', 'rejectedUrl', 'status', 'type']
+      : ['message', 'status', 'type'],
+  );
   return result;
 }
 
@@ -565,6 +585,43 @@ describe('web read over a fixture server', () => {
       '/guides/adapter-pipelines.md',
       '/guides/adapter-pipelines/llms.txt',
       '/guides/llms.txt',
+    ]);
+  });
+
+  it('renders the page instead of fetching a probe the read group refuses', async () => {
+    // One case per kind the pipeline derives: the announced alternate, the
+    // `.md` sibling, and the `llms.txt` walk. Each page is admitted and every
+    // locator derived from it is refused, so a probe the pipeline checked is
+    // skipped without a request and the local render decides.
+    const announced = await read(urlOf('/announced'), ADMIT_PAGE_ONLY);
+    expect(announced).toMatchObject({
+      status: 'success',
+      method: 'readability',
+    });
+    expect(contentOf(announced)).toContain('carry the announcement');
+
+    const suffix = await read(urlOf('/suffix'), ADMIT_PAGE_ONLY);
+    expect(suffix).toMatchObject({ status: 'success', method: 'readability' });
+    expect(contentOf(suffix)).toContain('## Negotiation');
+
+    // This page's render fails the gate, so the walk would decide the read if
+    // a candidate were admitted: refused, the render's own raw fallback is
+    // what remains.
+    const walked = await read(
+      urlOf('/guides/adapter-pipelines'),
+      ADMIT_PAGE_ONLY,
+    );
+    expect(walked).toMatchObject({ status: 'success', method: 'raw' });
+    expect(contentOf(walked)).toContain('Sign in');
+
+    // The decisive record: not one probe URL reached the server, so an
+    // admission check the pipeline skipped for any kind but `alternate` — or
+    // an executor that handed the pipeline an admitting check of its own —
+    // would show up here.
+    expect(fixture.requests.map((request) => request.path)).toEqual([
+      '/announced',
+      '/suffix',
+      '/guides/adapter-pipelines',
     ]);
   });
 

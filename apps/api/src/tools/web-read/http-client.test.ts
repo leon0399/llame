@@ -156,6 +156,74 @@ function silentFetch(
   });
 }
 
+/** One scripted request: a response after `afterMs`, or no response at all
+ *  while the server holds the connection open. */
+type DelayedStep =
+  | {
+      readonly kind: 'answer';
+      readonly afterMs: number;
+      readonly respond: () => Response;
+    }
+  | { readonly kind: 'silent' };
+
+/** A transport that answers each request from its script, one step per
+ *  request, and rejects like a real one when the call aborts while a request
+ *  is in flight — so a bound that fires mid-wait is what ends the call. */
+function delayedRouting(script: ReadonlyArray<DelayedStep>) {
+  const seen: Array<string> = [];
+  const fetch = (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> =>
+    new Promise<Response>((resolve, reject) => {
+      const url = input instanceof Request ? input.url : String(input);
+      seen.push(url);
+      const step = script[seen.length - 1];
+      if (step === undefined) {
+        reject(new Error(`the transport has no script for ${url}`));
+        return;
+      }
+      const timer =
+        step.kind === 'answer'
+          ? setTimeout(() => {
+              resolve(step.respond());
+            }, step.afterMs)
+          : undefined;
+      init?.signal?.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(timer);
+          reject(new Error('the request was aborted'));
+        },
+        { once: true },
+      );
+    });
+
+  return { fetch, seen };
+}
+
+/** Headers available now and the body only after `delayMs`: the header bound
+ *  is cleared when the response arrives, so only the call's own 30 seconds
+ *  still cover the body. */
+function bodyAfter(
+  delayMs: number,
+  body: string,
+  contentType: string,
+): Response {
+  const bytes = new TextEncoder().encode(body);
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        setTimeout(() => {
+          controller.enqueue(bytes);
+          controller.close();
+        }, delayMs);
+      },
+    }),
+    { headers: { 'content-type': contentType } },
+  );
+}
+
 /** Every refusal is exactly `{ type, message }`: neither the body nor any
  *  response header rides along with a failure. */
 function refusalOf(
@@ -868,6 +936,12 @@ describe('web fetch redirects', () => {
   const START = 'https://a.example.test/start';
   const TARGET = 'https://b.example.test/guide';
 
+  // The per-request header-bound case drives the clock itself, so a failure
+  // inside it must not leave fake timers behind for the rest of the block.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it.each([301, 302, 303, 307, 308])(
     'follows HTTP %i to the locator it names',
     async (status) => {
@@ -1186,5 +1260,83 @@ describe('web fetch redirects', () => {
       expect([...headers.keys()].sort()).toEqual(['accept', 'user-agent']);
       expect(headers.get('user-agent')).toBe(USER_AGENT);
     }
+  });
+
+  it('bounds every request of a redirect chain on its own header wait', async () => {
+    // The clock is fake throughout, so the two 9-second waits and the slow
+    // body are driven deterministically: the only timers that run are the
+    // client's own bound and the scripted transport's.
+    vi.useFakeTimers();
+    const chainSettled = vi.fn();
+    const deps = delayedRouting([
+      // 9 s to the first response, then 9 s to the second: each wait is
+      // inside the 10-second bound its own request arms, and together they
+      // are past one.
+      {
+        kind: 'answer',
+        afterMs: 9000,
+        respond: () => redirectResponse(302, TARGET),
+      },
+      {
+        kind: 'answer',
+        afterMs: 9000,
+        respond: () => bodyAfter(7000, '# Guide\n', 'text/markdown'),
+      },
+    ]);
+    const chain = fetchOne(
+      { fetch: deps.fetch, admit: () => ALLOW },
+      {},
+      START,
+    );
+    void chain.then(chainSettled);
+
+    await vi.advanceTimersByTimeAsync(9000);
+    expect(deps.seen).toEqual([START, TARGET]);
+    expect(chainSettled).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(9999);
+    // A bound armed once for the chain, or one the first response left armed,
+    // would have aborted the call as `headers_timeout` at the 10-second mark.
+    expect(chainSettled).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    // The second response cleared its own bound on arrival: a bound re-armed
+    // but never cleared would fire here, 10 s after the hop was sent.
+    expect(chainSettled).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(await chain).toStrictEqual({
+      finalUrl: TARGET,
+      contentType: 'text/markdown',
+      body: '# Guide\n',
+    });
+
+    // A hop that never answers is bounded by its own 10 seconds, not by the
+    // call's 30: a bound the first request armed and the hop never re-armed
+    // would leave this wait to the call bound.
+    const hopSettled = vi.fn();
+    const stalled = delayedRouting([
+      {
+        kind: 'answer',
+        afterMs: 9000,
+        respond: () => redirectResponse(302, TARGET),
+      },
+      { kind: 'silent' },
+    ]);
+    const refused = fetchOne(
+      { fetch: stalled.fetch, admit: () => ALLOW },
+      {},
+      START,
+    );
+    void refused.then(hopSettled);
+
+    await vi.advanceTimersByTimeAsync(9000);
+    expect(stalled.seen).toEqual([START, TARGET]);
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(hopSettled).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(hopSettled).toHaveBeenCalled();
+    expect(refusalOf(await refused)).toHaveProperty('type', 'headers_timeout');
   });
 });
