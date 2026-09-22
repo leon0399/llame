@@ -2099,6 +2099,101 @@ describe('buildContext', () => {
       }
     });
 
+    it('replays interleaved reasoning, calls, and text in stored order', () => {
+      // A long turn alternates: the model thinks, calls, reads the result,
+      // thinks again, calls twice at once, then answers. Each run of calls
+      // belongs to the reasoning that preceded it, and no call may stand ahead
+      // of the result that prompted it.
+      const call = (toolCallId: string) => ({
+        type: 'tool-search_conversations',
+        toolCallId,
+        state: 'output-available' as const,
+        input: { query: toolCallId },
+        output: { status: 'success' as const, value: toolCallId.toUpperCase() },
+        outcome: 'success' as const,
+      });
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', text: 'First look.' },
+          call('a'),
+          { type: 'reasoning', text: 'Now two at once.' },
+          call('b'),
+          call('c'),
+          { type: 'reasoning', text: 'Enough.' },
+          { type: 'text', text: 'Here is the answer.' },
+        ],
+      });
+
+      const { messages } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+
+      expect(messages.map(({ role }) => role)).toEqual([
+        'user',
+        'assistant',
+        'tool',
+        'assistant',
+        'tool',
+        'tool',
+        'assistant',
+      ]);
+      expect(messages[1].content).toEqual([
+        { type: 'reasoning', text: 'First look.' },
+        expect.objectContaining({ type: 'tool-call', toolCallId: 'a' }),
+      ]);
+      expect(messages[3].content).toEqual([
+        { type: 'reasoning', text: 'Now two at once.' },
+        expect.objectContaining({ type: 'tool-call', toolCallId: 'b' }),
+        expect.objectContaining({ type: 'tool-call', toolCallId: 'c' }),
+      ]);
+      expect(JSON.stringify(messages[4])).toContain('"toolCallId":"b"');
+      expect(JSON.stringify(messages[5])).toContain('"toolCallId":"c"');
+      expect(messages[6].content).toEqual([
+        { type: 'reasoning', text: 'Enough.' },
+        { type: 'text', text: 'Here is the answer.' },
+      ]);
+      for (const message of messages) {
+        expect(() => modelMessageSchema.parse(message)).not.toThrow();
+      }
+    });
+
+    it('replays alternating reasoning and text as separate turns', () => {
+      // A provider may emit reasoning, part of the answer, more reasoning, and
+      // the rest. Each reasoning part opens its own turn, so the stored
+      // alternation survives instead of collapsing into one message whose
+      // reasoning would all precede all of the text.
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', text: 'Think once.' },
+          { type: 'text', text: 'Partial answer.' },
+          { type: 'reasoning', text: 'Think twice.' },
+          { type: 'text', text: 'Rest of it.' },
+        ],
+      });
+
+      const { messages } = buildContext([userMsg1, assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+
+      expect(messages.map(({ role }) => role)).toEqual([
+        'user',
+        'assistant',
+        'assistant',
+      ]);
+      expect(messages[1].content).toEqual([
+        { type: 'reasoning', text: 'Think once.' },
+        { type: 'text', text: 'Partial answer.' },
+      ]);
+      expect(messages[2].content).toEqual([
+        { type: 'reasoning', text: 'Think twice.' },
+        { type: 'text', text: 'Rest of it.' },
+      ]);
+    });
+
     it('keeps a reasoning boundary between calls in a compaction request', () => {
       // A compaction request carries no reasoning text, but the reasoning part
       // still ended a step: grouping the calls on both sides of it would hand
