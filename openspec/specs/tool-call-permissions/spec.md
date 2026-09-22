@@ -338,9 +338,10 @@ alternative for `read`: replacing the group's whole-tool allow with field
 allows for `^/`, `^kb://`, `^skill://`, and `^https://docs\.example\.com/`
 admits only those authorities, and the runbook SHALL state that such a clause
 matches the canonical locator text (lowercase punycode host, no default
-port, percent-encoded path) rather than the address the host resolves to,
-and that a noncanonical submitted spelling is refused by the tool rather
-than normalized by policy.
+port, no root dot, percent-encoded path) rather than the address the host
+resolves to, and that a noncanonical submitted spelling is normalized to
+that text before the allow is decided, while a reject refuses the call when
+it matches either the submitted spelling or the normalized one.
 
 The following table is the authoritative recommended reject list, shipped in the example. Regex cells contain engine input, not JSON string escaping. The example stores these compiled-ready spellings directly; operators copy them, and configuration interpolation still applies to operator-authored values. Operator JSON examples must escape backslashes and opening interpolation braces appropriately.
 
@@ -377,7 +378,7 @@ The following table is the authoritative recommended reject list, shipped in the
 | A newly discovered MCP tool, even in an allowed namespace              | Reject until an explicit permission group is supplied.                       |
 | `read: http://example.test/page`                                       | Reject F5; cleartext HTTP is refused by default.                             |
 | `read: https://grokipedia.com/page` or `https://grokipedia.com./page`  | Reject F6; subdomains and a trailing dot are covered.                        |
-| `read: https://g%72okipedia.com/page` or `HTTPS://Grokipedia.com/page` | Allowed by policy, then refused by the tool as noncanonical; no request.     |
+| `read: https://g%72okipedia.com/page` or `HTTPS://Grokipedia.com/page` | Rejected by F6, which matches the normalized text; no request.               |
 | `read: https://docs.example.com/guide`                                 | Allow; the recommended `read` group stays whole-tool, so HTTPS remains open. |
 
 The recommended rules SHALL be covered by the preceding example matrix, including both rejection and routine-work acceptance cases, and SHALL match the shipped example. Native path rejects SHALL NOT be represented as Bash confinement, search-result filtering, directory-listing filtering, or hidden-backing-path policy.
