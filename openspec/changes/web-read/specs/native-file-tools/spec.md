@@ -146,21 +146,11 @@ a selector (`https://example.test/search?at=2026:10` is fetched as written).
 A locator whose authority ends in a port SHALL therefore carry a path
 after the port (`https://example.test:8080/` is a URL with no selector, while
 `https://example.test:8080` reads the port as a selector and leaves the
-<<<<<<< HEAD
-empty-path locator `https://example.test`, which fails as `invalid_path`
-rather than selecting a line; the named spelling SHALL be the submitted
-locator's own serialization, `https://example.test:8080/`, because a hint
-built from the split remainder would drop the port and name another
-endpoint),
-and a literal colon in the last path segment of a query-free locator SHALL be
-written as `%3A` (`https://w.example/wiki/Special%3ASearch`), because a
-trailing suffix that is present but outside the grammar fails as
-`invalid_selector`: `https://w.example/wiki/Special:Search` and
-`https://w.example/docs/2024:10` both do, while
-`https://w.example/docs/2024:10-20` selects lines 10 through 20.
 empty-path locator `https://example.test`, which is not its own
-serialization, so the call fails as `invalid_path` naming the canonical
-`https://example.test/` rather than selecting a line),
+serialization, so the call fails as `invalid_path`; the named spelling SHALL
+be the submitted locator's own serialization, `https://example.test:8080/`,
+because a hint built from the split remainder would drop the port and name
+another endpoint),
 and a literal colon in the last path segment of a query-free locator SHALL be
 written as `%3A` (`https://w.example/wiki/Special%3ASearch`), because a
 trailing colon is always read as a selector split and the shipped grammar
