@@ -4,6 +4,7 @@ import {
   toolActivityPart,
   type ToolActivityPart,
 } from './assistant-transcript';
+import { projectToolObservations } from '../chats/tool-observation-part';
 import type { RunEvent } from '../db/schema';
 import type { ToolResult } from '../tools/types';
 
@@ -234,6 +235,18 @@ describe('toolActivityPart', () => {
       output: result,
       outcome: 'success',
     });
+  });
+
+  it('omits an empty derived-decision list', () => {
+    const part = toolActivityPart({
+      toolCallId: 'call-1',
+      toolName: 'search',
+      input: { query: 'q' },
+      result: { status: 'success', value: 'ok' },
+      derivedDecisions: [],
+    });
+
+    expect(part).not.toHaveProperty('derivedDecisions');
   });
 
   it.each([
@@ -501,6 +514,160 @@ describe('reconstructDurableAssistant', () => {
 
     expect(result.collector.parts()).toEqual([]);
     expect([...result.openToolCalls.values()][0]?.permission).toBeUndefined();
+  });
+
+  it('carries derived-locator decisions from the completion payload to the stored part', () => {
+    const permission = {
+      policyId: 'policy-1',
+      decision: 'allow' as const,
+      reason: 'matched_allow' as const,
+      reference: { groupId: 'read', list: 'allow' as const, clauseIndex: null },
+    };
+    const derivedDecisions = [
+      permission,
+      {
+        policyId: 'policy-1',
+        decision: 'reject' as const,
+        reason: 'no_allow' as const,
+        reference: { groupId: 'read', list: 'allow' as const, clauseIndex: 0 },
+      },
+    ];
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: { path: 'https://docs.example.test/a/b' },
+        permission,
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: { status: 'success', content: 'body' },
+        derivedDecisions,
+      }),
+    ]);
+
+    // The call decision comes from the request, the derived ones from the
+    // completion the executor's decisions settled with.
+    expect(result.collector.parts()).toEqual([
+      {
+        type: 'tool-read',
+        toolCallId: 'call-1',
+        state: 'output-available',
+        input: { path: 'https://docs.example.test/a/b' },
+        output: { status: 'success', content: 'body' },
+        outcome: 'success',
+        permission,
+        derivedDecisions,
+      },
+    ]);
+  });
+
+  it('drops malformed derived-locator decisions and keeps the valid ones', () => {
+    const valid = {
+      policyId: 'policy-1',
+      decision: 'reject' as const,
+      reason: 'no_allow' as const,
+      reference: null,
+    };
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: {},
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: { status: 'success' },
+        derivedDecisions: [
+          { policyId: 'policy-1', decision: 'maybe' },
+          'not-a-record',
+          valid,
+        ],
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      expect.objectContaining({ derivedDecisions: [valid] }),
+    ]);
+  });
+
+  it.each([
+    ['a non-array value', 'not-a-list'],
+    ['an empty list', []],
+    ['only malformed entries', [{ policyId: 1, decision: 'reject' }]],
+  ])('records no derived decisions for %s', (_name, derivedDecisions) => {
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: {},
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: { status: 'success' },
+        derivedDecisions,
+      }),
+    ]);
+
+    expect(result.collector.parts()[0]).not.toHaveProperty('derivedDecisions');
+  });
+
+  it('bounds a stored derived-decision list to the per-call budget', () => {
+    const decision = {
+      policyId: 'policy-1',
+      decision: 'allow' as const,
+      reason: 'matched_allow' as const,
+      reference: null,
+    };
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: {},
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: { status: 'success' },
+        derivedDecisions: Array.from({ length: 30 }, () => decision),
+      }),
+    ]);
+
+    const [part] = result.collector.parts();
+    expect(part).toMatchObject({
+      derivedDecisions: Array.from({ length: 27 }, () => decision),
+    });
+  });
+
+  it('keeps derived-locator decisions out of the observable result and model replay', () => {
+    const decision = {
+      policyId: 'policy-instance-7c1f',
+      decision: 'reject' as const,
+      reason: 'explicit_reject' as const,
+      reference: null,
+    };
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: { path: 'https://docs.example.test/a/b' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: { status: 'success', content: 'body' },
+        derivedDecisions: [decision],
+      }),
+    ]);
+    const [part] = result.collector.parts();
+
+    // The record appears once, in its own field: the observation the model
+    // reads, a public share, an export, and search receive carries no policy
+    // metadata of its own.
+    expect(part).toMatchObject({ derivedDecisions: [decision] });
+    expect(JSON.stringify(part).split('policy-instance-7c1f')).toHaveLength(2);
+    // Model replay projects its own closed shape from the stored parts.
+    expect(
+      JSON.stringify(projectToolObservations(result.collector.parts())),
+    ).not.toContain('policy-instance-7c1f');
   });
 
   it('ignores malformed, duplicate, and orphaned tool events while exposing open calls', () => {

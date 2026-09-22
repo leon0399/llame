@@ -30,12 +30,14 @@ type WebResultEnvelope = {
   notes?: ReadonlyArray<string>;
 };
 
+/** The envelope reports where the content came from: a probe that won names
+ *  its own response's URL, and every other render names the call's. */
 function webResultEnvelope(
   response: WebResponse,
   render: WebRender,
 ): WebResultEnvelope {
   const envelope: WebResultEnvelope = {
-    finalUrl: response.finalUrl,
+    finalUrl: render.finalUrl ?? response.finalUrl,
     method: render.method,
   };
   const notes = render.notes ?? [];

@@ -522,6 +522,14 @@
           {
             "field": "path",
             "regex": "(^|[/\\\\])\\.env($|:|\\.(local|development|production|staging|test)(\\.local)?($|:))"
+          },
+          {
+            "field": "path",
+            "regex": "^http://"
+          },
+          {
+            "field": "path",
+            "regex": "^https?://([^/]*\\.)?grokipedia\\.com\\.?([/:]|$)"
           }
         ]
       },

@@ -71,6 +71,26 @@ describe('buildWebReadResult', () => {
     });
   });
 
+  it('reports a winning probe’s finalUrl instead of the page’s', () => {
+    const probeUrl = 'https://cdn.example.test/guide.md';
+    const result = buildWebReadResult(
+      { url: GUIDE_URL },
+      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      {
+        method: 'alternate',
+        content: '# Guide\n\nFrom the probe.\n',
+        finalUrl: probeUrl,
+      },
+    );
+    // `path` stays the locator the model asked for; `finalUrl` is where the
+    // content actually came from.
+    expect(result).toMatchObject({
+      path: GUIDE_URL,
+      finalUrl: probeUrl,
+      method: 'alternate',
+    });
+  });
+
   it('applies a line selector to the rendered text', () => {
     const result = buildWebReadResult(
       { url: GUIDE_URL, selector: '10-20' },

@@ -1,7 +1,8 @@
 import { type ToolContext, type ToolResult } from '../types';
-import { fetchWebDocument } from './http-client';
+import { createDerivedAdmission } from './admission';
+import { createWebFetchSession } from './http-client';
 import { parseWebLocator, type WebLocator } from './locator';
-import { renderWebDocument } from './pipeline';
+import { renderWebContent } from './pipeline';
 import { buildWebReadResult } from './result';
 
 /** The locator-bearing call the native file tools dispatch by scheme. */
@@ -16,8 +17,8 @@ type WebReadCall = {
  */
 export type WebReadDeps = {
   readonly parseWebLocator: typeof parseWebLocator;
-  readonly fetchWebDocument: typeof fetchWebDocument;
-  readonly renderWebDocument: typeof renderWebDocument;
+  readonly createWebFetchSession: typeof createWebFetchSession;
+  readonly renderWebContent: typeof renderWebContent;
   readonly buildWebReadResult: typeof buildWebReadResult;
   readonly fetch?: typeof globalThis.fetch;
 };
@@ -34,14 +35,15 @@ export type WebReadExecutor = (
 
 const REAL_WEB_READ_DEPS: WebReadDeps = {
   parseWebLocator,
-  fetchWebDocument,
-  renderWebDocument,
+  createWebFetchSession,
+  renderWebContent,
   buildWebReadResult,
 };
 
-/** The failure `fetchWebDocument` reports for a caller abort, repeated for the
- *  window that client cannot cover: it disposes its deadline, and with it the
- *  listener that turns an abort into that failure, before this layer renders. */
+/** The failure the client reports for a caller abort, repeated for the window
+ *  the client's own deadline cannot cover: the session is disposed with the
+ *  call, so an abort that lands after the fetch resolved and before the render
+ *  starts is visible only to this guard. */
 const ABORTED: ToolResult = {
   status: 'error',
   type: 'aborted',
@@ -88,8 +90,11 @@ async function fetchAndRender(
   userAgent: string,
   deps: WebReadDeps,
 ): Promise<ToolResult> {
-  const response = await deps.fetchWebDocument(
-    locator.url,
+  // One session per call: the 30-second bound and the 20-hop budget cover the
+  // first request, every hop it answers with, and every probe the pipeline
+  // issues, so a page cannot spend a fresh budget per derived locator.
+  const admit = createDerivedAdmission(context);
+  const session = deps.createWebFetchSession(
     {
       userAgent,
       signal: context.abortSignal,
@@ -97,20 +102,25 @@ async function fetchAndRender(
     },
     // Resolved at call time, so a replaced runtime `fetch` still reaches the
     // request rather than the one captured when this module loaded.
-    { fetch: deps.fetch ?? globalThis.fetch },
+    { fetch: deps.fetch ?? globalThis.fetch, admit },
   );
-  if ('type' in response) {
-    return { status: 'error', type: response.type, message: response.message };
+  try {
+    const response = await session.fetch(locator.url);
+    if ('type' in response) return { status: 'error', ...response };
+    // The render below runs synchronously over a body of up to 5 MiB, where no
+    // abort can interrupt it, so a call the Run has already given up on must
+    // not start that render.
+    if (context.abortSignal?.aborted === true) return ABORTED;
+    const render = await deps.renderWebContent(
+      response,
+      { raw: isRawSelector(locator.selector) },
+      { fetch: session.fetch, admit },
+    );
+    if ('type' in render) return { status: 'error', ...render };
+    return deps.buildWebReadResult(locator, response, render);
+  } finally {
+    session.dispose();
   }
-  // The client's deadline is disposed with the fetch, and the render below runs
-  // synchronously over a body of up to 5 MiB, where no abort can interrupt it,
-  // so a call the Run has already given up on must not start that render.
-  if (context.abortSignal?.aborted === true) return ABORTED;
-  return deps.buildWebReadResult(
-    locator,
-    response,
-    deps.renderWebDocument(response, { raw: isRawSelector(locator.selector) }),
-  );
 }
 
 /** `:raw` skips every probe and conversion. The selector excludes its

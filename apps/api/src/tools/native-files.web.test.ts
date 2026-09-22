@@ -7,9 +7,9 @@ import {
 } from './native-files';
 import { type ToolContext } from './types';
 import { createWebReadExecutor } from './web-read/execute';
-import { fetchWebDocument } from './web-read/http-client';
+import { createWebFetchSession } from './web-read/http-client';
 import { parseWebLocator } from './web-read/locator';
-import { renderWebDocument } from './web-read/pipeline';
+import { renderWebContent } from './web-read/pipeline';
 import { buildWebReadResult } from './web-read/result';
 
 const MARKDOWN = '# Guide\n\nA publisher-provided body for agents.\n';
@@ -274,8 +274,8 @@ describe('web locator dispatch', () => {
   it('runs through the collaborators the executor was bound with', async () => {
     const execute = createWebReadExecutor({
       parseWebLocator,
-      fetchWebDocument,
-      renderWebDocument,
+      createWebFetchSession,
+      renderWebContent,
       buildWebReadResult,
       fetch: fetchDouble,
     });
@@ -295,18 +295,20 @@ describe('web locator dispatch', () => {
 
   it('does not start the render when the fetch resolves after the Run aborted', async () => {
     const abort = new AbortController();
-    const render = vi.fn(renderWebDocument);
-    // The client disposes its deadline, and the listener that reports a caller
-    // abort, before the body reaches this layer, so an abort that lands once
-    // the fetch has resolved is visible only to the guard under test.
-    const fetchThenAbort: typeof fetchWebDocument = async (
-      url,
-      options,
-      deps,
-    ) => {
-      const response = await fetchWebDocument(url, options, deps);
-      abort.abort();
-      return response;
+    const render = vi.fn(renderWebContent);
+    // The client's deadline, and the listener that reports a caller abort, are
+    // released when the session is disposed, so an abort that lands once the
+    // fetch has resolved is visible only to the guard under test.
+    const fetchThenAbort: typeof createWebFetchSession = (options, deps) => {
+      const session = createWebFetchSession(options, deps);
+      return {
+        fetch: async (url) => {
+          const response = await session.fetch(url);
+          abort.abort();
+          return response;
+        },
+        dispose: session.dispose,
+      };
     };
     fetchDouble.mockImplementationOnce(() =>
       Promise.resolve(
@@ -318,8 +320,8 @@ describe('web locator dispatch', () => {
     );
     const execute = createWebReadExecutor({
       parseWebLocator,
-      fetchWebDocument: fetchThenAbort,
-      renderWebDocument: render,
+      createWebFetchSession: fetchThenAbort,
+      renderWebContent: render,
       buildWebReadResult,
       fetch: fetchDouble,
     });

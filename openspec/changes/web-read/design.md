@@ -636,6 +636,16 @@ new path.
   serves through a shared in-memory multi-range walk in `native-file-tools`,
   and an aborted run stops before the synchronous render. The resolved-address
   finding was rejected again as the settled deferral to #914.
+- v7 (2026-09-22): The `policy` layer's implementation decisions. A hop's
+  fragment is dropped before admission and before the request rather than
+  refused: the model cannot fix a server's `Location`, and dropping it keeps
+  the invariant a submitted fragment is refused for, that the text policy
+  matches is the URL fetched. A winning publisher-Markdown probe reports its
+  own response as `finalUrl`, since that response produced the content.
+  Derived-locator decisions reach run execution through a trusted
+  `onDerivedDecision` callback on the tool context and are recorded beside
+  the call decision in the completion payload, bounded at 27 entries, the
+  per-call request budget.
 - v10 (2026-09-22): Review corrections to the delta text, with no behaviour
   change: a selector is split only from a locator carrying no `?` and no `#`,
   so a colon in a query is part of the URL; a probe's redirect is followed

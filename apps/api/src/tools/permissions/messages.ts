@@ -4,10 +4,10 @@ import { type PermissionRejectionReason } from './types';
 
 /**
  * Code-owned model-visible rejection messages (openspec/changes/tool-call-permissions
- * spec "Safe decision provenance and non-fatal rejection"). Fixed templates:
- * never interpolate rule text, matched fragments, field names, paths, clause
- * references, policy ids, or secret values. These guide the model; they are not
- * a sandbox claim.
+ * spec "Safe decision provenance and non-fatal rejection", plus the web-read
+ * change's hop rejection). Fixed templates: never interpolate rule text,
+ * matched fragments, field names, paths, clause references, policy ids, or
+ * secret values. These guide the model; they are not a sandbox claim.
  */
 
 const EXPLICIT_REJECT =
@@ -22,6 +22,22 @@ const INVALID_FIELD =
 const INPUT_LIMIT =
   'Tool call rejected before execution by operator permissions. The submitted input exceeds the permission inspection limit. Do not retry unchanged or evade a reject by splitting, encoding, switching tools, or delegating. A smaller request may be submitted only as independently permitted work. In-run approval is unavailable; explain any blocked required step to the user.';
 
+/** The fixed hop-rejection template: never interpolated, so it is exported
+ *  as-is for the client-side failure the web read builds. */
+export const REJECTED_HOP_MESSAGE =
+  'Tool call stopped by operator permissions. A redirect target was refused before its content was read; the refused target is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.';
+
+const REJECTED_URL_BOUND = 2048;
+const CONTROL_CHARACTERS = /\p{Cc}/gu;
+const QUERY_OR_FRAGMENT = /[?#][\s\S]*$/u;
+
+/** The non-fatal `permission_denied` observation for a refused redirect hop:
+ *  the fixed message plus the bounded locator, never the locator inside the
+ *  message. Assignable to `ToolResult`'s error variant. */
+export type RejectedHopResult = Extract<ToolResult, { status: 'error' }> & {
+  readonly rejectedUrl: string;
+};
+
 /** The non-fatal `permission_denied` observation for a rejected call. */
 export function permissionDeniedResult(
   reason: PermissionRejectionReason,
@@ -30,6 +46,38 @@ export function permissionDeniedResult(
     status: 'error',
     type: 'permission_denied',
     message: messageFor(reason),
+  };
+}
+
+/** The refused locator shown to the model with {@link REJECTED_HOP_MESSAGE}:
+ *  a server-chosen redirect target, so it travels as its origin and path only
+ *  (query and fragment removed), bounded to 2,048 characters with control
+ *  characters stripped. */
+export function rejectedHopUrl(locator: string): string {
+  // Strip first: the bound then counts the characters the model will read.
+  const cleaned = locator.replace(CONTROL_CHARACTERS, '');
+  return originAndPath(cleaned).slice(0, REJECTED_URL_BOUND);
+}
+
+function originAndPath(locator: string): string {
+  try {
+    const url = new URL(locator);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    // A hop locator is always a serialized WHATWG href; anything else still
+    // loses its query and fragment text rather than being echoed whole.
+    return locator.replace(QUERY_OR_FRAGMENT, '');
+  }
+}
+
+/** The non-fatal `permission_denied` observation for a rejected redirect hop.
+ *  `locator` is the hop's serialized WHATWG href. */
+export function rejectedHopResult(locator: string): RejectedHopResult {
+  return {
+    status: 'error',
+    type: 'permission_denied',
+    message: REJECTED_HOP_MESSAGE,
+    rejectedUrl: rejectedHopUrl(locator),
   };
 }
 

@@ -58,6 +58,13 @@ export type ToolActivityPart = {
    * exports, and search; it never contains policy bodies or matched input.
    */
   permission?: PermissionDecision;
+  /**
+   * The decisions this call's derived locators — redirect hops, announced
+   * alternates, suffix and `llms.txt` candidates — received before their
+   * requests (openspec/changes/web-read D3). Same exclusion contract as
+   * `permission`, and never part of the model-visible result.
+   */
+  derivedDecisions?: ReadonlyArray<PermissionDecision>;
 };
 
 /** The step-cap marker part (design D6): `type: "data-cap-notice"`, AI SDK
@@ -252,7 +259,16 @@ export type ToolActivityPartInput = {
   readonly input: unknown;
   readonly result: ToolResult;
   readonly permission?: PermissionDecision;
+  readonly derivedDecisions?: ReadonlyArray<PermissionDecision>;
 };
+
+/**
+ * The per-call request budget a web read can spend — 20 redirect hops, one
+ * announced alternate, one suffix probe, four `llms.txt` candidates, and the
+ * first request — which bounds the derived-locator decisions one settled part
+ * may carry.
+ */
+export const MAX_DERIVED_DECISIONS = 27;
 
 /**
  * Exported for `RunExecutionService`'s live-stream path, which shapes tool
@@ -261,7 +277,8 @@ export type ToolActivityPartInput = {
 export function toolActivityPart(
   call: ToolActivityPartInput,
 ): ToolActivityPart {
-  const { toolCallId, toolName, input, result, permission } = call;
+  const { toolCallId, toolName, input, result, permission, derivedDecisions } =
+    call;
   const part: ToolActivityPart =
     result.status === 'success'
       ? {
@@ -286,6 +303,10 @@ export function toolActivityPart(
           }),
         };
   if (permission !== undefined) part.permission = permission;
+  if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
+    part.derivedDecisions = derivedDecisions;
+  }
+
   return part;
 }
 
@@ -360,18 +381,17 @@ function permissionClauseFromPayload(
   return { groupId, list, clauseIndex };
 }
 
-/** Re-read the safe decision metadata from a `tool.requested` payload. */
-function permissionFromPayload(
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadField` and the `isRecord`/`isString` guards below parse it before any field is trusted.
-  payload: unknown,
+/** Re-read one stored decision record's safe metadata: an opaque policy id, a
+ *  decision, a static reason, and a bounded clause reference. */
+function permissionDecisionFrom(
+  value: unknown,
 ): PermissionDecision | undefined {
-  const permission = eventPayloadField(payload, 'permission');
-  if (!isRecord(permission)) return undefined;
-  const policyId = permission['policyId'];
-  const decision = permission['decision'];
-  const reason = permission['reason'];
+  if (!isRecord(value)) return undefined;
+  const policyId = value['policyId'];
+  const decision = value['decision'];
+  const reason = value['reason'];
   if (!isString(policyId)) return undefined;
-  const reference = permissionClauseFromPayload(permission['reference']);
+  const reference = permissionClauseFromPayload(value['reference']);
   if (decision === 'allow') {
     return reason === 'matched_allow'
       ? { policyId, decision: 'allow', reason: 'matched_allow', reference }
@@ -380,7 +400,37 @@ function permissionFromPayload(
   if (decision !== 'reject' || !isPermissionRejectionReason(reason)) {
     return undefined;
   }
+
   return { policyId, decision: 'reject', reason, reference };
+}
+
+/** Re-read the safe decision metadata from a `tool.requested` payload. */
+function permissionFromPayload(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; the field read and the guard above parse it before anything is trusted.
+  payload: unknown,
+): PermissionDecision | undefined {
+  return permissionDecisionFrom(eventPayloadField(payload, 'permission'));
+}
+
+/**
+ * Re-read the derived-locator decisions a `tool.completed` payload recorded
+ * when the call settled. Stored jsonb is untrusted on the way back in, so
+ * malformed entries are dropped and the list is bounded as it was on the way
+ * out; an empty list is absent, like the metadata every other part omits.
+ */
+function derivedDecisionsFromPayload(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadField` and the `Array.isArray` test below parse it before any entry is trusted.
+  payload: unknown,
+): ReadonlyArray<PermissionDecision> | undefined {
+  const value = eventPayloadField(payload, 'derivedDecisions');
+  if (!Array.isArray(value)) return undefined;
+  const decisions = value.slice(0, MAX_DERIVED_DECISIONS).flatMap((entry) => {
+    const decision = permissionDecisionFrom(entry);
+
+    return decision === undefined ? [] : [decision];
+  });
+
+  return decisions.length === 0 ? undefined : decisions;
 }
 
 /**
@@ -492,6 +542,10 @@ class DurableAssistantReconstructor {
         input: request.toolInput,
         result,
         permission: request.permission,
+        // The call decision rides on the request; the derived-locator
+        // decisions only exist once the call settled, so they are read from
+        // this completion payload.
+        derivedDecisions: derivedDecisionsFromPayload(event.payload),
       }),
     );
   }

@@ -68,6 +68,7 @@ import { isContextItemPart, resolveForm } from '../chats/context-item';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { createDeltaBuffer } from './delta-buffer';
 import {
+  MAX_DERIVED_DECISIONS,
   createAssistantPartCollector,
   reconstructDurableAssistant,
   toolActivityPart,
@@ -94,6 +95,7 @@ import {
   type CompiledPolicy,
   type PermissionDecision,
 } from '../tools/permissions/types';
+import { type DerivedDecision } from '../tools/web-read/admission';
 import {
   ORIGIN_SKILL_ACTIVATION,
   type ToolActivityOrigin,
@@ -386,6 +388,14 @@ type ToolCompletedEventPayload = {
   status: ToolResult['status'];
   output: ToolResult;
   permission?: PermissionDecision;
+  /**
+   * The decisions this call's derived locators (redirect hops, announced
+   * alternates, suffix and `llms.txt` candidates) received before their
+   * requests. Recorded here rather than on the request, because they are not
+   * known until the executor has run; owner-scoped like `permission`, and
+   * never part of the model-visible result.
+   */
+  derivedDecisions?: ReadonlyArray<PermissionDecision>;
   /** Mirrors the request's origin, so recovery needs no second lookup. */
   origin?: ToolActivityOrigin;
 };
@@ -864,6 +874,8 @@ export class RunExecutionService {
         toolName: string;
         toolInput: unknown;
         permission?: PermissionDecision;
+        /** Derived-locator decisions, collected while the executor runs. */
+        derivedDecisions?: Array<PermissionDecision>;
         /** Absent means model-origin (tool-activity-origin.ts). */
         origin?: ToolActivityOrigin;
       }
@@ -912,6 +924,22 @@ export class RunExecutionService {
     // has its own guard, but without this one enqueueEvent fires a second
     // tool.completed for a call the collector correctly ignored.
     const settledToolCallIds = new Set<string>();
+    // A derived-locator decision (a hop, an announced alternate, a suffix or
+    // `llms.txt` candidate) reaches run execution through the tool context
+    // while the executor runs — after `tool.requested` is already durable — so
+    // it is collected on the open call and recorded with it at settlement. A
+    // call that never settles loses its records with its result, and the
+    // per-call request budget bounds what a single call can add.
+    const recordDerivedDecision = (
+      toolCallId: string,
+      decision: DerivedDecision,
+    ): void => {
+      const open = openToolCalls.get(toolCallId);
+      if (open === undefined) return;
+      const decisions = (open.derivedDecisions ??= []);
+      if (decisions.length >= MAX_DERIVED_DECISIONS) return;
+      decisions.push(decision.decision);
+    };
     const recordToolCompleted = (
       toolCallId: string,
       toolName: string,
@@ -925,6 +953,7 @@ export class RunExecutionService {
       settledToolCallIds.add(toolCallId);
       const open = openToolCalls.get(toolCallId);
       const permission = open?.permission;
+      const derivedDecisions = open?.derivedDecisions;
       openToolCalls.delete(toolCallId);
       const payload: ToolCompletedEventPayload = {
         toolCallId,
@@ -933,6 +962,9 @@ export class RunExecutionService {
         output: result,
       };
       if (permission !== undefined) payload.permission = permission;
+      if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
+        payload.derivedDecisions = derivedDecisions;
+      }
       if (open?.origin !== undefined) payload.origin = open.origin;
       enqueueEvent('tool.completed', payload);
       // A system-origin call is durable audit, not assistant activity.
@@ -944,6 +976,7 @@ export class RunExecutionService {
           input: toolInput,
           result,
           permission,
+          derivedDecisions,
         }),
       );
     };
@@ -1003,7 +1036,14 @@ export class RunExecutionService {
             const result = await runTool(
               executor,
               args,
-              { ...toolContext, toolCallId },
+              {
+                ...toolContext,
+                toolCallId,
+                // This call's own derived-locator sink: what the executor
+                // decides lands on the call it belongs to, and only there.
+                onDerivedDecision: (decision) =>
+                  recordDerivedDecision(toolCallId, decision),
+              },
               callTimeoutSeconds,
               async (decision) => {
                 const permission = decision;

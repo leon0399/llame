@@ -477,7 +477,9 @@ resolved against the redirecting request's URL by the WHATWG URL parser and
 serialized as its `href`, so a relative `Location` becomes absolute and the
 serialization is what policy sees: lowercase host, an internationalized host
 as punycode, default port dropped, empty path as `/`, path and query
-percent-encoded, fragment retained. A redirect status without a parsable
+percent-encoded. A fragment SHALL be dropped from the resolved locator
+before admission and before the request, so the text policy matches is
+exactly the URL the next request uses. A redirect status without a parsable
 `Location`, or a resolved locator that carries userinfo or a scheme other
 than `http` or `https`, SHALL fail the call with `invalid_redirect` before
 any request and SHALL NOT name the target. Before a hop's request is sent, the `read`
@@ -496,7 +498,9 @@ redirect it announced. When the
 redirect budget is exhausted the call SHALL fail with `too_many_redirects`
 and SHALL issue no further request. The result SHALL name the URL of the
 response that produced the content as `finalUrl` and SHALL NOT enumerate the
-hop chain. The `read` tool description SHALL state that redirects are
+hop chain: when a publisher-Markdown probe won, that is the probe's own
+final URL, including any redirect it followed, rather than the page's.
+The `read` tool description SHALL state that redirects are
 followed and that `finalUrl` reports where the content came from, so the
 model does not re-fetch a page to learn its location. This change SHALL NOT
 resolve a hostname to check its address before connecting: a `path` clause is

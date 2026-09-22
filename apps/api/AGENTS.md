@@ -22,7 +22,16 @@ re-provide them. `RunExecutionService` stays transport-neutral. The current tool
 gate admits allowlisted read-only tools, the exact configured native file
 capability, and allowlisted alpha host `bash` under the same
 `tools.nativeExecutorId` gate. Native mutations require durable pre-effect
-fencing. Do not restore removed policy or env toggles.
+fencing. Native `read` also fetches an absolute `http://` or `https://` locator
+through the API process's own outbound HTTP, so `read` is advertised whenever
+`tools.allowed` names it and a web locator binds no executor identity. Every
+derived locator — a redirect hop, an announced alternate, a suffix candidate, an
+`llms.txt` candidate — is admitted through the `read` permission group before
+its request, with each decision recorded beside the call decision and never
+through the model-visible result. Those requests carry
+`User-Agent: llame/<version>`, are never retried, and stay inside the
+10 s header, 30 s call, 5 MiB body, and 20-redirect bounds. Do not restore
+removed policy or env toggles.
 
 ## Commands
 

@@ -6,7 +6,10 @@ import { Logger } from '@nestjs/common';
 import { bashTool } from '../tools/bash';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
-import { type CompiledPolicy } from '../tools/permissions/types';
+import {
+  type CompiledPolicy,
+  type PermissionDecision,
+} from '../tools/permissions/types';
 import { nativeEditTool, nativeReadTool } from '../tools/native-files';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { NativeFilesRepository } from './native-files-repository';
@@ -29,7 +32,12 @@ import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import type { ModelSelectionValidator } from '../models/models.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
-import type { KnowledgeToolResolver, Tool, ToolResult } from '../tools/types';
+import type {
+  KnowledgeToolResolver,
+  Tool,
+  ToolContext,
+  ToolResult,
+} from '../tools/types';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import {
   ChatsRepository,
@@ -2236,6 +2244,110 @@ describe('RunExecutionService executeRun — tool loop', () => {
         ],
       }),
     );
+  });
+
+  it('records a call’s derived-locator decisions on the settled part', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredTool();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const allowed = allowDecision('read');
+    const rejected: PermissionDecision = {
+      policyId: 'test-policy',
+      decision: 'reject',
+      reason: 'explicit_reject',
+      reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
+    };
+    // A web read's budget is 27 requests, so 30 decisions land as 27 records.
+    let captured: ToolContext | undefined;
+    const execute = vi.fn((context: ToolContext) => {
+      captured = context;
+      const sink = context.onDerivedDecision;
+      for (let index = 0; index < 30; index += 1) {
+        sink?.({
+          kind: 'hop',
+          url: `https://example.test/hop-${index}`,
+          decision: index === 0 ? rejected : allowed,
+        });
+      }
+
+      return Promise.resolve({ status: 'success' as const, hits: 2 });
+    });
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'read_only',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      toolOptions,
+    );
+    const expected = [rejected, ...Array.from({ length: 26 }, () => allowed)];
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onTextDelta?.('before ');
+    const settled = await executeBoundTool(options, { q: 'llame' }, 'call-1');
+    await options.onFinish?.({
+      text: 'before answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+    });
+
+    // Nothing reaches the model-visible result: the sink is the only channel.
+    expect(settled).toStrictEqual({ status: 'success', hits: 2 });
+    // The request is durable before the executor runs, so the records attach
+    // to the completion — bounded, and beside the call decision.
+    expect(
+      appended.find((entry) => entry.type === 'tool.requested')?.payload,
+    ).not.toHaveProperty('derivedDecisions');
+    expect(appended[5]?.payload).toStrictEqual({
+      toolCallId: 'call-1',
+      toolName: toolDeclaration.id,
+      status: 'success',
+      output: { status: 'success', hits: 2 },
+      permission: allowDecision(toolDeclaration.id),
+      derivedDecisions: expected,
+    });
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          { type: 'text', text: 'before ' },
+          {
+            type: `tool-${toolDeclaration.id}`,
+            toolCallId: 'call-1',
+            state: 'output-available',
+            input: { q: 'llame' },
+            output: { status: 'success', hits: 2 },
+            outcome: 'success',
+            permission: allowDecision(toolDeclaration.id),
+            derivedDecisions: expected,
+          },
+          { type: 'text', text: 'answer' },
+        ],
+      }),
+    );
+    // A decision that arrives after the call settled — an executor outliving
+    // its own settlement — is dropped rather than crashing the run, and the
+    // settled record does not grow.
+    expect(() =>
+      captured?.onDerivedDecision?.({
+        kind: 'hop',
+        url: 'https://example.test/late',
+        decision: rejected,
+      }),
+    ).not.toThrow();
+    expect(appended[5]?.payload).toStrictEqual({
+      toolCallId: 'call-1',
+      toolName: toolDeclaration.id,
+      status: 'success',
+      output: { status: 'success', hits: 2 },
+      permission: allowDecision(toolDeclaration.id),
+      derivedDecisions: expected,
+    });
   });
 
   it('applies a restarted process policy to a queued call and continues the run', async () => {

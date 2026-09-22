@@ -21,6 +21,8 @@ const F1_CREDENTIAL_DIRECTORY = String.raw`(^|[/\\])(\.ssh|\.aws|\.azure|\.gnupg
 const F2_CREDENTIAL_FILE = String.raw`(^|[/\\])(\.git-credentials|\.npmrc|\.pypirc)([/\\]|$|:)`;
 const F3_TOOL_CREDENTIAL = String.raw`(^|[/\\])(\.docker[/\\]config\.json|\.gem[/\\]credentials|\.config[/\\]gh)([/\\]|$|:)`;
 const F4_ENV_FILE = String.raw`(^|[/\\])\.env($|:|\.(local|development|production|staging|test)(\.local)?($|:))`;
+const F5_CLEARTEXT_HTTP = String.raw`^http://`;
+const F6_GROKIPEDIA_HOST = String.raw`^https?://([^/]*\.)?grokipedia\.com\.?([/:]|$)`;
 
 function commandRegex(regex: string): PermissionClause {
   return { field: 'command', regex };
@@ -50,6 +52,8 @@ const READ_REJECTS: ReadonlyArray<PermissionClause> = [
   pathRegex(F2_CREDENTIAL_FILE),
   pathRegex(F3_TOOL_CREDENTIAL),
   pathRegex(F4_ENV_FILE),
+  pathRegex(F5_CLEARTEXT_HTTP),
+  pathRegex(F6_GROKIPEDIA_HOST),
 ];
 
 const MUTATE_REJECTS: ReadonlyArray<PermissionClause> = [
