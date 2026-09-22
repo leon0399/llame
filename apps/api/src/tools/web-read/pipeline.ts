@@ -172,23 +172,33 @@ async function publisherMarkdown(
 
 /** The failures that answer for one candidate alone, by the types the client
  *  reports: the site has nothing at that locator, refuses its content type or
- *  size, or the transport to it failed. Every other failure spends a bound of
- *  the call — its deadline, its redirect budget, the caller's abort, or a hop
- *  the `read` group refused — and is the call's, from every probe. */
+ *  size, the transport to it failed, it answered no headers before the bound
+ *  the client arms for its own request expired, or it answered a redirect the
+ *  client cannot follow. Each is that candidate's own bad answer — the header
+ *  bound is re-armed for every request, so a host that accepts TCP and stays
+ *  silent spends only its own allowance, and a redirect without a followable
+ *  `Location` is that response's defect — so the next candidate decides.
+ *  Every other failure spends a bound of the call — its 30-second deadline,
+ *  its redirect budget, the caller's abort, or a hop the `read` group refused
+ *  — and is the call's, from every probe. */
 const CANDIDATE_FAILURES = {
   http_status: true,
   unsupported_content_type: true,
   body_too_large: true,
   network_error: true,
+  headers_timeout: true,
+  invalid_redirect: true,
 };
 
 /**
  * Probes one kind's candidates in order and returns the first winning render,
  * or the failure that ends the call. A candidate the `read` group refuses, one
  * that answers a failure of its own — its status, its content type, its body's
- * size, or the transport to it — and one whose body fails the gate are each
- * disqualified without failing the call, so the next candidate decides, and a
- * later `llms.txt` candidate still leaves the render that already exists.
+ * size, the transport to it, its own silent wait for headers, or a redirect it
+ * served without a followable `Location` — and one whose body fails the gate
+ * are each disqualified without failing the call, so the next candidate
+ * decides, and a later `llms.txt` candidate still leaves the render that
+ * already exists.
  *
  * A failure of a bound the call has already paid ends the call from every
  * probe, the walk included: a call past its deadline or redirect budget must

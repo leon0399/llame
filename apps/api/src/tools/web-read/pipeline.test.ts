@@ -831,6 +831,56 @@ describe('renderWebContent', () => {
     expect(render.method).toBe('readability');
   });
 
+  it('disqualifies an alternate whose host never answers headers', async () => {
+    const alternate = 'https://cdn.example.test/guides/adapter-pipelines.md';
+    const harness = makePipeline({
+      [alternate]: {
+        type: 'headers_timeout',
+        message: 'The server sent no response headers within 10 seconds.',
+      },
+    });
+
+    const render = await runPipeline(
+      response('text/html', ARTICLE_HTML, PAGE, linkHeader(alternate)),
+      harness,
+    );
+
+    // The client re-arms the header bound for every request, so the silent
+    // host spent only its own allowance: the call keeps the page render it has
+    // and never asks that candidate again.
+    expect(render.method).toBe('readability');
+    expect(render.content).toContain('## Negotiation');
+    expect(render.finalUrl).toBeUndefined();
+    expect(harness.requested).toEqual([alternate, `${PAGE}.md`]);
+  });
+
+  it('disqualifies a probe that answered a redirect it cannot follow', async () => {
+    const pageUrl = 'https://docs.example.test/a/b/c';
+    const candidate = `${pageUrl}.md`;
+    const harness = makePipeline({
+      [candidate]: {
+        type: 'invalid_redirect',
+        message: 'The server answered with a redirect this tool cannot follow.',
+      },
+      [`${pageUrl}/llms.txt`]: response(
+        'text/markdown',
+        LLMS_TXT,
+        `${pageUrl}/llms.txt`,
+      ),
+    });
+
+    const render = await runPipeline(
+      response('text/html', NAV_ONLY_HTML, pageUrl),
+      harness,
+    );
+
+    // The followable `Location` the response lacked is that candidate's own
+    // defect, so the walk still decides.
+    expect(render.method).toBe('llms-txt');
+    expect(render.content).toBe(LLMS_TXT);
+    expect(harness.requested).toEqual([candidate, `${pageUrl}/llms.txt`]);
+  });
+
   it('probes the suffix of the path, without the page query or fragment', async () => {
     const candidate = 'https://docs.example.test/a/b.md';
     const harness = makePipeline({
@@ -993,6 +1043,30 @@ describe('renderWebContent', () => {
 
     expect(result).toStrictEqual(failure);
   });
+
+  it.each([
+    ['call_timeout', 'The web read exceeded its 30-second budget.'],
+    ['too_many_redirects', 'The read followed more than 20 redirects.'],
+  ])(
+    'fails the call when the alternate probe answers %s',
+    async (type, message) => {
+      const alternate = `${PAGE}.md`;
+      const failure: WebFetchFailure = { type, message };
+      const harness = makePipeline({ [alternate]: failure });
+
+      const result = await renderWebContent(
+        response('text/html', ARTICLE_HTML, PAGE, linkHeader(alternate)),
+        { raw: false },
+        harness.deps,
+      );
+
+      // The probe spent a bound of the call itself, so the call ends at the
+      // first probe and the page render it already holds is not what it
+      // reports.
+      expect(result).toStrictEqual(failure);
+      expect(harness.requested).toEqual([alternate]);
+    },
+  );
 
   it.each([
     [

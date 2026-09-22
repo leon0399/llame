@@ -130,14 +130,16 @@ The substrate, on current `master`:
   locator is the `Location` value resolved against the redirecting request's
   URL by the WHATWG URL parser and serialized as its `href` (lowercase
   punycode host, default port dropped, empty path as `/`, path and query
-  percent-encoded, fragment retained); a redirect without a parsable
-  `Location`, or a resolved locator with userinfo or a non-`http(s)` scheme,
-  fails the call with `invalid_redirect` before any request and without
-  repeating the target. Every derived locator (a hop, an announced alternate,
-  a suffix candidate, an `llms.txt` candidate) is evaluated against the
-  `read` permission group before its request through the same evaluator and
-  projection the call used, as if the model had submitted it: a rejected hop
-  ends the call with a `permission_denied` error whose message is a fixed
+  percent-encoded, fragment dropped before admission and before the request);
+  a redirect without a parsable `Location`, or a resolved locator with
+  userinfo or a non-`http(s)` scheme, fails with `invalid_redirect` before any
+  request and without repeating the target; on the call's own request it ends
+  the read, while a probe's own redirect disqualifies only that candidate.
+  Every derived locator (a hop, an announced alternate, a suffix candidate, an
+  `llms.txt` candidate) is evaluated against the `read` permission group before
+  its request through the same evaluator and projection the call used, as if
+  the model had submitted it: a rejected hop ends the call with a
+  `permission_denied` error whose message is a fixed
   template and whose result carries the locator's origin and path as `rejectedUrl`, query and
   fragment removed so a signed query in a `Location` never reaches the
   model, bounded to 2,048 characters with control characters removed (the
@@ -239,10 +241,13 @@ The substrate, on current `master`:
   body cap aborted with `body_too_large`, and no retries. A non-2xx status
   other than a followed redirect status on the first request or a hop fails
   the call with `http_status` naming the status, and a 429 also carries
-  `Retry-After` when present; a probe's non-2xx status or refused content
-  type only disqualifies that candidate,
-  because the suffix probe and the `llms.txt` walk expect 404 as their
-  ordinary answer. Request count per call is bounded: one alternate, one
+  `Retry-After` when present; a probe's own failure — its non-2xx status, a
+  content type the read refuses, an oversized body, a headers timeout, an
+  unfollowable redirect, or a transport failure — disqualifies only that
+  candidate, because the suffix probe and the `llms.txt` walk expect 404 as
+  their ordinary answer. A spent call bound (`call_timeout`,
+  `too_many_redirects`), the caller's abort, and a refused hop end the call
+  from every probe. Request count per call is bounded: one alternate, one
   suffix probe, four `llms.txt` candidates, and 20 redirects in total
   (`too_many_redirects`), so at most 27 requests. Only `http` and `https` are
   admitted, userinfo in the locator fails `invalid_path`, and
@@ -404,9 +409,11 @@ The substrate, on current `master`:
 
 Ordered, for an HTML first response and without `:raw`. Every step requests
 with the same `Accept` header, under the same bounds, headers, per-hop
-admission, and redirect rules as the first request; a probe's non-2xx status
-or refused content type disqualifies that candidate and the pipeline
-continues.
+admission, and redirect rules as the first request; a probe's own failure — its
+non-2xx status, a refused content type, an oversized body, a headers timeout,
+an unfollowable redirect, or a transport failure — disqualifies that candidate
+and the pipeline continues, while a spent call bound, the caller's abort, or a
+refused hop ends the call from every probe.
 
 1. **Negotiation.** The first request sends
    `Accept: text/markdown, text/plain;q=0.9, text/html;q=0.8, */*;q=0.5`. A
@@ -663,6 +670,25 @@ new path.
   persisted beside its error and re-attached on replay; and the
   derived-decision bound is corrected to 26, since the submitted locator is
   decided at the execution gate rather than recorded as a derived decision.
+- v9 (2026-09-22): The `policy` layer's follow-up review round. The
+  candidate-local failure set is completed: a probe's `headers_timeout` and
+  `invalid_redirect` join `http_status`, `unsupported_content_type`,
+  `body_too_large`, and `network_error` as failures that disqualify only that
+  candidate, because the 10-second header bound is re-armed for each request
+  and an unfollowable redirect is that response's own defect; `call_timeout`,
+  `too_many_redirects`, `aborted`, and a hop's `permission_denied` still end
+  the call from every probe, the `llms.txt` walk included, and D3, D7, the
+  pipeline section, the runbook, the tasks file, and the changelog now state
+  that set. D3 no longer says a hop retains its fragment: a hop's fragment is
+  dropped before admission and before the request, as v7 decided. A stored
+  `rejectedUrl` is validated before it is re-attached: only a canonical
+  absolute `http(s)` WHATWG serialization — no userinfo, query, fragment, or
+  control characters, within the 2,048-character bound — on a
+  `permission_denied` error from the native `read` tool passes, enforced when
+  the tool-activity part is built, when it is re-read from the completion
+  payload, and when it is replayed to the model; any other tool or error type
+  is stored and replayed without it, so a mutated stored part cannot inject a
+  locator.
 - v10 (2026-09-22): Review corrections to the delta text, with no behaviour
   change: a selector is split only from a locator carrying no `?` and no `#`,
   so a colon in a query is part of the URL; a probe's redirect is followed

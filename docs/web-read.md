@@ -139,11 +139,15 @@ body when Readability finds no article. A candidate that fails the gate never
 becomes the content, and a fetched candidate is not searched for further
 alternates or suffixes.
 
-A probe answers for itself only: its non-2xx status, refused content type, or
-failed gate disqualifies that candidate and the pipeline continues, because the
-suffix probe and the `llms.txt` walk expect 404 as their ordinary answer. One
-call issues at most one alternate request, one suffix probe, and four
-`llms.txt` candidates; with 20 redirects that is at most 27 requests.
+A probe answers for itself only: its non-2xx status, a content type the read
+refuses, an oversized body, a headers timeout, an unfollowable redirect, a
+transport failure, or a failed gate disqualifies that candidate and the
+pipeline continues, because the suffix probe and the `llms.txt` walk expect 404
+as their ordinary answer. From every probe, the call's own spent bounds — its
+30-second deadline and its 20-hop budget — the caller's abort, and a refused
+hop end the call. One call issues at most one alternate request, one suffix
+probe, and four `llms.txt` candidates; with 20 redirects that is at most 27
+requests.
 
 ## Derived locators and permission admission
 
@@ -168,11 +172,12 @@ clauses:
 
 Redirects are followed on any host for 301, 302, 303, 307, and 308. A redirect
 status without a parsable `Location`, or a hop carrying userinfo or a non-web
-scheme, fails the call with `invalid_redirect` before any request to that
-target, and the error never names it. A fragment is dropped rather than
-refused, before admission and before the request, so the text policy matches
-is exactly the URL the request fetches — which matters when a clause is
-anchored on the locator's exact end, as in the recipe below.
+scheme, fails with `invalid_redirect` before any request to that target, and
+the error never names it; on the call's own request it ends the read, while a
+probe's own redirect disqualifies only that candidate. A fragment is dropped
+rather than refused, before admission and before the request, so the text
+policy matches is exactly the URL the request fetches — which matters when a
+clause is anchored on the locator's exact end, as in the recipe below.
 
 A rejected hop ends the call: the model sees `permission_denied` with a fixed
 message that carries no interpolation, and the result's `rejectedUrl` carries
@@ -267,20 +272,21 @@ challenge; a challenge page is reported in a note instead.
 
 | Bound                         | Value                                                                            |
 | ----------------------------- | -------------------------------------------------------------------------------- |
-| Response headers              | 10 s (`headers_timeout`)                                                         |
+| Response headers              | 10 s per request (`headers_timeout`)                                             |
 | The whole call, every request | 30 s (`call_timeout`)                                                            |
 | Response body                 | 5 MiB streamed (`body_too_large`)                                                |
 | Redirects per call            | 20 (`too_many_redirects`)                                                        |
 | Requests per call             | 27: first, 20 hops, one alternate, one suffix probe, four `llms.txt`             |
-| Retries                       | none — the first failure is the result                                           |
+| Retries                       | none: no request is repeated, and a probe's failure disqualifies its candidate   |
 | Charset                       | `Content-Type` parameter, else a `<meta charset>` in the first 2 KiB, else UTF-8 |
 | Read result                   | the native bound: 16,000 UTF-16 code units, with the web fields reserved first   |
 | Request credentials           | none: no cookie, `Authorization`, or other credential on any request             |
 
 A declared body length above the cap fails before the body is read, and a
 streaming body is aborted at the first chunk past the cap instead of being
-buffered. `Accept-Encoding` is left to the runtime, and every request of a call
-counts against the same 30-second and 5 MiB budgets.
+buffered. `Accept-Encoding` is left to the runtime; every request of a call
+counts against the same 30-second deadline, while the 10-second wait for
+headers and the 5 MiB body cap are each request's own.
 
 Line selectors apply to the rendered text under the native rules: the
 2,000-line default window, context lines, merged ranges, `nextOffset`, and
@@ -303,7 +309,7 @@ Line selectors apply to the rendered text under the native rules: the
 | `too_many_redirects`       | the call exceeded 20 redirects                                                                                                                             |
 | `permission_denied`        | the `read` group refused the submitted locator, or refused a hop — a hop rejection carries `rejectedUrl`                                                   |
 | `aborted`                  | the Run or the caller cancelled the read                                                                                                                   |
-| `network_error`            | the transport failed (DNS, TLS, connection reset) and the call is not retried                                                                              |
+| `network_error`            | the transport failed (DNS, TLS, connection reset); a probe's failure disqualifies only its candidate, and no request is retried                            |
 
 Failures never return partial content: the model sees the error and can
 continue with other work. Only a submitted locator or a redirect hop can fail a
@@ -322,13 +328,14 @@ whole call on permissions; a refused probe only disqualifies its candidate.
 
 ## Troubleshooting
 
-| Symptom                                                | Check                                                                                                                                       |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `permission_denied` with `rejectedUrl`                 | a redirect hop was refused; allow that origin's canonical text, or drop the reject that matched                                             |
-| `permission_denied` without `rejectedUrl`              | the submitted locator matched a reject or no allow; check the group's `path` clauses against the exact locator                              |
-| `invalid_path` naming a spelling                       | resubmit exactly that spelling: uppercase, default port, encoded host, empty path, and fragments are refused                                |
-| `invalid_selector` naming a `%3A` spelling             | the last path segment holds a literal colon; use the suggested encoded locator or a real selector                                           |
-| `unsupported_content_type` naming `application/pdf`    | document reads are not implemented (#916)                                                                                                   |
-| `http_status` 403, or `raw` with a challenge note      | the publisher blocked the client; llame does not rotate its user agent or solve challenges                                                  |
-| `headers_timeout`, `call_timeout`, or `body_too_large` | the origin exceeded a bound; the read is not retried, so point the model at a smaller source                                                |
-| More requests than expected                            | a page with no publisher Markdown costs an alternate, a suffix probe, a render, and sometimes an `llms.txt` walk; `method` names the winner |
+| Symptom                                             | Check                                                                                                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `permission_denied` with `rejectedUrl`              | a redirect hop was refused; allow that origin's canonical text, or drop the reject that matched                                             |
+| `permission_denied` without `rejectedUrl`           | the submitted locator matched a reject or no allow; check the group's `path` clauses against the exact locator                              |
+| `invalid_path` naming a spelling                    | resubmit exactly that spelling: uppercase, default port, encoded host, empty path, and fragments are refused                                |
+| `invalid_selector` naming a `%3A` spelling          | the last path segment holds a literal colon; use the suggested encoded locator or a real selector                                           |
+| `unsupported_content_type` naming `application/pdf` | document reads are not implemented (#916)                                                                                                   |
+| `http_status` 403, or `raw` with a challenge note   | the publisher blocked the client; llame does not rotate its user agent or solve challenges                                                  |
+| `headers_timeout` or `body_too_large`               | that candidate exceeded a bound; a probe is disqualified and the pipeline continues, while the page's own response ends the call            |
+| `call_timeout`                                      | the call spent its 30-second budget across its requests; the read is not retried, so point the model at a smaller source                    |
+| More requests than expected                         | a page with no publisher Markdown costs an alternate, a suffix probe, a render, and sometimes an `llms.txt` walk; `method` names the winner |

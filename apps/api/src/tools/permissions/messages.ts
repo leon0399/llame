@@ -1,4 +1,4 @@
-import { type ToolResult } from '@workspace/runtime-safety';
+import { isString, type ToolResult } from '@workspace/runtime-safety';
 
 import { type PermissionRejectionReason } from './types';
 
@@ -27,7 +27,9 @@ const INPUT_LIMIT =
 export const REJECTED_HOP_MESSAGE =
   'Tool call stopped by operator permissions. A redirect target was refused before its content was read; the refused target is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.';
 
-const REJECTED_URL_BOUND = 2048;
+/** The bound {@link rejectedHopUrl} applies to a refused hop locator before it
+ *  is stored, and the bound every reader of a stored one re-checks. */
+export const REJECTED_URL_BOUND = 2048;
 const CONTROL_CHARACTERS = /\p{Cc}/gu;
 const QUERY_OR_FRAGMENT = /[?#][\s\S]*$/u;
 
@@ -50,6 +52,36 @@ export function rejectedHopUrl(locator: string): string {
   // Strip first: the bound then counts the characters the model will read.
   const cleaned = locator.replace(CONTROL_CHARACTERS, '');
   return originAndPath(cleaned).slice(0, REJECTED_URL_BOUND);
+}
+
+/** Whether `value` is a locator {@link rejectedHopUrl} could have written: an
+ *  absolute `http(s)` URL already in WHATWG serialization, with no userinfo,
+ *  query, fragment, or control characters, within the bound. Every reader of a
+ *  stored `rejectedUrl` renders the value only when this holds and drops
+ *  anything else: a record that fails it was not produced here, so it is not
+ *  echoed to the model. */
+export function isRejectedHopUrl(value: unknown): value is string {
+  if (
+    !isString(value) ||
+    value.length === 0 ||
+    value.length > REJECTED_URL_BOUND ||
+    value !== value.replace(CONTROL_CHARACTERS, '')
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      url.username === '' &&
+      url.password === '' &&
+      url.search === '' &&
+      url.hash === '' &&
+      url.href === value
+    );
+  } catch {
+    return false;
+  }
 }
 
 function originAndPath(locator: string): string {

@@ -22,10 +22,11 @@ import { type ProviderMetadata } from 'ai';
 import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
 import {
-  isStoredRejectedUrl,
+  isHopRejection,
   normalizeToolObservationOutcome,
 } from '../chats/tool-observation-part';
 import { type ToolResult } from '../tools/types';
+import { isRejectedHopUrl } from '../tools/permissions/messages';
 import {
   type PermissionClauseReference,
   type PermissionDecision,
@@ -61,7 +62,8 @@ export type ToolActivityPart = {
    * Unlike `permission` and `derivedDecisions` this is part of the
    * model-visible result, so it follows `errorText` into replay; it is stored
    * as the tool bounded it — origin and path only, control characters
-   * stripped, at most 2,048 characters.
+   * stripped, at most 2,048 characters — and only the native `read` tool's
+   * hop rejection records one.
    */
   errorRejectedUrl?: string;
   /** SDK-supported result metadata marking an error produced by run termination
@@ -324,9 +326,11 @@ export function toolActivityPart(
   if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
     part.derivedDecisions = derivedDecisions;
   }
-  // Beside the stored error the model reads, not the excluded metadata.
+  // Beside the stored error the model reads, not the excluded metadata: only
+  // the native `read` tool's refused hop carries a target, so a result from
+  // any other tool or error type stores none.
   const refusedTarget =
-    result.status === 'error' && result.type === 'permission_denied'
+    result.status === 'error' && isHopRejection(toolName, result.type)
       ? result.rejectedUrl
       : undefined;
   if (refusedTarget !== undefined) part.errorRejectedUrl = refusedTarget;
@@ -473,10 +477,14 @@ function derivedDecisionsFromPayload(
 /**
  * Re-read one `tool.completed` payload's result: the success record as stored,
  * or the error the completion described. Stored jsonb is untrusted on the way
- * back in, so an unreadable record is dropped and only the bounded locator a
- * hop rejection writes is carried into the rebuilt error.
+ * back in, so an unreadable record is dropped and only the exact locator a
+ * hop rejection writes is carried into the rebuilt error — and only when the
+ * call that completed was the native `read` tool's refused hop.
  */
-function toolResultFromPayload(output: unknown): ToolResult | undefined {
+function toolResultFromPayload(
+  output: unknown,
+  toolName: string,
+): ToolResult | undefined {
   if (!isRecord(output)) return undefined;
   const status = output['status'];
   if (status === 'success') return { ...output, status };
@@ -491,7 +499,8 @@ function toolResultFromPayload(output: unknown): ToolResult | undefined {
     status,
     type,
     message,
-    ...(isStoredRejectedUrl(rejectedUrl) && { rejectedUrl }),
+    ...(isHopRejection(toolName, type) &&
+      isRejectedHopUrl(rejectedUrl) && { rejectedUrl }),
   };
 }
 
@@ -578,10 +587,14 @@ class DurableAssistantReconstructor {
       return;
     }
     const request = this.openToolCalls.get(toolCallId);
+    if (!request) {
+      return;
+    }
     const result = toolResultFromPayload(
       eventPayloadField(event.payload, 'output'),
+      request.toolName,
     );
-    if (!request || result === undefined) {
+    if (result === undefined) {
       return;
     }
     this.completedToolCallIds.add(toolCallId);

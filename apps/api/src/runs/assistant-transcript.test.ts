@@ -4,11 +4,12 @@ import {
   toolActivityPart,
   type ToolActivityPart,
 } from './assistant-transcript';
+import { projectToolObservations } from '../chats/tool-observation-part';
 import {
-  STORED_REJECTED_URL_MAX_LENGTH,
-  projectToolObservations,
-} from '../chats/tool-observation-part';
-import { REJECTED_HOP_MESSAGE } from '../tools/permissions/messages';
+  REJECTED_HOP_MESSAGE,
+  REJECTED_URL_BOUND,
+  rejectedHopUrl,
+} from '../tools/permissions/messages';
 import type { RunEvent } from '../db/schema';
 import type { ToolResult } from '../tools/types';
 
@@ -329,6 +330,22 @@ describe('toolActivityPart', () => {
         status: 'error',
         type: 'network_error',
         message: 'failed',
+        rejectedUrl: 'https://blocked.example.test/page',
+      },
+    });
+
+    expect(part).not.toHaveProperty('errorRejectedUrl');
+  });
+
+  it('stores no refused target for another tool that reports a permission denial', () => {
+    const part = toolActivityPart({
+      toolCallId: 'call-1',
+      toolName: 'knowledge_search',
+      input: { query: 'q' },
+      result: {
+        status: 'error',
+        type: 'permission_denied',
+        message: 'rejected',
         rejectedUrl: 'https://blocked.example.test/page',
       },
     });
@@ -765,16 +782,55 @@ describe('reconstructDurableAssistant', () => {
   });
 
   it.each([
-    ['the bound itself', 'a'.repeat(STORED_REJECTED_URL_MAX_LENGTH), true],
+    [
+      'the exact locator a hop rejection writes',
+      rejectedHopUrl('https://blocked.example.test/page?token=secret#frag'),
+      true,
+    ],
+    [
+      'a locator exactly at the bound',
+      `https://blocked.example.test/${'a'.repeat(
+        REJECTED_URL_BOUND - 'https://blocked.example.test/'.length,
+      )}`,
+      true,
+    ],
     ['a non-string value', 42, false],
     ['an empty string', '', false],
     [
       'a value past the bound',
-      'a'.repeat(STORED_REJECTED_URL_MAX_LENGTH + 1),
+      `https://blocked.example.test/${'a'.repeat(REJECTED_URL_BOUND)}`,
+      false,
+    ],
+    [
+      'a locator carrying userinfo',
+      'https://user:secret@blocked.example.test/page',
+      false,
+    ],
+    [
+      'a locator carrying a query',
+      'https://blocked.example.test/page?token=secret',
+      false,
+    ],
+    [
+      'a locator carrying a fragment',
+      'https://blocked.example.test/page#frag',
+      false,
+    ],
+    [
+      'a locator carrying a control character',
+      'https://blocked.example.test/pa\u0007ge',
+      false,
+    ],
+    ['a non-web scheme', 'ftp://blocked.example.test/page', false],
+    ['a relative locator', '/page', false],
+    ['a noncanonical spelling', 'https://BLOCKED.example.test/page', false],
+    [
+      'an explicit default port',
+      'https://blocked.example.test:443/page',
       false,
     ],
   ] as const)(
-    're-reads %s from storage only while it is the bounded locator',
+    're-reads %s from storage only while it is the exact locator a hop rejection writes',
     (_name, rejectedUrl, accepted) => {
       const result = reconstructDurableAssistant([
         event('tool.requested', {
@@ -803,6 +859,33 @@ describe('reconstructDurableAssistant', () => {
           JSON.stringify(projectToolObservations(result.collector.parts())),
         ).not.toContain('rejectedUrl');
       }
+    },
+  );
+
+  it.each([
+    ['another tool', 'knowledge_search', 'permission_denied'],
+    ['another error type', 'read', 'network_error'],
+  ] as const)(
+    're-reads no refused target from a completion recorded for %s',
+    (_name, toolName, type) => {
+      const result = reconstructDurableAssistant([
+        event('tool.requested', { toolCallId: 'call-1', toolName, input: {} }),
+        event('tool.completed', {
+          toolCallId: 'call-1',
+          output: {
+            status: 'error',
+            type,
+            message: 'rejected',
+            rejectedUrl: 'https://blocked.example.test/page',
+          },
+        }),
+      ]);
+      const [part] = result.collector.parts();
+
+      expect(part).not.toHaveProperty('errorRejectedUrl');
+      expect(
+        JSON.stringify(projectToolObservations(result.collector.parts())),
+      ).not.toContain('rejectedUrl');
     },
   );
 

@@ -35,14 +35,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   default port, and a fragment dropped before admission and before the request
   — is evaluated against the `read` group before its request. A redirect
   without a parsable `Location`, or a hop carrying userinfo or a non-web
-  scheme, fails the call with `invalid_redirect` without naming the target, and
-  exceeding 20 hops fails it with `too_many_redirects`. A refused hop ends the
-  call with `permission_denied`, the fixed hop message, and `rejectedUrl`
-  carrying the target's origin and path with query and fragment removed; a
-  refused probe only disqualifies its candidate. Each derived-locator decision
-  is recorded privately beside the call's own when the call settles, with the
-  same policy-instance id, in owner-scoped tool activity and stored tool-part
-  metadata, and never through the model-visible result.
+  scheme, fails with `invalid_redirect` without naming the target, and
+  exceeding 20 hops fails the call with `too_many_redirects`. A refused hop
+  ends the call with `permission_denied`, the fixed hop message, and
+  `rejectedUrl` carrying the target's origin and path with query and fragment
+  removed; a refused probe locator only disqualifies its candidate, as does a
+  probe's own failure — its status, refused content type, oversized body,
+  headers timeout, unfollowable redirect, or failed transport. Each
+  derived-locator decision is recorded privately beside the call's own when the
+  call settles, with the same policy-instance id, in owner-scoped tool activity
+  and stored tool-part metadata, and never through the model-visible result.
 
 - The shipped recommended policy gains two `read.path` rejects: `^http://`,
   which refuses cleartext HTTP, and a grokipedia clause covering subdomains and
