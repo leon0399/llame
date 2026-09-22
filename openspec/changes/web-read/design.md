@@ -615,4 +615,6 @@ new path.
   a refused `Location` never reaches the model; the `fetch` creation gate
   names the `opencode-go-provider` version seam it depends on; finalize
   reconciliation covers both archive orders with `knowledge-submit`; the
-  address-check finding was rejected as the same settled deferral.
+  address-check finding was rejected as the same settled deferral. pullfrog:
+  the port example now follows the empty-path refusal (`https://host:8080`
+  fails `invalid_path` instead of selecting a line).

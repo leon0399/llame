@@ -139,7 +139,9 @@ scheme's own colon is never read as a selector, and the shipped
 trailing-selector split (the last colon after the last slash) governs the
 rest. A locator whose authority ends in a port SHALL therefore carry a path
 after the port (`https://example.test:8080/` is a URL with no selector, while
-`https://example.test:8080` selects line 8080 of `https://example.test`),
+`https://example.test:8080` reads the port as a selector and leaves the
+empty-path locator `https://example.test`, which fails as `invalid_path`
+rather than selecting a line),
 and a literal colon in the last path segment SHALL be written as `%3A`
 (`https://w.example/wiki/Special%3ASearch`), because
 `https://w.example/wiki/Special:Search` fails as `invalid_selector` and
