@@ -116,25 +116,26 @@ locator as its `path` and SHALL fetch it with the API process's own outbound
 HTTP. No other web scheme SHALL be admitted, and `edit` and `write` SHALL
 reject a web locator with `invalid_path` before any request. A submitted web
 locator, after any fragment is cut and its selector is split off, SHALL be
-its own WHATWG URL serialization: a locator whose `href` differs from that
-text (uppercase scheme or host, a percent-encoded or Unicode host, an
-explicit default port, or unencoded path or query characters) SHALL fail with
-`invalid_path` before any request, and the error SHALL name the canonical
-spelling so the model can resubmit it. A locator with no path is the single
-exception: its serialization differs only by the empty path's slash, which
-addresses the same endpoint, so `https://example.test:88` SHALL be admitted
-and requested as `https://example.test:88/`. A host's root dot SHALL be
-dropped before the locator is judged, so `https://example.test./` is refused
-as noncanonical and names `https://example.test/`: the two spell one host, and
-a clause written for it must not be side-stepped by the dotted form. A fragment SHALL be cut before
-anything else reads the locator, because the request drops it anyway; the
-permission decision, every message that names the locator, and the request
-SHALL therefore all use the same fragment-free text, and free text inside a
-fragment SHALL NOT be able to satisfy a clause the requested URL does not.
-Policy SHALL match that canonical text, and every derived locator is
-canonical by construction. A locator carrying userinfo SHALL fail with
-`invalid_path` before any request, so the tool never sends credentials the
-model embedded in a URL. Availability and
+normalized to its WHATWG URL serialization and requested as that text: an
+uppercase scheme or host, a percent-encoded or Unicode host, an explicit
+default port, a host's root dot, an empty path, and unencoded path or query
+characters SHALL each be normalized rather than refused, because none of them
+addresses a different resource and refusing them cost a call that taught the
+model nothing it could carry to the next locator. A fragment SHALL be cut
+before anything else reads the locator, because the request drops it anyway.
+What no normalization can repair SHALL still fail before any request: a text
+that is not a URL, a scheme outside `http` and `https`, a suffix outside the
+selector grammar, and userinfo, which SHALL fail with `invalid_path` so the
+tool never sends credentials the model embedded in a URL, and whose message
+SHALL NOT echo them.
+
+Because the text requested is no longer always the text submitted, the
+permission decision SHALL be taken over both: any reject clause matching
+either the submitted locator or its normalized form SHALL refuse the call, so
+a spelling cannot be arranged to miss a reject, while the allow SHALL be
+decided on the normalized form, because an allow names the resource the call
+will reach and the two texts are one resource. A redirect hop is a different
+resource and SHALL keep being admitted in its own right. Availability and
 restriction for the web SHALL come only from the `read` permission group's
 `path` clauses: a prefix allow admits the web, and a prefix or domain reject
 removes a host. No web tool id, `tools.allowed` entry, configuration block, or
@@ -161,7 +162,7 @@ those: `Search` is outside it, so `https://w.example/wiki/Special:Search`
 fails as `invalid_selector`, while `https://w.example/docs/2024:10` selects
 line 10 and `https://w.example/docs/2024:10-20` lines 10 through 20 of
 `https://w.example/docs/2024`.
-Each of these refusals SHALL name the spelling that would work rather than
+Each refusal that remains SHALL name the spelling that would work rather than
 the rule that was broken: a selector written straight after the authority
 (`https://example.test:1-5`, which is not a URL at all because `1-5` is not a
 port) SHALL be answered with the authority's own serialization carrying that
@@ -193,11 +194,12 @@ it.
 - **THEN** it returns `invalid_path`
 - **AND** no request is issued
 
-#### Scenario: A noncanonical locator is refused before policy can be bypassed
+#### Scenario: A noncanonical spelling is normalized, not refused
 
-- **WHEN** the model reads `https://g%72okipedia.com/page`, `HTTPS://Example.test/guide`, or `https://example.test:443/guide`
-- **THEN** the read returns `invalid_path` naming the canonical spelling (`https://grokipedia.com/page`, `https://example.test/guide`) and issues no request
-- **AND** a reject clause written against the canonical spelling cannot be evaded by an encoded, uppercase, or default-port variant
+- **WHEN** the model reads `https://g%72okipedia.com/page`, `HTTPS://Example.test/guide`, `https://example.test:443/guide`, or `https://example.test./guide`
+- **THEN** the read requests the normalized locator (`https://grokipedia.com/page`, `https://example.test/guide`) without a refusal first
+- **AND** a reject clause written against the canonical spelling still refuses every one of those variants, because the decision is taken over the submitted text and the normalized text alike
+- **AND** a reject clause written against the submitted spelling, such as one naming `%72`, also refuses
 
 #### Scenario: A pathless host reads its port, a path reads its line
 

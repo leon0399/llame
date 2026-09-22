@@ -90,9 +90,13 @@ describe('projectNativeFilePath', () => {
     expect(projectNativeFilePath('https://example.test/guide:10-20')).toBe(
       'https://example.test/guide:10-20',
     );
-    // A locator the read tool will refuse is matched as written.
+    // A spelling the parser normalizes projects to what will be requested.
     expect(projectNativeFilePath('https://EXAMPLE.test/x')).toBe(
-      'https://EXAMPLE.test/x',
+      'https://example.test/x',
+    );
+    // A locator the read tool refuses outright is matched as written.
+    expect(projectNativeFilePath('https://user:secret@example.test/x')).toBe(
+      'https://user:secret@example.test/x',
     );
   });
 

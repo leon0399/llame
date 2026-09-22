@@ -148,6 +148,15 @@ const declaredFieldCache = new WeakMap<Tool, ReadonlySet<string>>();
  * `undefined` means no trusted policy was supplied (a code error); the caller
  * converts it to a fail-closed rejection. The originally submitted `args` are
  * matched, never the schema-defaulted executor copy.
+ *
+ * A native locator is judged twice when normalizing changes it — a web
+ * locator whose host, port, encoding, or fragment the request rewrites, or a
+ * `kb://`/`skill://` locator written in an equivalent spelling. Any reject
+ * that either text matches refuses the call, so a spelling cannot be
+ * arranged to miss a reject clause. The allow comes from the normalized text,
+ * because an allow names the resource the call will actually reach and the
+ * two texts are one resource; a redirect hop is a different resource, which
+ * is why each hop is admitted in its own right instead.
  */
 function evaluateToolPermission(
   tool: Tool,
@@ -157,12 +166,20 @@ function evaluateToolPermission(
 ): PermissionDecision | undefined {
   const policy = context.permissionPolicy;
   if (policy === undefined) return undefined;
-  return evaluatePermission(policy, {
+  const options = {
     toolId: tool.id,
     args,
-    isFlexibleWhitespaceField: (field) => isBashCommandField(tool.id, field),
-    projectFieldValue: nativeFileProjection(tool.id),
+    isFlexibleWhitespaceField: (field: string) =>
+      isBashCommandField(tool.id, field),
     validFields: mcpDeclaredStringFields(tool),
+  };
+  const submitted = evaluatePermission(policy, options);
+  if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
+    return submitted;
+  }
+  return evaluatePermission(policy, {
+    ...options,
+    projectFieldValue: nativeFileProjection(tool.id),
   });
 }
 

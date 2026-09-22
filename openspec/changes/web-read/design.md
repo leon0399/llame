@@ -732,3 +732,18 @@ new path.
   with the generic "write an absolute URL", which is false — the locator is
   absolute — so it now names the port rule, and the selector-miss message
   names `:N` alongside the ranges.
+- v14 (2026-09-22): Normalization replaces refusal, and the permission
+  decision follows the same chain rule redirect hops use. Anything the WHATWG
+  parser can normalize — scheme and host case, an encoded or Unicode host, an
+  explicit default port, a host's root dot, an empty path, unencoded
+  characters, a fragment — is now requested rather than refused, because none
+  of it addresses a different resource and every refusal cost a call. The
+  decision is taken over both texts: a reject matching the submitted spelling
+  or the normalized one refuses, so an encoded host cannot slip past a clause
+  written for the host, while the allow is decided on the normalized text,
+  because an allow names the resource the call will reach and the two spellings
+  are one resource. A redirect hop stays a separate resource with its own
+  allow. A `text/plain` body is no longer sniffed for markup at all: only a
+  declared HTML type is rendered, since guessing structure on a body the
+  publisher called plain text is what discarded all but three lines of a
+  README.

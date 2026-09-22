@@ -1755,7 +1755,7 @@ describe('llame-owned tool description templates', () => {
       selector: '88',
     });
     // And the anchor claim, which the parser answers by dropping it.
-    expect(rendered).toContain('a fragment is dropped');
+    expect(rendered).toContain('a fragment are all handled for you');
     expect(parseWebLocator('https://example.test/guide#install')).toEqual({
       url: 'https://example.test/guide',
     });

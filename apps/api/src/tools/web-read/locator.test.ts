@@ -124,26 +124,16 @@ describe('parseWebLocator', () => {
     });
   });
 
-  it('refuses a noncanonical query locator with its canonical query', () => {
-    const defaultPort = parseWebLocator(
-      'https://example.test:443/path?mode=:raw',
-    );
-    expect(defaultPort).toMatchObject({ type: 'invalid_path' });
-    expect(defaultPort).toHaveProperty(
-      'message',
-      expect.stringContaining('https://example.test/path?mode=:raw'),
-    );
+  it('normalizes a query locator instead of refusing it', () => {
+    // The query survives the normalization: only the parts the parser owns
+    // change, and a colon inside a query is never a selector.
+    expect(parseWebLocator('https://example.test:443/path?mode=:raw')).toEqual({
+      url: 'https://example.test/path?mode=:raw',
+    });
     const spelling = 'https://example.test/search?time=10:30:00';
-    const uppercaseHost = parseWebLocator(
-      'https://Example.test/search?time=10:30:00',
-    );
-    expect(uppercaseHost).toMatchObject({ type: 'invalid_path' });
-    expect(uppercaseHost).toHaveProperty(
-      'message',
-      expect.stringContaining(spelling),
-    );
-    // The query colon stays literal, because encoding it would name a
-    // different URL; the named spelling is admitted on the next attempt.
+    expect(
+      parseWebLocator('https://Example.test/search?time=10:30:00'),
+    ).toEqual({ url: spelling });
     expect(parseWebLocator(spelling)).toEqual({ url: spelling });
   });
 
@@ -196,14 +186,12 @@ describe('parseWebLocator', () => {
     });
   });
 
-  it('keeps a selector in the hint when the URL half needs canonicalizing', () => {
-    // The uppercase host fails the self-serialization test after the split;
-    // naming only the split remainder would drop the `:10-20` the model
-    // asked for, so the hint is the whole locator's serialization and is
-    // admitted as written.
-    expect(parseWebLocator('https://EXAMPLE.test/guide:10-20')).toMatchObject({
-      type: 'invalid_path',
-      message: 'Write this locator as https://example.test/guide:10-20',
+  it('keeps the selector while normalizing the URL half', () => {
+    // The uppercase host is normalized, and the `:10-20` the model asked for
+    // survives that normalization rather than being lost with the refusal.
+    expect(parseWebLocator('https://EXAMPLE.test/guide:10-20')).toEqual({
+      url: 'https://example.test/guide',
+      selector: '10-20',
     });
     expect(parseWebLocator('https://example.test/guide:10-20')).toEqual({
       url: 'https://example.test/guide',
@@ -256,18 +244,17 @@ describe('parseWebLocator', () => {
 
   it('drops a host’s root dot so a host clause cannot be side-stepped', () => {
     // `example.test.` and `example.test` are one host, but the URL parser
-    // keeps the dot, so a reject written for the host would miss it.
+    // keeps the dot, so a clause written for the host would miss it. The
+    // request and the permission decision both use the dotless form.
     expect(parseWebLocator('https://example.test./')).toEqual({
-      type: 'invalid_path',
-      message: 'Write this locator as https://example.test/',
+      url: 'https://example.test/',
     });
     expect(parseWebLocator('https://example.test.')).toEqual({
-      type: 'invalid_path',
-      message: 'Write this locator as https://example.test/',
+      url: 'https://example.test/',
     });
     expect(parseWebLocator('https://example.test./guide:1-5')).toEqual({
-      type: 'invalid_path',
-      message: 'Write this locator as https://example.test/guide:1-5',
+      url: 'https://example.test/guide',
+      selector: '1-5',
     });
   });
 
@@ -310,36 +297,17 @@ describe('parseWebLocator', () => {
     ['https://example.test:443/guide', 'https://example.test/guide'],
     ['https://example.test/a?q=x y', 'https://example.test/a?q=x%20y'],
     ['https://example.test/a b', 'https://example.test/a%20b'],
-  ])(
-    'refuses the noncanonical locator %s with its canonical spelling',
-    (locator, canonical) => {
-      const result = parseWebLocator(locator);
-      expect(result).toMatchObject({ type: 'invalid_path' });
-      expect(result).toHaveProperty(
-        'message',
-        expect.stringContaining(canonical),
-      );
-    },
-  );
-
-  it.each([
+    ['https://example.test./guide', 'https://example.test/guide'],
     ['HTTPS://example.test/guide', 'https://example.test/guide'],
     ['Https://example.test/guide', 'https://example.test/guide'],
     ['HTTP://example.test/guide', 'http://example.test/guide'],
-  ])(
-    'refuses the uppercase scheme in %s with its canonical spelling',
-    (locator, canonical) => {
-      const result = parseWebLocator(locator);
-      expect(result).toMatchObject({ type: 'invalid_path' });
-      expect(result).toHaveProperty(
-        'message',
-        expect.stringContaining(canonical),
-      );
-      // The same locator spelled as the model must submit it is admitted, so
-      // the refusal is the scheme's case and nothing else about the text.
-      expect(parseWebLocator(canonical)).toEqual({ url: canonical });
-    },
-  );
+  ])('normalizes %s to %s and requests that', (locator, canonical) => {
+    // Nothing here changes which resource is addressed, so refusing it cost
+    // a call and taught the model nothing it could carry forward. Permission
+    // matching sees both texts, so an encoded host cannot slip past a reject.
+    expect(parseWebLocator(locator)).toEqual({ url: canonical });
+    expect(parseWebLocator(canonical)).toEqual({ url: canonical });
+  });
 
   it.each([
     'https://user:secret@example.test/guide',
@@ -369,15 +337,11 @@ describe('parseWebLocator', () => {
     }
   });
 
-  it('refuses an uppercase scheme with the whole locator, selector included', () => {
-    // The refusal names the spelling the model resubmits, so it carries the
-    // selector: a hint without it would silently change the requested read.
-    const result = parseWebLocator('HTTPS://example.test/guide:10-20');
-    expect(result).toMatchObject({ type: 'invalid_path' });
-    expect(result).toHaveProperty(
-      'message',
-      expect.stringContaining('https://example.test/guide:10-20'),
-    );
+  it('normalizes an uppercase scheme with the whole locator, selector included', () => {
+    expect(parseWebLocator('HTTPS://example.test/guide:10-20')).toEqual({
+      url: 'https://example.test/guide',
+      selector: '10-20',
+    });
   });
 
   it('refuses a non-web scheme and a degenerate locator', () => {

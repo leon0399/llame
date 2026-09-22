@@ -463,15 +463,18 @@ export function renderWebDocument(
 
 /**
  * The client lowercases the media type but keeps the header's parameters.
- * `application/xhtml+xml` is HTML, and so is a `text/plain` body shaped like
- * markup; every other accepted type — JSON, XML (including a `+xml` suffix),
- * and other `text/*` — is returned unchanged as text.
+ * Only `text/html` and `application/xhtml+xml` are rendered: a conversion
+ * guesses at structure, and guessing on a body the publisher declared as
+ * plain text costs more than it returns — a Markdown file that opens with a
+ * block of inline HTML was extracted down to three lines. `text/markdown`
+ * and `text/plain` are the publisher's own text, and every other accepted
+ * type — JSON, XML (including a `+xml` suffix), and other `text/*` — is
+ * returned unchanged as text.
  */
 function bodyPath(response: WebResponse): BodyPath {
   const mediaType = response.contentType.split(';', 1)[0].trim().toLowerCase();
-  if (mediaType === 'text/markdown') return 'negotiated';
-  if (mediaType === 'text/plain') {
-    return HTML_MARKUP_START.test(response.body) ? 'html' : 'negotiated';
+  if (mediaType === 'text/markdown' || mediaType === 'text/plain') {
+    return 'negotiated';
   }
   if (mediaType === 'text/html' || mediaType === 'application/xhtml+xml') {
     return 'html';

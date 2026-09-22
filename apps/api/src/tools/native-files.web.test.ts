@@ -233,13 +233,13 @@ describe('web locator dispatch', () => {
     ['Https://example.test/guide', 'https://example.test/guide'],
     ['HTTP://example.test/guide', 'http://example.test/guide'],
   ])(
-    'refuses the uppercase-scheme locator %s before any request',
+    'dispatches the uppercase-scheme locator %s to %s',
     async (path, canonical) => {
       const result = await nativeReadTool.execute(webContext(), { path });
 
-      expect(result).toMatchObject({ status: 'error', type: 'invalid_path' });
-      expect(JSON.stringify(result)).toContain(canonical);
-      expect(fetchDouble).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ status: 'success', path: canonical });
+      expect(fetchDouble).toHaveBeenCalledTimes(1);
+      expect(fetchDouble.mock.calls[0]?.[0]).toBe(canonical);
     },
   );
 

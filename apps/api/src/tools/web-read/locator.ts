@@ -136,13 +136,6 @@ function lowerFirst(text: string): string {
 }
 
 /**
- * The two admitted schemes, as the model must spell them. The submitted text
- * is the text policy matched, so a scheme written in any other case is a
- * locator that is not its own serialization rather than one to lower-case.
- */
-const WEB_SCHEME_PREFIX = /^(?:https?):\/\//u;
-
-/**
  * The hint for a locator the URL parser rejected outright. Two of those are
  * worth naming rather than answering with "write an absolute URL", which
  * tells a model that wrote a nearly correct locator nothing: a selector
@@ -181,17 +174,20 @@ function unparsableLocator(text: string): WebLocatorError {
 }
 
 /**
- * Parse one submitted locator. The fragment the request would drop is cut
- * first, so one fragment-free text is what policy matched, what a message
- * names, and what is requested. `invalid_path` then covers a locator that is
- * not its own WHATWG serialization — including a scheme the model spelled in
- * uppercase, which the URL parser would silently lower-case — a non-web
- * scheme, and userinfo; a suffix outside the selector grammar is the caller's
- * `invalid_selector`. A locator with no path is the one relaxation: its
- * serialization differs only by the empty path's slash, which changes no
- * endpoint, so `https://example.test:88` is admitted and requested as
- * `https://example.test:88/` — its `88` is the port, while the `88` of
- * `https://example.test/:88` is line 88.
+ * Parse one submitted locator into the URL the request will use. Anything the
+ * WHATWG parser can normalize — an uppercase scheme or host, an explicit
+ * default port, a host's root dot, an encoded or Unicode host, unencoded path
+ * and query characters, a fragment the request drops — is normalized rather
+ * than refused, because refusing it cost a call and taught a model nothing it
+ * could carry to the next locator. What is refused is what no normalization
+ * can fix: a text that is not a URL, a scheme that is not `http`/`https`, a
+ * suffix outside the selector grammar, and userinfo, which the tool must
+ * never send. Permission matching sees both texts, so a spelling cannot be
+ * arranged to miss a reject clause.
+ *
+ * A colon opens a selector only after the path separator, so
+ * `https://example.test:88` is port 88 while `https://example.test/:88` is
+ * line 88.
  */
 export function parseWebLocator(
   submitted: string,
@@ -206,29 +202,11 @@ export function parseWebLocator(
       ? unparsableLocator(text)
       : admitted;
   }
-  // Read from the submitted text, never from a scheme the dispatcher
-  // lower-cased: policy matched that text, so an uppercase scheme is refused
-  // here, naming the spelling the model should resubmit.
-  if (!WEB_SCHEME_PREFIX.test(text)) {
-    return {
-      type: 'invalid_path',
-      message: `Write this locator as ${admitted.href}`,
-    };
-  }
   const { url, selector } = splitSelector(text);
-  // And admitted again after it, because only the URL that will actually be
-  // requested may reach policy or the network.
+  // The URL half is parsed in its own right, because that is the text the
+  // request and the permission decision use.
   const target = parseWebUrl(url);
   if ('type' in target) return target;
-  if (target.href !== url && target.href !== `${url}/`) {
-    // Name the whole submitted locator's serialization, not the split
-    // remainder's: a hint built from the remainder would drop text the model
-    // wrote and can send the next request somewhere else.
-    return {
-      type: 'invalid_path',
-      message: `Write this locator as ${admitted.href}`,
-    };
-  }
   if (selector !== undefined && !isSelectorSuffix(selector)) {
     return {
       type: 'invalid_selector',

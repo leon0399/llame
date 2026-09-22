@@ -217,10 +217,11 @@ describe('shipped example configuration', () => {
       ['read', { path: 'https://grokipedia.com./page' }, EXPLICIT_REJECT],
       ['read', { path: 'https://en.grokipedia.com/page' }, EXPLICIT_REJECT],
       ['read', { path: 'https://docs.example.com/guide:raw' }, ALLOW],
-      // Policy performs no URL normalization: a noncanonical spelling matches
-      // no reject and is refused later by the tool itself instead.
-      ['read', { path: 'https://g%72okipedia.com/page' }, ALLOW],
-      ['read', { path: 'HTTPS://Grokipedia.com/page' }, ALLOW],
+      // A web locator is matched as the read tool parses it, so a spelling
+      // cannot be arranged to miss the reject that names its host.
+      ['read', { path: 'https://g%72okipedia.com/page' }, EXPLICIT_REJECT],
+      ['read', { path: 'HTTPS://Grokipedia.com/page' }, EXPLICIT_REJECT],
+      ['read', { path: 'https://grokipedia.com:443/page' }, EXPLICIT_REJECT],
       ['mcp__docs__fetch', { url: 'https://example.test' }, NO_ALLOW],
     ];
 
@@ -265,9 +266,10 @@ describe('shipped example configuration', () => {
     ]) {
       expect(decisionFor(path)).toMatchObject(ALLOW);
     }
+    // A spelling of the allowed authority is the allowed resource.
+    expect(decisionFor('https://DOCS.example.com/guide')).toMatchObject(ALLOW);
     for (const path of [
       'https://other.example/guide',
-      'https://DOCS.example.com/guide',
       '/etc/hosts',
       'kb://SPACE/notes/a.md',
     ]) {

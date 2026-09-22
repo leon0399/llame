@@ -66,23 +66,35 @@ lines 10 through 20 of the rendered text with the ordinary context, range, and
 truncation rules. The grammar is the shipped one — `raw`, `raw:N`, `raw:N-M`,
 `N`, `N-M`, `N+K`, and comma-separated lists of those.
 
-The text before the selector must be its own WHATWG URL serialization. A
-noncanonical spelling fails with `invalid_path` before any request, and the
-message names the spelling to resubmit:
+The URL is normalized to the text the request will use. An uppercase scheme
+or host, a percent-encoded or Unicode host, an explicit default port, a host's
+root dot, an empty path, an unencoded space, and a fragment are each
+normalized rather than refused, and the result's `path` reports the locator
+that was fetched:
 
-| Submitted                            | Refused because          | The message names             |
-| ------------------------------------ | ------------------------ | ----------------------------- |
-| `HTTPS://Example.test/guide`         | uppercase scheme or host | `https://example.test/guide`  |
-| `https://g%72okipedia.com/page`      | percent-encoded host     | `https://grokipedia.com/page` |
-| `https://example.test:443/guide`     | explicit default port    | `https://example.test/guide`  |
-| `https://example.test./`             | host root dot            | `https://example.test/`       |
-| `https://example.test/a b`           | unencoded path character | `https://example.test/a%20b`  |
-| `https://user:secret@example.test/x` | userinfo                 | nothing from the locator      |
-| `ftp://example.test/guide`           | non-web scheme           | an absolute `http(s)://` URL  |
+| Submitted                            | Requested                     |
+| ------------------------------------ | ----------------------------- |
+| `HTTPS://Example.test/guide`         | `https://example.test/guide`  |
+| `https://g%72okipedia.com/page`      | `https://grokipedia.com/page` |
+| `https://example.test:443/guide`     | `https://example.test/guide`  |
+| `https://example.test./guide`        | `https://example.test/guide`  |
+| `https://example.test/a b`           | `https://example.test/a%20b`  |
+| `https://example.test/guide#install` | `https://example.test/guide`  |
 
-Because the admitted spelling is the requested spelling, a clause written
-against a canonical host cannot be evaded by an encoded, uppercase, or
-default-port variant of it.
+What no normalization can repair is still refused before any request, each
+with the spelling that would work: a text that is not a URL, a scheme outside
+`http` and `https`, a suffix outside the selector grammar, and userinfo
+(`https://user:secret@example.test/x`), whose message never echoes the
+credential.
+
+Because the requested text is not always the submitted text, the permission
+decision is taken over both. A reject clause matching either refuses the call,
+so a reject naming `grokipedia.com` catches `https://g%72okipedia.com/page`,
+`https://GROKIPEDIA.com/page`, `https://grokipedia.com:443/page`, and
+`https://grokipedia.com./page` alike — and a clause naming `%72` catches the
+encoded spelling itself. The allow is decided on the requested text, because
+an allow names a resource and those spellings are one resource; a redirect hop
+is a different resource, so it still earns its own allow.
 
 A colon is read as a selector only after the path separator, which decides the
 two readings of `:N`:
@@ -184,10 +196,10 @@ It inherits nothing from the admitted call or from an earlier derived locator.
 The two forms policy sees differ, and the difference matters when you write
 clauses:
 
-- A submitted locator is matched as the read tool itself parses it, selector
-  included: its fragment cut and a pathless host carrying the slash its
-  request carries. Nothing else is normalized, which is why the tool refuses
-  noncanonical spellings instead of admitting text the request would rewrite.
+- A locator is matched twice: as the model submitted it, and as the read tool
+  parses it — fragment cut, host, port, and encoding normalized, selector
+  kept. A reject matching either refuses the call; the allow is decided on the
+  parsed text, which is the one the request uses.
 - A hop locator is the `Location` value resolved against the redirecting
   request's URL and serialized by the WHATWG parser as its `href`, with any
   fragment dropped: lowercase host, an internationalized host as punycode, a
@@ -322,7 +334,7 @@ Line selectors apply to the rendered text under the native rules: the
 
 | Error type                 | Meaning                                                                                                                                                    |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalid_path`             | the locator is not an absolute web URL, is not its own serialization, carries userinfo, or targets `edit` or `write`                                       |
+| `invalid_path`             | the locator is not an absolute web URL, has a port that is not a number, carries userinfo, or targets `edit` or `write`                                    |
 | `invalid_selector`         | the split-off suffix is outside the shipped selector grammar, such as an unencoded colon in the last segment                                               |
 | `executor_unavailable`     | instance configuration resolved no boot-time version for `User-Agent: llame/<version>`                                                                     |
 | `headers_timeout`          | no response headers arrived within 10 seconds                                                                                                              |
@@ -357,7 +369,7 @@ whole call on permissions; a refused probe only disqualifies its candidate.
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `permission_denied` with `rejectedUrl`              | a redirect hop was refused; allow that origin's canonical text, or drop the reject that matched                                             |
 | `permission_denied` without `rejectedUrl`           | the submitted locator matched a reject or no allow; check the group's `path` clauses against the exact locator                              |
-| `invalid_path` naming a spelling                    | resubmit exactly that spelling: uppercase, default port, and encoded hosts are refused                                                      |
+| `invalid_path` naming a spelling                    | the locator is not a URL; resubmit exactly the spelling the message names                                                                   |
 | `invalid_selector` naming a `%3A` spelling          | the last path segment holds a literal colon; use the suggested encoded locator or a real selector                                           |
 | `unsupported_content_type` naming `application/pdf` | document reads are not implemented (#916)                                                                                                   |
 | `http_status` 403, or `raw` with a challenge note   | the publisher blocked the client; llame does not rotate its user agent or solve challenges                                                  |

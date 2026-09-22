@@ -287,24 +287,18 @@ describe('renderWebDocument', () => {
     expect(render.content).not.toContain('<article>');
   });
 
-  it('renders a text/plain body that is HTML-shaped', () => {
-    const render = renderWebDocument(
-      response('text/plain', PLAIN_SERVED_HTML),
-      {
-        raw: false,
-      },
-    );
+  it('returns a text/plain body as served, whatever it looks like', () => {
+    // Rendering guesses at structure, and guessing on a body the publisher
+    // declared as plain text costs more than it returns: only a declared
+    // HTML type is rendered, so an HTML document served as `text/plain` is
+    // returned as its own text and a Markdown file that opens with an inline
+    // block keeps every line.
+    const html = renderWebDocument(response('text/plain', PLAIN_SERVED_HTML), {
+      raw: false,
+    });
+    expect(html.method).toBe('negotiated');
+    expect(html.content).toBe(PLAIN_SERVED_HTML);
 
-    expect(render.method).toBe('readability');
-    expect(render.content).toContain('## Rendered from a text/plain response');
-    expect(render.content).toContain('renders its main content instead');
-    expect(render.content).not.toContain('<article>');
-  });
-
-  it('keeps a text/plain Markdown file that opens with an HTML block', () => {
-    // The Rust README opens with `<div align="center">` and is served as
-    // `text/plain`. Reading the first tag as "this is a document" sent it
-    // through Readability, which kept three lines of a 200-line file.
     const readme = [
       '<div align="center">',
       '  <img src="logo.svg" alt="Logo">',
@@ -316,11 +310,9 @@ describe('renderWebDocument', () => {
       'what a real README has after its banner block and what the reader must',
       'return untouched rather than extract.',
     ].join('\n');
-
     const render = renderWebDocument(response('text/plain', readme), {
       raw: false,
     });
-
     expect(render.method).toBe('negotiated');
     expect(render.content).toBe(readme);
   });
