@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-22
 
+- A turn's parallel tool calls replay as the one assistant message they were
+  generated as, carrying its reasoning, its text, and every call it made,
+  followed by one tool message per result (#925). Stored parts carry no step
+  boundary, so the replay previously emitted a separate message per call and
+  gave the turn's reasoning to only the first; a backend that requires
+  `reasoning_content` beside `tool_calls` in thinking mode rejected the rest,
+  which left a chat whose turn called tools in parallel unable to continue.
+  Reasoning or text recorded after a step's calls still opens the next step,
+  so stored order is unchanged.
+
 - The native `read` tool reads the web: an absolute `http://` or `https://`
   locator is now a fourth `read` target beside absolute paths, `kb://`, and
   `skill://` (#913). The read is fetched by the API process's own outbound HTTP
@@ -60,6 +70,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   is cached, so a selector read refetches (#915); no address is inspected
   before connecting (#914); and PDF and image bodies stay refused with their
   type named (#916). Operator runbook: [docs/web-read.md](docs/web-read.md).
+  ||||||| parent of af7a381b (docs(changelog): record the step-shaped replay fix)
 
 # 2026-09-21
 
