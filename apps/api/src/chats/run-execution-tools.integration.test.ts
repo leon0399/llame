@@ -2242,19 +2242,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
         content: [{ type: 'text', text: 'Old visible request.' }],
       },
       {
-        // The persisted reasoning part is replayed unchanged, in its stored
-        // position ahead of the answer it preceded: a continuation of the same
-        // Chat carries that Chat's reasoning even across a model switch, and
-        // llame neither coerces nor prunes it for the target model.
+        // One model step is one assistant message: the persisted reasoning is
+        // replayed unchanged, in its stored position ahead of the answer and
+        // the call it preceded, so a continuation of the same Chat carries
+        // that Chat's reasoning beside the call it produced even across a
+        // model switch, and llame neither coerces nor prunes it for the
+        // target model.
         role: 'assistant',
         content: [
           { type: 'reasoning', text: 'SECRET REASONING ARTIFACT' },
           { type: 'text', text: 'Old visible answer.' },
-        ],
-      },
-      {
-        role: 'assistant',
-        content: [
           expect.objectContaining({
             type: 'tool-call',
             toolCallId: 'old-call',
