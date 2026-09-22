@@ -318,7 +318,7 @@ Tool call stopped by operator permissions. A redirect target was refused before 
 #### Scenario: A rejected hop is recorded with the call's policy identity
 
 - **WHEN** a redirect hop is refused during an admitted web read
-- **THEN** the tool activity and stored tool-part metadata record that hop's reject decision with the same policy-instance ID, static reason, and clause reference the call decision carries
+- **THEN** the tool activity and stored tool-part metadata record that hop's reject decision with the same policy-instance ID as the call decision and the hop's own static reason and clause reference
 - **AND** the record is stored when the call settles and carries no policy body, matched fragment, or resolved secret
 
 #### Scenario: A hop rejection is an error the model can continue from

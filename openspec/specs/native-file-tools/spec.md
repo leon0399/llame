@@ -928,11 +928,17 @@ present) on the first request, or on a
 redirect hop, SHALL fail the call with `http_status` naming the status; a 429
 SHALL additionally carry the `Retry-After` value when the response supplies
 one. A status error SHALL NOT return the response body and SHALL NOT report
-response headers other than that `Retry-After` delay. A probe request (an
-alternate, a suffix candidate, or an `llms.txt` candidate) that answers a
-non-2xx status or a refused content type SHALL disqualify only that
-candidate, and the pipeline SHALL continue; a probe whose redirects exhaust
-the call's redirect budget SHALL fail the call with `too_many_redirects`. A
+response headers other than that `Retry-After` delay. A redirect answer to a
+probe request SHALL be followed under the shared redirect rules before any
+terminal status is judged. A probe request (an
+alternate, a suffix candidate, or an `llms.txt` candidate) whose terminal
+response answers a non-2xx status, or a refused content type, or which fails
+on a bound of its own (a headers timeout, an oversized body, a transport
+failure, or a redirect it cannot follow), SHALL disqualify only that
+candidate, and the pipeline SHALL continue; a probe that exhausts the call's
+deadline or its redirect budget SHALL fail the call, while a refusal inside
+a probe's own redirect chain disqualifies only that candidate, as a refused
+probe locator does. A
 call SHALL issue at most one alternate request, one suffix-probe request,
 and four `llms.txt` requests, and SHALL follow at most 20 redirects in total
 across all of its requests.
@@ -1039,10 +1045,10 @@ are shorter than 40 characters. Every derived locator, meaning an alternate,
 a suffix candidate, an `llms.txt` candidate, or a redirect hop, SHALL be
 evaluated against the `read` permission group before its request through
 the same evaluator and the same projection the call used, as if the model
-had submitted it; a rejected probe locator SHALL disqualify that candidate
-without failing the call and its decision SHALL be recorded like a hop
-decision, so a hostile page cannot make a read of itself fail by announcing
-a refused alternate. A probe request SHALL send the same `Accept` header and
+had submitted it; a rejected probe locator, or a rejected hop inside a
+probe's own redirect chain, SHALL disqualify that candidate without failing
+the call and its decision SHALL be recorded like a hop decision, so a hostile
+page cannot make a read of itself fail by announcing a refused alternate. A probe request SHALL send the same `Accept` header and
 SHALL count against the call's total time, body, request, and redirect
 bounds; its non-2xx status or refused content type disqualifies the
 candidate without failing the call. A candidate that fails the gate SHALL
