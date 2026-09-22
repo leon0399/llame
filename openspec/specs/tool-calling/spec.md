@@ -73,11 +73,14 @@ and retry policy. Classification alone SHALL NOT admit any other write or
 execution tool. Alpha-native tools carry explicit host authority for absolute paths and
 owner-scoped Knowledge authority for `kb://` locators; they are not a general
 permission engine or a remote MCP write grant. The candidate resolver SHALL admit
-the three native tools when the process has accepted native host authority or
+`edit` and `write` when the process has accepted native host authority or
 has a configured Knowledge root, and SHALL leave them unavailable when it has
-neither. A configured Knowledge root admits only `read`, `edit`, and `write`;
-`bash` and every other host-capability tool remain admitted solely by accepted
-native host authority.
+neither. It SHALL admit `read` whenever `tools.allowed` names it, because
+skill and web locators need no host authority; an absolute path on a process
+without accepted native authority still fails closed with
+`executor_unavailable`. A configured Knowledge root admits only `read`,
+`edit`, and `write`; `bash` and every other host-capability tool remain
+admitted solely by accepted native host authority.
 
 The `mcp__` tool-id prefix SHALL be reserved for ids produced by the MCP
 capability. A code-owned or other non-MCP registry entry beginning with that
@@ -101,6 +104,12 @@ grant authority across source kinds.
 - **THEN** the three tools are advertised for `kb://` locators
 - **AND** each call executes only when its `tools.permissions` policy allows it; without a matching allow the call receives `permission_denied`
 - **AND** an absolute path fails closed with `executor_unavailable`
+
+#### Scenario: Read is admitted by the allowlist alone
+
+- **WHEN** a process has no `tools.nativeExecutorId` and no configured Knowledge root, and allowlists `read`, `edit`, and `write`
+- **THEN** `read` is advertised and serves web locators under its permission policy
+- **AND** `edit` and `write` are neither advertised nor executable, and an absolute-path `read` fails closed with `executor_unavailable`
 
 #### Scenario: Knowledge root does not admit bash
 

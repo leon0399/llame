@@ -21,10 +21,10 @@ rather than inheriting one. A hop locator is the `Location` value resolved
 against the redirecting request's URL by the WHATWG URL parser and serialized
 as its `href`, so it is canonical in the same way (lowercase host,
 internationalized host as punycode, default port dropped, empty path as `/`,
-path and query percent-encoded, fragment retained). A derived locator is
-decided through the same evaluator and the same projection, with no trusted
-context and no relaxation carried over from the admitted call or from an
-earlier derived locator.
+path and query percent-encoded, fragment dropped so the matched text is the
+URL the next request uses). A derived locator is decided through the same
+evaluator and the same projection, with no trusted context and no relaxation
+carried over from the admitted call or from an earlier derived locator.
 
 Known incompatible code-owned fields SHALL fail configuration validation. If an exact MCP rule targets a field absent from or incompatible with its currently admitted input declaration, the call SHALL fail closed with a safe policy diagnostic, without changing tool visibility or silently dropping the clause. This applies to both allow and reject field clauses. No field semantics SHALL be inferred from arbitrary MCP names.
 
