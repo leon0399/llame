@@ -63,6 +63,15 @@ const CHALLENGE_MAX_CHARS = 1024;
 
 const SHORT_LINE_CHARS = 40;
 const SHORT_LINE_RATIO = 0.7;
+/**
+ * The short-line ratio judges shape, which is the whole story only for a
+ * small render: navigation chrome, a link list, a cookie wall. A render that
+ * carries this many substantial lines is a document whatever its ratio — a
+ * reference page of short code lines and table rows reaches 88 percent short
+ * lines — and the fallback it would be sent to is the raw HTML of the same
+ * page, which is never the better answer for one.
+ */
+const SUBSTANTIAL_LINES = 40;
 
 const CONVERSION_NOTE =
   'The page could not be converted to Markdown; the response body is returned unchanged.';
@@ -560,6 +569,7 @@ function isLowQuality(text: string): boolean {
   const shortLines = lines.filter(
     (line) => line.trim().length < SHORT_LINE_CHARS,
   ).length;
+  if (lines.length - shortLines >= SUBSTANTIAL_LINES) return false;
 
   return shortLines / lines.length > SHORT_LINE_RATIO;
 }

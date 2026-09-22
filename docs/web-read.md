@@ -90,14 +90,22 @@ Two consequences of the shipped trailing-colon split are worth memorizing:
   port. `https://example.test:8080/` is a URL with no selector, while
   `https://example.test:8080` reads `8080` as a selector and leaves an
   empty-path locator that is not canonical, so the call fails as `invalid_path`
-  naming `https://example.test/`. Write the trailing slash to read the port.
+  naming `https://example.test:8080/` — the port is kept, so the named
+  spelling never points at another endpoint.
+- A selector written straight after the authority is not a URL at all:
+  `https://example.test:1-5` has `1-5` where a port belongs. The refusal names
+  `https://example.test/:1-5`, the same selector on the serialized authority.
 - A literal colon in the last path segment is written `%3A`:
   `https://w.example/wiki/Special%3ASearch`. `https://w.example/wiki/Special:Search`
   and `https://w.example/docs/2024:10` split at the colon and fail with
   `invalid_selector`, because `Search` and a bare line number are outside the
-  grammar; the message shows the encoded respelling, and
-  `https://w.example/docs/2024:10-20` selects lines 10 through 20 of
-  `https://w.example/docs/2024`.
+  grammar; `https://w.example/docs/2024:10-20` selects lines 10 through 20 of
+  `https://w.example/docs/2024`. A suffix of bare line numbers is answered
+  with the range forms first (`:1` suggests `:1-1`) and the `%3A` spelling
+  second, since that model asked for a line, not a path.
+- A selector the render cannot serve — past the end, or empty — fails as
+  `invalid_selector` reporting how many lines the page rendered, which is the
+  one fact the model could not know before reading it.
 
 A trailing separator stays inside the URL: `https://example.test/guide/` is
 fetched as written and is never read as a directory request.
@@ -131,7 +139,12 @@ The first candidate that passes the quality gate wins and ends the search. The
 gate requires more than 100 non-whitespace characters, requires a Markdown
 candidate not to be HTML-shaped, and rejects a low-quality body: under 1,024
 characters and containing a JavaScript or captcha phrase, or more than 70
-percent of its non-blank lines shorter than 40 characters. An `llms.txt`
+percent of its non-blank lines shorter than 40 characters while fewer than 40
+lines reach that length. The second clause is what keeps a reference page —
+the CommonMark spec renders 6,821 lines, 88 percent of them short — out of the
+raw fallback: a render with 40 substantial lines is a document whatever its
+shape, and the raw HTML of the same page is never the better answer. An
+`llms.txt`
 candidate is judged on length and shape only, because an index file is short
 link lines by construction. `readability` is Readability's main-content
 extraction converted to Markdown with GFM tables, and it converts the whole

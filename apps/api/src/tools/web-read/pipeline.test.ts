@@ -462,6 +462,20 @@ describe('passesQualityGate', () => {
     expect(passesQualityGate(lines(2))).toBe(false);
   });
 
+  it('keeps a long document whose lines are mostly short', () => {
+    // A reference page — the CommonMark spec renders 6821 non-blank lines,
+    // 88 percent of them under 40 characters — is a document, not chrome, and
+    // the fallback would be the raw HTML of the same page. The exemption is
+    // 40 substantial lines: 39 long lines among 400 short ones still fail.
+    const document = (longCount: number): string =>
+      [
+        ...Array.from({ length: longCount }, () => LONG_LINE),
+        ...Array.from({ length: 400 }, () => SHORT_LINE),
+      ].join('\n');
+    expect(passesQualityGate(document(40))).toBe(true);
+    expect(passesQualityGate(document(39))).toBe(false);
+  });
+
   it('counts only lines that hold text', () => {
     // Seven short and three long lines are exactly 70 percent short, so the
     // text passes; a blank line counted as a short line would tip it over.

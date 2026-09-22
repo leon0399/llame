@@ -159,6 +159,15 @@ admits only `raw`, `raw:N-M`, `N-M`, `N+K`, and comma lists of those:
 `https://w.example/wiki/Special:Search` and `https://w.example/docs/2024:10`
 both fail as `invalid_selector` (`https://w.example/docs/2024:10-20` selects
 lines 10 through 20 of `https://w.example/docs/2024`).
+Each of these refusals SHALL name the spelling that would work rather than
+the rule that was broken: a selector written straight after the authority
+(`https://example.test:1-5`, which is not a URL at all because `1-5` is not a
+port) SHALL be answered with the authority's own serialization carrying that
+selector (`https://example.test/:1-5`); a suffix of bare line numbers
+(`:1`, `:12+`) SHALL be answered with the range forms first and the literal
+colon's encoding second; and a selector the render could not serve — past its
+end, or with no line in it — SHALL be answered with the number of lines the
+page rendered, which the model cannot know before reading it.
 
 #### Scenario: A web locator is fetched by the API process
 
@@ -202,6 +211,19 @@ lines 10 through 20 of `https://w.example/docs/2024`).
 - **THEN** the read fails with `invalid_selector` and issues no request, because the split-off suffix is present but outside the grammar (`Search` is not a selector, and there is no bare line number)
 - **AND** `https://w.example/wiki/Special%3ASearch` is fetched as written and `https://w.example/docs/2024:10-20` selects lines 10 through 20 of `https://w.example/docs/2024`
 - **AND** a locator whose split leaves a text that is not its own serialization, such as `https://example.test:8080` (the port is read as the suffix and `https://example.test` serializes as `https://example.test/`), fails with `invalid_path` naming the canonical form instead
+
+#### Scenario: A refused locator names the spelling that works
+
+- **WHEN** the model reads `https://example.test:1-5`, which no URL parser accepts
+- **THEN** the read returns `invalid_path` naming `https://example.test/:1-5`, and resubmitting that reads lines 1 through 5 of the page
+- **AND** reading `https://example.test/guide:1` returns `invalid_selector` naming the `:N-M` and `:N+K` forms before the `%3A` spelling
+- **AND** a suffix outside the grammar with no line numbers in it, such as `https://w.example/wiki/Special:Search`, still names only the encoded spelling
+
+#### Scenario: A selector the page cannot serve reports the page's length
+
+- **WHEN** the model reads `https://example.test/guide:100-200` and the render is 3 lines long
+- **THEN** the read returns `invalid_selector` reporting that the page rendered 3 lines
+- **AND** the message does not repeat the error type as its text
 
 #### Scenario: A local-only allow does not admit the web
 
@@ -347,7 +369,10 @@ and the local render alike: more than 100 non-whitespace characters, not
 HTML-shaped for a Markdown candidate, and not low quality, where a candidate
 is low quality when it is under 1,024 characters and contains a JavaScript
 or captcha gate phrase, or when more than 70 percent of its non-blank lines
-are shorter than 40 characters. Every derived locator, meaning an alternate,
+are shorter than 40 characters and fewer than 40 of them reach that length,
+since a render that carries 40 substantial lines is a document whatever its
+shape and the fallback it would be sent to is the same page's raw HTML.
+Every derived locator, meaning an alternate,
 a suffix candidate, an `llms.txt` candidate, or a redirect hop, SHALL be
 evaluated against the `read` permission group before its request through
 the same evaluator and the same projection the call used, as if the model

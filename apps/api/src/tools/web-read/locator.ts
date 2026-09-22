@@ -105,11 +105,54 @@ function encodedSuggestion(href: string, selector: string): string {
 }
 
 /**
+ * A suffix that plainly meant line numbers (`:1`, `:12+`), which the shipped
+ * grammar has no form for. Telling that model to percent-encode the colon
+ * answers a question it did not ask, so the ranges it can write are named
+ * first and the literal-colon spelling second.
+ */
+const LINE_SELECTOR_ATTEMPT = /^\d+[-+]?$/u;
+
+function invalidSelectorMessage(href: string, selector: string): string {
+  const encoded = encodedSuggestion(href, selector);
+  if (!LINE_SELECTOR_ATTEMPT.test(selector)) return encoded;
+  const start = selector.replace(/[-+]$/u, '');
+  return `A line selector is :N-M or :N+K, so one line is :${start}-${start}. For a literal colon, ${lowerFirst(encoded)}`;
+}
+
+function lowerFirst(text: string): string {
+  return `${text[0].toLowerCase()}${text.slice(1)}`;
+}
+
+/**
  * The two admitted schemes, as the model must spell them. The submitted text
  * is the text policy matched, so a scheme written in any other case is a
  * locator that is not its own serialization rather than one to lower-case.
  */
 const WEB_SCHEME_PREFIX = /^(?:https?):\/\//u;
+
+/**
+ * The hint for a locator the URL parser rejected outright. A selector written
+ * straight after the authority (`https://example.test:1-5`) reads as a port,
+ * so the whole text fails to parse and the generic message would leave the
+ * model guessing at a locator that is nearly right. When the text before the
+ * last colon is a web URL and the suffix is a real selector, the spelling
+ * that works is that URL's serialization — which supplies the missing path —
+ * carrying the same selector.
+ */
+function selectorOnAuthority(submitted: string): WebLocatorError {
+  const generic: WebLocatorError = {
+    type: 'invalid_path',
+    message: INVALID_URL_MESSAGE,
+  };
+  const { url, selector } = splitSelector(submitted);
+  if (selector === undefined || !isSelectorSuffix(selector)) return generic;
+  const target = parseWebUrl(url);
+  if ('type' in target) return generic;
+  return {
+    type: 'invalid_path',
+    message: `Write this locator as ${target.href}:${selector}`,
+  };
+}
 
 /**
  * Parse one submitted locator. `invalid_path` covers a locator that is not
@@ -129,7 +172,11 @@ export function parseWebLocator(
   // (`https://user:secret@host`) is refused here, so no later message can
   // name a credential.
   const admitted = parseWebUrl(submitted);
-  if ('type' in admitted) return admitted;
+  if ('type' in admitted) {
+    return admitted.message === INVALID_URL_MESSAGE
+      ? selectorOnAuthority(submitted)
+      : admitted;
+  }
   // Read from the submitted text, never from a scheme the dispatcher
   // lower-cased: policy matched that text, so an uppercase scheme is refused
   // here, naming the spelling the model should resubmit.
@@ -158,7 +205,7 @@ export function parseWebLocator(
   if (selector !== undefined && !isSelectorSuffix(selector)) {
     return {
       type: 'invalid_selector',
-      message: encodedSuggestion(target.href, selector),
+      message: invalidSelectorMessage(target.href, selector),
     };
   }
   return selector === undefined ? { url } : { url, selector };

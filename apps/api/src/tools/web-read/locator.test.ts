@@ -201,6 +201,56 @@ describe('parseWebLocator', () => {
     });
   });
 
+  it('names the path a selector written after the authority needs', () => {
+    // `https://host:1-5` is not a URL at all — `1-5` is an invalid port — so
+    // the parser refuses the whole text. Answering with the generic "write an
+    // absolute URL" leaves the model to guess; the spelling that works is the
+    // authority's own serialization carrying the same selector.
+    for (const selector of ['1-5', 'raw', '1-3,7-9']) {
+      expect(parseWebLocator(`https://example.test:${selector}`)).toEqual({
+        type: 'invalid_path',
+        message: `Write this locator as https://example.test/:${selector}`,
+      });
+      expect(parseWebLocator(`https://example.test/:${selector}`)).toEqual({
+        url: 'https://example.test/',
+        selector,
+      });
+    }
+  });
+
+  it('keeps the generic message when nothing recovers the locator', () => {
+    // The suffix is outside the grammar, so there is no spelling to name.
+    expect(parseWebLocator('https://example.test:notaselector')).toEqual({
+      type: 'invalid_path',
+      message: 'Write this locator as an absolute http:// or https:// URL.',
+    });
+    expect(parseWebLocator('ftp://example.test:1-5')).toEqual({
+      type: 'invalid_path',
+      message: 'Write this locator as an absolute http:// or https:// URL.',
+    });
+  });
+
+  it('names the range forms for a suffix that meant line numbers', () => {
+    // The shipped grammar has no bare `:N`, and telling a model that asked
+    // for line 1 to percent-encode the colon answers a question it did not
+    // ask, so the ranges come first and the literal colon second.
+    expect(parseWebLocator('https://example.test/guide:1')).toEqual({
+      type: 'invalid_selector',
+      message:
+        'A line selector is :N-M or :N+K, so one line is :1-1. For a literal colon, write this locator as https://example.test/guide%3A1',
+    });
+    expect(parseWebLocator('https://example.test/guide:12+')).toEqual({
+      type: 'invalid_selector',
+      message:
+        'A line selector is :N-M or :N+K, so one line is :12-12. For a literal colon, write this locator as https://example.test/guide%3A12+',
+    });
+    // A suffix that is a word still gets the encoding hint alone.
+    expect(parseWebLocator('https://w.example/wiki/Special:Search')).toEqual({
+      type: 'invalid_selector',
+      message: 'Write this locator as https://w.example/wiki/Special%3ASearch',
+    });
+  });
+
   it('reads a colon in the last path segment only when it is encoded', () => {
     expect(parseWebLocator('https://w.example/wiki/Special%3ASearch')).toEqual({
       url: 'https://w.example/wiki/Special%3ASearch',

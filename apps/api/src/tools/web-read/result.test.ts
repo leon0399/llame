@@ -261,17 +261,21 @@ describe('buildWebReadResult', () => {
     expect(result).not.toHaveProperty('notes');
   });
 
-  it('maps a selector past the end of the render to the native error', () => {
+  it('tells the model how long the render was when the selector missed', () => {
+    // A page's length is unknown until it is read, so the bare error type
+    // left the model guessing at a second selector. The count it must select
+    // within is the one fact the failure can supply.
     const result = buildWebReadResult(
       { url: GUIDE_URL, selector: '5000-5010' },
       { finalUrl: GUIDE_URL, contentType: 'text/plain', body: '' },
       { method: 'text', content: 'only one line\n' },
     );
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       status: 'error',
       type: 'invalid_selector',
+      message:
+        'The selector :5000-5010 did not select any line of this page, which rendered 1 line. Write :N-M or :N+K within 1-1, or omit the selector to read from the start.',
     });
-    expect(result).toHaveProperty('message', expect.any(String));
   });
 
   it('propagates a failure that is not the reader’s own', () => {

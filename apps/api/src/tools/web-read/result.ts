@@ -4,6 +4,7 @@ import {
   measureNativeModelOutput,
   selectMultiRangeLines,
   selectSourceLines,
+  splitSourceLines,
   type ReadSuccess,
   type ReadTarget,
 } from '@workspace/native-file-tools';
@@ -72,6 +73,30 @@ export function buildWebReadResult(
     return { ...read, ...envelope };
   } catch (error) {
     if (!(error instanceof NativeFileError)) throw error;
-    return { status: 'error', type: error.type, message: error.message };
+    return {
+      status: 'error',
+      type: error.type,
+      // `NativeFileError` defaults its message to its type, which tells the
+      // model nothing; only wording the thrower chose is worth passing on.
+      message:
+        error.message === error.type
+          ? selectorFailureMessage(render.content, locator.selector)
+          : error.message,
+    };
   }
+}
+
+/**
+ * A selector the render could not serve carries no message of its own, and a
+ * bare error type tells the model nothing it can act on: a page's length is
+ * unknown until it is read, so the count it should have selected within is
+ * the one fact worth reporting.
+ */
+function selectorFailureMessage(
+  content: string,
+  selector: string | undefined,
+): string {
+  const lines = splitSourceLines(content).length;
+  const written = selector === undefined ? '' : `:${selector} `;
+  return `The selector ${written}did not select any line of this page, which rendered ${lines} line${lines === 1 ? '' : 's'}. Write :N-M or :N+K within 1-${lines}, or omit the selector to read from the start.`;
 }
