@@ -95,8 +95,9 @@ the call decision rather than each derived-locator record.
 A rejected otherwise valid call SHALL return `status: "error"`, `type: "permission_denied"`, and the code-owned message selected by the static decision reason below. It SHALL produce no tool effect or native attempt, no automatic retry, no approval request, and no permission-caused Run termination. A redirect hop rejected after the call
 was admitted SHALL end that call before the hop's body is read, returning
 `status: "error"` and `type: "permission_denied"` with the fixed hop message
-below and a `rejectedUrl` result field carrying the hop locator bounded to
-2,048 characters with control characters removed, and SHALL produce no
+below and a `rejectedUrl` result field carrying the hop locator's origin and
+path (query and fragment removed) bounded to 2,048 characters with control
+characters removed, and SHALL produce no
 further request, no automatic retry, no approval request, and no
 permission-caused Run termination. The model SHALL observe the
 error and continue subject to existing Run limits. The decision SHALL be durably recorded on `tool.requested` before any `tool.started` event or executor dispatch, and carried through completion, abort settlement, and durable transcript reconstruction into stored tool-part metadata. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.

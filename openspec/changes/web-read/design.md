@@ -138,8 +138,10 @@ The substrate, on current `master`:
   `read` permission group before its request through the same evaluator and
   projection the call used, as if the model had submitted it: a rejected hop
   ends the call with a `permission_denied` error whose message is a fixed
-  template and whose result carries the locator as `rejectedUrl`, bounded to
-  2,048 characters with control characters removed (the shared `ToolResult`
+  template and whose result carries the locator's origin and path as `rejectedUrl`, query and
+  fragment removed so a signed query in a `Location` never reaches the
+  model, bounded to 2,048 characters with control characters removed (the
+  shared `ToolResult`
   error variant in `packages/runtime-safety` gains that optional field); a
   rejected probe locator only disqualifies its candidate, so a hostile page
   cannot make reads of itself fail by announcing a refused alternate. The
@@ -508,9 +510,12 @@ Facts gathered from primary sources; the peer report is at
   the fallback, and the license and bundle-size line is updated before any
   adapter code exists.
 - [The version seam is owned by an unmerged change] → the `fetch` layer
-  consumes the instance-config value and implements no second read; if the seam
-  has not landed at the layer boundary, the layer starts from that seam rather
-  than inventing one.
+  consumes the instance-config value and implements no second read, so its
+  creation gate (`tasks.md`) requires the `opencode-go-provider` layer that
+  adds the read to be merged and `web-read/proposal` rebased onto that
+  `master` first; if that stack is abandoned, this change's `fetch` layer
+  takes over the same instance-config read as its own task before any web
+  code is written.
 - [No address check, and a hostile page can name a private target] → stated in
   the design, the delta spec, and the runbook; the operator's `read` group is
   the boundary and #914 owns the fix.
@@ -605,4 +610,9 @@ new path.
   "first response body" phrases aligned to the final response (pullfrog).
   Rejected with replies: a resolved-address check (Leo's settled deferral to
   #914, D2) and an egress gate or provenance rule for outbound URLs (settled
-  in D4; the operator's `read` group is the boundary).
+  in D4; the operator's `read` group is the boundary). CodeRabbit round:
+  `rejectedUrl` now carries origin and path only, so a signed query string in
+  a refused `Location` never reaches the model; the `fetch` creation gate
+  names the `opencode-go-provider` version seam it depends on; finalize
+  reconciliation covers both archive orders with `knowledge-submit`; the
+  address-check finding was rejected as the same settled deferral.

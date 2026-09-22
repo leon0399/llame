@@ -30,7 +30,8 @@ converts HTML locally (peer survey in `design.md`). Issue #913.
 - Redirects are followed on any host, up to 20 per call; each hop's resolved
   `Location` is evaluated against the `read` group as if the model had
   submitted it. A rejected hop ends the call with `permission_denied`, the
-  fixed hop message, and the locator in a bounded `rejectedUrl` field; its
+  fixed hop message, and the locator's origin and path in a bounded
+  `rejectedUrl` field; its
   body is never read, and hop decisions reach the runner through the tool
   context and are recorded with the call's decision metadata at settlement.
   A hop with userinfo or a non-web scheme fails `invalid_redirect`. The
@@ -78,7 +79,8 @@ None.
   with explicit replacement" adds F5/F6 and the domain-allowlist alternative.
 - `tool-calling`: "Tool registry with mandatory safety classification" admits
   `read` on the allowlist alone. The in-flight `knowledge-submit` change
-  modifies the same requirement; whichever finalizes second reconciles.
+  modifies the same requirement; whichever finalizes second reconciles, and
+  task 4.2 covers both orders.
 
 ## Non-goals
 
@@ -95,7 +97,8 @@ None.
 
 `User-Agent` reuses the boot-time version read the in-flight
 `opencode-go-provider` change adds to instance config; this change adds no
-second read. Four packages are new to `apps/api`: `@mozilla/readability`,
+second read, and the `fetch` layer is created only after that read has
+merged (`tasks.md`). Four packages are new to `apps/api`: `@mozilla/readability`,
 `turndown`, `turndown-plugin-gfm`, `linkedom` (licenses in `design.md`); the
 `fetch` layer's first task confirms Readability runs on linkedom.
 
