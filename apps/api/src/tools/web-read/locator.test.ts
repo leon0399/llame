@@ -172,15 +172,32 @@ describe('parseWebLocator', () => {
 
   it('keeps a port with no path out of the selector grammar', () => {
     // The split reads `:8080` as a selector, and the URL it leaves behind is
-    // the empty-path locator, which is not its own serialization.
+    // the empty-path locator, which is not its own serialization. The hint
+    // names the submitted locator's own spelling, port included: a hint of
+    // `https://example.test/` would point the next request at another
+    // endpoint.
     const portOnly = parseWebLocator('https://example.test:8080');
-    expect(portOnly).toMatchObject({ type: 'invalid_path' });
-    expect(portOnly).toHaveProperty(
-      'message',
-      expect.stringContaining('https://example.test/'),
-    );
+    expect(portOnly).toMatchObject({
+      type: 'invalid_path',
+      message: 'Write this locator as https://example.test:8080/',
+    });
     expect(parseWebLocator('https://example.test:8080/')).toEqual({
       url: 'https://example.test:8080/',
+    });
+  });
+
+  it('keeps a selector in the hint when the URL half needs canonicalizing', () => {
+    // The uppercase host fails the self-serialization test after the split;
+    // naming only the split remainder would drop the `:10-20` the model
+    // asked for, so the hint is the whole locator's serialization and is
+    // admitted as written.
+    expect(parseWebLocator('https://EXAMPLE.test/guide:10-20')).toMatchObject({
+      type: 'invalid_path',
+      message: 'Write this locator as https://example.test/guide:10-20',
+    });
+    expect(parseWebLocator('https://example.test/guide:10-20')).toEqual({
+      url: 'https://example.test/guide',
+      selector: '10-20',
     });
   });
 

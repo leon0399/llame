@@ -145,9 +145,14 @@ export function parseWebLocator(
   const target = parseWebUrl(url);
   if ('type' in target) return target;
   if (target.href !== url) {
+    // Name the whole submitted locator's serialization, not the split
+    // remainder's: the split consumes a port (`https://example.test:8080`
+    // leaves `https://example.test`), and a hint that dropped it would send
+    // the next request to a different endpoint. The whole text keeps the port
+    // and any real selector, and re-splits the same way on resubmission.
     return {
       type: 'invalid_path',
-      message: `Write this locator as ${target.href}`,
+      message: `Write this locator as ${admitted.href}`,
     };
   }
   if (selector !== undefined && !isSelectorSuffix(selector)) {
