@@ -187,21 +187,29 @@ describe('portable web address policy', () => {
     compileRegexMatcher(pattern, 'tools.permissions.read.reject'),
   );
 
-  it('matches exactly the public addresses in the generated boundaries', () => {
-    expect(f5Patterns).toHaveLength(6);
-    const mismatches: Array<string> = [];
-    for (const { address, locator } of ADDRESS_LOCATORS) {
-      const rejected = f5Matchers.some((matcher) =>
-        matcher.matchesExact(locator),
-      );
-      const expected = !INTERNAL_ADDRESSES.check(
-        address,
-        address.includes(':') ? 'ipv6' : 'ipv4',
-      );
-      if (rejected !== expected) mismatches.push(locator);
-    }
-    expect(mismatches).toEqual([]);
-  });
+  // The sweep is exhaustive over the first two IPv4 octets (about 270,000
+  // checks), which exceeds the default timeout under coverage instrumentation.
+  it(
+    'matches exactly the public addresses in the generated boundaries',
+    {
+      timeout: 60_000,
+    },
+    () => {
+      expect(f5Patterns).toHaveLength(6);
+      const mismatches: Array<string> = [];
+      for (const { address, locator } of ADDRESS_LOCATORS) {
+        const rejected = f5Matchers.some((matcher) =>
+          matcher.matchesExact(locator),
+        );
+        const expected = !INTERNAL_ADDRESSES.check(
+          address,
+          address.includes(':') ? 'ipv6' : 'ipv4',
+        );
+        if (rejected !== expected) mismatches.push(locator);
+      }
+      expect(mismatches).toEqual([]);
+    },
+  );
 
   it('does not match hostname text with any F5 row', () => {
     const hostnames = [
