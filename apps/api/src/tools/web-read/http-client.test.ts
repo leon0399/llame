@@ -1573,6 +1573,22 @@ describe('web fetch address admission', () => {
     expect(JSON.stringify(result)).not.toContain('docs.example.test');
   });
 
+  it('reports an empty resolver answer as unresolved, not refused', async () => {
+    const fetch = vi.fn(() =>
+      Promise.resolve(textResponse('unreachable', 'text/plain')),
+    );
+    const result = await fetchOne({
+      fetch,
+      resolve: () => Promise.resolve([]),
+    });
+
+    expect(result).toStrictEqual({
+      type: 'network_error',
+      message: 'The host could not be resolved.',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('returns a fixed permission error when every address of the submitted URL is refused', async () => {
     const fetch = vi.fn(() =>
       Promise.resolve(textResponse('unreachable', 'text/plain')),

@@ -367,7 +367,11 @@ async function resolveRequestAddresses(
   const pending = memoizedResolution(requestUrl.hostname, resolutions, resolve);
   const result = await raceResolution(pending, signal);
   if (result.kind === 'aborted') return { kind: 'aborted' };
-  if (result.kind === 'rejected') return { kind: 'resolution_failed' };
+  // An empty answer resolved nothing; reporting it as refused would blame
+  // policy for a host that has no address at all.
+  if (result.kind === 'rejected' || result.value.length === 0) {
+    return { kind: 'resolution_failed' };
+  }
   return { kind: 'addresses', addresses: result.value };
 }
 
