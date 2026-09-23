@@ -192,10 +192,14 @@ made for an `openai-completions` entry or an `opencode-go` entry, SHALL report
 a failure that came from the endpoint's response under one of these classes,
 applied in this order:
 
-1. A response with a redirect status (301, 302, 303, 307, or 308), whatever its
-   body and whether or not the client follows redirects, SHALL be reported as a
-   fixed text stating that the provider answered with a redirect that is not
-   followed and naming the status code.
+1. A response with a redirect status (301, 302, 303, 307, or 308) that the
+   transport hands back to the client unfollowed, whatever its body, SHALL be
+   reported as a fixed text stating that the provider answered with a redirect
+   that is not followed and naming the status code. This contract does not
+   change which transports follow redirects: an `opencode-go` entry's
+   transport refuses every redirect, so each one reaches this class, while an
+   `openai-completions` entry's transport follows redirects as it does today,
+   and its request is reported by the response its redirects end at.
 2. An event inside the response stream that is not JSON, does not match the
    wire's chunk shape, or carries an error value without a string message
    SHALL be reported as a fixed text stating that the provider sent a stream

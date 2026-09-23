@@ -217,3 +217,7 @@ Rollback is a revert of the client change.
   malformed tool-call deltas are a non-goal; the invariance and "no byte"
   wording is now testable; a transport-failure pass-through scenario and test
   were added. No finding rejected.
+- v3 (2026-09-23): GitHub review (#941) read class 1 as requiring every
+  Chat Completions redirect to be refused. Clarified the spec instead of
+  changing transports: class 1 covers a redirect the transport hands back
+  unfollowed; `openai-completions` keeps following redirects as before.
