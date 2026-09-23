@@ -11,7 +11,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `opencode-go` entry never follows, is described with its status code instead
   of the bare status text. HTTP failures keep their parsed message, status
   text, and the SDK's retry summary. Applies to every `openai-completions` and
-  `opencode-go` entry, including compaction and title requests.
+  `opencode-go` streaming request; a compaction summary or text-path title
+  request, which fails no run, now logs the bounded error instead.
 
 # 2026-09-22
 

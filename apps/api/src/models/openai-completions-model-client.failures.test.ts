@@ -182,6 +182,7 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
     expect(error.message).toMatch(/redirect \(HTTP 302\)/);
     expect(surfaces(error)).not.toContain(CANARY);
     expect(error.message).not.toContain('Found');
+    expect(error.cause).toBeUndefined();
   });
 
   it('reports a redirect answering a retried request as the redirect alone', async () => {
@@ -201,6 +202,7 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
     expect(error.message).toMatch(/redirect \(HTTP 302\)/);
     expect(error.message).not.toMatch(/Found|attempts/);
     expect(surfaces(error)).not.toContain(CANARY);
+    expect(error.cause).toBeUndefined();
   });
 
   it('passes a transport failure through unchanged', async () => {
@@ -212,6 +214,47 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
     await expect(reportedError(buildClient(fetch))).resolves.toBe(
       transportFailure,
     );
+  });
+
+  it("keeps the stream's drain waiting on the caller's asynchronous handler", async () => {
+    // The worker drains the stream and then requires the run's terminal
+    // state, which the run's async handler persists: the bound must not
+    // detach that handler from the drain.
+    // Executor form: the API's TypeScript lib predates `Promise.withResolvers`.
+    let markInvoked: () => void = () => {};
+    const invoked = new Promise<void>((resolve) => {
+      markInvoked = resolve;
+    });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const client = buildClient(
+      serve(() => streamOf(TEXT_CHUNK, `<html>${CANARY}</html>`)),
+    );
+    let drained = false;
+    const drain = client
+      .streamText({
+        chat: CHAT,
+        messages,
+        onError: () => {
+          markInvoked();
+          return gate;
+        },
+      })
+      .consumeStream()
+      .then(() => {
+        drained = true;
+      });
+
+    await invoked;
+    // A detached handler would let the drain settle within the stream's
+    // remaining work; one macrotask yield (no duration) gives it that chance.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(drained).toBe(false);
+    release();
+    await drain;
+    expect(drained).toBe(true);
   });
 
   it('prints the bounded error, not the parse error, when the caller supplies no handler', async () => {
