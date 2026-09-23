@@ -21,8 +21,8 @@ rather than inheriting one. A hop locator is the `Location` value resolved
 against the redirecting request's URL by the WHATWG URL parser and serialized
 as its `href`, so it is canonical in the same way (lowercase host,
 internationalized host as punycode, default port dropped, empty path as `/`,
-path and query percent-encoded except unreserved characters, which are decoded,
-fragment dropped so the matched text is the
+path and query percent-escapes normalized to a fixed point with unreserved
+characters decoded, fragment dropped so the matched text is the
 URL the next request uses). A derived locator is decided through the same
 evaluator and the same projection, with no trusted context and no relaxation
 carried over from the admitted call or from an earlier derived locator.
@@ -31,12 +31,15 @@ Each address a web request would connect to SHALL additionally be evaluated
 against the `read` group as an address locator: the requested locator with its
 host replaced by that address, as the native-file-tools address-admission
 requirement defines it. An address locator SHALL be judged by reject clauses
-only: a matching reject refuses that address, an address that no reject
-matches SHALL be admitted even when no allow clause matches it, and an allow
+only: a matching reject refuses that address, an evaluation that exceeds the
+inspection limit refuses it as every exceeded bound rejects, an address that
+no reject matches and no bound refuses SHALL be admitted even when no allow
+clause matches it, and an allow
 SHALL never be decided on an address locator, because an allow names the
 resource a locator addresses and a domain allowlist names hosts, not the
 addresses they resolve to. An address locator is decided through the same
-evaluator and projection as the locator it was derived from.
+evaluator and projection as the locator it was derived from; a call evaluated
+without a compiled policy admits no address.
 
 Known incompatible code-owned fields SHALL fail configuration validation. If an exact MCP rule targets a field absent from or incompatible with its currently admitted input declaration, the call SHALL fail closed with a safe policy diagnostic, without changing tool visibility or silently dropping the clause. This applies to both allow and reject field clauses. No field semantics SHALL be inferred from arbitrary MCP names.
 
@@ -96,6 +99,37 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 - **THEN** the read is admitted although no allow matches `https://93.184.216.34/guide`
 - **AND** when `docs.example.com` resolves to `10.0.0.5` instead, that address is refused and no connection is opened
 
+### Requirement: File permission matching uses logical resource locators
+
+For native Knowledge file locators, the selected `path` SHALL be projected through a shared pure parser/formatter to a canonical logical resource identity. Knowledge resources SHALL retain the Space ID and canonically encoded relative path; configured roots and resolved host paths SHALL NOT enter policy matching. Supported Knowledge read selectors SHALL be excluded from resource matching. Direct host locators SHALL match their submitted absolute text, preserving trailing separators and selector-like suffixes without filesystem probes or realpath resolution. The existing executor SHALL retain literal-path precedence over selector interpretation. The same projection SHALL apply when all-fields rejection visits the native `path` field. Other submitted values SHALL remain unchanged.
+
+This projection SHALL NOT rewrite executor arguments, accept an invalid locator or mutation selector, change current percent-decoding rules for Knowledge, skill, or direct host locators (a web locator's escapes follow the native `read` tool's web normalization, which this projection reuses), bypass current Knowledge ownership/symlink checks, or introduce HTTP fetching. Arbitrary MCP values SHALL not receive native locator normalization.
+
+#### Scenario: Selector does not change resource permission
+
+- **WHEN** read targets the same Knowledge file with `:10-20` and `:raw`
+- **THEN** its path permission matches the same canonical logical locator
+- **AND** existing selector validity and read behavior still apply
+
+#### Scenario: Literal host filename resembles a selector
+
+- **GIVEN** only an anchored exact allow for `/tmp/file`
+- **WHEN** a direct host read submits `/tmp/file:1-2`
+- **THEN** the allow does not match, whether that literal filename exists or would be interpreted as a selector
+- **AND** permission evaluation performs no filesystem probe
+
+#### Scenario: Encoded spelling resolves to the same identity
+
+- **WHEN** two syntactically valid Knowledge locator spellings resolve through the existing parser to the same Space ID and relative path
+- **THEN** policy evaluates the same canonically encoded locator
+- **AND** a decoded path separator or traversal attempt remains invalid
+
+#### Scenario: Global allow cannot cross owners
+
+- **WHEN** user A's call targets user B's Knowledge Space and a global policy allows the locator text
+- **THEN** existing per-call owner authorization still refuses access
+- **AND** no backing path or user B content reaches user A
+
 ### Requirement: Safe decision provenance and non-fatal rejection
 
 Every newly evaluated call SHALL obtain a trusted decision before executor dispatch. Its owner-scoped tool activity and stored tool-part metadata SHALL record an opaque random policy-instance ID independent of policy contents, allow/reject decision, static reason, and bounded deterministic clause reference when one matched. No-match, invalid-field, and input-limit decisions SHALL use explicit static reasons. Policy bodies, matched fragments, and resolved config secrets SHALL NOT be included. The ID SHALL remain fixed within its executor process and be regenerated on restart, even with unchanged configuration. It SHALL NOT expose a deterministic digest of interpolated private values. The metadata SHALL be excluded from model replay, public shares, exports, and search.
@@ -113,11 +147,15 @@ decision's reason or clause; durable transcript
 reconstruction SHALL read them from the same payload it reads the call
 decision from. A call that never settles loses its derived-locator records
 with its result. The existing `tool.requested` rule SHALL continue to cover
-the call decision rather than each derived-locator record. A refused resolved
-address SHALL be recorded the same way, as a derived-locator decision of kind
-`address` carrying the reject's static reason and clause reference; the
-address and its address locator SHALL NOT be recorded, and an admitted address
-SHALL NOT produce a record.
+the call decision rather than each derived-locator record. A refused address
+that a request would have connected to SHALL be recorded the same way, as a
+derived-locator decision of kind `address` carrying its static reason and,
+when one matched, its clause reference; the address and its address locator
+SHALL NOT be recorded, and an admitted address SHALL NOT produce a record. One
+record SHALL be kept per distinct refused address and decision per call, and at
+most 16 `address` records per call, the first 16 in order, under a bound of
+their own, so address records never displace the records of hops and probe
+candidates.
 
 A rejected otherwise valid call SHALL return `status: "error"`, `type: "permission_denied"`, and the code-owned message selected by the static decision reason below. It SHALL produce no tool effect or native attempt, no automatic retry, no approval request, and no permission-caused Run termination. A redirect hop rejected after the call
 was admitted SHALL end that call before the hop's body is read, returning
@@ -126,12 +164,12 @@ below and a `rejectedUrl` result field carrying the hop locator's origin and
 path (query and fragment removed) bounded to 2,048 characters with control
 characters removed, and SHALL produce no
 further request, no automatic retry, no approval request, and no
-permission-caused Run termination. A request whose every resolved address is
-refused SHALL NOT be issued; on the call's own request chain it SHALL end the
+permission-caused Run termination. A request whose every address is refused,
+whether resolved or given as an IP literal, SHALL NOT be issued; on the call's own request chain it SHALL end the
 call with `status: "error"` and `type: "permission_denied"` with the fixed
 refused-address message below, a refused hop carrying `rejectedUrl` as a hop
-rejection does, and no result field or message SHALL carry a resolved
-address. The model SHALL observe the
+rejection does, and no result field or message SHALL carry an address the
+host resolved to. The model SHALL observe the
 error and continue subject to existing Run limits. The decision SHALL be durably recorded on `tool.requested` before any `tool.started` event or executor dispatch, and carried through completion, abort settlement, and durable transcript reconstruction into stored tool-part metadata. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.
 
 The model-visible message SHALL use one of these fixed templates. It SHALL NOT interpolate rule text, matching fragments, field names, private paths, operator-authored explanations, clause references, policy IDs, or secret
@@ -171,7 +209,7 @@ Tool call stopped by operator permissions. A redirect target was refused before 
 #### Message for refused resolved addresses
 
 ```text
-Tool call stopped by operator permissions. Every address the target host resolved to was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.
+Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.
 ```
 
 #### Scenario: Reject explains its effect without revealing policy
@@ -221,11 +259,12 @@ Tool call stopped by operator permissions. Every address the target host resolve
 
 - **WHEN** an admitted web read skips one refused resolved address and succeeds over another
 - **THEN** the tool activity and stored tool-part metadata record one `address` decision with the call's policy-instance ID and the reject's static reason and clause reference
+- **AND** the same address refused again by a later request of the call adds no second record, and a zone answering with more refused addresses than the bound cannot displace a hop or probe record
 - **AND** neither the address nor its address locator is stored, and the admitted address produces no record
 
 #### Scenario: Every address refused is an error the model can continue from
 
-- **WHEN** every resolved address of the submitted locator is refused
+- **WHEN** every address of the submitted locator is refused
 - **THEN** the call returns `status: "error"` and `type: "permission_denied"` with the fixed refused-address message and no `rejectedUrl`
 - **AND** no connection is opened and the Run continues with other permitted work
 
@@ -266,29 +305,29 @@ The following table is the authoritative recommended reject list, shipped in the
 | F5e | `read.path`                            | regex   | `^http://192\.(?:\d\|[1-9]\d\|1[0-5]\d\|16[0-79]\|1[7-9]\d\|2\d\d)\.\d{1,3}\.\d{1,3}[:/]`                                                                       |
 | F5f | `read.path`                            | regex   | `^http://\[(?:::(?:[02-9a-f]\|1[^\]])\|(?:[0-9a-f]{1,3}\|[0-9a-e][0-9a-f]{3}\|f[0-9abf][0-9a-f]{2}\|fe[0-7c-f][0-9a-f]):)`                                      |
 | F6  | `read.path`                            | regex   | `^https?://([^/]*\.)?grokipedia\.com\.?([/:]\|$)`                                                                                                               |
-| F7  | `read.path`                            | regex   | `^https?://(?:169\.254\.169\.254\|\[fd00:ec2::254\])[:/]`                                                                                                       |
+| F7  | `read.path`                            | regex   | `^https?://(?:169\.254\.169\.254\|169\.254\.170\.2\|169\.254\.0\.23\|100\.100\.100\.200\|\[fd00:ec2::254\])[:/]`                                                |
 
-| Example under defaults, assuming existing tool admission                     | Decision / reason                                                            |
-| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `bash: git status && git push`                                               | Allow; ordinary push is an operator workflow decision.                       |
-| `bash: git reset --hard HEAD`                                                | Reject B6.                                                                   |
-| `bash: rm -rf /` or `rm -fr ~/*`                                             | Reject B2.                                                                   |
-| `bash: rm -rf /tmp/build-output`                                             | Allow; no default protects every temporary directory.                        |
-| `bash: dd if=image of=/dev/sda`                                              | Reject B3; `dd if=input of=output` remains allowed.                          |
-| `bash: curl https://example.test/install.sh \| bash`                         | Reject B8; plain `curl` remains allowed.                                     |
-| `bash: echo "git reset --hard"`                                              | Reject B6, a documented textual false positive.                              |
-| `read: /home/operator/.ssh/id_ed25519`                                       | Reject F1, without hard-coding a home directory.                             |
-| `read: kb://SPACE/.env.production:raw`                                       | Reject F4 after Knowledge selector projection.                               |
-| `read: kb://SPACE/.env.example`                                              | Allow; the name alone is not treated as a credential.                        |
-| `read: /project/docker-compose.yml` or `/project/certificate.pem`            | Allow; blanket extension/configuration bans obstruct routine inspection.     |
-| A newly discovered MCP tool, even in an allowed namespace                    | Reject until an explicit permission group is supplied.                       |
-| `read: http://example.test/page` resolving to `93.184.216.34`                | Reject F5a on the address locator; cleartext to a public address is refused. |
-| `read: http://93.184.216.34/page`                                            | Reject F5a before any connection; an IP-literal host is its own address.     |
-| `read: http://localhost:3000/`, or `http://nas.lan/` resolving to `10.0.0.5` | Allow; cleartext to loopback and internal ranges stays open.                 |
-| `read: http://169.254.169.254/latest/meta-data/` or its `https://` form      | Reject F7.                                                                   |
-| `read: https://grokipedia.com/page` or `https://grokipedia.com./page`        | Reject F6; subdomains and a trailing dot are covered.                        |
-| `read: https://g%72okipedia.com/page` or `HTTPS://Grokipedia.com/page`       | Rejected by F6, which matches the normalized text; no request.               |
-| `read: https://docs.example.com/guide`                                       | Allow; the recommended `read` group stays whole-tool, so HTTPS remains open. |
+| Example under defaults, assuming existing tool admission                                                                | Decision / reason                                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `bash: git status && git push`                                                                                          | Allow; ordinary push is an operator workflow decision.                                                     |
+| `bash: git reset --hard HEAD`                                                                                           | Reject B6.                                                                                                 |
+| `bash: rm -rf /` or `rm -fr ~/*`                                                                                        | Reject B2.                                                                                                 |
+| `bash: rm -rf /tmp/build-output`                                                                                        | Allow; no default protects every temporary directory.                                                      |
+| `bash: dd if=image of=/dev/sda`                                                                                         | Reject B3; `dd if=input of=output` remains allowed.                                                        |
+| `bash: curl https://example.test/install.sh \| bash`                                                                    | Reject B8; plain `curl` remains allowed.                                                                   |
+| `bash: echo "git reset --hard"`                                                                                         | Reject B6, a documented textual false positive.                                                            |
+| `read: /home/operator/.ssh/id_ed25519`                                                                                  | Reject F1, without hard-coding a home directory.                                                           |
+| `read: kb://SPACE/.env.production:raw`                                                                                  | Reject F4 after Knowledge selector projection.                                                             |
+| `read: kb://SPACE/.env.example`                                                                                         | Allow; the name alone is not treated as a credential.                                                      |
+| `read: /project/docker-compose.yml` or `/project/certificate.pem`                                                       | Allow; blanket extension/configuration bans obstruct routine inspection.                                   |
+| A newly discovered MCP tool, even in an allowed namespace                                                               | Reject until an explicit permission group is supplied.                                                     |
+| `read: http://example.test/page` resolving to `93.184.216.34`                                                           | Reject F5a on the address locator; cleartext to a public address is refused.                               |
+| `read: http://93.184.216.34/page`                                                                                       | Reject F5a before any connection; an IP-literal host is its own address.                                   |
+| `read: http://localhost:3000/`, or `http://nas.lan/` resolving to `10.0.0.5`                                            | Allow; cleartext to loopback and internal ranges stays open.                                               |
+| `read: http://169.254.169.254/latest/meta-data/`, `http://100.100.100.200/latest/meta-data/`, or their `https://` forms | Reject F7, which covers the well-known metadata and credential endpoints inside ranges F5a–F5f leave open. |
+| `read: https://grokipedia.com/page` or `https://grokipedia.com./page`                                                   | Reject F6; subdomains and a trailing dot are covered.                                                      |
+| `read: https://g%72okipedia.com/page` or `HTTPS://Grokipedia.com/page`                                                  | Rejected by F6, which matches the normalized text; no request.                                             |
+| `read: https://docs.example.com/guide`                                                                                  | Allow; the recommended `read` group stays whole-tool, so HTTPS remains open.                               |
 
 F5a-F5f SHALL together match exactly the cleartext locators whose host is an IPv4 address outside `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, and `192.168.0.0/16`, or a bracketed IPv6 address outside `::`, `::1`, `fc00::/7`, and `fe80::/10`, and SHALL match no hostname text, so a cleartext read is decided by the addresses its host resolves to. The recommended rules SHALL be covered by the preceding example matrix, including both rejection and routine-work acceptance cases, and SHALL match the shipped example. Native path rejects SHALL NOT be represented as Bash confinement, search-result filtering, directory-listing filtering, or hidden-backing-path policy.
 

@@ -10,12 +10,16 @@ locator, after any fragment is cut and its selector is split off, SHALL be
 normalized to its WHATWG URL serialization and requested as that text: an
 uppercase scheme or host, a percent-encoded or Unicode host, an explicit
 default port, a host's root dot, an empty path, unencoded path or query
-characters, and a percent-encoded unreserved character (`A-Z`, `a-z`, `0-9`,
-`-`, `.`, `_`, `~`) in the path or query, which SHALL be decoded while every
-other escape, `%2F` included, stays encoded, SHALL each be normalized rather
-than refused, because none of them
+characters, and percent-escapes in the path or query SHALL each be
+normalized rather than refused, because none of them
 addresses a different resource and refusing them cost a call that taught the
-model nothing it could carry to the next locator. A fragment SHALL be cut
+model nothing it could carry to the next locator. Path and query escapes
+SHALL be normalized in one pass that yields a fixed point: a `%` that does not
+begin a valid escape SHALL be encoded as `%25`, an escape of an unreserved
+character (`A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~`) SHALL be decoded, and every
+other escape, `%2F` included, SHALL stay encoded with uppercase hexadecimal
+digits, so normalizing the normalized text changes nothing and no decode
+forms a new escape. A fragment SHALL be cut
 before anything else reads the locator, because the request drops it anyway.
 What no normalization can repair SHALL still fail before any request: a text
 that is not a URL, a scheme outside `http` and `https`, a suffix outside the
@@ -101,7 +105,8 @@ it.
 
 - **WHEN** the `read` group rejects `path` matching `^https://example\.test/private` and the model reads `https://example.test/%70rivate`
 - **THEN** the call is rejected before any request, because the normalized text is `https://example.test/private`
-- **AND** `https://example.test/a%2Fb` is requested with `%2F` still encoded
+- **AND** `https://example.test/%%370rivate` is requested as `https://example.test/%2570rivate`, whose server-decoded path is the literal `/%70rivate` it named, so no decode produces a new escape that a server would read as `/private`
+- **AND** `https://example.test/a%2fb` is requested as `https://example.test/a%2Fb`, still encoded
 
 #### Scenario: A pathless host reads its port, a path reads its line
 
@@ -156,8 +161,7 @@ resolved against the redirecting request's URL by the WHATWG URL parser and
 serialized as its `href`, so a relative `Location` becomes absolute and the
 serialization is what policy sees: lowercase host, an internationalized host
 as punycode, default port dropped, empty path as `/`, path and query
-percent-encoded except unreserved characters, which are decoded as for a
-submitted locator. A fragment SHALL be dropped from the resolved locator
+percent-encoded and normalized as for a submitted locator. A fragment SHALL be dropped from the resolved locator
 before admission and before the request, so the text policy matches is
 exactly the URL the next request uses. A redirect status without a parsable
 `Location`, or a resolved locator that carries userinfo or a scheme other
@@ -184,8 +188,9 @@ The `read` tool description SHALL state that redirects are
 followed and that `finalUrl` reports where the content came from, so the
 model does not re-fetch a page to learn its location. A hop admitted on its text
 SHALL then connect only to the addresses the address-admission requirement
-admits, and a hop whose every address is refused SHALL end the call as that
-requirement states.
+admits; a hop whose every address is refused SHALL end the call on the call's
+own request chain and disqualify only the candidate on a probe's chain, as
+that requirement states.
 
 #### Scenario: A cross-host hop is followed when policy admits it
 
@@ -252,16 +257,20 @@ failure SHALL fail the request as a transport failure does. No CNAME or other
 intermediate name SHALL be evaluated.
 
 For every address, the `read` group SHALL be evaluated against an address
-locator: the requested locator's text with only its host replaced by that
-address, keeping the scheme, port, path, query, and, for the call's own
-locator, the selector. An IPv4 address SHALL be written in dotted decimal, an
-IPv6 address in brackets in its WHATWG serialization, and an IPv4-mapped IPv6
-address as the dotted IPv4 address it maps; an IPv6 zone identifier SHALL be
-dropped. An address locator SHALL be judged by reject clauses only: an address
+locator: exactly the URL the request uses with only its host replaced by
+that address, keeping the scheme, port, path, and query; a read selector is
+never requested and SHALL NOT be part of it. An IPv4 address SHALL be written
+in dotted decimal, an IPv6 address in brackets in its WHATWG serialization,
+and an IPv4-mapped IPv6 address, in whichever textual form the resolver or the
+locator gave it, as the dotted IPv4 address it maps; an IPv6 zone identifier
+SHALL be dropped. An address SHALL be judged in its own form: `0.0.0.0` and
+`::` are not rewritten to the loopback addresses the platform may connect
+them to. An address locator SHALL be judged by reject clauses only: an address
 SHALL be refused when a reject clause matches its address locator or when the
 evaluation exceeds the inspection limit, and SHALL otherwise be admitted
 whether or not any allow clause matches it, because allow is decided on the
-locator text the request was admitted by.
+locator text the request was admitted by. A call evaluated without a compiled
+permission policy SHALL admit no address.
 
 The request SHALL connect only to admitted addresses, racing them under the
 runtime's ordinary address selection. A refused address SHALL never be
@@ -277,7 +286,7 @@ hops) the call SHALL end with `status: "error"`, `type: "permission_denied"`,
 and the fixed refused-address message, and a refused hop SHALL also carry its
 hostname locator as `rejectedUrl` under the hop rules; on a probe's chain only
 that candidate SHALL be disqualified. No result, message, or note SHALL carry
-a resolved address. Each refused address SHALL be recorded as a
+a resolved address. Each distinct refused address SHALL be recorded as a
 derived-locator decision of kind `address` under the provenance requirement of
 `tool-call-permissions`.
 
@@ -312,9 +321,19 @@ derived-locator decision of kind `address` under the provenance requirement of
 
 #### Scenario: A connection is not reused across paths
 
-- **WHEN** a read of `https://a.example/page` is admitted at `10.0.0.5` and a path-scoped reject refuses that address for its suffix probe `https://a.example/page.md`
-- **THEN** the probe opens no connection to `10.0.0.5` and is disqualified
+- **WHEN** `a.example` resolves to `10.0.0.5` and `10.0.0.6`, the page `https://a.example/page` connects over `10.0.0.5`, and a path-scoped reject refuses `10.0.0.5` for its suffix probe `https://a.example/page.md`
+- **THEN** the probe opens a new connection to `10.0.0.6` and never sends its request over the page's connection or to `10.0.0.5`
 - **AND** the page's content is returned
+
+#### Scenario: A resolved IPv4-mapped answer is judged as IPv4
+
+- **WHEN** a host resolves only to the AAAA answer `::ffff:10.67.88.60` and a reject matches `^https?://10\.67\.88\.60/private`
+- **THEN** reading `/private` on that host opens no connection, because its address locator is `https://10.67.88.60/private`
+
+#### Scenario: A selector is not part of the address locator
+
+- **WHEN** a reject matches `^https?://10\.67\.88\.60/private$` and the model reads `https://export.corp/private:raw` with `export.corp` resolving to `10.67.88.60`
+- **THEN** the read is refused with no connection, because the address locator is the requested URL `https://10.67.88.60/private`
 
 #### Scenario: No resolved address reaches the model
 
