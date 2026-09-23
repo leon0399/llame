@@ -18,8 +18,8 @@ SHALL be normalized in one pass that yields a fixed point: a `%` that does not
 begin a valid escape SHALL be encoded as `%25`, an escape of an unreserved
 character (`A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~`) SHALL be decoded, and every
 other escape, `%2F` included, SHALL stay encoded with uppercase hexadecimal
-digits, so normalizing the normalized text changes nothing and no decode
-forms a new escape. A fragment SHALL be cut
+digits, so normalizing the normalized text changes nothing and llame's
+normalization forms no new escape. A fragment SHALL be cut
 before anything else reads the locator, because the request drops it anyway.
 What no normalization can repair SHALL still fail before any request: a text
 that is not a URL, a scheme outside `http` and `https`, a suffix outside the
