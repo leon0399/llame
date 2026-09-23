@@ -9,12 +9,11 @@ import {
 import {
   abortFailure,
   boundedEcho,
-  createConnectionPlanner,
   startCallDeadline,
   transportFailure,
   type CallDeadline,
-  type ConnectionPlanner,
-} from './connection';
+} from './call-deadline';
+import { createConnectionPlanner, type ConnectionPlanner } from './connection';
 import {
   REJECTED_ADDRESS_MESSAGE,
   REJECTED_HOP_MESSAGE,

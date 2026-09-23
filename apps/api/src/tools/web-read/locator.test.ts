@@ -336,6 +336,15 @@ describe('parseWebLocator', () => {
     expect(canonicalHref(new URL(canonical))).toBe(canonical);
   });
 
+  it('preserves an empty query delimiter as a fixed point', () => {
+    const locator = 'https://a.test/b?';
+    const canonical = canonicalHref(new URL(locator));
+
+    expect(canonical).toBe(locator);
+    expect(canonicalHref(new URL(canonical))).toBe(canonical);
+    expect(parseWebLocator(locator)).toStrictEqual({ url: locator });
+  });
+
   it.each([
     'https://user:secret@example.test/guide',
     'https://user:secret@example.test',

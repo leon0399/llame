@@ -1,5 +1,8 @@
+import { createServer, type Server } from 'node:http';
 import { getEventListeners } from 'node:events';
+import { type Socket } from 'node:net';
 
+import { isString } from '@workspace/runtime-safety';
 import {
   Agent,
   Headers,
@@ -9,7 +12,15 @@ import {
 } from 'undici';
 import type { RequestInfo, RequestInit, ResponseInit } from 'undici';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 
 import { compileToolPermissionMap } from '../permissions/compile-permissions';
 import {
@@ -99,6 +110,31 @@ async function fetchOne(
   } finally {
     session.dispose();
   }
+}
+
+async function listenLoopback(server: Server): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    const fail = (error: Error) => reject(error);
+    server.once('error', fail);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', fail);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (address === null || isString(address)) {
+    throw new Error('The loopback server did not bind a TCP port.');
+  }
+  return address.port;
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
 }
 
 /** The request's own abort signal: the client always sends one, and it is the
@@ -1485,6 +1521,10 @@ describe('web fetch redirects', () => {
 });
 
 describe('web fetch address admission', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('resolves one hostname once across redirects and later fetches in a session', async () => {
     const start = 'https://docs.example.test/page';
     const requested: Array<string> = [];
@@ -1727,19 +1767,76 @@ describe('web fetch address admission', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('does not echo addresses listed only in a transport cause', async () => {
-    const fetch = () =>
-      Promise.reject(
-        new TypeError('fetch failed', {
-          cause: new Error('connect ECONNREFUSED 10.0.0.5:443'),
-        }),
-      );
-    const result = await fetchOne({ fetch });
+  it('does not expose the address or locator after a real transport refusal', async () => {
+    const closedServer = createServer();
+    const port = await listenLoopback(closedServer);
+    await closeServer(closedServer);
+    const result = await fetchOne(
+      {
+        fetch: undiciFetch,
+        resolve: () => Promise.resolve([{ address: '127.0.0.1', family: 4 }]),
+      },
+      {},
+      `http://closed.test:${port}/`,
+    );
 
-    expect(result).toStrictEqual({
-      type: 'network_error',
-      message: 'fetch failed',
+    expect(result).toHaveProperty('type', 'network_error');
+    if (!('message' in result))
+      throw new Error('Expected a transport failure.');
+    for (const secret of ['127.0.0.1', String(port), 'closed.test']) {
+      expect(result.message).not.toContain(secret);
+      expect(JSON.stringify(result)).not.toContain(secret);
+    }
+  });
+});
+
+describe('web fetch real pinned transport', () => {
+  let server: Server;
+  let port: number;
+  const acceptedSockets: Array<Socket> = [];
+
+  beforeAll(async () => {
+    server = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'text/plain' });
+      response.end('pinned page');
     });
-    expect(JSON.stringify(result)).not.toContain('10.0.0.5');
+    server.on('connection', (socket) => acceptedSockets.push(socket));
+    port = await listenLoopback(server);
+  });
+
+  afterAll(async () => {
+    for (const socket of acceptedSockets) socket.destroy();
+    await closeServer(server);
+  });
+
+  it('uses the pinned lookup for a hostname that does not resolve', async () => {
+    const acceptedBefore = acceptedSockets.length;
+    const result = await fetchOne(
+      {
+        fetch: undiciFetch,
+        resolve: () => Promise.resolve([{ address: '127.0.0.1', family: 4 }]),
+      },
+      {},
+      `http://pinned.test:${port}/page`,
+    );
+
+    expect(result).toHaveProperty('body', 'pinned page');
+    expect(acceptedSockets.length - acceptedBefore).toBe(1);
+  });
+
+  it('refuses the resolved address before opening a socket', async () => {
+    const acceptedBefore = acceptedSockets.length;
+    const result = await fetchOne(
+      {
+        fetch: undiciFetch,
+        resolve: () => Promise.resolve([{ address: '127.0.0.1', family: 4 }]),
+        admitAddress: () => false,
+      },
+      {},
+      `http://pinned.test:${port}/page`,
+    );
+
+    expect(result).toHaveProperty('type', 'permission_denied');
+    expect(acceptedSockets.length - acceptedBefore).toBe(0);
   });
 });

@@ -41,15 +41,19 @@ function contextOf(
   };
 }
 
-/** What the evaluator returns for the same locator submitted as the call's own
- *  `path`, through the same projection the call used. */
+/** What the evaluator returns for a submitted locator after raw-reject
+ *  precedence and the same `read` projection used by the call. */
 function submittedDecision(
   compiled: CompiledPolicy,
   url: string,
 ): PermissionDecision {
+  const options = { toolId: 'read', args: { path: url } };
+  const submitted = evaluatePermission(compiled, options);
+  if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
+    return submitted;
+  }
   return evaluatePermission(compiled, {
-    toolId: 'read',
-    args: { path: url },
+    ...options,
     projectFieldValue: nativeFileProjection('read'),
   });
 }
@@ -98,6 +102,50 @@ describe('createDerivedAdmission', () => {
     expect(admit('suffix', 'http://docs.example.test/')).toMatchObject({
       decision: 'reject',
       reason: 'explicit_reject',
+    });
+  });
+
+  it('refuses a derived locator rejected before selector projection', () => {
+    const compiled = policy({
+      read: {
+        allow: true,
+        reject: [
+          {
+            field: 'path',
+            regex: String.raw`^https?://files\.example/private`,
+          },
+        ],
+      },
+    });
+
+    const decision = createDerivedAdmission(contextOf(compiled))(
+      'hop',
+      'https://files.example/private/..:1',
+    );
+
+    expect(decision).toMatchObject({
+      decision: 'reject',
+      reason: 'explicit_reject',
+    });
+  });
+
+  it('uses the projected allow when raw locator text has no allow match', () => {
+    const compiled = policy({
+      read: {
+        allow: [
+          { field: 'path', regex: String.raw`^https://docs\.example\.test/` },
+        ],
+      },
+    });
+
+    expect(
+      createDerivedAdmission(contextOf(compiled))(
+        'hop',
+        'https://DOCS.example.test/private/..:1',
+      ),
+    ).toMatchObject({
+      decision: 'allow',
+      reason: 'matched_allow',
     });
   });
 
@@ -226,6 +274,39 @@ describe('createAddressAdmission', () => {
         url: 'https://10.0.0.5/private',
         decision: {
           policyId: POLICY_ID,
+          decision: 'reject',
+          reason: 'explicit_reject',
+          reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
+        },
+      },
+    ]);
+  });
+
+  it('refuses an address locator rejected before selector projection', () => {
+    const compiled = policy({
+      read: {
+        allow: true,
+        reject: [
+          {
+            field: 'path',
+            regex: String.raw`^https?://10\.67\.88\.60/private`,
+          },
+        ],
+      },
+    });
+    const seen: Array<DerivedDecision> = [];
+    const admit = createAddressAdmission(
+      contextOf(compiled, (decision) => seen.push(decision)),
+    );
+
+    expect(admit('10.67.88.60', 'https://10.67.88.60/private/..:1')).toBe(
+      false,
+    );
+    expect(seen).toMatchObject([
+      {
+        kind: 'address',
+        url: 'https://10.67.88.60/private/..:1',
+        decision: {
           decision: 'reject',
           reason: 'explicit_reject',
           reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },

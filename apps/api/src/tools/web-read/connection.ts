@@ -17,31 +17,19 @@ import type {
   WebFetchFailure,
   WebFetchOptions,
 } from './http-client';
+import {
+  abortFailure,
+  transportFailure,
+  type CallDeadline,
+} from './call-deadline';
 
+/** The `Accept` value every request of a web read sends: publisher Markdown
+ *  first, plain text ranked above HTML (design D9). */
 const ACCEPT = 'text/markdown, text/plain;q=0.9, text/html;q=0.8, */*;q=0.5';
-
-const HEADERS_TIMEOUT_MS = 10_000;
-const CALL_TIMEOUT_MS = 30_000;
-const ECHO_BOUND = 64;
-const CONTROL_CHARACTERS = /\p{Cc}/gu;
-const URL_IN_MESSAGE = /https?:\/\//iu;
 
 const HOST_RESOLUTION_FAILURE: WebFetchFailure = {
   type: 'network_error',
   message: 'The host could not be resolved.',
-};
-
-export type AbortReason = 'aborted' | 'headers_timeout' | 'call_timeout';
-
-export type CallDeadline = {
-  readonly signal: AbortSignal;
-  /** Arms the header bound for the request about to be sent. */
-  requestStarted(): void;
-  /** Clears the header bound once a response has arrived: it bounds the wait
-   *  for headers, not the body. */
-  headersArrived(): void;
-  reason(): AbortReason | undefined;
-  dispose(): void;
 };
 
 type ConnectionDispatchOutcome =
@@ -213,76 +201,6 @@ async function resolveAndAdmit({
   return { kind: 'admitted', requestUrl, addresses };
 }
 
-export function abortFailure(reason: AbortReason | undefined): WebFetchFailure {
-  if (reason === 'headers_timeout') {
-    return {
-      type: 'headers_timeout',
-      message: 'The server sent no response headers within 10 seconds.',
-    };
-  }
-  if (reason === 'call_timeout') {
-    return {
-      type: 'call_timeout',
-      message: 'The web read exceeded its 30-second budget.',
-    };
-  }
-  return { type: 'aborted', message: 'The web read was cancelled.' };
-}
-
-export function startCallDeadline(options: WebFetchOptions): CallDeadline {
-  const controller = new AbortController();
-  let reason: AbortReason | undefined;
-  let headersTimer: NodeJS.Timeout | undefined;
-  const abort = (next: AbortReason): void => {
-    reason ??= next;
-    controller.abort();
-  };
-  const onCallerAbort = (): void => abort('aborted');
-  options.signal?.addEventListener('abort', onCallerAbort, { once: true });
-  const callTimer = setTimeout(
-    () => abort('call_timeout'),
-    Math.min(options.deadlineMs ?? CALL_TIMEOUT_MS, CALL_TIMEOUT_MS),
-  );
-  return {
-    signal: controller.signal,
-    requestStarted: () => {
-      clearTimeout(headersTimer);
-      headersTimer = setTimeout(
-        () => abort('headers_timeout'),
-        HEADERS_TIMEOUT_MS,
-      );
-    },
-    headersArrived: () => clearTimeout(headersTimer),
-    reason: () => reason,
-    dispose: () => {
-      clearTimeout(headersTimer);
-      clearTimeout(callTimer);
-      options.signal?.removeEventListener('abort', onCallerAbort);
-    },
-  };
-}
-
-export function boundedEcho(value: string): string {
-  return value.replace(CONTROL_CHARACTERS, '').slice(0, ECHO_BOUND);
-}
-
-export function transportFailure(
-  error: unknown,
-  deadline: CallDeadline,
-): WebFetchFailure {
-  const reason = deadline.reason();
-  if (reason !== undefined) return abortFailure(reason);
-  const message =
-    error instanceof Error ? error.message.replace(CONTROL_CHARACTERS, '') : '';
-  return {
-    type: 'network_error',
-    message:
-      message === '' || URL_IN_MESSAGE.test(message)
-        ? 'The request failed.'
-        : message.slice(0, ECHO_BOUND),
-  };
-}
-
 async function dispatchRequest({
   url,
   options,
@@ -324,6 +242,7 @@ function memoizedResolution(
   const pending = Promise.resolve()
     .then(() => resolve(hostname))
     .then((addresses) => Array.from(addresses));
+  void pending.catch(() => undefined);
   resolutions.set(hostname, pending);
   return pending;
 }

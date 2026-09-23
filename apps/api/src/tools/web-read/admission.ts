@@ -53,7 +53,10 @@ export function isDerivedLocatorKind(
   return typeof value === 'string' && Object.hasOwn(KIND_NAMES, value);
 }
 
-/** Evaluates the `read` group against a derived locator exactly as a submitted one. */
+/**
+ * Evaluates the read policy against a raw locator before applying its
+ * `read` projection.
+ */
 export type AdmitDerivedLocator = (
   kind: DerivedLocatorKind,
   url: string,
@@ -63,11 +66,12 @@ export type AdmitDerivedLocator = (
 export type AdmitAddress = (address: string, locator: string) => boolean;
 
 /**
- * Builds one call's reject-only address admission check. Allows are not
- * evaluated as address permissions: a domain allowlist names the requested
- * host, not the public addresses it resolves to (design D3). A missing
- * compiled policy cannot attribute an address decision and therefore fails
- * closed without reporting one.
+ * Builds one call's reject-only address admission check. A raw-text rejection
+ * gets the same precedence as for a submitted call, then the read projection
+ * is evaluated. Allows are not evaluated as address permissions: a domain
+ * allowlist names the requested host, not the public addresses it resolves to
+ * (design D3). A missing compiled policy cannot attribute an address decision
+ * and therefore fails closed without reporting one.
  */
 export function createAddressAdmission(context: ToolContext): AdmitAddress {
   const policy = context.permissionPolicy;
@@ -78,11 +82,11 @@ export function createAddressAdmission(context: ToolContext): AdmitAddress {
   return (address, locator) => {
     if (policy === undefined) return false;
 
-    const decision = evaluatePermission(policy, {
-      toolId: 'read',
-      args: { path: locator },
+    const decision = evaluateLocatorPermission(
+      policy,
+      locator,
       projectFieldValue,
-    });
+    );
     const refused =
       decision.decision === 'reject' &&
       (decision.reason === 'explicit_reject' ||
@@ -100,6 +104,23 @@ export function createAddressAdmission(context: ToolContext): AdmitAddress {
 }
 
 /**
+ * Mirrors submitted-call precedence: a raw reject other than `no_allow`
+ * stands; otherwise the projected locator determines the result.
+ */
+function evaluateLocatorPermission(
+  policy: NonNullable<ToolContext['permissionPolicy']>,
+  locator: string,
+  projectFieldValue: (field: string, value: string) => string,
+): PermissionDecision {
+  const options = { toolId: 'read', args: { path: locator } };
+  const submitted = evaluatePermission(policy, options);
+  if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
+    return submitted;
+  }
+  return evaluatePermission(policy, { ...options, projectFieldValue });
+}
+
+/**
  * The fail-closed decision for a context with no compiled policy — a code
  * error, not a caller choice. No derived locator is admitted, and there is no
  * policy instance to attribute the refusal to, so the id is empty rather than
@@ -113,13 +134,11 @@ const NO_POLICY: PermissionDecision = {
 };
 
 /**
- * Builds one call's admission check for its derived locators. Each locator is
- * evaluated through the same evaluator and the same `read` projection the
- * submitted call used, as if the model had submitted it, so an operator's
- * `path` clauses govern a server-chosen hop exactly as they govern the text
- * the model wrote. Nothing is cached and no decision carries to the next
- * locator: a page that is admitted at one URL cannot launder another through
- * it.
+ * Builds one call's admission check for its derived locators. Each locator
+ * first gets the same as-written rejection check as a submitted call, then
+ * the `read` projection decides whenever that check is allow or `no_allow`.
+ * Nothing is cached and no decision carries to the next locator: a page that
+ * is admitted at one URL cannot launder another through it.
  */
 export function createDerivedAdmission(
   context: ToolContext,
@@ -131,11 +150,7 @@ export function createDerivedAdmission(
     const decision =
       policy === undefined
         ? NO_POLICY
-        : evaluatePermission(policy, {
-            toolId: 'read',
-            args: { path: url },
-            projectFieldValue,
-          });
+        : evaluateLocatorPermission(policy, url, projectFieldValue);
     report?.({ kind, url, decision });
     return decision;
   };

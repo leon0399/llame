@@ -355,6 +355,18 @@ describe('web locator dispatch', () => {
     },
   );
 
+  it.each(['https://127.0.0.1:1/guide', 'HTTPS://127.0.0.1:1/guide'])(
+    'dispatches %s through the web executor',
+    async (path) => {
+      const result = await nativeReadTool.execute(webContext(), { path });
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'network_error',
+      });
+    },
+  );
+
   it('fetches a fragment locator without the fragment', async () => {
     const url = fixtureUrl('/guide');
     const result = await nativeReadTool.execute(webContext(), {

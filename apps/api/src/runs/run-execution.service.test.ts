@@ -2454,7 +2454,15 @@ describe('RunExecutionService executeRun — tool loop', () => {
     let admittedAddress = false;
     const execute = vi.fn((context: ToolContext) => {
       const admitAddress = createAddressAdmission(context);
-      for (let index = 1; index <= 30; index += 1) {
+      const admitHop = createDerivedAdmission(context);
+      for (let index = 1; index <= 27; index += 1) {
+        const address = `10.0.0.${index}`;
+        expect(admitAddress(address, `https://${address}/private`)).toBe(false);
+        expect(admitHop('hop', 'https://example.test/blocked')).toStrictEqual(
+          rejected,
+        );
+      }
+      for (let index = 28; index <= 30; index += 1) {
         const address = `10.0.0.${index}`;
         expect(admitAddress(address, `https://${address}/private`)).toBe(false);
       }
@@ -2462,10 +2470,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         '93.184.216.34',
         'https://93.184.216.34/guide',
       );
-      expect(
-        createDerivedAdmission(context)('hop', 'https://example.test/blocked'),
-      ).toStrictEqual(rejected);
-
       return Promise.resolve({ status: 'success' as const, hits: 2 });
     });
     const execution = makeExecutionService(
@@ -2481,11 +2485,14 @@ describe('RunExecutionService executeRun — tool loop', () => {
       { ...toolOptions, permissionPolicy },
     );
     const expected: ReadonlyArray<DerivedDecisionRecord> = [
-      ...Array.from({ length: 16 }, () => ({
+      ...Array.from({ length: 16 }, () => [
+        { ...rejected, kind: 'address' as const },
+        { ...rejected, kind: 'hop' as const },
+      ]).flat(),
+      ...Array.from({ length: 10 }, () => ({
         ...rejected,
-        kind: 'address' as const,
+        kind: 'hop' as const,
       })),
-      { ...rejected, kind: 'hop' },
     ];
 
     await execution.service.executeRun(executionInput(capturing.client));

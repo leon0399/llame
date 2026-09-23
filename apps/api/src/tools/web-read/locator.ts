@@ -115,7 +115,9 @@ export function canonicalHref(url: URL): string {
     url.hostname = url.hostname.slice(0, -1);
   }
   url.pathname = normalizePercentEscapes(url.pathname);
-  url.search = normalizePercentEscapes(url.search);
+  if (url.search !== '') {
+    url.search = normalizePercentEscapes(url.search);
+  }
   return url.href;
 }
 
