@@ -1,4 +1,7 @@
-import type { ReadableStreamDefaultReader } from 'node:stream/web';
+import type {
+  ReadableStreamDefaultReader,
+  ReadableStreamReadResult,
+} from 'node:stream/web';
 
 import {
   fetch as undiciFetch,
