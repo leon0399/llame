@@ -322,8 +322,14 @@ No data, schema, or API migration. Operators copy F5a–F5f and F7 from the
 example to open cleartext to internal addresses and refuse the metadata
 endpoints. An unchanged configuration keeps today's decisions except where a
 clause was written against an encoded unreserved spelling, which D8 makes
-unmatchable and the changelog tells operators to rewrite decoded. Rollback is
-a revert of the implementation layer.
+unmatchable and the changelog tells operators to rewrite decoded.
+
+Order matters for F5a–F5f, because they refuse public cleartext only on
+address locators, which older builds never evaluate: every API and Run worker
+process that can execute a web read must run this build before `^http://` is
+replaced, or an older worker admits `http://example.com/`. Rollback restores
+`^http://` in configuration first and reverts the implementation layer after;
+the runbook and changelog state both orders.
 
 ## Revision history
 
