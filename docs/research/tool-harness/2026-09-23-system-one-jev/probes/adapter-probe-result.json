@@ -1,0 +1,21 @@
+[
+  {
+    "mode": "allowedTools",
+    "tools": ["whoards_lookup", "atlassian_search"],
+    "tool_choice": {
+      "type": "allowed_tools",
+      "mode": "auto",
+      "tools": [
+        {
+          "type": "function",
+          "name": "whoards_lookup"
+        }
+      ]
+    }
+  },
+  {
+    "mode": "activeTools",
+    "tools": ["whoards_lookup"],
+    "tool_choice": "auto"
+  }
+]

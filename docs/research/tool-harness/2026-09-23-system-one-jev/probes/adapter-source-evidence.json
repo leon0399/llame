@@ -1,0 +1,14 @@
+{
+  "package": "@ai-sdk/openai",
+  "version": "3.0.97",
+  "file": "dist/index.mjs",
+  "sha256": "5f0545228ba43c9c0f6aa13d1227269fe9dc0fa36e52e74d723ae10347864e6f",
+  "searched_files": ["dist/index.mjs", "dist/index.d.ts"],
+  "protocol_matches": {
+    "additional_tools": 0,
+    "configuration_update": 0,
+    "allowed_tools": 3
+  },
+  "allowed_tools_excerpt": "  if (allowedTools != null) {\n    return {\n      tools: openaiTools2,\n      toolChoice: {\n        type: \"allowed_tools\",\n        mode: (_b = allowedTools.mode) != null ? _b : \"auto\",\n        tools: allowedTools.toolNames.map((name) => {\n          var _a2;\n          return {\n            type: \"function\",\n            name: (_a2 = toolNameMapping == null ? void 0 : toolNameMapping.toProviderToolName(name)) != null ? _a2 : name\n          };\n        })\n      },\n      toolWarnings\n    };",
+  "limitation": "Scoped installed-source observation; not a live provider compatibility test."
+}

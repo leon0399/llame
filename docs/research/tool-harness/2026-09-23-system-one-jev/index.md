@@ -1,0 +1,49 @@
+---
+okf_version: "0.2"
+---
+
+# System One and Jev research
+
+Noncanonical research on TypeSafe Jev, OMP's JUDGE role, extractive compaction,
+community implementations, and applicability to llame. Product behavior remains
+owned by [SPEC](../../../../SPEC.md) and OpenSpec; this bundle approves no feature.
+
+Related entry points: [harness index](../../harnesses/index.md),
+[OMP JUDGE](../../harnesses/oh-my-pi.md#typed-judgments-and-jev),
+[SoL-Pi](../../harnesses/sol-pi.md), and
+[Spotify Shunt](../../harnesses/spotify-shunt.md).
+
+- [Research report](./report.md) - Findings, the five supplied application
+  assessments, six additional llame use cases (U1-U6), counterevidence,
+  priorities, and stable source footnotes.
+- [Source registry](./sources.jsonl) - Source identities and retrieval metadata.
+- [Evidence ledger](./evidence.jsonl) - Source-backed observations and measurement
+  qualifications, joined to the report through stable source IDs.
+- [Claim ledger](./claims.jsonl) - Factual claims, synthesis and recommendations
+  linked to supporting evidence.
+- [Run manifest](./run_manifest.json) - Research scope and artifact paths;
+  `report_dir` resolves relative to the manifest.
+- [Verification record](./verification.json) - Executed checks and their limits.
+- [Review record](./review.json) - Independent review findings and dispositions.
+- [Adapter experiment](./probes/adapter-probe.mjs) and
+  [recorded output](./probes/adapter-probe-result.json) - Installed SDK wire shape
+  for `allowedTools` versus `activeTools`, with all HTTP intercepted locally.
+- [Adapter source evidence](./probes/adapter-source-evidence.json) - Inspected
+  package version, source hash, protocol-term counts and wire-encoding excerpt.
+- [Compaction experiment](./probes/compaction-probe.mjs) and
+  [recorded output](./probes/compaction-probe-result.json) - Synthetic histories
+  prove the upstream selector omits result content. Injected scores; no Jev call.
+
+## Reproduce the offline experiments
+
+From this directory, after installing llame's pinned dependencies:
+
+```bash
+node probes/adapter-probe.mjs
+bun probes/compaction-probe.mjs /path/to/fast-jev-compaction
+```
+
+The second command requires a checkout at
+`e3f262a7f4d42bd8dd32ced30d26176f7cb545b0` and checks that revision before import.
+These experiments establish local mechanics, not model quality, remote latency,
+or provider cache-hit rates. No controlled live inference benchmark was run.
