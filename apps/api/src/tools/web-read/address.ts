@@ -39,10 +39,16 @@ export function canonicalAddress(address: string): CanonicalAddress {
   return { text, host: hostname };
 }
 
-/** Replaces only the request host, leaving its scheme, port, path, and query. */
+/**
+ * Replaces only the request host, leaving its scheme, port, path, and query.
+ * The target is sliced from `href` rather than rebuilt from `pathname` and
+ * `search`, because `search` is empty for a bare `?` that `href` keeps.
+ */
 export function addressLocator(requestUrl: string, address: string): string {
   const request = new URL(requestUrl);
+  request.hash = '';
   const host = canonicalAddress(address).host;
   const port = request.port === '' ? '' : `:${request.port}`;
-  return `${request.protocol}//${host}${port}${request.pathname}${request.search}`;
+  const target = request.href.slice(request.origin.length);
+  return `${request.protocol}//${host}${port}${target}`;
 }

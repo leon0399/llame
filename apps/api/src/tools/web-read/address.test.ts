@@ -44,6 +44,12 @@ describe('web-read address canonicalization', () => {
     ).toBe('https://10.67.88.60/guide');
   });
 
+  it('keeps an empty query delimiter the request carries', () => {
+    expect(
+      addressLocator('https://docs.example.test/private?', '10.0.0.5'),
+    ).toBe('https://10.0.0.5/private?');
+  });
+
   it('brackets a canonical IPv6 address and keeps a non-default port', () => {
     expect(
       addressLocator(

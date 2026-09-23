@@ -525,8 +525,12 @@
           },
           // F5a-F5f refuse cleartext only to addresses outside internal ranges.
           // Hostname text never matches these rows, so a cleartext read is decided
-          // by its resolved addresses. Operators who want every cleartext read
-          // refused can keep the old `^http://` row.
+          // by its resolved addresses. This widens the old `^http://` row: any
+          // cleartext locator whose host resolves into an internal range is read,
+          // including a redirect hop, alternate, or probe a public page chooses.
+          // Operators who want every cleartext read refused keep `^http://`.
+          // Upgrade every API and Run worker before replacing it; see
+          // docs/web-read.md.
           {
             "field": "path",
             "regex": "^http://(?:[1-9]|1[1-9]|[2-9]\\d|10[1-9]|11\\d|12[0-689]|1[3-5]\\d|16[0-8]|17[013-9]|18\\d|19[013-9]|2[0-4]\\d|25[0-5])\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}[:/]"
