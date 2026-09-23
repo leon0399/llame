@@ -5,7 +5,7 @@ description: "Evaluates TypeSafe Jev, OMP JUDGE, extractive compaction, public u
 tags: [jev, system-one, classification, compaction, tool-search, model-routing]
 status: stable
 canonical: false
-generated: { by: omp/openai-codex-gpt-6-astra, at: 2026-09-23T20:14:53Z }
+generated: { by: omp/openai-codex-gpt-6-astra, at: 2026-09-23T20:50:17Z }
 sources:
   - id: "0605bcba6b5c7739"
     resource: "https://typesafe.ai/blog/introducing-system-one-models-and-jev"
@@ -212,7 +212,7 @@ sources:
 
 # System One, Jev, and applicability to llame
 
-Research date: 2026-09-23. Revision: v3. Status: noncanonical research, not an approved implementation proposal.
+Research date: 2026-09-23. Revision: v4. Status: noncanonical research, not an approved implementation proposal.
 
 ## Executive Summary
 
@@ -604,11 +604,13 @@ Four independent source investigations covered OMP, the compaction repository, c
 | Coding-tool routing can reduce task success                               | Paired author-run benchmark with stated limits [^f3bfeb233b8e7523]                                            |
 | Project assignment is relevance, not authority                            | Current Project capability and vision research [^b2618f474b296d21][^89ed2f298996bdac]                         |
 
-Reproduction commands from the bundle directory: `node probes/adapter-probe.mjs` and `bun probes/compaction-probe.mjs /path/to/fast-jev-compaction`. The first uses this repository's installed API dependencies; the second requires upstream revision `e3f262a7f4d42bd8dd32ced30d26176f7cb545b0` and checks that revision before import. Both intercept or inject the model boundary and make no external inference request. The original probes were executed successfully, and their portable copies are included for reruns. [^9761e6144ef53ed9]
+Reproduction commands from the bundle directory: `node probes/adapter-probe.mjs` and `pnpm exec tsx probes/compaction-probe.mjs /path/to/fast-jev-compaction`. The first uses this repository's installed API dependencies; the second uses the repository-installed TypeScript runner, requires upstream revision `e3f262a7f4d42bd8dd32ced30d26176f7cb545b0` and checks that revision before import. Both intercept or inject the model boundary and make no external inference request. Both reproduction commands passed with the repository's Node/pnpm toolchain; Bun is not a prerequisite. [^9761e6144ef53ed9]
 
 The source/evidence ledgers use stable source IDs; OKF footnotes join to those same IDs in frontmatter. A numeric-citation projection is used only for legacy research validators. Evidence records distinguish paraphrase from direct quotes/data points. Automated report, citation and claim-link checks supplement independent review; lexical overlap is not semantic proof.
 
 ## Revision history
+
+- v4 (2026-09-23): Use the repository-installed `tsx` runner for the compaction reproduction command, removing the undeclared Bun prerequisite; verified the command under the Node/pnpm toolchain.
 
 - v3 (2026-09-23): Added six concrete llame applications beyond the supplied ideas: recall relevance, main-Run effort selection, premature-stop detection, tool-result usability, citation support checking and Knowledge write triage. Each names input, decision, product effect, prerequisite and measurable outcome.
 

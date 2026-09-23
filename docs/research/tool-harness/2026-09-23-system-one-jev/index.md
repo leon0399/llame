@@ -40,7 +40,7 @@ From this directory, after installing llame's pinned dependencies:
 
 ```bash
 node probes/adapter-probe.mjs
-bun probes/compaction-probe.mjs /path/to/fast-jev-compaction
+pnpm exec tsx probes/compaction-probe.mjs /path/to/fast-jev-compaction
 ```
 
 The second command requires a checkout at

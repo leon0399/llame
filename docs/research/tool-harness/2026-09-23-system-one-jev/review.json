@@ -289,5 +289,10 @@
       "harnesses/sol-pi.md",
       "harnesses/spotify-shunt.md"
     ]
+  },
+  "publication_review": {
+    "url": "https://github.com/leon0399/llame/pull/945#discussion_r4087135217",
+    "finding": "Compaction reproduction depended on undeclared Bun runtime.",
+    "disposition": "Accepted: use repository-installed tsx through pnpm; command passed under Node. Research conclusions unchanged."
   }
 }

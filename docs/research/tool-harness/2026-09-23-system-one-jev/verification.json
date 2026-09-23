@@ -20,7 +20,7 @@
   "upstream_performance_benchmarks_rerun": false,
   "scope": "Research and OKF artifact publication only; no application or proposal changes.",
   "review": "Two independent reviewers in each of two rounds; final round no P0/P1. Minor wording clarifications applied.",
-  "portable_probe_reruns": "Both passed; compaction library networkCalls=0, SDK fetch intercepted locally.",
+  "portable_probe_reruns": "Both passed under the repository Node/pnpm toolchain: node probes/adapter-probe.mjs and pnpm exec tsx probes/compaction-probe.mjs with the pinned checkout; compaction library networkCalls=0, SDK fetch intercepted locally. Bun is not required.",
   "repository_checks": {
     "pnpm lint:markdown": "pass; 515 files, zero issues",
     "pnpm format:check": "pass",
@@ -28,7 +28,7 @@
   },
   "research_checks": {
     "okf_v02": "pass, zero conformance errors; one generated/unverified concept",
-    "yaml_and_json_schemas": "Pass via YAML parser and Ajv: 67 sources, 70 evidence records, 342 claims. Stable source/footnote/ledger joins and local links validated.",
+    "yaml_and_json_schemas": "Pass via YAML parser and Ajv: 67 sources, 71 evidence records, 342 claims. Stable source/footnote/ledger joins and local links validated.",
     "stable_source_footnote_and_ledger_joins": "pass",
     "local_links": "pass",
     "report_structure": "pass on equivalent numeric-citation projection",
@@ -57,7 +57,7 @@
     "harness_integration": "Bidirectional report/bundle/index/OMP links; scoped OMP observation leaves broad 2026-09-21 baseline unchanged; related SoL-Pi/Shunt navigation.",
     "source_counts": {
       "sources": 67,
-      "evidence": 70,
+      "evidence": 71,
       "claims": 342
     },
     "scope": "Proposals and research only, not implemented behavior.",
