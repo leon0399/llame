@@ -50,5 +50,5 @@ section 2 and `$openspec-sync-specs` / `$openspec-archive-change` section 3.
 
 ## 3. Finalize
 
-- [ ] 3.1 Run `$openspec-sync-specs` for this change; verify `openspec/specs/provider-api-selection/spec.md` gains the requirement and `openspec/specs/opencode-go-provider/spec.md` carries the modified requirement with every scenario, and that no other canonical spec changed.
-- [ ] 3.2 Verify archive readiness: `openspec status --change bound-completions-stream-failures --json` reports every artifact done, every task in sections 1 and 2 plus 3.1 is checked, and `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass.
+- [x] 3.1 Run `$openspec-sync-specs` for this change; verify `openspec/specs/provider-api-selection/spec.md` gains the requirement and `openspec/specs/opencode-go-provider/spec.md` carries the modified requirement with every scenario, and that no other canonical spec changed. Verified: only those two canonical specs changed; the Go requirement keeps its four scenarios and gains one.
+- [x] 3.2 Verify archive readiness: `openspec status --change bound-completions-stream-failures --json` reports every artifact done, every task in sections 1 and 2 plus 3.1 is checked, and `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass. Verified: 4/4 artifacts done; specs 36/36 and all 39/39 pass.

@@ -22,12 +22,11 @@ keep a compiled model, route, or capability table, SHALL NOT classify Go
 failures into llame-owned error types or replace the gateway's parsed message
 with a fixed one other than for a redirect response, SHALL NOT introduce a
 quota ledger or a typed quota error, and SHALL NOT retry against or fall back
-to another
-provider, wire, or model because a request failed. The operator runbook SHALL
-record the accepted upstream shapes: a model the gateway's format gate rejects
-fails with the gateway's "not supported for format" message and its remedy,
-and a usage-limit rejection fails with the gateway's message after the SDK's
-retries.
+to another provider, wire, or model because a request failed. The operator
+runbook SHALL record the accepted upstream shapes: a model the gateway's
+format gate rejects fails with the gateway's "not supported for format"
+message and its remedy, and a usage-limit rejection fails with the gateway's
+message after the SDK's retries.
 
 #### Scenario: A rejected model surfaces at request time
 
