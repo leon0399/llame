@@ -8,9 +8,8 @@ web tool id, `tools.allowed` entry, configuration key, or advertisement
 condition is added, and `edit` and `write` reject a web locator with
 `invalid_path` before any request.
 
-Deferred by design: address-level policy (#914), response snapshots and any
-cache (#915), and PDF or image bodies (#916). See
-[what is not read](#what-is-not-read).
+Deferred by design: response snapshots and any cache (#915), and PDF or image
+bodies (#916). See [what is not read](#what-is-not-read).
 
 ## Enabling
 
@@ -21,7 +20,8 @@ authority still fails closed with `executor_unavailable` (see
 [native files](native-files.md)).
 
 Restriction and reach are the `read` group in `tools.permissions` — there is no
-web-specific key:
+web-specific key. The example below chooses the stricter policy of rejecting
+all cleartext HTTP; the shipped address-aware replacement is described below:
 
 ```jsonc
 {
@@ -44,14 +44,25 @@ web-specific key:
 ```
 
 The shipped example (`apps/api/llame.config.json.example`) keeps `read` open
-with a whole-tool allow plus the credential-locator rejects F1-F4 and these two
-web rejects: `^http://` (F5) refuses cleartext HTTP, so an operator who copies
-the map keeps transport security, and the grokipedia clause (F6) refuses one
-publisher's host, its subdomains, and a trailing-dot spelling. Both are
-ordinary permission clauses over the submitted `path` text: rejects veto
-allows, matching is case-sensitive, and a supplied map is the complete policy.
-See [tool-call permissions](tool-call-permissions.md) for the clause grammar,
-the decision order, and the pattern engine.
+with a whole-tool allow plus the credential-locator rejects F1-F4, the
+grokipedia reject F6, six cleartext-address rejects F5a-F5f, and metadata
+reject F7. F5a-F5f reject `http://` address locators outside
+`0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16`, `172.16/12`,
+`192.168/16`, `::`, `::1`, `fc00::/7`, and `fe80::/10`; F7 rejects the known
+metadata endpoints `169.254.169.254`, `169.254.170.2`, `169.254.0.23`,
+`100.100.100.200`, and `[fd00:ec2::254]`. The F6 grokipedia clause refuses one
+publisher's host, its subdomains, and a trailing-dot spelling. Both URL and
+address decisions use ordinary `read.path` permission clauses: rejects veto
+allows, matching is case-sensitive by default, and a supplied map is the
+complete policy. Copy F5a-F5f and F7 from the example as a set. F5a-F5f widen
+cleartext reads to any hostname resolving into one of their open internal
+ranges, including an attacker's zone or a spoofed DNS answer. Keep `^http://`
+instead if every cleartext URL must remain refused. Upgrade and restart every
+API and Run worker process to this build before replacing `^http://` with
+F5a-F5f; older binaries do not evaluate address locators. On rollback, restore
+`^http://` before any older binary handles calls. See [tool-call
+permissions](tool-call-permissions.md) for the clause grammar, decision order,
+and pattern engine.
 
 Only `http://` and `https://` are admitted. An unimplemented scheme, a
 non-web URL, and userinfo all fail with `invalid_path` before any request, and
@@ -68,18 +79,24 @@ truncation rules. The grammar is the shipped one — `raw`, `raw:N`, `raw:N-M`,
 
 The URL is normalized to the text the request will use. An uppercase scheme
 or host, a percent-encoded or Unicode host, an explicit default port, a host's
-root dot, an empty path, an unencoded space, and a fragment are each
-normalized rather than refused, and the result's `path` reports the locator
-that was fetched:
+root dot, an empty path, an unencoded space, and a fragment are normalized
+rather than refused. Path and query percent-escapes are normalized in one
+pass to a fixed point: a stray `%` is first encoded as `%25`, escapes for
+unreserved characters (`A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~`) are decoded,
+and every other escape stays encoded with uppercase hexadecimal digits. The
+URL parser serializes the result, and normalizing it again changes nothing.
+The result's `path` reports the locator that was fetched:
 
-| Submitted                            | Requested                     |
-| ------------------------------------ | ----------------------------- |
-| `HTTPS://Example.test/guide`         | `https://example.test/guide`  |
-| `https://g%72okipedia.com/page`      | `https://grokipedia.com/page` |
-| `https://example.test:443/guide`     | `https://example.test/guide`  |
-| `https://example.test./guide`        | `https://example.test/guide`  |
-| `https://example.test/a b`           | `https://example.test/a%20b`  |
-| `https://example.test/guide#install` | `https://example.test/guide`  |
+| Submitted                            | Requested                          |
+| ------------------------------------ | ---------------------------------- |
+| `HTTPS://Example.test/guide`         | `https://example.test/guide`       |
+| `https://g%72okipedia.com/page`      | `https://grokipedia.com/page`      |
+| `https://example.test:443/guide`     | `https://example.test/guide`       |
+| `https://example.test./guide`        | `https://example.test/guide`       |
+| `https://example.test/a b`           | `https://example.test/a%20b`       |
+| `https://example.test/guide#install` | `https://example.test/guide`       |
+| `https://example.test/%7Euser?q=%2f` | `https://example.test/~user?q=%2F` |
+| `https://example.test/%%370rivate`   | `https://example.test/%2570rivate` |
 
 What no normalization can repair is still refused before any request, each
 with the spelling that would work: a text that is not a URL, a scheme outside
@@ -93,8 +110,12 @@ so a reject naming `grokipedia.com` catches `https://g%72okipedia.com/page`,
 `https://GROKIPEDIA.com/page`, `https://grokipedia.com:443/page`, and
 `https://grokipedia.com./page` alike — and a clause naming `%72` catches the
 encoded spelling itself. The allow is decided on the requested text, because
-an allow names a resource and those spellings are one resource; a redirect hop
-is a different resource, so it still earns its own allow.
+it names the resource the request uses; a redirect hop is a different
+resource, so it still earns its own allow.
+
+For path rules intended to cover a resource regardless of submitted or derived
+spelling, write the decoded canonical form: for example, use `~user` rather
+than only `%7Euser`.
 
 A colon is read as a selector only after the path separator, which decides the
 two readings of `:N`:
@@ -203,9 +224,11 @@ clauses:
 - A hop locator is the `Location` value resolved against the redirecting
   request's URL and serialized by the WHATWG parser as its `href`, with any
   fragment dropped: lowercase host, an internationalized host as punycode, a
-  default port dropped, an empty path as `/`, and path and query
-  percent-encoded. Write hop-relevant rules against that form, not against the
-  spelling the server happened to send.
+  default port dropped, an empty path as `/`, and path and query percent-escapes
+  normalized to the same fixed point as submitted locators. A stray `%` becomes
+  `%25`, unreserved escapes are decoded, and remaining escapes keep uppercase
+  hex. Write hop-relevant rules against that form, not against the spelling
+  the server happened to send.
 
 Redirects are followed on any host for 301, 302, 303, 307, and 308. A redirect
 status without a parsable `Location`, or a hop carrying userinfo or a non-web
@@ -232,6 +255,50 @@ policy-instance ID the call decision carries. The record never travels through
 the model-visible result, and it stays excluded from model replay, public
 shares, exports, and search. The result itself reports only `finalUrl`; no hop
 chain is exposed.
+
+### Address locators and connection pinning
+
+After a request's locator passes its usual text admission, the tool determines
+the addresses that request may connect to. Each non-literal host is resolved
+through the system resolver once per host per call; a host that is an IP
+literal is its own single address. A later request in the call reuses that
+host's resolver answer. This applies to submitted locators, redirect hops,
+announced alternates, suffix candidates, and `llms.txt` probes.
+
+An address locator is exactly the requested URL with only its host replaced.
+It keeps the scheme, port, path, and query; it never includes a read selector.
+IPv4 is written in dotted decimal, IPv6 in lowercase compressed WHATWG form
+inside brackets, and IPv4-mapped IPv6 as the dotted IPv4 address it maps to.
+An IPv6 zone identifier is dropped. For example:
+
+- `https://docs.example.com:8443/guide?q=1` resolving to `93.184.216.34` is
+  also judged as `https://93.184.216.34:8443/guide?q=1`.
+- `https://files.example/private` resolving to `2001:db8::10` is also judged
+  as `https://[2001:db8::10]/private`.
+- The URL's canonical `https://[::ffff:7f00:1]/` form and resolver answer
+  `::ffff:127.0.0.1` both produce address locator `https://127.0.0.1/`.
+- `https://docs.example.com/guide:raw` resolving to `93.184.216.34` is judged
+  as `https://93.184.216.34/guide`; the selector is not requested.
+
+Address locators are judged by the `read` group's reject clauses only. Allows
+never see an address: a domain allowlist would otherwise refuse every CDN
+address as `no_allow`, while a broad IP allow would also admit model-typed IP
+URLs and reopen the path the domain allowlist closes. Every address is judged
+before connection; refused addresses are skipped and the runtime races only
+the admitted addresses through a per-request dispatcher. That dispatcher can
+dial only the judged admitted set, so whichever address wins was judged; no
+connection is reused across requests.
+
+If every address is refused on the submitted locator or a redirect hop, the
+call ends with `permission_denied` and this fixed message (a refused redirect
+also has its hostname-form locator in `rejectedUrl`):
+
+> Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.
+
+If every address of a probe is refused, only that candidate is disqualified.
+Refused addresses are recorded privately as derived-locator decisions of kind
+`address`; neither the address nor its address locator is recorded or exposed
+in a result, message, or note.
 
 ## Restricting reads to one domain
 
@@ -271,12 +338,18 @@ What the clause matches is locator text, not an address:
   either text, so a clause naming the host catches the encoded, uppercase,
   default-port, and root-dot spellings of it. An allow is decided on the
   requested text, since that is the resource the call reaches.
-- The clause admits a hostname, never the address that name resolves to. A
-  host's root dot is dropped before matching, for a submitted locator and for
-  a redirect hop alike, so `https://docs.example.com./` is matched and
+- An allow admits the locator text, not the address its hostname resolves to;
+  each resolved address is separately evaluated against rejects. A host's
+  root dot is dropped before matching, for a submitted locator and for a
+  redirect hop alike, so `https://docs.example.com./` is matched and
   requested as `https://docs.example.com/`; the recommended grokipedia clause
   keeps its `\.?` anyway, because an operator's own clause should not depend
   on that normalization.
+- An address reject can cover one server across names, for example
+  `^https?://10\.67\.88\.60/private`. Use `(?i)` for a case-insensitive
+  server. Because some servers merge `//` or treat `..;` specially, a
+  path-scoped rule can miss the resource the server serves; scope a sensitive
+  address by origin instead of path when that is the boundary you need.
 
 ## Threat model
 
@@ -292,14 +365,23 @@ is one admitted call that carries data out of the process. The operator's
 `read` group bounds that direction too; a domain allowlist (above) is the
 mitigation, and it is only as good as the canonical text it matches.
 
-**No address is inspected.** The tool does not resolve a hostname or check an
-address before connecting: there is no loopback, private-range, link-local,
-ULA, or cloud-metadata check, and a redirect chain reaches those addresses the
-same way. A name that resolves to `127.0.0.1`, a private range, or a metadata
-service passes any clause that admits its text, and an answer that changes
-between the decision and the connection passes too. Issue #914 owns address
-evaluation; until it ships, a `path` clause over text is the only barrier, so
-keep the `read` group tight.
+**Every request is judged at the address it can dial.** For the submitted URL
+and every hop or probe, the tool uses one system-resolver answer per host per
+call (or the IP literal itself), skips refused addresses, and races only
+admitted addresses through a per-request connection pinned to that judged set.
+Connections are not reused across requests, and there is no built-in private-
+range guard: the `read` group's rejects decide. The address-locator form and
+reject-only rule are described above.
+
+**Address admission is not a general network sandbox.** A public host that
+proxies to an internal service is invisible to this check, and rules cover
+only the address the target host resolves to, not every address or interface
+of a protected server. On Linux, `0.0.0.0` and `::` can reach loopback; reject
+them too if loopback must be refused. DNS sends hostname labels out before the
+address decision, so only URL-text rules can bound that channel. Web reads
+ignore environment proxies. F5f refuses NAT64 `64:ff9b::/96` for cleartext,
+but an HTTPS rule for an IPv4 address does not match its embedded IPv4 form.
+These address checks govern web `read`, not host `bash`.
 
 **Publisher signals are not permission.** `robots.txt` and `content-signal` are
 neither consulted nor reported, and an admitted read is not presented as the
@@ -347,7 +429,7 @@ Line selectors apply to the rendered text under the native rules: the
 | `unsupported_content_type` | the response is not a text body, or declares no content type                                                                                               |
 | `invalid_redirect`         | a redirect status without a parsable `Location`, or a hop with userinfo or a non-web scheme; the target is never named; a fragment is dropped, not refused |
 | `too_many_redirects`       | the call exceeded 20 redirects                                                                                                                             |
-| `permission_denied`        | the `read` group refused the submitted locator, or refused a hop — a hop rejection carries `rejectedUrl`                                                   |
+| `permission_denied`        | the `read` group refused the submitted locator or a hop, or every address was refused — a hop rejection carries `rejectedUrl`                              |
 | `aborted`                  | the Run or the caller cancelled the read                                                                                                                   |
 | `network_error`            | the transport failed (DNS, TLS, connection reset); a probe's failure disqualifies only its candidate, and no request is retried                            |
 
@@ -370,8 +452,8 @@ whole call on permissions; a refused probe only disqualifies its candidate.
 
 | Symptom                                             | Check                                                                                                                                       |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `permission_denied` with `rejectedUrl`              | a redirect hop was refused; allow that origin's canonical text, or drop the reject that matched                                             |
-| `permission_denied` without `rejectedUrl`           | the submitted locator matched a reject or no allow; check the group's `path` clauses against the exact locator                              |
+| `permission_denied` with `rejectedUrl`              | the redirect hop or every address for it was refused; check the target's URL and address-locator rejects                                    |
+| `permission_denied` without `rejectedUrl`           | the submitted URL was refused, had no matching allow, or all its addresses were refused; check its URL clauses and address-locator rejects  |
 | `invalid_path` naming a spelling                    | the locator is not a URL; resubmit exactly the spelling the message names                                                                   |
 | `invalid_selector` naming a `%3A` spelling          | the last path segment holds a literal colon; use the suggested encoded locator or a real selector                                           |
 | `unsupported_content_type` naming `application/pdf` | document reads are not implemented (#916)                                                                                                   |

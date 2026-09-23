@@ -27,6 +27,11 @@ const INPUT_LIMIT =
 export const REJECTED_HOP_MESSAGE =
   'Tool call stopped by operator permissions. A redirect target was refused before its content was read; the refused target is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.';
 
+/** The fixed address-rejection message: it names neither a resolved address
+ *  nor the rule that refused it. */
+export const REJECTED_ADDRESS_MESSAGE =
+  'Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.';
+
 /** The bound {@link rejectedHopUrl} applies to a refused hop locator before it
  *  is stored, and the bound every reader of a stored one re-checks. */
 export const REJECTED_URL_BOUND = 2048;

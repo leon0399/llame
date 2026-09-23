@@ -10,6 +10,7 @@ import {
 } from '../permissions/types';
 import { type ToolContext } from '../types';
 import {
+  createAddressAdmission,
   createDerivedAdmission,
   type DerivedDecision,
   type DerivedLocatorKind,
@@ -183,5 +184,147 @@ describe('createDerivedAdmission', () => {
     expect(admit('hop', DOCS_URL).decision).toBe('allow');
     expect(admit('hop', OTHER_URL).decision).toBe('reject');
     expect(admit('hop', DOCS_URL).decision).toBe('allow');
+  });
+});
+
+describe('createAddressAdmission', () => {
+  it('refuses explicit rejects but admits allow and no-allow decisions', () => {
+    const explicitReject = policy({
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: String.raw`^https://10\.` }],
+      },
+    });
+    const allow = policy({ read: { allow: true } });
+    const noAllow = policy({
+      read: {
+        allow: [
+          { field: 'path', regex: String.raw`^https://docs\.example\.com/` },
+        ],
+      },
+    });
+    const seen: Array<DerivedDecision> = [];
+
+    expect(
+      createAddressAdmission(
+        contextOf(explicitReject, (decision) => seen.push(decision)),
+      )('10.0.0.5', 'https://10.0.0.5/private'),
+    ).toBe(false);
+    expect(
+      createAddressAdmission(
+        contextOf(allow, (decision) => seen.push(decision)),
+      )('93.184.216.34', 'https://93.184.216.34/guide'),
+    ).toBe(true);
+    expect(
+      createAddressAdmission(
+        contextOf(noAllow, (decision) => seen.push(decision)),
+      )('93.184.216.34', 'https://93.184.216.34/guide'),
+    ).toBe(true);
+    expect(seen).toStrictEqual([
+      {
+        kind: 'address',
+        url: 'https://10.0.0.5/private',
+        decision: {
+          policyId: POLICY_ID,
+          decision: 'reject',
+          reason: 'explicit_reject',
+          reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
+        },
+      },
+    ]);
+  });
+
+  it('refuses when permission inspection exceeds its input limit', () => {
+    const seen: Array<DerivedDecision> = [];
+    const admit = createAddressAdmission(
+      // A clause is required: a group with none decides without inspecting.
+      contextOf(
+        policy({
+          read: {
+            allow: true,
+            reject: [{ field: 'path', literal: 'never-present' }],
+          },
+        }),
+        (decision) => seen.push(decision),
+      ),
+    );
+    const locator = `https://93.184.216.34/?${'x'.repeat(1024 * 1024 + 1)}`;
+
+    expect(admit('93.184.216.34', locator)).toBe(false);
+    expect(seen).toMatchObject([
+      {
+        kind: 'address',
+        decision: { decision: 'reject', reason: 'input_limit' },
+      },
+    ]);
+  });
+
+  it('admits a resolved address under a domain-only allowlist', () => {
+    const compiled = policy({
+      read: {
+        allow: [
+          { field: 'path', regex: String.raw`^https://docs\.example\.com/` },
+        ],
+      },
+    });
+
+    expect(
+      createAddressAdmission(contextOf(compiled))(
+        '93.184.216.34',
+        'https://93.184.216.34/guide',
+      ),
+    ).toBe(true);
+  });
+
+  it('refuses without a compiled policy and does not report an unattributable refusal', () => {
+    const seen: Array<DerivedDecision> = [];
+    const admit = createAddressAdmission(
+      contextOf(undefined, (decision) => seen.push(decision)),
+    );
+
+    expect(admit('93.184.216.34', 'https://93.184.216.34/guide')).toBe(false);
+    expect(seen).toStrictEqual([]);
+  });
+
+  it('reports only refusals once per address and decision reference', () => {
+    const compiled = policy({
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: String.raw`^https://10\.0\.0\.` }],
+      },
+    });
+    const seen: Array<DerivedDecision> = [];
+    const admit = createAddressAdmission(
+      contextOf(compiled, (decision) => seen.push(decision)),
+    );
+
+    expect(admit('93.184.216.34', 'https://93.184.216.34/guide')).toBe(true);
+    expect(admit('10.0.0.5', 'https://10.0.0.5/first')).toBe(false);
+    expect(admit('10.0.0.5', 'https://10.0.0.5/second')).toBe(false);
+    expect(admit('10.0.0.6', 'https://10.0.0.6/third')).toBe(false);
+
+    expect(seen).toHaveLength(2);
+    expect(seen).toStrictEqual([
+      {
+        kind: 'address',
+        url: 'https://10.0.0.5/first',
+        decision: {
+          policyId: POLICY_ID,
+          decision: 'reject',
+          reason: 'explicit_reject',
+          reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
+        },
+      },
+      {
+        kind: 'address',
+        url: 'https://10.0.0.6/third',
+        decision: {
+          policyId: POLICY_ID,
+          decision: 'reject',
+          reason: 'explicit_reject',
+          reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
+        },
+      },
+    ]);
   });
 });

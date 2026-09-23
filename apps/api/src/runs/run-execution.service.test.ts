@@ -10,7 +10,11 @@ import {
   type CompiledPolicy,
   type PermissionDecision,
 } from '../tools/permissions/types';
-import { type DerivedDecisionRecord } from '../tools/web-read/admission';
+import {
+  createAddressAdmission,
+  createDerivedAdmission,
+  type DerivedDecisionRecord,
+} from '../tools/web-read/admission';
 import { nativeEditTool, nativeReadTool } from '../tools/native-files';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { NativeFilesRepository } from './native-files-repository';
@@ -2419,6 +2423,103 @@ describe('RunExecutionService executeRun — tool loop', () => {
       permission: allowDecision(toolDeclaration.id),
       derivedDecisions: expected,
     });
+  });
+
+  it('bounds refused addresses separately from hop decisions', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredTool();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const rejected: PermissionDecision = {
+      policyId: 'test-policy',
+      decision: 'reject',
+      reason: 'explicit_reject',
+      reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
+    };
+    const permissionPolicy = compileToolPermissionMap(
+      {
+        [toolDeclaration.id]: { allow: true },
+        read: {
+          allow: true,
+          reject: [
+            {
+              field: 'path',
+              regex: String.raw`^https://(?:10\.0\.0\.|example\.test/blocked)`,
+            },
+          ],
+        },
+      },
+      'test-policy',
+    );
+    let admittedAddress = false;
+    const execute = vi.fn((context: ToolContext) => {
+      const admitAddress = createAddressAdmission(context);
+      for (let index = 1; index <= 30; index += 1) {
+        const address = `10.0.0.${index}`;
+        expect(admitAddress(address, `https://${address}/private`)).toBe(false);
+      }
+      admittedAddress = admitAddress(
+        '93.184.216.34',
+        'https://93.184.216.34/guide',
+      );
+      expect(
+        createDerivedAdmission(context)('hop', 'https://example.test/blocked'),
+      ).toStrictEqual(rejected);
+
+      return Promise.resolve({ status: 'success' as const, hits: 2 });
+    });
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'read_only',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      { ...toolOptions, permissionPolicy },
+    );
+    const expected: ReadonlyArray<DerivedDecisionRecord> = [
+      ...Array.from({ length: 16 }, () => ({
+        ...rejected,
+        kind: 'address' as const,
+      })),
+      { ...rejected, kind: 'hop' },
+    ];
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    const settled = await executeBoundTool(options, { q: 'llame' }, 'call-1');
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+    });
+
+    expect(admittedAddress).toBe(true);
+    expect(settled).toStrictEqual({ status: 'success', hits: 2 });
+    expect(
+      appended.find((entry) => entry.type === 'tool.completed')?.payload,
+    ).toStrictEqual({
+      toolCallId: 'call-1',
+      toolName: toolDeclaration.id,
+      status: 'success',
+      output: { status: 'success', hits: 2 },
+      permission: allowDecision(toolDeclaration.id),
+      derivedDecisions: expected,
+    });
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          expect.objectContaining({
+            toolCallId: 'call-1',
+            derivedDecisions: expected,
+          }),
+          { type: 'text', text: 'answer' },
+        ],
+      }),
+    );
   });
 
   it('applies a restarted process policy to a queued call and continues the run', async () => {

@@ -12,6 +12,7 @@ import {
 } from '../tools/permissions/messages';
 import type { RunEvent } from '../db/schema';
 import type { ToolResult } from '../tools/types';
+import type { DerivedDecisionRecord } from '../tools/web-read/admission';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const timestamp = new Date('2026-09-02T12:00:00.000Z');
@@ -709,6 +710,64 @@ describe('reconstructDurableAssistant', () => {
     });
   });
 
+  it('bounds stored address decisions separately and drops unknown kinds', () => {
+    const addressDecision = {
+      kind: 'address' as const,
+      policyId: 'policy-address',
+      decision: 'reject' as const,
+      reason: 'explicit_reject' as const,
+      reference: null,
+    };
+    const hopDecision = {
+      kind: 'hop' as const,
+      policyId: 'policy-hop',
+      decision: 'reject' as const,
+      reason: 'no_allow' as const,
+      reference: null,
+    };
+    const stored: Array<unknown> = [];
+    for (let index = 0; index < 30; index += 1) {
+      stored.push(
+        { ...addressDecision, policyId: `address-${index}` },
+        { ...hopDecision, policyId: `hop-${index}` },
+      );
+    }
+    stored.splice(1, 0, { ...addressDecision, kind: 'redirect' });
+    const expected = [
+      ...Array.from({ length: 16 }, (_, index) => [
+        { ...addressDecision, policyId: `address-${index}` },
+        { ...hopDecision, policyId: `hop-${index}` },
+      ]).flat(),
+      ...Array.from({ length: 10 }, (_, index) => ({
+        ...hopDecision,
+        policyId: `hop-${index + 16}`,
+      })),
+    ];
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: {},
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: { status: 'success' },
+        derivedDecisions: stored,
+      }),
+    ]);
+
+    const toolPart = result.collector
+      .parts()
+      .find((part): part is ToolActivityPart => part.type === 'tool-read');
+    expect(toolPart?.derivedDecisions).toStrictEqual(expected);
+    expect(
+      toolPart?.derivedDecisions?.filter(({ kind }) => kind === 'address'),
+    ).toHaveLength(16);
+    expect(
+      toolPart?.derivedDecisions?.filter(({ kind }) => kind !== 'address'),
+    ).toHaveLength(26);
+  });
+
   it('keeps derived-locator decisions out of the observable result and model replay', () => {
     const decision = {
       kind: 'hop' as const,
@@ -740,6 +799,32 @@ describe('reconstructDurableAssistant', () => {
     expect(
       JSON.stringify(projectToolObservations(result.collector.parts())),
     ).not.toContain('policy-instance-7c1f');
+  });
+
+  it('reloads a refused address decision from durable completion metadata', () => {
+    const decision: DerivedDecisionRecord = {
+      kind: 'address',
+      policyId: 'policy-1',
+      decision: 'reject',
+      reason: 'explicit_reject',
+      reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
+    };
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: { path: 'https://docs.example.test/guide' },
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: { status: 'success', content: 'body' },
+        derivedDecisions: [decision],
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      expect.objectContaining({ derivedDecisions: [decision] }),
+    ]);
   });
 
   it('reloads a refused hop target from storage and re-attaches it to model replay', () => {

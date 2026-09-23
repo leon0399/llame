@@ -282,13 +282,18 @@ export type ToolActivityPartInput = {
 };
 
 /**
- * How many derived-locator decisions one settled part may carry: the
- * per-call request budget's 20 redirect hops, one announced alternate, one
- * suffix probe, and four `llms.txt` candidates produce a decision each
- * (20 + 1 + 1 + 4 = 26). The budget's 27th request — the submitted locator —
- * is decided at the execution gate rather than here and produces none.
+ * The per-call request budget can produce 20 redirect-hop decisions and six
+ * probe-candidate decisions (one alternate, one suffix, and four `llms.txt`
+ * candidates). The submitted locator is decided at the execution gate, and
+ * refused addresses have a separate bound.
  */
 export const MAX_DERIVED_DECISIONS = 26;
+
+/**
+ * Address refusals are bounded independently so DNS answers cannot crowd out
+ * the hop and probe decisions that explain a call's outcome.
+ */
+export const MAX_ADDRESS_DECISIONS = 16;
 
 /**
  * Exported for `RunExecutionService`'s live-stream path, which shapes tool
@@ -456,8 +461,9 @@ function derivedDecisionRecordFrom(
 /**
  * Re-read the derived-locator decisions a `tool.completed` payload recorded
  * when the call settled. Stored jsonb is untrusted on the way back in, so
- * malformed entries are dropped and the list is bounded as it was on the way
- * out; an empty list is absent, like the metadata every other part omits.
+ * malformed entries are dropped and each kind group keeps its own bound in
+ * stored order; an empty list is absent, like the metadata every other part
+ * omits.
  */
 function derivedDecisionsFromPayload(
   // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; `eventPayloadField` and the `Array.isArray` test below parse it before any entry is trusted.
@@ -465,11 +471,23 @@ function derivedDecisionsFromPayload(
 ): ReadonlyArray<DerivedDecisionRecord> | undefined {
   const value = eventPayloadField(payload, 'derivedDecisions');
   if (!Array.isArray(value)) return undefined;
-  const decisions = value.slice(0, MAX_DERIVED_DECISIONS).flatMap((entry) => {
-    const decision = derivedDecisionRecordFrom(entry);
 
-    return decision === undefined ? [] : [decision];
-  });
+  const decisions: Array<DerivedDecisionRecord> = [];
+  let addressCount = 0;
+  let derivedCount = 0;
+  for (const entry of value) {
+    const decision = derivedDecisionRecordFrom(entry);
+    if (decision === undefined) continue;
+
+    if (decision.kind === 'address') {
+      if (addressCount >= MAX_ADDRESS_DECISIONS) continue;
+      addressCount += 1;
+    } else {
+      if (derivedCount >= MAX_DERIVED_DECISIONS) continue;
+      derivedCount += 1;
+    }
+    decisions.push(decision);
+  }
 
   return decisions.length === 0 ? undefined : decisions;
 }

@@ -34,8 +34,10 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   alternates, a `.md` suffix probe, `llms.txt`), a bounded local render, and
   permission admission through that same `read` group for every locator it
   derives rather than receives — each redirect hop, announced alternate,
-  `.md` suffix, and `llms.txt` candidate — before its request, under 10 s
-  header, 30 s call, and 5 MiB body bounds. See
+  `.md` suffix, and `llms.txt` candidate — before its request. Every resolved
+  address is also judged against the `read` group's rejects, and each request
+  is pinned to an admitted address, under 10 s header, 30 s call, and 5 MiB
+  body bounds. See
   [web read setup](docs/web-read.md).
 - Owner-scoped Markdown Knowledge Spaces: `knowledge_search` over live files
   (including uncommitted changes), plus `kb://` reads through the native

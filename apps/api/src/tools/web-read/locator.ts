@@ -82,18 +82,40 @@ function parseWebUrl(
   return { href: canonicalHref(url) };
 }
 
+function normalizePercentEscapes(value: string): string {
+  return value.replaceAll(
+    /%([0-9a-f]{2})|%/giu,
+    (_escape: string, hex: string | undefined) => {
+      if (hex === undefined) return '%25';
+      const byte = Number.parseInt(hex, 16);
+      const unreserved =
+        (byte >= 0x41 && byte <= 0x5a) ||
+        (byte >= 0x61 && byte <= 0x7a) ||
+        (byte >= 0x30 && byte <= 0x39) ||
+        byte === 0x2d ||
+        byte === 0x2e ||
+        byte === 0x5f ||
+        byte === 0x7e;
+      return unreserved ? String.fromCharCode(byte) : `%${hex.toUpperCase()}`;
+    },
+  );
+}
+
 /**
- * The URL's serialization with its host's root dot dropped.
- * `https://example.test./` is the same host as `https://example.test/` — the
- * trailing dot is the DNS root — but the URL parser keeps it, so a clause
- * written for the host would miss the dotted spelling. Every locator the tool
- * requests, submitted or derived, is serialized through here, so the text
- * policy matches and the text requested carry the same host.
+ * The URL serialization with its host's root dot dropped and path and query
+ * escapes normalized to a fixed point. It decodes only unreserved escapes,
+ * uppercases other valid escapes, and encodes a stray `%` before it can expose
+ * a new escape. Otherwise `/%%370rivate` would become `/%70rivate`, which a
+ * server decodes as `/private`; repeated decoding would also change `%2570`.
+ * Assigning the normalized path back through the URL parser applies its
+ * dot-segment handling, so policy and the request use the same text.
  */
 export function canonicalHref(url: URL): string {
   if (url.hostname.endsWith('.')) {
     url.hostname = url.hostname.slice(0, -1);
   }
+  url.pathname = normalizePercentEscapes(url.pathname);
+  url.search = normalizePercentEscapes(url.search);
   return url.href;
 }
 

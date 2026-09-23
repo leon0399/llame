@@ -221,4 +221,26 @@ describe('native file permission projection', () => {
       decideNative(map, 'read', { path: 'https://example.test:88/page:10' }),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
+
+  it('rejects an encoded unreserved path without decoding a new escape', () => {
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: '^https://example\\.test/private' }],
+      },
+    };
+    expect(
+      decideNative(map, 'read', {
+        path: 'https://example.test/%70rivate',
+      }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+    expect(projectNativeFilePath('https://example.test/%%370rivate')).toBe(
+      'https://example.test/%2570rivate',
+    );
+    expect(
+      decideNative(map, 'read', {
+        path: 'https://example.test/%%370rivate',
+      }),
+    ).toMatchObject({ decision: 'allow' });
+  });
 });

@@ -523,13 +523,42 @@
             "field": "path",
             "regex": "(^|[/\\\\])\\.env($|:|\\.(local|development|production|staging|test)(\\.local)?($|:))"
           },
+          // F5a-F5f refuse cleartext only to addresses outside internal ranges.
+          // Hostname text never matches these rows, so a cleartext read is decided
+          // by its resolved addresses. Operators who want every cleartext read
+          // refused can keep the old `^http://` row.
           {
             "field": "path",
-            "regex": "^http://"
+            "regex": "^http://(?:[1-9]|1[1-9]|[2-9]\\d|10[1-9]|11\\d|12[0-689]|1[3-5]\\d|16[0-8]|17[013-9]|18\\d|19[013-9]|2[0-4]\\d|25[0-5])\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}[:/]"
+          },
+          {
+            "field": "path",
+            "regex": "^http://100\\.(?:\\d|[1-5]\\d|6[0-3]|12[89]|1[3-9]\\d|2\\d\\d)\\.\\d{1,3}\\.\\d{1,3}[:/]"
+          },
+          {
+            "field": "path",
+            "regex": "^http://169\\.(?:\\d|[1-9]\\d|1\\d\\d|2[0-4]\\d|25[0-35])\\.\\d{1,3}\\.\\d{1,3}[:/]"
+          },
+          {
+            "field": "path",
+            "regex": "^http://172\\.(?:\\d|1[0-5]|3[2-9]|[4-9]\\d|1\\d\\d|2\\d\\d)\\.\\d{1,3}\\.\\d{1,3}[:/]"
+          },
+          {
+            "field": "path",
+            "regex": "^http://192\\.(?:\\d|[1-9]\\d|1[0-5]\\d|16[0-79]|1[7-9]\\d|2\\d\\d)\\.\\d{1,3}\\.\\d{1,3}[:/]"
+          },
+          {
+            "field": "path",
+            "regex": "^http://\\[(?:::(?:[02-9a-f]|1[^\\]])|(?:[0-9a-f]{1,3}|[0-9a-e][0-9a-f]{3}|f[0-9abf][0-9a-f]{2}|fe[0-7c-f][0-9a-f]):)"
           },
           {
             "field": "path",
             "regex": "^https?://([^/]*\\.)?grokipedia\\.com\\.?([/:]|$)"
+          },
+          // F7 refuses metadata and credential endpoints on both schemes.
+          {
+            "field": "path",
+            "regex": "^https?://(?:169\\.254\\.169\\.254|169\\.254\\.170\\.2|169\\.254\\.0\\.23|100\\.100\\.100\\.200|\\[fd00:ec2::254\\])[:/]"
           }
         ]
       },
