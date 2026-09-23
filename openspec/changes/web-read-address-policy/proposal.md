@@ -52,7 +52,8 @@ while refusing cleartext to the public internet.
   `%25`, unreserved escapes (`A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~`) are
   decoded, and every other escape keeps uppercase hex. `/%70rivate` is
   matched and requested as `/private`, and `/%%370rivate` as `/%2570rivate`,
-  so no decode forms a new escape.
+  so llame's normalization forms no new escape (a server that decodes twice
+  is outside what a path rule can bound; the design records it).
 - The recommended `read` rejects replace F5 (`^http://`) with F5a–F5f, which
   refuse cleartext `http://` only to an address outside the internal ranges
   (loopback, `0.0.0.0/8`, RFC 1918, CGNAT `100.64.0.0/10`, link-local, ULA),

@@ -209,7 +209,8 @@ shaping facts:
   resource locators" sentence forbidding a change to percent-decoding rules is
   scoped to Knowledge, skill, and host locators in the delta. Server-side
   normalizations outside RFC 3986 equivalence (`//` merged by nginx and
-  Apache, Tomcat's `..;`) remain evasions of path-scoped rules; the runbook
+  Apache, Tomcat's `..;`, a component that decodes a path twice and reads
+  `/%2570rivate` as `/private`) remain evasions of path-scoped rules; the runbook
   tells operators to scope a sensitive address by origin, not path.
 
 ### D9: Provenance and the model-facing outcome

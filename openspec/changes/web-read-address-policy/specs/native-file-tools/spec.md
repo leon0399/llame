@@ -105,7 +105,7 @@ it.
 
 - **WHEN** the `read` group rejects `path` matching `^https://example\.test/private` and the model reads `https://example.test/%70rivate`
 - **THEN** the call is rejected before any request, because the normalized text is `https://example.test/private`
-- **AND** `https://example.test/%%370rivate` is requested as `https://example.test/%2570rivate`, whose server-decoded path is the literal `/%70rivate` it named, so no decode produces a new escape that a server would read as `/private`
+- **AND** `https://example.test/%%370rivate` is requested as `https://example.test/%2570rivate`, whose once-decoded path is the literal `/%70rivate` it named, so llame's normalization forms no new escape; a server that decodes a path twice can still read it as `/private`, which a path-scoped rule cannot bound
 - **AND** `https://example.test/a%2fb` is requested as `https://example.test/a%2Fb`, still encoded
 
 #### Scenario: A pathless host reads its port, a path reads its line
