@@ -31,16 +31,19 @@ the server; the owner sees `Found`, not an empty message.
   `opencode-go` entries) fails under one stated failure contract, owned by
   `provider-api-selection` instead of being described only inside the Go
   capability:
-  - a stream event that is not JSON, or does not match the wire's chunk shape,
-    fails the run with one fixed message that carries no byte of the event;
+  - a stream event that is not JSON, does not match the wire's chunk shape, or
+    carries an error value without a string message fails the run with one
+    fixed message that contains none of the event's content;
   - an error envelope delivered inside the stream fails the run with the
     envelope's parsed message, the same message an HTTP failure carrying that
     envelope already produces;
-  - a redirect response that reaches the client (only a client that refuses
-    redirects, which today is `opencode-go`) fails the run with a fixed
-    message naming the refusal and the status code, and no `Location`;
-  - HTTP failures with the envelope keep its parsed message, and HTTP
-    failures without it keep the status text, exactly as today.
+  - a redirect response (301, 302, 303, 307, 308) that reaches the client,
+    including one answering an SDK retry, fails the run with a fixed message
+    naming the status code and no `Location`; in practice that is an
+    `opencode-go` entry, whose transport refuses redirects;
+  - HTTP failures with the envelope keep its parsed message, HTTP failures
+    without it keep the status text, retried failures keep the SDK's retry
+    summary, and transport failures keep their message, exactly as today.
 - The error the run receives for an unparseable event is a new error carrying
   no reference to the event: no quoted text, no `cause`, no retained chunk. The
   issue's suggestion to keep the raw chunk on the error for debugging is not
@@ -92,6 +95,10 @@ None.
   Both are endpoint-authored diagnostics the contract already forwards.
 - Transport, timeout, and cancellation failures, whose messages are authored
   by llame, the platform, or the SDK and do not change.
+- A tool-call delta the adapter rejects inside its stream transform
+  (`InvalidResponseDataError`, `@ai-sdk/openai-compatible` `dist/index.mjs:803-807`).
+  It never reaches `onError`, its message is fixed, and the delta it carries on
+  `.data` reaches no run surface today.
 - A generic run-loop sanitizer. The run loop is transport-neutral and cannot
   tell SDK-authored text from upstream bytes (design D1).
 - Two adjacent defects observed in code while scoping this change and left
@@ -110,6 +117,9 @@ None.
     sent (`requestBodyValues`) and the response body and headers. This change
     stops the default from printing a stream event on the Chat Completions
     wire (design D2) and does not change what it prints for any other error.
+    The shipped Go requirement already states that failure bodies and headers
+    stay out of logs; this change keeps that sentence as written, and the
+    follow-up issue owns making it true on handler-less paths.
 
 ## Delivery
 

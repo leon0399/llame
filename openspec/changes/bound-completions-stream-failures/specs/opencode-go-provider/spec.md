@@ -11,15 +11,18 @@ stream, is the request's failure message, shown to the owner whose run failed
 and recorded on the run, after the SDK's own retry rules for retryable
 statuses; the failure response's body and headers, the request body, and the
 credential SHALL NOT reach owner output, the persisted run, logs, or
-telemetry; a failure body that is not the gateway's envelope SHALL surface as
-the HTTP status text; a refused redirect and a stream event the adapter cannot
-read SHALL surface as that contract's fixed texts, which carry no byte of the
-redirect target or of the event. The parsed message MAY name request values
-the gateway chose to echo. The system SHALL NOT validate a model's eligibility
-or route at boot, SHALL NOT keep a compiled model, route, or capability table,
-SHALL NOT classify Go failures into llame-owned error types or replace the
-gateway's message with a fixed one, SHALL NOT introduce a quota ledger or a
-typed quota error, and SHALL NOT retry against or fall back to another
+telemetry; a non-redirect failure body that is not the gateway's envelope
+SHALL surface as the HTTP status text; a redirect response and a stream event
+that is not JSON, does not match the wire's chunk shape, or carries an error
+value without a string message SHALL surface as that contract's fixed texts,
+which contain none of the redirect's `Location` value or of the event's
+content. The parsed message MAY name request values the gateway chose to echo.
+The system SHALL NOT validate a model's eligibility or route at boot, SHALL NOT
+keep a compiled model, route, or capability table, SHALL NOT classify Go
+failures into llame-owned error types or replace the gateway's parsed message
+with a fixed one other than for a redirect response, SHALL NOT introduce a
+quota ledger or a typed quota error, and SHALL NOT retry against or fall back
+to another
 provider, wire, or model because a request failed. The operator runbook SHALL
 record the accepted upstream shapes: a model the gateway's format gate rejects
 fails with the gateway's "not supported for format" message and its remedy,
@@ -48,9 +51,9 @@ retries.
 
 #### Scenario: An unreadable stream event from the gateway is not quoted
 
-- **WHEN** the gateway's stream delivers an event the adapter cannot read
+- **WHEN** the gateway's stream delivers an event that is not JSON, does not match the wire's chunk shape, or carries an error value without a string message
 - **THEN** the run fails with the Chat Completions wire's fixed unreadable-event text
-- **AND** no byte of that event appears in owner events, persisted errors, or logs
+- **AND** none of that event's content appears in owner events, persisted errors, or the run's failure log line
 
 #### Scenario: The runbook names the accepted upstream shapes
 
