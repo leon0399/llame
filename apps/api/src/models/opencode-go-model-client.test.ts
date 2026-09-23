@@ -343,7 +343,7 @@ describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () =>
         new Response('', {
           status: 302,
           statusText: 'Found',
-          headers: { location: 'https://redirected.example.test/v1' },
+          headers: { location: 'https://redirected-canary.example.test/v1' },
         }),
     );
     try {
@@ -361,7 +361,12 @@ describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () =>
         stub.fetchMock.mock.calls.map((_, call) => requestUrl(stub, call)),
       ).toEqual([GO_CHAT_COMPLETIONS_URL]);
       expect(stub.fetchMock.mock.calls[0]?.[1]?.redirect).toBe('manual');
-      expect(error).toBeInstanceOf(Error);
+      // The owner learns what happened (the refused redirect and its status)
+      // but not where it pointed.
+      expect(error.message).toMatch(/redirect \(HTTP 302\)/);
+      expect(`${error.message}\n${error.stack ?? ''}`).not.toContain(
+        'redirected-canary',
+      );
     } finally {
       stub.restore();
     }
@@ -713,7 +718,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
     }
   });
 
-  it("surfaces the SDK's parse error for a malformed stream chunk, quoting only that chunk", async () => {
+  it('reports a malformed stream chunk with the fixed text, quoting none of it', async () => {
     const malformedChunk = '{"choices": [} MALFORMED-CHUNK-CANARY';
     const stub = serveFetch(
       () =>
@@ -739,12 +744,13 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
         messages: REQUEST_MESSAGES,
       });
 
-      // The bounded exception the shared module documents: a chunk the adapter
-      // cannot parse surfaces as the SDK's parse error, whose message quotes
-      // that one chunk — not the response body that carried it — and nothing
-      // else from the exchange.
-      expect(error.message).toContain('JSON');
-      expect(error.message).toContain(malformedChunk);
+      // The Chat Completions wire's bounded message: a chunk the adapter
+      // cannot parse is reported by a fixed text, never quoted, and the text
+      // received before it stays out of the failure too.
+      expect(error.message).toMatch(/stream event that could not be read/);
+      expect(`${error.message}\n${error.stack ?? ''}`).not.toContain(
+        'MALFORMED-CHUNK-CANARY',
+      );
       expect(error.message).not.toContain('partial');
       expect(leakedCanaries(error, TRANSPORT_ONLY_CANARIES)).toEqual([]);
     } finally {
