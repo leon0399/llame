@@ -33,6 +33,7 @@ import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import type { ModelSelectionValidator } from '../models/models.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
+import { createOpenAICompletionsModelClient } from '../models/openai-completions-model-client';
 import type {
   KnowledgeToolResolver,
   Tool,
@@ -1568,6 +1569,67 @@ describe('RunExecutionService executeRun — stream failure', () => {
       attemptId: testAttemptId,
     });
   });
+
+  it.each([
+    [
+      'an unreadable event',
+      '<html>proxy echo CHUNK-CANARY</html>',
+      /stream event that could not be read/,
+    ],
+    [
+      'an in-stream error envelope',
+      JSON.stringify({
+        error: { message: 'Upstream overloaded', param: 'CHUNK-CANARY' },
+      }),
+      /^Upstream overloaded$/,
+    ],
+  ])(
+    'records and logs %s from a real Chat Completions stream as its bounded message',
+    async (_label, event, expectedMessage) => {
+      const spies = mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+      const loggerError = vi
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => {});
+      // The real client and adapter over a stubbed transport: the run sees
+      // the failure exactly as a Chat Completions endpoint delivers it.
+      const client = createOpenAICompletionsModelClient({
+        providerModelId: 'test-model',
+        modelId: 'system:test:test-model',
+        contextWindowTokens: 128_000,
+        userAgent: 'llame/0.0.0-test',
+        baseUrl: 'https://endpoint.example.test/v1',
+        fetch: () =>
+          Promise.resolve(
+            new Response(`data: ${event}\n\ndata: [DONE]\n\n`, {
+              headers: { 'content-type': 'text/event-stream' },
+            }),
+          ),
+      });
+      const execution = makeExecutionService(client);
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await result.consumeStream();
+      await vi.waitFor(() => {
+        expect(spies.markFinished).toHaveBeenCalled();
+      });
+
+      const message: unknown = expect.stringMatching(expectedMessage);
+      expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
+        error: { message },
+        attemptId: testAttemptId,
+      });
+      const terminal = appended.find((entry) => entry.type === 'run.failed');
+      expect(terminal?.payload).toStrictEqual({ status: 'failed', message });
+      const surfaces = JSON.stringify({
+        persisted: spies.markFinished.mock.calls,
+        terminal,
+        logged: loggerError.mock.calls,
+      });
+      expect(surfaces).not.toContain('CHUNK-CANARY');
+      expect(surfaces).not.toContain('[object Object]');
+    },
+  );
 
   it('reports a wall-clock abort as expired with the timeout message, not the provider error', async () => {
     const controller = new AbortController();

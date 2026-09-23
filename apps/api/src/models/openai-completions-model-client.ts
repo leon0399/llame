@@ -3,11 +3,19 @@ import {
   type OpenAICompatibleProvider,
 } from '@ai-sdk/openai-compatible';
 import {
+  APICallError,
+  JSONParseError,
+  TypeValidationError,
+} from '@ai-sdk/provider';
+import {
+  RetryError,
   streamText,
   type OutputInterface,
+  type StreamTextOnErrorCallback,
   type StreamTextResult,
   type ToolSet,
 } from 'ai';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 import {
   type ChatIdentity,
@@ -226,6 +234,76 @@ function composeStructuredProviderOptions(
   );
 }
 
+/** The redirect statuses a response can answer with (the web-read set). */
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([
+  301, 302, 303, 307, 308,
+]);
+
+const UNREADABLE_EVENT_MESSAGE =
+  'Model request failed: the provider sent a stream event that could not be read.';
+
+/** The redirect's status, when `error` reports one directly or as a retry's last attempt. */
+function redirectStatus(error: unknown): number | undefined {
+  const response = RetryError.isInstance(error) ? error.lastError : error;
+  if (!APICallError.isInstance(response)) return undefined;
+  const status = response.statusCode;
+  return status !== undefined && REDIRECT_STATUSES.has(status)
+    ? status
+    : undefined;
+}
+
+/**
+ * Maps a failure the streaming request reported onto the wire's failure
+ * contract (design D3): a redirect and an event the adapter could not read
+ * become fresh errors carrying none of the response or the event — no quoted
+ * text, no `cause` (D4) — and an error envelope delivered inside the stream,
+ * which the adapter hands over as a plain object, becomes an `Error` with its
+ * parsed message and nothing else. Every other `Error` passes unchanged: its
+ * message is the endpoint's parsed message, the status text, the SDK's retry
+ * summary, or a transport failure's, all of which the contract keeps.
+ */
+function boundCompletionsFailure(error: unknown): Error {
+  const status = redirectStatus(error);
+  if (status !== undefined) {
+    return new Error(
+      `Model request failed: the provider answered with a redirect (HTTP ${status}), which is not followed.`,
+    );
+  }
+  if (
+    JSONParseError.isInstance(error) ||
+    TypeValidationError.isInstance(error)
+  ) {
+    return new Error(UNREADABLE_EVENT_MESSAGE);
+  }
+  if (error instanceof Error) return error;
+  // A non-`Error` is the `error` value of an in-stream event. The adapter
+  // validates it as an envelope only when the event carries no `choices`, so
+  // a string or a message-less object also arrives here (design D3 step 5).
+  if (isRecord(error) && isString(error['message'])) {
+    return new Error(error['message']);
+  }
+  return new Error(UNREADABLE_EVENT_MESSAGE);
+}
+
+/**
+ * The streaming request's own error handler, always installed (design D2):
+ * the bounded failure reaches the caller's handler, or, for a caller that
+ * supplies none, the console the AI SDK's default handler would have printed
+ * the unbounded one to.
+ */
+function reportBoundedFailure(
+  onError: StreamTextOnErrorCallback | undefined,
+): StreamTextOnErrorCallback {
+  return ({ error }) => {
+    const bounded = boundCompletionsFailure(error);
+    if (onError === undefined) {
+      console.error(bounded);
+      return;
+    }
+    return onError({ error: bounded });
+  };
+}
+
 function runOpenAICompatibleStream(
   provider: OpenAICompatibleProvider,
   config: OpenAICompletionsModelClientConfig,
@@ -241,7 +319,7 @@ function runOpenAICompatibleStream(
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
-    onError: input.onError,
+    onError: reportBoundedFailure(input.onError),
     onAbort: settlement.onAbort,
     onFinish: input.onFinish,
     // llame's identity rides every request (design D6), per call: the

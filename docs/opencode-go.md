@@ -113,16 +113,19 @@ here.
 
 Failures surface at request time under the Chat Completions failure contract,
 exactly as for an `openai-completions` entry: the gateway's parsed error
-message becomes the run's failure, shown to the owner whose run failed and
-recorded on the run, after the SDK's own retry rules for retryable statuses.
-The failure response's body and headers, the request body, and the credential
-reach no owner output, persisted run, log, or telemetry; a failure body that
-is not the gateway's envelope surfaces as the HTTP status text. The parsed
-message may echo request values the gateway chose to name, and a stream chunk
-the adapter cannot parse surfaces as the SDK's parse error quoting that one
-chunk. llame adds no Go-specific error type or sanitizer, keeps no quota
-ledger, and never retries against or falls back to another provider, wire, or
-model because a request failed.
+message, whether it arrives on a failure response or inside the stream,
+becomes the run's failure, shown to the owner whose run failed and recorded on
+the run, after the SDK's own retry rules for retryable statuses. The failure
+response's body and headers, the request body, and the credential reach no
+owner output, persisted run, log, or telemetry; a non-redirect failure body
+that is not the gateway's envelope surfaces as the HTTP status text. Two
+failures surface as fixed texts that quote nothing from the response: a
+redirect, which is never followed, names only its status code, and a stream
+event the adapter cannot read is reported as unreadable without its content.
+The parsed message may echo request values the gateway chose to name. llame
+adds no Go-specific error type or sanitizer, keeps no quota ledger, and never
+retries against or falls back to another provider, wire, or model because a
+request failed.
 
 These shapes were observed by driving the shipped client against the live
 gateway on 2026-09-22, except where noted:

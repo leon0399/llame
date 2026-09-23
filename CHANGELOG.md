@@ -1,5 +1,19 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-23
+
+- A Chat Completions stream failure no longer quotes the response (#908).
+  A stream event the adapter cannot parse, or whose `error` value carries no
+  message, fails the run with one fixed text instead of the SDK's parse error,
+  which embedded the whole event in the owner-visible, persisted, and logged
+  failure. An error envelope delivered inside the stream now fails the run with
+  its parsed message instead of `[object Object]`, and a redirect, which an
+  `opencode-go` entry never follows, is described with its status code instead
+  of the bare status text. HTTP failures keep their parsed message, status
+  text, and the SDK's retry summary. Applies to every `openai-completions` and
+  `opencode-go` streaming request; a compaction summary or text-path title
+  request, which fails no run, now logs the bounded error instead.
+
 # 2026-09-22
 
 - The native `read` tool reads the web: an absolute `http://` or `https://`
