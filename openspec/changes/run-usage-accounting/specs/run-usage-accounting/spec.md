@@ -88,8 +88,9 @@ Every newly persisted assistant message usage and every newly published compacti
 Every newly persisted assistant message usage SHALL carry a boolean `complete`. It SHALL be `false` when any of the following holds, and `true` otherwise:
 
 - a model request of the attempt completed without reporting an input or an output token count;
-- the attempt ended failed, cancelled, or expired, whether or not a model request was in flight;
-- another attempt of the same Run reached prompt preparation.
+- the attempt ended failed, cancelled, or expired, whether or not a model request was in flight, or the Run's recorded terminal status is not `completed` when the usage is written;
+- another attempt of the same Run reached prompt preparation;
+- the usage replaces the usage of an earlier assistant reply to the same user message, whose recorded spend is not carried forward.
 
 A model request reports its usage when the provider delivers that request's usage, whether or not the tools it requested have finished. An incomplete aggregate SHALL keep the known tokens and cost of the requests that did report, as a lower bound. When no request of the attempt reported any input or output count, the token fields and `costUsd` SHALL be absent rather than zero; a model without configured pricing still records `costUsd: null`. Missing cache detail counts SHALL be treated as zero under the existing provider rules and SHALL NOT by themselves mark usage incomplete.
 
@@ -97,6 +98,16 @@ A model request reports its usage when the provider delivers that request's usag
 
 - **WHEN** every model request of a completed attempt reported input and output counts and no other attempt of the Run reached prompt preparation
 - **THEN** the persisted usage records `complete: true`
+
+#### Scenario: A late completion under an expired Run is incomplete
+
+- **WHEN** an attempt's final request completes after the Run was already recorded as expired, and its usage is still persisted
+- **THEN** the persisted usage records `complete: false`
+
+#### Scenario: A replacement reply is incomplete
+
+- **WHEN** a later assistant turn replaces an earlier, non-completed assistant reply to the same user message that had recorded usage
+- **THEN** the replacing usage records `complete: false`
 
 #### Scenario: A request omitted its counts
 
@@ -142,7 +153,7 @@ The aggregate `reasoningTokens` SHALL be the sum of every request's reported rea
 
 ### Requirement: Every terminal assistant turn keeps its known usage
 
-When a Run ends failed, cancelled, or expired after at least one model request started, including a cancellation that settles while a tool call is still open, the persisted assistant message usage SHALL contain the aggregate of the requests that reported before the Run ended, with `complete: false`, and SHALL carry the executing `modelId`, the recorded effort when present, the attempt's latency, and its terminal status. It SHALL NOT record zero tokens or zero cost for requests that did not report. A Run that ends before its first model request records no usage, as today. A later settlement attempt SHALL NOT overwrite usage already persisted for the Run's assistant message.
+When a Run ends failed, cancelled, or expired after its executing attempt started at least one model request, including a cancellation that settles while a tool call is still open, the persisted assistant message usage SHALL contain the aggregate of that attempt's requests that reported before the Run ended, with `complete: false`, and SHALL carry the executing `modelId`, the recorded effort when present, the attempt's latency, and a non-completed turn status (`error` for a failed Run, `aborted` for a cancelled or expired one). The one exception is an attempt that completed after another writer had already expired the Run: its salvaged usage keeps the attempt's own `completed` status, as today, and records `complete: false`. It SHALL NOT record zero tokens or zero cost for requests that did not report. A Run that ends before its first model request records no usage, as today, and so do settlements performed outside an executing attempt: dead-letter expiry, recovery from an unsettled native effect, and cancellation before an attempt starts. A cancelled turn settled with an open tool call SHALL therefore carry the same non-completed status as any other cancelled turn, and SHALL be retryable and excluded from conversation evidence exactly as those turns are.
 
 #### Scenario: A failure after a completed tool request
 
@@ -162,14 +173,26 @@ When a Run ends failed, cancelled, or expired after at least one model request s
 - **THEN** the assistant message usage has no token fields and no `costUsd`
 - **AND** still records `modelId`, latency, status, and `complete: false`
 
+#### Scenario: A cancelled open-tool turn is treated like other cancelled turns
+
+- **WHEN** a Run is cancelled while a tool call is open and its assistant turn is persisted
+- **THEN** that turn's usage records status `aborted`
+- **AND** conversation search and reads exclude it as they exclude any other non-completed assistant turn
+
 ### Requirement: Live and reloaded usage agree
 
-Every terminal path that persists an assistant message SHALL also publish that message's usage through the Run event stream before the Run's terminal event, so a subscriber observes the same token counts, cost, reasoning presence, `complete` value, and `billing` value that a later history read returns. Replaying the event stream after reconnect SHALL NOT change or accumulate the displayed usage.
+Every terminal path on which the executing attempt wins the Run's terminal transaction SHALL publish the assistant message's usage through the Run event stream before the Run's terminal event, so a subscriber observes the same token counts, cost, reasoning presence, `complete` value, and `billing` value that a later history read returns. Usage persisted after another writer already ended the Run, or in a standalone write after the terminal transaction rolled back, SHALL be visible on reload and SHALL NOT be published after the terminal event. Replaying the event stream after reconnect SHALL NOT change or accumulate the displayed usage.
 
 #### Scenario: A failed Run shows usage live
 
 - **WHEN** a subscriber watches a Run that fails after a reported request
 - **THEN** the stream delivers the assistant message's usage before the failure event
+- **AND** it equals the usage returned when the Chat history is reloaded
+
+#### Scenario: A reclaimed completed Run agrees live and on reload
+
+- **WHEN** a subscriber watches a Run that completes on its second attempt after the first attempt reached prompt preparation
+- **THEN** the streamed usage records `complete: false`
 - **AND** it equals the usage returned when the Chat history is reloaded
 
 #### Scenario: Reconnect replays usage without doubling
@@ -191,15 +214,25 @@ The compaction trigger for a completed Run SHALL use the final completed model r
 - **WHEN** a completed attempt's final request reports input plus output above the compaction threshold
 - **THEN** compaction is evaluated exactly as for a single-request turn of that size
 
+#### Scenario: A final request without counts uses the estimate
+
+- **WHEN** a completed attempt's final request reported no input or output count
+- **THEN** the compaction trigger uses the existing context estimate
+
+#### Scenario: A failed Run does not compact
+
+- **WHEN** a Run fails after requests whose final input plus output exceeds the compaction threshold
+- **THEN** no compaction is triggered by that Run
+
 ### Requirement: Historical usage is marked, never recomputed
 
-Assistant message usage persisted before this capability SHALL have `complete: false` recorded when the message has tool-call parts or its recorded status is not `completed`, and SHALL otherwise have `complete: true` recorded. No existing token, cost, reasoning, model, or status value SHALL change, and no `billing` value SHALL be added to historical assistant or compaction usage. Messages without usage SHALL remain without usage. Applying the marker again SHALL change nothing.
+Assistant message usage persisted before this capability SHALL have `complete: false` recorded when the message has tool-call parts or its recorded status is not `completed`, and SHALL otherwise have `complete: true` recorded. Apart from the added `complete` key, every historical usage value SHALL remain equal as JSON, and no `billing` value SHALL be added to historical assistant or compaction usage. Messages without usage SHALL remain without usage. Applying the marker again SHALL change nothing.
 
 #### Scenario: A historical tool loop is marked incomplete
 
 - **WHEN** a historical assistant message has tool-call parts and recorded usage
 - **THEN** its usage records `complete: false`
-- **AND** its tokens and `costUsd` are byte-for-byte unchanged
+- **AND** with `complete` removed, its usage equals the value it had before the marker
 
 #### Scenario: A historical single-request answer is complete
 

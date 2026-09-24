@@ -35,19 +35,25 @@ The SDK does not export its V3-to-`LanguageModelUsage` conversion, so the helper
 
 `buildTurnTelemetry` remains the per-request normalizer and pricer. A new `aggregateTurnTelemetry(receipts, context)` normalizes and prices each receipt, sums the results, derives `complete` and `reasoningTokens` by the spec's rules, and omits the token and cost fields when no receipt carried an input or output count. `costUsd` is `null` whenever pricing is absent, otherwise the sum of per-request costs. `finishReason` comes from the final request and `latencyMs` from the attempt clock, as today. The persisted assistant shape is `TurnTelemetry` with optional token and cost fields plus `complete` and `billing`. Compaction usage keeps its current shape plus `billing` (M9) and carries no `complete`.
 
+The aggregate `costUsd` is re-rounded to the same 1e-12 precision `calculateCostUsd` applies per request (`turn-telemetry.ts:185`), so summing doubles adds no floating-point residue.
+
 Alternative: pricing the summed buckets once. Rejected because per-request bounding of cache subsets would no longer hold; summed per-request costs keep each request priced as it would be alone.
 
 ### M3: One accumulator per attempt, read by every terminal path
 
 The Run's streaming closure owns an ordered receipt array filled by `onRequestUsage`. `onFinish`, `onError`, parent-abort settlement, and both progress-write-failure settlements (`:1150`, `:1167`, `:1929`) build telemetry from it. Parent-abort settlement starts passing telemetry to `settleTerminalRun`, which already forwards it to `finishRun`. Pre-model abort paths stay unchanged because no request was made. Only the `completed` status can produce `complete: true`; every other terminal status yields `false` (spec: completeness). The `ModelStreamInput.onFinish` event also gains the SDK's step count, and a completed attempt with fewer receipts than steps is marked incomplete, so a provider response that ended without a `finish` part is not silently counted as complete.
 
-### M4: Reclaim detection inside the terminal transaction
+Three writers persist an attempt's telemetry: the winning terminal transaction (`finishRunInTransaction`, `:2031-2078`), the lost-finish path that still persists after another writer expired the Run (`handleLostFinish`, `:2084-2103`), and the standalone salvage after a rolled-back terminal transaction (`salvageAssistantMessage`, `:2244-2263`). All three pass through M4's finalization. Settlements that run outside an executing attempt (dead-letter expiry in `runs-worker.service.ts:139-151`, native-effect recovery at `:611-620`, cancellation before an attempt starts in `runs-worker.service.ts:294-303`) have no receipts and keep persisting no usage.
 
-When `finishRunInTransaction` persists an assistant turn that carries telemetry, it reads the Run's receipts through `findByOwnedRun` within the owner-scoped transaction. If any receipt belongs to a different attempt, it sets `complete: false` before the write. The read uses the existing unique index prefix. Receipts of other Runs or owners are unreachable under RLS and the Run predicate.
+The parent-abort path changes what its turn records: today it persists `usage: null`, which `isCompletedAssistantTurn` treats as complete and therefore immutable conversation evidence (`assistant-completion.ts:4-20`). With telemetry it records status `aborted`, the same as a cancellation through `onError`, so it becomes retryable and is excluded from evidence like every other cancelled turn.
+
+### M4: Usage finalization inside the writing transaction
+
+One finalization step runs before anything telemetry-bearing is written: in `finishRunInTransaction` before `model.completed` is appended (`:2058-2060`), in `handleLostFinish` before its persist, and inside the salvage transaction. Within the owner-scoped transaction it reads the Run's receipts through `findByOwnedRun` and the existing assistant reply through `findTurnState`. It sets `complete: false` when any receipt belongs to a different attempt, when the Run's recorded status is not `completed`, or when the existing reply that the persist would replace already records usage (`persistAssistantMessage` replaces non-completed replies, `:2375-2386`). The same finalized object becomes both the `model.completed` payload and the persisted usage, so live and reload cannot diverge. The receipt read uses the existing unique index prefix; receipts of other Runs or owners are unreachable under RLS and the Run predicate. Replacing an earlier reply keeps today's replacement semantics and does not carry the replaced spend forward; exact accounting for replaced replies is #170's ledger.
 
 ### M5: Live usage reuses `model.completed`
 
-Every terminal path that passes telemetry also passes `modelCompleted: { finishReason, telemetry }`, so the event is appended in the same transaction before the terminal event. The order `model.completed` → `run.failed` already exists (`run-execution.service.test.ts:3007-3009`). The bridge is unchanged; the web replaces message metadata rather than summing it, and each attempt emits at most one terminal `model.completed`, so a replay shows the same value.
+Every terminal path on which the attempt wins the terminal transaction passes `modelCompleted: { finishReason, telemetry }`, so the event is appended in the same transaction before the terminal event. The order `model.completed` → `run.failed` already exists (`run-execution.service.test.ts:3007-3009`). Lost-finish and salvage writes happen after or outside the terminal transaction and publish nothing; their usage appears on reload. The bridge is unchanged. The web SDK deep-merges message metadata (`apps/web/node_modules/ai/dist/index.mjs:1250-1283`, `:5891-5905`), so replay stays idempotent only because each Run appends at most one `model.completed` and each stream builds a fresh live message; no design relies on a later metadata chunk removing a field.
 
 ### M6: The compaction signal is the final receipt
 
@@ -75,6 +81,9 @@ Alternatives:
 
 - [Mapping drift: the helper's V3 conversion diverges from the SDK after an upgrade] → the equality test in M1 fails on upgrade.
 - [A provider stream ends a billed request without a `finish` part] → it produces no receipt; the step-count check in M3 marks a completed attempt incomplete, and every other terminal status already is.
+- [Usage of a replaced earlier reply is dropped] → the replacing usage is marked incomplete (M4); keeping the replaced spend needs #170.
+- [Settlements outside an executing attempt persist a turn with no usage although earlier attempts spent tokens] → unchanged from today; #170's receipts are the fix.
+- [The #594 turn becomes retryable and leaves conversation evidence] → intended, since it matches every other cancelled turn; covered by a test in task 1.4.
 - [Reclaimed attempts' spend is lost] → marked incomplete; exact recovery waits for #170's receipts.
 - [A reclaimed Run aborted before its first request records no usage although an earlier attempt spent tokens] → accepted; it matches today's pre-model behavior and needs #170.
 - [Compaction signal overestimate after a large in-loop tool read] → existing behavior, unchanged and out of scope.
@@ -85,3 +94,16 @@ Alternatives:
 The API layer ships the migration and the new writer together, so no new row is written without `complete` or `billing`. Deploy order is the ordinary migrate-then-start. Rollback: older code ignores the `complete` and `billing` keys and the optional-absent fields render as unavailable in the current web; an older loader rejects a config that declares `billing`, so remove the key before rolling back. The migration is data-only and not reversed on rollback, because the key changes no existing value. Historical records get no `billing`, since SQL cannot read the configuration that would decide it. Leo's running instance keeps all chats.
 
 Ownership: the linear stack in tasks.md serializes work; each layer has one owner and no parallel edits to shared files.
+
+## Revision history
+
+- v3 (2026-09-24): review round 1, with two independent reviewers.
+  - Moved reclaim finalization ahead of the `model.completed` append and applied it to lost-finish and salvage writes.
+  - Replaced the false "later settlement never overwrites" claim with incompleteness on replacement.
+  - Scoped live publication to winning terminal transactions.
+  - Exempted settlements outside an executing attempt.
+  - Recorded the #594 retryability change.
+  - Corrected the metadata-merge claim, added cost re-rounding, and modified the instance-config provider list for `billing`.
+  - Added missing checks: the compaction fallback, non-completed compaction, invalid billing value types, `createFakeModelClient` wiring, and JSONB equality in the migration test.
+- v2 (2026-09-24): billing mode added (#959).
+- v1 (2026-09-24): initial proposal.

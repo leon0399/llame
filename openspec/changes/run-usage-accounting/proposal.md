@@ -10,7 +10,7 @@ Separately, an operator may declare pricing on a subscription model to see what 
 - D2: Usage carries a boolean `complete`. It is `false` when any request of the attempt reported no input or output count, when the attempt ended failed, cancelled, or expired, or when another attempt of the same Run reached prompt preparation. When no request reported any count, the token fields and `costUsd` are absent (unknown) rather than zero.
 - D3: An incomplete aggregate keeps its known tokens and cost as a lower bound. `costUsd: null` keeps meaning only "no configured pricing".
 - D4: Reasoning tokens are summed only when every request reported them; otherwise the field is absent (unknown), never zero.
-- D5: Failed, aborted, expired, and cancelled Runs, including cancellation while a tool call is open (#594), persist the known aggregate instead of zeros or nothing, and emit it live through the existing `model.completed` event so the live view and reload agree. A request whose usage the provider delivered counts as reported even while the tools it requested are still running.
+- D5: Runs that fail, are cancelled, or expire, including cancellation while a tool call is open (#594), persist the known aggregate of their executing attempt instead of zeros or nothing, and, when that attempt wins the terminal transaction, emit it live through the existing `model.completed` event so the live view and reload agree. A request whose usage the provider delivered counts as reported even while the tools it requested are still running. Usage that replaces an earlier reply's usage to the same user message is marked incomplete, because the replaced spend is not carried forward. Settlements outside an executing attempt (dead-letter expiry, native-effect recovery, cancellation before an attempt starts) still record no usage.
 - D6: Compaction receives the final completed request's input plus output as its own pressure signal, separate from the aggregate. Trigger behavior is unchanged.
 - D7: A one-time migration records `complete` on historical assistant usage: `false` where the row has tool-call parts or a non-completed status, `true` otherwise. Stored token and cost values are never recomputed.
 - D8: The usage badge shows `≥` on incomplete totals and cost with an explanation row, shows reasoning as `of which reasoning` under Output, and shows `—` for unknown values.
@@ -26,7 +26,7 @@ Separately, an operator may declare pricing on a subscription model to see what 
 
 ### Modified Capabilities
 
-- `instance-config`: ADDED requirement for the optional `billing` key on provider and model entries, its closed value set, and boot failure on any other value.
+- `instance-config`: MODIFIED provider list requirement so every provider variant, including the closed `opencode-go` shape, accepts the optional `billing` key; ADDED requirement for `billing` on provider and model entries, its closed value set, and boot failure on any other value.
 
 Provider capabilities (`anthropic-messages-provider`, `opencode-go-provider`, `subscription-access-openai-codex`) keep their per-request recording and pricing rules, which now apply to each request before aggregation. `opencode-go-provider` already describes a declared price as llame's own accounting of a subscription quota; D10 records that fact rather than changing the rule. `available-models` keeps its no-recomputation rule; the D7 marker changes no computed value.
 
@@ -49,6 +49,8 @@ Provider capabilities (`anthropic-messages-provider`, `opencode-go-provider`, `s
 ## Impact
 
 API: the model-client seam and its three wire adapters (`openai-responses`/`openai-codex`, `openai-completions` including `opencode-go`, `anthropic-messages`), test model clients, turn telemetry, Run terminal paths including parent-abort settlement, the compaction trigger argument, and one data migration on `messages.usage` with no schema change. Web: the message usage parser and badge. No OpenAPI change: `usage` is an untyped JSON object on message and event payloads. Existing fields keep their names and types; token and cost fields may now be absent when no request reported them, which the web parser already tolerates.
+
+Behavior change in existing capabilities' inputs: a Run cancelled with an open tool call currently persists no usage, which makes its assistant turn immutable and eligible as conversation evidence. After D5 it records a non-completed status like every other cancelled turn, so it becomes retryable and is excluded from conversation search and reads, as those capabilities already specify for non-completed turns.
 
 Configuration: the published JSON Schema, the config loader, the example config, and the Codex and OpenCode Go runbooks gain the `billing` key; existing configs keep booting because the key is optional.
 
