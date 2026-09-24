@@ -562,6 +562,7 @@ describe('createModelClient opencode-go dispatch (opencode-go-provider 3.2)', ()
           providerOptions: { user: 'run-owner' },
           maxOutputTokens: 8192,
           pricingUsdPer1M: { input: 1.5, output: 6 },
+          billing: 'subscription',
           compactionThresholdTokens: 4000,
         },
       },
@@ -574,6 +575,7 @@ describe('createModelClient opencode-go dispatch (opencode-go-provider 3.2)', ()
         providerOptions: { user: 'run-owner' },
         maxOutputTokens: 8192,
         pricing: { inputUsdPer1M: 1.5, outputUsdPer1M: 6 },
+        billing: 'subscription',
         compactionThresholdTokens: 4000,
       }),
     );

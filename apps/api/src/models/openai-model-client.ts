@@ -1,4 +1,4 @@
-import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAI, type OpenAIProvider } from '@ai-sdk/openai';
 import type { LanguageModelV3 } from '@ai-sdk/provider';
 import {
   generateText,
@@ -10,11 +10,14 @@ import {
 } from 'ai';
 
 import {
+  type BillingMode,
+  createModelStreamFinishCallback,
   type ModelClient,
   type ModelObjectInput,
   type ModelStreamInput,
   type ModelStreamResult,
 } from './model-client';
+import { applyRequestUsageCallback } from './request-usage';
 import type { TokenPrice } from './model-catalog';
 import {
   composeProviderOptions,
@@ -142,6 +145,7 @@ export function applyToolCallingOptions(
     return Promise.resolve(null);
   };
 }
+export { applyRequestUsageCallback };
 
 export interface AbortSettlement {
   /** Bind directly to `streamText`'s `onAbort` handler. */
@@ -423,6 +427,7 @@ export type OpenAIModelClientConfig = {
   /** Replaces provider errors before they enter the run lifecycle. */
   sanitizeError?: (error: unknown) => Error;
   pricing?: TokenPrice;
+  billing?: BillingMode;
   compactionThresholdTokens?: number;
 };
 
@@ -556,29 +561,26 @@ function applyTextDeltaCallback(
   };
 }
 
-function runOpenAIStream(
-  openai: ReturnType<typeof createOpenAI>,
+function buildOpenAIStreamOptions(
+  openai: OpenAIProvider,
   config: OpenAIModelClientConfig,
-  dependencies: OpenAIModelClientDependencies,
   input: ModelStreamInput,
-): ModelStreamResult {
-  const sanitizedInput =
-    config.sanitizeError === undefined
-      ? input
-      : {
-          ...input,
-          onError: ({ error }: { error: unknown }) =>
-            input.onError?.({ error: config.sanitizeError?.(error) ?? error }),
-        };
-  const streamOptions: Parameters<typeof streamText>[0] = {
-    // The declared Responses wire (design D1): the provider callable's
-    // default entry point targets /responses at the configured base URL.
+): Parameters<typeof streamText>[0] & { model: LanguageModelV3 } {
+  const streamOptions: Parameters<typeof streamText>[0] & {
+    model: LanguageModelV3;
+  } = {
     model: openai(config.providerModelId),
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
-    onError: sanitizedInput.onError,
-    onFinish: input.onFinish,
+    onError:
+      config.sanitizeError === undefined
+        ? input.onError
+        : ({ error }) =>
+            input.onError?.({
+              error: config.sanitizeError?.(error) ?? error,
+            }),
+    onFinish: createModelStreamFinishCallback(input.onFinish),
     ...(config.maxOutputTokens !== undefined && {
       maxOutputTokens: config.maxOutputTokens,
     }),
@@ -586,6 +588,17 @@ function runOpenAIStream(
   applyRequestOptions(streamOptions, config, input);
   applyToolCallingOptions(streamOptions, input);
   applyTextDeltaCallback(streamOptions, input);
+  applyRequestUsageCallback(streamOptions, input);
+  return streamOptions;
+}
+
+function runOpenAIStream(
+  openai: OpenAIProvider,
+  config: OpenAIModelClientConfig,
+  dependencies: OpenAIModelClientDependencies,
+  input: ModelStreamInput,
+): ModelStreamResult {
+  const streamOptions = buildOpenAIStreamOptions(openai, config, input);
   // SDK callbacks return immediately so the `fullStream` reasoning branch can
   // close; the run's callbacks and abort persistence then execute in order
   // behind that branch (D18).
@@ -693,6 +706,7 @@ export function createOpenAIModelClient(
     provider: config.provider ?? 'openai',
     contextWindowTokens: config.contextWindowTokens,
     ...(config.pricing !== undefined && { pricing: config.pricing }),
+    ...(config.billing !== undefined && { billing: config.billing }),
     ...(config.compactionThresholdTokens !== undefined && {
       compactionThresholdTokens: config.compactionThresholdTokens,
     }),

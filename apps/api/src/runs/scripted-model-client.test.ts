@@ -1,4 +1,4 @@
-import { tool, type ModelMessage } from 'ai';
+import { tool, type LanguageModelUsage, type ModelMessage } from 'ai';
 import { z } from 'zod';
 
 import type { ChatIdentity } from '../models/model-client';
@@ -513,6 +513,8 @@ describe('ScriptedModelsService observable contract', () => {
       offset?: number;
       limit: number;
     }> = [];
+    const receipts: Array<LanguageModelUsage> = [];
+    const onFinish = vi.fn();
     const result = service.createClient('recall').streamText({
       chat,
       messages,
@@ -538,10 +540,16 @@ describe('ScriptedModelsService observable contract', () => {
         }),
       },
       maxSteps: 5,
+      onRequestUsage: (usage) => receipts.push(usage),
+      onFinish,
     });
     await expect(result.text).resolves.toBe('source read');
 
     const steps = await result.steps;
+    expect(receipts).toStrictEqual(steps.map((step) => step.usage));
+    expect(onFinish).toHaveBeenCalledWith(
+      expect.objectContaining({ stepCount: 4 }),
+    );
     expect(steps.map((step) => step.finishReason)).toEqual([
       'tool-calls',
       'tool-calls',

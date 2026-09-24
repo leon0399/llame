@@ -459,6 +459,9 @@ describe('ModelsService — GET /api/v1/models contract stability (#161, provide
     expect(response.models.map((m) => m.id)).toEqual(
       config.models.map((m) => m.id),
     );
+    expect(config.models.every((model) => model.billing !== undefined)).toBe(
+      true,
+    );
 
     // Derived from the LOADED config rather than hand-transcribed, so this
     // doesn't need re-editing every time the example's catalog changes — it
@@ -469,6 +472,7 @@ describe('ModelsService — GET /api/v1/models contract stability (#161, provide
       ({
         provider: _p,
         providerModelId: _pmi,
+        billing: _billing,
         compactionThresholdTokens: _ct,
         systemPromptTemplate: _spt,
         systemPromptSource: _sps,
@@ -488,6 +492,7 @@ describe('ModelsService — GET /api/v1/models contract stability (#161, provide
       expect(model).not.toHaveProperty('systemPrompt');
       expect(model).not.toHaveProperty('systemPromptSource');
       expect(model).not.toHaveProperty('systemPromptFile');
+      expect(model).not.toHaveProperty('billing');
     }
   });
 });

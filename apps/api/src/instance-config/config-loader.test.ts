@@ -1690,6 +1690,155 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
   });
 });
 
+describe('loadInstanceConfig — billing mode (run-usage-accounting M9)', () => {
+  it.each([
+    ['openai-responses', '"id": "p", "type": "openai-responses"', 'usage'],
+    [
+      'openai-completions',
+      '"id": "p", "type": "openai-completions", "baseUrl": "https://provider.invalid/v1"',
+      'usage',
+    ],
+    ['anthropic-messages', '"id": "p", "type": "anthropic-messages"', 'usage'],
+    [
+      'openai-codex',
+      '"id": "p", "type": "openai-codex", "key": "codex-key", "accountId": "account"',
+      'subscription',
+    ],
+    [
+      'opencode-go',
+      '"id": "p", "type": "opencode-go", "key": "go-key"',
+      'subscription',
+    ],
+  ] as const)(
+    'loads declared provider and model modes for the %s provider',
+    (_type, provider, typeDefault) => {
+      writeConfig(`{
+        "providers": [{ ${provider}, "billing": "subscription" }],
+        "models": [{
+          "id": "m",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000,
+          "billing": "usage"
+        }]
+      }`);
+
+      const config = loadInstanceConfig();
+      expect(config.providers[0]).toMatchObject({ billing: 'subscription' });
+      expect(config.models[0]).toMatchObject({ billing: 'usage' });
+
+      writeConfig(`{
+        "providers": [{ ${provider} }],
+        "models": [{
+          "id": "m",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000
+        }]
+      }`);
+      expect(loadInstanceConfig().models[0]).toMatchObject({
+        billing: typeDefault,
+      });
+    },
+  );
+
+  it('lets a provider override its provider-type default', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-completions",
+        "baseUrl": "https://provider.invalid/v1",
+        "billing": "subscription"
+      }],
+      "models": [{
+        "id": "m",
+        "provider": "p",
+        "providerModelId": "x",
+        "contextWindowTokens": 1000
+      }]
+    }`);
+
+    expect(loadInstanceConfig().models[0]).toMatchObject({
+      billing: 'subscription',
+    });
+  });
+
+  it('keeps omitted provider billing absent while resolving the model default', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "models": [{
+        "id": "m",
+        "provider": "p",
+        "providerModelId": "x",
+        "contextWindowTokens": 1000
+      }]
+    }`);
+
+    const config = loadInstanceConfig();
+    expect(config.providers[0]).not.toHaveProperty('billing');
+    expect(config.models[0]).toMatchObject({ billing: 'usage' });
+  });
+
+  it.each([
+    ['provider', 'unknown string', '"free"', '/providers[p]/billing'],
+    ['provider', 'non-string', 'true', '/providers[p]/billing'],
+    [
+      'provider',
+      'env interpolation token',
+      '"{env:BILLING}"',
+      '/providers[p]/billing',
+    ],
+    [
+      'provider',
+      'path interpolation token',
+      '"{path:/tmp/billing-secret}"',
+      '/providers[p]/billing',
+    ],
+    ['model', 'unknown string', '"free"', '/models[m]/billing'],
+    ['model', 'non-string', 'true', '/models[m]/billing'],
+    [
+      'model',
+      'env interpolation token',
+      '"{env:BILLING}"',
+      '/models[m]/billing',
+    ],
+    [
+      'model',
+      'path interpolation token',
+      '"{path:/tmp/billing-secret}"',
+      '/models[m]/billing',
+    ],
+  ] as const)(
+    'rejects a %s %s and names its entry and field',
+    (entryType, _kind, value, path) => {
+      const providerBilling =
+        entryType === 'provider' ? `"billing": ${value},` : '';
+      const modelBilling = entryType === 'model' ? `"billing": ${value},` : '';
+      writeConfig(`{
+        "providers": [{
+          "id": "p",
+          "type": "openai-responses",
+          ${providerBilling}
+        }],
+        "models": [{
+          "id": "m",
+          "provider": "p",
+          "providerModelId": "x",
+          "contextWindowTokens": 1000,
+          ${modelBilling}
+        }]
+      }`);
+
+      try {
+        loadInstanceConfig({ BILLING: 'usage' });
+        expect.unreachable('expected an invalid billing declaration to fail');
+      } catch (error) {
+        expect(errorMessage(error)).toContain(path);
+      }
+    },
+  );
+});
+
 describe('loadInstanceConfig — embeddingModels[] / search.* (chat-search-embeddings, task 5.1)', () => {
   it('resolves a valid embedding model and per-corpus selection', () => {
     writeConfig(`{

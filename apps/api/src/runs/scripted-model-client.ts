@@ -14,11 +14,12 @@ import type {
   LanguageModelV3StreamPart,
   LanguageModelV3ToolResultOutput,
 } from '@ai-sdk/provider';
-import { stepCountIs, streamText as sdkStreamText } from 'ai';
+import { streamText as sdkStreamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
 import type { ModelReasoning } from '../models/model-catalog';
+import { applyRequestUsageCallback } from '../models/request-usage';
 import {
   resolveEffortSelection,
   type ModelSelectionValidator,
@@ -26,12 +27,12 @@ import {
 import {
   awaitSettlementAfter,
   trackAbortSettlement,
-  type AbortSettlement,
 } from '../testing/fake-streaming-model-client';
+import type { ModelClient, ModelStreamInput } from '../models/model-client';
 import {
-  type ModelClient,
-  type ModelStreamInput,
-} from '../models/model-client';
+  resolveHarnessStreamOptions,
+  scriptedStreamHandlers,
+} from './scripted-model-stream-options';
 
 const PROVIDER_ZERO_USAGE = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
@@ -71,8 +72,10 @@ export type ScriptedBehavior =
     };
 
 /** The subset `HarnessModelClient` actually streams; `infra-throw` never reaches it. */
-type HarnessBehavior = Exclude<ScriptedBehavior, { kind: 'infra-throw' }>;
-
+export type HarnessBehavior = Exclude<
+  ScriptedBehavior,
+  { kind: 'infra-throw' }
+>;
 type ConversationRecallBehavior = Extract<
   ScriptedBehavior,
   { kind: 'conversation-recall' }
@@ -424,48 +427,6 @@ function createScriptedStream(options: {
   });
 }
 
-/** Forwards tool options, plus the conversation-recall step cap, exactly as offered. */
-function resolveHarnessStreamOptions(
-  input: ModelStreamInput,
-  behavior: HarnessBehavior,
-): Pick<
-  Parameters<typeof sdkStreamText>[0],
-  'tools' | 'toolChoice' | 'stopWhen'
-> {
-  if (!input.tools) return {};
-  return {
-    tools: input.tools,
-    ...(input.toolChoice !== undefined && { toolChoice: input.toolChoice }),
-    ...((behavior.kind === 'conversation-recall' ||
-      behavior.kind === 'tool-script') && {
-      stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
-    }),
-  };
-}
-
-/** The `streamText` event handlers backing a scripted turn. */
-function scriptedStreamHandlers(
-  input: ModelStreamInput,
-  settlement: AbortSettlement,
-): Pick<
-  Parameters<typeof sdkStreamText>[0],
-  'onChunk' | 'onError' | 'onAbort' | 'onFinish'
-> {
-  return {
-    onChunk: ({ chunk }) => {
-      if (chunk.type === 'text-delta') {
-        input.onTextDelta?.(chunk.text);
-      } else if (chunk.type === 'reasoning-delta') {
-        input.onReasoningDelta?.(chunk.text);
-      }
-    },
-    onError: input.onError,
-    onAbort: settlement.onAbort,
-    onFinish: ({ text: response, usage, finishReason }) =>
-      input.onFinish?.({ text: response, usage, finishReason }),
-  };
-}
-
 /**
  * One recorded stream call: the model that served it, plus the two input facts
  * a test asserts on — the effort sent and the Chat identity the run derived.
@@ -488,8 +449,11 @@ class HarnessModelClient implements ModelClient {
   ) {}
 
   streamText(input: ModelStreamInput): ReturnType<typeof sdkStreamText> {
-    const { effort, chat } = input;
-    this.streamCalls.push({ modelId: this.model, effort, chat });
+    this.streamCalls.push({
+      modelId: this.model,
+      effort: input.effort,
+      chat: input.chat,
+    });
     const behavior = this.behavior;
     const text = behavior.kind === 'complete' ? (behavior.text ?? 'ok') : '';
     const delayMs = behavior.kind === 'complete' ? behavior.delayMs : undefined;
@@ -516,16 +480,16 @@ class HarnessModelClient implements ModelClient {
       },
     });
 
-    const result = sdkStreamText({
+    const streamOptions = {
       model,
       messages: input.messages,
       system: input.system,
       abortSignal: input.abortSignal,
       ...resolveHarnessStreamOptions(input, behavior),
       ...scriptedStreamHandlers(input, settlement),
-    });
-
-    return awaitSettlementAfter(result, settlement);
+    };
+    applyRequestUsageCallback(streamOptions, input);
+    return awaitSettlementAfter(sdkStreamText(streamOptions), settlement);
   }
 }
 

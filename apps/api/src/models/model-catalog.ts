@@ -12,6 +12,7 @@
  */
 
 import type { ProviderOptionRecord } from './provider-options';
+import type { BillingMode } from './model-client';
 
 export type ModelSource = 'system';
 export type SystemPromptSource = 'project_default' | 'model_override';
@@ -144,6 +145,8 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** References a `providers[].id` in the resolved instance config. */
   provider: string;
   providerModelId: string;
+  /** Resolved billing mode, retained for usage accounting and never public. */
+  billing?: BillingMode;
   /** Explicit per-model compaction trigger override; falls back to `contextWindowTokens x COMPACTION_WINDOW_RATIO` when absent. */
   compactionThresholdTokens?: number;
   /**
@@ -211,11 +214,10 @@ export type TokenPrice = {
 };
 
 /**
- * Strip the internal execution-only fields (`provider`, `providerModelId`,
+ * Strip internal fields (`provider`, `providerModelId`, `billing`,
  * `compactionThresholdTokens`, `maxOutputTokens`, `providerOptions`,
  * `systemPromptTemplate`, `systemPromptSource`, `referencesSkills`,
- * `toolPromptFiles`) from a catalog entry — what's left IS the public shape, so
- * a straight destructure-and-spread stays correct as
+ * `toolPromptFiles`) from a catalog entry — what's left IS the public shape,
  * `PublicModelCatalogEntry` grows without needing a matching field-by-field
  * copy here. Host-path fields never reach this projection at all: the loader
  * excludes them while resolving the entry, which its own regression test
@@ -233,6 +235,7 @@ export function toPublicModel(
     systemPromptTemplate: _systemPromptTemplate,
     systemPromptSource: _systemPromptSource,
     referencesSkills: _referencesSkills,
+    billing: _billing,
     toolPromptFiles: _toolPromptFiles,
     ...pub
   } = model;
@@ -257,4 +260,19 @@ export function toTokenPrice(
     price.cacheWriteUsdPer1M = pricing.cacheWrite;
   }
   return price;
+}
+
+/** Resolve billing from the model, provider, then provider type. */
+export function resolveBillingMode(
+  modelBilling: BillingMode | undefined,
+  providerBilling: BillingMode | undefined,
+  providerType: string,
+): BillingMode {
+  return (
+    modelBilling ??
+    providerBilling ??
+    (providerType === 'openai-codex' || providerType === 'opencode-go'
+      ? 'subscription'
+      : 'usage')
+  );
 }

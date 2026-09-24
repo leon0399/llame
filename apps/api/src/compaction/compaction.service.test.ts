@@ -245,7 +245,7 @@ describe('CompactionService maybeCompact', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns before database work when measured usage is below the model threshold', async () => {
+  it('uses the final request rather than the aggregate for its below-threshold fast path', async () => {
     const { service, runAs } = makeService();
 
     await expect(
@@ -255,10 +255,53 @@ describe('CompactionService maybeCompact', () => {
         client: createFakeModelClient(['unused']),
         system: 'system',
         toolDeclarations: [],
-        lastTurnTotalTokens: 1,
+        lastRequestTokens: 9,
       }),
     ).resolves.toBeUndefined();
     expect(runAs).not.toHaveBeenCalled();
+  });
+
+  it('compacts when the final request is above the model threshold', async () => {
+    const { client } = recordingClient({ thresholdTokens: 100 });
+    const setup = makeService(client);
+    mockLiveWindow();
+    const create = vi
+      .spyOn(CompactionsRepository.prototype, 'create')
+      .mockResolvedValue(compaction);
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+
+    await setup.service.maybeCompact({
+      chatId,
+      userId: ownerId,
+      client,
+      system: 'system',
+      toolDeclarations: [],
+      lastRequestTokens: 101,
+    });
+
+    expect(create).toHaveBeenCalledOnce();
+  });
+
+  it('falls back to the context estimate when the final request reported no counts', async () => {
+    const client = createFakeModelClient(['summary text']);
+    Object.assign(client, { compactionThresholdTokens: 1 });
+    const setup = makeService(client);
+    mockLiveWindow();
+    const create = vi
+      .spyOn(CompactionsRepository.prototype, 'create')
+      .mockResolvedValue(compaction);
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+
+    await setup.service.maybeCompact({
+      chatId,
+      userId: ownerId,
+      client,
+      system: 'system',
+      toolDeclarations: [],
+      lastRequestTokens: undefined,
+    });
+
+    expect(create).toHaveBeenCalledOnce();
   });
 
   it('compacts a live window, records telemetry, and skips a stale checkpoint', async () => {
@@ -279,7 +322,7 @@ describe('CompactionService maybeCompact', () => {
         system: 'system',
         toolDeclarations: [],
         effort: 'high',
-        lastTurnTotalTokens: 100,
+        lastRequestTokens: 100,
       }),
     ).resolves.toBeUndefined();
     expect(create).toHaveBeenCalledWith(
@@ -316,7 +359,7 @@ describe('CompactionService maybeCompact', () => {
       client: stale.client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
     expect(staleCreate).not.toHaveBeenCalled();
   });
@@ -335,7 +378,7 @@ describe('CompactionService maybeCompact', () => {
       client: empty.client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
     expect(emptyCreate).not.toHaveBeenCalled();
 
@@ -357,7 +400,7 @@ describe('CompactionService maybeCompact', () => {
       client: digestFailure.client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
     expect(create).toHaveBeenCalledOnce();
   });
@@ -384,16 +427,17 @@ describe('CompactionService maybeCompact', () => {
       client: setup.client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
     expect(setRecencyDigest).toHaveBeenCalledWith(
       expect.objectContaining({ chatId, ownerUserId: ownerId }),
     );
   });
 
-  it('compacts at the exact threshold and carries effort, tools, and latency', async () => {
+  it('compacts at the exact threshold and carries effort, billing, tools, and latency', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(1000);
     const { client, calls } = recordingClient({ thresholdTokens: 100 });
+    Object.assign(client, { billing: 'subscription' });
     const setup = makeService(client);
     mockLiveWindow();
     const create = vi
@@ -408,7 +452,7 @@ describe('CompactionService maybeCompact', () => {
       system: 'system',
       toolDeclarations: [validTool],
       effort: 'high',
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     const [written] = create.mock.calls[0] ?? [];
@@ -417,6 +461,7 @@ describe('CompactionService maybeCompact', () => {
       modelId: 'fake-model',
       status: 'completed',
       latencyMs: 0,
+      billing: 'subscription',
     });
     expect(calls[0]?.effort).toBe('high');
     expect(Object.keys(calls[0]?.tools ?? {})).toEqual(['search']);
@@ -440,7 +485,7 @@ describe('CompactionService maybeCompact', () => {
       client,
       system: 'system',
       toolDeclarations: [validTool],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     expect(calls[0]?.chat).toStrictEqual({ id: chatId, lane: 'main' });
@@ -467,7 +512,7 @@ describe('CompactionService maybeCompact', () => {
       client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     expect(Object.keys(calls[0] ?? {})).not.toContain('effort');
@@ -497,7 +542,7 @@ describe('CompactionService maybeCompact', () => {
           inputSchema: { $schema: 'https://example.invalid/dialect' },
         },
       ],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     expect(create).not.toHaveBeenCalled();
@@ -518,7 +563,7 @@ describe('CompactionService maybeCompact', () => {
         client,
         system: 'system',
         toolDeclarations: [],
-        lastTurnTotalTokens: 100,
+        lastRequestTokens: 100,
       }),
     ).resolves.toBeUndefined();
     expect(error).toHaveBeenCalledWith(
@@ -544,7 +589,7 @@ describe('CompactionService maybeCompact', () => {
       client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     expect(create).not.toHaveBeenCalled();
@@ -574,7 +619,7 @@ describe('CompactionService maybeCompact', () => {
       client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     expect(error).toHaveBeenCalledWith('recency_digest_resolution_failed');
@@ -608,7 +653,7 @@ describe('CompactionService maybeCompact', () => {
       client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     expect(create).not.toHaveBeenCalled();
@@ -636,7 +681,7 @@ describe('CompactionService maybeCompact', () => {
       client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     expect(log).toHaveBeenCalledWith(
@@ -665,7 +710,7 @@ describe('CompactionService maybeCompact', () => {
       client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     expect(setRecencyDigest).not.toHaveBeenCalled();
@@ -695,7 +740,7 @@ describe('CompactionService maybeCompact', () => {
       client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     expect(create).not.toHaveBeenCalled();
@@ -721,7 +766,7 @@ describe('CompactionService maybeCompact', () => {
       client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     expect(create).not.toHaveBeenCalled();
@@ -748,7 +793,7 @@ describe('CompactionService maybeCompact', () => {
       client,
       system: 'system',
       toolDeclarations: [],
-      lastTurnTotalTokens: 100,
+      lastRequestTokens: 100,
     });
 
     expect(create).toHaveBeenCalledOnce();

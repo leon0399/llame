@@ -1,9 +1,15 @@
 import { createAnthropic, type AnthropicProvider } from '@ai-sdk/anthropic';
-import { APICallError, InvalidArgumentError } from '@ai-sdk/provider';
+import {
+  APICallError,
+  InvalidArgumentError,
+  type LanguageModelV3,
+} from '@ai-sdk/provider';
 import { generateObject, NoOutputGeneratedError, streamText } from 'ai';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 
 import {
+  type BillingMode,
+  createModelStreamFinishCallback,
   type ModelClient,
   type ModelObjectInput,
   type ModelStreamInput,
@@ -23,6 +29,7 @@ import {
   productUserAgentHeaders,
   trackAbortSettlement,
 } from './openai-model-client';
+import { applyRequestUsageCallback } from './request-usage';
 
 /**
  * The default Messages endpoint, the `baseURL` the adapter falls back to when
@@ -125,6 +132,7 @@ export type AnthropicModelClientConfig = {
    */
   userAgent: string;
   pricing?: TokenPrice;
+  billing?: BillingMode;
   compactionThresholdTokens?: number;
   /**
    * Operator-authored provider-native options, keyed as the adapter documents
@@ -343,7 +351,9 @@ function buildStreamOptions(
   input: ModelStreamInput,
   onError: ModelStreamInput['onError'],
 ): Parameters<typeof streamText>[0] {
-  const streamOptions: Parameters<typeof streamText>[0] = {
+  const streamOptions: Parameters<typeof streamText>[0] & {
+    model: LanguageModelV3;
+  } = {
     model: provider(config.providerModelId),
     messages: input.messages,
     system: input.system,
@@ -359,6 +369,7 @@ function buildStreamOptions(
     }),
   };
   applyToolCallingOptions(streamOptions, input);
+  applyRequestUsageCallback(streamOptions, input);
   if (input.onTextDelta) {
     streamOptions.onChunk = ({ chunk }) => {
       if (chunk.type === 'text-delta') {
@@ -385,7 +396,7 @@ function runAnthropicStream(
       : ({ error }: { error: unknown }) =>
           onError({ error: sanitizeAnthropicError(error) }),
   );
-  streamOptions.onFinish = input.onFinish;
+  streamOptions.onFinish = createModelStreamFinishCallback(input.onFinish);
   // SDK callbacks return immediately so the `fullStream` reasoning branch can
   // close; the run's callbacks and abort persistence then execute in order
   // behind that branch (D15/D18).
@@ -480,6 +491,7 @@ export function createAnthropicModelClient(
     provider: MESSAGES_PROVIDER_NAME,
     contextWindowTokens: config.contextWindowTokens,
     ...(config.pricing !== undefined && { pricing: config.pricing }),
+    ...(config.billing !== undefined && { billing: config.billing }),
     ...(config.compactionThresholdTokens !== undefined && {
       compactionThresholdTokens: config.compactionThresholdTokens,
     }),

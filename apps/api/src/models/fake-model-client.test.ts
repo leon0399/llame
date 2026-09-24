@@ -60,11 +60,13 @@ describe('createFakeModelClient', () => {
   it('fires callbacks when a response stream is consumed', async () => {
     const client = createFakeModelClient(['done']);
     const onTextDelta = vi.fn();
+    const onRequestUsage = vi.fn();
     const onFinish = vi.fn();
     const result = client.streamText({
       chat: CHAT,
       messages,
       onTextDelta,
+      onRequestUsage,
       onFinish,
     });
 
@@ -74,10 +76,13 @@ describe('createFakeModelClient', () => {
     await expect(collectText(result.textStream)).resolves.toBe('done');
 
     expect(onTextDelta).toHaveBeenCalledWith('done');
+    expect(onRequestUsage).toHaveBeenCalledOnce();
+    expect(onRequestUsage).toHaveBeenCalledWith(ZERO_USAGE);
     expect(onFinish).toHaveBeenCalledWith({
       text: 'done',
       usage: ZERO_USAGE,
       finishReason: 'stop',
+      stepCount: 1,
     });
   });
 
@@ -102,6 +107,7 @@ describe('createFakeModelClient', () => {
       text: '',
       usage: ZERO_USAGE,
       finishReason: 'stop',
+      stepCount: 1,
     });
   });
 

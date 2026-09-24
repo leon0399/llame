@@ -46,10 +46,11 @@ import {
   type ToolPermissionMap,
 } from '../tools/permissions/types';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
-import type {
-  EffortLevel,
-  ModelReasoning,
-  SystemModelCatalogEntry,
+import {
+  resolveBillingMode,
+  type EffortLevel,
+  type ModelReasoning,
+  type SystemModelCatalogEntry,
 } from '../models/model-catalog';
 import {
   type ProviderOptionRecord,
@@ -263,12 +264,11 @@ export function loadInstanceConfig(
   }
 
   const providers = resolveProviders(raw, env);
-  const providerIds = new Set(providers.map((p) => p.id));
   const providersById = new Map(
     providers.map((provider) => [provider.id, provider]),
   );
   const promptLoader = createModelPromptLoader({ configPath });
-  const models = resolveModels(raw, env, providerIds, promptLoader);
+  const models = resolveModels(raw, env, providersById, promptLoader);
   promptLoader.validateProjectDefault();
   const modelIds = new Set(models.map((m) => m.id));
   const embeddingModels = resolveEmbeddingModels(raw, env, providersById);
@@ -1243,6 +1243,7 @@ function resolveOpenAIResponsesProvider(
   return {
     id: entry.id,
     type: entry.type,
+    ...(entry.billing !== undefined && { billing: entry.billing }),
     key: resolveNullableString({
       configPath: `providers[${entry.id}].key`,
       present: entry.key !== undefined,
@@ -1271,6 +1272,7 @@ function resolveOpenAICompletionsProvider(
   return {
     id: entry.id,
     type: entry.type,
+    ...(entry.billing !== undefined && { billing: entry.billing }),
     key: resolveNullableString({
       configPath: `providers[${entry.id}].key`,
       present: entry.key !== undefined,
@@ -1303,6 +1305,7 @@ function resolveAnthropicMessagesProvider(
   return {
     id: entry.id,
     type: entry.type,
+    ...(entry.billing !== undefined && { billing: entry.billing }),
     key: resolveNullableString({
       configPath: `providers[${entry.id}].key`,
       present: entry.key !== undefined,
@@ -1323,6 +1326,7 @@ function resolveCodexProvider(
 ): OpenAICodexProviderConfig {
   return {
     id: entry.id,
+    ...(entry.billing !== undefined && { billing: entry.billing }),
     type: entry.type,
     key: requireNonBlankString(`providers[${entry.id}].key`, entry.key, env),
     accountId: requireNonBlankString(
@@ -1348,6 +1352,7 @@ function resolveOpenCodeGoProvider(
 ): OpenCodeGoProviderConfig {
   return {
     id: entry.id,
+    ...(entry.billing !== undefined && { billing: entry.billing }),
     type: entry.type,
     key: requireNonBlankString(`providers[${entry.id}].key`, entry.key, env),
   };
@@ -1413,7 +1418,7 @@ function resolveOptionalNonBlankString(opts: {
  *  `seenIds` is mutated in place to detect a duplicate id across entries. */
 type ModelResolutionContext = {
   readonly env: NodeJS.ProcessEnv;
-  readonly providerIds: ReadonlySet<string>;
+  readonly providersById: ReadonlyMap<string, ProviderConfig>;
   readonly promptLoader: ReturnType<typeof createModelPromptLoader>;
   readonly seenIds: Set<string>;
 };
@@ -1518,33 +1523,36 @@ function assertNoInterpolationSyntax(value: unknown, configPath: string): void {
 function assertValidModelEntry(
   entry: RawModelEntry,
   context: ModelResolutionContext,
-): void {
-  const { providerIds, seenIds } = context;
+): ProviderConfig {
+  const { providersById, seenIds } = context;
   if (seenIds.has(entry.id)) {
     throw new InstanceConfigError(`models: duplicate model id "${entry.id}"`);
   }
   seenIds.add(entry.id);
 
-  if (!providerIds.has(entry.provider)) {
+  const provider = providersById.get(entry.provider);
+  if (!provider) {
     throw new InstanceConfigError(
       `models[${entry.id}].provider: unknown provider id "${entry.provider}" (not defined in providers[])`,
     );
   }
+  return provider;
 }
 
 function resolveModelEntry(
   entry: RawModelEntry,
   context: ModelResolutionContext,
 ): SystemModelCatalogEntry {
-  assertValidModelEntry(entry, context);
+  const provider = assertValidModelEntry(entry, context);
 
   // The remaining fields ride along in the spread below: schema-validated
   // shape already guarantees they need no further resolution. Everything the
-  // loader resolves or validates itself — the raw numerics, the reasoning
+  // loader resolves or validates itself — billing, raw numerics, the reasoning
   // block, the operator's provider options — plus the two server-only path
   // fields is excluded explicitly, so nothing unresolved or host-path-shaped
   // can reach the resolved entry (and therefore the public catalog).
   const {
+    billing: _rawBilling,
     contextWindowTokens: _rawContextWindowTokens,
     compactionThresholdTokens: _rawCompactionThresholdTokens,
     maxOutputTokens: _rawMaxOutputTokens,
@@ -1555,7 +1563,7 @@ function resolveModelEntry(
     ...display
   } = entry;
 
-  return buildModelCatalogEntry(entry, display, context);
+  return buildModelCatalogEntry(entry, display, context, provider);
 }
 
 /** Resolve the execution-critical numeric and reasoning fields of one entry. */
@@ -1583,6 +1591,7 @@ function resolveModelScalars(entry: RawModelEntry, env: NodeJS.ProcessEnv) {
  */
 type ModelDisplayFields = Omit<
   RawModelEntry,
+  | 'billing'
   | 'contextWindowTokens'
   | 'compactionThresholdTokens'
   | 'maxOutputTokens'
@@ -1597,6 +1606,7 @@ function buildModelCatalogEntry(
   entry: RawModelEntry,
   display: ModelDisplayFields,
   context: ModelResolutionContext,
+  provider: ProviderConfig,
 ): SystemModelCatalogEntry {
   const { env, promptLoader } = context;
   const {
@@ -1617,6 +1627,7 @@ function buildModelCatalogEntry(
   return {
     ...display,
     source: 'system' as const,
+    billing: resolveBillingMode(entry.billing, provider.billing, provider.type),
     contextWindowTokens,
     ...prompt,
     ...(compactionThresholdTokens !== undefined && {
@@ -1642,13 +1653,13 @@ function resolveToolPromptFilesEntry(
 function resolveModels(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
-  providerIds: ReadonlySet<string>,
+  providersById: ReadonlyMap<string, ProviderConfig>,
   promptLoader: ReturnType<typeof createModelPromptLoader>,
 ): Array<SystemModelCatalogEntry> {
   const entries = raw?.models ?? [];
   const context: ModelResolutionContext = {
     env,
-    providerIds,
+    providersById,
     promptLoader,
     seenIds: new Set<string>(),
   };

@@ -20,6 +20,7 @@ Add a provider and at least one model to `apps/api/llame.config.json`:
       "type": "openai-codex",
       "key": "{path:/run/secrets/codex-auth.json|json:/tokens/access_token}",
       "accountId": "{path:/run/secrets/codex-auth.json|json:/tokens/account_id}",
+      "billing": "subscription",
     },
   ],
   "models": [
@@ -40,6 +41,12 @@ llame reads these fields once at API/worker startup and never reads refresh or
 ID tokens or writes the credential file. Omit `pricingUsdPer1M` when the cost
 is unknown: completed Run telemetry retains token counts and latency with
 `costUsd: null`.
+
+`billing` accepts `"usage"` or `"subscription"` on a provider or model; the
+model setting wins, then the provider setting, then the provider-type default
+(`"subscription"` for Codex). Billing never changes cost calculation: a
+declared price on a subscription model is recorded, then displayed as a
+not-billed notional cost.
 
 Stop every API and Run worker before re-login. Run `codex login`, replace the
 same credential file atomically, then start every process again. A running

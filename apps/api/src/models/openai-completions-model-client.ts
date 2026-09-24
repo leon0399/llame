@@ -6,6 +6,7 @@ import {
   APICallError,
   JSONParseError,
   TypeValidationError,
+  type LanguageModelV3,
 } from '@ai-sdk/provider';
 import {
   RetryError,
@@ -18,7 +19,9 @@ import {
 import { isRecord, isString } from '@workspace/runtime-safety';
 
 import {
+  type BillingMode,
   type ChatIdentity,
+  createModelStreamFinishCallback,
   type ModelClient,
   type ModelObjectInput,
   type ModelStreamInput,
@@ -36,6 +39,7 @@ import {
   productUserAgentHeaders,
   trackAbortSettlement,
 } from './openai-model-client';
+import { applyRequestUsageCallback } from './request-usage';
 
 /**
  * Wire identity of this adapter: `@ai-sdk/openai-compatible` is Chat
@@ -89,6 +93,7 @@ export type OpenAICompletionsModelClientConfig = {
    */
   sessionHeader?: (chat: ChatIdentity) => { name: string; value: string };
   pricing?: TokenPrice;
+  billing?: BillingMode;
   compactionThresholdTokens?: number;
   /**
    * Operator-authored provider-native options, keyed as the adapter
@@ -312,7 +317,9 @@ function runOpenAICompatibleStream(
 ) {
   const settlement = trackAbortSettlement(input);
   const providerOptions = composeCompletionsOptions(config, input);
-  const streamOptions: Parameters<typeof streamText>[0] = {
+  const streamOptions: Parameters<typeof streamText>[0] & {
+    model: LanguageModelV3;
+  } = {
     // Chat Completions at the entry's required base URL (design D1): the
     // compatible provider callable is that wire's chat model.
     model: provider(config.providerModelId),
@@ -321,7 +328,7 @@ function runOpenAICompatibleStream(
     abortSignal: input.abortSignal,
     onError: reportBoundedFailure(input.onError),
     onAbort: settlement.onAbort,
-    onFinish: input.onFinish,
+    onFinish: createModelStreamFinishCallback(input.onFinish),
     // llame's identity rides every request (design D6), per call: the
     // provider-level headers cannot carry it on structured requests.
     headers: perCallHeaders(config, input.chat),
@@ -336,6 +343,7 @@ function runOpenAICompatibleStream(
   // model): without these settings `streamText` stops after one step, so a
   // tool-requesting step would end the turn with no text at all.
   applyToolCallingOptions(streamOptions, input);
+  applyRequestUsageCallback(streamOptions, input);
   if (input.onTextDelta || input.onReasoningDelta) {
     streamOptions.onChunk = ({ chunk }) => {
       if (chunk.type === 'text-delta') {
@@ -385,6 +393,7 @@ export function createOpenAICompletionsModelClient(
     provider: providerName,
     contextWindowTokens: config.contextWindowTokens,
     ...(config.pricing !== undefined && { pricing: config.pricing }),
+    ...(config.billing !== undefined && { billing: config.billing }),
     ...(config.compactionThresholdTokens !== undefined && {
       compactionThresholdTokens: config.compactionThresholdTokens,
     }),

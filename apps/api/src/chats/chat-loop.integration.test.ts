@@ -171,6 +171,7 @@ function workerModelClient(modelId: string, fail = false): ModelClient {
             text: event.text,
             usage: event.usage,
             finishReason: event.finishReason,
+            stepCount: event.steps.length,
           }),
       });
     },

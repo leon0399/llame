@@ -2,6 +2,7 @@ import type { FinishReason, LanguageModelUsage } from 'ai';
 import pino from 'pino';
 
 import type { TokenPrice } from '../models/model-catalog';
+import type { BillingMode } from '../models/model-client';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
 export type { TokenPrice };
@@ -9,17 +10,18 @@ export type { TokenPrice };
 export type TurnStatus = 'completed' | 'aborted' | 'error';
 
 export type TurnTelemetry = {
-  inputTokens: number;
-  cachedInputTokens: number;
+  inputTokens?: number;
+  cachedInputTokens?: number;
   /**
    * Provider-reported cache-creation tokens, bounded in order against
    * `inputTokens` (cache reads first, then writes at the remainder) so the
-   * recorded counts are exactly the ones `costUsd` prices. Always numeric:
-   * 0 when the provider reports no cache-creation count, never estimated.
+   * recorded counts are exactly the ones `costUsd` prices. Per-request
+   * telemetry uses 0 when the provider reports no cache-creation count; an
+   * aggregate omits token counts when no request reports input or output.
    */
-  cacheWriteTokens: number;
-  outputTokens: number;
-  totalTokens: number;
+  cacheWriteTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
   reasoningTokens?: number;
   modelId: string;
   /**
@@ -33,8 +35,22 @@ export type TurnTelemetry = {
   latencyMs: number;
   finishReason: FinishReason | null;
   status: TurnStatus;
-  costUsd: number | null;
+  costUsd?: number | null;
+  billing?: BillingMode;
 };
+
+type PerRequestTurnTelemetry = TurnTelemetry &
+  Required<
+    Pick<
+      TurnTelemetry,
+      | 'inputTokens'
+      | 'cachedInputTokens'
+      | 'cacheWriteTokens'
+      | 'outputTokens'
+      | 'totalTokens'
+      | 'costUsd'
+    >
+  >;
 
 export type BuildTurnTelemetryInput = {
   usage?: Partial<LanguageModelUsage> | null;
@@ -45,6 +61,28 @@ export type BuildTurnTelemetryInput = {
   latencyMs: number;
   /** The executing model's resolved pricing (`ModelClient.pricing`); absent means no configured price for this model. */
   price?: TokenPrice;
+  billing?: BillingMode;
+};
+
+export type AggregateTurnTelemetryInput = Omit<
+  BuildTurnTelemetryInput,
+  'usage'
+> & {
+  receipts: ReadonlyArray<LanguageModelUsage>;
+  stepCount?: number;
+};
+
+type AggregateTurnTelemetryTotals = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  reasoningTokens: number;
+  costUsd: number;
+  hasReportedCounts: boolean;
+  everyReceiptHasCounts: boolean;
+  everyReceiptHasReasoning: boolean;
 };
 
 export type TurnTelemetryLogger = {
@@ -58,7 +96,7 @@ export const turnTelemetryLogger = pino({
 
 export function buildTurnTelemetry(
   input: BuildTurnTelemetryInput,
-): TurnTelemetry {
+): PerRequestTurnTelemetry {
   const inputTokens = tokenCount(input.usage?.inputTokens);
   const cachedInputTokens = Math.min(
     tokenCount(input.usage?.cachedInputTokens),
@@ -81,7 +119,6 @@ export function buildTurnTelemetry(
     inputTokens + outputTokens,
   );
   const reasoningTokens = optionalTokenCount(input.usage?.reasoningTokens);
-  const latencyMs = Math.max(0, Math.round(input.latencyMs));
 
   return {
     inputTokens,
@@ -92,7 +129,7 @@ export function buildTurnTelemetry(
     ...(reasoningTokens !== undefined && { reasoningTokens }),
     modelId: input.modelId,
     ...(input.effort !== undefined && { effort: input.effort }),
-    latencyMs,
+    latencyMs: Math.max(0, Math.round(input.latencyMs)),
     finishReason: input.finishReason ?? null,
     status: input.status,
     costUsd: calculateCostUsd({
@@ -102,49 +139,160 @@ export function buildTurnTelemetry(
       outputTokens,
       price: input.price,
     }),
+    ...(input.billing !== undefined && { billing: input.billing }),
   };
 }
 
+export function aggregateTurnTelemetry(
+  input: AggregateTurnTelemetryInput,
+): TurnTelemetry & { complete: boolean } {
+  const totals = aggregateReceiptTelemetry(input);
+  return {
+    ...(totals.hasReportedCounts && {
+      inputTokens: totals.inputTokens,
+      cachedInputTokens: totals.cachedInputTokens,
+      cacheWriteTokens: totals.cacheWriteTokens,
+      outputTokens: totals.outputTokens,
+      totalTokens: totals.totalTokens,
+    }),
+    ...(totals.everyReceiptHasReasoning && {
+      reasoningTokens: totals.reasoningTokens,
+    }),
+    modelId: input.modelId,
+    ...(input.effort !== undefined && { effort: input.effort }),
+    latencyMs: Math.max(0, Math.round(input.latencyMs)),
+    finishReason: input.finishReason ?? null,
+    status: input.status,
+    ...(input.price === undefined
+      ? { costUsd: null }
+      : totals.hasReportedCounts && {
+          costUsd:
+            Math.round(totals.costUsd * 1_000_000_000_000) / 1_000_000_000_000,
+        }),
+    ...(input.billing !== undefined && { billing: input.billing }),
+    complete:
+      input.status === 'completed' &&
+      totals.everyReceiptHasCounts &&
+      (input.stepCount === undefined ||
+        input.receipts.length >= input.stepCount),
+  };
+}
+
+function aggregateReceiptTelemetry(
+  input: AggregateTurnTelemetryInput,
+): AggregateTurnTelemetryTotals {
+  const totals: AggregateTurnTelemetryTotals = {
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    reasoningTokens: 0,
+    costUsd: 0,
+    hasReportedCounts: false,
+    everyReceiptHasCounts: input.receipts.length > 0,
+    everyReceiptHasReasoning: input.receipts.length > 0,
+  };
+  for (const receipt of input.receipts) {
+    addReceiptTelemetry(totals, receipt, input);
+  }
+  return totals;
+}
+
+function addReceiptTelemetry(
+  totals: AggregateTurnTelemetryTotals,
+  receipt: LanguageModelUsage,
+  input: AggregateTurnTelemetryInput,
+): void {
+  const receiptHasCounts =
+    optionalTokenCount(receipt.inputTokens) !== undefined ||
+    optionalTokenCount(receipt.outputTokens) !== undefined;
+  totals.hasReportedCounts ||= receiptHasCounts;
+  totals.everyReceiptHasCounts &&= receiptHasCounts;
+  const receiptReasoningTokens = optionalTokenCount(receipt.reasoningTokens);
+  if (receiptReasoningTokens === undefined) {
+    totals.everyReceiptHasReasoning = false;
+  } else {
+    totals.reasoningTokens += receiptReasoningTokens;
+  }
+
+  const telemetry = buildTurnTelemetry({
+    usage: receipt,
+    finishReason: input.finishReason,
+    status: input.status,
+    modelId: input.modelId,
+    ...(input.effort !== undefined && { effort: input.effort }),
+    latencyMs: input.latencyMs,
+    ...(input.price !== undefined && { price: input.price }),
+    ...(input.billing !== undefined && { billing: input.billing }),
+  });
+  totals.inputTokens += telemetry.inputTokens;
+  totals.cachedInputTokens += telemetry.cachedInputTokens;
+  totals.cacheWriteTokens += telemetry.cacheWriteTokens;
+  totals.outputTokens += telemetry.outputTokens;
+  totals.totalTokens += telemetry.totalTokens;
+  if (telemetry.costUsd !== null) {
+    totals.costUsd += telemetry.costUsd;
+  }
+}
+
+type CompletedTurnTelemetryLogInput = {
+  chatId: string;
+  messageId: string;
+  inReplyTo: string;
+  telemetry: TurnTelemetry;
+  onError?: (error: unknown) => void;
+};
+
 export function emitCompletedTurnTelemetryLog(
   logger: TurnTelemetryLogger,
-  input: {
-    chatId: string;
-    messageId: string;
-    inReplyTo: string;
-    telemetry: TurnTelemetry;
-    onError?: (error: unknown) => void;
-  },
+  input: CompletedTurnTelemetryLogInput,
 ): void {
   if (input.telemetry.status !== 'completed') {
     return;
   }
 
   try {
-    logger.info({
-      event: 'assistant_turn_completed',
-      chatId: input.chatId,
-      messageId: input.messageId,
-      inReplyTo: input.inReplyTo,
-      inputTokens: input.telemetry.inputTokens,
-      cachedInputTokens: input.telemetry.cachedInputTokens,
-      cacheWriteTokens: input.telemetry.cacheWriteTokens,
-      outputTokens: input.telemetry.outputTokens,
-      totalTokens: input.telemetry.totalTokens,
-      ...(input.telemetry.reasoningTokens !== undefined && {
-        reasoningTokens: input.telemetry.reasoningTokens,
-      }),
-      modelId: input.telemetry.modelId,
-      ...(input.telemetry.effort !== undefined && {
-        effort: input.telemetry.effort,
-      }),
-      latencyMs: input.telemetry.latencyMs,
-      finishReason: input.telemetry.finishReason,
-      status: input.telemetry.status,
-      costUsd: input.telemetry.costUsd,
-    });
+    logger.info(completedTurnTelemetryLogPayload(input));
   } catch (error) {
     input.onError?.(error);
   }
+}
+
+function completedTurnTelemetryLogPayload(
+  input: CompletedTurnTelemetryLogInput,
+): UnknownRecord {
+  const telemetry = input.telemetry;
+  return {
+    event: 'assistant_turn_completed',
+    chatId: input.chatId,
+    messageId: input.messageId,
+    inReplyTo: input.inReplyTo,
+    ...(telemetry.inputTokens !== undefined && {
+      inputTokens: telemetry.inputTokens,
+    }),
+    ...(telemetry.cachedInputTokens !== undefined && {
+      cachedInputTokens: telemetry.cachedInputTokens,
+    }),
+    ...(telemetry.cacheWriteTokens !== undefined && {
+      cacheWriteTokens: telemetry.cacheWriteTokens,
+    }),
+    ...(telemetry.outputTokens !== undefined && {
+      outputTokens: telemetry.outputTokens,
+    }),
+    ...(telemetry.totalTokens !== undefined && {
+      totalTokens: telemetry.totalTokens,
+    }),
+    ...(telemetry.reasoningTokens !== undefined && {
+      reasoningTokens: telemetry.reasoningTokens,
+    }),
+    modelId: telemetry.modelId,
+    ...(telemetry.effort !== undefined && { effort: telemetry.effort }),
+    latencyMs: telemetry.latencyMs,
+    finishReason: telemetry.finishReason,
+    status: telemetry.status,
+    ...(telemetry.costUsd !== undefined && { costUsd: telemetry.costUsd }),
+  };
 }
 
 function calculateCostUsd(input: {

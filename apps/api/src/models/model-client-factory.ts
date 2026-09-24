@@ -199,6 +199,7 @@ function assignModelMetadata(
 ): void {
   const pricing = toTokenPrice(model.pricingUsdPer1M);
   if (pricing !== undefined) config.pricing = pricing;
+  if (model.billing !== undefined) config.billing = model.billing;
   if (model.compactionThresholdTokens !== undefined) {
     config.compactionThresholdTokens = model.compactionThresholdTokens;
   }

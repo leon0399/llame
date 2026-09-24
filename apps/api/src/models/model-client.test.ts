@@ -3,6 +3,8 @@ import {
   NoOutputGeneratedError,
   simulateReadableStream,
   streamText,
+  type LanguageModelUsage,
+  type OnFinishEvent,
   type StreamTextOnErrorCallback,
   type TextStreamPart,
   type ToolSet,
@@ -62,6 +64,56 @@ const PROVIDER_USAGE = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
+
+const FINISH_USAGE: LanguageModelUsage = {
+  inputTokens: 0,
+  inputTokenDetails: {
+    noCacheTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  },
+  outputTokens: 0,
+  outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
+  totalTokens: 0,
+};
+
+const FINISH_STEP = {
+  stepNumber: 0,
+  model: { provider: 'test', modelId: 'test' },
+  functionId: undefined,
+  metadata: undefined,
+  experimental_context: undefined,
+  content: [],
+  text: '',
+  reasoning: [],
+  reasoningText: undefined,
+  files: [],
+  sources: [],
+  toolCalls: [],
+  staticToolCalls: [],
+  dynamicToolCalls: [],
+  toolResults: [],
+  staticToolResults: [],
+  dynamicToolResults: [],
+  finishReason: 'stop' as const,
+  rawFinishReason: undefined,
+  usage: FINISH_USAGE,
+  warnings: undefined,
+  request: {},
+  response: {
+    id: 'test',
+    timestamp: new Date(0),
+    modelId: 'test',
+    messages: [],
+  },
+  providerMetadata: undefined,
+};
+
+const FINISH_EVENT = {
+  ...FINISH_STEP,
+  steps: [FINISH_STEP, { ...FINISH_STEP, stepNumber: 1 }],
+  totalUsage: FINISH_USAGE,
+} satisfies OnFinishEvent<ToolSet>;
 
 /**
  * The Responses client calls the provider itself (its Responses entry
@@ -148,7 +200,13 @@ describe('ModelClient', () => {
       system: 'stable system',
       abortSignal,
       onError,
-      onFinish,
+    });
+    await streamTextCall?.onFinish?.(FINISH_EVENT);
+    expect(onFinish).toHaveBeenCalledWith({
+      text: '',
+      usage: FINISH_USAGE,
+      finishReason: 'stop',
+      stepCount: 2,
     });
     expect(streamTextCall?.onAbort).toEqual(expect.any(Function));
   });

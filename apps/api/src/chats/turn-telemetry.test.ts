@@ -1,12 +1,45 @@
 import type { LanguageModelUsage } from 'ai';
 
 import {
+  aggregateTurnTelemetry,
   buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,
   type TokenPrice,
   type TurnTelemetryLogger,
 } from './turn-telemetry';
 import { type UnknownRecord } from '@workspace/runtime-safety';
+
+function usageReceipt(
+  input: {
+    inputTokens?: number;
+    cachedInputTokens?: number;
+    cacheWriteTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    reasoningTokens?: number;
+  } = {},
+): LanguageModelUsage {
+  return {
+    inputTokens: input.inputTokens,
+    inputTokenDetails: {
+      noCacheTokens: undefined,
+      cacheReadTokens: input.cachedInputTokens,
+      cacheWriteTokens: input.cacheWriteTokens,
+    },
+    outputTokens: input.outputTokens,
+    outputTokenDetails: {
+      textTokens: undefined,
+      reasoningTokens: input.reasoningTokens,
+    },
+    totalTokens: input.totalTokens,
+    ...(input.cachedInputTokens !== undefined && {
+      cachedInputTokens: input.cachedInputTokens,
+    }),
+    ...(input.reasoningTokens !== undefined && {
+      reasoningTokens: input.reasoningTokens,
+    }),
+  };
+}
 
 describe('TurnTelemetry', () => {
   const price = {
@@ -79,6 +112,298 @@ describe('TurnTelemetry', () => {
     });
 
     expect(telemetry.costUsd).toBeNull();
+  });
+
+  describe('aggregateTurnTelemetry', () => {
+    const loopPrice = {
+      inputUsdPer1M: 2,
+      cachedInputUsdPer1M: 0.5,
+      outputUsdPer1M: 10,
+    } satisfies TokenPrice;
+
+    it('sums and prices each request in a two-request tool loop', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [
+          usageReceipt({
+            inputTokens: 1000,
+            outputTokens: 200,
+            reasoningTokens: 150,
+          }),
+          usageReceipt({
+            inputTokens: 1400,
+            cachedInputTokens: 1000,
+            outputTokens: 100,
+            reasoningTokens: 60,
+          }),
+        ],
+        finishReason: 'stop',
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 123,
+        price: loopPrice,
+        stepCount: 2,
+      });
+
+      expect(telemetry).toEqual({
+        inputTokens: 2400,
+        cachedInputTokens: 1000,
+        cacheWriteTokens: 0,
+        outputTokens: 300,
+        totalTokens: 2700,
+        reasoningTokens: 210,
+        modelId: 'priced-model',
+        latencyMs: 123,
+        finishReason: 'stop',
+        status: 'completed',
+        costUsd: 0.0063,
+        complete: true,
+      });
+    });
+
+    it('re-rounds the sum of per-request costs to 1e-12 precision', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [
+          usageReceipt({ inputTokens: 7 }),
+          usageReceipt({ inputTokens: 13 }),
+        ],
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+      });
+
+      expect(telemetry.costUsd).toBe(0.00002);
+    });
+
+    it('matches per-request telemetry for a single-receipt turn', () => {
+      const receipt = usageReceipt({
+        inputTokens: 100,
+        cachedInputTokens: 40,
+        outputTokens: 10,
+        totalTokens: 110,
+        reasoningTokens: 3,
+      });
+      const context = {
+        finishReason: 'stop' as const,
+        status: 'completed' as const,
+        modelId: 'priced-model',
+        effort: 'high',
+        latencyMs: 123,
+        price,
+        billing: 'usage' as const,
+      };
+
+      expect(
+        aggregateTurnTelemetry({
+          ...context,
+          receipts: [receipt],
+          stepCount: 1,
+        }),
+      ).toEqual({
+        ...buildTurnTelemetry({ ...context, usage: receipt }),
+        complete: true,
+      });
+    });
+
+    it('bounds cache reads and writes within each request before summing', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [
+          usageReceipt({
+            inputTokens: 100,
+            cachedInputTokens: 200,
+            cacheWriteTokens: 20,
+          }),
+          usageReceipt({ inputTokens: 100, cacheWriteTokens: 200 }),
+        ],
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+      });
+
+      expect(telemetry).toMatchObject({
+        inputTokens: 200,
+        cachedInputTokens: 100,
+        cacheWriteTokens: 100,
+        totalTokens: 200,
+      });
+      const cachedInputTokens = telemetry.cachedInputTokens ?? 0;
+      const cacheWriteTokens = telemetry.cacheWriteTokens ?? 0;
+      expect(cachedInputTokens + cacheWriteTokens).toBeLessThanOrEqual(
+        telemetry.inputTokens ?? 0,
+      );
+    });
+
+    it('omits token fields and cost when a priced model reports no counts', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [usageReceipt(), usageReceipt()],
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+      });
+
+      for (const field of [
+        'inputTokens',
+        'cachedInputTokens',
+        'cacheWriteTokens',
+        'outputTokens',
+        'totalTokens',
+        'reasoningTokens',
+        'costUsd',
+      ]) {
+        expect(telemetry).not.toHaveProperty(field);
+      }
+      expect(telemetry.complete).toBe(false);
+    });
+
+    it('records null cost and omits token fields when an unpriced model reports nothing', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [usageReceipt()],
+        status: 'completed',
+        modelId: 'unpriced-model',
+        latencyMs: 1,
+      });
+      expect(telemetry).toMatchObject({ costUsd: null, complete: false });
+      for (const field of [
+        'inputTokens',
+        'cachedInputTokens',
+        'cacheWriteTokens',
+        'outputTokens',
+        'totalTokens',
+        'reasoningTokens',
+      ]) {
+        expect(telemetry).not.toHaveProperty(field);
+      }
+    });
+
+    it('records token counts but keeps cost null for an unpriced model', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [usageReceipt({ inputTokens: 100, outputTokens: 10 })],
+        status: 'completed',
+        modelId: 'unpriced-model',
+        latencyMs: 1,
+      });
+
+      expect(telemetry).toMatchObject({
+        inputTokens: 100,
+        outputTokens: 10,
+        totalTokens: 110,
+        costUsd: null,
+      });
+    });
+
+    it('stamps billing without changing the cost of a priced subscription model', () => {
+      const receipt = usageReceipt({ inputTokens: 100, outputTokens: 10 });
+      const context = {
+        receipts: [receipt],
+        status: 'completed' as const,
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+      };
+      const usageBilled = aggregateTurnTelemetry({
+        ...context,
+        billing: 'usage',
+      });
+      const subscription = aggregateTurnTelemetry({
+        ...context,
+        billing: 'subscription',
+      });
+      const perRequest = buildTurnTelemetry({
+        usage: receipt,
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+        billing: 'subscription',
+      });
+
+      expect(subscription).toMatchObject({
+        billing: 'subscription',
+        costUsd: 0.00012,
+      });
+      expect(subscription.costUsd).toBe(usageBilled.costUsd);
+      expect(perRequest.billing).toBe('subscription');
+      expect(perRequest.costUsd).toBe(0.00012);
+    });
+
+    it('omits reasoning when any request does not report it', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [
+          usageReceipt({
+            inputTokens: 10,
+            outputTokens: 5,
+            reasoningTokens: 2,
+          }),
+          usageReceipt({ inputTokens: 10, outputTokens: 5 }),
+        ],
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+      });
+
+      expect(telemetry).not.toHaveProperty('reasoningTokens');
+      expect(telemetry.complete).toBe(true);
+    });
+
+    it('marks non-completed attempts incomplete despite reported counts', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [usageReceipt({ inputTokens: 10, outputTokens: 5 })],
+        status: 'error',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+      });
+
+      expect(telemetry.complete).toBe(false);
+    });
+
+    it('marks an attempt incomplete when a request omits both counts', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [
+          usageReceipt({ inputTokens: 10, outputTokens: 5 }),
+          usageReceipt(),
+        ],
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+        stepCount: 2,
+      });
+
+      expect(telemetry).toMatchObject({
+        inputTokens: 10,
+        outputTokens: 5,
+        complete: false,
+      });
+    });
+
+    it('marks fewer receipts than SDK steps incomplete', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [usageReceipt({ inputTokens: 10, outputTokens: 5 })],
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+        stepCount: 2,
+      });
+
+      expect(telemetry.complete).toBe(false);
+    });
+
+    it('does not consider an attempt with no receipts complete', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [],
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+      });
+
+      expect(telemetry.complete).toBe(false);
+    });
   });
 
   describe('cache-write cost', () => {

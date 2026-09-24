@@ -6,7 +6,7 @@ import {
   createOpenAIModelClient,
   type OpenAIModelClientDependencies,
 } from './openai-model-client';
-import type { ModelClient } from './model-client';
+import type { BillingMode, ModelClient } from './model-client';
 import type { TokenPrice } from './model-catalog';
 import type { ProviderOptionRecord } from './provider-options';
 
@@ -34,6 +34,7 @@ type OpenAICodexModelClientConfig = {
   /** Catalog `models[].maxOutputTokens`, forwarded to every request. */
   maxOutputTokens?: number;
   pricing?: TokenPrice;
+  billing?: BillingMode;
   compactionThresholdTokens?: number;
 };
 
@@ -102,10 +103,7 @@ export function createOpenAICodexModelClient(
       // stays pinned because subscription-access-openai-codex mandates
       // persisting that text. No operator value — `null` included — can
       // remove or replace either.
-      providerOptionInvariants: {
-        store: false,
-        reasoningSummary: 'auto',
-      },
+      providerOptionInvariants: { store: false, reasoningSummary: 'auto' },
       ...(config.providerOptions !== undefined && {
         providerOptions: config.providerOptions,
       }),
@@ -116,6 +114,7 @@ export function createOpenAICodexModelClient(
       provider: 'openai-codex',
       sanitizeError: sanitizeCodexError,
       ...(config.pricing !== undefined && { pricing: config.pricing }),
+      ...(config.billing !== undefined && { billing: config.billing }),
       ...(config.compactionThresholdTokens !== undefined && {
         compactionThresholdTokens: config.compactionThresholdTokens,
       }),

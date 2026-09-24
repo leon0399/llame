@@ -3,7 +3,12 @@ import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { tool, type ProviderMetadata, type ToolSet } from 'ai';
+import {
+  tool,
+  type LanguageModelUsage,
+  type ProviderMetadata,
+  type ToolSet,
+} from 'ai';
 
 import { canonicalJson, compareCodePoints } from '../canonical-json';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -127,6 +132,7 @@ import {
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
+  aggregateTurnTelemetry,
   buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,
   turnTelemetryLogger,
@@ -189,7 +195,10 @@ import {
   resolveInstanceTimezone,
   type TemporalAnchor,
 } from '../prompts/temporal-anchor';
-type AssistantTurnTelemetry = TurnTelemetry & { runId: string };
+type AssistantTurnTelemetry = TurnTelemetry & {
+  runId: string;
+  complete?: boolean;
+};
 
 type AssistantTurnPersistence = {
   chatId: string;
@@ -262,9 +271,9 @@ type FinishRunInput = {
   status: TerminalRunStatus;
   attemptId?: string;
   modelCompleted?: {
-    usage: unknown;
+    usage?: unknown;
     finishReason: unknown;
-    telemetry?: TurnTelemetry;
+    telemetry?: AssistantTurnTelemetry;
   };
   runPayload?: unknown;
   error?: unknown;
@@ -345,6 +354,14 @@ type TerminalRunStatus = Extract<
   RunStatus,
   'completed' | 'failed' | 'cancelled' | 'expired'
 >;
+
+function turnStatusForTerminalRun(
+  status: TerminalRunStatus,
+): TurnTelemetry['status'] {
+  if (status === 'completed') return 'completed';
+  if (status === 'failed') return 'error';
+  return 'aborted';
+}
 
 type RecencyDigestInitialization = {
   baseline: NonNullable<Chat['recencyDigestBaseline']>;
@@ -501,10 +518,12 @@ export class RunExecutionService {
     runPayload?: unknown;
     error?: unknown;
     telemetry?: AssistantTurnTelemetry;
+    modelCompleted?: FinishRunInput['modelCompleted'];
   }) {
-    const { telemetry, ...terminalInput } = input;
+    const { telemetry, modelCompleted, ...terminalInput } = input;
     const settlement = await this.finishRun({
       ...terminalInput,
+      ...(modelCompleted !== undefined && { modelCompleted }),
       synthesizedTurnTelemetry: telemetry,
     });
     if (settlement.outcome === 'errored') {
@@ -736,6 +755,25 @@ export class RunExecutionService {
     }
 
     const streamStartedAt = Date.now();
+    const requestUsageReceipts: Array<LanguageModelUsage> = [];
+    const buildAssistantTelemetry = (
+      finishReason: TurnTelemetry['finishReason'],
+      status: TurnTelemetry['status'],
+      stepCount?: number,
+    ): AssistantTurnTelemetry => ({
+      ...aggregateTurnTelemetry({
+        receipts: requestUsageReceipts,
+        finishReason,
+        status,
+        modelId: client.model,
+        ...(effort !== undefined && { effort }),
+        latencyMs: Date.now() - streamStartedAt,
+        price: client.pricing,
+        billing: client.billing,
+        ...(stepCount !== undefined && { stepCount }),
+      }),
+      runId: input.runId,
+    });
 
     // `model.requested` describes the target inference, not source-model
     // transition compaction. Record it only after preparation succeeds and
@@ -1019,6 +1057,22 @@ export class RunExecutionService {
       }
     };
 
+    const settleOpenToolsAndDrain = async (
+      status: Exclude<TerminalRunStatus, 'completed'>,
+      telemetry: AssistantTurnTelemetry,
+    ): Promise<boolean> => {
+      settleOpenToolCalls(status);
+      await deltaWrites;
+      if (!progressWriteFailed) return true;
+      await this.settleProgressWriteFailure({
+        userId: input.userId,
+        runId: input.runId,
+        attemptId,
+        telemetry,
+      });
+      return false;
+    };
+
     // Set only when a parent abort lands while at least one tool call is open.
     // The tool continuation awaits it, so a failed durable terminal write is
     // surfaced to the stream/worker instead of becoming a detached rejection.
@@ -1151,15 +1205,25 @@ export class RunExecutionService {
             userId: input.userId,
             runId: input.runId,
             attemptId,
+            telemetry: buildAssistantTelemetry(null, 'error'),
           });
           return;
         }
+        const assistantTelemetry = buildAssistantTelemetry(
+          null,
+          turnStatusForTerminalRun(status),
+        );
         try {
           await this.settleTerminalRun({
             userId: input.userId,
             runId: input.runId,
             status,
             attemptId,
+            telemetry: assistantTelemetry,
+            modelCompleted: {
+              finishReason: null,
+              telemetry: assistantTelemetry,
+            },
             runPayload: { status, message },
             error: { message },
           });
@@ -1168,6 +1232,7 @@ export class RunExecutionService {
             userId: input.userId,
             runId: input.runId,
             attemptId,
+            telemetry: buildAssistantTelemetry(null, 'error'),
           });
         }
       })();
@@ -1185,6 +1250,9 @@ export class RunExecutionService {
 
     try {
       return client.streamText({
+        onRequestUsage: (usage) => {
+          requestUsageReceipts.push(usage);
+        },
         system,
         messages,
         chat: { id: input.chatId, lane: 'main' },
@@ -1310,24 +1378,17 @@ export class RunExecutionService {
             error instanceof Error ? error.stack : String(error),
           );
 
-          const telemetry = buildTurnTelemetry({
-            usage: null,
-            finishReason: null,
-            status: input.abortSignal?.aborted ? 'aborted' : 'error',
-            modelId: client.model,
-            ...(effort !== undefined && { effort }),
-            latencyMs: Date.now() - streamStartedAt,
-            price: client.pricing,
-          });
-          const assistantTelemetry: AssistantTurnTelemetry = {
-            ...telemetry,
-            runId: input.runId,
-          };
-
-          const status =
-            telemetry.status === 'aborted'
-              ? classifyAbortedRun(input.abortSignal)
-              : 'failed';
+          const status = input.abortSignal?.aborted
+            ? classifyAbortedRun(input.abortSignal)
+            : 'failed';
+          const assistantTelemetry = buildAssistantTelemetry(
+            null,
+            turnStatusForTerminalRun(status),
+          );
+          const progressFailureTelemetry =
+            status === 'failed'
+              ? assistantTelemetry
+              : buildAssistantTelemetry(null, 'error');
           persistReasoning(reasoningDeltas.flush());
           persistDelta(deltas.flush());
           await deltaWrites;
@@ -1336,7 +1397,7 @@ export class RunExecutionService {
               userId: input.userId,
               runId: input.runId,
               attemptId,
-              telemetry: assistantTelemetry,
+              telemetry: progressFailureTelemetry,
             });
             return;
           }
@@ -1349,19 +1410,9 @@ export class RunExecutionService {
           // Settle before reading parts: a call still open here was rendered
           // as running live, and an unsettled part is filtered out of
           // history — so without this the live view and the reload disagree.
-          settleOpenToolCalls(status);
-          // Re-drain: settleOpenToolCalls enqueued new events via
-          // recordToolCompleted. Without this await, finishRun's terminal
-          // event can commit before the settlement events, and a process kill
-          // in that window permanently loses them.
-          await deltaWrites;
-          if (progressWriteFailed) {
-            await this.settleProgressWriteFailure({
-              userId: input.userId,
-              runId: input.runId,
-              attemptId,
-              telemetry: assistantTelemetry,
-            });
+          if (
+            !(await settleOpenToolsAndDrain(status, progressFailureTelemetry))
+          ) {
             return;
           }
           const turn: AssistantTurnWrite = {
@@ -1380,6 +1431,10 @@ export class RunExecutionService {
             runId: input.runId,
             status,
             attemptId,
+            modelCompleted: {
+              finishReason: null,
+              telemetry: assistantTelemetry,
+            },
             runPayload: {
               status,
               message,
@@ -1394,7 +1449,7 @@ export class RunExecutionService {
             turn.telemetry,
           );
         },
-        onFinish: async ({ text, usage, finishReason }) => {
+        onFinish: async ({ text, usage, finishReason, stepCount }) => {
           removeParentAbortListener();
           if (parentAbortSettlement) {
             await parentAbortSettlement;
@@ -1406,30 +1461,20 @@ export class RunExecutionService {
           if (text.startsWith(streamedText)) {
             assistantPartCollector.text(text.slice(streamedText.length));
           }
-          const telemetry = buildTurnTelemetry({
-            usage,
+          const status = input.abortSignal?.aborted
+            ? classifyAbortedRun(input.abortSignal)
+            : finishReason === 'error'
+              ? 'failed'
+              : 'completed';
+          const assistantTelemetry = buildAssistantTelemetry(
             finishReason,
-            status: input.abortSignal?.aborted
-              ? 'aborted'
-              : finishReason === 'error'
-                ? 'error'
-                : 'completed',
-            modelId: client.model,
-            ...(effort !== undefined && { effort }),
-            latencyMs: Date.now() - streamStartedAt,
-            price: client.pricing,
-          });
-          const assistantTelemetry: AssistantTurnTelemetry = {
-            ...telemetry,
-            runId: input.runId,
-          };
-
-          const status =
-            telemetry.status === 'completed'
-              ? 'completed'
-              : telemetry.status === 'aborted'
-                ? classifyAbortedRun(input.abortSignal)
-                : 'failed';
+            turnStatusForTerminalRun(status),
+            stepCount,
+          );
+          const progressFailureTelemetry =
+            status === 'failed'
+              ? assistantTelemetry
+              : buildAssistantTelemetry(finishReason, 'error', stepCount);
           // Drain buffered reasoning + deltas BEFORE the terminal events so the
           // log reads in stream order: …model.delta, model.completed, run.completed.
           persistReasoning(reasoningDeltas.flush());
@@ -1440,7 +1485,7 @@ export class RunExecutionService {
               userId: input.userId,
               runId: input.runId,
               attemptId,
-              telemetry: assistantTelemetry,
+              telemetry: progressFailureTelemetry,
             });
             return;
           }
@@ -1460,19 +1505,11 @@ export class RunExecutionService {
           // Normally a no-op — a completed run settled every call through the
           // toolSet wrapper. It fires for the narrow finish-races-abort case,
           // where a call can still be open when this path wins.
-          if (status !== 'completed') {
-            settleOpenToolCalls(status);
-            // Re-drain after settlement — same reason as in onError.
-            await deltaWrites;
-            if (progressWriteFailed) {
-              await this.settleProgressWriteFailure({
-                userId: input.userId,
-                runId: input.runId,
-                attemptId,
-                telemetry: assistantTelemetry,
-              });
-              return;
-            }
+          if (
+            status !== 'completed' &&
+            !(await settleOpenToolsAndDrain(status, progressFailureTelemetry))
+          ) {
+            return;
           }
           const turn: AssistantTurnWrite = {
             chatId: input.chatId,
@@ -1515,55 +1552,29 @@ export class RunExecutionService {
             turn.telemetry,
           );
 
-          // Post-work needs a committed turn to act on, and needs to own it.
-          // Two cases have neither. An intentional terminal state written by
-          // someone else (cancel/supersede): the newer attempt owns the turn.
-          // And a terminal transaction that rolled back with nothing salvaged:
-          // there is no stored turn to title after or compact around, so
-          // running either would spend a title model call on a turn that does
-          // not exist. The gate is the committed message rather than the
-          // outcome, because 'errored' no longer implies nothing committed —
-          // the catch salvages the answer in its own transaction, and a chat
-          // whose first turn landed that way still needs a title.
+          // A lost non-expired run belongs to the newer attempt. A salvaged
+          // message can still be titled when this attempt produced it.
           if (
             (finish.outcome === 'errored' && !finish.assistantMessage) ||
             (finish.outcome === 'lost' && finish.finalStatus !== 'expired')
           ) {
             return;
           }
-
-          // Post-turn work (#57 compaction, #78 titling), both AFTER the
-          // terminal commit. Titling is awaited only to keep it inside the
-          // job's lifetime — the client's stream already ended at
-          // `run.completed`, so a title landing here is observed by a later
-          // refetch, not this turn's (#261 comment thread; #78's
-          // "before stream completion" wording predates the queue split).
-          // Failures are swallowed by TitleService. Compaction is
-          // fire-and-forget.
-          if (telemetry.status === 'completed') {
-            void this.compaction.maybeCompact({
+          if (assistantTelemetry.status === 'completed') {
+            await this.postCompletedRunWork({
+              finish,
+              requestUsageReceipts,
+              finishReason,
+              latencyMs: assistantTelemetry.latencyMs,
+              client,
               chatId: input.chatId,
               userId: input.userId,
-              client,
-              // The exact system prompt this turn used — the compaction request
-              // reuses it so its prefix hits the provider prompt cache this
-              // turn just populated (#57).
               system,
               toolDeclarations: prepared.toolDeclarations,
-              // Same reason the system prompt is reused: compaction runs
-              // immediately after the turn to land inside the provider's
-              // prompt-cache TTL, and a differing effort invalidates the
-              // message blocks that request shape exists to reuse.
               ...(effort !== undefined && { effort }),
-              lastTurnTotalTokens: telemetry.totalTokens,
+              untitled,
+              userMessage: input.userMessage,
             });
-            if (untitled) {
-              await this.titles.maybeGenerateTitle({
-                chatId: input.chatId,
-                userId: input.userId,
-                userText: partsToText(input.userMessage.parts),
-              });
-            }
           }
         },
       });
@@ -1932,6 +1943,10 @@ export class RunExecutionService {
       status: 'failed',
       attemptId: input.attemptId,
       telemetry: input.telemetry,
+      modelCompleted: {
+        finishReason: input.telemetry.finishReason,
+        telemetry: input.telemetry,
+      },
       runPayload: { status: 'failed', message },
       error: { message },
     });
@@ -1941,6 +1956,7 @@ export class RunExecutionService {
     userId: string;
     runId: string;
     attemptId: string;
+    telemetry?: AssistantTurnTelemetry;
   }): Promise<void> {
     const message = 'Run progress could not be persisted.';
     try {
@@ -1949,6 +1965,13 @@ export class RunExecutionService {
         runId: input.runId,
         status: 'failed',
         attemptId: input.attemptId,
+        ...(input.telemetry !== undefined && {
+          telemetry: input.telemetry,
+          modelCompleted: {
+            finishReason: input.telemetry.finishReason,
+            telemetry: input.telemetry,
+          },
+        }),
         runPayload: { status: 'failed', message },
         error: { message },
       });
@@ -2055,16 +2078,22 @@ export class RunExecutionService {
       await events.listByRunId(input.runId, input.userId),
     );
     await this.settleDurableOpenTools(tx, input, durable, events);
-    if (input.modelCompleted) {
-      await events.append(input.runId, 'model.completed', input.modelCompleted);
-    }
-    await this.persistFinishedContext(tx, input, finished);
-
     const assistantTurn = this.buildAssistantTurnForFinish(
       input,
       finished,
       durable.collector.parts(),
     );
+    await this.finalizeAssistantTurnTelemetry(
+      tx,
+      input,
+      finished,
+      assistantTurn,
+    );
+    if (input.modelCompleted) {
+      await events.append(input.runId, 'model.completed', input.modelCompleted);
+    }
+    await this.persistFinishedContext(tx, input, finished);
+
     const assistantMessage = await this.persistAssistantMessage(
       tx,
       input.userId,
@@ -2077,24 +2106,96 @@ export class RunExecutionService {
     };
   }
 
+  private async hasReplaceableAssistantUsage(
+    tx: Db,
+    userId: string,
+    chatId: string | undefined,
+    inReplyTo: string | null | undefined,
+  ): Promise<boolean> {
+    if (chatId === undefined || inReplyTo === undefined || inReplyTo === null) {
+      return false;
+    }
+    const { assistantMessage } = await new MessagesRepository(tx).findTurnState(
+      chatId,
+      userId,
+      inReplyTo,
+    );
+    return (
+      assistantMessage !== undefined &&
+      !isCompletedAssistantTurn(assistantMessage) &&
+      assistantMessage.usage !== null &&
+      assistantMessage.usage !== undefined
+    );
+  }
+
   /**
    * A terminal race can still salvage streamed content after an expiry. A
    * cancellation or an already-recorded answer intentionally does not.
    */
+  private async finalizeAssistantTurnTelemetry(
+    tx: Db,
+    input: Pick<
+      FinishRunInput,
+      | 'userId'
+      | 'runId'
+      | 'attemptId'
+      | 'assistantTurn'
+      | 'synthesizedTurnTelemetry'
+      | 'modelCompleted'
+    >,
+    run: Run | undefined,
+    assistantTurn: AssistantTurnPersistence | undefined = input.assistantTurn,
+  ): Promise<void> {
+    const telemetry =
+      assistantTurn?.telemetry ??
+      input.synthesizedTurnTelemetry ??
+      input.modelCompleted?.telemetry;
+    if (!telemetry) {
+      return;
+    }
+
+    const chatId = assistantTurn?.chatId ?? run?.chatId;
+    const inReplyTo = assistantTurn?.inReplyTo ?? run?.messageId;
+    const [receipts, replacedUsage] = await Promise.all([
+      new SystemPromptReceiptsRepository(tx).findByOwnedRun(
+        input.runId,
+        input.userId,
+      ),
+      this.hasReplaceableAssistantUsage(tx, input.userId, chatId, inReplyTo),
+    ]);
+    telemetry.complete =
+      telemetry.complete === true &&
+      run?.status === 'completed' &&
+      !receipts.some(({ attemptId }) => attemptId !== input.attemptId) &&
+      !replacedUsage;
+    if (assistantTurn) {
+      assistantTurn.telemetry = telemetry;
+    }
+    if (input.modelCompleted) {
+      input.modelCompleted.telemetry = telemetry;
+    }
+  }
+
   private async handleLostFinish(
     tx: Db,
     input: FinishRunInput,
     runsRepo: RunsRepository,
   ): Promise<FinishRunResult> {
     const current = await runsRepo.findById(input.runId, input.userId);
-    const assistantMessage =
-      current?.status === 'expired'
-        ? await this.persistAssistantMessage(
-            tx,
-            input.userId,
-            input.assistantTurn,
-          )
-        : undefined;
+    let assistantMessage: Message | undefined;
+    if (current?.status === 'expired') {
+      await this.finalizeAssistantTurnTelemetry(
+        tx,
+        input,
+        current,
+        input.assistantTurn,
+      );
+      assistantMessage = await this.persistAssistantMessage(
+        tx,
+        input.userId,
+        input.assistantTurn,
+      );
+    }
     return {
       outcome: 'lost',
       finalStatus: current?.status,
@@ -2241,18 +2342,38 @@ export class RunExecutionService {
   }
 
   /** Best-effort standalone persist after the terminal transaction rolled back. */
-  private async salvageAssistantMessage(input: {
-    userId: string;
-    runId: string;
-    assistantTurn?: AssistantTurnWrite;
-  }): Promise<Message | undefined> {
+  private async salvageAssistantMessage(
+    input: Pick<
+      FinishRunInput,
+      | 'userId'
+      | 'runId'
+      | 'attemptId'
+      | 'assistantTurn'
+      | 'synthesizedTurnTelemetry'
+      | 'modelCompleted'
+    >,
+  ): Promise<Message | undefined> {
     if (!input.assistantTurn) {
       return undefined;
     }
     try {
-      return await this.tenantDb.runAs(input.userId, (tx) =>
-        this.persistAssistantMessage(tx, input.userId, input.assistantTurn),
-      );
+      return await this.tenantDb.runAs(input.userId, async (tx) => {
+        const run = await new RunsRepository(tx).findById(
+          input.runId,
+          input.userId,
+        );
+        await this.finalizeAssistantTurnTelemetry(
+          tx,
+          input,
+          run,
+          input.assistantTurn,
+        );
+        return this.persistAssistantMessage(
+          tx,
+          input.userId,
+          input.assistantTurn,
+        );
+      });
     } catch (error) {
       this.logger.error(
         `Failed to salvage the assistant turn for run ${input.runId}`,
@@ -2350,6 +2471,59 @@ export class RunExecutionService {
         );
       },
     });
+  }
+
+  private async postCompletedRunWork(input: {
+    finish: FinishRunResult;
+    requestUsageReceipts: ReadonlyArray<LanguageModelUsage>;
+    finishReason: TurnTelemetry['finishReason'];
+    latencyMs: number;
+    client: ModelClient;
+    chatId: string;
+    userId: string;
+    system: string;
+    toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
+    effort?: string;
+    untitled: boolean;
+    userMessage: RunUserMessage;
+  }): Promise<void> {
+    if (input.finish.outcome === 'won') {
+      const finalRequestUsage = input.requestUsageReceipts.at(-1);
+      let lastRequestTokens: number | undefined;
+      if (
+        finalRequestUsage !== undefined &&
+        (finalRequestUsage.inputTokens !== undefined ||
+          finalRequestUsage.outputTokens !== undefined)
+      ) {
+        const normalized = buildTurnTelemetry({
+          usage: finalRequestUsage,
+          finishReason: input.finishReason,
+          status: 'completed',
+          modelId: input.client.model,
+          ...(input.effort !== undefined && { effort: input.effort }),
+          latencyMs: input.latencyMs,
+          price: input.client.pricing,
+          billing: input.client.billing,
+        });
+        lastRequestTokens = normalized.inputTokens + normalized.outputTokens;
+      }
+      void this.compaction.maybeCompact({
+        chatId: input.chatId,
+        userId: input.userId,
+        client: input.client,
+        system: input.system,
+        toolDeclarations: input.toolDeclarations,
+        ...(input.effort !== undefined && { effort: input.effort }),
+        lastRequestTokens,
+      });
+    }
+    if (input.untitled) {
+      await this.titles.maybeGenerateTitle({
+        chatId: input.chatId,
+        userId: input.userId,
+        userText: partsToText(input.userMessage.parts),
+      });
+    }
   }
 
   /**

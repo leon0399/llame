@@ -23,13 +23,14 @@ Add one provider entry and one model entry per model to
       "id": "opencode-go",
       "type": "opencode-go",
       "key": "{env:OPENCODE_GO_API_KEY}",
+      "billing": "subscription",
     },
   ],
 }
 ```
 
-The entry declares `{ id, type, key }` and nothing else. `id` is the
-operator-chosen name model entries reference; `type` selects the transport;
+The required entry is `{ id, type, key }`, with optional `billing`. `id` is
+the operator-chosen name model entries reference; `type` selects the transport;
 `key` accepts the same `{env:...}` and `{path:...}` interpolation as every
 other credential and is resolved once at startup. The resolved value never
 reaches a log, error, telemetry record, model context, or owner-visible
@@ -194,13 +195,14 @@ for the cap you are planning against rather than any published table.
 ## Cost accounting
 
 `pricingUsdPer1M` is optional here, and the shipped example declares none, so
-completed runs record the usage and latency the provider reports with
-`costUsd: null`, the same posture as the Codex subscription. When you declare
-pricing, llame prices the provider-reported usage at those rates; that figure
-is llame's own accounting of a subscription quota, not money paid per token.
-The subscription is billed per usage window rather than per token, and llame
-never estimates a cost from a provider-side price table. Leave the field off
-if you do not want a dollar figure.
+completed runs record provider-reported usage and latency with `costUsd: null`.
+When declared, llame calculates cost from provider-reported usage at those
+rates. A subscription model's calculated cost is recorded and displayed as a
+not-billed notional cost; billing mode never changes the calculation.
+
+`opencode-go` defaults to `billing: "subscription"`. `billing` accepts
+`"usage"` or `"subscription"` on the provider or model, resolved model first,
+then provider, then provider-type default.
 
 ## Upstream overage
 
