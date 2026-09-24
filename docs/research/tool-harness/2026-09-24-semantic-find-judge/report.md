@@ -268,6 +268,14 @@ These are proposals, not shipped APIs. Chat retrieval already has owner filterin
 
 For the earlier Jev-research example, staged `find` would select relevant notes or authorized chat passages; exact `read` would expose the needed evidence; a generative reader or the main model would synthesize the answer. A `noul` score cannot answer what the research concluded. Nearby-document and episodic expansion still require the explicitly broader scope from the previous layer. For tools/skills, only metadata may be needed; sending entire histories or skill bodies merely to choose an identifier is avoidable exposure. [^bc1d5b4cc983d594][^64a2fd31fa659970][^02cf22f4d4181f58]
 
+**Proposed evidence-intent extension:** implementation, callers/usage,
+configuration, tests and design rationale require different relevance
+predicates; the current implementation-oriented rubric must not be universal.
+The [source-aware investigation companion](../2026-09-23-question-directed-read/source-aware-investigation.md)
+develops these intents, OKF-guided navigation and bounded workers returning
+original evidence plus unresolved leads. It keeps source access specialized and
+separates inspected test source from observed execution.
+
 ## Recommendations
 
 - **D11 — Start with one consumer and a source-specific rubric.** First compare a judge against the existing candidate order in shadow evaluation. Chat evidence reranking is a close shipped seam; an explicitly permitted host-code fixture is the closest match to OMP's benchmark domain. Do not add a general index or strategy registry before a second real consumer needs it.

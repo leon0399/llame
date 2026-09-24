@@ -12,6 +12,9 @@ Noncanonical; no feature implementation or scope approval.
 
 - [Report](./report.md) - Pipeline, typed judgment backends, failure and cost
   semantics, reference comparison, benchmark limits and applications U13-U20.
+- [Source-aware investigation extension](../2026-09-23-question-directed-read/source-aware-investigation.md) -
+  Task-specific evidence intents, OKF/repository navigation and bounded area
+  workers; incorporates the supplied analysis without assuming proposed APIs ship.
 - [Sources](./sources.jsonl) and [evidence](./evidence.jsonl) - Pinned source and
   dated provider documentation, with explicit observation boundaries.
 - [Claims](./claims.jsonl) - Typed report claims joined to evidence.

@@ -155,6 +155,12 @@ These are proposals derived by combining and repurposing the recipes, not claims
 
 Batch independent questions throughout. Reranking, optional skill hints and evidence-packet classification are the next useful integrations. Taxonomy infrastructure and supervised autoresearch should follow a demonstrated need, not precede these small helpers.
 
+The [source-aware investigation extension](../2026-09-23-question-directed-read/source-aware-investigation.md)
+adds U30-U31: cross-layer behavior tracing and targeted evidence-gap handoffs.
+It combines CB10/CB11 support checks with CB03 batching and source-native
+relationships; these are proposed investigation flows, not new authorization
+or child-session capabilities.
+
 ## Scope and confidence
 
 This is the requested quick analysis of the recipe pages and how-to patterns, using the existing llame research rather than another repository exploration pass. Recipe mechanics and fit are source-based; the new combinations are recommendations. No model accuracy, speedup, cost saving or production readiness was measured. Vendor example results are not transferred to llame, and no new test, benchmark or review campaign was run.
