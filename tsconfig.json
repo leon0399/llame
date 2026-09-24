@@ -1,3 +1,17 @@
 {
-  "extends": "@workspace/config-typescript/base.json"
+  "extends": "@workspace/config-typescript/base.json",
+  // Root-owned TypeScript only: Playwright specs and config. Workspaces are
+  // checked by their own configs through `pnpm typecheck`; including them here
+  // compiles every app under the wrong options. e2e imports API source, so the
+  // API's ambient declarations and decorator settings are part of this program.
+  "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "lib": ["es2023", "DOM", "DOM.Iterable"],
+    "target": "ES2023",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "noEmit": true
+  },
+  "include": ["e2e", "playwright.config.ts", "apps/api/src/**/*.d.ts"]
 }

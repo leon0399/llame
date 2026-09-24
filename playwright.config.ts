@@ -104,9 +104,9 @@ export default defineConfig({
             url: dbReadyUrl,
             timeout: 180_000,
             reuseExistingServer: false,
-            gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
-            stdout: "pipe",
-            stderr: "pipe",
+            gracefulShutdown: { signal: "SIGTERM" as const, timeout: 30_000 },
+            stdout: "pipe" as const,
+            stderr: "pipe" as const,
           },
         ]
       : []),

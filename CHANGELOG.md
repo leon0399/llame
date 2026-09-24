@@ -1,5 +1,18 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-24
+
+- The root `tsconfig.json` now covers only root-owned TypeScript: the
+  Playwright specs, `playwright.config.ts`, and the API's ambient declarations
+  those specs import. A bare `tsc --noEmit` at the repository root previously
+  compiled every app and package under the shared base options, without JSX,
+  decorators, Next aliases, or Vitest types, and reported about 9,900 errors
+  that no workspace check shows. It now type-checks e2e with bundler
+  resolution, ES2023, and decorator metadata and reports none; workspaces are
+  still checked by their own configs through `pnpm typecheck`. Checking e2e for
+  the first time surfaced widened `webServer` literals in the Playwright
+  config, now kept as literal types.
+
 # 2026-09-23
 
 - Web reads now judge resolved addresses under the `read` group's rejects and
