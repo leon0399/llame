@@ -1066,6 +1066,9 @@ export class RunExecutionService {
       telemetry: AssistantTurnTelemetry,
     ): Promise<boolean> => {
       settleOpenToolCalls(status);
+      // settleOpenToolCalls enqueued new events via recordToolCompleted.
+      // Without this await, finishRun's terminal event can commit before the
+      // settlement events, and a process kill in that window permanently loses them.
       await deltaWrites;
       if (!progressWriteFailed) return true;
       await this.settleProgressWriteFailure({
@@ -1552,8 +1555,16 @@ export class RunExecutionService {
             turn.telemetry,
           );
 
-          // A lost non-expired run belongs to the newer attempt. A salvaged
-          // message can still be titled when this attempt produced it.
+          // Post-work needs a committed turn to act on, and needs to own it.
+          // Two cases have neither. An intentional terminal state written by
+          // someone else (cancel/supersede): the newer attempt owns the turn.
+          // And a terminal transaction that rolled back with nothing salvaged:
+          // there is no stored turn to title after or compact around, so
+          // running either would spend a title model call on a turn that does
+          // not exist. The gate is the committed message rather than the
+          // outcome, because 'errored' no longer implies nothing committed —
+          // the catch salvages the answer in its own transaction, and a chat
+          // whose first turn landed that way still needs a title.
           if (
             (finish.outcome === 'errored' && !finish.assistantMessage) ||
             (finish.outcome === 'lost' && finish.finalStatus !== 'expired')
@@ -2142,13 +2153,15 @@ export class RunExecutionService {
 
     const chatId = assistantTurn?.chatId ?? run?.chatId;
     const inReplyTo = assistantTurn?.inReplyTo ?? run?.messageId;
-    const [receipts, replacedUsage] = await Promise.all([
-      new SystemPromptReceiptsRepository(tx).findByOwnedRun(
-        input.runId,
-        input.userId,
-      ),
-      this.hasReplaceableAssistantUsage(tx, input.userId, chatId, inReplyTo),
-    ]);
+    const receipts = await new SystemPromptReceiptsRepository(
+      tx,
+    ).findByOwnedRun(input.runId, input.userId);
+    const replacedUsage = await this.hasReplaceableAssistantUsage(
+      tx,
+      input.userId,
+      chatId,
+      inReplyTo,
+    );
     telemetry.complete =
       telemetry.complete === true &&
       run?.status === 'completed' &&
@@ -2476,6 +2489,14 @@ export class RunExecutionService {
     untitled: boolean;
     userMessage: RunUserMessage;
   }): Promise<void> {
+    // Post-turn work (#57 compaction, #78 titling) runs after the terminal
+    // result is known. Only a winning completed Run compacts; a salvaged turn
+    // can still receive a title.
+    // Titling is awaited only to keep it inside the job's lifetime — the
+    // client's stream already ended at `run.completed`, so a title landing
+    // here is observed by a later refetch, not this turn's (#261 comment
+    // thread; #78's "before stream completion" wording predates the queue split).
+    // Failures are swallowed by TitleService. Compaction is fire-and-forget.
     if (input.finish.outcome === 'won') {
       const finalRequestUsage =
         input.requestUsageReceipts.length === input.stepCount
@@ -2489,8 +2510,15 @@ export class RunExecutionService {
         chatId: input.chatId,
         userId: input.userId,
         client: input.client,
+        // The exact system prompt this turn used — the compaction request
+        // reuses it so its prefix hits the provider prompt cache this
+        // turn just populated (#57).
         system: input.system,
         toolDeclarations: input.toolDeclarations,
+        // Same reason the system prompt is reused: compaction runs
+        // immediately after the turn to land inside the provider's
+        // prompt-cache TTL, and a differing effort invalidates the
+        // message blocks that request shape exists to reuse.
         ...(input.effort !== undefined && { effort: input.effort }),
         lastRequestTokens,
       });
