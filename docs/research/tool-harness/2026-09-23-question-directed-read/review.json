@@ -1,0 +1,66 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "reviewers": ["ReaderModelReview", "ReaderContractReview"],
+      "accepted": [
+        "Use first-touch-aligned multi-turn counterfactuals; no savings credit for source already in primary history",
+        "Surface paper-versus-model-card checkpoint lineage discrepancy",
+        "Cite actual reference loader and its32768 context default",
+        "Separate recognized question metadata before resource permission matching; conditional future risk, not shipped exploit",
+        "State image decoding/capability contract gap and host ? filename ambiguity",
+        "Keep real-transcript measurement gate open and add consented replay phase",
+        "Call out narrower-than-Space search requires new scoped search contract",
+        "Cite OMP image-question flow and its broader fallback distinction"
+      ],
+      "qualification": "Current credential rejects are an operator example/test fixture, not a runtime default; no q feature exists today."
+    },
+    {
+      "round": 2,
+      "reviewers": ["ReaderModelFinal", "ReaderBoundaryFinal"],
+      "accepted": [
+        "Clarify that repeated carry counts model requests with actual post-projection residency; account for 8,000/32,000-unit replay limits and possible source clearing before answer clearing."
+      ],
+      "qualified": [
+        "Do not claim symmetric carry is possible only inside a Run: both payloads can also survive ordinary stored replay when the complete projection fits. No token-to-character equivalence is assumed."
+      ],
+      "result": "v3 updates report and probe assumptions; arithmetic totals unchanged; another independent review round requested"
+    },
+    {
+      "round": 3,
+      "reviewers": ["ReaderEconomicsV3", "ReaderDeliveryV3"],
+      "result": "No material report or application-coverage findings; conditional economics recomputed by reviewer. Final artifact synchronization and probe terminology findings accepted.",
+      "accepted": [
+        "Use model requests consistently in probe comment and internal variable names.",
+        "Regenerate the typed claims ledger from v3, recording replay caps and removing withdrawn v2 wording; refresh counts and review history."
+      ],
+      "qualification": "One reviewer inspected record files while the parent was synchronizing them; the final source/claim joins and counts are validated after the synchronization."
+    }
+  ],
+  "superseded_evidence_ids": ["8e879e1b4f2a3f26"],
+  "supersession_reason": "Initial draft mixed already-cached source with new helper output while crediting removal not supplied by delegation. Retained for research history; excluded from final claim support.",
+  "claim_verification": {
+    "method": "Heuristic lexical scoring plus primary-source/mechanics review; lexical scores are not truth verification. No human verification claimed.",
+    "heuristic_result": {
+      "status": "pass",
+      "verified": 280,
+      "support_status_counts": {
+        "partial": 171,
+        "supported": 98,
+        "needs_review": 11
+      },
+      "factual_unsupported": 0,
+      "total_factual": 123,
+      "unsupported_rate": 0.0
+    },
+    "flag_dispositions": {
+      "self_description": "Research sequence and WIP/issue scope checked against parent research, issue849 and unchanged draft; corrected issue-source association.",
+      "model_comparisons": "Recommendation-bearing table rows typed as synthesis and linked to row-specific official sources. Gemini price/campaign row checked against dated pricing evidence.",
+      "memory_arithmetic": "Own lower-bound calculation: 9,000,000,000 * 16 / 8 = 18,000,000,000 bytes; * 4 / 8 = 4,500,000,000. Vision source covers hosting ownership, not a measured memory result.",
+      "query_grammar": "Design inference from reserved question aliases versus literal-filename and HTTP-query behavior; not a shipped exploit.",
+      "conditional_economics": "Nine Decimal cases reproduced; actual post-projection residency is an explicit condition.",
+      "arxiv_dates": "Versioned v1 artifact retained despite inconsistent display date; no invented revision.",
+      "probe_requirements": "Executed offline commands and inspected source-only AST extraction; no model or full renderer benchmark."
+    }
+  }
+}

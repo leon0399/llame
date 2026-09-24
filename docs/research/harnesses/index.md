@@ -52,6 +52,15 @@ offline mechanics probes from unmeasured live-model quality. Read it alongside
 [SoL-Pi](./sol-pi.md) for evidence-preserving recovery and
 [Spotify Shunt](./spotify-shunt.md) for question-focused context reduction.
 
+The [question-directed read follow-on](../tool-harness/2026-09-23-question-directed-read/index.md)
+compares Apple LensVLM with local Qwen/Gemma and cheap or promotional hosted
+readers for [#849](https://github.com/leon0399/llame/issues/849). It connects
+[OMP's image-question subcall](./oh-my-pi.md#question-directed-image-reads) and
+[Shunt's bulk-read delegation](./spotify-shunt.md) to explicit source scope,
+verifiable evidence and total parent-plus-worker economics. LensVLM's
+research-only weights and token/latency tradeoff remain distinct from the
+general reader design.
+
 Read the ranked index first, then open individual references as needed.
 
 ## Index

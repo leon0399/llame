@@ -1,0 +1,14 @@
+{
+  "revision": "10709a7e2a80bdf971628359d47e4bd35fce3d95",
+  "source_sha256": {
+    "lensvlm/rendering.py": "92035c4258f89807561912d52fe41d381b2d44668b04c505d57e21c5b997d172",
+    "lensvlm/evaluate.py": "1a147404cc9cca1461ab79224048f19887fbefe1b43c908283581ceccae4dbeb"
+  },
+  "mode": "unchanged pure function ASTs; no model, renderer, or network",
+  "normalized_text": "def decision(): if ready: return 'accepted' # source note",
+  "original_line_breaks_and_indentation_removed": true,
+  "original_character_position_maps_to_normalized_answer": true,
+  "page_parser_accepts_unrelated_tool_name": true,
+  "page_response_is_bounded_by_supplied_page_list": true,
+  "conclusion": "Retain original source coordinates separately; do not reuse the research parser as a general tool dispatcher."
+}

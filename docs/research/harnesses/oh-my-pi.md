@@ -145,6 +145,15 @@ sources:
   - id: llame-system-one-jev
     resource: "../tool-harness/2026-09-23-system-one-jev/report.md"
     title: "System One and Jev: source investigation and llame applications"
+  - id: omp-image-question-20260923
+    resource: "https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/coding-agent/src/utils/image-question.ts"
+    title: "One-shot image-question worker selection and accounting"
+  - id: omp-image-question-target-20260923
+    resource: "https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/coding-agent/src/tools/read.ts#L615-L627"
+    title: "Image-only question selector and URL handling"
+  - id: llame-question-directed-read
+    resource: "../tool-harness/2026-09-23-question-directed-read/report.md"
+    title: "LensVLM and interchangeable question-directed reader models"
 ---
 
 # oh-my-pi
@@ -208,6 +217,28 @@ and [Spotify Shunt](./spotify-shunt.md).
 
 **Confidence:** high for the inspected role/transport behavior; moderate for
 application fit. No controlled Jev quality or latency benchmark was run.
+
+## Question-directed image reads
+
+**Scoped observation:** 2026-09-23, revision
+`f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7`; the older whole-document baseline
+is unchanged.
+
+OMP's `read <image>?q=<question>` supplies an already-loaded image and question
+to a one-shot vision completion with its own prompt, cancellation/timeout and
+returned model/usage. Its preference chain starts with vision/default/active
+models and can fall through to other available vision models. The selector
+rejects non-image targets and leaves ordinary web URL queries alone; it is not
+a general neighboring-file or chat-history investigator.[^omp-image-question-20260923][^omp-image-question-target-20260923]
+
+The [question-directed read study](../tool-harness/2026-09-23-question-directed-read/report.md)
+connects this mechanism to llame [#849](https://github.com/leon0399/llame/issues/849),
+compares LensVLM with text-first Qwen and hosted/free reader routes, and separates
+selected-source answers from explicitly scoped read-only investigation.
+Borrow the bounded subcall and accounting idea, not silent cross-provider
+selection: llame needs an accepted worker/data destination and per-source
+authorization. A fresh worker context does not imply cold-loading model weights
+for each call.[^llame-question-directed-read]
 
 [^docs-compaction-md-l27-l55]: [Session compaction entries](https://github.com/can1357/oh-my-pi/blob/7728213eef8be770a67b2b20710d705ee63fefe7/docs/compaction.md#L27-L55)
 
@@ -300,3 +331,9 @@ application fit. No controlled Jev quality or latency benchmark was run.
 [^omp-judge-api-20260923]: [TypeSafe and OpenRouter typed-decision transport](https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/ai/src/judgment/typesafe.ts)
 
 [^llame-system-one-jev]: [System One and Jev: source investigation and llame applications](../tool-harness/2026-09-23-system-one-jev/report.md)
+
+[^omp-image-question-20260923]: [One-shot image-question worker selection and accounting](https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/coding-agent/src/utils/image-question.ts)
+
+[^omp-image-question-target-20260923]: [Image-only question selector and URL handling](https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/coding-agent/src/tools/read.ts#L615-L627)
+
+[^llame-question-directed-read]: [LensVLM and interchangeable question-directed reader models](../tool-harness/2026-09-23-question-directed-read/report.md)
