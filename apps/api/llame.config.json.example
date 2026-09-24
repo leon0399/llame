@@ -559,7 +559,8 @@
             "field": "path",
             "regex": "^https?://([^/]*\\.)?grokipedia\\.com\\.?([/:]|$)"
           },
-          // F7 refuses metadata and credential endpoints on both schemes.
+          // F7 refuses metadata and credential endpoints on both schemes. Keep
+          // it even if you keep `^http://`, which does not cover `https://`.
           {
             "field": "path",
             "regex": "^https?://(?:169\\.254\\.169\\.254|169\\.254\\.170\\.2|169\\.254\\.0\\.23|100\\.100\\.100\\.200|\\[fd00:ec2::254\\])[:/]"

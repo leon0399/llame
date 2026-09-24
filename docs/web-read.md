@@ -54,10 +54,14 @@ metadata endpoints `169.254.169.254`, `169.254.170.2`, `169.254.0.23`,
 publisher's host, its subdomains, and a trailing-dot spelling. Both URL and
 address decisions use ordinary `read.path` permission clauses: rejects veto
 allows, matching is case-sensitive by default, and a supplied map is the
-complete policy. Copy F5a-F5f and F7 from the example as a set. F5a-F5f widen
-cleartext reads to any hostname resolving into one of their open internal
-ranges, including an attacker's zone or a spoofed DNS answer. Keep `^http://`
-instead if every cleartext URL must remain refused. Upgrade and restart every
+complete policy. Add F7 whichever cleartext rows you choose: `^http://` refuses
+only `http://`, so without F7 an `https://` metadata read is admitted. Copy
+F5a-F5f as a set. F5a-F5f widen cleartext reads to any hostname resolving into
+one of their open internal ranges, including an attacker's zone or a spoofed
+DNS answer. Keep `^http://` instead if every cleartext URL must remain refused.
+Neither choice refuses `https://` to an internal address: loopback, LAN, and
+tailnet hosts stay readable over HTTPS unless you add a reject for their
+addresses, such as `^https://127\.` for loopback. Upgrade and restart every
 API and Run worker process to this build before replacing `^http://` with
 F5a-F5f; older binaries do not evaluate address locators. On rollback, restore
 `^http://` before any older binary handles calls. See [tool-call

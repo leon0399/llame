@@ -19,13 +19,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   spelling.
 
 - The recommended cleartext reject changes from F5 (`^http://`) to F5a-F5f,
-  with F7 for known metadata endpoints. Copy F5a-F5f and F7 from the shipped
-  example as a set; the replacement widens cleartext reads to any hostname
-  resolving into an internal range, including an attacker's zone or a spoofed
-  DNS answer. Keep `^http://` to refuse all cleartext reads instead. Upgrade
-  and restart every API and Run worker process to this build before replacing
-  `^http://` with F5a-F5f; older binaries do not evaluate address locators.
-  On rollback, restore `^http://` before any older binary handles calls.
+  and a new F7 rejects the known metadata and credential endpoints on both
+  schemes. Add F7 whichever cleartext rows you keep: `^http://` covers only
+  `http://`, so without F7 an `https://` metadata read is admitted. F5a-F5f
+  widen cleartext reads to any hostname resolving into an internal range,
+  including an attacker's zone or a spoofed DNS answer; keep `^http://` to
+  refuse all cleartext reads instead. Neither set refuses `https://` to an
+  internal address. Upgrade and restart every API and Run worker process to
+  this build before replacing `^http://` with F5a-F5f; older binaries do not
+  evaluate address locators. On rollback, restore `^http://` before any older
+  binary handles calls.
 
 - A Chat Completions stream failure no longer quotes the response (#908).
   A stream event the adapter cannot parse, or whose `error` value carries no
