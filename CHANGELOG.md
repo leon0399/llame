@@ -15,6 +15,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   command, `pnpm test:scripts`, replacing `test:metrics` and
   `test:mutation:tooling`.
 
+- `pnpm test:mutation:changed` now diffs with the Myers algorithm whatever the
+  local `diff.algorithm` is, so a developer who sets `histogram` measures the
+  same changed-line ranges as CI instead of wider ones.
+
 # 2026-09-24
 
 - The root `tsconfig.json` now covers only root-owned TypeScript: the
