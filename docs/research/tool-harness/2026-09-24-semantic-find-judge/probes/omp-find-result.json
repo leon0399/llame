@@ -1,0 +1,177 @@
+{
+  "revision": "5fccbd0deee820049afa492dc3112272b163126f",
+  "scope": "Unchanged pinned TypeScript with explicit native-I/O/model/auth/timer doubles; no provider network request",
+  "source_hashes": {
+    "packages/coding-agent/src/tools/jfind/keywords.ts": "a0fd5423bf16080a9f97f5dca98f159256497c67b2847a4d813f8b39591140f4",
+    "packages/coding-agent/src/tools/jfind/lexical.ts": "093176f36ed03683f358b22f4c97e6e5daf6c38e95e394d816cdf3a1ce933216",
+    "packages/coding-agent/src/tools/jfind/text.ts": "a3f1ac4f6ed1d1de92af1f92c64c8125b604dfeacb90c20739867b283108cb5b",
+    "packages/coding-agent/src/tools/jfind/tree.ts": "de986760b4357e6a733027f778de6d44729d17b7b723260996d6c37c7234b75c",
+    "packages/utils/src/path-tree.ts": "a0e98dcbe1615a170266183fa814c33327c1042d91e160049a5d75dd415a94b2",
+    "packages/coding-agent/src/tools/jfind/passages.ts": "a6404aaa193dbf89bdcfea5d6fe684f4f9c0aef09aee302527fdfe8307d26be0",
+    "packages/coding-agent/src/tools/jfind/cascade.ts": "ad4e72fa42778614186899d2e0fac205a1e05629b412f9af1f59236cd153cf0a",
+    "packages/coding-agent/src/tools/jfind/questions.ts": "31864dad4f522d0acb0dd7316c6e5e82f71367854b87ab0798a6c614720a5be9",
+    "packages/coding-agent/src/prompts/tools/find-name-question.md": "0731b5f549c03fb4540a6eded8252fb7596de729b8780f2128260ac976cf8bf9",
+    "packages/coding-agent/src/prompts/tools/find-passage-question.md": "bdb1b2aa0c7bd8aedfacb0e584f38111073c2e2d6a03bb7b4e50aafd1f9711a5",
+    "packages/coding-agent/src/prompts/tools/find-sketch-question.md": "9651857c818c6ff04e885542b57fa48c518673ce53ff7a3caf383abb88647aca",
+    "packages/ai/src/judgment/types.ts": "5fd84ff4d3bb7060874f117f75eca7df916691f73a56d3074f6c8f2263861c50",
+    "packages/ai/src/judgment/text.ts": "da0238be4fe9db085b384c5c18ffcd04b9a9a1db8f788ad7bd462a954ea258c0",
+    "packages/ai/src/judgment/text-judge-retry.md": "37f0210a5f41fbb1bb7f8eb34e6c5ec688e7372a30cc6ae1868afe8b6d287b7a",
+    "packages/ai/src/judgment/text-judge-state.md": "15e3a83c9de6c4076358a4536b90a5e69eceb1b3348cbcb3dd7f4b053112d698",
+    "packages/ai/src/judgment/text-judge.md": "01f5be9836270ca35dbc8e859fc65035092de46aa757231f08b3f8150e3f04a1",
+    "packages/ai/src/judgment/typesafe.ts": "1bd556c91d05ff00d1a98470fec82142ef97f92dab5c5f9341ee1b80dfa782ec"
+  },
+  "results": {
+    "keywords": {
+      "terms": [
+        "jwt verify",
+        "runn",
+        "handler",
+        "\u4f60\u597d",
+        "x",
+        "123",
+        "tls"
+      ],
+      "extra_keywords_bypass_query_length_and_number_filters": true
+    },
+    "unicode_stemming": {
+      "query": "\u00e9t\u00e9s",
+      "omp_keywords": ["\u00e9t\u00e9s"],
+      "proposed_stem": "\u00e9t\u00e9",
+      "javascript_utf16_units": 3,
+      "rust_utf8_bytes": 5,
+      "rust_source_rule": "grep.rs stem accepts base.len() >= 4 bytes, so this input becomes \u00e9t\u00e9",
+      "note": "OMP function executed; Rust outcome derived from inspected source, not a compiled Rust run."
+    },
+    "eligibility": {
+      ".env": false,
+      ".env.example": true,
+      "credentials.json": false,
+      "Credentials.json": true,
+      "pnpm-lock.yaml": false,
+      "src/program.ts": true
+    },
+    "scan_scope": {
+      "indexed_paths": ["credentials.json", "src/program.ts"],
+      "note": "Native scan is doubled; source call lacks the separate eligibility filter. No credential file opened."
+    },
+    "windows_and_ranges": {
+      "zero_match_selected_lines": [1, 4, 8],
+      "merged": [
+        {
+          "start": 1,
+          "end": 4,
+          "p": 0.8,
+          "snippet": "first"
+        },
+        {
+          "start": 6,
+          "end": 6,
+          "p": 0.7,
+          "snippet": "gap"
+        }
+      ],
+      "utf8_clip": "\u00e9"
+    },
+    "lexical_cap": {
+      "listed": 151,
+      "name_judged": 128,
+      "files_read": 20,
+      "target_ever_shown_to_judge": false
+    },
+    "sketch_outage": {
+      "cards": 80,
+      "verified": 40,
+      "pruned": 40,
+      "failed_calls": 1,
+      "hit_files": 10,
+      "note": "Unknown scores become1 but the global cap still drops candidates."
+    },
+    "verification_outage": {
+      "hits": 0,
+      "requests": 3,
+      "errors": 1,
+      "all_requests_failed_condition": false,
+      "note": "runCascade exercised; tool source classifies this as useless, not all-failed error."
+    },
+    "long_line_coverage": {
+      "original_bytes": 20011,
+      "judged_line_count": 1,
+      "advertised_partial": false,
+      "tail_marker_sent": false,
+      "note": "Scripted positive verdict; line-count completeness misses byte clipping."
+    },
+    "text_answers": [
+      {
+        "reply": "yes",
+        "answer": {
+          "type": "noul",
+          "noul": 1
+        }
+      },
+      {
+        "reply": "no",
+        "answer": {
+          "type": "noul",
+          "noul": 0
+        }
+      },
+      {
+        "reply": "Not yes, actually no",
+        "answer": {
+          "type": "noul",
+          "noul": 1
+        }
+      },
+      {
+        "reply": "uncertain",
+        "parse_error": true
+      }
+    ],
+    "native_wire": [
+      {
+        "url": "https://fixture.invalid/root/v1/systemone",
+        "body": {
+          "state": {
+            "passage": "synthetic source"
+          },
+          "model": "fixture-alias",
+          "questions": {
+            "p00": {
+              "type": "noul",
+              "instructions": "Relevant?"
+            }
+          }
+        },
+        "bearer_is_fixture": true
+      },
+      {
+        "url": "https://fixture.invalid/root/decisions",
+        "body": {
+          "state": {
+            "passage": "synthetic source"
+          },
+          "model": "fixture-alias",
+          "questions": {
+            "p00": {
+              "type": "noul",
+              "instructions": "Relevant?"
+            }
+          }
+        },
+        "bearer_is_fixture": true
+      }
+    ],
+    "invalid_native_probability": {
+      "client_accepted_out_of_range": true,
+      "requests": 4,
+      "errors": 6,
+      "failure_messages": 0,
+      "all_requests_failed_condition": false
+    },
+    "native_retry": {
+      "attempts": 3,
+      "requested_delay_ms": [5000, 5000],
+      "note": "Sleep and credential resolution doubled; real elapsed timeout/auth rotation not exercised."
+    }
+  }
+}

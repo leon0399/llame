@@ -1,0 +1,20 @@
+{
+  "version": "3.0.0",
+  "query": "Explain OMP find implementation, Jev/JUDGE integration, and concrete llame applications beyond Knowledge search with pinned source and executed offline probes. Includes explicit analysis of can1357/jegrep implementation, transport policy and benchmark evidence.",
+  "mode": "deep",
+  "started_at": "2026-09-24T09:12:28.569138+00:00",
+  "finished_at": "2026-09-24T10:25:50.670586+00:00",
+  "assumptions": [],
+  "provider_config": {
+    "primary": "pinned upstream and llame source; primary judgment documentation; controlled offline probes",
+    "scholarly": null
+  },
+  "report_dir": ".",
+  "artifact_paths": {
+    "sources": "sources.jsonl",
+    "evidence": "evidence.jsonl",
+    "claims": "claims.jsonl",
+    "report": "report.md"
+  },
+  "continuation": null
+}

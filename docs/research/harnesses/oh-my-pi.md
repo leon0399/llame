@@ -154,6 +154,12 @@ sources:
   - id: llame-question-directed-read
     resource: "../tool-harness/2026-09-23-question-directed-read/report.md"
     title: "LensVLM and interchangeable question-directed reader models"
+  - id: omp-find-cascade-20260924
+    resource: "https://github.com/can1357/oh-my-pi/blob/5fccbd0deee820049afa492dc3112272b163126f/packages/coding-agent/src/tools/jfind/cascade.ts"
+    title: "Semantic find cascade"
+  - id: llame-semantic-find-judge
+    resource: "../tool-harness/2026-09-24-semantic-find-judge/report.md"
+    title: "OMP find, jegrep and general llame applications"
 ---
 
 # oh-my-pi
@@ -239,6 +245,30 @@ Borrow the bounded subcall and accounting idea, not silent cross-provider
 selection: llame needs an accepted worker/data destination and per-source
 authorization. A fresh worker context does not imply cold-loading model weights
 for each call.[^llame-question-directed-read]
+
+## Semantic find and jegrep
+
+**Scoped observation:** 2026-09-24, revision
+`5fccbd0deee820049afa492dc3112272b163126f`; the older whole-document baseline
+is unchanged.
+
+`find` is a host-controlled lexical/name/sketch/window-verification cascade,
+not an autonomous reader. The JUDGE role supplies typed candidate scores; host
+code owns candidate budgets, reads and original-source ranges. Native Jev
+probabilities and the text bridge's parsed zero/one labels have different
+semantics.[^omp-find-cascade-20260924][^llame-semantic-find-judge]
+
+The [source-level study](../tool-harness/2026-09-24-semantic-find-judge/report.md)
+also analyzes [jegrep](./jegrep.md), verifies shared default request wording,
+identifies actual implementation/transport differences, and audits the limits
+of its published benchmark. Offline probes expose shortlist omissions,
+clipped-line coverage and failure/accounting edge cases. Applications extend to
+chat evidence, code, admitted tools, skills and future Run/artifact sources;
+scores never establish authority or exhaustive coverage.[^llame-semantic-find-judge]
+
+[^omp-find-cascade-20260924]: [Semantic find cascade](https://github.com/can1357/oh-my-pi/blob/5fccbd0deee820049afa492dc3112272b163126f/packages/coding-agent/src/tools/jfind/cascade.ts)
+
+[^llame-semantic-find-judge]: [OMP find, jegrep and general llame applications](../tool-harness/2026-09-24-semantic-find-judge/report.md)
 
 [^docs-compaction-md-l27-l55]: [Session compaction entries](https://github.com/can1357/oh-my-pi/blob/7728213eef8be770a67b2b20710d705ee63fefe7/docs/compaction.md#L27-L55)
 

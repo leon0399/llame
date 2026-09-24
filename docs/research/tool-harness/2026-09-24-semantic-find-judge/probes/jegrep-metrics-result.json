@@ -1,0 +1,84 @@
+{
+  "revision": "e6d5b842e5e88e576c3fcab9e2aa25081cb643af",
+  "scorer_sha256": "353c1e47e221cfb3407763f20df1562de0fc6ffbe3af85cd306ab22dc3c7b594",
+  "scope": "Unchanged pure scorer on synthetic hits; metadata inventory and arithmetic, no benchmark rerun or inference",
+  "one_line_of_one_hundred": {
+    "file_recall": 1.0,
+    "span_recall": 1.0,
+    "line_recall": 0.01,
+    "precision": null,
+    "precision_lower_bound": 0.5,
+    "fp": 0,
+    "unjudged": 1
+  },
+  "same_hits_with_exhaustive_labels": {
+    "file_recall": 1.0,
+    "span_recall": 1.0,
+    "line_recall": 0.01,
+    "precision": 0.5,
+    "precision_lower_bound": 0.5,
+    "fp": 1,
+    "unjudged": 0
+  },
+  "fourth_range": {
+    "default_top3_span_recall": 0,
+    "top4_span_recall": 1
+  },
+  "suites": {
+    "linux": {
+      "queries": 10,
+      "negative_or_exhaustive_cases": 0,
+      "tag": {
+        "name": "linux",
+        "remote": "https://github.com/torvalds/linux.git",
+        "local": "/tmp/grep-bench-target-linux",
+        "hash": "40288c9206c17eb66a603262e06a58d300d0f279"
+      }
+    },
+    "kubernetes": {
+      "queries": 10,
+      "negative_or_exhaustive_cases": 0,
+      "tag": {
+        "name": "kubernetes",
+        "remote": "https://github.com/kubernetes/kubernetes.git",
+        "local": "/tmp/grep-bench-target-k8s",
+        "hash": "96b5e4e3ae3f8d7aa50d360cf57f01eaba61f855"
+      }
+    },
+    "cpython": {
+      "queries": 10,
+      "negative_or_exhaustive_cases": 0,
+      "tag": {
+        "name": "cpython",
+        "remote": "https://github.com/python/cpython.git",
+        "local": "/tmp/grep-bench-target-cpython",
+        "hash": "aa5407091f60a68187f3b82a4d954b03904af4d4"
+      }
+    },
+    "postgres": {
+      "queries": 10,
+      "negative_or_exhaustive_cases": 0,
+      "tag": {
+        "name": "postgres",
+        "remote": "https://github.com/postgres/postgres.git",
+        "local": "/tmp/grep-bench-target",
+        "hash": "e73841ffbceea314cf9fa3f64a5eae9f87a46449"
+      }
+    }
+  },
+  "referenced_artifacts_present": {
+    "benches/comparison-evidence.json": false,
+    "benches/cascade-evidence.json": false,
+    "benches/recommended.json": false,
+    "bench/runs": false,
+    "benches/runs": false
+  },
+  "default_omp_logical_call_upper_bound": {
+    "names": 2,
+    "sketches": 11,
+    "verification": 26,
+    "total": 39
+  },
+  "reported_jegrep_cost_reduction_percent_recomputed": "37.50183061827516992444930695",
+  "hypothetical_25000_native_input_tokens_usd_at_quoted_rate": "0.00105"
+}

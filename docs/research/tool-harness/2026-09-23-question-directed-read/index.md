@@ -31,6 +31,11 @@ Related prior art: [harness index](../../harnesses/index.md),
 and [SoL-Pi](../../harnesses/sol-pi.md). Source-selection judgments from Jev and
 generative source answers from a reader are different operations.
 
+The [semantic find/JUDGE layer](../2026-09-24-semantic-find-judge/index.md)
+examines the selection stage in detail, including jegrep's implementation and
+benchmarks. It complements this layer's generated answers with source ranking,
+typed control hints and applications beyond Knowledge.
+
 ## Reproduce the offline checks
 
 Requires Python 3.10+ and Git. From this directory:

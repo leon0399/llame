@@ -1,0 +1,38 @@
+{
+  "status": "complete",
+  "scope": "New research layer; no application changes, controlled live-model benchmark, private Knowledge query, Rust build or model download. One ordinary session find observation is separately qualified.",
+  "pins": {
+    "omp": "5fccbd0deee820049afa492dc3112272b163126f",
+    "jegrep": "e6d5b842e5e88e576c3fcab9e2aa25081cb643af",
+    "llame": "e70228485042967fd9545ad0cb133faae1be2268"
+  },
+  "executed": {
+    "omp_mechanics": "Passed13offline result groups using unchanged pinned TypeScript with explicit doubles",
+    "jegrep_metrics": "Passed unchanged pure scorer,40-case metadata inventory,39-logical-call bound and reported-cost arithmetic"
+  },
+  "claims": {
+    "sources": 39,
+    "evidence": 42,
+    "claims": 266,
+    "superseded_evidence": 1,
+    "unlinked": 0
+  },
+  "checks": {
+    "markdown": "pnpm lint:markdown passed on final wording:520files,zeroissues",
+    "format": "Repository pnpm format:check passed; final owned-file Prettier check and git diff --check -- docs/research passed",
+    "okf": "Research bundle and harness bundle passed bundled v0.2 validator using its unchanged LF-normalized copy",
+    "schemas": "Final source/evidence/claim/manifest Ajv schemas, parsed YAML and source/footnote joins passed",
+    "report_structure": "Legacy validator passed on external numeric-citation projection; optional counterevidence/table headings replaced by report sections and ledgers",
+    "claim_fidelity": "All current claims occur in canonical report after Markdown normalization that preserves inline code; source/evidence joins and superseded exclusion passed",
+    "links": {
+      "relative_targets_checked": 139,
+      "broken": 0
+    },
+    "wip": "All pre-existing tool prompt and ROADMAP SHA256 values unchanged",
+    "scope": "No workstation paths in bundle; no implementation, commits, pushes, PR edits or CI monitoring"
+  },
+  "report_revision": "v2",
+  "review": "Two independent reviewers in each of two rounds; no material findings in final round, with one proposed-baseline wording clarification.",
+  "completed_at": "2026-09-24T10:25:50.670586+00:00",
+  "review_budget": "1963 authored added-plus-deleted lines for this layer, including all ledgers/probes; previous uncommitted research excluded. No publication performed."
+}

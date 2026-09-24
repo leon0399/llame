@@ -1,0 +1,104 @@
+{
+  "source_claim_dispositions": [
+    {
+      "claim": "Scouts claimed OMP auto enablement ignores credential configuration.",
+      "disposition": "Rejected. roleCandidatePool calls registry.getAvailable; source2565-2621 filters disabled providers and configured auth/keyless availability. It does not validate a live credential or account balance.",
+      "id": "SC1"
+    },
+    {
+      "claim": "Scouts claimed different Rust/TypeScript builders prove default request wording/framing differs.",
+      "disposition": "Rejected. Inspected default Lean filename, sketch and compact passage wording/state fields match. Retain verified differences: Unicode stem length, runtime/scanner, configurable knobs and transport/fallback; no benchmark transfer proved.",
+      "id": "SC2"
+    },
+    {
+      "claim": "Scouts described9.9%and10.9%CPython line recall as an unexplained discrepancy.",
+      "disposition": "Qualified. RESULTS labels9.9%as development full run and10.9%as final parent run; present as different observations, neither reproduced.",
+      "id": "SC3"
+    },
+    {
+      "claim": "A host-code finder must wait for a full Workspace product.",
+      "disposition": "Qualified. Existing explicit native host authority can support a separately specified operator-host experiment; it must not be advertised as owner-isolated Workspace access, and a Project grants no filesystem scope.",
+      "id": "SC4"
+    }
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "reviewers": ["FindSourceReview", "FindReferenceReview"],
+      "revision": "v1 to v2",
+      "accepted": [
+        {
+          "id": "SR1",
+          "finding": "Correct sketch selection: lines are ranked by keyword weight, not filtered to keyword-bearing ones",
+          "disposition": "Verified against pinned source; corrected report or evidence and synchronized below."
+        },
+        {
+          "id": "SR2",
+          "finding": "Document that failed filename judgments rank as 0, the opposite of the sketch-phase unknown policy",
+          "disposition": "Verified against pinned source; corrected report or evidence and synchronized below."
+        },
+        {
+          "id": "SR3",
+          "finding": "State the actual impact of ineligible grep matches instead of implying OMP only suppresses final hits",
+          "disposition": "Verified against pinned source; corrected report or evidence and synchronized below."
+        },
+        {
+          "id": "SR4",
+          "finding": "Fix E3 drift claim: verification judges the same in-memory read, not a re-read",
+          "disposition": "Verified against pinned source; corrected report or evidence and synchronized below."
+        },
+        {
+          "id": "SR5",
+          "finding": "Cite a source that supports the native \"parallel question evaluation\" contrast",
+          "disposition": "Verified against pinned source; corrected report or evidence and synchronized below."
+        },
+        {
+          "id": "SR6",
+          "finding": "Qualify U15: llame has no tool-discovery path to preserve",
+          "disposition": "Verified against pinned source; corrected report or evidence and synchronized below."
+        },
+        {
+          "id": "SR7",
+          "finding": "Correct jegrep question-chunking row: two in flight, not two per call",
+          "disposition": "Verified against pinned source; corrected report or evidence and synchronized below."
+        },
+        {
+          "id": "SR8",
+          "finding": "Fix ledger: line recall also counts only the top three ranges",
+          "disposition": "Verified against pinned source; corrected report or evidence and synchronized below."
+        },
+        {
+          "id": "SR9",
+          "finding": "Add the new jegrep reference to the ranked harness index",
+          "disposition": "Verified against pinned source; corrected report or evidence and synchronized below."
+        }
+      ],
+      "qualifications": [
+        "Native parallel evaluation is directly stated in the already-cited current models.md; appended the exact supporting sentence rather than inventing a new source.",
+        "In-memory reuse and ineligible-path non-egress clarify ambiguous v1 wording; no new provider exfiltration or file-mutation exploit is claimed.",
+        "Both line and region metrics are top-three-output metrics, not total source read/verification coverage."
+      ]
+    },
+    {
+      "round": 2,
+      "reviewers": ["FindSourceFinal", "FindReferenceFinal"],
+      "revision": "v2",
+      "result": "Both judged the report correct; no material findings. One wording nit clarified explicit-name tool selection as a proposed baseline, not a shipped selector.",
+      "residual": "Per-file three-range limit describes text output; details retain all merged ranges. Passage source itself supports inclusion of keyword-free lines.",
+      "verification": "Prior substantive findings resolved; final ledger synchronized after the wording clarification."
+    }
+  ],
+  "superseded_evidence_ids": ["8e11258d42f908a6"],
+  "supersession_reason": "Clarify that annotated-line recall uses the same default top-three output ranges as region recall; it is not total read/verified source coverage.",
+  "claim_signal_review": {
+    "method": "Lexical scores are heuristics, not truth verification; no human verification claimed.",
+    "disposition": "Flagged arithmetic/caps and source mechanics checked against pinned functions and executed outputs; benchmark figures checked against RESULTS/scorer; recommendations remain proposed.",
+    "extraction": "Inline code protected before sentence extraction so Markdown stripping cannot remove multiplication operators from formulas.",
+    "heuristic_counts": {
+      "supported": 102,
+      "partial": 143,
+      "needs_review": 21
+    },
+    "factual_unsupported": 0
+  }
+}

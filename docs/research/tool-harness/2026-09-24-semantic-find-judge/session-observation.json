@@ -1,0 +1,30 @@
+{
+  "observed_at": "2026-09-24T09:16:52.844367+00:00",
+  "scope": "apps/api/src",
+  "purpose": "ordinary repository exploration during this research, not a controlled relevance benchmark",
+  "query": "Where are live Knowledge search, conversation search, tool discovery or tool capability filtering, and native file-read permission admission implemented? Locate existing retrieval candidate selection and owner-isolation boundaries for a read-only relevance ranking layer.",
+  "extra_keywords": [
+    "knowledge_search",
+    "search_conversations",
+    "tools",
+    "permissions"
+  ],
+  "reported": {
+    "listed": 729,
+    "judged": 128,
+    "files_read": 20,
+    "bytes_display": "295.2KB",
+    "requests": 26,
+    "input_tokens_display": "25K",
+    "cost_usd": 0.2585,
+    "wall_seconds": 10.0,
+    "summed_api_seconds": 35.3,
+    "hits": 5
+  },
+  "limitations": [
+    "Resolved judge model, endpoint and exact runtime revision not exposed by this tool output.",
+    "Reported cost is a tool statistic, not independently verified billing.",
+    "No ground-truth relevance set or repeat runs; do not attribute latency, cost or calibration to Jev.",
+    "No private Knowledge corpus or credential target was queried."
+  ]
+}
