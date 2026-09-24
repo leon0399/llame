@@ -50,7 +50,7 @@ pnpm lint:dead-code
 pnpm lint:duplicates
 pnpm lint:complexity
 pnpm test
-pnpm test:metrics
+pnpm test:scripts
 pnpm test:coverage
 pnpm test:mutation
 ```

@@ -23,19 +23,15 @@ pre-commit:
 
     - name: complexity lint
       glob: "{scripts/quality-metrics.mjs,scripts/quality-metrics.test.mjs}"
-      run: pnpm lint:complexity && pnpm test:metrics
+      run: pnpm lint:complexity
 
     - name: lint plugin
       glob: "packages/oxlint-plugin-anti-slop/**/*.{ts,mjs,json}"
       run: pnpm --filter @workspace/oxlint-plugin-anti-slop typecheck && pnpm --filter @workspace/oxlint-plugin-anti-slop test
 
-    - name: mutation tooling
-      glob: "scripts/mutation-*.mjs"
-      run: pnpm test:mutation:tooling
-
-    - name: changelog merge driver
-      glob: "scripts/merge-changelog*.mjs"
-      run: pnpm test:changelog-merge
+    - name: script tests
+      glob: "scripts/*.mjs"
+      run: pnpm test:scripts
 
     - name: markdown lint
       glob: "{**/*.md,.markdownlint-cli2.jsonc}"

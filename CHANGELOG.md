@@ -11,7 +11,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   same entry, falls back to git's text merge and still conflicts. `pnpm install`
   registers the driver; a clone that has not run it merges as before. GitHub's
   own merge ignores the driver, so a pull request can still show as conflicting
-  there until it is rebased locally.
+  there until it is rebased locally. The root script tests now run as one
+  command, `pnpm test:scripts`, replacing `test:metrics` and
+  `test:mutation:tooling`.
 
 # 2026-09-24
 
