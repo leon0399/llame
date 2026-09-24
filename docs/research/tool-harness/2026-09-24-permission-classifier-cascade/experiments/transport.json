@@ -1,0 +1,55 @@
+{
+  "observed_date": "2026-09-24",
+  "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+  "model": "typesafe-ai/jev",
+  "underlying_model_revision": "not returned",
+  "primary_matrix": {
+    "logical_requests": 95,
+    "successful_results": 95,
+    "http_attempts": 100,
+    "capacity_429": 5,
+    "initial_concurrency": 4,
+    "final_concurrency": 1,
+    "final_pause_ms": 2000,
+    "capacity_pause_ms": 15000,
+    "automatic_retries": false,
+    "explicit_resumptions": true,
+    "model_or_provider_fallback": false
+  },
+  "zdr_setup": {
+    "attempts": 95,
+    "http_status": 403,
+    "reason": "ZDR requires a Pro or Enterprise Gateway plan; the inspected account response named Hobby.",
+    "inference_usage_returned": false,
+    "billing_cost_returned": false,
+    "resolution": "Removed ZDR only for these synthetic fixtures, after explicitly reporting the privacy change. No production or private payload was sent."
+  },
+  "diagnostic": {
+    "requests": 12,
+    "successful": 12,
+    "input_tokens": 12176,
+    "reported_cost_usd": 0.0,
+    "reported_market_cost_usd": 0.000511392,
+    "purpose": "Post-hoc question-rubric sensitivity, not held-out evaluation."
+  },
+  "smoke": {
+    "requests": 1,
+    "http_status": 200,
+    "elapsed_ms": 1278,
+    "input_tokens": 321,
+    "reported_cost_usd": 0,
+    "reported_market_cost_usd": 1.3482e-5
+  },
+  "all_observed_http_attempts": 305,
+  "billing_qualification": "Response metadata, not a reconciled invoice. Failed requests returned no cost; missing cost is not represented as zero.",
+  "execution_qualification": "No classified shell command or script was executed. No Claude/Codex classifier or stronger fallback model was benchmarked.",
+  "follow_on": {
+    "permission_prompt_comparisons": 16,
+    "broader_application_cases": 80,
+    "broader_application_http_attempts": 81,
+    "broader_application_capacity_failures": 1,
+    "broader_application_input_tokens": 55389,
+    "broader_application_reported_cost_usd": 0,
+    "broader_application_reported_market_cost_usd": 0.002326338
+  }
+}
