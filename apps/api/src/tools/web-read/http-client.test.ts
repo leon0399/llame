@@ -1,13 +1,43 @@
+import { createServer, type Server } from 'node:http';
 import { getEventListeners } from 'node:events';
+import { type Socket } from 'node:net';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isString } from '@workspace/runtime-safety';
+import {
+  Agent,
+  Headers,
+  Request,
+  Response,
+  fetch as undiciFetch,
+} from 'undici';
+import type { RequestInfo, RequestInit, ResponseInit } from 'undici';
+
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 
 import { compileToolPermissionMap } from '../permissions/compile-permissions';
-import { REJECTED_HOP_MESSAGE } from '../permissions/messages';
+import {
+  REJECTED_ADDRESS_MESSAGE,
+  REJECTED_HOP_MESSAGE,
+} from '../permissions/messages';
 import { type PermissionDecision } from '../permissions/types';
-import { createDerivedAdmission, type AdmitDerivedLocator } from './admission';
+import {
+  createDerivedAdmission,
+  type AdmitAddress,
+  type AdmitDerivedLocator,
+} from './admission';
+import { pinnedLookup } from './connection';
 import { createWebFetchSession } from './http-client';
 import type {
+  ResolveHost,
+  ResolvedAddress,
   WebFetchFailure,
   WebFetchOptions,
   WebResponse,
@@ -17,13 +47,28 @@ const URL_ = 'https://docs.example.test/guides/adapter-pipelines.html';
 const USER_AGENT = 'llame/1.2.3';
 const CAP_BYTES = 5 * 1024 * 1024;
 
-/** The transport and admission a test binds. `admit` defaults to the
- *  fail-closed refusal, so a test that redirects without meaning to gets a
- *  refusal rather than a request to the target. */
+/** The transport and admission a test binds. */
 type TestDeps = {
-  readonly fetch: typeof globalThis.fetch;
+  readonly fetch: typeof undiciFetch;
   readonly admit?: AdmitDerivedLocator;
+  readonly admitAddress?: AdmitAddress;
+  readonly resolve?: ResolveHost;
 };
+
+type PinnedLookupResult = {
+  readonly error: NodeJS.ErrnoException | null;
+  readonly address:
+    | string
+    | ReadonlyArray<{ readonly address: string; readonly family: number }>;
+  readonly family?: number;
+};
+
+const TEST_ADDRESSES: ReadonlyArray<ResolvedAddress> = [
+  { address: '93.184.216.34', family: 4 },
+];
+
+const admitEveryAddress: AdmitAddress = () => true;
+const resolveExampleHost: ResolveHost = () => Promise.resolve(TEST_ADDRESSES);
 
 const ALLOW: PermissionDecision = {
   policyId: 'test-policy',
@@ -53,13 +98,43 @@ async function fetchOne(
 ): Promise<WebResponse | WebFetchFailure> {
   const session = createWebFetchSession(
     { userAgent: USER_AGENT, ...options },
-    { fetch: deps.fetch, admit: deps.admit ?? refuseEveryHop },
+    {
+      fetch: deps.fetch,
+      admit: deps.admit ?? refuseEveryHop,
+      admitAddress: deps.admitAddress ?? admitEveryAddress,
+      resolve: deps.resolve ?? resolveExampleHost,
+    },
   );
   try {
     return await session.fetch(url);
   } finally {
     session.dispose();
   }
+}
+
+async function listenLoopback(server: Server): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    const fail = (error: Error) => reject(error);
+    server.once('error', fail);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', fail);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (address === null || isString(address)) {
+    throw new Error('The loopback server did not bind a TCP port.');
+  }
+  return address.port;
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
 }
 
 /** The request's own abort signal: the client always sends one, and it is the
@@ -251,7 +326,7 @@ describe('web fetch client', () => {
 
     const result = await fetchOne(deps);
 
-    const { signal, ...request } = seen ?? {};
+    const { signal, dispatcher, ...request } = seen ?? {};
     expect(requested).toBe(URL_);
     expect(request).toStrictEqual({
       method: 'GET',
@@ -263,6 +338,7 @@ describe('web fetch client', () => {
       },
     });
     expect(signal).toBeInstanceOf(AbortSignal);
+    expect(dispatcher).toBeInstanceOf(Agent);
     expect(result).toStrictEqual({
       finalUrl: URL_,
       contentType: 'text/markdown',
@@ -1217,7 +1293,12 @@ describe('web fetch redirects', () => {
     );
     const session = createWebFetchSession(
       { userAgent: USER_AGENT },
-      { fetch: deps.fetch, admit: deps.admit },
+      {
+        fetch: deps.fetch,
+        admit: deps.admit,
+        admitAddress: admitEveryAddress,
+        resolve: resolveExampleHost,
+      },
     );
     try {
       // The first locator spends the whole 20-hop budget.
@@ -1436,5 +1517,326 @@ describe('web fetch redirects', () => {
     expect(admitted).toEqual(['https://example.test/guide']);
     expect(requested[1]).toBe('https://example.test/guide');
     expect(response).toMatchObject({ finalUrl: 'https://example.test/guide' });
+  });
+});
+
+describe('web fetch address admission', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('resolves one hostname once across redirects and later fetches in a session', async () => {
+    const start = 'https://docs.example.test/page';
+    const requested: Array<string> = [];
+    const resolved: Array<string> = [];
+    const dispatchers: Array<RequestInit['dispatcher']> = [];
+    const fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      requested.push(url);
+      dispatchers.push(init?.dispatcher);
+      return Promise.resolve(
+        requested.length === 1
+          ? redirectResponse(302, '/next')
+          : textResponse('page', 'text/plain'),
+      );
+    };
+    const session = createWebFetchSession(
+      { userAgent: USER_AGENT },
+      {
+        fetch,
+        admit: () => ALLOW,
+        admitAddress: admitEveryAddress,
+        resolve: (hostname) => {
+          resolved.push(hostname);
+          return Promise.resolve(TEST_ADDRESSES);
+        },
+      },
+    );
+    try {
+      expect(await session.fetch(start)).toHaveProperty('body', 'page');
+      expect(await session.fetch(`${start}/other`)).toHaveProperty(
+        'body',
+        'page',
+      );
+      expect(requested).toEqual([
+        start,
+        'https://docs.example.test/next',
+        `${start}/other`,
+      ]);
+      expect(resolved).toEqual(['docs.example.test']);
+      expect(dispatchers).toHaveLength(3);
+      expect(dispatchers.every((agent) => agent instanceof Agent)).toBe(true);
+      expect(new Set(dispatchers).size).toBe(3);
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it('includes DNS resolution in the request header bound', async () => {
+    vi.useFakeTimers();
+    const promise = new Promise<ReadonlyArray<ResolvedAddress>>(() => {
+      // The header deadline, not the resolver, settles this request.
+    });
+    const fetch = vi.fn(() =>
+      Promise.resolve(textResponse('unreachable', 'text/plain')),
+    );
+    const pending = fetchOne({
+      fetch,
+      resolve: () => promise,
+    });
+    const settled = vi.fn();
+    void pending.then(settled);
+
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(settled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await pending).toMatchObject({ type: 'headers_timeout' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('maps resolver errors to a fixed message without the hostname', async () => {
+    const fetch = vi.fn(() =>
+      Promise.resolve(textResponse('unreachable', 'text/plain')),
+    );
+    const result = await fetchOne({
+      fetch,
+      resolve: (hostname) =>
+        Promise.reject(new Error(`getaddrinfo ENOTFOUND ${hostname}`)),
+    });
+
+    expect(result).toStrictEqual({
+      type: 'network_error',
+      message: 'The host could not be resolved.',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('docs.example.test');
+  });
+
+  it('reports an empty resolver answer as unresolved, not refused', async () => {
+    const fetch = vi.fn(() =>
+      Promise.resolve(textResponse('unreachable', 'text/plain')),
+    );
+    const result = await fetchOne({
+      fetch,
+      resolve: () => Promise.resolve([]),
+    });
+
+    expect(result).toStrictEqual({
+      type: 'network_error',
+      message: 'The host could not be resolved.',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('returns a fixed permission error when every address of the submitted URL is refused', async () => {
+    const fetch = vi.fn(() =>
+      Promise.resolve(textResponse('unreachable', 'text/plain')),
+    );
+    const judged: Array<[string, string]> = [];
+    const result = await fetchOne({
+      fetch,
+      admitAddress: (address, locator) => {
+        judged.push([address, locator]);
+        return false;
+      },
+    });
+
+    expect(result).toStrictEqual({
+      type: 'permission_denied',
+      message:
+        'Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.',
+    });
+    expect(judged).toEqual([
+      ['93.184.216.34', 'https://93.184.216.34/guides/adapter-pipelines.html'],
+    ]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('reports a refused address on a redirect with only the hop hostname and path', async () => {
+    const hop = 'https://redirect.example.test/private?token=secret';
+    const seen: Array<string> = [];
+    const fetch = (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+      seen.push(url);
+      return Promise.resolve(
+        seen.length === 1
+          ? redirectResponse(302, hop)
+          : textResponse('unreachable', 'text/plain'),
+      );
+    };
+    const result = await fetchOne({
+      fetch,
+      admit: () => ALLOW,
+      admitAddress: (_address, locator) => !locator.includes('/private?'),
+    });
+
+    expect(result).toStrictEqual({
+      type: 'permission_denied',
+      message: REJECTED_ADDRESS_MESSAGE,
+      rejectedUrl: 'https://redirect.example.test/private',
+    });
+    expect(seen).toEqual([URL_]);
+    expect(JSON.stringify(result)).not.toContain('93.184.216.34');
+  });
+
+  it('fetches with a per-request dispatcher after dropping refused addresses', async () => {
+    const accepted: ResolvedAddress = {
+      address: '93.184.216.34',
+      family: 4,
+    };
+    const refused: ResolvedAddress = { address: '10.0.0.5', family: 4 };
+    const decisions: Array<[string, string]> = [];
+    let dispatcher: RequestInit['dispatcher'];
+    const fetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      dispatcher = init?.dispatcher;
+      return Promise.resolve(textResponse('page', 'text/plain'));
+    });
+    const result = await fetchOne({
+      fetch,
+      resolve: () => Promise.resolve([refused, accepted]),
+      admitAddress: (address, locator) => {
+        decisions.push([address, locator]);
+        return address === accepted.address;
+      },
+    });
+
+    expect(result).toHaveProperty('body', 'page');
+    expect(decisions).toEqual([
+      ['10.0.0.5', 'https://10.0.0.5/guides/adapter-pipelines.html'],
+      ['93.184.216.34', 'https://93.184.216.34/guides/adapter-pipelines.html'],
+    ]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(dispatcher).toBeInstanceOf(Agent);
+  });
+
+  it('pins lookup results to admitted addresses for both lookup shapes', () => {
+    const admitted: ResolvedAddress = {
+      address: '93.184.216.34',
+      family: 4,
+    };
+    const lookup = pinnedLookup('docs.example.test', [admitted]);
+    const allResults: Array<PinnedLookupResult> = [];
+    lookup('docs.example.test', { all: true }, (error, address, family) => {
+      allResults.push({ error, address, family });
+    });
+    const singleResults: Array<PinnedLookupResult> = [];
+    lookup('docs.example.test', {}, (error, address, family) => {
+      singleResults.push({ error, address, family });
+    });
+    const failures: Array<NodeJS.ErrnoException | null> = [];
+    lookup('other.example.test', { all: true }, (error) => {
+      failures.push(error);
+    });
+
+    expect(allResults).toEqual([
+      { error: null, address: [{ address: admitted.address, family: 4 }] },
+    ]);
+    expect(singleResults).toEqual([
+      { error: null, address: admitted.address, family: 4 },
+    ]);
+    expect(failures[0]).toMatchObject({ code: 'ENOTFOUND' });
+    expect(failures[0]?.message).not.toContain('other.example.test');
+  });
+
+  it('judges an IPv4-mapped literal as dotted IPv4 without resolving it', async () => {
+    const literal = 'https://[::ffff:169.254.169.254]/latest';
+    const resolve = vi.fn<ResolveHost>();
+    const fetch = vi.fn(() =>
+      Promise.resolve(textResponse('unreachable', 'text/plain')),
+    );
+    const judged: Array<[string, string]> = [];
+    const result = await fetchOne(
+      {
+        fetch,
+        resolve,
+        admitAddress: (address, locator) => {
+          judged.push([address, locator]);
+          return false;
+        },
+      },
+      {},
+      literal,
+    );
+
+    expect(result).toHaveProperty('type', 'permission_denied');
+    expect(judged).toEqual([
+      ['169.254.169.254', 'https://169.254.169.254/latest'],
+    ]);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not expose the address or locator after a real transport refusal', async () => {
+    const closedServer = createServer();
+    const port = await listenLoopback(closedServer);
+    await closeServer(closedServer);
+    const result = await fetchOne(
+      {
+        fetch: undiciFetch,
+        resolve: () => Promise.resolve([{ address: '127.0.0.1', family: 4 }]),
+      },
+      {},
+      `http://closed.test:${port}/`,
+    );
+
+    expect(result).toHaveProperty('type', 'network_error');
+    if (!('message' in result))
+      throw new Error('Expected a transport failure.');
+    for (const secret of ['127.0.0.1', String(port), 'closed.test']) {
+      expect(result.message).not.toContain(secret);
+      expect(JSON.stringify(result)).not.toContain(secret);
+    }
+  });
+});
+
+describe('web fetch real pinned transport', () => {
+  let server: Server;
+  let port: number;
+  const acceptedSockets: Array<Socket> = [];
+
+  beforeAll(async () => {
+    server = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'text/plain' });
+      response.end('pinned page');
+    });
+    server.on('connection', (socket) => acceptedSockets.push(socket));
+    port = await listenLoopback(server);
+  });
+
+  afterAll(async () => {
+    for (const socket of acceptedSockets) socket.destroy();
+    await closeServer(server);
+  });
+
+  it('uses the pinned lookup for a hostname that does not resolve', async () => {
+    const acceptedBefore = acceptedSockets.length;
+    const result = await fetchOne(
+      {
+        fetch: undiciFetch,
+        resolve: () => Promise.resolve([{ address: '127.0.0.1', family: 4 }]),
+      },
+      {},
+      `http://pinned.test:${port}/page`,
+    );
+
+    expect(result).toHaveProperty('body', 'pinned page');
+    expect(acceptedSockets.length - acceptedBefore).toBe(1);
+  });
+
+  it('refuses the resolved address before opening a socket', async () => {
+    const acceptedBefore = acceptedSockets.length;
+    const result = await fetchOne(
+      {
+        fetch: undiciFetch,
+        resolve: () => Promise.resolve([{ address: '127.0.0.1', family: 4 }]),
+        admitAddress: () => false,
+      },
+      {},
+      `http://pinned.test:${port}/page`,
+    );
+
+    expect(result).toHaveProperty('type', 'permission_denied');
+    expect(acceptedSockets.length - acceptedBefore).toBe(0);
   });
 });

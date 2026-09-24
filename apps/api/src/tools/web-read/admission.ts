@@ -4,12 +4,17 @@ import { type PermissionDecision } from '../permissions/types';
 import { type ToolContext } from '../types';
 
 /**
- * The four locators a web read derives rather than receives: a redirect hop,
- * an announced Markdown alternate, a `.md` suffix candidate, and an `llms.txt`
- * candidate. Each is chosen by a server, never by the model, so each is
- * admitted on its own before its request (design D3).
+ * The locator kinds a web read evaluates beyond the submitted locator:
+ * redirect hops, announced alternates, `.md` suffixes, `llms.txt` candidates,
+ * and resolved addresses. Server-chosen locators are admitted independently
+ * before their request (design D3).
  */
-export type DerivedLocatorKind = 'hop' | 'alternate' | 'suffix' | 'llms-txt';
+export type DerivedLocatorKind =
+  | 'hop'
+  | 'alternate'
+  | 'suffix'
+  | 'llms-txt'
+  | 'address';
 
 /** One derived locator's admission, handed to the trusted run loop beside the
  *  call decision; never model-visible. */
@@ -23,7 +28,8 @@ export type DerivedDecision = {
  * A {@link DerivedDecision} as run execution records it beside the call
  * decision: the decision plus the kind of locator it judged, so stored
  * provenance tells a refused hop from a refused `llms.txt` candidate. The
- * locator itself is never recorded — a hop's is server-chosen text.
+ * locator itself is never recorded — a hop or address locator is
+ * server-chosen text.
  */
 export type DerivedDecisionRecord = PermissionDecision & {
   readonly kind: DerivedLocatorKind;
@@ -36,6 +42,7 @@ const KIND_NAMES: Readonly<Record<DerivedLocatorKind, true>> = {
   alternate: true,
   suffix: true,
   'llms-txt': true,
+  address: true,
 };
 
 /** Whether a stored provenance record names a kind this build knows: stored
@@ -46,11 +53,72 @@ export function isDerivedLocatorKind(
   return typeof value === 'string' && Object.hasOwn(KIND_NAMES, value);
 }
 
-/** Evaluates the `read` group against a derived locator exactly as a submitted one. */
+/**
+ * Evaluates the read policy against a raw locator before applying its
+ * `read` projection.
+ */
 export type AdmitDerivedLocator = (
   kind: DerivedLocatorKind,
   url: string,
 ) => PermissionDecision;
+
+/** Judges a canonical address against the full address locator for its request. */
+export type AdmitAddress = (address: string, locator: string) => boolean;
+
+/**
+ * Builds one call's reject-only address admission check. A raw-text rejection
+ * gets the same precedence as for a submitted call, then the read projection
+ * is evaluated. Allows are not evaluated as address permissions: a domain
+ * allowlist names the requested host, not the public addresses it resolves to
+ * (design D3). A missing compiled policy cannot attribute an address decision
+ * and therefore fails closed without reporting one.
+ */
+export function createAddressAdmission(context: ToolContext): AdmitAddress {
+  const policy = context.permissionPolicy;
+  const projectFieldValue = nativeFileProjection('read');
+  const report = context.onDerivedDecision;
+  const reportedRefusals = new Set<string>();
+
+  return (address, locator) => {
+    if (policy === undefined) return false;
+
+    const decision = evaluateLocatorPermission(
+      policy,
+      locator,
+      projectFieldValue,
+    );
+    const refused =
+      decision.decision === 'reject' &&
+      (decision.reason === 'explicit_reject' ||
+        decision.reason === 'input_limit');
+    if (!refused) return true;
+
+    const key = JSON.stringify([address, decision.reason, decision.reference]);
+    if (!reportedRefusals.has(key)) {
+      reportedRefusals.add(key);
+      report?.({ kind: 'address', url: locator, decision });
+    }
+
+    return false;
+  };
+}
+
+/**
+ * Mirrors submitted-call precedence: a raw reject other than `no_allow`
+ * stands; otherwise the projected locator determines the result.
+ */
+function evaluateLocatorPermission(
+  policy: NonNullable<ToolContext['permissionPolicy']>,
+  locator: string,
+  projectFieldValue: (field: string, value: string) => string,
+): PermissionDecision {
+  const options = { toolId: 'read', args: { path: locator } };
+  const submitted = evaluatePermission(policy, options);
+  if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
+    return submitted;
+  }
+  return evaluatePermission(policy, { ...options, projectFieldValue });
+}
 
 /**
  * The fail-closed decision for a context with no compiled policy — a code
@@ -66,13 +134,11 @@ const NO_POLICY: PermissionDecision = {
 };
 
 /**
- * Builds one call's admission check for its derived locators. Each locator is
- * evaluated through the same evaluator and the same `read` projection the
- * submitted call used, as if the model had submitted it, so an operator's
- * `path` clauses govern a server-chosen hop exactly as they govern the text
- * the model wrote. Nothing is cached and no decision carries to the next
- * locator: a page that is admitted at one URL cannot launder another through
- * it.
+ * Builds one call's admission check for its derived locators. Each locator
+ * first gets the same as-written rejection check as a submitted call, then
+ * the `read` projection decides whenever that check is allow or `no_allow`.
+ * Nothing is cached and no decision carries to the next locator: a page that
+ * is admitted at one URL cannot launder another through it.
  */
 export function createDerivedAdmission(
   context: ToolContext,
@@ -84,11 +150,7 @@ export function createDerivedAdmission(
     const decision =
       policy === undefined
         ? NO_POLICY
-        : evaluatePermission(policy, {
-            toolId: 'read',
-            args: { path: url },
-            projectFieldValue,
-          });
+        : evaluateLocatorPermission(policy, url, projectFieldValue);
     report?.({ kind, url, decision });
     return decision;
   };

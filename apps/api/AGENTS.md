@@ -25,13 +25,14 @@ capability, and allowlisted alpha host `bash` under the same
 fencing. Native `read` also fetches an absolute `http://` or `https://` locator
 through the API process's own outbound HTTP, so `read` is advertised whenever
 `tools.allowed` names it and a web locator binds no executor identity. Every
-derived locator — a redirect hop, an announced alternate, a suffix candidate, an
-`llms.txt` candidate — is admitted through the `read` permission group before
-its request, with each decision recorded beside the call decision and never
-through the model-visible result. Those requests carry
-`User-Agent: llame/<version>`, are never retried, and stay inside the
-10 s header, 30 s call, 5 MiB body, and 20-redirect bounds. Do not restore
-removed policy or env toggles.
+derived locator — a redirect hop, an announced alternate, a suffix candidate,
+or an `llms.txt` candidate — is admitted through the `read` permission group
+before its request. Every resolved address is also judged against the `read`
+group's rejects, and each request is pinned to an admitted address. Those
+decisions are recorded beside the call decision and never through the
+model-visible result. Requests carry `User-Agent: llame/<version>`, are never
+retried, and stay inside the 10 s header, 30 s call, 5 MiB body, and
+20-redirect bounds. Do not restore removed policy or env toggles.
 
 ## Commands
 

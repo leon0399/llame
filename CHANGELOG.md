@@ -2,6 +2,34 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-23
 
+- Web reads now judge resolved addresses under the `read` group's rejects and
+  pin each request to an admitted address (#914). Each non-literal host gets
+  one system-resolver answer per call; an IP literal is its own address.
+  Refused addresses are skipped, admitted addresses are raced through a
+  per-request dispatcher, and connections are never reused. The decision is
+  reject-only for an address locator, with refusals recorded privately as kind
+  `address` and no address text. If every address is refused, the call returns
+  `permission_denied` with the fixed refused-address message; HTTP/2 stays off
+  for web reads (#944).
+
+- Web URL path and query escapes now normalize to a fixed point: a stray `%`
+  becomes `%25`, unreserved escapes decode, and remaining escapes stay encoded
+  with uppercase hex. Permission clauses written only against an encoded
+  unreserved spelling such as `%7Euser` must be rewritten using the decoded
+  spelling.
+
+- The recommended cleartext reject changes from F5 (`^http://`) to F5a-F5f,
+  and a new F7 rejects the known metadata and credential endpoints on both
+  schemes. Add F7 whichever cleartext rows you keep: `^http://` covers only
+  `http://`, so without F7 an `https://` metadata read is admitted. F5a-F5f
+  widen cleartext reads to any hostname resolving into an internal range,
+  including an attacker's zone or a spoofed DNS answer; keep `^http://` to
+  refuse all cleartext reads instead. Neither set refuses `https://` to an
+  internal address. Upgrade and restart every API and Run worker process to
+  this build before replacing `^http://` with F5a-F5f; older binaries do not
+  evaluate address locators. On rollback, restore `^http://` before any older
+  binary handles calls.
+
 - A Chat Completions stream failure no longer quotes the response (#908).
   A stream event the adapter cannot parse, or whose `error` value carries no
   message, fails the run with one fixed text instead of the SDK's parse error,

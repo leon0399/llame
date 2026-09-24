@@ -43,7 +43,7 @@ export type WebPipelineDeps = {
 };
 
 /** The kinds the pipeline derives itself; a hop is the hop loop's. */
-type ProbeKind = Exclude<DerivedLocatorKind, 'hop'>;
+type ProbeKind = Exclude<DerivedLocatorKind, 'hop' | 'address'>;
 
 /** The `method` a winning probe reports, which names the adapter that won. */
 const PROBE_METHODS: Record<ProbeKind, WebRenderMethod> = {

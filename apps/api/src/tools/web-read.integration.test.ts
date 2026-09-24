@@ -5,13 +5,22 @@ import {
   type Server,
   type ServerResponse,
 } from 'node:http';
+import { type Socket } from 'node:net';
 
 import { isString } from '@workspace/runtime-safety';
 
+import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { nativeReadTool } from './native-files';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
+import { REJECTED_ADDRESS_MESSAGE } from './permissions/messages';
 import { type CompiledPolicy } from './permissions/types';
 import { type ToolContext, type ToolResult } from './types';
+import {
+  createWebReadExecutor,
+  realWebReadDeps,
+  type WebReadExecutor,
+} from './web-read/execute';
+import { type ResolvedAddress, type ResolveHost } from './web-read/http-client';
 
 /** The instance identity a web read sends, asserted on the fixture's side. */
 const USER_AGENT = 'llame/0.0.0-test';
@@ -22,6 +31,7 @@ const MOVED_BODY = '# Moved\n\nServed at the redirect target.\n';
 const PLAIN_BODY = 'Adapter pipelines\n\nServed as plain text for agents.\n';
 const JSON_BODY = '{"adapter":"markdown","requests":1}';
 const NOT_FOUND_BODY = 'The fixture has no such page.';
+const ADDRESS_BODY = '# Address fixture\n\nServed from an admitted address.\n';
 const RATE_LIMIT_BODY = 'Too many requests for this fixture.';
 const PDF_BODY = '%PDF-1.7\n% fixture body\n';
 const REDIRECT_LOCATION = '/moved-target';
@@ -71,6 +81,12 @@ const ADMIT_PAGE_ONLY = compileToolPermissionMap(
     },
   },
   'test-policy',
+);
+
+/** The documented cleartext policy, compiled just as operators' maps are. */
+const PORTABLE_READ_POLICY = compileToolPermissionMap(
+  PORTABLE_TOOL_PERMISSIONS,
+  'portable-test-policy',
 );
 
 /** Served when a request did not rank `text/markdown` first, so a read that
@@ -151,6 +167,27 @@ type WebFixture = {
   readonly requests: Array<FixtureRequest>;
   close(): Promise<void>;
 };
+
+type LoopbackAddress = '127.0.0.1' | '127.0.0.2';
+
+type AddressFixtureRequest = {
+  readonly address: LoopbackAddress;
+  readonly path: string;
+  readonly socket: Socket;
+};
+
+type AddressFixture = {
+  readonly port: number;
+  readonly requests: Array<AddressFixtureRequest>;
+  readonly sockets: Record<LoopbackAddress, Array<Socket>>;
+  close(): Promise<void>;
+};
+
+type AddressFixtureRoute = (
+  address: LoopbackAddress,
+  request: IncomingMessage,
+  response: ServerResponse,
+) => void;
 
 /** A context with no executor identity at all: a web read needs none. */
 function webContext(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -359,6 +396,75 @@ async function startWebFixture(): Promise<WebFixture> {
   };
 }
 
+/** Two fixtures on the same port make the selected destination observable at
+ *  the server's connection boundary, rather than through a fetch double. */
+async function startAddressFixture(
+  route: AddressFixtureRoute,
+): Promise<AddressFixture> {
+  const requests: Array<AddressFixtureRequest> = [];
+  const sockets: Record<LoopbackAddress, Array<Socket>> = {
+    '127.0.0.1': [],
+    '127.0.0.2': [],
+  };
+  const makeServer = (address: LoopbackAddress): Server => {
+    const server = createServer((request, response) => {
+      requests.push({
+        address,
+        path: request.url ?? '',
+        socket: request.socket,
+      });
+      request.on('error', () => undefined);
+      response.on('error', () => undefined);
+      route(address, request, response);
+    });
+    server.on('connection', (socket) => sockets[address].push(socket));
+    server.on('clientError', (_error, socket) => socket.destroy());
+    return server;
+  };
+  const first = makeServer('127.0.0.1');
+  const second = makeServer('127.0.0.2');
+
+  const port = await listenOnAddress(first, '127.0.0.1', 0);
+  await listenOnAddress(second, '127.0.0.2', port);
+
+  return {
+    port,
+    requests,
+    sockets,
+    close: async () => {
+      first.closeAllConnections();
+      second.closeAllConnections();
+      await Promise.all(
+        [first, second].map(
+          (server) =>
+            new Promise<void>((resolve, reject) => {
+              server.close((error) => {
+                if (error) reject(error);
+                else resolve();
+              });
+            }),
+        ),
+      );
+    },
+  };
+}
+
+async function listenOnAddress(
+  server: Server,
+  address: LoopbackAddress,
+  port: number,
+): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, address, () => resolve());
+  });
+  const listeningAddress = server.address();
+  if (listeningAddress === null || isString(listeningAddress)) {
+    throw new TypeError('The address fixture server did not start listening.');
+  }
+  return listeningAddress.port;
+}
+
 /** The rendered text of a read the case expects to succeed: a missing field
  *  means the read never reached the render, so this fails loudly. */
 function contentOf(result: ToolResult): string {
@@ -389,6 +495,71 @@ function errorOf(result: ToolResult): {
       : ['message', 'status', 'type'],
   );
   return result;
+}
+
+function addressRejectPolicy(regex: string): CompiledPolicy {
+  return compileToolPermissionMap(
+    {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex }],
+      },
+    },
+    'address-test-policy',
+  );
+}
+function readWithAddressPolicy(
+  execute: WebReadExecutor,
+  permissionPolicy: CompiledPolicy,
+  path: string,
+): Promise<ToolResult> {
+  return execute(webContext({ permissionPolicy }), {
+    operation: 'read',
+    input: { path },
+  });
+}
+
+function expectAddressRefused(result: ToolResult): void {
+  expect(result).toMatchObject({
+    status: 'error',
+    type: 'permission_denied',
+    message: REJECTED_ADDRESS_MESSAGE,
+  });
+}
+
+function markdownRedirectRoute(
+  redirectPath: string,
+  location: string,
+): AddressFixtureRoute {
+  return (_address, request, response) => {
+    if (request.url === redirectPath) {
+      sendWithHeaders(response, 302, { location }, 'Moved');
+      return;
+    }
+    send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
+  };
+}
+
+function announcedAlternatePageRoute(port: number): AddressFixtureRoute {
+  return (_address, request, response) => {
+    if (request.url === '/page') {
+      sendWithHeaders(
+        response,
+        200,
+        {
+          'content-type': 'text/html; charset=utf-8',
+          link: `<http://alternate.test:${port}/private>; rel="alternate"; type="text/markdown"`,
+        },
+        ANNOUNCED_PAGE_HTML,
+      );
+      return;
+    }
+    if (request.url === '/page.md') {
+      send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
+      return;
+    }
+    send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
+  };
 }
 
 describe('web read over a fixture server', () => {
@@ -790,5 +961,426 @@ describe('web read over a fixture server', () => {
       '/plain',
       '/plain',
     ]);
+  });
+});
+
+describe('web read address admission over loopback fixtures', () => {
+  let fixture: AddressFixture;
+  let route: AddressFixtureRoute = (_address, _request, response) =>
+    send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
+
+  beforeAll(async () => {
+    fixture = await startAddressFixture((address, request, response) =>
+      route(address, request, response),
+    );
+  });
+
+  afterAll(async () => {
+    if (fixture) await fixture.close();
+  });
+
+  beforeEach(() => {
+    fixture.requests.length = 0;
+    fixture.sockets['127.0.0.1'].length = 0;
+    fixture.sockets['127.0.0.2'].length = 0;
+    route = (_address, _request, response) =>
+      send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
+  });
+
+  it('A refused address is skipped', async () => {
+    const resolve: ResolveHost = () =>
+      Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        { address: '127.0.0.2', family: 4 },
+        { address: '127.0.0.1', family: 4 },
+      ]);
+    const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+    const result = await execute(
+      webContext({
+        permissionPolicy: addressRejectPolicy(
+          String.raw`^https?://127\.0\.0\.2[:/]`,
+        ),
+      }),
+      {
+        operation: 'read',
+        input: { path: `http://dual.test:${fixture.port}/page` },
+      },
+    );
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(contentOf(result)).toContain('Served from an admitted address.');
+    expect(fixture.sockets['127.0.0.1'].length).toBeGreaterThan(0);
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+  });
+
+  it('The checked answer is the one dialed', async () => {
+    const resolvedHosts: Array<string> = [];
+    const resolve: ResolveHost = (hostname) => {
+      resolvedHosts.push(hostname);
+      return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        {
+          address: resolvedHosts.length === 1 ? '127.0.0.1' : '127.0.0.2',
+          family: 4,
+        },
+      ]);
+    };
+    route = (_address, request, response) => {
+      if (request.url === '/start') {
+        sendWithHeaders(response, 302, { location: '/next' }, 'Moved');
+        return;
+      }
+      send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
+    };
+    const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+    const result = await execute(
+      webContext({
+        permissionPolicy: addressRejectPolicy(
+          String.raw`^http://127\.0\.0\.2[:/]`,
+        ),
+      }),
+      {
+        operation: 'read',
+        input: { path: `http://swap.test:${fixture.port}/start` },
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      finalUrl: `http://swap.test:${fixture.port}/next`,
+    });
+    expect(resolvedHosts).toEqual(['swap.test']);
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([
+      { address: '127.0.0.1', path: '/start' },
+      { address: '127.0.0.1', path: '/next' },
+    ]);
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+  });
+
+  it('A connection is not reused across paths', async () => {
+    const resolvedHosts: Array<string> = [];
+    const resolve: ResolveHost = (hostname) => {
+      resolvedHosts.push(hostname);
+      return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        { address: '127.0.0.1', family: 4 },
+        { address: '127.0.0.2', family: 4 },
+      ]);
+    };
+    route = (_address, request, response) => {
+      if (request.url === '/page') {
+        send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+        return;
+      }
+      if (request.url === '/page.md') {
+        send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
+        return;
+      }
+      send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
+    };
+    const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+    const result = await execute(
+      webContext({
+        permissionPolicy: addressRejectPolicy(
+          String.raw`^http://127\.0\.0\.1:${fixture.port}/page\.md`,
+        ),
+      }),
+      {
+        operation: 'read',
+        input: { path: `http://paths.test:${fixture.port}/page` },
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'readability',
+      finalUrl: `http://paths.test:${fixture.port}/page`,
+    });
+    expect(contentOf(result)).toContain('## Negotiation');
+    expect(resolvedHosts).toEqual(['paths.test']);
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([
+      { address: '127.0.0.1', path: '/page' },
+      { address: '127.0.0.2', path: '/page.md' },
+    ]);
+    expect(fixture.requests[1].socket).not.toBe(fixture.requests[0].socket);
+  });
+
+  it('A hop is judged by the address it resolves to', async () => {
+    const resolvedHosts: Array<string> = [];
+    const resolve: ResolveHost = (hostname) => {
+      resolvedHosts.push(hostname);
+      if (hostname === 'pub.test') {
+        return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+          { address: '127.0.0.1', family: 4 },
+        ]);
+      }
+      if (hostname === 'files.test') {
+        return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+          { address: '127.0.0.2', family: 4 },
+        ]);
+      }
+      return Promise.reject(
+        new Error('The address fixture received an unexpected hostname.'),
+      );
+    };
+    route = (_address, request, response) => {
+      if (request.url === '/start') {
+        sendWithHeaders(
+          response,
+          302,
+          {
+            location: `http://files.test:${fixture.port}/private`,
+          },
+          'Moved',
+        );
+        return;
+      }
+      send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
+    };
+    const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+    const result = await execute(
+      webContext({
+        permissionPolicy: addressRejectPolicy(
+          String.raw`^http://127\.0\.0\.2:${fixture.port}/private`,
+        ),
+      }),
+      {
+        operation: 'read',
+        input: { path: `http://pub.test:${fixture.port}/start` },
+      },
+    );
+
+    expect(result).toStrictEqual({
+      status: 'error',
+      type: 'permission_denied',
+      message: REJECTED_ADDRESS_MESSAGE,
+      rejectedUrl: `http://files.test:${fixture.port}/private`,
+    });
+    expect(JSON.stringify(result)).not.toContain('127.0.0.2');
+    expect(resolvedHosts).toEqual(['pub.test', 'files.test']);
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([{ address: '127.0.0.1', path: '/start' }]);
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+  });
+
+  it('Cleartext stays open to internal addresses only', async () => {
+    const loopUrl = `http://loop.test:${fixture.port}/`;
+    const publicUrl = `http://public.test:${fixture.port}/`;
+    const fetchUrls: Array<string> = [];
+    const realFetch = realWebReadDeps.fetch;
+    if (realFetch === undefined) {
+      throw new TypeError('The real web fetch dependency is unavailable.');
+    }
+    const fetch: typeof realFetch = (input, init) => {
+      let url: string;
+      if (input instanceof URL) {
+        url = input.href;
+      } else if (input instanceof Request) {
+        url = input.url;
+      } else if (isString(input)) {
+        url = input;
+      } else {
+        throw new TypeError('The web fetch input is invalid.');
+      }
+      fetchUrls.push(url);
+      if (url === publicUrl) {
+        return Promise.reject(
+          new Error('A refused public address reached the transport.'),
+        );
+      }
+      return realFetch(input, init);
+    };
+    const resolve: ResolveHost = (hostname) => {
+      if (hostname === 'loop.test') {
+        return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+          { address: '127.0.0.1', family: 4 },
+        ]);
+      }
+      if (hostname === 'public.test') {
+        return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+          { address: '93.184.216.34', family: 4 },
+        ]);
+      }
+      return Promise.reject(
+        new Error('The address fixture received an unexpected hostname.'),
+      );
+    };
+    const execute = createWebReadExecutor({
+      ...realWebReadDeps,
+      fetch,
+      resolve,
+    });
+    const internal = await execute(
+      webContext({ permissionPolicy: PORTABLE_READ_POLICY }),
+      { operation: 'read', input: { path: loopUrl } },
+    );
+    const publicResult = await execute(
+      webContext({ permissionPolicy: PORTABLE_READ_POLICY }),
+      { operation: 'read', input: { path: publicUrl } },
+    );
+
+    expect(internal).toMatchObject({ status: 'success' });
+    expect(contentOf(internal)).toContain('Served from an admitted address.');
+    expect(publicResult).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
+      message: REJECTED_ADDRESS_MESSAGE,
+    });
+    expect(publicResult).not.toHaveProperty('rejectedUrl');
+    expect(JSON.stringify(publicResult)).not.toContain('93.184.216.34');
+    expect(fetchUrls).toEqual([loopUrl]);
+    expect(fixture.sockets['127.0.0.1'].length).toBeGreaterThan(0);
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+  });
+
+  it('An address reject holds for every name', async () => {
+    const resolve: ResolveHost = (hostname) =>
+      Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        {
+          address: hostname === 'admitted.test' ? '127.0.0.1' : '127.0.0.2',
+          family: 4,
+        },
+      ]);
+    route = markdownRedirectRoute(
+      '/redirect',
+      `http://export.test:${fixture.port}/private`,
+    );
+    const policy = addressRejectPolicy(
+      String.raw`^https?://127\.0\.0\.2:${fixture.port}/private`,
+    );
+    const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+    const denied = await Promise.all(
+      [
+        `http://export.test:${fixture.port}/private`,
+        `http://x.attacker.test:${fixture.port}/private`,
+        `http://admitted.test:${fixture.port}/redirect`,
+      ].map((path) => readWithAddressPolicy(execute, policy, path)),
+    );
+    for (const result of denied) expectAddressRefused(result);
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+    const data = await readWithAddressPolicy(
+      execute,
+      policy,
+      `http://export.test:${fixture.port}/data`,
+    );
+
+    expect(contentOf(data)).toContain('Served from an admitted address.');
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([
+      { address: '127.0.0.1', path: '/redirect' },
+      { address: '127.0.0.2', path: '/data' },
+    ]);
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(1);
+  });
+
+  it('A selector is not part of the address locator', async () => {
+    const resolve: ResolveHost = () =>
+      Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        { address: '127.0.0.2', family: 4 },
+      ]);
+    const policy = addressRejectPolicy(
+      String.raw`^https?://127\.0\.0\.2:${fixture.port}/private$`,
+    );
+    const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+    const result = await readWithAddressPolicy(
+      execute,
+      policy,
+      `http://export.test:${fixture.port}/private:raw`,
+    );
+
+    expectAddressRefused(result);
+    expect(fixture.requests).toHaveLength(0);
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+  });
+
+  it('A hop to a private address is admitted by its text', async () => {
+    const resolve: ResolveHost = () =>
+      Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        { address: '127.0.0.1', family: 4 },
+      ]);
+    route = markdownRedirectRoute(
+      '/redirect',
+      `http://127.0.0.1:${fixture.port}/admin`,
+    );
+    const policy = addressRejectPolicy(
+      String.raw`^https?://127\.0\.0\.2:${fixture.port}/private`,
+    );
+    const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+    const result = await readWithAddressPolicy(
+      execute,
+      policy,
+      `http://admitted.test:${fixture.port}/redirect`,
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      finalUrl: `http://127.0.0.1:${fixture.port}/admin`,
+    });
+    expect(contentOf(result)).toContain('Served from an admitted address.');
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([
+      { address: '127.0.0.1', path: '/redirect' },
+      { address: '127.0.0.1', path: '/admin' },
+    ]);
+  });
+
+  it('A resolved IPv4-mapped answer is judged as IPv4', async () => {
+    const resolve: ResolveHost = () =>
+      Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        { address: '::ffff:127.0.0.2', family: 6 },
+      ]);
+    const policy = addressRejectPolicy(
+      String.raw`^https?://127\.0\.0\.2:${fixture.port}/private`,
+    );
+    const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+    const result = await readWithAddressPolicy(
+      execute,
+      policy,
+      `http://mapped.test:${fixture.port}/private`,
+    );
+
+    expectAddressRefused(result);
+    expect(fixture.requests).toHaveLength(0);
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+  });
+
+  it('No resolved address reaches the model', async () => {
+    const resolvedHosts: Array<string> = [];
+    const resolve: ResolveHost = (hostname) => {
+      resolvedHosts.push(hostname);
+      return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        {
+          address: hostname === 'alternate.test' ? '127.0.0.2' : '127.0.0.1',
+          family: 4,
+        },
+      ]);
+    };
+    route = announcedAlternatePageRoute(fixture.port);
+    const policy = addressRejectPolicy(
+      String.raw`^https?://127\.0\.0\.2:${fixture.port}/private`,
+    );
+    const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+    const result = await readWithAddressPolicy(
+      execute,
+      policy,
+      `http://page.test:${fixture.port}/page`,
+    );
+
+    expect(result).toMatchObject({ status: 'success', method: 'readability' });
+    expect(contentOf(result)).toContain('carry the announcement');
+    expect(result).not.toHaveProperty('rejectedUrl');
+    expect(JSON.stringify(result)).not.toContain(REJECTED_ADDRESS_MESSAGE);
+    expect(resolvedHosts).toContain('alternate.test');
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([
+      { address: '127.0.0.1', path: '/page' },
+      { address: '127.0.0.1', path: '/page.md' },
+    ]);
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
   });
 });

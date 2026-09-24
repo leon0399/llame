@@ -1,5 +1,28 @@
-import { REJECTED_HOP_MESSAGE, rejectedHopUrl } from '../permissions/messages';
-import { type AdmitDerivedLocator } from './admission';
+import type {
+  ReadableStreamDefaultReader,
+  ReadableStreamReadResult,
+} from 'node:stream/web';
+
+import {
+  fetch as undiciFetch,
+  type Headers as UndiciHeaders,
+  type Response as UndiciResponse,
+} from 'undici';
+
+import {
+  abortFailure,
+  boundedEcho,
+  startCallDeadline,
+  transportFailure,
+  type CallDeadline,
+} from './call-deadline';
+import { createConnectionPlanner, type ConnectionPlanner } from './connection';
+import {
+  REJECTED_ADDRESS_MESSAGE,
+  REJECTED_HOP_MESSAGE,
+  rejectedHopUrl,
+} from '../permissions/messages';
+import { type AdmitAddress, type AdmitDerivedLocator } from './admission';
 import { canonicalHref } from './locator';
 
 export type WebResponse = {
@@ -19,14 +42,23 @@ export type WebFetchFailure = {
   readonly rejectedUrl?: string;
 };
 
+export type ResolvedAddress = {
+  readonly address: string;
+  readonly family: 4 | 6;
+};
+
+export type ResolveHost = (
+  hostname: string,
+) => Promise<ReadonlyArray<ResolvedAddress>>;
+
 export type WebFetchDeps = {
-  readonly fetch: typeof globalThis.fetch;
-  /**
-   * Admission for every locator this client derives rather than receives:
-   * a redirect hop is put through it before its request, exactly as the
-   * submitted locator was put through the call's own decision.
-   */
+  readonly fetch: typeof undiciFetch;
+  /** Admission for locators derived from responses and page content. */
   readonly admit: AdmitDerivedLocator;
+  /** Reject-only admission for each address locator before dispatch. */
+  readonly admitAddress: AdmitAddress;
+  /** One call's memoized system-resolution seam. */
+  readonly resolve: ResolveHost;
 };
 
 export type WebFetchOptions = {
@@ -46,13 +78,9 @@ export type WebFetchOptions = {
 export type WebFetchSession = {
   /** Fetches one locator, following its redirects, inside the call's budget. */
   readonly fetch: (url: string) => Promise<WebResponse | WebFetchFailure>;
-  /** Releases the call's timers and its listener on the caller's signal. */
+  /** Releases the deadline, caller listener, and per-request agents. */
   readonly dispose: () => void;
 };
-
-/** The `Accept` value every request of a web read sends: publisher Markdown
- *  first, plain text ranked above HTML (design D9). */
-const ACCEPT = 'text/markdown, text/plain;q=0.9, text/html;q=0.8, */*;q=0.5';
 
 /** The statuses the redirect requirement governs; every other non-2xx status
  *  fails the call with `http_status`, `Location` or not. */
@@ -70,26 +98,8 @@ const CHARSET_PARAMETER = /;\s*charset\s*=\s*"?([^";\s]+)"?/iu;
 
 const META_CHARSET = /<meta[^>]+charset\s*=\s*["']?\s*([\w-]+)/iu;
 
-const HEADERS_TIMEOUT_MS = 10_000;
-const CALL_TIMEOUT_MS = 30_000;
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
 const CHARSET_SCAN_BYTES = 2048;
-
-/** A server-controlled header value echoed into a failure message can be
- *  arbitrarily long and carry control characters, so it is stripped and
- *  bounded before it reaches the model, the rule `rejectedUrl` follows too. */
-const ECHO_BOUND = 64;
-const CONTROL_CHARACTERS = /\p{Cc}/gu;
-
-/** No echoed message carries a URL: a transport's own words can embed the
- *  request's locator whole, credentials included, and every locator this client
- *  requests is an absolute `http(s)` one. */
-const URL_IN_MESSAGE = /https?:\/\//iu;
-
-function boundedEcho(value: string): string {
-  // Strip first: the bound then counts the characters the model will read.
-  return value.replace(CONTROL_CHARACTERS, '').slice(0, ECHO_BOUND);
-}
 
 const BODY_TOO_LARGE: WebFetchFailure = {
   type: 'body_too_large',
@@ -107,31 +117,16 @@ const TOO_MANY_REDIRECTS: WebFetchFailure = {
   message: 'The server redirected more than the 20 hops one call may follow.',
 };
 
-type AbortReason = 'aborted' | 'headers_timeout' | 'call_timeout';
-
-type CallDeadline = {
-  readonly signal: AbortSignal;
-  /** Arms the header bound for the request about to be sent. */
-  requestStarted(): void;
-  /** Clears the header bound once a response has arrived: it bounds the wait
-   *  for headers, not the body. */
-  headersArrived(): void;
-  reason(): AbortReason | undefined;
-  dispose(): void;
-};
-
 type ContentType = {
   /** The header as received, with only the media type lowercased. */
   readonly value: string;
   readonly mediaType: string;
 };
 
+/** undici's body is a `node:stream/web` stream, not the DOM one. */
+type UndiciBodyReader = ReadableStreamDefaultReader<unknown>;
 type BodyOutcome =
   | { readonly kind: 'body'; readonly bytes: Uint8Array }
-  | { readonly kind: 'failure'; readonly failure: WebFetchFailure };
-
-type ResponseOutcome =
-  | { readonly kind: 'response'; readonly response: Response }
   | { readonly kind: 'failure'; readonly failure: WebFetchFailure };
 
 /** A redirect resolved to the locator policy will see, or the refusal it fails
@@ -146,110 +141,42 @@ type CallBudget = {
   redirects: number;
 };
 
-function abortFailure(reason: AbortReason | undefined): WebFetchFailure {
-  if (reason === 'headers_timeout') {
-    return {
-      type: 'headers_timeout',
-      message: 'The server sent no response headers within 10 seconds.',
-    };
-  }
-  if (reason === 'call_timeout') {
-    return {
-      type: 'call_timeout',
-      message: 'The web read exceeded its 30-second budget.',
-    };
-  }
-  return { type: 'aborted', message: 'The web read was cancelled.' };
-}
+type FetchLocatorContext = {
+  readonly options: WebFetchOptions;
+  readonly deps: WebFetchDeps;
+  readonly budget: CallBudget;
+  readonly connections: ConnectionPlanner;
+};
 
-/** The call's single abort source, composed of the caller's signal and the two
- *  bounds, remembering which one fired first so the failure names it. */
-function startCallDeadline(options: WebFetchOptions): CallDeadline {
-  const controller = new AbortController();
-  let reason: AbortReason | undefined;
-  let headersTimer: NodeJS.Timeout | undefined;
-  const abort = (next: AbortReason): void => {
-    reason ??= next;
-    controller.abort();
-  };
-  const onCallerAbort = (): void => abort('aborted');
-  options.signal?.addEventListener('abort', onCallerAbort, { once: true });
-  const callTimer = setTimeout(
-    () => abort('call_timeout'),
-    // A caller with less budget left may tighten this bound, but no caller can
-    // extend the 30 seconds the tool guarantees.
-    Math.min(options.deadlineMs ?? CALL_TIMEOUT_MS, CALL_TIMEOUT_MS),
-  );
-  return {
-    signal: controller.signal,
-    // Every request of the call gets the full header bound; a hop may not
-    // spend the next request's allowance waiting on this one.
-    requestStarted: () => {
-      clearTimeout(headersTimer);
-      headersTimer = setTimeout(
-        () => abort('headers_timeout'),
-        HEADERS_TIMEOUT_MS,
-      );
-    },
-    headersArrived: () => clearTimeout(headersTimer),
-    reason: () => reason,
-    dispose: () => {
-      clearTimeout(headersTimer);
-      clearTimeout(callTimer);
-      options.signal?.removeEventListener('abort', onCallerAbort);
-    },
-  };
-}
-
-/** A transport failure the client did not itself cause: the abort reason when
- *  the call aborted, the cause's own message otherwise — never the whole error
- *  object, which can carry request and header details. The message is stripped
- *  and bounded like every other echo, and one that names a URL is not echoed at
- *  all: Node's own errors embed the request's URL, credentials included. */
-function transportFailure(
-  error: unknown,
-  deadline: CallDeadline,
+function addressRefusal(
+  originalUrl: string,
+  refusedLocator: string,
 ): WebFetchFailure {
-  const reason = deadline.reason();
-  if (reason !== undefined) return abortFailure(reason);
-  const message =
-    error instanceof Error ? error.message.replace(CONTROL_CHARACTERS, '') : '';
-  return {
-    type: 'network_error',
-    message:
-      message === '' || URL_IN_MESSAGE.test(message)
-        ? 'The request failed.'
-        : message.slice(0, ECHO_BOUND),
+  const failure: WebFetchFailure = {
+    type: 'permission_denied',
+    message: REJECTED_ADDRESS_MESSAGE,
   };
+  if (refusedLocator === originalUrl) return failure;
+  return { ...failure, rejectedUrl: rejectedHopUrl(refusedLocator) };
 }
 
-async function requestDocument(
-  url: string,
-  options: WebFetchOptions,
+async function readDocumentResponse(
+  response: UndiciResponse,
+  locator: string,
   deadline: CallDeadline,
-  deps: WebFetchDeps,
-): Promise<ResponseOutcome> {
-  // A caller that has already aborted issues no request at all: an aborted
-  // signal never fires its event again.
-  if (options.signal?.aborted === true) {
-    return { kind: 'failure', failure: abortFailure('aborted') };
-  }
-  deadline.requestStarted();
-  try {
-    const response = await deps.fetch(url, {
-      method: 'GET',
-      redirect: 'manual',
-      // No cookie or credential travels with a web read, on this request or
-      // any later one.
-      credentials: 'omit',
-      headers: { accept: ACCEPT, 'user-agent': options.userAgent },
-      signal: deadline.signal,
-    });
-    deadline.headersArrived();
-    return { kind: 'response', response };
-  } catch (error) {
-    return { kind: 'failure', failure: transportFailure(error, deadline) };
-  }
+): Promise<WebResponse | WebFetchFailure> {
+  const contentType = contentTypeOf(response.headers.get('content-type'));
+  const refusal = await refusalFor(response, contentType);
+  if (refusal !== undefined) return refusal;
+  const body = await readCappedBody(response, deadline);
+  if (body.kind === 'failure') return body.failure;
+  const fetched: WebResponse = {
+    finalUrl: locator,
+    contentType: contentType.value,
+    body: decodeBody(body.bytes, contentType),
+  };
+  const link = response.headers.get('link');
+  return link === null ? fetched : { ...fetched, link };
 }
 
 /**
@@ -296,7 +223,7 @@ type HopOutcome =
  *  when the call's budget is spent or the `read` group rejects it. A refused
  *  hop's target is never requested, so its body is never read. */
 async function followRedirect(
-  response: Response,
+  response: UndiciResponse,
   base: string,
   deps: WebFetchDeps,
   budget: CallBudget,
@@ -349,13 +276,16 @@ function unsupportedContentType(contentType: ContentType): WebFetchFailure {
 
 /** A declared length is only ever a hint, so it short-circuits the body read
  *  and nothing else. */
-function contentLengthOf(headers: Headers): number | undefined {
+function contentLengthOf(headers: UndiciHeaders): number | undefined {
   const declared = headers.get('content-length');
   if (declared === null || !/^\d+$/u.test(declared)) return undefined;
   return Number(declared);
 }
 
-function statusFailure(status: number, headers: Headers): WebFetchFailure {
+function statusFailure(
+  status: number,
+  headers: UndiciHeaders,
+): WebFetchFailure {
   const retryAfter = status === 429 ? headers.get('retry-after') : null;
   if (retryAfter === null || retryAfter === '') {
     return {
@@ -369,7 +299,7 @@ function statusFailure(status: number, headers: Headers): WebFetchFailure {
   };
 }
 
-async function cancelBody(response: Response): Promise<void> {
+async function cancelBody(response: UndiciResponse): Promise<void> {
   const body = response.body;
   if (body === null) return;
   await body.cancel().catch(() => undefined);
@@ -378,7 +308,7 @@ async function cancelBody(response: Response): Promise<void> {
 /** Everything a response is refused for before a byte of its body is read, so
  *  a failure never costs the download it refuses. */
 async function refusalFor(
-  response: Response,
+  response: UndiciResponse,
   contentType: ContentType,
 ): Promise<WebFetchFailure | undefined> {
   if (!response.ok) {
@@ -398,7 +328,7 @@ async function refusalFor(
 }
 
 async function stopReading(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
+  reader: UndiciBodyReader,
   failure: WebFetchFailure,
 ): Promise<BodyOutcome> {
   await reader.cancel().catch(() => undefined);
@@ -424,13 +354,13 @@ function concatChunks(
  *  cancelled, or rejects outright because the transport tore the body down, so
  *  the abort reason, not the truncated body, is what returns. */
 async function readAllChunks(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
+  reader: UndiciBodyReader,
   deadline: CallDeadline,
 ): Promise<BodyOutcome> {
   const chunks: Array<Uint8Array> = [];
   let total = 0;
   for (;;) {
-    let next: ReadableStreamReadResult<Uint8Array>;
+    let next: ReadableStreamReadResult<unknown>;
     try {
       next = await reader.read();
     } catch (error) {
@@ -443,14 +373,24 @@ async function readAllChunks(
       }
       return { kind: 'body', bytes: concatChunks(chunks, total) };
     }
-    total += next.value.byteLength;
+    const chunk: unknown = next.value;
+    if (!(chunk instanceof Uint8Array)) {
+      return stopReading(
+        reader,
+        transportFailure(
+          new TypeError('The response body was invalid.'),
+          deadline,
+        ),
+      );
+    }
+    total += chunk.byteLength;
     if (total > MAX_BODY_BYTES) return stopReading(reader, BODY_TOO_LARGE);
-    chunks.push(next.value);
+    chunks.push(chunk);
   }
 }
 
 async function readCappedBody(
-  response: Response,
+  response: UndiciResponse,
   deadline: CallDeadline,
 ): Promise<BodyOutcome> {
   const body = response.body;
@@ -507,9 +447,13 @@ export function createWebFetchSession(
     deadline: startCallDeadline(options),
     redirects: 0,
   };
+  const connections = createConnectionPlanner(deps);
   return {
-    fetch: (url) => fetchLocator(url, options, deps, budget),
-    dispose: () => budget.deadline.dispose(),
+    fetch: (url) => fetchLocator(url, { options, deps, budget, connections }),
+    dispose: () => {
+      budget.deadline.dispose();
+      connections.dispose();
+    },
   };
 }
 
@@ -519,41 +463,31 @@ export function createWebFetchSession(
  *  call without its target's body ever being read. */
 async function fetchLocator(
   url: string,
-  options: WebFetchOptions,
-  deps: WebFetchDeps,
-  budget: CallBudget,
+  context: FetchLocatorContext,
 ): Promise<WebResponse | WebFetchFailure> {
   let locator = url;
   for (;;) {
-    const outcome = await requestDocument(
+    const outcome = await context.connections.request(
       locator,
-      options,
-      budget.deadline,
-      deps,
+      context.options,
+      context.budget.deadline,
     );
     if (outcome.kind === 'failure') return outcome.failure;
+    if (outcome.kind === 'address_refused') {
+      return addressRefusal(url, outcome.locator);
+    }
     const response = outcome.response;
     if (REDIRECT_STATUSES.includes(response.status)) {
-      const hop = await followRedirect(response, locator, deps, budget);
+      const hop = await followRedirect(
+        response,
+        locator,
+        context.deps,
+        context.budget,
+      );
       if ('failure' in hop) return hop.failure;
       locator = hop.next;
       continue;
     }
-    const contentType = contentTypeOf(response.headers.get('content-type'));
-    const refusal = await refusalFor(response, contentType);
-    if (refusal !== undefined) return refusal;
-    const body = await readCappedBody(response, budget.deadline);
-    if (body.kind === 'failure') return body.failure;
-    const fetched: WebResponse = {
-      // The URL of the response that produced this content, after every hop
-      // the call followed.
-      finalUrl: locator,
-      contentType: contentType.value,
-      body: decodeBody(body.bytes, contentType),
-    };
-    // The final response's own `Link` header, and nothing from a response the
-    // call followed away from.
-    const link = response.headers.get('link');
-    return link === null ? fetched : { ...fetched, link };
+    return readDocumentResponse(response, locator, context.budget.deadline);
   }
 }

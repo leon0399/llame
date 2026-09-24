@@ -1,16 +1,45 @@
-import type { Mock } from 'vitest';
+import { createServer, type Server, type ServerResponse } from 'node:http';
+import { Response } from 'undici';
+import { type Mock, vi } from 'vitest';
 
 import {
   nativeEditTool,
   nativeReadTool,
   nativeWriteTool,
 } from './native-files';
+import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolContext } from './types';
-import { createWebReadExecutor } from './web-read/execute';
+import {
+  createWebReadExecutor,
+  realWebReadDeps,
+  type WebReadDeps,
+  type WebReadExecutor,
+} from './web-read/execute';
+import type { ResolveHost } from './web-read/http-client';
 import { createWebFetchSession } from './web-read/http-client';
-import { parseWebLocator } from './web-read/locator';
 import { renderWebContent } from './web-read/pipeline';
-import { buildWebReadResult } from './web-read/result';
+
+const READ_POLICY = compileToolPermissionMap(
+  { read: { allow: true } },
+  'test-policy',
+);
+const TEST_ADDRESS = [{ address: '93.184.216.34', family: 4 }] as const;
+const resolvePublicAddress: ResolveHost = () => Promise.resolve(TEST_ADDRESS);
+
+type TestFetch = NonNullable<WebReadDeps['fetch']>;
+
+function webReadExecutor(
+  overrides: Partial<WebReadDeps> = {},
+): WebReadExecutor {
+  return createWebReadExecutor({
+    ...realWebReadDeps,
+    fetch: fetchDouble,
+    resolve: resolvePublicAddress,
+    ...overrides,
+  });
+}
+
+let fetchDouble: Mock<TestFetch>;
 
 const MARKDOWN = '# Guide\n\nA publisher-provided body for agents.\n';
 
@@ -30,6 +59,82 @@ const PAGE_LINES = [
 ];
 const PAGE_HTML = `${PAGE_LINES.join('\n')}\n`;
 
+type FixtureRequest = { readonly method: string; readonly path: string };
+type FixtureResponse = {
+  readonly status: number;
+  readonly contentType: string;
+  readonly body: string;
+};
+type WebFixture = {
+  readonly port: number;
+  readonly requests: Array<FixtureRequest>;
+  respondWith(body: string, contentType: string, status?: number): void;
+  close(): Promise<void>;
+};
+
+const DEFAULT_FIXTURE_RESPONSE: FixtureResponse = {
+  status: 200,
+  contentType: 'text/markdown; charset=utf-8',
+  body: MARKDOWN,
+};
+
+function sendFixtureResponse(
+  response: ServerResponse,
+  fixtureResponse: FixtureResponse,
+): void {
+  response.writeHead(fixtureResponse.status, {
+    'content-type': fixtureResponse.contentType,
+  });
+  response.end(fixtureResponse.body);
+}
+
+function closeFixtureServer(server: Server): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error !== undefined) reject(error);
+      else resolve();
+    });
+  });
+}
+
+function startFixture(): Promise<WebFixture> {
+  return new Promise<WebFixture>((resolve, reject) => {
+    const requests: Array<FixtureRequest> = [];
+    let nextResponse: FixtureResponse | undefined;
+    const server = createServer((request, response) => {
+      requests.push({
+        method: request.method ?? 'GET',
+        path: request.url ?? '/',
+      });
+      const fixtureResponse = nextResponse ?? DEFAULT_FIXTURE_RESPONSE;
+      nextResponse = undefined;
+      sendFixtureResponse(response, fixtureResponse);
+    });
+    const onError = (error: Error): void => reject(error);
+    server.once('error', onError);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', onError);
+      const address = server.address();
+      if (address === null || !(address instanceof Object)) {
+        reject(new Error('The web fixture did not receive a TCP address.'));
+        return;
+      }
+      resolve({
+        port: address.port,
+        requests,
+        respondWith(body, contentType, status = 200) {
+          nextResponse = { status, contentType, body };
+        },
+        close: () => closeFixtureServer(server),
+      });
+    });
+  });
+}
+
+function fixtureUrl(path: string): string {
+  return `http://127.0.0.1:${fixture.port}${path}`;
+}
+
 /** The sentence the large body repeats. Rendering ~1 MiB of markup is the work
  *  a cancelled call must not start, and the sentence would reach the result if
  *  it did. */
@@ -42,6 +147,7 @@ function webContext(overrides: Partial<ToolContext> = {}): ToolContext {
     userId: 'owner',
     chatId: 'chat',
     productUserAgent: 'llame/0.0.0-test',
+    permissionPolicy: READ_POLICY,
     tenantDb: {
       runAs: () => Promise.reject(new Error('Database unavailable')),
     },
@@ -49,12 +155,17 @@ function webContext(overrides: Partial<ToolContext> = {}): ToolContext {
   };
 }
 
+let fixture: WebFixture;
+
 describe('web locator dispatch', () => {
-  let fetchDouble: Mock<typeof globalThis.fetch>;
+  beforeAll(async () => {
+    fixture = await startFixture();
+  });
+
+  afterAll(() => fixture.close());
 
   beforeEach(() => {
-    // The runtime `fetch` the client calls, so the whole tool path runs.
-    fetchDouble = vi.fn<typeof globalThis.fetch>(() =>
+    fetchDouble = vi.fn<TestFetch>(() =>
       Promise.resolve(
         new Response(MARKDOWN, {
           status: 200,
@@ -62,61 +173,60 @@ describe('web locator dispatch', () => {
         }),
       ),
     );
-    vi.stubGlobal('fetch', fetchDouble);
+    fixture.requests.length = 0;
+    fixture.respondWith(MARKDOWN, 'text/markdown; charset=utf-8');
   });
-  afterEach(() => vi.unstubAllGlobals());
 
-  /** One response for the next request, carrying the body a test needs. */
-  const respondWith = (body: string, contentType: string): void => {
-    fetchDouble.mockImplementationOnce(() =>
-      Promise.resolve(
-        new Response(body, {
-          status: 200,
-          headers: { 'content-type': contentType },
-        }),
-      ),
-    );
+  /** Set the real fixture response for the next native read. */
+  const respondWith = (
+    body: string,
+    contentType: string,
+    status = 200,
+  ): void => {
+    fixture.respondWith(body, contentType, status);
   };
 
-  it('reads an https locator and returns the web result', async () => {
-    const result = await nativeReadTool.execute(webContext(), {
-      path: 'https://example.test/guide',
-    });
+  it('reads a web locator and returns the web result', async () => {
+    const url = fixtureUrl('/guide');
+    const result = await nativeReadTool.execute(webContext(), { path: url });
 
     expect(result).toMatchObject({
       status: 'success',
-      finalUrl: 'https://example.test/guide',
+      finalUrl: url,
       method: 'negotiated',
     });
     expect(JSON.stringify(result)).toContain('publisher-provided body');
-    expect(fetchDouble).toHaveBeenCalledTimes(1);
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
   });
 
   it('needs no executor identity and binds none', async () => {
     const runAs = vi.fn(() =>
       Promise.reject(new Error('Database unavailable')),
     );
+    const url = fixtureUrl('/guide');
 
     const result = await nativeReadTool.execute(
       webContext({ tenantDb: { runAs } }),
-      { path: 'https://example.test/guide' },
+      { path: url },
     );
 
     expect(result).toMatchObject({
       status: 'success',
-      finalUrl: 'https://example.test/guide',
+      finalUrl: url,
     });
     expect(runAs).not.toHaveBeenCalled();
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
   });
 
   it('rejects edit and write on a web locator before any request', async () => {
+    const url = fixtureUrl('/guide');
     const edited = await nativeEditTool.execute(webContext(), {
-      path: 'https://example.test/guide',
+      path: url,
       oldText: 'a',
       newText: 'b',
     });
     const written = await nativeWriteTool.execute(webContext(), {
-      path: 'https://example.test/guide',
+      path: url,
       content: 'x',
     });
 
@@ -127,13 +237,13 @@ describe('web locator dispatch', () => {
       });
       expect(JSON.stringify(result)).toContain('read-only');
     }
-    expect(fetchDouble).not.toHaveBeenCalled();
+    expect(fixture.requests).toEqual([]);
   });
 
   it('fails closed when the instance identity is missing', async () => {
     const result = await nativeReadTool.execute(
       webContext({ productUserAgent: undefined }),
-      { path: 'https://example.test/guide' },
+      { path: fixtureUrl('/guide') },
     );
 
     expect(result).toMatchObject({
@@ -142,7 +252,7 @@ describe('web locator dispatch', () => {
     });
     expect(JSON.stringify(result)).toContain('User-Agent');
     expect(JSON.stringify(result)).not.toContain('/guide');
-    expect(fetchDouble).not.toHaveBeenCalled();
+    expect(fixture.requests).toEqual([]);
   });
 
   it('still refuses an unknown non-web scheme', async () => {
@@ -157,26 +267,25 @@ describe('web locator dispatch', () => {
       'message',
       'This path scheme is not available.',
     );
-    expect(fetchDouble).not.toHaveBeenCalled();
+    expect(fixture.requests).toEqual([]);
   });
 
   it('reads an http locator through the same branch as https', async () => {
-    const result = await nativeReadTool.execute(webContext(), {
-      path: 'http://example.test/guide',
-    });
+    const url = fixtureUrl('/guide');
+    const result = await nativeReadTool.execute(webContext(), { path: url });
 
     expect(result).toMatchObject({
       status: 'success',
-      finalUrl: 'http://example.test/guide',
+      finalUrl: url,
       method: 'negotiated',
     });
-    expect(fetchDouble).toHaveBeenCalledTimes(1);
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
   });
 
   it('returns the body verbatim for a :raw read', async () => {
     respondWith(PAGE_HTML, 'text/html; charset=utf-8');
     const result = await nativeReadTool.execute(webContext(), {
-      path: 'https://example.test/guide:raw',
+      path: fixtureUrl('/guide:raw'),
     });
 
     expect(result).toMatchObject({
@@ -186,12 +295,13 @@ describe('web locator dispatch', () => {
       content: PAGE_HTML,
       shownRange: { startLine: 1, endLine: PAGE_LINES.length },
     });
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
   });
 
   it('returns an unnumbered window for a :raw line selector', async () => {
     respondWith(PAGE_HTML, 'text/html; charset=utf-8');
     const result = await nativeReadTool.execute(webContext(), {
-      path: 'https://example.test/guide:raw:4-5',
+      path: fixtureUrl('/guide:raw:4-5'),
     });
 
     expect(result).toMatchObject({
@@ -202,12 +312,13 @@ describe('web locator dispatch', () => {
       requestedRange: { startLine: 4, endLine: 5 },
       shownRange: { startLine: 4, endLine: 5 },
     });
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
   });
 
   it('numbers the converted window for a selector that is not raw', async () => {
     respondWith(PAGE_HTML, 'text/html; charset=utf-8');
     const result = await nativeReadTool.execute(webContext(), {
-      path: 'https://example.test/guide:4-5',
+      path: fixtureUrl('/guide:4-5'),
     });
 
     // The window is the converted text, numbered: a read that skipped the
@@ -226,26 +337,40 @@ describe('web locator dispatch', () => {
       method: 'readability',
       requestedRange: { startLine: 4, endLine: 5 },
     });
+    expect(fixture.requests[0]).toEqual({ method: 'GET', path: '/guide' });
   });
 
   it.each([
-    ['HTTPS://example.test/guide', 'https://example.test/guide'],
-    ['Https://example.test/guide', 'https://example.test/guide'],
-    ['HTTP://example.test/guide', 'http://example.test/guide'],
+    ['HTTP', 'http'],
+    ['HtTp', 'http'],
   ])(
-    'dispatches the uppercase-scheme locator %s to %s',
-    async (path, canonical) => {
+    'dispatches the %s-scheme locator to the canonical %s URL',
+    async (scheme, canonicalScheme) => {
+      const path = `${scheme}://127.0.0.1:${fixture.port}/guide`;
+      const canonical = `${canonicalScheme}://127.0.0.1:${fixture.port}/guide`;
       const result = await nativeReadTool.execute(webContext(), { path });
 
       expect(result).toMatchObject({ status: 'success', path: canonical });
-      expect(fetchDouble).toHaveBeenCalledTimes(1);
-      expect(fetchDouble.mock.calls[0]?.[0]).toBe(canonical);
+      expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
+    },
+  );
+
+  it.each(['https://127.0.0.1:1/guide', 'HTTPS://127.0.0.1:1/guide'])(
+    'dispatches %s through the web executor',
+    async (path) => {
+      const result = await nativeReadTool.execute(webContext(), { path });
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'network_error',
+      });
     },
   );
 
   it('fetches a fragment locator without the fragment', async () => {
+    const url = fixtureUrl('/guide');
     const result = await nativeReadTool.execute(webContext(), {
-      path: 'https://example.test/guide#top',
+      path: `${url}#top`,
     });
 
     // The anchor never reaches the server, so it is cut before policy and
@@ -253,32 +378,24 @@ describe('web locator dispatch', () => {
     // fragment-free locator that produced it.
     expect(result).toMatchObject({
       status: 'success',
-      finalUrl: 'https://example.test/guide',
+      finalUrl: url,
     });
-    expect(fetchDouble).toHaveBeenCalledTimes(1);
-    expect(fetchDouble.mock.calls[0]?.[0]).toBe('https://example.test/guide');
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
   });
 
   it('still reads the lowercase spelling of the same locator', async () => {
-    const result = await nativeReadTool.execute(webContext(), {
-      path: 'https://example.test/guide',
-    });
+    const url = fixtureUrl('/guide');
+    const result = await nativeReadTool.execute(webContext(), { path: url });
 
     expect(result).toMatchObject({
       status: 'success',
-      finalUrl: 'https://example.test/guide',
+      finalUrl: url,
     });
-    expect(fetchDouble).toHaveBeenCalledTimes(1);
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
   });
 
   it('runs through the collaborators the executor was bound with', async () => {
-    const execute = createWebReadExecutor({
-      parseWebLocator,
-      createWebFetchSession,
-      renderWebContent,
-      buildWebReadResult,
-      fetch: fetchDouble,
-    });
+    const execute = webReadExecutor();
 
     const result = await execute(webContext(), {
       operation: 'read',
@@ -318,12 +435,9 @@ describe('web locator dispatch', () => {
         }),
       ),
     );
-    const execute = createWebReadExecutor({
-      parseWebLocator,
+    const execute = webReadExecutor({
       createWebFetchSession: fetchThenAbort,
       renderWebContent: render,
-      buildWebReadResult,
-      fetch: fetchDouble,
     });
 
     const result = await execute(webContext({ abortSignal: abort.signal }), {
@@ -356,12 +470,9 @@ describe('web locator dispatch', () => {
         },
       };
     };
-    const execute = createWebReadExecutor({
-      parseWebLocator,
+    const execute = webReadExecutor({
       createWebFetchSession: sessionDouble,
       renderWebContent,
-      buildWebReadResult,
-      fetch: fetchDouble,
     });
 
     const rendered = await execute(webContext(), {

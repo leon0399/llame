@@ -1,6 +1,10 @@
+import { promises as dns } from 'node:dns';
+
+import { fetch as undiciFetch } from 'undici';
+
 import { type ToolContext, type ToolResult } from '../types';
-import { createDerivedAdmission } from './admission';
-import { createWebFetchSession } from './http-client';
+import { createAddressAdmission, createDerivedAdmission } from './admission';
+import { type ResolveHost, createWebFetchSession } from './http-client';
 import { parseWebLocator, type WebLocator } from './locator';
 import { renderWebContent } from './pipeline';
 import { buildWebReadResult } from './result';
@@ -12,15 +16,16 @@ type WebReadCall = {
 };
 
 /**
- * The collaborators a web read runs through. `fetch` is the runtime's own
- * unless a caller binds one, so a test drives the tool without the network.
+ * The collaborators a web read runs through. Production uses undici's own
+ * transport and the system resolver; tests can bind scripted equivalents.
  */
 export type WebReadDeps = {
   readonly parseWebLocator: typeof parseWebLocator;
   readonly createWebFetchSession: typeof createWebFetchSession;
   readonly renderWebContent: typeof renderWebContent;
   readonly buildWebReadResult: typeof buildWebReadResult;
-  readonly fetch?: typeof globalThis.fetch;
+  readonly fetch?: typeof undiciFetch;
+  readonly resolve?: ResolveHost;
 };
 
 /**
@@ -33,11 +38,24 @@ export type WebReadExecutor = (
   call: WebReadCall,
 ) => Promise<ToolResult>;
 
-const REAL_WEB_READ_DEPS: WebReadDeps = {
+const resolveHost: ResolveHost = async (hostname) => {
+  const addresses = await dns.lookup(hostname, {
+    all: true,
+    order: 'verbatim',
+  });
+  return addresses.map(({ address, family }) => ({
+    address,
+    family: family === 4 ? 4 : 6,
+  }));
+};
+
+export const realWebReadDeps: WebReadDeps = {
   parseWebLocator,
   createWebFetchSession,
   renderWebContent,
   buildWebReadResult,
+  fetch: undiciFetch,
+  resolve: resolveHost,
 };
 
 /** The failure the client reports for a caller abort, repeated for the window
@@ -82,7 +100,7 @@ export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
 }
 
 export const executeWebRead: WebReadExecutor =
-  createWebReadExecutor(REAL_WEB_READ_DEPS);
+  createWebReadExecutor(realWebReadDeps);
 
 async function fetchAndRender(
   context: ToolContext,
@@ -100,9 +118,12 @@ async function fetchAndRender(
       signal: context.abortSignal,
       deadlineMs: context.timeoutMs,
     },
-    // Resolved at call time, so a replaced runtime `fetch` still reaches the
-    // request rather than the one captured when this module loaded.
-    { fetch: deps.fetch ?? globalThis.fetch, admit },
+    {
+      fetch: deps.fetch ?? undiciFetch,
+      admit,
+      admitAddress: createAddressAdmission(context),
+      resolve: deps.resolve ?? resolveHost,
+    },
   );
   try {
     const response = await session.fetch(locator.url);

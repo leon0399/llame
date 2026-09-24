@@ -1,4 +1,4 @@
-import { parseWebLocator } from './locator';
+import { canonicalHref, parseWebLocator } from './locator';
 
 describe('parseWebLocator', () => {
   it('assembles the canonical URL for both admitted schemes', () => {
@@ -307,6 +307,42 @@ describe('parseWebLocator', () => {
     // matching sees both texts, so an encoded host cannot slip past a reject.
     expect(parseWebLocator(locator)).toEqual({ url: canonical });
     expect(parseWebLocator(canonical)).toEqual({ url: canonical });
+  });
+
+  it.each([
+    ['https://example.test/%70rivate', 'https://example.test/private'],
+    ['https://example.test/%7E', 'https://example.test/~'],
+    ['https://example.test/%7e', 'https://example.test/~'],
+    ['https://example.test/%2d', 'https://example.test/-'],
+    ['https://example.test/%%370rivate', 'https://example.test/%2570rivate'],
+    ['https://example.test/a%2fb', 'https://example.test/a%2Fb'],
+    ['https://example.test/%20', 'https://example.test/%20'],
+    ['https://example.test/a/%2E%2E/b', 'https://example.test/b'],
+    ['https://example.test/?q=%41%2f', 'https://example.test/?q=A%2F'],
+  ])('normalizes path and query escapes in %s to %s', (locator, canonical) => {
+    expect(parseWebLocator(locator)).toEqual({ url: canonical });
+  });
+
+  it.each([
+    'https://example.test/%70rivate',
+    'https://example.test/%%370rivate',
+    'https://example.test/%2570rivate',
+    'https://example.test/a%2fb',
+    'https://example.test/a/%2E%2E/b',
+    'https://example.test/?q=%41%2f',
+    'https://example.test/?q=bad%',
+  ])('normalizes %s to a fixed point', (locator) => {
+    const canonical = canonicalHref(new URL(locator));
+    expect(canonicalHref(new URL(canonical))).toBe(canonical);
+  });
+
+  it('preserves an empty query delimiter as a fixed point', () => {
+    const locator = 'https://a.test/b?';
+    const canonical = canonicalHref(new URL(locator));
+
+    expect(canonical).toBe(locator);
+    expect(canonicalHref(new URL(canonical))).toBe(canonical);
+    expect(parseWebLocator(locator)).toStrictEqual({ url: locator });
   });
 
   it.each([

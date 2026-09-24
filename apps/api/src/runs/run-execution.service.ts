@@ -68,6 +68,7 @@ import { isContextItemPart, resolveForm } from '../chats/context-item';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { createDeltaBuffer } from './delta-buffer';
 import {
+  MAX_ADDRESS_DECISIONS,
   MAX_DERIVED_DECISIONS,
   createAssistantPartCollector,
   reconstructDurableAssistant,
@@ -928,13 +929,12 @@ export class RunExecutionService {
     // has its own guard, but without this one enqueueEvent fires a second
     // tool.completed for a call the collector correctly ignored.
     const settledToolCallIds = new Set<string>();
-    // A derived-locator decision (a hop, an announced alternate, a suffix or
-    // `llms.txt` candidate) reaches run execution through the tool context
-    // while the executor runs — after `tool.requested` is already durable — so
-    // it is collected on the open call, with the kind of locator it judged,
-    // and recorded with the call at settlement. A call that never settles
-    // loses its records with its result, and the per-call request budget
-    // bounds what a single call can add.
+    // A derived-locator decision (a hop, probe candidate, or refused address)
+    // reaches run execution through the tool context while the executor runs —
+    // after `tool.requested` is already durable — so it is collected on the
+    // open call and recorded at settlement. A call that never settles loses
+    // its records with its result. Address refusals have their own bound and
+    // cannot displace hop or probe decisions.
     const recordDerivedDecision = (
       toolCallId: string,
       decision: DerivedDecision,
@@ -942,7 +942,13 @@ export class RunExecutionService {
       const open = openToolCalls.get(toolCallId);
       if (open === undefined) return;
       const decisions = (open.derivedDecisions ??= []);
-      if (decisions.length >= MAX_DERIVED_DECISIONS) return;
+      const isAddress = decision.kind === 'address';
+      let recordedCount = 0;
+      for (const recorded of decisions) {
+        if ((recorded.kind === 'address') === isAddress) recordedCount += 1;
+      }
+      const limit = isAddress ? MAX_ADDRESS_DECISIONS : MAX_DERIVED_DECISIONS;
+      if (recordedCount >= limit) return;
       decisions.push({ ...decision.decision, kind: decision.kind });
     };
     const recordToolCompleted = (
