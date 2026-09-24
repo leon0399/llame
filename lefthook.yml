@@ -33,6 +33,10 @@ pre-commit:
       glob: "scripts/mutation-*.mjs"
       run: pnpm test:mutation:tooling
 
+    - name: changelog merge driver
+      glob: "scripts/merge-changelog*.mjs"
+      run: pnpm test:changelog-merge
+
     - name: markdown lint
       glob: "{**/*.md,.markdownlint-cli2.jsonc}"
       run: pnpm lint:markdown

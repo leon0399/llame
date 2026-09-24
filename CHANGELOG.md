@@ -1,5 +1,18 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-25
+
+- Local merges and rebases now resolve the daily `CHANGELOG.md` conflict
+  themselves. Two pull requests that each add entries under the same date, or
+  each open the same new date heading, no longer conflict: a merge driver in
+  `scripts/merge-changelog.mjs` merges pure additions per date section and puts
+  the incoming side's entries on top, so a rebased pull request's entry lands
+  above what is already on `master`. Any other change, such as two edits to the
+  same entry, falls back to git's text merge and still conflicts. `pnpm install`
+  registers the driver; a clone that has not run it merges as before. GitHub's
+  own merge ignores the driver, so a pull request can still show as conflicting
+  there until it is rebased locally.
+
 # 2026-09-24
 
 - The root `tsconfig.json` now covers only root-owned TypeScript: the
