@@ -1,0 +1,28 @@
+{
+  "upstream": "e3f262a7f4d42bd8dd32ced30d26176f7cb545b0",
+  "networkCalls": 0,
+  "injectedScores": {
+    "keepCall": 0.9,
+    "keepResult": 0.1
+  },
+  "sameScoringStateForDifferentEqualLengthResults": true,
+  "originalTranscriptUnchanged": true,
+  "trailingOutcomeAbsentFromPrunedProjection": true,
+  "action": "drop_result",
+  "stats": {
+    "messagesBefore": 10,
+    "messagesAfter": 10,
+    "charsBefore": 1284,
+    "charsAfter": 573,
+    "calls": 1,
+    "kept": 0,
+    "resultsDropped": 1,
+    "callsDropped": 0,
+    "pinned": 0,
+    "stateTokens": 445,
+    "stateStage": "full",
+    "requests": 1,
+    "ms": 3
+  },
+  "note": "Deterministic mechanics probe; fake scores do not evaluate Jev quality or latency."
+}

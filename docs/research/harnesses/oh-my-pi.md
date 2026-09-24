@@ -136,6 +136,15 @@ sources:
   - id: packages-console-app-src-routes-zen-util-handler-ts-l125-l131
     resource: "https://github.com/anomalyco/opencode/blob/70a24697ea0028e19f22712fd63059538cb4bee7/packages/console/app/src/routes/zen/util/handler.ts#L125-L131"
     title: "gateway reads the session header"
+  - id: omp-judge-chain-20260923
+    resource: "https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/coding-agent/src/judgment/index.ts"
+    title: "Native judgment role and fallback boundary"
+  - id: omp-judge-api-20260923
+    resource: "https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/ai/src/judgment/typesafe.ts"
+    title: "TypeSafe and OpenRouter typed-decision transport"
+  - id: llame-system-one-jev
+    resource: "../tool-harness/2026-09-23-system-one-jev/report.md"
+    title: "System One and Jev: source investigation and llame applications"
 ---
 
 # oh-my-pi
@@ -160,6 +169,45 @@ provider wrappers, and hook registry.
 6. **F24: One session header, per-agent session values, selective repairs, and a quota surface.** `applyInferenceHeaders` sets `x-opencode-session` for both OpenCode providers, adds omp's `User-Agent` only when the caller left it unset, and returns early when no session id exists, so an unidentified call goes out without the header rather than with a fabricated one[^packages-ai-src-providers-inference-headers-ts-l35-l54], and the gateway reads that header for routing and metrics[^packages-console-app-src-routes-zen-util-handler-ts-l125-l131]; every inference fetch also applies the `omp/<version>` User-Agent default per request[^packages-ai-src-utils-transport-fetch-ts-l29-l38][^packages-utils-src-dirs-ts-l33]. The value is a live getter rather than a captured string: a fresh id (after `/fresh` or a context reset) wins over a `--provider-session-id` override, which wins over the durable session id[^packages-coding-agent-src-session-agent-session-ts-l4547-l4577], and the same sync point assigns it to the agent and seeds credential pins so routing identity changes atomically[^packages-coding-agent-src-session-agent-session-ts-l4579-l4602]; `freshSession()` and the in-place context reset close provider sessions and mint a new uuidv7[^packages-coding-agent-src-session-agent-session-ts-l5040-l5058][^packages-coding-agent-src-session-agent-session-ts-l5121-l5126]. Auxiliary and child work gets its own namespace instead of inheriting the main id: side-channel turns send `<sid>:side:conversation:<key>` or `<sid>:side:<snowflake>`[^packages-coding-agent-src-session-agent-session-ts-l9291-l9310], the `/tan` child agent sends `<parent>:tan:<snowflake>`[^packages-coding-agent-src-modes-controllers-tan-command-controller-ts-l150-l158], and auto-title generation keeps one uuidv7 for the session's lifetime[^packages-coding-agent-src-session-agent-session-ts-l8083-l8092]. Go-shaped repairs are worth copying selectively: Responses input hoists assistant messages out of `function_call` to `function_call_output` runs because Console Go rejects the interleaved shape with `No tool output found for tool call`[^packages-ai-src-providers-openai-shared-ts-l1652-l1670]; a synthesized reasoning item carries a non-empty placeholder because DeepSeek-family targets reject a missing or empty `reasoning_text`[^packages-ai-src-providers-openai-shared-ts-l2166-l2176]; the Anthropic wire deletes `Authorization` so the client sends `X-Api-Key`, since bearer-only requests fail `401 Missing API key`[^packages-ai-src-providers-anthropic-ts-l3505-l3520]; and completions replay honors a configured `reasoningContentField` for OpenCode-served Kimi and DeepSeek[^packages-ai-src-providers-openai-completions-ts-l2192-l2210]. Quota is a first-class surface: `GET /zen/go/v1/usage` reports 5-hour, weekly, and monthly windows as percentages[^packages-ai-src-usage-opencode-go-ts-l16-l44]; the background poll attributes itself with the install id and treats 401/403 as a bad credential rather than an unknown[^packages-ai-src-usage-opencode-go-ts-l108-l124]; pooled keys rank by real headroom on the rolling and weekly windows with the monthly window display-only[^packages-ai-src-usage-opencode-go-ts-l180-l205]; wire-level `GoUsageLimitError` 429s classify as quota exhaustion[^packages-ai-test-rate-limit-utils-test-ts-l305-l320]; and a Go limit that resets beyond the retry cap may fall back to another provider[^packages-coding-agent-src-session-turn-recovery-ts-l2360-l2372]. The gateway's Go page names Pi, not oh-my-pi, in its validated-client list[^packages-web-src-content-docs-go-mdx-l104-l120]. High confidence for llame's Go adapter (#809): one header, a per-session value owned by Chat identity, per-child namespaces, and policy-driven per-model exceptions.
 
 **Applicability:** High for compaction and the eval bridge; moderate for MCP argument redaction; exploratory for stream enforcement. **Confidence:** High for the cited current source paths; moderate for behavior outside those paths. **Caution:** secrets are disabled by default, the stdio transport still passes the whole `Bun.env` into child processes (code[^packages-coding-agent-src-mcp-transports-stdio-ts-l574-l584]), and eval kernels run as a Bun worker thread and a host Python subprocess with full filesystem, network, and environment access and no idle reaper. Keep llame's declared environment and trusted runtime boundaries. **Go:** OMP's fork is not named on OpenCode's validated-client list; the table names Pi only[^packages-web-src-content-docs-go-mdx-l104-l120]. Its Go adapter is the most complete prior art for #809, but copy the header, the session-value ownership, and the per-model rule rows, not the live-discovery authority or the cache-migration lists that exist to repair rows cached under older routes.
+
+## Typed judgments and Jev
+
+**Scoped observation:** this section was inspected on 2026-09-23 at
+`f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7`. The document's broader `observed`
+baseline above remains 2026-09-21; other sections were not refreshed.
+
+- **J1 — Dedicated decision role.** JUDGE evaluates typed Choice, Score and
+  yes-probability questions over supplied state. It is separate from the
+  generative coding model. Native TypeSafe `/v1/systemone` and OpenRouter
+  `/api/alpha/decisions` share this request shape; dispatch follows API type,
+  not provider-name guessing.[^omp-judge-chain-20260923][^omp-judge-api-20260923]
+- **J2 — Preserve native decision semantics on failure.** Once a native candidate
+  occurs in the resolved chain, later prompted local/chat candidates are removed.
+  A configuration with no native candidate can still use prompted judgments, but
+  a failed native judgment is not silently replaced by chat-model probabilities.
+  This differs from the earlier inspected revision.[^omp-judge-chain-20260923]
+- **J3 — Concrete consumers, bounded lifecycle.** Semantic `find` uses a
+  lexical-to-semantic verification cascade; automatic effort classification and
+  unexpected-stop checks are other consumers. Eval `judge_batch` is a host-owned
+  collection of per-state calls with item outcomes, bounded concurrency and
+  kernel-reset reattachment. It is not a database-durable Run or a single giant
+  provider request.[^llame-system-one-jev]
+- **J4 — llame transfer.** Study a narrow judgment service for recall relevance
+  (U1), main-Run effort selection (U2) and advisory premature-stop detection (U3).
+  Keep authorization, cancellation, step limits and durable terminal outcomes
+  outside the classifier. Native output shape and OMP's chosen thresholds do not
+  establish calibration on llame workloads.[^llame-system-one-jev]
+
+The [System One/Jev study](../tool-harness/2026-09-23-system-one-jev/report.md)
+owns the detailed F3 source trace, model/API limitations, compaction comparison
+and U1-U6 application proposals. In particular, OMP's JUDGE integration is not
+evidence that its anchored compaction above uses `fast-jev-compaction`; that
+separate library and its missing-result-content limitation are assessed in F4.
+For recovery and context-reduction comparisons, also read [SoL-Pi](./sol-pi.md)
+and [Spotify Shunt](./spotify-shunt.md).
+
+**Confidence:** high for the inspected role/transport behavior; moderate for
+application fit. No controlled Jev quality or latency benchmark was run.
 
 [^docs-compaction-md-l27-l55]: [Session compaction entries](https://github.com/can1357/oh-my-pi/blob/7728213eef8be770a67b2b20710d705ee63fefe7/docs/compaction.md#L27-L55)
 
@@ -246,3 +294,9 @@ provider wrappers, and hook registry.
 [^packages-web-src-content-docs-go-mdx-l104-l120]: [validated clients name Pi, not oh-my-pi](https://github.com/anomalyco/opencode/blob/70a24697ea0028e19f22712fd63059538cb4bee7/packages/web/src/content/docs/go.mdx#L104-L120)
 
 [^packages-console-app-src-routes-zen-util-handler-ts-l125-l131]: [gateway reads the session header](https://github.com/anomalyco/opencode/blob/70a24697ea0028e19f22712fd63059538cb4bee7/packages/console/app/src/routes/zen/util/handler.ts#L125-L131)
+
+[^omp-judge-chain-20260923]: [Native judgment role and fallback boundary](https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/coding-agent/src/judgment/index.ts)
+
+[^omp-judge-api-20260923]: [TypeSafe and OpenRouter typed-decision transport](https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/ai/src/judgment/typesafe.ts)
+
+[^llame-system-one-jev]: [System One and Jev: source investigation and llame applications](../tool-harness/2026-09-23-system-one-jev/report.md)

@@ -1,0 +1,20 @@
+{
+  "version": "3.0.0",
+  "query": "Evaluate TypeSafe System One and Jev, OMP JUDGE, extractive compaction, community use cases, and applicability to llame project/tool/model routing including GPT-6 cache controls.",
+  "mode": "deep",
+  "started_at": "2026-09-23T19:31:17.425810+00:00",
+  "finished_at": "2026-09-23T20:25:26.473102+00:00",
+  "assumptions": [],
+  "provider_config": {
+    "primary": "native readers, GitHub CLI, source inspection and delegated research",
+    "scholarly": null
+  },
+  "report_dir": ".",
+  "artifact_paths": {
+    "sources": "sources.jsonl",
+    "evidence": "evidence.jsonl",
+    "claims": "claims.jsonl",
+    "report": "report.md"
+  },
+  "continuation": null
+}

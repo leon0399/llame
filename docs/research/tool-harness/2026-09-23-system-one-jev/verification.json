@@ -1,0 +1,68 @@
+{
+  "llame_revision": "e70228485042967fd9545ad0cb133faae1be2268",
+  "omp_current_revision": "f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7",
+  "omp_initial_revision": "d49918fab2dba3986927f2d46721629ed0f3a02c",
+  "compaction_revision": "e3f262a7f4d42bd8dd32ced30d26176f7cb545b0",
+  "controlled_live_inference_benchmarks": false,
+  "private_chat_data_sent": false,
+  "probes": [
+    {
+      "name": "adapter-probe",
+      "result": "passed",
+      "network": "intercepted locally"
+    },
+    {
+      "name": "compaction-probe",
+      "result": "passed",
+      "model_scores": "injected; not Jev quality evaluation"
+    }
+  ],
+  "upstream_performance_benchmarks_rerun": false,
+  "scope": "Research and OKF artifact publication only; no application or proposal changes.",
+  "review": "Two independent reviewers in each of two rounds; final round no P0/P1. Minor wording clarifications applied.",
+  "portable_probe_reruns": "Both passed under the repository Node/pnpm toolchain: node probes/adapter-probe.mjs and pnpm exec tsx probes/compaction-probe.mjs with the pinned checkout; compaction library networkCalls=0, SDK fetch intercepted locally. Bun is not required.",
+  "repository_checks": {
+    "pnpm lint:markdown": "pass; 515 files, zero issues",
+    "pnpm format:check": "pass",
+    "git diff --check": "pass"
+  },
+  "research_checks": {
+    "okf_v02": "pass, zero conformance errors; one generated/unverified concept",
+    "yaml_and_json_schemas": "Pass via YAML parser and Ajv: 67 sources, 71 evidence records, 342 claims. Stable source/footnote/ledger joins and local links validated.",
+    "stable_source_footnote_and_ledger_joins": "pass",
+    "local_links": "pass",
+    "report_structure": "pass on equivalent numeric-citation projection",
+    "claim_support": "Strict heuristic passed with zero unsupported factual claims; partial/review flags manually resolved and retained in review.json",
+    "citations": "v2 URL check resolved 55 external references; v3 additions use read primary documentation and inspected revision-pinned repository sources. Local artifact links and source/footnote/ledger joins validated."
+  },
+  "rendering": {
+    "html": "v3 generated and verified against canonical Markdown; complete sections and footnotes.",
+    "pdf": "v3 generated; all 12 major sections present in extracted text.",
+    "canonical_artifact": "report.md; renderings are optional local derivatives, not committed"
+  },
+  "environment_workarounds": {
+    "okf_validator": "Bundled validator has CRLF line endings; executed unchanged logic from an LF-normalized temporary copy.",
+    "pdflatex": "Initial mixed Nix/system GLIBC failure; PDF succeeded with LD_LIBRARY_PATH and LD_PRELOAD removed."
+  },
+  "application_extension": {
+    "revision": "v3",
+    "uses": [
+      "U1 recall relevance",
+      "U2 main-Run effort",
+      "U3 premature stop",
+      "U4 result usability",
+      "U5 citation support",
+      "U6 Knowledge write triage"
+    ],
+    "harness_integration": "Bidirectional report/bundle/index/OMP links; scoped OMP observation leaves broad 2026-09-21 baseline unchanged; related SoL-Pi/Shunt navigation.",
+    "source_counts": {
+      "sources": 67,
+      "evidence": 71,
+      "claims": 342
+    },
+    "scope": "Proposals and research only, not implemented behavior.",
+    "reviews": "Two focused independent reviews in each of two rounds; final round has no material findings.",
+    "cross_link_check": "83 relative links and heading fragments resolve across report, bundle index, OMP reference and harness index.",
+    "checks": "Both OKF bundles conform; YAML/JSON schemas and 83 local links/anchors pass; pnpm lint:markdown, pnpm format:check and git diff --check pass."
+  }
+}

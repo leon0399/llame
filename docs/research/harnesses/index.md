@@ -20,10 +20,12 @@ areas, then use the remaining references for targeted alternatives. Adapt their
 behavior to llame's ownership, lifecycle, provenance, and isolation contracts;
 llame's specs remain authoritative.
 
-The dated assessments inspect upstream source and, where noted, test code
-without executing upstream programs. Harness extensions and adjacent knowledge
-tooling are included when they offer a distinct mechanism; benchmark claims
-remain upstream reports unless an entry records independent reproduction.
+The dated assessments distinguish source inspection from explicitly recorded
+execution. Most inspect upstream source and test code without running the
+upstream program; individual studies may also record offline mechanics probes.
+Harness extensions and adjacent knowledge tooling are included when they offer a
+distinct mechanism. Benchmark claims remain upstream reports unless an entry
+records independent reproduction.
 Adoption requires a separate llame decision and validation.
 
 The `observed` frontmatter extension records the source inspection `date` and
@@ -40,6 +42,15 @@ compares eval and code-mode tools across OMP, OpenClaw, and Codex CLI.
 capabilities own the current compaction contract. Dated deep dives linked from
 individual references retain their original observations; they are not refreshed
 by a bundle update.
+
+The [System One/Jev study](../tool-harness/2026-09-23-system-one-jev/index.md)
+connects [OMP's JUDGE role](./oh-my-pi.md#typed-judgments-and-jev) to bounded
+decision APIs, extractive compaction, and concrete llame applications: recall
+relevance, main-Run effort, premature-stop detection, result usability, citation
+support and Knowledge write triage. It distinguishes source inspection and
+offline mechanics probes from unmeasured live-model quality. Read it alongside
+[SoL-Pi](./sol-pi.md) for evidence-preserving recovery and
+[Spotify Shunt](./spotify-shunt.md) for question-focused context reduction.
 
 Read the ranked index first, then open individual references as needed.
 
