@@ -18,6 +18,10 @@ examines LensVLM, Qwen and cheap/free hosted models for `?q=` source answers and
 bounded investigation. Jev can select or judge evidence; a generative reader
 produces the source-grounded answer.
 
+Third layer: [semantic find, jegrep and JUDGE](../2026-09-24-semantic-find-judge/index.md)
+traces candidate selection and typed judgments, audits the reference benchmark,
+and develops applications U13-U20 beyond Knowledge search.
+
 - [Research report](./report.md) - Findings, the five supplied application
   assessments, six additional llame use cases (U1-U6), counterevidence,
   priorities, and stable source footnotes.
