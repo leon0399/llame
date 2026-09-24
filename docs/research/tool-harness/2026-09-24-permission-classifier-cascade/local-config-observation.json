@@ -1,0 +1,44 @@
+{
+  "observed_at": "2026-09-24T15:05:33.197347+00:00",
+  "privacy": "Allowlisted configuration facts only; no credentials, environment values, account identifiers, private infrastructure names, or session transcripts retained.",
+  "claude": {
+    "version": "2.1.280",
+    "main_model": "opus[1m]",
+    "default_mode": "auto",
+    "allow_rule_count": 65,
+    "deny_rule_count": 35,
+    "ask_rule_count": 0,
+    "environment_entries": 25,
+    "environment_keeps_defaults": false,
+    "soft_deny_keeps_defaults": true,
+    "custom_soft_deny_scope": "Force-push to the public project requires explicit confirmation; a prose classifier instruction, not an explicit ask rule.",
+    "installed_default_counts": {
+      "allow": 17,
+      "soft_deny": 70,
+      "hard_deny": 1,
+      "environment": 21
+    },
+    "live_classifier_model_observed": false
+  },
+  "codex": {
+    "version": "0.155.1",
+    "source_revision": "4e21628f9ec9ee656650cd2b62ef92225725b5ac",
+    "main_model": "gpt-6-luna",
+    "main_effort": "medium",
+    "reviewer": "guardian_subagent",
+    "guardian_feature": true,
+    "login_status_kind": "ChatGPT",
+    "cache_client_version": "0.154.0",
+    "cache_fetched_at": "2026-09-24T14:53:11.598429194Z",
+    "cache_has_identity": false,
+    "cache_has_parent_model": false,
+    "cache_review_model": [
+      {
+        "slug": "codex-auto-review",
+        "efforts": ["low", "medium", "high", "xhigh", "max"]
+      }
+    ],
+    "live_reviewer_model_observed": false,
+    "qualification": "The inspected cache is for a different client version and has no provider/auth identity, so its alias entry is not a live model-selection receipt."
+  }
+}

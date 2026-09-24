@@ -1,0 +1,70 @@
+{
+  "observed_at": "2026-09-24T15:32:40.552869+00:00",
+  "scope": "Development research and standalone experiment artifacts; production permission code unchanged.",
+  "executed_checks": [
+    {
+      "check": "Native Gateway smoke",
+      "result": "HTTP 200; typesafe-ai/jev; 321 input tokens; reported cost 0."
+    },
+    {
+      "check": "Primary live matrix",
+      "result": "95 successful results from 100 HTTP attempts; all request hashes verified offline."
+    },
+    {
+      "check": "Post-hoc rubric diagnostic",
+      "result": "12 successful evaluations; unchanged controls and explicit Boolean criteria retained separately."
+    },
+    {
+      "check": "Offline analyze.py",
+      "result": "Passed model identity, answer-key, probability-range and request-hash checks; generated summary.json."
+    },
+    {
+      "check": "Broader frozen application matrix",
+      "result": "80 successful cases across ten families from 81 HTTP attempts; 76/80 match frozen labels. Three mismatches expose label/predicate ambiguity; one over-accepts incomplete quota evidence."
+    },
+    {
+      "check": "Controlled permission-prompt comparison",
+      "result": "16 successful evaluations; original P25 request hash matches the earlier trial. Explicit contract plus revised question returns allow probability 0.93."
+    },
+    {
+      "check": "Application analysis",
+      "result": "Request hashes, frozen state/questions/labels and model identity verified; application and prompt summaries reproduced."
+    },
+    {
+      "check": "Date fixture arithmetic",
+      "result": "Verified declared Friday/next-Thursday dates and Los Angeles local-date conversion with Python standard library."
+    },
+    {
+      "check": "pnpm format:check; pnpm lint:markdown; git diff --check",
+      "result": "Passed; Markdown lint covered 527 files before the standalone experiment index was added."
+    },
+    {
+      "check": "Research schema and citation/link joins",
+      "result": "Passed: 32 sources, 32 evidence records, 166 claims."
+    },
+    {
+      "check": "Credential leakage and protected worktree hashes",
+      "result": "No Gateway credential in research artifacts; protected pre-existing worktree files unchanged."
+    },
+    {
+      "check": "Focused Oxlint and final runner plan",
+      "result": "Passed. Original default dataset hash remains a05144735d7fa96c7997de43758ecde4c00c78bd8bfcfffece2cf3c3dc790f87."
+    },
+    {
+      "check": "Broader and prompt analysis regeneration",
+      "result": "Both summaries reproduce as identical parsed JSON from frozen fixtures and recorded responses."
+    },
+    {
+      "check": "OKF v0.2 bundle validation",
+      "result": "Passed after removing metadata from the nested navigation index."
+    }
+  ],
+  "not_run": [
+    "Production tool execution",
+    "Live Claude/Codex classifiers",
+    "Stronger-model quality/cost comparison",
+    "Product test/build suites; application behavior unchanged",
+    "Additional review rounds; explicitly waived by user"
+  ],
+  "publication": "Not merged. No merge permission granted."
+}

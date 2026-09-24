@@ -1,0 +1,39 @@
+{
+  "version": "3.0.0",
+  "query": "Study Claude Code/Codex permission classifiers and run reusable live Jev experiments across ten llame application families, including controlled permission-prompt corrections.",
+  "mode": "deep",
+  "started_at": "2026-09-24T14:40:05.781Z",
+  "finished_at": "2026-09-24T16:22:19.430886+00:00",
+  "assumptions": [
+    {
+      "assumption_id": "asm_28d3a7e6",
+      "text": "Start timestamp is the first retained smoke observation; earlier source discovery is not timed.",
+      "materiality": "low",
+      "status": "evidence_validated"
+    },
+    {
+      "assumption_id": "asm_f4544e98",
+      "text": "Synthetic fixture labels and controlled-host assumptions are not a real execution sandbox or production calibration.",
+      "materiality": "medium",
+      "status": "evidence_validated"
+    },
+    {
+      "assumption_id": "asm_77942601",
+      "text": "No production permission change or OpenSpec approval is implied.",
+      "materiality": "low",
+      "status": "evidence_validated"
+    }
+  ],
+  "provider_config": {
+    "primary": "Pinned source and official documentation; typesafe-ai/jev through native Gateway HTTP for synthetic experiments",
+    "scholarly": null
+  },
+  "report_dir": ".",
+  "artifact_paths": {
+    "sources": "sources.jsonl",
+    "evidence": "evidence.jsonl",
+    "claims": "claims.jsonl",
+    "report": "report.md"
+  },
+  "continuation": null
+}

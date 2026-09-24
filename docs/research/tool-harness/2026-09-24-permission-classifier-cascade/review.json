@@ -1,0 +1,27 @@
+{
+  "status": "No additional review requested, per explicit user instruction.",
+  "source_investigations": 2,
+  "additional_review_rounds": 0,
+  "material_findings_addressed": [
+    {
+      "finding": "The configured main model alone identifies the permission reviewer.",
+      "disposition": "Rejected. Report records the actual conditional selectors, observed auth mode and incompatible local cache; no live reviewer model is claimed."
+    },
+    {
+      "finding": "A future classifier can only advise and must never drive automatic approval.",
+      "disposition": "Rejected as a blanket architectural restriction. An explicit trusted policy may delegate bounded automatic review; current llame allow/reject remains unchanged."
+    },
+    {
+      "finding": "A read-only reviewer must not perform reads.",
+      "disposition": "Replaced with host-mediated, separately authorized and disclosure-scoped inspection. No unrestricted shell or automatic permission widening."
+    },
+    {
+      "finding": "Uniform high thresholds across four Jev questions form a useful conservative gate.",
+      "disposition": "Rejected by the primary experiment: all 76 permission cases deferred. A separate six-case rubric diagnostic remains post-hoc and does not validate the gate."
+    }
+  ],
+  "unresolved_evidence_limits": [
+    "No live Claude/Codex reviewer request or underlying codex-auto-review base model observed.",
+    "No production unsafe-approval rate, strong-review benefit, TOCTOU enforcement or real-host sandbox behavior measured."
+  ]
+}

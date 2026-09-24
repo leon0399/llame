@@ -57,6 +57,13 @@ offline mechanics probes from unmeasured live-model quality. Read it alongside
 [SoL-Pi](../tools/sol-pi.md) for evidence-preserving recovery and
 [Spotify Shunt](../tools/spotify-shunt.md) for question-focused context reduction.
 
+The [permission-classifier study](../tool-harness/2026-09-24-permission-classifier-cascade/index.md)
+compares Claude Code auto mode, Codex Guardian and eve's Jev approvals, then
+records live synthetic Jev experiments with reusable fixtures and raw responses.
+It separates delegated automatic review from mandatory human approval and
+examines bounded script inspection, intent spoofing and execution binding for
+[#778](https://github.com/leon0399/llame/issues/778). It approves no product change.
+
 The [question-directed read follow-on](../tool-harness/2026-09-23-question-directed-read/index.md)
 compares Apple LensVLM with local Qwen/Gemma and cheap or promotional hosted
 readers for [#849](https://github.com/leon0399/llame/issues/849). It connects
