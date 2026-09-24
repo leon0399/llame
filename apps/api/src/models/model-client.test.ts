@@ -101,6 +101,8 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+    // The Responses client calls the provider itself (openai(model)) — its
+    // Responses entry point. No Chat Completions path exists here.
     const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
@@ -199,9 +201,11 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
+    // The Responses wire is served at the entry's baseUrl (design D1).
     const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
+
     const client = createOpenAIModelClient(
       {
         credential: 'sk-user-supplied',
@@ -224,6 +228,7 @@ describe('ModelClient', () => {
       baseURL: 'https://openrouter.ai/api/v1',
     });
   });
+
   it('exposes configured pricing and compaction metadata on the model client', () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',

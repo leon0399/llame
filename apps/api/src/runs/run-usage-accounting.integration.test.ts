@@ -780,6 +780,17 @@ describe('Run usage accounting through the worker and Postgres', () => {
     });
     await insertReceipt(ownerId, sameOwnerOtherRun.runId);
     await insertReceipt(ownerId, sameOwnerOtherRun.runId);
+    const otherOwnerId = await createUser(
+      harness!.db,
+      `run-usage-isolation-${crypto.randomUUID()}`,
+    );
+    const otherOwnerRun = await seedRun({
+      tenantDb: harness!.tenantDb,
+      userId: otherOwnerId,
+      modelId: `${modelId}:other-owner-run`,
+    });
+    await insertReceipt(otherOwnerId, otherOwnerRun.runId);
+    await insertReceipt(otherOwnerId, otherOwnerRun.runId);
 
     await enqueue(seed, modelId);
     await waitForStatus(seed.runId, 'completed');

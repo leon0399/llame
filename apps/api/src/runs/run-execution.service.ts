@@ -2166,7 +2166,6 @@ export class RunExecutionService {
    * A terminal race can still salvage streamed content after an expiry. A
    * cancellation or an already-recorded answer intentionally does not.
    */
-
   private async handleLostFinish(
     tx: Db,
     input: FinishRunInput,

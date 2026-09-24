@@ -69,10 +69,7 @@ export type ScriptedBehavior =
     };
 
 /** The subset `HarnessModelClient` actually streams; `infra-throw` never reaches it. */
-export type HarnessBehavior = Exclude<
-  ScriptedBehavior,
-  { kind: 'infra-throw' }
->;
+type HarnessBehavior = Exclude<ScriptedBehavior, { kind: 'infra-throw' }>;
 type ConversationRecallBehavior = Extract<
   ScriptedBehavior,
   { kind: 'conversation-recall' }
