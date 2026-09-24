@@ -23,7 +23,7 @@ sources:
 
 # jegrep
 
-A standalone Rust search CLI and the reference for [OMP's semantic `find`](./oh-my-pi.md#semantic-find-and-jegrep).
+A standalone Rust search CLI and the reference for [OMP's semantic `find`](../harnesses/oh-my-pi.md#semantic-find-and-jegrep).
 It combines local lexical ranking, filename judgments, extractive source
 sketches and bounded full-window verification. Jev evaluates candidates; host
 code chooses the reads and returns source coordinates. It does not generate the

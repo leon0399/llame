@@ -10,8 +10,8 @@ owned by [SPEC](../../../../SPEC.md) and OpenSpec; this bundle approves no featu
 
 Related entry points: [harness index](../../harnesses/index.md),
 [OMP JUDGE](../../harnesses/oh-my-pi.md#typed-judgments-and-jev),
-[SoL-Pi](../../harnesses/sol-pi.md), and
-[Spotify Shunt](../../harnesses/spotify-shunt.md).
+[SoL-Pi](../../tools/sol-pi.md), and
+[Spotify Shunt](../../tools/spotify-shunt.md).
 
 Follow-on: [question-directed reads and reader-model comparison](../2026-09-23-question-directed-read/index.md)
 examines LensVLM, Qwen and cheap/free hosted models for `?q=` source answers and

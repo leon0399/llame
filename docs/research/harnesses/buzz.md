@@ -25,11 +25,17 @@ sources:
   - id: crates-buzz-workflow-src-lib-rs-l229-l254
     resource: "https://github.com/block/buzz/blob/051c3a270be9c73da9ab06700bcab7d5552fceaa/crates/buzz-workflow/src/lib.rs#L229-L254"
     title: "workflow approval path"
+  - id: buzz-readme-agent-runtime
+    resource: "https://github.com/block/buzz/blob/051c3a270be9c73da9ab06700bcab7d5552fceaa/README.md"
+    title: "ACP agent runtime and shell/file tools"
 ---
 
 # Buzz
 
 - **Stack:** Rust monorepo with TypeScript/Tauri desktop and Dart/Flutter mobile; Apache 2.0
+- **Classification:** Agentic workspace/meta-harness. The pinned README lists
+  ACP agent execution and shell/file-edit tools; this category check does not
+  broaden the earlier security assessment.[^buzz-readme-agent-runtime]
 
 Buzz is a self-hosted Nostr workspace where humans and agents share a signed event log. Its useful material is the explicit security contract around tenant context and synchronization. The relay derives a community from the connection host before handlers run, and its formal model states the deployment assumptions needed for RLS. NIP-RS also treats completeness as a state that must be established before destructive synchronization. Borrow these boundaries while keeping llame's durable pg-boss Run model.
 
@@ -52,3 +58,5 @@ Buzz is a self-hosted Nostr workspace where humans and agents share a signed eve
 [^docs-nips-nip-rs-md-l370-l377]: [NIP-RS completeness](https://github.com/block/buzz/blob/051c3a270be9c73da9ab06700bcab7d5552fceaa/docs/nips/NIP-RS.md#L370-L377)
 
 [^crates-buzz-workflow-src-lib-rs-l229-l254]: [workflow approval path](https://github.com/block/buzz/blob/051c3a270be9c73da9ab06700bcab7d5552fceaa/crates/buzz-workflow/src/lib.rs#L229-L254)
+
+[^buzz-readme-agent-runtime]: [ACP agent runtime and shell/file tools](https://github.com/block/buzz/blob/051c3a270be9c73da9ab06700bcab7d5552fceaa/README.md)
