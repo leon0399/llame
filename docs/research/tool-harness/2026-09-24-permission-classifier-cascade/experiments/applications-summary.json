@@ -1,0 +1,1536 @@
+{
+  "plannedCases": 80,
+  "successfulCases": 80,
+  "matchedCases": 76,
+  "byFamily": {
+    "capability_selection": {
+      "matched": 7,
+      "cases": 8
+    },
+    "compaction_retention": {
+      "matched": 8,
+      "cases": 8
+    },
+    "completion_detection": {
+      "matched": 8,
+      "cases": 8
+    },
+    "date_interpretation": {
+      "matched": 8,
+      "cases": 8
+    },
+    "exact_value": {
+      "matched": 8,
+      "cases": 8
+    },
+    "knowledge_write_triage": {
+      "matched": 8,
+      "cases": 8
+    },
+    "main_run_effort": {
+      "matched": 8,
+      "cases": 8
+    },
+    "project_routing": {
+      "matched": 7,
+      "cases": 8
+    },
+    "recall_evidence": {
+      "matched": 7,
+      "cases": 8
+    },
+    "tool_result_usability": {
+      "matched": 7,
+      "cases": 8
+    }
+  },
+  "inputTokens": 55389,
+  "reportedCostUsd": 0.0,
+  "reportedMarketCostUsd": 0.002326338,
+  "latencyMs": {
+    "median": 287.0,
+    "p95NearestRank": 393
+  },
+  "grading": {
+    "choice": "exact selected label",
+    "boolean": "probability >= 0.5",
+    "score": "within 0.5 of the expected rubric rung",
+    "case": "every expected question matches"
+  },
+  "details": [
+    {
+      "id": "EX01",
+      "family": "exact_value",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "value": {
+          "expected": "$1,315.50",
+          "actual": "$1,315.50",
+          "matched": true,
+          "probabilityForExpected": 0.68
+        }
+      }
+    },
+    {
+      "id": "EX02",
+      "family": "exact_value",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "receipt_address": {
+          "expected": "nia.home@example.net",
+          "actual": "nia.home@example.net",
+          "matched": true,
+          "probabilityForExpected": 0.99
+        },
+        "sender_address": {
+          "expected": "nia@north.example",
+          "actual": "nia@north.example",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "EX03",
+      "family": "exact_value",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "value": {
+          "expected": "$50.00",
+          "actual": "$50.00",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "EX04",
+      "family": "exact_value",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "value": {
+          "expected": "(415) 555-0177",
+          "actual": "(415) 555-0177",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "EX05",
+      "family": "exact_value",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "value": {
+          "expected": "$202.00",
+          "actual": "$202.00",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "EX06",
+      "family": "exact_value",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "value": {
+          "expected": "none",
+          "actual": "none",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "EX07",
+      "family": "exact_value",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "value": {
+          "expected": "none",
+          "actual": "none",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "EX08",
+      "family": "exact_value",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "value": {
+          "expected": "4.8.1",
+          "actual": "4.8.1",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "DA01",
+      "family": "date_interpretation",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "date": {
+          "expected": "2026-08-14",
+          "actual": "2026-08-14",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "DA02",
+      "family": "date_interpretation",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "date": {
+          "expected": "2026-07-31",
+          "actual": "2026-07-31",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "DA03",
+      "family": "date_interpretation",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "date": {
+          "expected": "2026-07-31",
+          "actual": "2026-07-31",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "DA04",
+      "family": "date_interpretation",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "date": {
+          "expected": "2026-08-06",
+          "actual": "2026-08-06",
+          "matched": true,
+          "probabilityForExpected": 0.89
+        }
+      }
+    },
+    {
+      "id": "DA05",
+      "family": "date_interpretation",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "demo_date": {
+          "expected": "2026-07-31",
+          "actual": "2026-07-31",
+          "matched": true,
+          "probabilityForExpected": 1
+        },
+        "contract_expiry": {
+          "expected": "2026-08-14",
+          "actual": "2026-08-14",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "DA06",
+      "family": "date_interpretation",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "date": {
+          "expected": "2026-07-30",
+          "actual": "2026-07-30",
+          "matched": true,
+          "probabilityForExpected": 0.88
+        }
+      }
+    },
+    {
+      "id": "DA07",
+      "family": "date_interpretation",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "date": {
+          "expected": "none",
+          "actual": "none",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "DA08",
+      "family": "date_interpretation",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "date": {
+          "expected": "none",
+          "actual": "none",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "PR01",
+      "family": "project_routing",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "project": {
+          "expected": "Developer Onboarding",
+          "actual": "Developer Onboarding",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "PR02",
+      "family": "project_routing",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "project": {
+          "expected": "Payments Reliability",
+          "actual": "Payments Reliability",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "PR03",
+      "family": "project_routing",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "project": {
+          "expected": "Platform Auth",
+          "actual": "Platform Auth",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "PR04",
+      "family": "project_routing",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "project": {
+          "expected": "Developer Docs",
+          "actual": "Developer Docs",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "PR05",
+      "family": "project_routing",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "project": {
+          "expected": "Mobile App",
+          "actual": "Mobile App",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "PR06",
+      "family": "project_routing",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "project": {
+          "expected": "Analytics Dashboard",
+          "actual": "Analytics Dashboard",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "PR07",
+      "family": "project_routing",
+      "variant": null,
+      "matched": false,
+      "assessments": {
+        "project": {
+          "expected": "none",
+          "actual": "Dashboard UI",
+          "matched": false,
+          "probabilityForExpected": 0.3
+        }
+      }
+    },
+    {
+      "id": "PR08",
+      "family": "project_routing",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "project": {
+          "expected": "none",
+          "actual": "none",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "CA01",
+      "family": "capability_selection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "repo_search": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.97
+        },
+        "docs_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.61
+        },
+        "web_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.89
+        },
+        "test_runner": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.91
+        },
+        "code_review": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.9299999999999999
+        },
+        "none_needed": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.95
+        }
+      }
+    },
+    {
+      "id": "CA02",
+      "family": "capability_selection",
+      "variant": null,
+      "matched": false,
+      "assessments": {
+        "repo_search": {
+          "expected": false,
+          "actual": true,
+          "matched": false,
+          "probabilityForExpected": 0.47
+        },
+        "docs_search": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.96
+        },
+        "web_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.92
+        },
+        "test_runner": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.95
+        },
+        "code_review": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.96
+        },
+        "none_needed": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.94
+        }
+      }
+    },
+    {
+      "id": "CA03",
+      "family": "capability_selection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "repo_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.71
+        },
+        "docs_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.65
+        },
+        "web_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.8200000000000001
+        },
+        "test_runner": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.91
+        },
+        "code_review": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.96
+        },
+        "none_needed": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.89
+        }
+      }
+    },
+    {
+      "id": "CA04",
+      "family": "capability_selection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "repo_search": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.97
+        },
+        "docs_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.77
+        },
+        "web_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.9
+        },
+        "test_runner": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.87
+        },
+        "code_review": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.89
+        },
+        "none_needed": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.94
+        }
+      }
+    },
+    {
+      "id": "CA05",
+      "family": "capability_selection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "repo_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.96
+        },
+        "docs_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.95
+        },
+        "web_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.87
+        },
+        "test_runner": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.98
+        },
+        "code_review": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.98
+        },
+        "none_needed": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.8
+        }
+      }
+    },
+    {
+      "id": "CA06",
+      "family": "capability_selection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "repo_search": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.95
+        },
+        "docs_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.83
+        },
+        "web_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.9299999999999999
+        },
+        "test_runner": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.94
+        },
+        "code_review": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.9299999999999999
+        },
+        "none_needed": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.9299999999999999
+        }
+      }
+    },
+    {
+      "id": "CA07",
+      "family": "capability_selection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "repo_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.77
+        },
+        "docs_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.6799999999999999
+        },
+        "web_search": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.96
+        },
+        "test_runner": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.9299999999999999
+        },
+        "code_review": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.95
+        },
+        "none_needed": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.95
+        }
+      }
+    },
+    {
+      "id": "CA08",
+      "family": "capability_selection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "repo_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.91
+        },
+        "docs_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.85
+        },
+        "web_search": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.72
+        },
+        "test_runner": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.95
+        },
+        "code_review": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.95
+        },
+        "none_needed": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.74
+        }
+      }
+    },
+    {
+      "id": "ER01",
+      "family": "main_run_effort",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "effort": {
+          "expected": 0,
+          "actual": 0,
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "ER02",
+      "family": "main_run_effort",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "effort": {
+          "expected": 0,
+          "actual": 0.02,
+          "matched": true,
+          "probabilityForExpected": 0.98
+        }
+      }
+    },
+    {
+      "id": "ER03",
+      "family": "main_run_effort",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "effort": {
+          "expected": 1,
+          "actual": 0.98,
+          "matched": true,
+          "probabilityForExpected": 0.98
+        }
+      }
+    },
+    {
+      "id": "ER04",
+      "family": "main_run_effort",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "effort": {
+          "expected": 1,
+          "actual": 0.82,
+          "matched": true,
+          "probabilityForExpected": 0.82
+        }
+      }
+    },
+    {
+      "id": "ER05",
+      "family": "main_run_effort",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "effort": {
+          "expected": 2,
+          "actual": 1.97,
+          "matched": true,
+          "probabilityForExpected": 0.97
+        }
+      }
+    },
+    {
+      "id": "ER06",
+      "family": "main_run_effort",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "effort": {
+          "expected": 2,
+          "actual": 1.99,
+          "matched": true,
+          "probabilityForExpected": 0.99
+        }
+      }
+    },
+    {
+      "id": "ER07",
+      "family": "main_run_effort",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "effort": {
+          "expected": 0,
+          "actual": 0.11,
+          "matched": true,
+          "probabilityForExpected": 0.9
+        }
+      }
+    },
+    {
+      "id": "ER08",
+      "family": "main_run_effort",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "effort": {
+          "expected": 1,
+          "actual": 1,
+          "matched": true,
+          "probabilityForExpected": 0.99
+        }
+      }
+    },
+    {
+      "id": "APP-COMP-01",
+      "family": "completion_detection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "decision": {
+          "expected": "continue",
+          "actual": "continue",
+          "matched": true,
+          "probabilityForExpected": 0.96
+        }
+      }
+    },
+    {
+      "id": "APP-COMP-02",
+      "family": "completion_detection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "decision": {
+          "expected": "finish",
+          "actual": "finish",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "APP-COMP-03",
+      "family": "completion_detection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "decision": {
+          "expected": "continue",
+          "actual": "continue",
+          "matched": true,
+          "probabilityForExpected": 0.96
+        }
+      }
+    },
+    {
+      "id": "APP-COMP-04",
+      "family": "completion_detection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "decision": {
+          "expected": "ask",
+          "actual": "ask",
+          "matched": true,
+          "probabilityForExpected": 0.99
+        }
+      }
+    },
+    {
+      "id": "APP-COMP-05",
+      "family": "completion_detection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "decision": {
+          "expected": "finish",
+          "actual": "finish",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "APP-COMP-06",
+      "family": "completion_detection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "decision": {
+          "expected": "continue",
+          "actual": "continue",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "APP-COMP-07",
+      "family": "completion_detection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "decision": {
+          "expected": "ask",
+          "actual": "ask",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "APP-COMP-08",
+      "family": "completion_detection",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "decision": {
+          "expected": "respect_stop",
+          "actual": "respect_stop",
+          "matched": true,
+          "probabilityForExpected": 0.99
+        }
+      }
+    },
+    {
+      "id": "APP-RESULT-01",
+      "family": "tool_result_usability",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "usability": {
+          "expected": "access_barrier",
+          "actual": "access_barrier",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "APP-RESULT-02",
+      "family": "tool_result_usability",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "usability": {
+          "expected": "usable_complete",
+          "actual": "usable_complete",
+          "matched": true,
+          "probabilityForExpected": 0.99
+        }
+      }
+    },
+    {
+      "id": "APP-RESULT-03",
+      "family": "tool_result_usability",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "usability": {
+          "expected": "usable_partial",
+          "actual": "usable_partial",
+          "matched": true,
+          "probabilityForExpected": 0.98
+        }
+      }
+    },
+    {
+      "id": "APP-RESULT-04",
+      "family": "tool_result_usability",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "usability": {
+          "expected": "irrelevant_content",
+          "actual": "irrelevant_content",
+          "matched": true,
+          "probabilityForExpected": 0.96
+        }
+      }
+    },
+    {
+      "id": "APP-RESULT-05",
+      "family": "tool_result_usability",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "usability": {
+          "expected": "access_barrier",
+          "actual": "access_barrier",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "APP-RESULT-06",
+      "family": "tool_result_usability",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "usability": {
+          "expected": "usable_complete",
+          "actual": "usable_complete",
+          "matched": true,
+          "probabilityForExpected": 0.99
+        }
+      }
+    },
+    {
+      "id": "APP-RESULT-07",
+      "family": "tool_result_usability",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "usability": {
+          "expected": "irrelevant_content",
+          "actual": "irrelevant_content",
+          "matched": true,
+          "probabilityForExpected": 0.96
+        }
+      }
+    },
+    {
+      "id": "APP-RESULT-08",
+      "family": "tool_result_usability",
+      "variant": null,
+      "matched": false,
+      "assessments": {
+        "usability": {
+          "expected": "uncertain",
+          "actual": "usable_complete",
+          "matched": false,
+          "probabilityForExpected": 0.1
+        }
+      }
+    },
+    {
+      "id": "APP-RECALL-01",
+      "family": "recall_evidence",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "relevant": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.98
+        },
+        "supported": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.95
+        },
+        "contradicted": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.97
+        }
+      }
+    },
+    {
+      "id": "APP-RECALL-02",
+      "family": "recall_evidence",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "relevant": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.97
+        },
+        "supported": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.99
+        },
+        "contradicted": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.96
+        }
+      }
+    },
+    {
+      "id": "APP-RECALL-03",
+      "family": "recall_evidence",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "relevant": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.97
+        },
+        "supported": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.99
+        },
+        "contradicted": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.96
+        }
+      }
+    },
+    {
+      "id": "APP-RECALL-04",
+      "family": "recall_evidence",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "relevant": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.96
+        },
+        "supported": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.82
+        },
+        "contradicted": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.98
+        }
+      }
+    },
+    {
+      "id": "APP-RECALL-05",
+      "family": "recall_evidence",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "relevant": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.97
+        },
+        "supported": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.99
+        },
+        "contradicted": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.98
+        }
+      }
+    },
+    {
+      "id": "APP-RECALL-06",
+      "family": "recall_evidence",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "relevant": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.98
+        },
+        "supported": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.99
+        },
+        "contradicted": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.97
+        }
+      }
+    },
+    {
+      "id": "APP-RECALL-07",
+      "family": "recall_evidence",
+      "variant": null,
+      "matched": false,
+      "assessments": {
+        "relevant": {
+          "expected": true,
+          "actual": false,
+          "matched": false,
+          "probabilityForExpected": 0.14
+        },
+        "supported": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.96
+        },
+        "contradicted": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.94
+        }
+      }
+    },
+    {
+      "id": "APP-RECALL-08",
+      "family": "recall_evidence",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "relevant": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.98
+        },
+        "supported": {
+          "expected": false,
+          "actual": false,
+          "matched": true,
+          "probabilityForExpected": 0.98
+        },
+        "contradicted": {
+          "expected": true,
+          "actual": true,
+          "matched": true,
+          "probabilityForExpected": 0.97
+        }
+      }
+    },
+    {
+      "id": "APP-KNOW-01",
+      "family": "knowledge_write_triage",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "triage": {
+          "expected": "duplicate",
+          "actual": "duplicate",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "APP-KNOW-02",
+      "family": "knowledge_write_triage",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "triage": {
+          "expected": "propose_correction",
+          "actual": "propose_correction",
+          "matched": true,
+          "probabilityForExpected": 0.97
+        }
+      }
+    },
+    {
+      "id": "APP-KNOW-03",
+      "family": "knowledge_write_triage",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "triage": {
+          "expected": "propose_new_durable",
+          "actual": "propose_new_durable",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "APP-KNOW-04",
+      "family": "knowledge_write_triage",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "triage": {
+          "expected": "propose_new_durable",
+          "actual": "propose_new_durable",
+          "matched": true,
+          "probabilityForExpected": 0.97
+        }
+      }
+    },
+    {
+      "id": "APP-KNOW-05",
+      "family": "knowledge_write_triage",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "triage": {
+          "expected": "do_not_store_transient",
+          "actual": "do_not_store_transient",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "APP-KNOW-06",
+      "family": "knowledge_write_triage",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "triage": {
+          "expected": "defer_insufficient_evidence",
+          "actual": "defer_insufficient_evidence",
+          "matched": true,
+          "probabilityForExpected": 0.74
+        }
+      }
+    },
+    {
+      "id": "APP-KNOW-07",
+      "family": "knowledge_write_triage",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "triage": {
+          "expected": "propose_compatible_addition",
+          "actual": "propose_compatible_addition",
+          "matched": true,
+          "probabilityForExpected": 0.86
+        }
+      }
+    },
+    {
+      "id": "APP-KNOW-08",
+      "family": "knowledge_write_triage",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "triage": {
+          "expected": "defer_insufficient_evidence",
+          "actual": "defer_insufficient_evidence",
+          "matched": true,
+          "probabilityForExpected": 1
+        }
+      }
+    },
+    {
+      "id": "APP-COMPACT-01",
+      "family": "compaction_retention",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "priority": {
+          "expected": 3,
+          "actual": 2.96,
+          "matched": true,
+          "probabilityForExpected": 0.98
+        }
+      }
+    },
+    {
+      "id": "APP-COMPACT-02",
+      "family": "compaction_retention",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "priority": {
+          "expected": 0,
+          "actual": 0.02,
+          "matched": true,
+          "probabilityForExpected": 0.99
+        }
+      }
+    },
+    {
+      "id": "APP-COMPACT-03",
+      "family": "compaction_retention",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "priority": {
+          "expected": 3,
+          "actual": 2.99,
+          "matched": true,
+          "probabilityForExpected": 0.99
+        }
+      }
+    },
+    {
+      "id": "APP-COMPACT-04",
+      "family": "compaction_retention",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "priority": {
+          "expected": 3,
+          "actual": 2.93,
+          "matched": true,
+          "probabilityForExpected": 0.96
+        }
+      }
+    },
+    {
+      "id": "APP-COMPACT-05",
+      "family": "compaction_retention",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "priority": {
+          "expected": 0,
+          "actual": 0.16,
+          "matched": true,
+          "probabilityForExpected": 0.86
+        }
+      }
+    },
+    {
+      "id": "APP-COMPACT-06",
+      "family": "compaction_retention",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "priority": {
+          "expected": 0,
+          "actual": 0.1,
+          "matched": true,
+          "probabilityForExpected": 0.91
+        }
+      }
+    },
+    {
+      "id": "APP-COMPACT-07",
+      "family": "compaction_retention",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "priority": {
+          "expected": 2,
+          "actual": 1.85,
+          "matched": true,
+          "probabilityForExpected": 0.45
+        }
+      }
+    },
+    {
+      "id": "APP-COMPACT-08",
+      "family": "compaction_retention",
+      "variant": null,
+      "matched": true,
+      "assessments": {
+        "priority": {
+          "expected": 3,
+          "actual": 2.83,
+          "matched": true,
+          "probabilityForExpected": 0.91
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Small synthetic, policy-defined fixture sets; not production calibration or a held-out workload benchmark.",
+    "Labels and rubrics were frozen before inference; errors are retained rather than relabeled.",
+    "Score agreement is a declared half-rung tolerance, not categorical exact accuracy.",
+    "No routed tool, memory write, compaction, project move or permission action was executed."
+  ]
+}

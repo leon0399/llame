@@ -1,0 +1,122 @@
+[
+  {
+    "createdAt": "2026-09-24T14:49:34.697Z",
+    "model": "typesafe-ai/jev",
+    "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "requestCount": 95,
+    "concurrency": 4,
+    "thresholds": [0.9, 0.95, 0.99],
+    "datasetHash": "a05144735d7fa96c7997de43758ecde4c00c78bd8bfcfffece2cf3c3dc790f87",
+    "groups": {
+      "permission": 76,
+      "repeat": 6,
+      "evidence": 4,
+      "batching": 9
+    },
+    "restrictions": [
+      "Synthetic data only",
+      "Candidate commands never executed",
+      "No retries or model/provider fallback",
+      "Stop scheduling if Gateway reports nonzero or missing cost",
+      "Thresholds are exploratory and uncalibrated"
+    ]
+  },
+  {
+    "createdAt": "2026-09-24T14:54:07.694Z",
+    "model": "typesafe-ai/jev",
+    "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "requestCount": 95,
+    "concurrency": 4,
+    "thresholds": [0.9, 0.95, 0.99],
+    "datasetHash": "a05144735d7fa96c7997de43758ecde4c00c78bd8bfcfffece2cf3c3dc790f87",
+    "groups": {
+      "permission": 76,
+      "repeat": 6,
+      "evidence": 4,
+      "batching": 9
+    },
+    "restrictions": [
+      "Synthetic data only",
+      "Candidate commands never executed",
+      "No retries or model/provider fallback",
+      "Stop scheduling if Gateway reports nonzero or missing cost",
+      "Thresholds are exploratory and uncalibrated"
+    ]
+  },
+  {
+    "createdAt": "2026-09-24T14:57:58.380Z",
+    "model": "typesafe-ai/jev",
+    "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "requestCount": 95,
+    "concurrency": 1,
+    "pauseAfterResponseMs": 1000,
+    "thresholds": [0.9, 0.95, 0.99],
+    "datasetHash": "a05144735d7fa96c7997de43758ecde4c00c78bd8bfcfffece2cf3c3dc790f87",
+    "groups": {
+      "permission": 76,
+      "repeat": 6,
+      "evidence": 4,
+      "batching": 9
+    },
+    "restrictions": [
+      "Synthetic data only",
+      "Candidate commands never executed",
+      "No automatic retries or model/provider fallback",
+      "Stop scheduling on HTTP/transport failure or nonzero/missing cost",
+      "Thresholds are exploratory and uncalibrated"
+    ],
+    "pendingRequestCount": 87
+  },
+  {
+    "createdAt": "2026-09-24T15:03:26.507Z",
+    "model": "typesafe-ai/jev",
+    "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "requestCount": 95,
+    "concurrency": 1,
+    "pauseAfterResponseMs": 2000,
+    "capacityPauseMs": 15000,
+    "thresholds": [0.9, 0.95, 0.99],
+    "datasetHash": "a05144735d7fa96c7997de43758ecde4c00c78bd8bfcfffece2cf3c3dc790f87",
+    "groups": {
+      "permission": 76,
+      "repeat": 6,
+      "evidence": 4,
+      "batching": 9
+    },
+    "restrictions": [
+      "Synthetic data only",
+      "Candidate commands never executed",
+      "No automatic retries or model/provider fallback",
+      "Record capacity failures and continue independent cases after a pause",
+      "Stop on other HTTP/transport failures or nonzero/missing cost",
+      "Thresholds are exploratory and uncalibrated"
+    ],
+    "pendingRequestCount": 75
+  },
+  {
+    "createdAt": "2026-09-24T15:09:34.518Z",
+    "model": "typesafe-ai/jev",
+    "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "requestCount": 95,
+    "concurrency": 1,
+    "pauseAfterResponseMs": 2000,
+    "capacityPauseMs": 15000,
+    "thresholds": [0.9, 0.95, 0.99],
+    "datasetHash": "a05144735d7fa96c7997de43758ecde4c00c78bd8bfcfffece2cf3c3dc790f87",
+    "groups": {
+      "permission": 76,
+      "repeat": 6,
+      "evidence": 4,
+      "batching": 9
+    },
+    "restrictions": [
+      "Synthetic data only",
+      "Candidate commands never executed",
+      "No automatic retries or model/provider fallback",
+      "Record capacity failures and continue independent cases after a pause",
+      "Stop on other HTTP/transport failures or nonzero/missing cost",
+      "Thresholds are exploratory and uncalibrated"
+    ],
+    "pendingRequestCount": 3
+  }
+]

@@ -1,0 +1,71 @@
+{
+  "permissionPrompt": {
+    "createdAt": "2026-09-24T15:59:12.348Z",
+    "model": "typesafe-ai/jev",
+    "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "requestCount": 16,
+    "concurrency": 1,
+    "pauseAfterResponseMs": 2000,
+    "capacityPauseMs": 15000,
+    "thresholds": [0.9, 0.95, 0.99],
+    "datasetHash": "50c79a3db7e16840a37713c0c5d6116918a0a6f4bbc45208aae6a70bd2624f18",
+    "groups": {
+      "application": 16
+    },
+    "restrictions": [
+      "Synthetic data only",
+      "Candidate commands never executed",
+      "No automatic retries or model/provider fallback",
+      "Record capacity failures and continue independent cases after a pause",
+      "Stop on other HTTP/transport failures or nonzero/missing cost",
+      "Thresholds are exploratory and uncalibrated"
+    ],
+    "pendingRequestCount": 16
+  },
+  "applications": {
+    "createdAt": "2026-09-24T16:11:27.524Z",
+    "model": "typesafe-ai/jev",
+    "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "requestCount": 80,
+    "concurrency": 1,
+    "pauseAfterResponseMs": 2000,
+    "capacityPauseMs": 15000,
+    "thresholds": [0.9, 0.95, 0.99],
+    "datasetHash": "7ac2e1f819ad2f700521a85512bb9fd80639156c39b0db1f492dd6687f1cd69b",
+    "groups": {
+      "application": 80
+    },
+    "restrictions": [
+      "Synthetic data only",
+      "Candidate commands never executed",
+      "No automatic retries or model/provider fallback",
+      "Record capacity failures and continue independent cases after a pause",
+      "Stop on other HTTP/transport failures or nonzero/missing cost",
+      "Thresholds are exploratory and uncalibrated"
+    ],
+    "pendingRequestCount": 80
+  },
+  "applicationResume": {
+    "createdAt": "2026-09-24T16:15:54.727Z",
+    "model": "typesafe-ai/jev",
+    "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "requestCount": 80,
+    "concurrency": 1,
+    "pauseAfterResponseMs": 2000,
+    "capacityPauseMs": 15000,
+    "thresholds": [0.9, 0.95, 0.99],
+    "datasetHash": "7ac2e1f819ad2f700521a85512bb9fd80639156c39b0db1f492dd6687f1cd69b",
+    "groups": {
+      "application": 80
+    },
+    "restrictions": [
+      "Synthetic data only",
+      "Candidate commands never executed",
+      "No automatic retries or model/provider fallback",
+      "Record capacity failures and continue independent cases after a pause",
+      "Stop on other HTTP/transport failures or nonzero/missing cost",
+      "Thresholds are exploratory and uncalibrated"
+    ],
+    "pendingRequestCount": 1
+  }
+}
