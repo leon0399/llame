@@ -1,0 +1,116 @@
+## Context
+
+See proposal.md for motivation. Inspected at master `6fc747af` with `ai@6.0.256`.
+
+- Every production wire client assembles `streamText` options itself and shares `applyToolCallingOptions` for the tool loop (`openai-model-client.ts:88-123`; called from the Responses client, which also serves `openai-codex`, from `openai-completions-model-client.ts:338`, which `opencode-go` delegates to, and from `anthropic-model-client.ts:361`). `ModelStreamInput.onFinish` exposes only `usage` (`model-client.ts:144-148`), which the SDK sets to `finalStep.usage`; the SDK's separate `totalUsage` is not forwarded.
+- The SDK holds each provider response's `finish` part, the part that carries its usage, until every tool call of that step has produced a result (`outstandingToolResults`, `ai/dist/index.mjs:6698-6749`). `onStepFinish` therefore fires only after the step's tools finish. `totalUsage` is built with `addTokenCounts`, which turns a missing count into 0 once any step reports one (`:2697`), and is delivered only to `onFinish`, which never runs on the error path.
+- `RunExecutionService` builds telemetry in three terminal places: `onFinish` (`run-execution.service.ts:1397-1421`), `onError` with hardcoded `usage: null` (`:1313`), and parent-abort settlement, which passes no telemetry at all (`settleToolsOnParentAbort`, `:1131-1173`, #594). `finishRun` appends `model.completed` only when the caller supplies it (`:2057-2060`), and the stream bridge emits usage metadata only from that event (`run-stream-bridge.ts:274-291`). Pre-model aborts (`settleAbortedRun`, `:625`, `:713`, `:735`, `:1576`) make no model request.
+- Compaction receives `lastTurnTotalTokens: telemetry.totalTokens` (`:1558`) and uses it as measured context (`compaction.ts:299`), falling back to an estimate when it is not a positive number.
+- Each attempt that reaches prompt preparation writes a `system_prompt_receipts` row before its first model call (`:2713-2744`). The unique index `(owner_user_id, run_id, attempt_id)` serves an owner-and-Run lookup; `findByOwnedRun` already exists (`system-prompt-receipts.repository.ts:14-81`).
+- `messages.usage` is untyped JSONB returned as `UnknownRecord` (`chats.dto.ts:568`, `:597`). Persisted tool activity uses `tool-<name>` part types (`tool-observation-part.ts:16-18`). The web parser already tolerates missing numeric fields (`message-usage.tsx:76-132`).
+
+Prior art, all separating per-request receipts from the context signal: OMP and pi record usage per assistant response and sum records for session totals, while compaction reads the last valid response and pi skips errored, aborted and all-zero usage (`earendil-works/pi@d5629e2`, `packages/coding-agent/src/core/compaction/compaction.ts:123-155`). Codex keeps `TokenUsageInfo { total_token_usage, last_token_usage }` (`openai/codex@3d64285`, `codex-rs/protocol/src/protocol.rs:2240-2340`). OpenClaw derives context prompt tokens from the last call and keeps an aggregate for diagnostics (`openclaw/openclaw@0ef73eb`, `src/agents/usage.ts:450-503`). OpenCode sums cost per step but overwrites message tokens per step (`anomalyco/opencode@0f54984`, `packages/opencode/src/session/processor.ts:421-461`); this change avoids that mixed meaning.
+
+## Goals / Non-Goals
+
+**Goals:** one per-request receipt stream feeding every terminal path; one aggregation function; the compaction signal read from the same receipts; no new table, column, index, or event type.
+
+**Non-Goals:** a durable per-request record (#170 decides that storage); exact accounting across reclaimed attempts; changes to compaction usage records.
+
+## Decisions
+
+### M1: Receipts are observed at the provider stream
+
+A shared helper beside `applyToolCallingOptions` wraps `streamOptions.model` with the SDK's `wrapLanguageModel` when the caller supplies a new `ModelStreamInput.onRequestUsage` callback. Its `wrapStream` transform passes every part through unchanged and, on each provider `finish` part, converts the provider usage to `LanguageModelUsage` and calls `onRequestUsage` once per model request. All three wire clients call the helper; the test clients call it too, so harness Runs exercise the same path.
+
+Alternatives:
+
+- `onFinish.totalUsage`: rejected. It is missing on error and abort, and it turns unreported steps into zeros (see Context).
+- `onStepFinish`: rejected. The SDK holds the step's finish until its tools complete, so cancelling during a tool call (#594's main case) would lose the usage of the request that asked for the tool, even though the provider has already reported it.
+- Reading `steps` from `onAbort` or `onError`: rejected. The error callback carries no steps, and abort steps exclude the held finish.
+
+The SDK does not export its V3-to-`LanguageModelUsage` conversion, so the helper maps the documented V3 fields itself (input total and cache read/write, output total and reasoning). A test drives one multi-request stream through a scripted provider and requires the helper's receipts to equal the SDK's own per-step usage. That test fails on any SDK upgrade that changes the mapping, including #882.
+
+### M2: Aggregation stays in `turn-telemetry.ts`
+
+`buildTurnTelemetry` remains the per-request normalizer and pricer. A new `aggregateTurnTelemetry(receipts, context)` normalizes and prices each receipt, sums the results, derives `complete` and `reasoningTokens` by the spec's rules, and omits the token fields when no receipt carried an input or output count. Cost follows pricing first: `costUsd` is `null` whenever pricing is absent, whatever was reported; on a priced model it is the sum of per-request costs, or omitted when no receipt carried an input or output count. `finishReason` comes from the final request and `latencyMs` from the attempt clock, as today. The persisted assistant shape is `TurnTelemetry` with optional token and cost fields plus `complete` and `billing`. Compaction usage keeps its current shape plus `billing` (M9) and carries no `complete`.
+
+The aggregate `costUsd` is re-rounded to the same 1e-12 precision `calculateCostUsd` applies per request (`turn-telemetry.ts:185`), so summing doubles adds no floating-point residue.
+
+Alternative: pricing the summed buckets once. Rejected because per-request bounding of cache subsets would no longer hold; summed per-request costs keep each request priced as it would be alone.
+
+### M3: One accumulator per attempt, read by every terminal path
+
+The Run's streaming closure owns an ordered receipt array filled by `onRequestUsage`. `onFinish`, `onError`, parent-abort settlement, and both progress-write-failure settlements (`:1150`, `:1167`, `:1929`) build telemetry from it. Parent-abort settlement starts passing telemetry to `settleTerminalRun`, which already forwards it to `finishRun`. Pre-model abort paths stay unchanged because no request was made. Only the `completed` status can produce `complete: true`; every other terminal status yields `false` (spec: completeness). The `ModelStreamInput.onFinish` event also gains the SDK's step count, and a completed attempt with fewer receipts than steps is marked incomplete, so a provider response that ended without a `finish` part is not silently counted as complete.
+
+Three writers persist an attempt's telemetry: the winning terminal transaction (`finishRunInTransaction`, `:2031-2078`), the lost-finish path that still persists after another writer expired the Run (`handleLostFinish`, `:2084-2103`), and the standalone salvage after a rolled-back terminal transaction (`salvageAssistantMessage`, `:2244-2263`). All three pass through M4's finalization. Settlements that run outside an executing attempt (dead-letter expiry in `runs-worker.service.ts:139-151`, native-effect recovery at `:611-620`, cancellation before an attempt starts in `runs-worker.service.ts:294-303`) have no receipts and keep persisting no usage.
+
+The parent-abort path changes what its turn records: today it persists `usage: null`, which `isCompletedAssistantTurn` treats as complete and therefore immutable conversation evidence (`assistant-completion.ts:4-20`). With telemetry it records status `aborted`, the same as a cancellation through `onError`, so it becomes retryable and is excluded from evidence like every other cancelled turn.
+
+### M4: Usage finalization inside the writing transaction
+
+One finalization step runs before anything telemetry-bearing is written: in `finishRunInTransaction` before `model.completed` is appended (`:2058-2060`), in `handleLostFinish` before its persist, and inside the salvage transaction. Within the owner-scoped transaction it reads the Run's receipts through `findByOwnedRun` and the existing assistant reply through `findTurnState`. It sets `complete: false` when any receipt belongs to a different attempt, when the Run's recorded status is not `completed`, or when the existing reply that the persist would replace already records usage (`persistAssistantMessage` replaces non-completed replies, `:2375-2386`). The same finalized object becomes both the `model.completed` payload and the persisted usage, so live and reload cannot diverge. The receipt read uses the existing unique index prefix; receipts of other Runs or owners are unreachable under RLS and the Run predicate. Replacing an earlier reply keeps today's replacement semantics and does not carry the replaced spend forward; exact accounting for replaced replies is #170's ledger.
+
+### M5: Live usage reuses `model.completed`
+
+Every terminal path on which the attempt wins the terminal transaction passes `modelCompleted: { finishReason, telemetry }`, so the event is appended in the same transaction before the terminal event. The order `model.completed` → `run.failed` already exists (`run-execution.service.test.ts:3007-3009`). Lost-finish and salvage writes happen after or outside the terminal transaction and publish nothing; their usage appears on reload. The bridge is unchanged. The web SDK deep-merges message metadata (`apps/web/node_modules/ai/dist/index.mjs:1250-1283`, `:5891-5905`), so replay stays idempotent only because each Run appends at most one `model.completed` and each stream builds a fresh live message; no design relies on a later metadata chunk removing a field.
+
+### M6: The compaction signal is the final receipt
+
+`maybeCompact`'s `lastTurnTotalTokens` is renamed to `lastRequestTokens` through LSP. The completed path passes the final receipt's normalized input plus output, or `undefined` when that receipt lacks counts, which keeps the existing estimate fallback. Compaction still runs only for completed Runs.
+
+### M7: Historical marker migration
+
+A hand-authored custom Drizzle migration follows `apps/api/src/db/AGENTS.md`: a leading SQL comment giving its purpose, why generation cannot emit it, and why a rerun is safe; `NO FORCE ROW LEVEL SECURITY` on `messages` and `system_prompt_receipts` around the update, then `FORCE` restored, as in `20260914091147_great_iron_patriot.sql`. For assistant rows whose usage is a JSON object without a `complete` key, it sets `complete` to `false` when `parts` contains a part whose `type` starts with `tool-` (`TOOL_PART_PREFIX`, `tool-observation-part.ts:16-18`), when `usage->>'status'` is distinct from `completed`, or when `system_prompt_receipts` holds more than one distinct `attempt_id` for the Run named by `usage->>'runId'` (compared as text, so a malformed id matches nothing rather than failing the cast), and to `true` otherwise. The `WHERE NOT (usage ? 'complete')` guard makes a rerun a no-op; null usage is untouched. The migration test seeds an existing ledger before applying it, per the Drizzle timestamp lesson recorded for this repository.
+
+### M8: Web display
+
+`parseTurnUsage` reads `complete` and `billing`. Token totals and cost render with `≥` when `complete` is false, and the hover card adds one cause-neutral explanation row ("Recorded usage may not cover all of this Run's spend"), because completeness is lost for several reasons (a missing report, a cancellation, a reclaim, a replaced reply) and the record keeps no reason. Reasoning moves under Output as `of which reasoning`, with `—` when absent. An absent value renders as unavailable, a `null` cost keeps its current unpriced treatment, and complete usage renders as today. When `billing` is `subscription`, the cost row is labeled as a notional cost, its value uses the design system's muted foreground with a line-through, and its accessible name says the cost was not billed. The `≥` prefix stays inside the struck value. `usage` or absent billing renders as today.
+
+### M9: Billing mode is resolved with pricing and stamped by the telemetry builder
+
+The config loader accepts an optional `billing` enum on provider and model entries in the published JSON Schema. The model catalog resolves each executable model's mode once at startup (model value, then provider value, then type default: `subscription` for `openai-codex` and `opencode-go`, `usage` otherwise) and exposes it on the model client as `billing`, next to the existing `pricing`. `buildTurnTelemetry` takes that mode as an input, so assistant usage (through M2) and compaction usage (both compaction paths already pass the client's pricing) record it without any separate write path. The mode is not added to the `GET /api/v1/models` projection.
+
+Alternatives:
+
+- Deciding the mode at display time from current configuration, as oh-my-pi does from the selected model's OAuth credential (`can1357/oh-my-pi@5fccbd0`, `packages/tui/src/status-line/segments.ts:557-598`). Rejected: a configuration change or model switch relabels past spend, which breaks the receipt rule already applied to `costUsd` and effort.
+- Deriving the mode from credential type. Rejected: `opencode-go` is a subscription behind a plain key, the same case pi hardcodes for `kimi-coding` (`badlogic/pi-mono@c7cdb46`, `packages/coding-agent/src/modes/interactive/components/footer.ts:142-155`).
+- A boolean flag. Rejected: an enum admits a later mode, such as prepaid credits, without migrating stored records.
+
+## Risks / Trade-offs
+
+- [Mapping drift: the helper's V3 conversion diverges from the SDK after an upgrade] → the equality test in M1 fails on upgrade.
+- [A provider stream ends a billed request without a `finish` part] → it produces no receipt; the step-count check in M3 marks a completed attempt incomplete, and every other terminal status already is.
+- [Usage of a replaced earlier reply is dropped] → the replacing usage is marked incomplete (M4); keeping the replaced spend needs #170.
+- [Settlements outside an executing attempt persist a turn with no usage although earlier attempts spent tokens] → unchanged from today; #170's receipts are the fix.
+- [The #594 turn becomes retryable and leaves conversation evidence] → intended, since it matches every other cancelled turn; covered by a test in task 1.4.
+- [Reclaimed attempts' spend is lost] → marked incomplete; exact recovery waits for #170's receipts.
+- [A reclaimed Run aborted before its first request records no usage although an earlier attempt spent tokens] → accepted; it matches today's pre-model behavior and needs #170.
+- [Compaction signal overestimate after a large in-loop tool read] → existing behavior, unchanged and out of scope.
+- [Historical error rows keep fabricated zeros] → marked incomplete, so they render as `≥ 0`, never as exact.
+
+## Migration Plan
+
+The API layer ships the migration and the new writer together. Deployment is stop, migrate, start: every API and worker process on the old revision is stopped before the migration runs, so no old writer can add an unmarked row after the marker. llame's Run recovery already tolerates a full stop (reclaim after restart), and the Codex runbook already requires stopping every process for re-login. Rollback: older code ignores the `complete` and `billing` keys and the optional-absent fields render as unavailable in the current web; an older loader rejects a config that declares `billing`, so remove the key before rolling back. The migration is data-only and not reversed on rollback, because the key changes no existing value. Rows written by old code during a rollback carry no `complete` and are not re-marked when the new revision returns, since the journaled migration does not rerun; they render as unmarked historical usage, the same as before this change. If that residue matters after a real rollback, a second marker migration with the same guard covers it. Historical records get no `billing`, since SQL cannot read the configuration that would decide it. Leo's running instance keeps all chats.
+
+Ownership: the linear stack in tasks.md serializes work; each layer has one owner and no parallel edits to shared files.
+
+## Revision history
+
+- v4 (2026-09-24): GitHub review of `f8d4ec77`.
+  - Cost precedence for unpriced models with no reports.
+  - Status `error` in the failure scenario.
+  - Cause-neutral incompleteness wording.
+  - Historical reclaimed Runs marked incomplete through prompt receipts.
+  - Stop-migrate-start deployment and rollback residue stated.
+  - D2 aligned with the spec, and one term for tool-call parts.
+- v3 (2026-09-24): review round 1, with two independent reviewers.
+  - Moved reclaim finalization ahead of the `model.completed` append and applied it to lost-finish and salvage writes.
+  - Replaced the false "later settlement never overwrites" claim with incompleteness on replacement.
+  - Scoped live publication to winning terminal transactions.
+  - Exempted settlements outside an executing attempt.
+  - Recorded the #594 retryability change.
+  - Corrected the metadata-merge claim, added cost re-rounding, and modified the instance-config provider list for `billing`.
+  - Added missing checks: the compaction fallback, non-completed compaction, invalid billing value types, `createFakeModelClient` wiring, and JSONB equality in the migration test.
+- v2 (2026-09-24): billing mode added (#959).
+- v1 (2026-09-24): initial proposal.
