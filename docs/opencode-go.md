@@ -197,8 +197,9 @@ for the cap you are planning against rather than any published table.
 `pricingUsdPer1M` is optional here, and the shipped example declares none, so
 completed runs record provider-reported usage and latency with `costUsd: null`.
 When declared, llame calculates cost from provider-reported usage at those
-rates. A subscription model's calculated cost is recorded and displayed as a
-not-billed notional cost; billing mode never changes the calculation.
+rates. Each usage record stamps its resolved `billing` value at write time; a
+record stamped `billing: "subscription"` marks the calculated cost as notional,
+not billed per token. Billing mode never changes the calculation.
 
 `opencode-go` defaults to `billing: "subscription"`. `billing` accepts
 `"usage"` or `"subscription"` on the provider or model, resolved model first,

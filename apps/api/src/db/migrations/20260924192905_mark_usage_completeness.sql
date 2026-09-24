@@ -4,6 +4,12 @@
 -- existing keys and values.
 ALTER TABLE "messages" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "system_prompt_receipts" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+WITH reclaimed AS MATERIALIZED (
+  SELECT receipt."run_id"::text AS "run_id"
+  FROM "system_prompt_receipts" AS receipt
+  GROUP BY receipt."run_id"
+  HAVING COUNT(DISTINCT receipt."attempt_id") > 1
+)
 UPDATE "messages" AS message
 SET "usage" = message."usage" || jsonb_build_object(
   'complete',
@@ -11,13 +17,18 @@ SET "usage" = message."usage" || jsonb_build_object(
     WHEN message."usage"->>'status' IS DISTINCT FROM 'completed'
       OR EXISTS (
         SELECT 1
-        FROM jsonb_array_elements(message."parts") AS part(value)
+        FROM jsonb_array_elements(
+          CASE
+            WHEN jsonb_typeof(message."parts") = 'array'
+              THEN message."parts"
+            ELSE '[]'::jsonb
+          END
+        ) AS part(value)
         WHERE part.value->>'type' LIKE 'tool-%'
       )
-      OR (
-        SELECT COUNT(DISTINCT receipt."attempt_id") > 1
-        FROM "system_prompt_receipts" AS receipt
-        WHERE receipt."run_id"::text = message."usage"->>'runId'
+      OR message."usage"->>'runId' IN (
+        SELECT reclaimed."run_id"
+        FROM reclaimed
       )
     THEN false
     ELSE true

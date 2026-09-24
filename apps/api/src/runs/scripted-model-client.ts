@@ -14,7 +14,7 @@ import type {
   LanguageModelV3StreamPart,
   LanguageModelV3ToolResultOutput,
 } from '@ai-sdk/provider';
-import { streamText as sdkStreamText } from 'ai';
+import { stepCountIs, streamText as sdkStreamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
@@ -29,10 +29,7 @@ import {
   trackAbortSettlement,
 } from '../testing/fake-streaming-model-client';
 import type { ModelClient, ModelStreamInput } from '../models/model-client';
-import {
-  resolveHarnessStreamOptions,
-  scriptedStreamHandlers,
-} from './scripted-model-stream-options';
+import { scriptedStreamHandlers } from './scripted-model-stream-options';
 
 const PROVIDER_ZERO_USAGE = {
   inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
@@ -485,7 +482,14 @@ class HarnessModelClient implements ModelClient {
       messages: input.messages,
       system: input.system,
       abortSignal: input.abortSignal,
-      ...resolveHarnessStreamOptions(input, behavior),
+      ...(input.tools && {
+        tools: input.tools,
+        ...(input.toolChoice !== undefined && { toolChoice: input.toolChoice }),
+        ...((behavior.kind === 'conversation-recall' ||
+          behavior.kind === 'tool-script') && {
+          stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
+        }),
+      }),
       ...scriptedStreamHandlers(input, settlement),
     };
     applyRequestUsageCallback(streamOptions, input);

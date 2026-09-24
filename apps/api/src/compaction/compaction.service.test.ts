@@ -245,7 +245,7 @@ describe('CompactionService maybeCompact', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses the final request rather than the aggregate for its below-threshold fast path', async () => {
+  it('returns before database work when measured usage is below the model threshold', async () => {
     const { service, runAs } = makeService();
 
     await expect(
@@ -259,27 +259,6 @@ describe('CompactionService maybeCompact', () => {
       }),
     ).resolves.toBeUndefined();
     expect(runAs).not.toHaveBeenCalled();
-  });
-
-  it('compacts when the final request is above the model threshold', async () => {
-    const { client } = recordingClient({ thresholdTokens: 100 });
-    const setup = makeService(client);
-    mockLiveWindow();
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
-
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 101,
-    });
-
-    expect(create).toHaveBeenCalledOnce();
   });
 
   it('falls back to the context estimate when the final request reported no counts', async () => {

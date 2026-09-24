@@ -1,12 +1,10 @@
 /**
- * Exercises the historical usage marker through Drizzle's migrator against an
- * isolated schema seeded at the migration immediately before this one.
+ * Exercises the hand-authored usage marker against isolated FORCE-RLS tables,
+ * applying only this migration's statements.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres, { type JSONValue, type Sql } from 'postgres';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -17,12 +15,10 @@ if (!TEST_DB_URL) {
 }
 
 type SqlClient = Sql;
-type MigrationEntry = { tag: string; when: number };
-type MigrationJournal = { entries: Array<MigrationEntry> };
 
 type HistoricalRow = {
   id: string;
-  parts: Array<JSONValue>;
+  parts: JSONValue;
   usage: Record<string, JSONValue> | null;
   expectedComplete: boolean | null;
 };
@@ -35,49 +31,18 @@ type MarkedRow = {
   usageIsNull: boolean;
 };
 
-const MIGRATION_TAG = '20260924192905_mark_usage_completeness';
-const MIGRATIONS_FOLDER = path.resolve(__dirname, 'migrations');
+const migrationStatements = readFileSync(
+  path.join(
+    __dirname,
+    'migrations',
+    '20260924192905_mark_usage_completeness.sql',
+  ),
+  'utf8',
+)
+  .split('--> statement-breakpoint')
+  .map((statement) => statement.trim())
+  .filter(Boolean);
 const schemaName = `usage_completeness_${crypto.randomUUID().replaceAll('-', '')}`;
-
-function isMigrationEntry(value: unknown): value is MigrationEntry {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'tag' in value &&
-    typeof value.tag === 'string' &&
-    'when' in value &&
-    typeof value.when === 'number'
-  );
-}
-
-function isMigrationJournal(value: unknown): value is MigrationJournal {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'entries' in value &&
-    Array.isArray(value.entries) &&
-    value.entries.every(isMigrationEntry)
-  );
-}
-function migrationStamps() {
-  const parsedJournal: unknown = JSON.parse(
-    readFileSync(path.join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8'),
-  );
-  if (!isMigrationJournal(parsedJournal)) {
-    throw new Error('Migration journal has an invalid shape');
-  }
-  const index = parsedJournal.entries.findIndex(
-    (entry) => entry.tag === MIGRATION_TAG,
-  );
-  const current = parsedJournal.entries[index];
-  const previous = parsedJournal.entries[index - 1];
-  if (!current || !previous) {
-    throw new Error(
-      `Migration journal is missing ${MIGRATION_TAG} or its predecessor`,
-    );
-  }
-  return { previous: previous.when, current: current.when };
-}
 
 describe('historical usage completeness migration', () => {
   let sql: SqlClient;
@@ -108,11 +73,6 @@ describe('historical usage completeness migration', () => {
         message_id uuid PRIMARY KEY,
         usage jsonb
       );
-      CREATE TABLE "${schemaName}"."__drizzle_migrations" (
-        id serial PRIMARY KEY,
-        hash text NOT NULL,
-        created_at bigint
-      );
       ALTER TABLE "${schemaName}"."messages" ENABLE ROW LEVEL SECURITY;
       CREATE POLICY messages_migration_test_deny
         ON "${schemaName}"."messages" USING (false) WITH CHECK (false);
@@ -130,7 +90,6 @@ describe('historical usage completeness migration', () => {
   });
 
   it('marks historical usage without changing its existing JSONB values and is safe to rerun', async () => {
-    const stamps = migrationStamps();
     const reclaimedRunId = crypto.randomUUID();
     const rows = [
       {
@@ -160,6 +119,18 @@ describe('historical usage completeness migration', () => {
           outputTokens: 14,
           totalTokens: 94,
           costUsd: 0.00017,
+        },
+        expectedComplete: true,
+      },
+      {
+        id: crypto.randomUUID(),
+        parts: { type: 'tool-search' },
+        usage: {
+          runId: crypto.randomUUID(),
+          status: 'completed',
+          inputTokens: 51,
+          outputTokens: 7,
+          totalTokens: 58,
         },
         expectedComplete: true,
       },
@@ -220,15 +191,11 @@ describe('historical usage completeness migration', () => {
       },
     ] satisfies Array<HistoricalRow>;
 
-    const migrationsSchema = sql(schemaName);
-    await sql`
-      INSERT INTO ${migrationsSchema}.__drizzle_migrations (hash, created_at)
-      VALUES ('pre-existing-migration-ledger', ${stamps.previous})
-    `;
+    const testSchema = sql(schemaName);
 
     for (const row of rows) {
       await sql`
-        INSERT INTO ${migrationsSchema}.messages (id, role, parts, usage)
+        INSERT INTO ${testSchema}.messages (id, role, parts, usage)
         VALUES (
           ${row.id}::uuid,
           'assistant',
@@ -237,7 +204,7 @@ describe('historical usage completeness migration', () => {
         )
       `;
       await sql`
-        INSERT INTO ${migrationsSchema}.usage_baselines (message_id, usage)
+        INSERT INTO ${testSchema}.usage_baselines (message_id, usage)
         VALUES (
           ${row.id}::uuid,
           ${row.usage === null ? null : sql.json(row.usage)}
@@ -248,7 +215,7 @@ describe('historical usage completeness migration', () => {
     const firstAttemptId = crypto.randomUUID();
     const secondAttemptId = crypto.randomUUID();
     await sql`
-      INSERT INTO ${migrationsSchema}.system_prompt_receipts (run_id, attempt_id)
+      INSERT INTO ${testSchema}.system_prompt_receipts (run_id, attempt_id)
       VALUES
         (${reclaimedRunId}::uuid, ${firstAttemptId}::uuid),
         (${reclaimedRunId}::uuid, ${secondAttemptId}::uuid)
@@ -258,19 +225,7 @@ describe('historical usage completeness migration', () => {
       ALTER TABLE "${schemaName}"."system_prompt_receipts" FORCE ROW LEVEL SECURITY;
     `);
 
-    const migrationConfig = {
-      migrationsFolder: MIGRATIONS_FOLDER,
-      migrationsSchema: schemaName,
-      migrationsTable: '__drizzle_migrations',
-    };
-    await migrate(drizzle(sql), migrationConfig);
-    const latestLedgerRow = await sql`
-      SELECT created_at::text AS created_at
-      FROM ${migrationsSchema}.__drizzle_migrations
-      ORDER BY created_at DESC
-      LIMIT 1
-    `;
-    expect(latestLedgerRow).toEqual([{ created_at: String(stamps.current) }]);
+    await applyUsageCompletenessMigration(sql);
 
     const rlsState = await sql`
       SELECT c.relname, c.relforcerowsecurity
@@ -303,13 +258,7 @@ describe('historical usage completeness migration', () => {
       }
     }
 
-    // Rewind only the isolated ledger to the preceding migration, simulating
-    // an already-applied SQL file whose ledger stamp needs to be retried.
-    await sql`
-      DELETE FROM ${migrationsSchema}.__drizzle_migrations
-      WHERE created_at = ${stamps.current}
-    `;
-    await migrate(drizzle(sql), migrationConfig);
+    await applyUsageCompletenessMigration(sql);
 
     const secondRlsState = await sql`
       SELECT c.relname, c.relforcerowsecurity
@@ -324,6 +273,13 @@ describe('historical usage completeness migration', () => {
     expect(secondApplication).toEqual(firstApplication);
   });
 });
+async function applyUsageCompletenessMigration(sql: SqlClient): Promise<void> {
+  await sql.begin(async (tx) => {
+    for (const statement of migrationStatements) {
+      await tx.unsafe(statement);
+    }
+  });
+}
 
 async function readMarkedRows(sql: SqlClient): Promise<Array<MarkedRow>> {
   const schema = sql(schemaName);

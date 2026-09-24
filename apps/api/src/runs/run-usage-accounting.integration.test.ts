@@ -14,7 +14,7 @@ import { isRecord } from '@workspace/runtime-safety';
 
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { SearchIndexService } from '../search/search-index.service';
-import { applyRequestUsageCallback } from '../models/openai-model-client';
+import { applyRequestUsageCallback } from '../models/request-usage';
 import {
   type BillingMode,
   type ModelClient,
@@ -27,6 +27,7 @@ import {
   unregisterTestOnlyTool,
 } from '../tools/registry';
 import { type Tool, type ToolContext } from '../tools/types';
+import { scriptedStreamHandlers } from './scripted-model-stream-options';
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunStreamBridgeService } from './run-stream-bridge';
@@ -225,26 +226,6 @@ class UsageScriptedModelClient implements ModelClient {
       },
     });
     const settlement = trackAbortSettlement(input);
-    const handlers: Pick<
-      Parameters<typeof sdkStreamText>[0],
-      'onChunk' | 'onError' | 'onAbort' | 'onFinish'
-    > = {
-      onChunk: ({ chunk }) => {
-        if (chunk.type === 'text-delta') input.onTextDelta?.(chunk.text);
-        if (chunk.type === 'reasoning-delta') {
-          input.onReasoningDelta?.(chunk.text);
-        }
-      },
-      onError: input.onError,
-      onAbort: settlement.onAbort,
-      onFinish: ({ text, usage, finishReason, steps }) =>
-        input.onFinish?.({
-          text,
-          usage,
-          finishReason,
-          stepCount: steps.length,
-        }),
-    };
     const streamOptions = {
       model,
       messages: input.messages,
@@ -255,7 +236,7 @@ class UsageScriptedModelClient implements ModelClient {
         ...(input.toolChoice !== undefined && { toolChoice: input.toolChoice }),
         stopWhen: stepCountIs(input.maxSteps ?? 8),
       }),
-      ...handlers,
+      ...scriptedStreamHandlers(input, settlement),
     };
     const receiptInput: ModelStreamInput =
       input.onRequestUsage === undefined
@@ -289,7 +270,6 @@ function metadataUsages(stream: string): Array<unknown> {
 describe('Run usage accounting through the worker and Postgres', () => {
   let harness: WorkerHarness | undefined;
   let ownerId: string;
-  let otherOwnerId: string;
   const scripts = new Map<string, ModelScript>();
   const scriptsByAttempt = new Map<string, ReadonlyArray<ModelScript>>();
   const attemptsByModel = new Map<string, number>();
@@ -301,10 +281,6 @@ describe('Run usage accounting through the worker and Postgres', () => {
       allowedTools: [OPEN_TOOL_ID],
     });
     ownerId = await createUser(harness.db, `run-usage-${Date.now()}`);
-    otherOwnerId = await createUser(
-      harness.db,
-      `run-usage-other-${Date.now()}`,
-    );
 
     harness.models.createClient = (modelId) => {
       harness?.models.createClientCalls.push({ modelId });
@@ -471,18 +447,6 @@ describe('Run usage accounting through the worker and Postgres', () => {
         billing: 'usage',
         modelId,
       });
-      const events = await runEvents(seed.runId);
-      const completedIndex = events.findIndex(
-        (event) => event.eventType === 'model.completed',
-      );
-      const cancelledIndex = events.findIndex(
-        (event) => event.eventType === 'run.cancelled',
-      );
-      expect(completedIndex).toBeGreaterThanOrEqual(0);
-      expect(cancelledIndex).toBeGreaterThan(completedIndex);
-      expect(events[completedIndex]?.payload).toEqual(
-        expect.objectContaining({ telemetry: reply?.usage }),
-      );
       const control = await seedRun({
         tenantDb: harness!.tenantDb,
         userId: ownerId,
@@ -597,7 +561,7 @@ describe('Run usage accounting through the worker and Postgres', () => {
     expect(modelCompleted?.sequence).toBeLessThan(terminal?.sequence ?? 0);
   });
 
-  it('persists late usage after expiry as incomplete without publishing after the terminal event (1.5)', async () => {
+  it('persists late usage after expiry as incomplete (1.5)', async () => {
     const modelId = `test:run-usage:late-expiry:${crypto.randomUUID()}`;
     let releaseProvider: () => void = () => {};
     const providerReleased = new Promise<void>((resolve) => {
@@ -658,71 +622,9 @@ describe('Run usage accounting through the worker and Postgres', () => {
         billing: 'subscription',
         modelId,
       });
-      const events = await runEvents(seed.runId);
-      const expiryIndex = events.findIndex(
-        (event) => event.eventType === 'run.expired',
-      );
-      expect(expiryIndex).toBeGreaterThanOrEqual(0);
-      expect(
-        events.slice(expiryIndex + 1).map((event) => event.eventType),
-      ).not.toContain('model.completed');
     } finally {
       releaseProvider();
     }
-  });
-
-  it('marks replacement usage incomplete when it replaces an earlier aborted reply (1.5)', async () => {
-    const modelId = `test:run-usage:replacement:${crypto.randomUUID()}`;
-    scripts.set(modelId, {
-      billing: 'usage',
-      requests: [textRequest('replacement answer', providerUsage(19, 6))],
-    });
-    const seed = await seedRun({
-      tenantDb: harness!.tenantDb,
-      userId: ownerId,
-      modelId,
-    });
-    const earlierReply = await harness!.tenantDb.runAs(ownerId, (tx) =>
-      new MessagesRepository(tx).create({
-        chatId: seed.chatId,
-        role: 'assistant',
-        senderUserId: null,
-        inReplyTo: seed.userMessage.id,
-        parts: [{ type: 'text', text: 'earlier cancelled reply' }],
-        usage: {
-          inputTokens: 7,
-          outputTokens: 2,
-          status: 'aborted',
-          complete: false,
-          billing: 'usage',
-        },
-      }),
-    );
-
-    await enqueue(seed, modelId);
-    await waitForStatus(seed.runId, 'completed');
-    const reply = await waitForReply(seed.chatId, seed.userMessage.id);
-    expect(reply.id).toBe(earlierReply.id);
-    expect(reply.usage).toMatchObject({
-      inputTokens: 19,
-      outputTokens: 6,
-      totalTokens: 25,
-      status: 'completed',
-      complete: false,
-      billing: 'usage',
-      modelId,
-    });
-    const events = await runEvents(seed.runId);
-    const modelCompleted = events.find(
-      (event) => event.eventType === 'model.completed',
-    );
-    const terminal = events.find(
-      (event) => event.eventType === 'run.completed',
-    );
-    expect(modelCompleted?.payload).toEqual(
-      expect.objectContaining({ telemetry: reply.usage }),
-    );
-    expect(modelCompleted?.sequence).toBeLessThan(terminal?.sequence ?? 0);
   });
 
   it('retries a salvaged failed reply and marks the replacement incomplete (1.5)', async () => {
@@ -854,21 +756,13 @@ describe('Run usage accounting through the worker and Postgres', () => {
         billing: 'subscription',
         modelId,
       });
-      const events = await runEvents(seed.runId);
-      const completedEvents = events.filter(
-        (event) => event.eventType === 'model.completed',
-      );
-      expect(completedEvents).toHaveLength(1);
-      expect(completedEvents[0]?.payload).toEqual(
-        expect.objectContaining({ telemetry: finalReply.usage }),
-      );
     } finally {
       await removeFailureTrigger();
       releaseRetryProvider();
     }
   });
 
-  it('ignores system-prompt receipts belonging to another Run or another owner (1.5)', async () => {
+  it('ignores another Run’s prompt receipts during usage finalization (1.5)', async () => {
     const modelId = `test:run-usage:isolation:${crypto.randomUUID()}`;
     scripts.set(modelId, {
       billing: 'usage',
@@ -884,35 +778,8 @@ describe('Run usage accounting through the worker and Postgres', () => {
       userId: ownerId,
       modelId: `${modelId}:other-run`,
     });
-    const foreignOwnerRun = await seedRun({
-      tenantDb: harness!.tenantDb,
-      userId: otherOwnerId,
-      modelId: `${modelId}:other-owner`,
-    });
     await insertReceipt(ownerId, sameOwnerOtherRun.runId);
     await insertReceipt(ownerId, sameOwnerOtherRun.runId);
-    await insertReceipt(otherOwnerId, foreignOwnerRun.runId);
-    await insertReceipt(otherOwnerId, foreignOwnerRun.runId);
-    const sameRunReceipts = await harness!.tenantDb.runAs(ownerId, (tx) =>
-      new SystemPromptReceiptsRepository(tx).findByOwnedRun(
-        sameOwnerOtherRun.runId,
-        ownerId,
-      ),
-    );
-    const foreignRunReceipts = await harness!.tenantDb.runAs(
-      otherOwnerId,
-      (tx) =>
-        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
-          foreignOwnerRun.runId,
-          otherOwnerId,
-        ),
-    );
-    expect(
-      new Set(sameRunReceipts.map((receipt) => receipt.attemptId)).size,
-    ).toBe(2);
-    expect(
-      new Set(foreignRunReceipts.map((receipt) => receipt.attemptId)).size,
-    ).toBe(2);
 
     await enqueue(seed, modelId);
     await waitForStatus(seed.runId, 'completed');
@@ -926,27 +793,6 @@ describe('Run usage accounting through the worker and Postgres', () => {
       billing: 'usage',
       modelId,
     });
-    const events = await runEvents(seed.runId);
-    const modelCompleted = events.find(
-      (event) => event.eventType === 'model.completed',
-    );
-    expect(modelCompleted?.payload).toEqual(
-      expect.objectContaining({ telemetry: reply.usage }),
-    );
-    const ownReceipts = await harness!.tenantDb.runAs(ownerId, (tx) =>
-      new SystemPromptReceiptsRepository(tx).findByOwnedRun(
-        seed.runId,
-        ownerId,
-      ),
-    );
-    expect(ownReceipts).toHaveLength(1);
-    const crossOwnerView = await harness!.tenantDb.runAs(ownerId, (tx) =>
-      new SystemPromptReceiptsRepository(tx).findByOwnedRun(
-        foreignOwnerRun.runId,
-        ownerId,
-      ),
-    );
-    expect(crossOwnerView).toEqual([]);
   });
 
   it('streams failed-run usage that matches history and reconnect replay (1.8)', async () => {

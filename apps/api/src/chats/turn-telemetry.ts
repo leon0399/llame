@@ -204,11 +204,11 @@ function addReceiptTelemetry(
   receipt: LanguageModelUsage,
   input: AggregateTurnTelemetryInput,
 ): void {
-  const receiptHasCounts =
-    optionalTokenCount(receipt.inputTokens) !== undefined ||
+  const hasInputTokens = optionalTokenCount(receipt.inputTokens) !== undefined;
+  const hasOutputTokens =
     optionalTokenCount(receipt.outputTokens) !== undefined;
-  totals.hasReportedCounts ||= receiptHasCounts;
-  totals.everyReceiptHasCounts &&= receiptHasCounts;
+  totals.hasReportedCounts ||= hasInputTokens || hasOutputTokens;
+  totals.everyReceiptHasCounts &&= hasInputTokens && hasOutputTokens;
   const receiptReasoningTokens = optionalTokenCount(receipt.reasoningTokens);
   if (receiptReasoningTokens === undefined) {
     totals.everyReceiptHasReasoning = false;
@@ -343,4 +343,15 @@ function optionalTokenCount(value: number | undefined): number | undefined {
   }
 
   return Math.round(value);
+}
+
+export function requestContextTokens(
+  usage: LanguageModelUsage,
+): number | undefined {
+  const inputTokens = optionalTokenCount(usage.inputTokens);
+  const outputTokens = optionalTokenCount(usage.outputTokens);
+  if (inputTokens === undefined && outputTokens === undefined) {
+    return undefined;
+  }
+  return tokenCount(inputTokens) + tokenCount(outputTokens);
 }

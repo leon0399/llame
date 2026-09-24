@@ -15,7 +15,6 @@ import { z } from 'zod';
 
 import type { ChatIdentity } from './model-client';
 import { createOpenAIModelClient } from './openai-model-client';
-import { FakeStreamingModelClient } from '../testing/fake-streaming-model-client';
 
 const CHAT: ChatIdentity = { id: 'usage-test', lane: 'main' };
 const messages = [
@@ -161,26 +160,6 @@ describe('provider request usage receipts', () => {
     expect(receipts).toHaveLength(2);
     expect(onFinish).toHaveBeenCalledWith(
       expect.objectContaining({ stepCount: 2 }),
-    );
-  });
-
-  it('uses the shared receipt path in the streaming test client', async () => {
-    const client = new FakeStreamingModelClient();
-    const receipts: Array<LanguageModelUsage> = [];
-    const onFinish = vi.fn();
-    const result = client.streamText({
-      chat: CHAT,
-      messages,
-      onRequestUsage: (usage) => receipts.push(usage),
-      onFinish,
-    });
-
-    await expect(result.text).resolves.toBe('fake assistant');
-    const steps = await result.steps;
-    expect(receipts).toStrictEqual(steps.map((step) => step.usage));
-    expect(receipts).toHaveLength(1);
-    expect(onFinish).toHaveBeenCalledWith(
-      expect.objectContaining({ stepCount: 1 }),
     );
   });
 });

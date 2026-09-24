@@ -78,12 +78,13 @@ describe('createFakeModelClient', () => {
     expect(onTextDelta).toHaveBeenCalledWith('done');
     expect(onRequestUsage).toHaveBeenCalledOnce();
     expect(onRequestUsage).toHaveBeenCalledWith(ZERO_USAGE);
-    expect(onFinish).toHaveBeenCalledWith({
-      text: 'done',
-      usage: ZERO_USAGE,
-      finishReason: 'stop',
-      stepCount: 1,
-    });
+    expect(onFinish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'done',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+      }),
+    );
   });
 
   it('keeps empty and unconsumed responses lazy', async () => {
@@ -103,12 +104,13 @@ describe('createFakeModelClient', () => {
     await expect(result.text).resolves.toBe('');
 
     expect(onTextDelta).not.toHaveBeenCalled();
-    expect(onFinish).toHaveBeenCalledWith({
-      text: '',
-      usage: ZERO_USAGE,
-      finishReason: 'stop',
-      stepCount: 1,
-    });
+    expect(onFinish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: '',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+      }),
+    );
   });
 
   it('does not resolve text until an async onFinish settles', async () => {

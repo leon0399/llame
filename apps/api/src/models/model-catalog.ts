@@ -217,11 +217,10 @@ export type TokenPrice = {
  * Strip internal fields (`provider`, `providerModelId`, `billing`,
  * `compactionThresholdTokens`, `maxOutputTokens`, `providerOptions`,
  * `systemPromptTemplate`, `systemPromptSource`, `referencesSkills`,
- * `toolPromptFiles`) from a catalog entry — what's left IS the public shape,
- * `PublicModelCatalogEntry` grows without needing a matching field-by-field
- * copy here. Host-path fields never reach this projection at all: the loader
- * excludes them while resolving the entry, which its own regression test
- * pins.
+ * `toolPromptFiles`) from a catalog entry. The rest is the public shape, so
+ * this projection stays correct as `PublicModelCatalogEntry` grows.
+ * The loader excludes host-path fields before building this entry; its
+ * regression test pins that boundary.
  */
 export function toPublicModel(
   model: SystemModelCatalogEntry,

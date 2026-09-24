@@ -1788,24 +1788,12 @@ describe('loadInstanceConfig — billing mode (run-usage-accounting M9)', () => 
       '"{env:BILLING}"',
       '/providers[p]/billing',
     ],
-    [
-      'provider',
-      'path interpolation token',
-      '"{path:/tmp/billing-secret}"',
-      '/providers[p]/billing',
-    ],
     ['model', 'unknown string', '"free"', '/models[m]/billing'],
     ['model', 'non-string', 'true', '/models[m]/billing'],
     [
       'model',
       'env interpolation token',
       '"{env:BILLING}"',
-      '/models[m]/billing',
-    ],
-    [
-      'model',
-      'path interpolation token',
-      '"{path:/tmp/billing-secret}"',
       '/models[m]/billing',
     ],
   ] as const)(

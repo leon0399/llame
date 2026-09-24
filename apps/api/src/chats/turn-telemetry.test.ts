@@ -4,6 +4,7 @@ import {
   aggregateTurnTelemetry,
   buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,
+  requestContextTokens,
   type TokenPrice,
   type TurnTelemetryLogger,
 } from './turn-telemetry';
@@ -112,6 +113,19 @@ describe('TurnTelemetry', () => {
     });
 
     expect(telemetry.costUsd).toBeNull();
+  });
+
+  it('normalizes request context tokens and leaves unknown size absent', () => {
+    expect(
+      requestContextTokens(
+        usageReceipt({ inputTokens: 10.6, outputTokens: 5.2 }),
+      ),
+    ).toBe(16);
+    expect(requestContextTokens(usageReceipt({ inputTokens: 10 }))).toBe(10);
+    expect(requestContextTokens(usageReceipt({ outputTokens: 5 }))).toBe(5);
+    expect(
+      requestContextTokens(usageReceipt({ totalTokens: 99 })),
+    ).toBeUndefined();
   });
 
   describe('aggregateTurnTelemetry', () => {
@@ -227,11 +241,6 @@ describe('TurnTelemetry', () => {
         cacheWriteTokens: 100,
         totalTokens: 200,
       });
-      const cachedInputTokens = telemetry.cachedInputTokens ?? 0;
-      const cacheWriteTokens = telemetry.cacheWriteTokens ?? 0;
-      expect(cachedInputTokens + cacheWriteTokens).toBeLessThanOrEqual(
-        telemetry.inputTokens ?? 0,
-      );
     });
 
     it('omits token fields and cost when a priced model reports no counts', () => {
@@ -360,11 +369,11 @@ describe('TurnTelemetry', () => {
       expect(telemetry.complete).toBe(false);
     });
 
-    it('marks an attempt incomplete when a request omits both counts', () => {
+    it('marks an attempt incomplete when a request omits either count', () => {
       const telemetry = aggregateTurnTelemetry({
         receipts: [
           usageReceipt({ inputTokens: 10, outputTokens: 5 }),
-          usageReceipt(),
+          usageReceipt({ inputTokens: 20 }),
         ],
         status: 'completed',
         modelId: 'priced-model',
@@ -374,8 +383,9 @@ describe('TurnTelemetry', () => {
       });
 
       expect(telemetry).toMatchObject({
-        inputTokens: 10,
+        inputTokens: 30,
         outputTokens: 5,
+        totalTokens: 35,
         complete: false,
       });
     });

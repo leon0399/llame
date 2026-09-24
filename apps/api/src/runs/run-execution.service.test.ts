@@ -1317,6 +1317,9 @@ describe('RunExecutionService executeRun — stream completion', () => {
     expect(
       appended.find((entry) => entry.type === 'model.completed')?.payload,
     ).toEqual(expect.objectContaining({ telemetry: usage }));
+    expect(execution.compaction.maybeCompact).toHaveBeenCalledWith(
+      expect.objectContaining({ lastRequestTokens: undefined }),
+    );
   });
 
   it('passes the final request size, not the aggregate, to compaction', async () => {

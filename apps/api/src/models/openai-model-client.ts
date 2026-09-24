@@ -145,7 +145,6 @@ export function applyToolCallingOptions(
     return Promise.resolve(null);
   };
 }
-export { applyRequestUsageCallback };
 
 export interface AbortSettlement {
   /** Bind directly to `streamText`'s `onAbort` handler. */

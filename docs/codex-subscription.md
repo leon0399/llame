@@ -44,9 +44,10 @@ is unknown: completed Run telemetry retains token counts and latency with
 
 `billing` accepts `"usage"` or `"subscription"` on a provider or model; the
 model setting wins, then the provider setting, then the provider-type default
-(`"subscription"` for Codex). Billing never changes cost calculation: a
-declared price on a subscription model is recorded, then displayed as a
-not-billed notional cost.
+(`"subscription"` for Codex). Each usage record stamps its resolved `billing`
+value at write time. A record stamped `billing: "subscription"` marks any
+declared-price cost as notional, not billed per token. Billing never changes
+cost calculation.
 
 Stop every API and Run worker before re-login. Run `codex login`, replace the
 same credential file atomically, then start every process again. A running

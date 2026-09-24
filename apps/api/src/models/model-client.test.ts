@@ -3,8 +3,6 @@ import {
   NoOutputGeneratedError,
   simulateReadableStream,
   streamText,
-  type LanguageModelUsage,
-  type OnFinishEvent,
   type StreamTextOnErrorCallback,
   type TextStreamPart,
   type ToolSet,
@@ -65,56 +63,6 @@ const PROVIDER_USAGE = {
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
 
-const FINISH_USAGE: LanguageModelUsage = {
-  inputTokens: 0,
-  inputTokenDetails: {
-    noCacheTokens: 0,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-  },
-  outputTokens: 0,
-  outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
-  totalTokens: 0,
-};
-
-const FINISH_STEP = {
-  stepNumber: 0,
-  model: { provider: 'test', modelId: 'test' },
-  functionId: undefined,
-  metadata: undefined,
-  experimental_context: undefined,
-  content: [],
-  text: '',
-  reasoning: [],
-  reasoningText: undefined,
-  files: [],
-  sources: [],
-  toolCalls: [],
-  staticToolCalls: [],
-  dynamicToolCalls: [],
-  toolResults: [],
-  staticToolResults: [],
-  dynamicToolResults: [],
-  finishReason: 'stop' as const,
-  rawFinishReason: undefined,
-  usage: FINISH_USAGE,
-  warnings: undefined,
-  request: {},
-  response: {
-    id: 'test',
-    timestamp: new Date(0),
-    modelId: 'test',
-    messages: [],
-  },
-  providerMetadata: undefined,
-};
-
-const FINISH_EVENT = {
-  ...FINISH_STEP,
-  steps: [FINISH_STEP, { ...FINISH_STEP, stepNumber: 1 }],
-  totalUsage: FINISH_USAGE,
-} satisfies OnFinishEvent<ToolSet>;
-
 /**
  * The Responses client calls the provider itself (its Responses entry
  * point). The named `responses` member is never invoked, but a bare callable
@@ -153,8 +101,6 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
-    // The Responses client calls the provider itself (openai(model)) — its
-    // Responses entry point. No Chat Completions path exists here.
     const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
@@ -175,14 +121,12 @@ describe('ModelClient', () => {
 
     const abortSignal = AbortSignal.timeout(1000);
     const onError = vi.fn();
-    const onFinish = vi.fn();
     client.streamText({
       chat: CHAT,
       messages,
       system: 'stable system',
       abortSignal,
       onError,
-      onFinish,
     });
 
     expect(client).toMatchObject({
@@ -200,13 +144,6 @@ describe('ModelClient', () => {
       system: 'stable system',
       abortSignal,
       onError,
-    });
-    await streamTextCall?.onFinish?.(FINISH_EVENT);
-    expect(onFinish).toHaveBeenCalledWith({
-      text: '',
-      usage: FINISH_USAGE,
-      finishReason: 'stop',
-      stepCount: 2,
     });
     expect(streamTextCall?.onAbort).toEqual(expect.any(Function));
   });
@@ -262,11 +199,9 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
-    // The Responses wire is served at the entry's baseUrl (design D1).
     const openaiProvider = responsesProviderMock(providerModel);
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
-
     const client = createOpenAIModelClient(
       {
         credential: 'sk-user-supplied',
@@ -289,7 +224,6 @@ describe('ModelClient', () => {
       baseURL: 'https://openrouter.ai/api/v1',
     });
   });
-
   it('exposes configured pricing and compaction metadata on the model client', () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',

@@ -133,8 +133,8 @@ import { SystemPromptReceiptsRepository } from './system-prompt-receipts.reposit
 import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
   aggregateTurnTelemetry,
-  buildTurnTelemetry,
   emitCompletedTurnTelemetryLog,
+  requestContextTokens,
   turnTelemetryLogger,
   type TurnTelemetry,
 } from '../chats/turn-telemetry';
@@ -518,12 +518,16 @@ export class RunExecutionService {
     runPayload?: unknown;
     error?: unknown;
     telemetry?: AssistantTurnTelemetry;
-    modelCompleted?: FinishRunInput['modelCompleted'];
   }) {
-    const { telemetry, modelCompleted, ...terminalInput } = input;
+    const { telemetry, ...terminalInput } = input;
     const settlement = await this.finishRun({
       ...terminalInput,
-      ...(modelCompleted !== undefined && { modelCompleted }),
+      ...(telemetry !== undefined && {
+        modelCompleted: {
+          finishReason: telemetry.finishReason,
+          telemetry,
+        },
+      }),
       synthesizedTurnTelemetry: telemetry,
     });
     if (settlement.outcome === 'errored') {
@@ -1220,10 +1224,6 @@ export class RunExecutionService {
             status,
             attemptId,
             telemetry: assistantTelemetry,
-            modelCompleted: {
-              finishReason: null,
-              telemetry: assistantTelemetry,
-            },
             runPayload: { status, message },
             error: { message },
           });
@@ -1564,8 +1564,7 @@ export class RunExecutionService {
             await this.postCompletedRunWork({
               finish,
               requestUsageReceipts,
-              finishReason,
-              latencyMs: assistantTelemetry.latencyMs,
+              stepCount,
               client,
               chatId: input.chatId,
               userId: input.userId,
@@ -1943,10 +1942,6 @@ export class RunExecutionService {
       status: 'failed',
       attemptId: input.attemptId,
       telemetry: input.telemetry,
-      modelCompleted: {
-        finishReason: input.telemetry.finishReason,
-        telemetry: input.telemetry,
-      },
       runPayload: { status: 'failed', message },
       error: { message },
     });
@@ -1967,10 +1962,6 @@ export class RunExecutionService {
         attemptId: input.attemptId,
         ...(input.telemetry !== undefined && {
           telemetry: input.telemetry,
-          modelCompleted: {
-            finishReason: input.telemetry.finishReason,
-            telemetry: input.telemetry,
-          },
         }),
         runPayload: { status: 'failed', message },
         error: { message },
@@ -2122,16 +2113,11 @@ export class RunExecutionService {
     );
     return (
       assistantMessage !== undefined &&
-      !isCompletedAssistantTurn(assistantMessage) &&
-      assistantMessage.usage !== null &&
-      assistantMessage.usage !== undefined
+      !isCompletedAssistantTurn(assistantMessage)
     );
   }
 
-  /**
-   * A terminal race can still salvage streamed content after an expiry. A
-   * cancellation or an already-recorded answer intentionally does not.
-   */
+  /** Finalizes usage completeness against owner-scoped Run and reply state. */
   private async finalizeAssistantTurnTelemetry(
     tx: Db,
     input: Pick<
@@ -2175,6 +2161,11 @@ export class RunExecutionService {
       input.modelCompleted.telemetry = telemetry;
     }
   }
+
+  /**
+   * A terminal race can still salvage streamed content after an expiry. A
+   * cancellation or an already-recorded answer intentionally does not.
+   */
 
   private async handleLostFinish(
     tx: Db,
@@ -2476,8 +2467,7 @@ export class RunExecutionService {
   private async postCompletedRunWork(input: {
     finish: FinishRunResult;
     requestUsageReceipts: ReadonlyArray<LanguageModelUsage>;
-    finishReason: TurnTelemetry['finishReason'];
-    latencyMs: number;
+    stepCount: number;
     client: ModelClient;
     chatId: string;
     userId: string;
@@ -2488,25 +2478,14 @@ export class RunExecutionService {
     userMessage: RunUserMessage;
   }): Promise<void> {
     if (input.finish.outcome === 'won') {
-      const finalRequestUsage = input.requestUsageReceipts.at(-1);
-      let lastRequestTokens: number | undefined;
-      if (
-        finalRequestUsage !== undefined &&
-        (finalRequestUsage.inputTokens !== undefined ||
-          finalRequestUsage.outputTokens !== undefined)
-      ) {
-        const normalized = buildTurnTelemetry({
-          usage: finalRequestUsage,
-          finishReason: input.finishReason,
-          status: 'completed',
-          modelId: input.client.model,
-          ...(input.effort !== undefined && { effort: input.effort }),
-          latencyMs: input.latencyMs,
-          price: input.client.pricing,
-          billing: input.client.billing,
-        });
-        lastRequestTokens = normalized.inputTokens + normalized.outputTokens;
-      }
+      const finalRequestUsage =
+        input.requestUsageReceipts.length === input.stepCount
+          ? input.requestUsageReceipts.at(-1)
+          : undefined;
+      const lastRequestTokens =
+        finalRequestUsage === undefined
+          ? undefined
+          : requestContextTokens(finalRequestUsage);
       void this.compaction.maybeCompact({
         chatId: input.chatId,
         userId: input.userId,

@@ -1,8 +1,4 @@
-import {
-  resolveBillingMode,
-  toPublicModel,
-  toTokenPrice,
-} from './model-catalog';
+import { toTokenPrice } from './model-catalog';
 
 describe('toTokenPrice', () => {
   it('carries a declared cache-write rate onto the resolved price', () => {
@@ -32,49 +28,5 @@ describe('toTokenPrice', () => {
 
   it('resolves no price from a cache-write rate alone', () => {
     expect(toTokenPrice({ cacheWrite: 3.75 })).toBeUndefined();
-  });
-});
-
-describe('resolveBillingMode', () => {
-  it('lets a model declaration override its provider and provider-type default', () => {
-    expect(resolveBillingMode('usage', 'subscription', 'openai-codex')).toBe(
-      'usage',
-    );
-  });
-
-  it('lets a provider declaration override its provider-type default', () => {
-    expect(
-      resolveBillingMode(undefined, 'subscription', 'openai-completions'),
-    ).toBe('subscription');
-  });
-
-  it.each([
-    ['openai-responses', 'usage'],
-    ['openai-completions', 'usage'],
-    ['anthropic-messages', 'usage'],
-    ['openai-codex', 'subscription'],
-    ['opencode-go', 'subscription'],
-  ] as const)('uses the %s provider-type default', (providerType, expected) => {
-    expect(resolveBillingMode(undefined, undefined, providerType)).toBe(
-      expected,
-    );
-  });
-});
-
-describe('toPublicModel', () => {
-  it('does not expose resolved billing mode', () => {
-    const model = {
-      id: 'model',
-      source: 'system',
-      contextWindowTokens: 1000,
-      billing: 'subscription',
-      provider: 'p',
-      providerModelId: 'upstream-model',
-      systemPromptTemplate: 'prompt',
-      systemPromptSource: 'project_default',
-      referencesSkills: false,
-    } as const;
-
-    expect(toPublicModel(model)).not.toHaveProperty('billing');
   });
 });

@@ -218,7 +218,7 @@ export interface ModelClient {
   readonly contextWindowTokens: number;
   /** Resolved per-million-token pricing for cost telemetry; absent when the model has no configured price. */
   readonly pricing?: TokenPrice;
-  /** Resolved billing mode; absent when the model's billing is unspecified. */
+  /** Resolved mode stamped on usage; absent only on test clients without one. */
   readonly billing?: BillingMode;
   /**
    * Explicit compaction trigger override for this model (config
