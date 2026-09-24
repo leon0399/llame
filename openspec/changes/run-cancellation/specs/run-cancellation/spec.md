@@ -47,7 +47,7 @@ After the claim, when the Run executes in the process that receives the cancella
 
 Settlement SHALL append the terminal `run.cancelled` event and SHALL follow the first-writer-wins terminal rule of `durable-runs`, so a Run that reached another terminal state first keeps it. A Run deleted together with its Chat leaves no Run to settle and is outside this requirement.
 
-A Run settled `cancelled` before its model request is recorded as sent (`model.requested`) SHALL persist no assistant message. A Run cancelled after that point SHALL persist its assistant turn with the output observed before cancellation, as `durable-runs` specifies for partial output, and with usage status `aborted`; when no output was observed, that turn SHALL have no parts. Tool calls open at cancellation SHALL be settled as `tool-calling` specifies.
+A Run settled `cancelled` before its model request is recorded as sent (`model.requested`) SHALL persist no assistant message. A Run cancelled after that point SHALL persist its assistant turn with the output observed before cancellation, as `durable-runs` specifies for partial output; when no output was observed, that turn SHALL have no parts. Tool calls open at cancellation SHALL be settled as `tool-calling` specifies. The usage recorded on a cancelled turn is outside this capability.
 
 #### Scenario: A queued Run is settled without a model request
 
@@ -67,17 +67,17 @@ A Run settled `cancelled` before its model request is recorded as sent (`model.r
 - **THEN** the attempt makes no further model request and the Run is settled `cancelled`
 - **AND** no assistant message is persisted for its user message
 
-#### Scenario: Cancellation during a model request with no output records an empty aborted turn
+#### Scenario: Cancellation during a model request with no output records an empty turn
 
 - **WHEN** cancellation is recorded, in the process executing the Run, after `model.requested` and before any model output
 - **THEN** the in-flight model request is aborted and the Run is settled `cancelled`
-- **AND** the persisted assistant turn has no parts and usage status `aborted`
+- **AND** the persisted assistant turn has no parts
 
 #### Scenario: Cancellation after output keeps the partial turn
 
 - **WHEN** cancellation is recorded, in the process executing the Run, after model output was observed
 - **THEN** the Run is settled `cancelled`
-- **AND** the persisted assistant turn holds the observed output with usage status `aborted`
+- **AND** the persisted assistant turn holds the observed output
 
 #### Scenario: A Run that finished first keeps its outcome
 

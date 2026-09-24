@@ -14,7 +14,7 @@ The same change moves notifications off the composer. The global toast host sits
 - D4 (web, tasks only): The in-flight assistant row shows a "Thinking…" indicator until its first visible content. A live-only assistant row with no visible content renders nothing once it is no longer the in-flight row. A persisted empty cancelled turn keeps rendering as it does today, with its "stopped" usage label.
 - D5 (web and E2E, tasks only): Toasts render top-right. The E2E workaround that clicks away a toast before using the composer is removed.
 
-What a cancelled Run persists does not change. A Run cancelled before its model request is sent persists no assistant message; one cancelled after it persists its partial turn, empty when no output arrived, with usage status `aborted`. `run-usage-accounting` builds on the latter. No endpoint, request body, database schema, or OpenAPI document changes. The earlier `start` frame is a valid AI SDK UI message stream; clients that ignore it are unaffected.
+What a cancelled Run persists does not change. A Run cancelled before its model request is sent persists no assistant message; one cancelled after it persists its partial turn, empty when no output arrived. The usage recorded on that turn stays with `run-usage-accounting`, which changes it for cancellation with an open tool call (#594). No endpoint, request body, database schema, or OpenAPI document changes. The earlier `start` frame is a valid AI SDK UI message stream; clients that ignore it are unaffected.
 
 ## Capabilities
 
@@ -30,7 +30,7 @@ None. `durable-runs` keeps ownership of lifecycle, liveness, partial-output rete
 
 - Cross-process cancellation of a Run already claimed by another process ([#207](https://github.com/leon0399/llame/issues/207)); the spec states the boundary.
 - Cancelling a Run whose request the server has not yet accepted. The web client holds such a Stop until acceptance; no server-side pending-cancel state is added.
-- Changing what a cancelled attempt persists, including the empty `aborted` turn.
+- Changing what a cancelled attempt persists, including the empty turn, or the usage recorded on it.
 - Cancellation keyed by Chat, or a client-chosen Run id.
 - Phase-aware progress labels such as queued or preparing.
 - Carrying the Run id in message metadata instead of the `start` frame's `messageId`.
