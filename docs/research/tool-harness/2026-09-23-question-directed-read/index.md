@@ -11,6 +11,9 @@ investigation. Noncanonical: this bundle does not implement or approve `?q=`.
 
 - [Report](./report.md) - Model/license comparison, bounded-source versus
   expanded investigation, concrete applications, economics and evaluation plan.
+- [Source-aware investigation](./source-aware-investigation.md) - Integrated
+  additions from the supplied analysis: OKF/code navigation, evidence intents,
+  bounded area workers and visual-reader source mappings, with claim corrections.
 - [Sources](./sources.jsonl) and [evidence](./evidence.jsonl) - Dated primary
   sources, pinned code observations and qualified measurements.
 - [Claims](./claims.jsonl) - Typed claims and their evidence links.

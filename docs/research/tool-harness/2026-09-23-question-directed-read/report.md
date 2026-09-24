@@ -274,6 +274,13 @@ The allowed tool set should be specific read/search operations, not Bash describ
 
 A tightly bounded inspector can remain subordinate to the parent Run. If it acquires independent resumability, steering, background lifetime or child conversations, that crosses into the child-agent lifecycle already described by VISION. Do not introduce that product just to answer one file question. [^098f797eb9f933b9]
 
+The [source-aware investigation extension](./source-aware-investigation.md)
+develops this proposal with OKF navigation, source-native relationships,
+evidence-carrying area workers and a visual branch before aggressive passage
+pruning. It also reconciles the supplied analysis's checkpoint and benchmark
+claims. These are separately cited design additions, not expansion of #849 or
+newly shipped child-agent/revision-read capabilities.
+
 ### Q3 — Evidence and lifecycle requirements for either mode
 
 **Generated answer, never source bytes.** Preserve `kind: answer` as a proposed distinct result, untrusted framing and an exact-read route for editing. Validate cited coordinates against what the worker actually saw, not merely against a current file's total length. Existing shown ranges and untrusted Knowledge notices are useful inputs, but worker answers, content hashing and citation checks do not ship just because the prompt draft mentions them. [^581e10a8f9a590e3][^c4759988399b2201]

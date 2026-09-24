@@ -25,6 +25,9 @@ and develops applications U13-U20 beyond Knowledge search.
 - [Cookbook applicability and ideas](./cookbooks.md) - All 18 TypeSafe recipes,
   direct reuse versus adaptation, and applications U21-U29. A concise,
   separately cited analysis; no additional experiments or review campaign.
+- [Source-aware investigation](../2026-09-23-question-directed-read/source-aware-investigation.md) -
+  Combines typed judgments with source-native navigation and evidence-carrying
+  workers; includes applications U30-U31 and material external-claim corrections.
 
 - [Research report](./report.md) - Findings, the five supplied application
   assessments, six additional llame use cases (U1-U6), counterevidence,
