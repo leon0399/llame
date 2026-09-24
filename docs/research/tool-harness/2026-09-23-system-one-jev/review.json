@@ -286,8 +286,8 @@
     "cross_links": [
       "harnesses/index.md",
       "harnesses/oh-my-pi.md#typed-judgments-and-jev",
-      "harnesses/sol-pi.md",
-      "harnesses/spotify-shunt.md"
+      "tools/sol-pi.md",
+      "tools/spotify-shunt.md"
     ]
   },
   "publication_review": {

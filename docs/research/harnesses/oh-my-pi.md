@@ -218,8 +218,8 @@ owns the detailed F3 source trace, model/API limitations, compaction comparison
 and U1-U6 application proposals. In particular, OMP's JUDGE integration is not
 evidence that its anchored compaction above uses `fast-jev-compaction`; that
 separate library and its missing-result-content limitation are assessed in F4.
-For recovery and context-reduction comparisons, also read [SoL-Pi](./sol-pi.md)
-and [Spotify Shunt](./spotify-shunt.md).
+For recovery and context-reduction comparisons, also read [SoL-Pi](../tools/sol-pi.md)
+and [Spotify Shunt](../tools/spotify-shunt.md).
 
 **Confidence:** high for the inspected role/transport behavior; moderate for
 application fit. No controlled Jev quality or latency benchmark was run.
@@ -259,7 +259,7 @@ probabilities and the text bridge's parsed zero/one labels have different
 semantics.[^omp-find-cascade-20260924][^llame-semantic-find-judge]
 
 The [source-level study](../tool-harness/2026-09-24-semantic-find-judge/report.md)
-also analyzes [jegrep](./jegrep.md), verifies shared default request wording,
+also analyzes [jegrep](../tools/jegrep.md), verifies shared default request wording,
 identifies actual implementation/transport differences, and audits the limits
 of its published benchmark. Offline probes expose shortlist omissions,
 clipped-line coverage and failure/accounting edge cases. Applications extend to

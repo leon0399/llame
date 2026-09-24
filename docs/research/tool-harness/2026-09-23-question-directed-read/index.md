@@ -30,8 +30,8 @@ investigation. Noncanonical: this bundle does not implement or approve `?q=`.
   question suffix must be separated before resource policy matching.
 
 Related prior art: [harness index](../../harnesses/index.md),
-[OMP](../../harnesses/oh-my-pi.md), [Spotify Shunt](../../harnesses/spotify-shunt.md),
-and [SoL-Pi](../../harnesses/sol-pi.md). Source-selection judgments from Jev and
+[OMP](../../harnesses/oh-my-pi.md), [Spotify Shunt](../../tools/spotify-shunt.md),
+and [SoL-Pi](../../tools/sol-pi.md). Source-selection judgments from Jev and
 generative source answers from a reader are different operations.
 
 The [semantic find/JUDGE layer](../2026-09-24-semantic-find-judge/index.md)

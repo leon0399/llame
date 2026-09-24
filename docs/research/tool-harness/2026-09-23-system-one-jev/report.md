@@ -241,9 +241,9 @@ mechanisms into candidate llame applications. The OMP reference keeps that
 2026-09-23 observation separate from its older whole-document baseline.
 
 For D1's recoverability requirement, compare the
-[SoL-Pi reference](../../harnesses/sol-pi.md). For U1's question-focused context
+[SoL-Pi reference](../../tools/sol-pi.md). For U1's question-focused context
 selection and displaced inference cost, compare
-[Spotify Shunt](../../harnesses/spotify-shunt.md). These are related design
+[Spotify Shunt](../../tools/spotify-shunt.md). These are related design
 comparisons, not claims that either integration uses Jev.
 
 The [cookbook applicability companion](./cookbooks.md) assesses the full TypeSafe
