@@ -46,7 +46,7 @@ draft -> ready and a GitHub review (GR) checkpoint after ready; for
 - [x] 1.2 [proposal] Verify the artifacts cite the substrate correctly (every file, symbol, and line claim in the design's Context and Decisions) and that each MODIFIED requirement reproduces `master`'s text and scenarios losslessly apart from the intended edits; record a programmatic per-requirement diff (canonical scenario count, delta scenario count, missing scenarios) in the PR body.
 - [x] 1.3 [proposal] Prove the layer with `pnpm exec openspec validate web-read-address-policy --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; obtain Leo's explicit approval of the final revision, then publication authorization, and publish the draft with `$gh-stack`.
 - [x] 1.4 [proposal] SR: self-review the published draft PR's actual parent-relative diff against `REVIEW_GUIDE.md` and the approved scope, fix accepted findings with new commits, rerun the row checks, update the PR body, and mark the PR ready.
-- [ ] 1.5 [proposal] GR: after ready, run the Ready-PR monitoring loop to completion on the current head with zero actionable unresolved feedback, and carry the resulting approval of the published revision forward as the gate for creating `admission`.
+- [x] 1.5 [proposal] GR: after ready, run the Ready-PR monitoring loop to completion on the current head with zero actionable unresolved feedback, and carry the resulting approval of the published revision forward as the gate for creating `admission`.
 
 ## 2. Admission layer
 
@@ -68,7 +68,7 @@ parent before publication.
 - [x] 2.10 [admission] Record #914's acceptance evidence in the PR body and an issue comment: the owner's `10.67.88.60/private` rule refusing a direct, resolved, redirected, and probed read while `/data` is served; the skip case; the rebinding case; the localhost, LAN, public-cleartext, and metadata rows under the example; the domain allowlist still admitting its host; and the `/%70rivate` refusal with `/%%370rivate` requested as `/%2570rivate`. Close #914 with `Closes #914` on this layer's PR only after every row is verified against the running build.
 - [x] 2.11 [admission] Prove the layer locally with the affected API `lint`, `typecheck`, and `test:coverage`, the focused permissions and instance-config tests, the integration file from 2.6, `pnpm --filter api build`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; measure the parent-relative authored diff against the review budget, reporting lockfile churn separately; publish or refresh the draft with `$gh-stack`.
 - [x] 2.12 [admission] SR: self-review the draft PR's actual parent-relative diff against `REVIEW_GUIDE.md` and the approved scope, with an independent `security-reviewer` subagent on pinning, the IP-literal path, connection reuse, and message leakage; verify every finding, fix accepted ones with new commits, rerun the affected checks, update the PR body, and mark ready.
-- [ ] 2.13 [admission] GR: after ready, run the Ready-PR monitoring loop to completion on the current head (terminal passing CI, every expected reviewer complete, zero actionable unresolved feedback) before creating `finalize`.
+- [x] 2.13 [admission] GR: after ready, run the Ready-PR monitoring loop to completion on the current head (terminal passing CI, every expected reviewer complete, zero actionable unresolved feedback) before creating `finalize`.
 
 ## 3. Finalize layer
 
@@ -78,9 +78,9 @@ archive movement only; never an application fix. Enter the branch with
 `$gh-stack` from the implementation top **before** `$openspec-sync-specs`
 writes any canonical spec.
 
-- [ ] 3.1 [finalize] Confirm with `$gh-stack` that `web-read-address-policy/finalize` is checked out on top of the published, reviewed, and CI-green `admission` layer, and that every proposal and admission task above is checked, before any synchronization runs.
-- [ ] 3.2 [finalize] Use `$openspec-sync-specs` to synchronize the `native-file-tools` and `tool-call-permissions` deltas; if another change archived first and edited any of the six modified requirements, reconcile by hand before sync and record the reconciliation in the PR body; verify each synchronized requirement against its delta and that the "A hop to a private address is admitted by its text" scenario carries its revised body.
-- [ ] 3.3 [finalize] Verify archive readiness: `openspec status --change web-read-address-policy --json` reports every artifact complete and every task above is checked; then use `$openspec-archive-change`; verify the archive preserves checked history and passes `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [x] 3.1 [finalize] Confirm with `$gh-stack` that `web-read-address-policy/finalize` is checked out on top of the published, reviewed, and CI-green `admission` layer, and that every proposal and admission task above is checked, before any synchronization runs.
+- [x] 3.2 [finalize] Use `$openspec-sync-specs` to synchronize the `native-file-tools` and `tool-call-permissions` deltas; if another change archived first and edited any of the six modified requirements, reconcile by hand before sync and record the reconciliation in the PR body; verify each synchronized requirement against its delta and that the "A hop to a private address is admitted by its text" scenario carries its revised body.
+- [x] 3.3 [finalize] Verify archive readiness: `openspec status --change web-read-address-policy --json` reports every artifact complete and every task above is checked; then use `$openspec-archive-change`; verify the archive preserves checked history and passes `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 
 Post-archive gates, not pre-archive checklist tasks: publish the finalize draft
 with `$gh-stack` under the existing publication authorization, self-review its
