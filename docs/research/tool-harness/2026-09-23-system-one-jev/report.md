@@ -246,6 +246,12 @@ selection and displaced inference cost, compare
 [Spotify Shunt](../../harnesses/spotify-shunt.md). These are related design
 comparisons, not claims that either integration uses Jev.
 
+The [cookbook applicability companion](./cookbooks.md) assesses the full TypeSafe
+cookbook collection and how-to patterns, identifies smaller source-bound
+helpers that can reuse recipe logic directly, and develops applications U21-U29.
+It is an analysis extension within this Jev bundle, not another implementation
+layer or a new benchmark result.
+
 ## Main Analysis
 
 ### F1 — What System One and Jev actually provide
