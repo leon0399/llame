@@ -112,7 +112,8 @@ function repository() {
   return directory;
 }
 
-test("git runs the driver on rebase and puts the rebased entry on top", () => {
+/** A repository where `feature` and `master` each opened 2026-09-25. */
+function divergedRepository() {
   const directory = repository();
   git(directory, "switch", "-qc", "feature");
   commit(
@@ -126,6 +127,18 @@ test("git runs the driver on rebase and puts the rebased entry on top", () => {
     changelog("# 2026-09-25", "- Landed (#2).", shipped),
     "landed",
   );
+  return directory;
+}
+
+const featureOnTop = changelog(
+  "# 2026-09-25",
+  "- Feature (#3).",
+  "- Landed (#2).",
+  shipped,
+);
+
+test("git runs the driver on rebase and puts the rebased entry on top", () => {
+  const directory = divergedRepository();
   git(directory, "switch", "-q", "feature");
 
   const rebase = git(directory, "rebase", "master");
@@ -133,7 +146,19 @@ test("git runs the driver on rebase and puts the rebased entry on top", () => {
   assert.equal(rebase.status, 0, rebase.stderr);
   assert.equal(
     readFileSync(path.join(directory, "CHANGELOG.md"), "utf8"),
-    changelog("# 2026-09-25", "- Feature (#3).", "- Landed (#2).", shipped),
+    featureOnTop,
+  );
+});
+
+test("git runs the driver on merge and puts the merged branch's entry on top", () => {
+  const directory = divergedRepository();
+
+  const merge = git(directory, "merge", "-q", "--no-edit", "feature");
+
+  assert.equal(merge.status, 0, merge.stderr);
+  assert.equal(
+    readFileSync(path.join(directory, "CHANGELOG.md"), "utf8"),
+    featureOnTop,
   );
 });
 
