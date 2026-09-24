@@ -28,6 +28,9 @@ and develops applications U13-U20 beyond Knowledge search.
 - [Source-aware investigation](../2026-09-23-question-directed-read/source-aware-investigation.md) -
   Combines typed judgments with source-native navigation and evidence-carrying
   workers; includes applications U30-U31 and material external-claim corrections.
+- [Permission classifiers and live Jev experiments](../2026-09-24-permission-classifier-cascade/index.md) -
+  Claude Code, Codex Guardian and eve prior art; synthetic permission,
+  script-inspection and evidence-judgment results with reusable experiment code.
 
 - [Research report](./report.md) - Findings, the five supplied application
   assessments, six additional llame use cases (U1-U6), counterevidence,
