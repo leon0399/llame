@@ -92,7 +92,7 @@ Every newly persisted assistant message usage SHALL carry a boolean `complete`. 
 - another attempt of the same Run reached prompt preparation;
 - the usage replaces the usage of an earlier assistant reply to the same user message, whose recorded spend is not carried forward.
 
-A model request reports its usage when the provider delivers that request's usage, whether or not the tools it requested have finished. An incomplete aggregate SHALL keep the known tokens and cost of the requests that did report, as a lower bound. When no request of the attempt reported any input or output count, the token fields and `costUsd` SHALL be absent rather than zero; a model without configured pricing still records `costUsd: null`. Missing cache detail counts SHALL be treated as zero under the existing provider rules and SHALL NOT by themselves mark usage incomplete.
+A model request reports its usage when the provider delivers that request's usage, whether or not the tools it requested have finished. An incomplete aggregate SHALL keep the known tokens and cost of the requests that did report, as a lower bound. When no request of the attempt reported any input or output count, the token fields SHALL be absent rather than zero. `costUsd` follows pricing first: a model without configured pricing SHALL record `costUsd: null` in every case, and a priced model SHALL omit `costUsd` only when no request reported any input or output count. Missing cache detail counts SHALL be treated as zero under the existing provider rules and SHALL NOT by themselves mark usage incomplete.
 
 #### Scenario: Every request reported
 
@@ -119,6 +119,12 @@ A model request reports its usage when the provider delivers that request's usag
 
 - **WHEN** no model request of an attempt on a priced model reported input or output counts
 - **THEN** the persisted usage has no token fields and no `costUsd`
+- **AND** records `complete: false`
+
+#### Scenario: Nothing was reported on an unpriced model
+
+- **WHEN** no model request of an attempt on a model without configured pricing reported input or output counts
+- **THEN** the persisted usage has no token fields and records `costUsd: null`
 - **AND** records `complete: false`
 
 #### Scenario: A reclaimed Run is incomplete
@@ -159,7 +165,7 @@ When a Run ends failed, cancelled, or expired after its executing attempt starte
 
 - **WHEN** an attempt completes a reported tool-requesting request and then fails during the next request
 - **THEN** the assistant message usage records the first request's tokens and cost
-- **AND** records `complete: false` and a failed status
+- **AND** records `complete: false` and status `error`
 
 #### Scenario: Cancellation with an open tool call
 
@@ -226,7 +232,7 @@ The compaction trigger for a completed Run SHALL use the final completed model r
 
 ### Requirement: Historical usage is marked, never recomputed
 
-Assistant message usage persisted before this capability SHALL have `complete: false` recorded when the message has tool-call parts or its recorded status is not `completed`, and SHALL otherwise have `complete: true` recorded. Apart from the added `complete` key, every historical usage value SHALL remain equal as JSON, and no `billing` value SHALL be added to historical assistant or compaction usage. Messages without usage SHALL remain without usage. Applying the marker again SHALL change nothing.
+Assistant message usage persisted before this capability SHALL have `complete: false` recorded when the message has tool-call parts (persisted parts whose type starts with `tool-`), when its recorded status is not `completed`, or when its recorded Run has prompt receipts from more than one attempt; it SHALL otherwise have `complete: true` recorded. Apart from the added `complete` key, every historical usage value SHALL remain equal as JSON, and no `billing` value SHALL be added to historical assistant or compaction usage. Messages without usage SHALL remain without usage. Applying the marker again SHALL change nothing.
 
 #### Scenario: A historical tool loop is marked incomplete
 
@@ -239,6 +245,11 @@ Assistant message usage persisted before this capability SHALL have `complete: f
 - **WHEN** a historical completed assistant message has no tool-call parts
 - **THEN** its usage records `complete: true`
 
+#### Scenario: A historical reclaimed Run is marked incomplete
+
+- **WHEN** a historical completed assistant message has no tool-call parts and its recorded Run has prompt receipts from two attempts
+- **THEN** its usage records `complete: false`
+
 #### Scenario: A message without usage stays without usage
 
 - **WHEN** a historical assistant message has no usage
@@ -246,13 +257,13 @@ Assistant message usage persisted before this capability SHALL have `complete: f
 
 ### Requirement: The owner's usage display distinguishes lower bounds and unknowns
 
-The owner-facing usage display SHALL mark token totals and cost of incomplete usage as lower bounds and SHALL state that some model requests reported no usage. It SHALL present reasoning tokens as a subset of output tokens. It SHALL show an unknown value as unavailable rather than as zero, and SHALL keep unpriced cost distinguishable from zero cost.
+The owner-facing usage display SHALL mark token totals and cost of incomplete usage as lower bounds and SHALL state that the recorded usage may not cover all of the Run's spend, without asserting a specific cause. It SHALL present reasoning tokens as a subset of output tokens. It SHALL show an unknown value as unavailable rather than as zero, and SHALL keep unpriced cost distinguishable from zero cost.
 
 #### Scenario: Incomplete usage is shown as a lower bound
 
 - **WHEN** an owner views an assistant message whose usage records `complete: false` with 2,700 total tokens and cost 0.0063
 - **THEN** the display shows the total and the cost as at least those values
-- **AND** explains that some model requests reported no usage
+- **AND** states that the recorded usage may not cover all of the Run's spend
 
 #### Scenario: Unknown reasoning is not shown as zero
 
