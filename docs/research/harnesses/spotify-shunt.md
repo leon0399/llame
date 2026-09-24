@@ -28,6 +28,9 @@ sources:
   - id: spotify-account
     resource: "https://engineering.atspotify.com/2026/9/portal-by-spotify-cut-my-claude-code-token-usage-by-90"
     title: "Spotify engineering account, 2026-09-03"
+  - id: llame-question-directed-read
+    resource: "../tool-harness/2026-09-23-question-directed-read/report.md"
+    title: "Question-directed reads: model choices, expansion scope and total economics"
 ---
 
 # Spotify Shunt
@@ -105,6 +108,13 @@ routing only if total cost improves without unacceptable latency or lost task
 quality. Keep debugging, security conclusions, and exact edits on verifiable
 source evidence.
 
+The [question-directed read follow-on](../tool-harness/2026-09-23-question-directed-read/report.md)
+applies F72-F75 to [#849](https://github.com/leon0399/llame/issues/849) and a
+separately scoped Knowledge/episodic investigator. It compares LensVLM's visual
+compression with plain local/hosted readers and includes explicit cached-primary
+break-even calculations. Its LensVLM mechanics probe is independently executed;
+Shunt's upstream benchmark figures above remain unreplicated.[^llame-question-directed-read]
+
 [^read-hook]: [Whole-file read routing](https://github.com/spotify/portal-ai-plugins/blob/3c24ca30ff63e1f5bbad1c43fe5324daff579123/plugins/shunt/hooks/check-file-size#L5-L33)
 
 [^bash-hook]: [Bash read heuristic and exceptions](https://github.com/spotify/portal-ai-plugins/blob/3c24ca30ff63e1f5bbad1c43fe5324daff579123/plugins/shunt/hooks/check-bash-read#L1-L40)
@@ -118,3 +128,5 @@ source evidence.
 [^bulk-reader-skill]: [Independent calls and exact-read guidance](https://github.com/spotify/portal-ai-plugins/blob/3c24ca30ff63e1f5bbad1c43fe5324daff579123/plugins/shunt/skills/bulk-reader/SKILL.md#L1-L13)
 
 [^spotify-account]: [Spotify engineering account, 2026-09-03](https://engineering.atspotify.com/2026/9/portal-by-spotify-cut-my-claude-code-token-usage-by-90)
+
+[^llame-question-directed-read]: [Question-directed reads: model choices, expansion scope and total economics](../tool-harness/2026-09-23-question-directed-read/report.md)

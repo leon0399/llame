@@ -1,0 +1,151 @@
+{
+  "prices_observed": "2026-09-23",
+  "sources": [
+    "https://api-docs.deepseek.com/quick_start/pricing",
+    "https://developers.openai.com/api/docs/models/gpt-6-luna",
+    "https://developers.openai.com/api/docs/models/gpt-6-sol"
+  ],
+  "worker_rates_usd_per_million_input_output": {
+    "deepseek_off_peak": ["0.15", "0.60"],
+    "deepseek_peak": ["0.30", "1.20"],
+    "gpt6_luna": ["0.10", "0.50"],
+    "hypothetical_free": ["0", "0"]
+  },
+  "primary_rates_usd_per_million_first_cached": {
+    "sol_ordinary": ["2", "0.2"],
+    "sol_cache_write": ["2.5", "0.2"],
+    "luna_ordinary": ["0.1", "0.01"]
+  },
+  "assumed_aggregate_worker_tokens": {
+    "input": 4000,
+    "output": 500
+  },
+  "assumptions": [
+    "One helper invocation; no repeated calls or changed final output.",
+    "Each model request retains its respective full source or answer after projection.",
+    "Repeated-request cases do not forecast cross-Run replay; character caps can break residency.",
+    "Same first-touch and later cached rate classes for both alternatives.",
+    "Existing source is common to both alternatives and cannot be removed by delegation.",
+    "Hypothetical free route is not a claim about a current offer."
+  ],
+  "sign": "negative delta favors delegation; no quality/latency claim",
+  "rows": [
+    {
+      "case": "C1",
+      "primary": "sol_ordinary",
+      "worker": "deepseek_off_peak",
+      "primary_requests": 1,
+      "source_already_present": false,
+      "source_tokens": 3000,
+      "new_answer_and_verification_tokens": 1500,
+      "worker_usd": "0.0009",
+      "avoidable_direct_source_usd": "0.006",
+      "delegated_incremental_usd": "0.0039",
+      "delegation_minus_direct_usd": "-0.0021"
+    },
+    {
+      "case": "C2",
+      "primary": "sol_ordinary",
+      "worker": "deepseek_off_peak",
+      "primary_requests": 1,
+      "source_already_present": true,
+      "source_tokens": 3000,
+      "new_answer_and_verification_tokens": 1500,
+      "worker_usd": "0.0009",
+      "avoidable_direct_source_usd": "0",
+      "delegated_incremental_usd": "0.0039",
+      "delegation_minus_direct_usd": "0.0039"
+    },
+    {
+      "case": "C3",
+      "primary": "luna_ordinary",
+      "worker": "deepseek_off_peak",
+      "primary_requests": 1,
+      "source_already_present": false,
+      "source_tokens": 3000,
+      "new_answer_and_verification_tokens": 1500,
+      "worker_usd": "0.0009",
+      "avoidable_direct_source_usd": "0.0003",
+      "delegated_incremental_usd": "0.00105",
+      "delegation_minus_direct_usd": "0.00075"
+    },
+    {
+      "case": "C4",
+      "primary": "luna_ordinary",
+      "worker": "deepseek_off_peak",
+      "primary_requests": 10,
+      "source_already_present": false,
+      "source_tokens": 3000,
+      "new_answer_and_verification_tokens": 1500,
+      "worker_usd": "0.0009",
+      "avoidable_direct_source_usd": "0.00057",
+      "delegated_incremental_usd": "0.001185",
+      "delegation_minus_direct_usd": "0.000615"
+    },
+    {
+      "case": "C5",
+      "primary": "luna_ordinary",
+      "worker": "deepseek_off_peak",
+      "primary_requests": 51,
+      "source_already_present": false,
+      "source_tokens": 3000,
+      "new_answer_and_verification_tokens": 1500,
+      "worker_usd": "0.0009",
+      "avoidable_direct_source_usd": "0.0018",
+      "delegated_incremental_usd": "0.0018",
+      "delegation_minus_direct_usd": "0.0000"
+    },
+    {
+      "case": "C6",
+      "primary": "sol_cache_write",
+      "worker": "deepseek_off_peak",
+      "primary_requests": 1,
+      "source_already_present": false,
+      "source_tokens": 3000,
+      "new_answer_and_verification_tokens": 1500,
+      "worker_usd": "0.0009",
+      "avoidable_direct_source_usd": "0.0075",
+      "delegated_incremental_usd": "0.00465",
+      "delegation_minus_direct_usd": "-0.00285"
+    },
+    {
+      "case": "C7",
+      "primary": "sol_ordinary",
+      "worker": "hypothetical_free",
+      "primary_requests": 1,
+      "source_already_present": false,
+      "source_tokens": 3000,
+      "new_answer_and_verification_tokens": 4000,
+      "worker_usd": "0",
+      "avoidable_direct_source_usd": "0.006",
+      "delegated_incremental_usd": "0.008",
+      "delegation_minus_direct_usd": "0.002"
+    },
+    {
+      "case": "C8",
+      "primary": "sol_ordinary",
+      "worker": "deepseek_peak",
+      "primary_requests": 1,
+      "source_already_present": false,
+      "source_tokens": 3000,
+      "new_answer_and_verification_tokens": 1500,
+      "worker_usd": "0.0018",
+      "avoidable_direct_source_usd": "0.006",
+      "delegated_incremental_usd": "0.0048",
+      "delegation_minus_direct_usd": "-0.0012"
+    },
+    {
+      "case": "C9",
+      "primary": "sol_ordinary",
+      "worker": "gpt6_luna",
+      "primary_requests": 1,
+      "source_already_present": false,
+      "source_tokens": 3000,
+      "new_answer_and_verification_tokens": 1500,
+      "worker_usd": "0.00065",
+      "avoidable_direct_source_usd": "0.006",
+      "delegated_incremental_usd": "0.00365",
+      "delegation_minus_direct_usd": "-0.00235"
+    }
+  ]
+}

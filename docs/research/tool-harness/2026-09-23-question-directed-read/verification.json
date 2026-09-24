@@ -1,0 +1,60 @@
+{
+  "scope": "Research-only follow-on; no implementation, OpenSpec scope change, model downloads, paid inference or private-corpus queries.",
+  "parent_research_commit": "41e9d46e7bfe2fb1d693f5d0c1320c5351de2216",
+  "llame_source_revision": "e70228485042967fd9545ad0cb133faae1be2268",
+  "lens_source_revision": "10709a7e2a80bdf971628359d47e4bd35fce3d95",
+  "controlled_live_model_benchmark": false,
+  "probes": {
+    "lens-preprocessing": "Passed using unchanged upstream pure-function ASTs; no full renderer/model execution.",
+    "economics": "Passed all nine Decimal cases and output comparison after terminology rename; same first-touch rate classes and actual payload residency required. Cross-Run replay is not forecast.",
+    "locator-policy": "Passed synthetic path-pattern assertions; no credential target opened and no current q exploit asserted."
+  },
+  "source_limitations": [
+    "Published model quality/latency results not reproduced.",
+    "Provider terms, prices, aliases and quotas may change.",
+    "Weight memory arithmetic is not measured GPU fit."
+  ],
+  "review": "Three rounds with two independent reviewers each; material report findings corrected. Final ledger/terminology findings corrected and checked after synchronization.",
+  "checks": {
+    "markdown_lint": "pnpm lint:markdown: passed, 517 files, zero issues",
+    "okf": "Normalized-line-ending copy of unchanged bundled validator: research and harness bundles passed v0.2 checks",
+    "schemas_and_yaml": "Ajv source/evidence/claim/manifest schemas and parsed report YAML passed",
+    "source_and_evidence_joins": "42 source IDs match frontmatter and footnotes; all claim evidence belongs to a cited source; superseded evidence excluded",
+    "claim_freshness": "All 280 current claims occur in v3 after Markdown normalization; withdrawn v2 N-as-turns claims absent",
+    "local_links": {
+      "checked": 112,
+      "broken": 0
+    },
+    "report_structure": "Legacy validator passed on an external numeric-citation projection; optional Counterevidence Register/Claims-Evidence Table headings absent, covered by Limitations and linked ledgers instead",
+    "claim_support_heuristic": {
+      "status": "pass",
+      "verified": 280,
+      "support_status_counts": {
+        "partial": 171,
+        "supported": 98,
+        "needs_review": 11
+      },
+      "factual_unsupported": 0,
+      "total_factual": 123,
+      "unsupported_rate": 0.0
+    },
+    "portability": "No absolute workstation paths found in committed bundle artifacts",
+    "wip_preservation": "Uncommitted read.md SHA256 unchanged",
+    "format": "pnpm format:check: passed repository-wide after formatting owned research artifacts",
+    "diff_whitespace": "git diff --check -- docs/research: passed",
+    "ci": "Not run or awaited: documentation-only research; prior PR and monitoring untouched"
+  },
+  "source_counts": {
+    "sources": 42,
+    "evidence": 45,
+    "claims": 280,
+    "superseded_evidence": 1
+  },
+  "report_revision": "v3",
+  "completed_at": "2026-09-23T22:18:15.698643+00:00",
+  "review_budget": {
+    "immediate_parent": "41e9d46e7bfe2fb1d693f5d0c1320c5351de2216",
+    "limit_authored_lines": 2000,
+    "classification": "All research ledgers and probe output counted as authored; no generated-output exemption."
+  }
+}

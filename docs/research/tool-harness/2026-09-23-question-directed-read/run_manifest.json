@@ -1,0 +1,20 @@
+{
+  "version": "3.0.0",
+  "query": "Evaluate Apple LensVLM-9B, Qwen and cheap/promotional hosted models for issue 849 question-directed read and bounded read-only investigation, integrated with llame Jev and harness research.",
+  "mode": "deep",
+  "started_at": "2026-09-23T21:12:22.423430+00:00",
+  "finished_at": "2026-09-23T22:18:15.698643+00:00",
+  "assumptions": [],
+  "provider_config": {
+    "primary": "primary documents, pinned source inspection, delegated research and offline probes",
+    "scholarly": "arXiv"
+  },
+  "report_dir": ".",
+  "artifact_paths": {
+    "sources": "sources.jsonl",
+    "evidence": "evidence.jsonl",
+    "claims": "claims.jsonl",
+    "report": "report.md"
+  },
+  "continuation": null
+}

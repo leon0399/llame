@@ -13,6 +13,11 @@ Related entry points: [harness index](../../harnesses/index.md),
 [SoL-Pi](../../harnesses/sol-pi.md), and
 [Spotify Shunt](../../harnesses/spotify-shunt.md).
 
+Follow-on: [question-directed reads and reader-model comparison](../2026-09-23-question-directed-read/index.md)
+examines LensVLM, Qwen and cheap/free hosted models for `?q=` source answers and
+bounded investigation. Jev can select or judge evidence; a generative reader
+produces the source-grounded answer.
+
 - [Research report](./report.md) - Findings, the five supplied application
   assessments, six additional llame use cases (U1-U6), counterevidence,
   priorities, and stable source footnotes.

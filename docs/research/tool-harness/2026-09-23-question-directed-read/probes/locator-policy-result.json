@@ -1,0 +1,27 @@
+{
+  "scope": "Recommended policy test fixture, not runtime defaults or a present ?q exploit.",
+  "condition": "A future delegate parser would bypass these resource rejects if it stripped question metadata only after permission matching.",
+  "required_boundary": "Disambiguate the grammar, then authorize the same parsed source identity the executor opens; preserve ordinary HTTP queries and literal filenames.",
+  "opened_target_files": 0,
+  "inference_calls": 0,
+  "rows": [
+    {
+      "source": "/p/.env",
+      "submitted": "/p/.env?q=what",
+      "source_rejected": true,
+      "unsplit_question_path_rejected": false
+    },
+    {
+      "source": "/p/.env.production",
+      "submitted": "/p/.env.production?q=x",
+      "source_rejected": true,
+      "unsplit_question_path_rejected": false
+    },
+    {
+      "source": "/h/.npmrc",
+      "submitted": "/h/.npmrc?question=token",
+      "source_rejected": true,
+      "unsplit_question_path_rejected": false
+    }
+  ]
+}
