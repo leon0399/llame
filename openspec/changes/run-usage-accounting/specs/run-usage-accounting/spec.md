@@ -44,6 +44,45 @@ When the executing model declares `pricingUsdPer1M`, an assistant message's `cos
 - **THEN** the assistant message `costUsd` is `null`
 - **AND** its token counts are still recorded
 
+### Requirement: Usage records its billing mode
+
+Every newly persisted assistant message usage and every newly published compaction usage SHALL carry `billing`, with the value `usage` when the executing model is billed per token and `subscription` when it runs under a flat plan. The value SHALL be resolved when the record is written, in this order: the model entry's `billing` when declared, otherwise the provider entry's `billing` when declared, otherwise `subscription` for `openai-codex` and `opencode-go` providers and `usage` for every other provider type. A persisted `billing` value SHALL NOT be recomputed when configuration later changes. Billing mode SHALL NOT change how tokens or `costUsd` are computed.
+
+#### Scenario: A subscription provider defaults to subscription
+
+- **WHEN** a Run completes on an `openai-codex` or `opencode-go` model that declares no `billing` and whose provider declares none
+- **THEN** the assistant message usage records `billing: "subscription"`
+
+#### Scenario: A metered provider defaults to usage
+
+- **WHEN** a Run completes on an `openai-responses`, `openai-completions`, or `anthropic-messages` model with no `billing` declared on the model or its provider
+- **THEN** the assistant message usage records `billing: "usage"`
+
+#### Scenario: The provider declaration overrides the type default
+
+- **WHEN** an `openai-completions` provider serving a subscription gateway declares `billing: "subscription"` and its model declares none
+- **THEN** the assistant message usage records `billing: "subscription"`
+
+#### Scenario: The model declaration overrides the provider
+
+- **WHEN** a model declares `billing: "usage"` under a provider that declares or defaults to `subscription`
+- **THEN** the assistant message usage records `billing: "usage"`
+
+#### Scenario: A priced subscription model still records its cost
+
+- **WHEN** a subscription model declares `pricingUsdPer1M` and a Run completes on it
+- **THEN** the assistant message usage records `billing: "subscription"` and the same `costUsd` a metered model at those rates would record
+
+#### Scenario: A configuration change does not relabel history
+
+- **WHEN** an operator changes a provider's `billing` after Runs completed on it
+- **THEN** those Runs' persisted usage keeps the `billing` value recorded when it was written
+
+#### Scenario: A compaction records the billing mode of its model
+
+- **WHEN** a compaction publishes using a model whose resolved billing mode is `subscription`
+- **THEN** the compaction's usage records `billing: "subscription"`
+
 ### Requirement: Usage records whether it is complete
 
 Every newly persisted assistant message usage SHALL carry a boolean `complete`. It SHALL be `false` when any of the following holds, and `true` otherwise:
@@ -125,7 +164,7 @@ When a Run ends failed, cancelled, or expired after at least one model request s
 
 ### Requirement: Live and reloaded usage agree
 
-Every terminal path that persists an assistant message SHALL also publish that message's usage through the Run event stream before the Run's terminal event, so a subscriber observes the same token counts, cost, reasoning presence, and `complete` value that a later history read returns. Replaying the event stream after reconnect SHALL NOT change or accumulate the displayed usage.
+Every terminal path that persists an assistant message SHALL also publish that message's usage through the Run event stream before the Run's terminal event, so a subscriber observes the same token counts, cost, reasoning presence, `complete` value, and `billing` value that a later history read returns. Replaying the event stream after reconnect SHALL NOT change or accumulate the displayed usage.
 
 #### Scenario: A failed Run shows usage live
 
@@ -154,7 +193,7 @@ The compaction trigger for a completed Run SHALL use the final completed model r
 
 ### Requirement: Historical usage is marked, never recomputed
 
-Assistant message usage persisted before this capability SHALL have `complete: false` recorded when the message has tool-call parts or its recorded status is not `completed`, and SHALL otherwise have `complete: true` recorded. No existing token, cost, reasoning, model, or status value SHALL change. Messages without usage SHALL remain without usage. Applying the marker again SHALL change nothing.
+Assistant message usage persisted before this capability SHALL have `complete: false` recorded when the message has tool-call parts or its recorded status is not `completed`, and SHALL otherwise have `complete: true` recorded. No existing token, cost, reasoning, model, or status value SHALL change, and no `billing` value SHALL be added to historical assistant or compaction usage. Messages without usage SHALL remain without usage. Applying the marker again SHALL change nothing.
 
 #### Scenario: A historical tool loop is marked incomplete
 
@@ -191,6 +230,26 @@ The owner-facing usage display SHALL mark token totals and cost of incomplete us
 
 - **WHEN** an owner views usage that records `complete: true`
 - **THEN** totals and cost are shown without a lower-bound marker
+
+### Requirement: The owner's usage display marks subscription cost as notional
+
+When usage records `billing: "subscription"` and a cost, the owner-facing usage display SHALL present that cost muted and struck through, labeled as a notional cost, and SHALL expose to assistive technology that the cost was not billed. Usage that records `billing: "usage"` or no `billing` SHALL present its cost as before. A lower-bound marker for incomplete usage SHALL apply to a notional cost as it does to a billed one.
+
+#### Scenario: Subscription cost is shown as notional
+
+- **WHEN** an owner views usage that records `billing: "subscription"` and `costUsd` 0.0063
+- **THEN** the cost is shown muted and struck through with a notional-cost label
+- **AND** its accessible name states that it was not billed
+
+#### Scenario: Metered and historical cost are unchanged
+
+- **WHEN** an owner views usage that records `billing: "usage"`, or usage with no `billing`
+- **THEN** the cost is shown as an ordinary estimated cost
+
+#### Scenario: An unpriced subscription model shows no cost
+
+- **WHEN** an owner views usage that records `billing: "subscription"` and `costUsd: null`
+- **THEN** no cost figure is shown, as for any unpriced model
 
 ### Requirement: Compaction and title spend stay separate categories
 

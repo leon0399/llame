@@ -33,7 +33,7 @@ The SDK does not export its V3-to-`LanguageModelUsage` conversion, so the helper
 
 ### M2: Aggregation stays in `turn-telemetry.ts`
 
-`buildTurnTelemetry` remains the per-request normalizer and pricer; compaction keeps using it unchanged. A new `aggregateTurnTelemetry(receipts, context)` normalizes and prices each receipt, sums the results, derives `complete` and `reasoningTokens` by the spec's rules, and omits the token and cost fields when no receipt carried an input or output count. `costUsd` is `null` whenever pricing is absent, otherwise the sum of per-request costs. `finishReason` comes from the final request and `latencyMs` from the attempt clock, as today. The persisted assistant shape is `TurnTelemetry` with optional token and cost fields plus `complete`. Compaction usage keeps its current shape and carries no `complete`.
+`buildTurnTelemetry` remains the per-request normalizer and pricer. A new `aggregateTurnTelemetry(receipts, context)` normalizes and prices each receipt, sums the results, derives `complete` and `reasoningTokens` by the spec's rules, and omits the token and cost fields when no receipt carried an input or output count. `costUsd` is `null` whenever pricing is absent, otherwise the sum of per-request costs. `finishReason` comes from the final request and `latencyMs` from the attempt clock, as today. The persisted assistant shape is `TurnTelemetry` with optional token and cost fields plus `complete` and `billing`. Compaction usage keeps its current shape plus `billing` (M9) and carries no `complete`.
 
 Alternative: pricing the summed buckets once. Rejected because per-request bounding of cache subsets would no longer hold; summed per-request costs keep each request priced as it would be alone.
 
@@ -59,7 +59,17 @@ A hand-authored custom Drizzle migration follows `apps/api/src/db/AGENTS.md`: a 
 
 ### M8: Web display
 
-`parseTurnUsage` reads `complete`. Token totals and cost render with `≥` when `complete` is false, and the hover card adds one explanation row. Reasoning moves under Output as `of which reasoning`, with `—` when absent. An absent value renders as unavailable, a `null` cost keeps its current unpriced treatment, and complete usage renders as today.
+`parseTurnUsage` reads `complete` and `billing`. Token totals and cost render with `≥` when `complete` is false, and the hover card adds one explanation row. Reasoning moves under Output as `of which reasoning`, with `—` when absent. An absent value renders as unavailable, a `null` cost keeps its current unpriced treatment, and complete usage renders as today. When `billing` is `subscription`, the cost row is labeled as a notional cost, its value uses the design system's muted foreground with a line-through, and its accessible name says the cost was not billed. The `≥` prefix stays inside the struck value. `usage` or absent billing renders as today.
+
+### M9: Billing mode is resolved with pricing and stamped by the telemetry builder
+
+The config loader accepts an optional `billing` enum on provider and model entries in the published JSON Schema. The model catalog resolves each executable model's mode once at startup (model value, then provider value, then type default: `subscription` for `openai-codex` and `opencode-go`, `usage` otherwise) and exposes it on the model client as `billing`, next to the existing `pricing`. `buildTurnTelemetry` takes that mode as an input, so assistant usage (through M2) and compaction usage (both compaction paths already pass the client's pricing) record it without any separate write path. The mode is not added to the `GET /api/v1/models` projection.
+
+Alternatives:
+
+- Deciding the mode at display time from current configuration, as oh-my-pi does from the selected model's OAuth credential (`can1357/oh-my-pi@5fccbd0`, `packages/tui/src/status-line/segments.ts:557-598`). Rejected: a configuration change or model switch relabels past spend, which breaks the receipt rule already applied to `costUsd` and effort.
+- Deriving the mode from credential type. Rejected: `opencode-go` is a subscription behind a plain key, the same case pi hardcodes for `kimi-coding` (`badlogic/pi-mono@c7cdb46`, `packages/coding-agent/src/modes/interactive/components/footer.ts:142-155`).
+- A boolean flag. Rejected: an enum admits a later mode, such as prepaid credits, without migrating stored records.
 
 ## Risks / Trade-offs
 
@@ -72,6 +82,6 @@ A hand-authored custom Drizzle migration follows `apps/api/src/db/AGENTS.md`: a 
 
 ## Migration Plan
 
-The API layer ships the migration and the new writer together, so no new row is written without `complete`. Deploy order is the ordinary migrate-then-start. Rollback: older code ignores the `complete` key and the optional-absent fields render as unavailable in the current web. The migration is data-only and not reversed on rollback, because the key changes no existing value. Leo's running instance keeps all chats.
+The API layer ships the migration and the new writer together, so no new row is written without `complete` or `billing`. Deploy order is the ordinary migrate-then-start. Rollback: older code ignores the `complete` and `billing` keys and the optional-absent fields render as unavailable in the current web; an older loader rejects a config that declares `billing`, so remove the key before rolling back. The migration is data-only and not reversed on rollback, because the key changes no existing value. Historical records get no `billing`, since SQL cannot read the configuration that would decide it. Leo's running instance keeps all chats.
 
 Ownership: the linear stack in tasks.md serializes work; each layer has one owner and no parallel edits to shared files.

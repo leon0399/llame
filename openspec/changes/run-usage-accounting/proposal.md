@@ -2,6 +2,8 @@
 
 Assistant message usage and estimated cost count only the final model request of a tool loop, and a failed or cancelled Run records fabricated zeros or nothing at all ([#810](https://github.com/leon0399/llame/issues/810), [#594](https://github.com/leon0399/llame/issues/594)). The #810 reproduction undercounts cost by 63.5% for a two-step loop. The same final-request value also drives compaction, where it is the right signal, so a naive switch to cumulative usage would trigger compaction on long loops over a small reused context. Budget enforcement ([#91](https://github.com/leon0399/llame/issues/91)) and the usage ledger ([#170](https://github.com/leon0399/llame/issues/170)) both need a defined aggregate before they can build on it; no capability defines one today.
 
+Separately, an operator may declare pricing on a subscription model to see what the same usage would have cost per token, but nothing records that such a figure is notional: the usage display renders it exactly like metered spend ([#959](https://github.com/leon0399/llame/issues/959)). The fix belongs with the aggregate because it writes the same usage record and changes the same display row.
+
 ## What Changes
 
 - D1: An assistant message's usage is the sum of every provider-reported model request its Run attempt made, including the final tool-free answer. Each request is normalized and priced on its own before summing; reasoning stays a subset of output and cached/cache-write input stays a subset of input.
@@ -13,16 +15,20 @@ Assistant message usage and estimated cost count only the final model request of
 - D7: A one-time migration records `complete` on historical assistant usage: `false` where the row has tool-call parts or a non-completed status, `true` otherwise. Stored token and cost values are never recomputed.
 - D8: The usage badge shows `≥` on incomplete totals and cost with an explanation row, shows reasoning as `of which reasoning` under Output, and shows `—` for unknown values.
 - D9: Message usage covers only the Run's own model requests. Compaction and title-generation spend, including compaction calls that never publish, are separate categories owned by #170; published compaction usage stays a single-request receipt in its existing record.
+- D10: Every newly written usage record, on assistant messages and on published compactions, carries `billing`: `usage` (billed per token) or `subscription` (flat plan; any cost is notional). It is resolved at write time from the model entry's optional `billing`, then the provider entry's optional `billing`, then the provider type's default (`subscription` for `openai-codex` and `opencode-go`, `usage` otherwise), and is never recomputed. Billing mode does not change how cost is computed.
+- D11: The usage display shows a subscription record's cost muted and struck through, labeled as a notional cost that was not billed. Records without `billing` display as before; they are not backfilled.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `run-usage-accounting`: Aggregation, completeness, pricing, persistence, live/reload agreement, and display of assistant message usage across a Run's model requests; separation of the compaction pressure signal; scope boundaries against compaction, title, and ledger accounting.
+- `run-usage-accounting`: Aggregation, completeness, pricing, billing mode, persistence, live/reload agreement, and display of assistant message usage across a Run's model requests; separation of the compaction pressure signal; scope boundaries against compaction, title, and ledger accounting.
 
 ### Modified Capabilities
 
-None. Provider capabilities (`anthropic-messages-provider`, `opencode-go-provider`, `subscription-access-openai-codex`) keep their per-request recording and pricing rules, which now apply to each request before aggregation. `available-models` keeps its no-recomputation rule; the D7 marker changes no computed value.
+- `instance-config`: ADDED requirement for the optional `billing` key on provider and model entries, its closed value set, and boot failure on any other value.
+
+Provider capabilities (`anthropic-messages-provider`, `opencode-go-provider`, `subscription-access-openai-codex`) keep their per-request recording and pricing rules, which now apply to each request before aggregation. `opencode-go-provider` already describes a declared price as llame's own accounting of a subscription quota; D10 records that fact rather than changing the rule. `available-models` keeps its no-recomputation rule; the D7 marker changes no computed value.
 
 ## Non-goals
 
@@ -43,5 +49,7 @@ None. Provider capabilities (`anthropic-messages-provider`, `opencode-go-provide
 ## Impact
 
 API: the model-client seam and its three wire adapters (`openai-responses`/`openai-codex`, `openai-completions` including `opencode-go`, `anthropic-messages`), test model clients, turn telemetry, Run terminal paths including parent-abort settlement, the compaction trigger argument, and one data migration on `messages.usage` with no schema change. Web: the message usage parser and badge. No OpenAPI change: `usage` is an untyped JSON object on message and event payloads. Existing fields keep their names and types; token and cost fields may now be absent when no request reported them, which the web parser already tolerates.
+
+Configuration: the published JSON Schema, the config loader, the example config, and the Codex and OpenCode Go runbooks gain the `billing` key; existing configs keep booting because the key is optional.
 
 Durable data: D7 writes a new key into existing JSON objects on the operator's running instance; it is idempotent and changes no existing value. Rollback leaves an unused key that older readers ignore. No tenancy or authorization boundary changes: usage stays on owner-scoped rows read under existing RLS, and the reclaim check reads only receipts of the Run being settled inside its owner's transaction.
