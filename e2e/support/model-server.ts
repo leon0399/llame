@@ -1062,7 +1062,7 @@ async function waitForHoldRelease(
   state: HoldState,
   res: ServerResponse,
 ): Promise<void> {
-  if (state.released || state.closed || res.destroyed) return;
+  if (state.released || res.destroyed) return;
   await new Promise<void>((resolve) => {
     state.wake = resolve;
   });
@@ -1076,11 +1076,16 @@ async function respondHeld(
 ): Promise<void> {
   const state = getOrCreateHold(token);
   state.arrived = true;
+  // A reused HOLD token must not inherit a prior response's abort.
+  state.closed = false;
   writeSseHead(res);
   res.on("error", () => {});
-  // Close is observed on `res` (request `close` can fire once the body is
-  // consumed). Wake any latch so Stop/abort paths settle without a release.
+  // Close fires after a normal end too; only an abort (peer close before
+  // writableFinished) counts as `closed` for the control endpoint / latch.
+  let aborted = false;
   res.on("close", () => {
+    if (res.writableFinished) return;
+    aborted = true;
     state.closed = true;
     state.wake?.();
     state.wake = null;
@@ -1088,7 +1093,7 @@ async function respondHeld(
 
   await waitForHoldRelease(state, res);
 
-  if (state.closed || res.destroyed || res.writableEnded) {
+  if (aborted || res.destroyed || res.writableEnded) {
     return;
   }
 
