@@ -55,16 +55,16 @@ async function releaseHold(token: string): Promise<void> {
   }
 }
 
-type ActiveRun = { id: string; chatId: string; status: string };
+type ActiveRun = { runId: string; chatId: string; status: string };
 
 function isActiveRun(value: unknown): value is ActiveRun {
   return (
     value !== null &&
     typeof value === "object" &&
-    "id" in value &&
+    "runId" in value &&
     "chatId" in value &&
     "status" in value &&
-    typeof value.id === "string" &&
+    typeof value.runId === "string" &&
     typeof value.chatId === "string" &&
     typeof value.status === "string"
   );
@@ -163,7 +163,7 @@ test.describe("stop from submission", () => {
       .poll(
         async () => {
           const response = await page.request.get(
-            `${API_URL}/api/v1/runs/${run.id}`,
+            `${API_URL}/api/v1/runs/${run.runId}`,
             { headers: { Authorization: `Bearer ${account.token}` } },
           );
           if (!response.ok()) {
