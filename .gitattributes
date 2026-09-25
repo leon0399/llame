@@ -25,5 +25,11 @@ apps/api/src/db/migrations/meta/** linguist-generated=true
 *.woff  binary
 *.woff2 binary
 
+# Parallel PRs add entries at the same place at the top. The root `prepare`
+# script registers scripts/merge-changelog.mjs, which merges pure additions
+# per date section and leaves every other change to git's text merge. Local
+# merges and rebases only: GitHub's server-side merge ignores merge drivers.
+CHANGELOG.md merge=changelog
+
 # Sourced by the generated git hook shim; a CR would abort every hook.
 .lefthookrc text eol=lf

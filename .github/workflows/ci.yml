@@ -68,8 +68,7 @@ jobs:
 
       # Strictly dependency-free by construction: DB-backed suites are their
       # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
-      - run: pnpm test:metrics
-      - run: pnpm test:mutation:tooling
+      - run: pnpm test:scripts
 
       - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation' --filter='!@workspace/runtime-safety'
 

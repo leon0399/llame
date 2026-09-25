@@ -181,7 +181,16 @@ function coalesce(ranges) {
 export function changedLineRanges(base, root = process.cwd()) {
   const revision = git(["merge-base", "HEAD", base], root).trim();
   const diff = git(
-    ["diff", "--unified=0", "--no-renames", revision, "--"],
+    // Pinned so a developer's diff.algorithm cannot move hunk boundaries away
+    // from the ranges CI measures.
+    [
+      "diff",
+      "--unified=0",
+      "--no-renames",
+      "--diff-algorithm=myers",
+      revision,
+      "--",
+    ],
     root,
   );
   const hunks = parseHunks(diff);
