@@ -1030,16 +1030,12 @@ type HoldState = {
   arrived: boolean;
   closed: boolean;
   released: boolean;
-  waiters: Array<() => void>;
+  wake: (() => void) | null;
 };
 
 const holds = new Map<string, HoldState>();
 
 const HOLD_TOKEN_RE = /HOLD:([A-Za-z0-9_-]+)/;
-
-function extractHoldToken(content: string): string | undefined {
-  return HOLD_TOKEN_RE.exec(content)?.[1];
-}
 
 function getOrCreateHold(token: string): HoldState {
   let state = holds.get(token);
@@ -1048,7 +1044,7 @@ function getOrCreateHold(token: string): HoldState {
       arrived: false,
       closed: false,
       released: false,
-      waiters: [],
+      wake: null,
     };
     holds.set(token, state);
   }
@@ -1058,8 +1054,8 @@ function getOrCreateHold(token: string): HoldState {
 function releaseHold(token: string): void {
   const state = getOrCreateHold(token);
   state.released = true;
-  for (const wake of state.waiters) wake();
-  state.waiters = [];
+  state.wake?.();
+  state.wake = null;
 }
 
 async function waitForHoldRelease(
@@ -1068,11 +1064,7 @@ async function waitForHoldRelease(
 ): Promise<void> {
   if (state.released || state.closed || res.destroyed) return;
   await new Promise<void>((resolve) => {
-    state.waiters.push(resolve);
-    res.on("close", () => {
-      state.closed = true;
-      resolve();
-    });
+    state.wake = resolve;
   });
 }
 
@@ -1086,8 +1078,12 @@ async function respondHeld(
   state.arrived = true;
   writeSseHead(res);
   res.on("error", () => {});
+  // Close is observed on `res` (request `close` can fire once the body is
+  // consumed). Wake any latch so Stop/abort paths settle without a release.
   res.on("close", () => {
     state.closed = true;
+    state.wake?.();
+    state.wake = null;
   });
 
   await waitForHoldRelease(state, res);
@@ -1127,7 +1123,7 @@ async function respondToChatCompletion(
   }
 
   const classification = classify(raw);
-  const holdToken = extractHoldToken(classification.lastUserContent);
+  const holdToken = HOLD_TOKEN_RE.exec(classification.lastUserContent)?.[1];
   if (holdToken !== undefined) {
     await respondHeld(res, raw, classification, holdToken);
     return;

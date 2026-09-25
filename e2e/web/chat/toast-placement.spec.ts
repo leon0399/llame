@@ -68,10 +68,6 @@ async function openMobileChatSheet(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Toggle Sidebar" }).click();
 }
 
-async function closeMobileChatSheet(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Toggle Sidebar" }).click();
-}
-
 async function waitForProcessingSidebar(
   page: Page,
   chatId: string,
@@ -85,7 +81,7 @@ async function waitForProcessingSidebar(
     timeout: 20_000,
   });
   if (mobile) {
-    await closeMobileChatSheet(page);
+    await openMobileChatSheet(page);
   }
 }
 
