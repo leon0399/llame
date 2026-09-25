@@ -1058,6 +1058,25 @@ function releaseHold(token: string): void {
   state.wake = null;
 }
 
+function buildChunkContext(
+  res: ServerResponse,
+  raw: string,
+  classification: Classification,
+): ChunkContext {
+  const readKnowledge =
+    classification.knowledgeOperation === "read" ||
+    classification.knowledgeOperation === "error";
+  return {
+    ...classification,
+    res,
+    raw,
+    readKnowledge,
+    hasRequestedKnowledgeTool: readKnowledge
+      ? classification.hasNativeReadTool
+      : classification.hasKnowledgeSearchTool,
+  };
+}
+
 async function waitForHoldRelease(
   state: HoldState,
   res: ServerResponse,
@@ -1097,19 +1116,7 @@ async function respondHeld(
     return;
   }
 
-  const readKnowledge =
-    classification.knowledgeOperation === "read" ||
-    classification.knowledgeOperation === "error";
-  const ctx: ChunkContext = {
-    ...classification,
-    res,
-    raw,
-    readKnowledge,
-    hasRequestedKnowledgeTool: readKnowledge
-      ? classification.hasNativeReadTool
-      : classification.hasKnowledgeSearchTool,
-  };
-  await writeDefaultAnswer(ctx);
+  await writeDefaultAnswer(buildChunkContext(res, raw, classification));
 }
 
 async function respondToChatCompletion(
@@ -1134,19 +1141,7 @@ async function respondToChatCompletion(
     return;
   }
 
-  const readKnowledge =
-    classification.knowledgeOperation === "read" ||
-    classification.knowledgeOperation === "error";
-  const hasRequestedKnowledgeTool = readKnowledge
-    ? classification.hasNativeReadTool
-    : classification.hasKnowledgeSearchTool;
-  const ctx = {
-    ...classification,
-    res,
-    raw,
-    readKnowledge,
-    hasRequestedKnowledgeTool,
-  };
+  const ctx = buildChunkContext(res, raw, classification);
 
   writeSseHead(res);
 
