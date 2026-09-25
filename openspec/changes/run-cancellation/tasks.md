@@ -37,7 +37,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
 - [x] 2.7 Add the Stop-from-submission E2E using the hold from 1.1 (design M6). Verify with a focused local run of the spec where the environment allows, then CI.
 - [x] 2.8 Add the `run-cancellation` link to `SPEC.md` §9.4 and point `docs/scaling.md`'s cancellation paragraph at the capability; add a dated `CHANGELOG.md` entry. Run `pnpm lint`, `pnpm --filter api typecheck` and `test:coverage`, `pnpm --filter web typecheck` and `test:coverage`, the focused integration files from 2.2 and 2.3, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`, and `pnpm exec openspec validate run-cancellation --strict`; record the commands in the PR body, which uses `Closes #139`.
 - [x] 2.9 Self-review (SR) the parent-relative draft diff against REVIEW_GUIDE.md, fix accepted findings, and rerun affected checks before marking ready.
-- [ ] 2.10 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before creating `finalize`.
+- [x] 2.10 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before creating `finalize`.
 
 ## 3. `run-cancellation/finalize`: spec sync and archive
 
