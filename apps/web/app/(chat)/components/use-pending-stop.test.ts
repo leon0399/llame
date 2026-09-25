@@ -107,6 +107,41 @@ describe("usePendingStop", () => {
     expect(result.current.pendingStop).toBe(false);
     expect(cancelRun).not.toHaveBeenCalled();
     expect(stop).not.toHaveBeenCalled();
+
+    // A following send must not re-arm the hold or cancel the next Run.
+    rerender({ messages: userOnly(), status: "submitted" });
+    expect(result.current.pendingStop).toBe(false);
+    rerender({ messages: withAssistant("run-next"), status: "streaming" });
+    expect(cancelRun).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("stops immediately without waiting for cancelRun", async () => {
+    let resolveCancel: (() => void) | undefined;
+    const cancelRun = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCancel = resolve;
+        }),
+    );
+    const stop = vi.fn();
+    const toastError = vi.fn();
+    const { result } = renderHook(() =>
+      usePendingStop({
+        messages: withAssistant("run-slow"),
+        stop,
+        status: "streaming",
+        deps: { cancelRun, toastError },
+      }),
+    );
+
+    await act(async () => {
+      result.current.requestStop();
+    });
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(cancelRun).toHaveBeenCalledWith("run-slow");
+    resolveCancel?.();
   });
 
   it("still stops and toasts when cancelRun fails", async () => {
@@ -126,8 +161,8 @@ describe("usePendingStop", () => {
       result.current.requestStop();
     });
 
+    expect(stop).toHaveBeenCalledOnce();
     await waitFor(() => {
-      expect(stop).toHaveBeenCalledOnce();
       expect(toastError).toHaveBeenCalledWith(
         "Couldn't confirm the response was stopped — it may still be finishing.",
       );

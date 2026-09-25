@@ -34,13 +34,9 @@ type UsePendingStopArgs = {
 /**
  * Stop that cancels the durable Run once its id is known (design M2).
  *
- * - Id known (placeholder assistant row present): `cancelRun` then `stop()`.
- * - Id unknown (request in flight): set pending, keep the request open; when
- *   the placeholder appears, cancel + stop. A failed/finished send clears the
- *   hold without cancelling.
- *
- * `cancelRun` failures keep today's handling: 404/409 silent; anything else
- * still stops and shows the existing toast.
+ * - Id known: fire-and-forget `cancelRun`, then `stop()`.
+ * - Id unknown: hold until the placeholder appears, then cancel + stop.
+ * - Failed or finished send clears the hold without cancelling.
  */
 export function usePendingStop({
   messages,
@@ -49,23 +45,25 @@ export function usePendingStop({
   deps = defaultDeps,
 }: UsePendingStopArgs) {
   const [held, setHeld] = useState(false);
-  // A finished or failed send drops the hold without a cancel request.
-  const pendingStop = held && status !== "ready" && status !== "error";
+
+  // Design M2: when the request fails or finishes, clear the hold so a later
+  // send does not inherit it and auto-cancel the next Run.
+  if ((status === "ready" || status === "error") && held) {
+    setHeld(false);
+  }
 
   const runId = runIdToCancel(messages);
-  const [seenRunId, setSeenRunId] = useState<string | null>(null);
-  if (held && runId !== null && runId !== seenRunId) {
-    setSeenRunId(runId);
+  if (held && runId !== null) {
     setHeld(false);
-    queueMicrotask(() => {
-      void cancelAndStop(runId, stop, deps);
-    });
+    cancelAndStop(runId, stop, deps);
   }
+
+  const pendingStop = held;
 
   function requestStop() {
     const knownId = runIdToCancel(messages);
     if (knownId) {
-      void cancelAndStop(knownId, stop, deps);
+      cancelAndStop(knownId, stop, deps);
       return;
     }
     setHeld(true);
@@ -78,18 +76,17 @@ export function usePendingStop({
   return { pendingStop, requestStop, clearPendingStop };
 }
 
-async function cancelAndStop(
+/** Fire-and-forget cancel, then abort the client stream (design M2). */
+function cancelAndStop(
   runId: string,
   stop: () => void | Promise<void>,
   deps: PendingStopDeps,
-): Promise<void> {
-  try {
-    await deps.cancelRun(runId);
-  } catch (error: unknown) {
+): void {
+  void deps.cancelRun(runId).catch((error: unknown) => {
     console.error("Failed to cancel run", error);
     deps.toastError(
       "Couldn't confirm the response was stopped — it may still be finishing.",
     );
-  }
-  await stop();
+  });
+  void stop();
 }
