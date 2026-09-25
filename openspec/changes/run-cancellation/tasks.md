@@ -24,7 +24,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
 - [x] 1.4 Add the toast-placement E2E at 1280×720 and 390×844 (design M6). Verify with a focused local run of the spec where the environment allows, then CI.
 - [x] 1.5 Add a dated `CHANGELOG.md` entry. Run `pnpm lint`, `pnpm --filter web typecheck` and `test:coverage`, `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record the commands in the PR body, which uses `Closes #262`.
 - [x] 1.6 Self-review (SR) the parent-relative draft diff against REVIEW_GUIDE.md, fix accepted findings, and rerun affected checks before marking ready.
-- [ ] 1.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before adding the `stop-from-submission` layer.
+- [x] 1.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before adding the `stop-from-submission` layer.
 
 ## 2. `run-cancellation/stop-from-submission`: Stop cancels from acceptance
 
