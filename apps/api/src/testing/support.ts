@@ -7,6 +7,13 @@
  */
 
 import { expect } from 'vitest';
+import { z } from 'zod';
+import {
+  request as httpRequest,
+  type ClientRequest,
+  type IncomingMessage,
+  type Server,
+} from 'node:http';
 
 import { isContextItemPart } from '../chats/context-item';
 import { isTemporalPayload } from '../chats/context-item-producers';
@@ -116,6 +123,139 @@ export async function waitFor<T>(
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+}
+
+/** The UI message stream fields an incremental reader's callers assert on. */
+const uiStreamFrame = z.object({
+  type: z.string(),
+  messageId: z.string().optional(),
+});
+
+export type UiStreamFrame = z.infer<typeof uiStreamFrame>;
+
+/**
+ * A live SSE response read one frame at a time. supertest resolves only on the
+ * complete body, so it cannot observe a stream whose first frame arrives while
+ * the Run feeding it is still queued — exactly what the acceptance `start`
+ * frame claims.
+ */
+export type IncrementalSseResponse = {
+  status: number;
+  /**
+   * The next frame this reader has not returned yet.
+   *
+   * @param what - What is being waited for, named in the failure message
+   * @param timeoutMs - How long to wait before failing
+   * @returns The frame, parsed at this boundary
+   * @throws Error when the body ends first or the timeout elapses
+   */
+  nextFrame(what: string, timeoutMs?: number): Promise<UiStreamFrame>;
+  /** Abort the request. The Run keeps executing; only the bridge stops. */
+  close(): void;
+};
+
+/**
+ * Appends each complete frame of a live SSE body to `frames`.
+ *
+ * @param res - The response whose body is being read
+ * @param frames - The list each parsed frame is appended to
+ * @returns Whether the body has ended
+ */
+function collectSseFrames(
+  res: IncomingMessage,
+  frames: Array<unknown>,
+): () => boolean {
+  let trailing = '';
+  let ended = false;
+  res.setEncoding('utf8');
+  res.on('data', (chunk: string) => {
+    trailing += chunk;
+    const complete = trailing.split('\n\n');
+    trailing = complete.pop() ?? '';
+    for (const frame of complete) {
+      frames.push(...parseSseEvents(`${frame}\n\n`));
+    }
+  });
+  const markEnded = () => {
+    ended = true;
+  };
+  res.on('end', markEnded);
+  res.on('close', markEnded);
+  res.on('error', markEnded);
+  return () => ended;
+}
+
+/** Frame reader over a live SSE body; `parseSseEvents` owns the frame format. */
+function readSseFrames(
+  req: ClientRequest,
+  res: IncomingMessage,
+): IncrementalSseResponse {
+  const frames: Array<unknown> = [];
+  const hasEnded = collectSseFrames(res, frames);
+  let returned = 0;
+  return {
+    status: res.statusCode ?? 0,
+    nextFrame: (what, timeoutMs = 15_000) =>
+      waitFor(
+        () => {
+          if (returned < frames.length) {
+            return uiStreamFrame.parse(frames[returned++]);
+          }
+          if (hasEnded()) {
+            throw new Error(`SSE stream ended before ${what}`);
+          }
+          return undefined;
+        },
+        timeoutMs,
+        what,
+      ),
+    close: () => req.destroy(),
+  };
+}
+
+/**
+ * Open an SSE request against a listening server and read its body
+ * incrementally. The server must already listen on a port (`app.listen(0)`),
+ * because supertest's per-request listen would not outlive this stream.
+ *
+ * @param options - Server, request line, session cookie, and JSON body
+ * @returns The response as soon as its headers arrive
+ */
+export function openSseStream(options: {
+  server: Server;
+  method: 'GET' | 'POST';
+  path: string;
+  cookie: string;
+  body?: UnknownRecord;
+}): Promise<IncrementalSseResponse> {
+  const address = options.server.address();
+  if (address === null || isString(address)) {
+    throw new Error('openSseStream needs a TCP-listening server');
+  }
+  const payload =
+    options.body === undefined ? undefined : JSON.stringify(options.body);
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({
+      host: '127.0.0.1',
+      port: address.port,
+      method: options.method,
+      path: options.path,
+      headers: {
+        cookie: options.cookie,
+        accept: 'text/event-stream',
+        ...(payload !== undefined && {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(payload),
+        }),
+      },
+    });
+    req.on('error', reject);
+    req.on('response', (res) => resolve(readSseFrames(req, res)));
+    if (payload !== undefined) {
+      req.write(payload);
+    }
+    req.end();
+  });
 }
 
 /**

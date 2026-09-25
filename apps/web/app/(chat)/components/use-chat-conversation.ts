@@ -6,8 +6,6 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useChatContext } from "@/contexts/chat-context";
 import { useActiveRuns } from "@/contexts/active-runs-context";
-import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
-import { toast } from "@workspace/ui/components/sonner";
 import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
 import {
   mergeTrustedModelContextParts,
@@ -23,6 +21,7 @@ import {
   useChatSendTransport,
   useTargetScrollEffect,
 } from "./use-chat-engine";
+import { usePendingStop } from "./use-pending-stop";
 
 type ChatSubmitHandlersArgs = {
   sendMessage: ReturnType<typeof useChat>["sendMessage"];
@@ -34,36 +33,6 @@ type ChatSubmitHandlersArgs = {
   setInput: (value: string) => void;
   setSendError: (error: Error | null) => void;
 };
-
-// Stop must CANCEL the durable run, not just close our SSE — otherwise the
-// worker keeps generating (and billing BYOK tokens) after "stop". While a run
-// streams, the assistant message's id is the run id (the bridge's start-chunk
-// surrogate), so cancel it, then abort the client stream. Best-effort: a run
-// that's already gone/terminal makes the cancel moot (cancelRun swallows
-// those); we still abort the client either way. During the brief "submitted"
-// window the last message is the user turn (no run id yet) → just stop().
-// Split out of `useChatActions` as a plain factory — it calls no hooks.
-function createHandleStop(
-  messages: Array<UIMessage>,
-  stop: ReturnType<typeof useChat>["stop"],
-) {
-  return function handleStop() {
-    const runId = runIdToCancel(messages);
-    if (runId) {
-      // cancelRun already swallows the normal 404/409 races (run gone /
-      // terminal); reaching here means the cancel genuinely failed, so the run
-      // may still be generating (and billing) server-side — surface it rather
-      // than let the user believe stop saved tokens when it may not have.
-      void cancelRun(runId).catch((error: unknown) => {
-        console.error("Failed to cancel run", error);
-        toast.error(
-          "Couldn't confirm the response was stopped — it may still be finishing.",
-        );
-      });
-    }
-    void stop();
-  };
-}
 
 /** The composer's submit handler — split out of `useChatActions` as a
  *  plain factory, it calls no hooks. */
@@ -131,8 +100,12 @@ function useChatActions({
 }: UseChatActionsArgs) {
   const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<Error | null>(null);
+  const { pendingStop, requestStop, clearPendingStop } = usePendingStop({
+    messages,
+    stop,
+    status,
+  });
 
-  const handleStop = createHandleStop(messages, stop);
   const handleSubmit = createHandleSubmit({
     input,
     setInput,
@@ -141,10 +114,20 @@ function useChatActions({
     modelReadyForSend,
     sendMessage,
     onSendStarted,
-    onSendFailed,
+    onSendFailed: () => {
+      clearPendingStop();
+      onSendFailed();
+    },
   });
 
-  return { input, setInput, sendError, handleStop, handleSubmit };
+  return {
+    input,
+    setInput,
+    sendError,
+    handleStop: requestStop,
+    handleSubmit,
+    pendingStop,
+  };
 }
 
 /** Every piece of state `useChatConversation` needs that isn't specific to
@@ -315,6 +298,7 @@ function buildComposerState(
     setInput: actions.setInput,
     handleSubmit: actions.handleSubmit,
     handleStop: actions.handleStop,
+    pendingStop: actions.pendingStop,
     modelReadyForSend: setup.modelReadyForSend,
     modelSendUnavailableReason: setup.modelSendUnavailableReason,
   };

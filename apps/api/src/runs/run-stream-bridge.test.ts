@@ -61,7 +61,7 @@ function bridgeFixture(configValues: Record<string, string> = {}) {
 }
 
 describe('createRunEventTranslator', () => {
-  it('emits prelude lazily, then deltas, then text-end + finish on completion', () => {
+  it('emits prelude at most once from translate when the bridge has not called it', () => {
     const t = createRunEventTranslator('run-1');
 
     expect(t.translate({ eventType: 'run.created', payload: null })).toEqual(
@@ -91,6 +91,32 @@ describe('createRunEventTranslator', () => {
       { type: 'finish' },
     ]);
     expect(t.finished()).toBe(true);
+  });
+
+  it('prelude() returns start once, so a later translate adds no second start', () => {
+    const t = createRunEventTranslator('run-1');
+
+    expect(t.prelude()).toEqual([{ type: 'start', messageId: 'run-1' }]);
+    expect(t.prelude()).toEqual([]);
+    expect(
+      t.translate({ eventType: 'model.delta', payload: { text: 'Hi' } }),
+    ).toEqual([
+      { type: 'text-start', id: 'text-1' },
+      { type: 'text-delta', id: 'text-1', delta: 'Hi' },
+    ]);
+    expect(
+      t.translate({
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'c1',
+          toolName: 'read',
+          input: { path: '/tmp/x' },
+        },
+      }),
+    ).not.toContainEqual({ type: 'start', messageId: 'run-1' });
+    expect(
+      t.translate({ eventType: 'run.completed', payload: null }),
+    ).not.toContainEqual({ type: 'start', messageId: 'run-1' });
   });
 
   it('emits no UI chunk for system-origin skill activation', () => {
@@ -784,6 +810,33 @@ describe('RunStreamBridgeService', () => {
     });
   });
 
+  it('emits start before the first poll and never emits a second start', async () => {
+    let polls = 0;
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      () => {
+        polls += 1;
+        if (polls === 1) {
+          return Promise.resolve([runEvent(1, 'run.created', null)]);
+        }
+        return Promise.resolve([
+          runEvent(2, 'model.delta', { text: 'Hi' }),
+          runEvent(3, 'run.completed', null),
+        ]);
+      },
+    );
+    const { bridge } = bridgeFixture();
+
+    const body = await bridge
+      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .text();
+
+    const startPayload = JSON.stringify({ type: 'start', messageId: RUN_ID });
+    expect(body.startsWith(`data: ${startPayload}\n\n`)).toBe(true);
+    expect(body.match(/"type":"start"/g)).toHaveLength(1);
+    expect(body).toContain('"delta":"Hi"');
+    expect(body).toContain('"type":"finish"');
+  });
+
   it('stops when the run is terminal but has no terminal event', async () => {
     const listByRunId = vi
       .spyOn(RunEventsRepository.prototype, 'listByRunId')
@@ -816,7 +869,9 @@ describe('RunStreamBridgeService', () => {
       userId: 'user-1',
     });
 
-    await expect(response.text()).resolves.toBe('');
+    await expect(response.text()).resolves.toBe(
+      `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
+    );
     expect(listByRunId).toHaveBeenCalledOnce();
     expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
   });
@@ -854,7 +909,9 @@ describe('RunStreamBridgeService', () => {
       abortSignal: controller.signal,
     });
 
-    await expect(response.text()).resolves.toBe('');
+    await expect(response.text()).resolves.toBe(
+      `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
+    );
     expect(listByRunId).not.toHaveBeenCalled();
   });
 });
@@ -1206,7 +1263,9 @@ describe('RunStreamBridgeService window and terminal-status fallbacks', () => {
       .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
       .text();
 
-    expect(body).toBe('');
+    expect(body).toBe(
+      `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
+    );
     expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
   });
 
@@ -1224,7 +1283,9 @@ describe('RunStreamBridgeService window and terminal-status fallbacks', () => {
       bridge
         .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
         .text(),
-    ).resolves.toBe('');
+    ).resolves.toBe(
+      `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
+    );
   });
 
   it('emits nothing for an empty reasoning delta', () => {

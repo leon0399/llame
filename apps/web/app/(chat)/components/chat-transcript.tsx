@@ -25,6 +25,7 @@ type ChatTranscriptMessageProps = {
   chatId: string;
   message: UIMessage;
   index: number;
+  isLast: boolean;
   compaction: Compaction | null;
   compactionIndex: number;
   availableModels: ReadonlyArray<AvailableModel>;
@@ -39,6 +40,7 @@ function ChatTranscriptMessage({
   chatId,
   message,
   index,
+  isLast,
   compaction,
   compactionIndex,
   availableModels,
@@ -60,6 +62,7 @@ function ChatTranscriptMessage({
     <ChatMessageRow
       renderKey={renderKey}
       message={message}
+      isLast={isLast}
       boundary={boundary}
       modelBoundary={modelBoundary}
       availableModels={availableModels}
@@ -127,6 +130,7 @@ function ChatTranscriptMessages({
           chatId={chatId}
           message={message}
           index={index}
+          isLast={index === displayMessages.length - 1}
           compaction={compaction}
           compactionIndex={compactionIndex}
           availableModels={availableModels}

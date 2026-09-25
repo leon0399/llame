@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-25
 
+- Stop cancels a Chat Run from acceptance: the stream emits the Run id before
+  any model output, the composer keeps Stop enabled through the pending window,
+  and a held model request aborts and settles `cancelled` (#139).
+
 - Toasts mount top-right so they no longer cover the composer (#262).
 
 - Local merges and rebases now resolve the daily `CHANGELOG.md` conflict

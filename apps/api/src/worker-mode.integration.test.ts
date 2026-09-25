@@ -32,6 +32,7 @@ import {
   cookieOf,
   expectRegisteredUserId,
   FakeStreamingModelClient,
+  openSseStream,
   parseSseEvents,
 } from './testing/support';
 import { z } from 'zod';
@@ -56,8 +57,6 @@ async function waitFor<T>(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * `implements ModelSelectionValidator` is load-bearing: Nest overrides are not
@@ -161,7 +160,9 @@ d('queue-executed runs behind the stream bridge', () => {
 
     app = mod.createNestApplication();
     configureApp(app);
-    await app.init();
+    // Real listening port: openSseStream needs it to abort mid-stream after
+    // the acceptance-time start frame without superagent's ECONNRESET.
+    await app.listen(0);
     http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
 
@@ -437,23 +438,24 @@ d('queue-executed runs behind the stream bridge', () => {
     models.client.delayMs = 2000;
     const chatId = crypto.randomUUID();
 
-    const pending = request(http)
-      .post(`/api/v1/chats/${chatId}/messages`)
-      .set('Cookie', cookie)
-      .send({
+    const pending = await openSseStream({
+      server: http,
+      method: 'POST',
+      path: `/api/v1/chats/${chatId}/messages`,
+      cookie,
+      body: {
         modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Resume me' }],
         },
-      });
-    const settled = pending.then(
-      () => undefined,
-      () => undefined,
-    );
-    await sleep(600);
-    pending.abort();
-    await settled;
+      },
+    });
+    expect(pending.status).toBe(200);
+    const start = await pending.nextFrame('acceptance start');
+    expect(start.type).toBe('start');
+    // Drop the bridge; the worker keeps executing.
+    pending.close();
 
     // Reconnect while the worker is still executing: the stream replays the
     // run from the start and closes after run completion.
@@ -509,26 +511,22 @@ d('queue-executed runs behind the stream bridge', () => {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
 
-    const pending = request(http)
-      .post(`/api/v1/chats/${chatId}/messages`)
-      .set('Cookie', cookie)
-      .send({
+    const pending = await openSseStream({
+      server: http,
+      method: 'POST',
+      path: `/api/v1/chats/${chatId}/messages`,
+      cookie,
+      body: {
         modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: messageId,
           parts: [{ type: 'text', text: 'Refresh-proof?' }],
         },
-      });
-    const settled = pending.then(
-      () => undefined,
-      () => undefined,
-    );
-
-    // Give the request time to persist + enqueue, then drop the connection
-    // while the worker is still inside the (delayed) model call.
-    await sleep(600);
-    pending.abort();
-    await settled;
+      },
+    });
+    expect(pending.status).toBe(200);
+    await pending.nextFrame('acceptance start');
+    pending.close();
 
     // The run finishes anyway: worker execution is not tied to the socket.
     const run = await waitFor(
