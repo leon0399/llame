@@ -6,7 +6,7 @@ Defines how the owner of a durable Run cancels it, when a recorded cancellation 
 
 ### Requirement: The owner requests cancellation of a Run
 
-An authenticated owner SHALL request cancellation of their own Run by updating the Run's status to `cancelled`. This SHALL be the only Run transition a client can write; a request carrying any other status SHALL be rejected as invalid and SHALL NOT change the Run.
+An authenticated owner SHALL request cancellation of their own Run by submitting an update with `status: cancelled`. This records the cancellation request; settlement later sets the Run status to `cancelled`. This SHALL be the only cancellation request a client can write; a request carrying any other status SHALL be rejected as invalid and SHALL NOT change the Run.
 
 The request SHALL act only on a Run owned by the authenticated identity. A Run that does not exist and a Run owned by someone else SHALL produce the same not-found response, and the other owner's Run SHALL NOT be changed.
 
@@ -41,9 +41,9 @@ For a non-terminal Run, the request SHALL durably record the cancellation and re
 
 ### Requirement: A recorded cancellation settles the Run as cancelled
 
-A worker claims a Run when it moves the Run from `queued` to `running_model` for an attempt. A Run whose cancellation is recorded before that claim SHALL NOT be claimed and SHALL be settled `cancelled` without any model request, in every deployment topology.
+A worker claims a Run when it assigns an attempt by transitioning a non-terminal Run into execution: for a `queued` Run that is `queued` → `running_model`, and for crash-recovery reclaim that is `running_model` → `running_model` with a new attempt. A Run whose cancellation is recorded before that claim SHALL NOT be claimed and SHALL be settled `cancelled` without any model request, in every deployment topology.
 
-After the claim, when the Run executes in the process that receives the cancellation request, the attempt's in-flight work SHALL be aborted, including attempt preparation and any compaction request it makes, no further model request SHALL be made, and the Run SHALL be settled `cancelled`. When the Run executes in a different process, a cancellation recorded after the claim is outside this requirement until cross-process cancellation ships ([#207](https://github.com/leon0399/llame/issues/207)).
+After the claim, when the Run executes in the process that receives the cancellation request, attempt preparation continues to its next abort checkpoint (no further model request), any in-flight compaction request SHALL be aborted, and the Run SHALL be settled `cancelled`. When the Run executes in a different process, a cancellation recorded after the claim is outside this requirement until cross-process cancellation ships ([#207](https://github.com/leon0399/llame/issues/207)).
 
 Settlement SHALL append the terminal `run.cancelled` event and SHALL follow the first-writer-wins terminal rule of `durable-runs`, so a Run that reached another terminal state first keeps it. A Run deleted together with its Chat leaves no Run to settle and is outside this requirement.
 
