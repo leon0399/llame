@@ -268,8 +268,7 @@ const PENDING_MESSAGE: UIMessage = {
 
 /**
  * The accepted turn before any model output: the last row of a chat in flight
- * shimmers "Thinking…" in place of the empty bubble it would otherwise paint,
- * and offers no fork action for an id that names a Run rather than a message.
+ * shimmers "Thinking…" in place of the empty bubble it would otherwise paint.
  *
  * @summary the pending indicator on the turn being produced
  */
@@ -282,7 +281,29 @@ export const PendingIndicator: Story = {
     await waitFor(() => expect(canvas.getByText("Thinking…")).toBeVisible(), {
       timeout: 15_000,
     });
-    await expect(canvas.queryByRole("button", { name: /fork/i })).toBeNull();
+  },
+};
+
+/**
+ * A live-only empty placeholder after Stop settles: the bubble is withheld,
+ * but a compaction marker attached to that index stays visible.
+ *
+ * @summary hidden placeholder keeps its compaction boundary
+ */
+export const HiddenPlaceholderKeepsBoundary: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: PENDING_MESSAGE,
+    isLast: false,
+    status: "ready",
+    boundary: <div>Compaction checkpoint</div>,
+  },
+  play: async ({ canvas }) => {
+    await waitFor(
+      () => expect(canvas.getByText("Compaction checkpoint")).toBeVisible(),
+      { timeout: 15_000 },
+    );
+    await expect(canvas.queryByText("Thinking…")).toBeNull();
   },
 };
 

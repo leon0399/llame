@@ -315,32 +315,34 @@ export function ChatMessageRow({
   if (renderers === null) return null;
 
   const mode = messageRowMode({ message, isLast, status });
-  if (mode === "hidden") return null;
-
+  // Live-only empty placeholders omit the bubble, but the compaction /
+  // model-switch marker is about the transcript position — keep it.
   return (
     <>
       {boundary}
       {modelBoundary}
-      {/* data-message-key anchors ChatLoadOlder's scroll compensation when
-          older pages prepend. */}
-      <Message
-        id={messageSeq === null ? undefined : `msg-${messageSeq}`}
-        from={message.role}
-        data-message-key={renderKey}
-      >
-        <MessageContent>
-          {mode === "pending" ? (
-            <Shimmer as="span">Thinking…</Shimmer>
-          ) : (
-            <MessageSegments
-              parts={message.parts}
-              renderKey={renderKey}
-              renderers={renderers}
-            />
-          )}
-        </MessageContent>
-        <ChatMessageFooter {...footerProps} />
-      </Message>
+      {mode === "hidden" ? null : (
+        // data-message-key anchors ChatLoadOlder's scroll compensation when
+        // older pages prepend.
+        <Message
+          id={messageSeq === null ? undefined : `msg-${messageSeq}`}
+          from={message.role}
+          data-message-key={renderKey}
+        >
+          <MessageContent>
+            {mode === "pending" ? (
+              <Shimmer as="span">Thinking…</Shimmer>
+            ) : (
+              <MessageSegments
+                parts={message.parts}
+                renderKey={renderKey}
+                renderers={renderers}
+              />
+            )}
+          </MessageContent>
+          <ChatMessageFooter {...footerProps} />
+        </Message>
+      )}
     </>
   );
 }
