@@ -81,22 +81,29 @@ function payloadNumber(payload: unknown, key: string): number | undefined {
 
 /**
  * Stateful translator: run events in, UI chunks out. Emits the stream prelude
- * lazily and closes text/reasoning/stream on the terminal events. Reasoning
- * ("thinking") deltas render as their own part, mutually exclusive with
- * text — opening one closes the other, so the UI renders ordered parts
- * (reasoning → text → reasoning → …) rather than merging the two. A
- * `reasoning.delta`'s adapter part id decides boundaries exactly as it does
- * at persist time (design D8: two defined ids that differ start a new part;
- * an absent id never does; an intervening text/tool part always does), so the
- * live stream, a reconnect replay, and the persisted transcript show the same
- * parts. Tool events become `dynamic-tool` UI parts (tool.call →
- * tool-input-available, tool.result → tool-output-available), correlated by
- * toolCallId. A tool part closes the open text part first, so the UI renders
- * ordered parts (text → tool → text) rather than merging text across the tool
- * boundary. Pure state machine — trivially unit-testable.
+ * at most once (the bridge calls it before the first poll; event handlers also
+ * call it so a late subscribe still gets `start`) and closes
+ * text/reasoning/stream on the terminal events. Reasoning ("thinking") deltas
+ * render as their own part, mutually exclusive with text — opening one closes
+ * the other, so the UI renders ordered parts (reasoning → text → reasoning → …)
+ * rather than merging the two. A `reasoning.delta`'s adapter part id decides
+ * boundaries exactly as it does at persist time (design D8: two defined ids
+ * that differ start a new part; an absent id never does; an intervening
+ * text/tool part always does), so the live stream, a reconnect replay, and the
+ * persisted transcript show the same parts. Tool events become `dynamic-tool`
+ * UI parts (tool.call → tool-input-available, tool.result →
+ * tool-output-available), correlated by toolCallId. A tool part closes the
+ * open text part first, so the UI renders ordered parts (text → tool → text)
+ * rather than merging text across the tool boundary. Pure state machine —
+ * trivially unit-testable.
  */
 export type RunEventTranslator = {
   translate(event: RunEventLike): Array<UiChunk>;
+  /**
+   * Emit the stream `start` chunk at most once. The bridge calls this before
+   * its first poll so the client learns the Run id at acceptance.
+   */
+  prelude(): Array<UiChunk>;
   /** True once a terminal run event has been translated. */
   finished(): boolean;
 };
@@ -136,7 +143,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return this.isFinished;
   }
 
-  private prelude(): Array<UiChunk> {
+  prelude(): Array<UiChunk> {
     if (this.startedStream) {
       return [];
     }
@@ -511,6 +518,12 @@ export class RunStreamBridgeService {
     let cursor = 0;
     const emit = (chunk: UiChunk) =>
       controller.enqueue(`data: ${JSON.stringify(chunk)}\n\n`);
+
+    // Acknowledge acceptance before any poll so the client has the Run id
+    // (and the response headers flush) while the Run may still be queued.
+    for (const chunk of translator.prelude()) {
+      emit(chunk);
+    }
 
     for (;;) {
       if (input.abortSignal?.aborted) {
