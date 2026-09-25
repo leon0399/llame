@@ -18,37 +18,39 @@ type ChatComposerSendButtonProps = {
   status: ChatStatus;
   onStop: () => void;
   modelReadyForSend: boolean;
+  /** Held Stop before the Run id arrives (design M2/M3 S4). */
+  pendingStop: boolean;
 };
 
-/** The send affordance, swapped for a stop control while a turn is in
- *  flight. Split out of `ChatComposerControls` as its own self-contained
- *  control. */
-function ChatComposerSendButton({
-  status,
-  onStop,
-  modelReadyForSend,
-}: ChatComposerSendButtonProps) {
-  if (status === "streaming" || status === "submitted") {
-    return (
-      <PromptInputButton
-        type="button"
-        variant="outline"
-        // size-8, the same box as the selector cells' h-8. Stated
-        // through the API rather than a class override, and with
-        // no corner overrides — Button's symmetric `rounded-lg` is
-        // what makes the icon read centred.
-        size="icon"
-        onClick={onStop}
-        aria-label="Stop generation"
-      >
-        {status === "submitted" ? (
-          <LoaderCircleIcon size={16} className="animate-spin" />
-        ) : (
-          <StopCircleIcon size={16} />
-        )}
-      </PromptInputButton>
-    );
-  }
+function StoppingButton() {
+  return (
+    <PromptInputButton
+      type="button"
+      variant="outline"
+      size="icon"
+      disabled
+      aria-label="Stopping generation"
+    >
+      <LoaderCircleIcon size={16} className="animate-spin" />
+    </PromptInputButton>
+  );
+}
+
+function StopButton({ onStop }: { onStop: () => void }) {
+  return (
+    <PromptInputButton
+      type="button"
+      variant="outline"
+      size="icon"
+      onClick={onStop}
+      aria-label="Stop generation"
+    >
+      <StopCircleIcon size={16} />
+    </PromptInputButton>
+  );
+}
+
+function SendButton({ modelReadyForSend }: { modelReadyForSend: boolean }) {
   return (
     <PromptInputButton
       variant="outline"
@@ -62,10 +64,29 @@ function ChatComposerSendButton({
   );
 }
 
+/** The send affordance, swapped for a stop control while a turn is in
+ *  flight. S1–S3 show an enabled Stop icon; S4 shows a disabled spinner
+ *  while a held Stop waits for the Run id (design M3). */
+function ChatComposerSendButton({
+  status,
+  onStop,
+  modelReadyForSend,
+  pendingStop,
+}: ChatComposerSendButtonProps) {
+  if (pendingStop) {
+    return <StoppingButton />;
+  }
+  if (status === "streaming" || status === "submitted") {
+    return <StopButton onStop={onStop} />;
+  }
+  return <SendButton modelReadyForSend={modelReadyForSend} />;
+}
+
 type ChatComposerControlsProps = {
   status: ChatStatus;
   onStop: () => void;
   modelReadyForSend: boolean;
+  pendingStop: boolean;
 };
 
 /** The toolbar's right-side cluster: the model/effort selectors and the
@@ -75,6 +96,7 @@ function ChatComposerControls({
   status,
   onStop,
   modelReadyForSend,
+  pendingStop,
 }: ChatComposerControlsProps) {
   return (
     // Two units, not one pill: the SELECTORS are attached to each other,
@@ -102,6 +124,7 @@ function ChatComposerControls({
         status={status}
         onStop={onStop}
         modelReadyForSend={modelReadyForSend}
+        pendingStop={pendingStop}
       />
     </div>
   );
@@ -114,6 +137,7 @@ type ChatComposerFormProps = {
   status: ChatStatus;
   onStop: () => void;
   modelReadyForSend: boolean;
+  pendingStop: boolean;
   disabled: boolean;
 };
 
@@ -138,6 +162,7 @@ function ChatComposerForm({
   status,
   onStop,
   modelReadyForSend,
+  pendingStop,
   disabled,
 }: ChatComposerFormProps) {
   return (
@@ -160,6 +185,7 @@ function ChatComposerForm({
             status={status}
             onStop={onStop}
             modelReadyForSend={modelReadyForSend && !disabled}
+            pendingStop={pendingStop}
           />
         </PromptInputToolbar>
       </PromptInput>
@@ -175,6 +201,8 @@ type ChatComposerProps = {
   onStop: () => void;
   modelReadyForSend: boolean;
   modelSendUnavailableReason: string | null;
+  /** Held Stop before the Run id arrives (design M2/M3 S4). */
+  pendingStop?: boolean;
   /** Whole composer locked (e.g. markdown renderers still loading). */
   disabled?: boolean;
 };
@@ -190,6 +218,7 @@ export function ChatComposer({
   onStop,
   modelReadyForSend,
   modelSendUnavailableReason,
+  pendingStop = false,
   disabled = false,
 }: ChatComposerProps) {
   return (
@@ -207,6 +236,7 @@ export function ChatComposer({
           status={status}
           onStop={onStop}
           modelReadyForSend={modelReadyForSend}
+          pendingStop={pendingStop}
           disabled={disabled}
         />
       </div>

@@ -447,6 +447,10 @@ d('queue-executed runs behind the stream bridge', () => {
           parts: [{ type: 'text', text: 'Resume me' }],
         },
       });
+    // The bridge now writes `start` at acceptance, so aborting after headers
+    // have flushed surfaces as a mid-response reset. Swallow it: the point of
+    // this setup is only to leave an active Run for the resume GET below.
+    pending.on('error', () => undefined);
     const settled = pending.then(
       () => undefined,
       () => undefined,
@@ -519,6 +523,9 @@ d('queue-executed runs behind the stream bridge', () => {
           parts: [{ type: 'text', text: 'Refresh-proof?' }],
         },
       });
+    // Same as the resume test: acceptance-time `start` means abort is a
+    // mid-response reset, not a clean pre-body disconnect.
+    pending.on('error', () => undefined);
     const settled = pending.then(
       () => undefined,
       () => undefined,

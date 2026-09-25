@@ -312,6 +312,7 @@ function ChatSessionBody({
         onSubmit={composer.handleSubmit}
         status={status}
         onStop={composer.handleStop}
+        pendingStop={composer.pendingStop}
         modelReadyForSend={composer.modelReadyForSend}
         modelSendUnavailableReason={composer.modelSendUnavailableReason}
         disabled={markdown.renderers === null}
