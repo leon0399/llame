@@ -50,12 +50,15 @@ export function usePendingStop({
   // send does not inherit it and auto-cancel the next Run.
   if ((status === "ready" || status === "error") && held) {
     setHeld(false);
-  }
-
-  const runId = runIdToCancel(messages);
-  if (held && runId !== null) {
-    setHeld(false);
-    cancelAndStop(runId, stop, deps);
+  } else {
+    const runId = runIdToCancel(messages);
+    if (held && runId !== null) {
+      setHeld(false);
+      // Schedule off the render path — stop() updates chat transport state.
+      queueMicrotask(() => {
+        cancelAndStop(runId, stop, deps);
+      });
+    }
   }
 
   const pendingStop = held;
