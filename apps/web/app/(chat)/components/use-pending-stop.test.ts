@@ -116,6 +116,48 @@ describe("usePendingStop", () => {
     expect(stop).not.toHaveBeenCalled();
   });
 
+  it("cancels a held Stop when the id arrives in the same render as error", async () => {
+    const stop = vi.fn();
+    const cancelRun = vi.fn().mockResolvedValue(undefined);
+    const toastError = vi.fn();
+    type Props = {
+      messages: ReadonlyArray<Pick<UIMessage, "id" | "role">>;
+      status: "submitted" | "streaming" | "ready" | "error";
+    };
+    const { result, rerender } = renderHook(
+      (props: Props) =>
+        usePendingStop({
+          messages: props.messages,
+          stop,
+          status: props.status,
+          deps: { cancelRun, toastError },
+        }),
+      {
+        initialProps: {
+          messages: userOnly(),
+          status: "submitted" as const,
+        },
+      },
+    );
+
+    await act(async () => {
+      result.current.requestStop();
+    });
+    expect(result.current.pendingStop).toBe(true);
+
+    // Batched start frame + transport failure: id known, status already error.
+    rerender({
+      messages: withAssistant("run-err"),
+      status: "error",
+    });
+
+    await waitFor(() => {
+      expect(cancelRun).toHaveBeenCalledWith("run-err");
+      expect(stop).toHaveBeenCalledOnce();
+    });
+    expect(result.current.pendingStop).toBe(false);
+  });
+
   it("stops immediately without waiting for cancelRun", async () => {
     let resolveCancel: (() => void) | undefined;
     const cancelRun = vi.fn(

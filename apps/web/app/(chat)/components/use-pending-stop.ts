@@ -46,19 +46,19 @@ export function usePendingStop({
 }: UsePendingStopArgs) {
   const [held, setHeld] = useState(false);
 
-  // Design M2: when the request fails or finishes, clear the hold so a later
-  // send does not inherit it and auto-cancel the next Run.
-  if ((status === "ready" || status === "error") && held) {
+  const runId = runIdToCancel(messages);
+
+  // Prefer cancel when the id is known — a batched start+error render must not
+  // drop a held Stop and leave the durable Run running (design M2).
+  if (held && runId !== null) {
     setHeld(false);
-  } else {
-    const runId = runIdToCancel(messages);
-    if (held && runId !== null) {
-      setHeld(false);
-      // Schedule off the render path — stop() updates chat transport state.
-      queueMicrotask(() => {
-        cancelAndStop(runId, stop, deps);
-      });
-    }
+    // Schedule off the render path — stop() updates chat transport state.
+    queueMicrotask(() => {
+      cancelAndStop(runId, stop, deps);
+    });
+  } else if ((status === "ready" || status === "error") && held) {
+    // No id ever arrived: clear the hold so a later send does not inherit it.
+    setHeld(false);
   }
 
   const pendingStop = held;
