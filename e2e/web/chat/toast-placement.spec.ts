@@ -68,6 +68,12 @@ async function openMobileChatSheet(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Toggle Sidebar" }).click();
 }
 
+async function closeMobileChatSheet(page: Page): Promise<void> {
+  // The chat list is a modal Sheet on mobile: the header Toggle is inert while
+  // open, and the generated sidebar hides SheetClose. Escape dismisses it.
+  await page.keyboard.press("Escape");
+}
+
 async function waitForProcessingSidebar(
   page: Page,
   chatId: string,
@@ -81,7 +87,7 @@ async function waitForProcessingSidebar(
     timeout: 20_000,
   });
   if (mobile) {
-    await openMobileChatSheet(page);
+    await closeMobileChatSheet(page);
   }
 }
 
@@ -97,10 +103,24 @@ for (const viewport of VIEWPORTS) {
     });
     test.setTimeout(90_000);
 
+    // Per-test hold token so afterEach can release if the body fails before
+    // the happy-path release (retries × viewports would otherwise leak runs).
+    let activeHoldToken: string | undefined;
+
+    test.afterEach(async () => {
+      if (activeHoldToken === undefined) {
+        return;
+      }
+      const token = activeHoldToken;
+      activeHoldToken = undefined;
+      await releaseHold(token);
+    });
+
     test("background Reply ready toast clears the composer", async ({
       page,
     }) => {
       const holdToken = `toast-${randomUUID()}`;
+      activeHoldToken = holdToken;
       const heldPrompt = `HOLD:${holdToken} please answer when released`;
 
       await page.goto("/");
@@ -130,6 +150,7 @@ for (const viewport of VIEWPORTS) {
       await waitForProcessingSidebar(page, chatId, viewport.mobile);
 
       await releaseHold(holdToken);
+      activeHoldToken = undefined;
 
       const notifications = page.getByRole("region", {
         name: "Notifications alt+T",
