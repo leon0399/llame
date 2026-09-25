@@ -9,6 +9,7 @@ import {
   Reasoning,
   ReasoningTrigger,
 } from "@workspace/ui/components/ai-elements/reasoning";
+import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
 import {
   Tool,
   ToolContent,
@@ -24,6 +25,7 @@ import { CompactionBoundary } from "./compaction-boundary";
 import { EffectiveContextAction } from "./effective-context-inspector";
 import {
   groupAssistantParts,
+  type GroupedAssistantPart,
   type NonReasoningPart,
 } from "./group-assistant-parts";
 import { MessageForkButton } from "./message-fork-button";
@@ -128,17 +130,73 @@ function MessagePartView({
     const capNotice = parseCapNoticePart(part);
     return capNotice ? <ToolCapNoticePart {...capNotice} /> : null;
   }
-  if (part.type === "data-context") {
-    // Every server-authored context item, whatever its producer. They are
-    // rendered into the MODEL's prompt by the api's context-builder and are
-    // never visible chat content; the model-change boundary above this
-    // message is the only owner-facing surface today. One branch rather
-    // than a list of producers, so a producer this build does not know
-    // about cannot fall through to the "unsupported part type" span and
-    // print debug text into the owner's transcript on reload.
-    return null;
-  }
   return <span>unsupported part type: {part.type}</span>;
+}
+
+/** Whether a grouped segment paints anything — the single rule `MessageSegments`
+ *  walks with and `hasVisibleContent` asks ahead of the walk.
+ *
+ *  A provider that withholds the thinking text still returns the block,
+ *  signed, and it must persist and replay unchanged — but a run of parts that
+ *  carries no text (at all, or only whitespace) has nothing to show, so it
+ *  renders no panel rather than an empty one.
+ *
+ *  `data-context` covers every server-authored context item, whatever its
+ *  producer. They are rendered into the MODEL's prompt by the api's
+ *  context-builder and are never visible chat content; the model-change
+ *  boundary above the message is the only owner-facing surface today. One
+ *  branch rather than a list of producers, so a producer this build does not
+ *  know about cannot fall through to the "unsupported part type" span and
+ *  print debug text into the owner's transcript on reload. */
+function isVisibleSegment(segment: GroupedAssistantPart): boolean {
+  if (segment.kind === "reasoning") return segment.text.trim() !== "";
+  return segment.part.type !== "data-context";
+}
+
+/**
+ * Whether a message's stored parts paint anything at all. An assistant turn
+ * with none is either the placeholder of a Run that has produced no output
+ * yet or the empty turn a Run cancelled during its model request persists —
+ * `messageRowMode` tells those apart.
+ */
+export function hasVisibleContent(parts: UIMessage["parts"]): boolean {
+  return groupAssistantParts(parts).some(isVisibleSegment);
+}
+
+/** What one transcript row paints: its stored parts, the pending indicator in
+ *  their place, or nothing at all. */
+export type MessageRowMode = "content" | "pending" | "hidden";
+
+/**
+ * The row's render decision for an assistant turn with no visible content.
+ *
+ * While the chat is in flight the last row is the turn being produced, so it
+ * carries the pending indicator — including after a Stop the server has not
+ * settled yet (M3's S4), which is a state of the composer, not of the turn.
+ * Any other such turn is either a live placeholder whose Run was stopped
+ * before its model request, which persists no assistant message and which
+ * history adoption keeps in the live list wherever later turns move it — that
+ * row paints nothing, fork action included, because its id is a Run id — or a
+ * persisted empty turn (it carries a `seq`), which renders as today so its
+ * "stopped" usage stays readable.
+ */
+export function messageRowMode({
+  message,
+  isLast,
+  status,
+}: {
+  message: UIMessage;
+  isLast: boolean;
+  status: ChatStatus;
+}): MessageRowMode {
+  if (message.role !== "assistant") return "content";
+  if (hasVisibleContent(message.parts)) return "content";
+  if (isLast && (status === "submitted" || status === "streaming")) {
+    return "pending";
+  }
+  return messageSeqFromMetadata(message.metadata) === null
+    ? "hidden"
+    : "content";
 }
 
 /** The usage/context affordances (assistant turns only) plus the persistent
@@ -204,6 +262,9 @@ type ChatMessageRowProps = ChatMessageActionProps & {
   renderKey: string;
   boundary: ReactNode;
   modelBoundary: ReactNode;
+  /** Whether this row is the transcript's last one, which is the turn a chat
+   *  in flight is producing. */
+  isLast: boolean;
 };
 
 /** Walks the stored parts as grouped segments, so consecutive reasoning parts
@@ -218,6 +279,7 @@ function MessageSegments({
   renderers: ChatMarkdownRenderers;
 }) {
   return groupAssistantParts(parts).map((segment) => {
+    if (!isVisibleSegment(segment)) return null;
     if (segment.kind !== "reasoning") {
       return (
         <MessagePartView
@@ -227,11 +289,6 @@ function MessageSegments({
         />
       );
     }
-    // A provider that withholds the thinking text still returns the block,
-    // signed, and it must persist and replay unchanged — but a run of parts
-    // that carries no text (at all, or only whitespace) has nothing to show,
-    // so it renders no panel rather than an empty one.
-    if (segment.text.trim() === "") return null;
     return (
       <ReasoningPanel
         key={`message-part-${renderKey}-${segment.startIndex}`}
@@ -247,14 +304,18 @@ export function ChatMessageRow({
   renderKey,
   boundary,
   modelBoundary,
+  isLast,
   ...footerProps
 }: ChatMessageRowProps) {
-  const { message } = footerProps;
+  const { message, status } = footerProps;
   const messageSeq = messageSeqFromMetadata(message.metadata);
   const renderers = useChatMarkdownRenderers();
   // Parent gates the transcript on renderers !== null; fail closed if a row
   // somehow mounts earlier rather than painting empty Streamdown shells.
   if (renderers === null) return null;
+
+  const mode = messageRowMode({ message, isLast, status });
+  if (mode === "hidden") return null;
 
   return (
     <>
@@ -268,11 +329,15 @@ export function ChatMessageRow({
         data-message-key={renderKey}
       >
         <MessageContent>
-          <MessageSegments
-            parts={message.parts}
-            renderKey={renderKey}
-            renderers={renderers}
-          />
+          {mode === "pending" ? (
+            <Shimmer as="span">Thinking…</Shimmer>
+          ) : (
+            <MessageSegments
+              parts={message.parts}
+              renderKey={renderKey}
+              renderers={renderers}
+            />
+          )}
         </MessageContent>
         <ChatMessageFooter {...footerProps} />
       </Message>

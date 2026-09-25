@@ -58,6 +58,7 @@ const meta = {
     renderKey: "story-message",
     boundary: null,
     modelBoundary: null,
+    isLast: false,
     chatId: "chat-1",
     status: "ready",
     availableModels: [],
@@ -254,6 +255,34 @@ export const WithheldTextReasoning: Story = {
 
     // Rendering never rewrites a persisted part.
     expect(JSON.stringify(WITHHELD_MESSAGE.parts)).toBe(withheldPartsAtLoad);
+  },
+};
+
+/** The row the stream's `start` frame creates: an assistant turn whose id is
+ *  the accepted Run's, carrying no parts until the model answers. */
+const PENDING_MESSAGE: UIMessage = {
+  id: "11111111-1111-1111-1111-111111111111",
+  role: "assistant",
+  parts: [],
+};
+
+/**
+ * The accepted turn before any model output: the last row of a chat in flight
+ * shimmers "Thinking…" in place of the empty bubble it would otherwise paint,
+ * and offers no fork action for an id that names a Run rather than a message.
+ *
+ * @summary the pending indicator on the turn being produced
+ */
+export const PendingIndicator: Story = {
+  tags: ["ai-generated"],
+  args: { message: PENDING_MESSAGE, isLast: true, status: "submitted" },
+  play: async ({ canvas }) => {
+    // The row withholds its content until the Streamdown-backed renderers
+    // load, so the first query waits on that chunk like the sibling stories.
+    await waitFor(() => expect(canvas.getByText("Thinking…")).toBeVisible(), {
+      timeout: 15_000,
+    });
+    await expect(canvas.queryByRole("button", { name: /fork/i })).toBeNull();
   },
 };
 
