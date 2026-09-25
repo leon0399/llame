@@ -160,6 +160,10 @@ for (const viewport of VIEWPORTS) {
         .filter({ hasText: /Reply ready/ });
       await expect(toast).toBeVisible({ timeout: 30_000 });
 
+      // Toast visibility proves the held completion finished (normal res.close).
+      // closed must stay false — only peer abort sets it.
+      expect((await fetchHoldStatus(holdToken)).closed).toBe(false);
+
       // Hover pauses Sonner's dismiss timer while we measure boxes.
       await toast.hover();
       const toastBox = await toast.boundingBox();
