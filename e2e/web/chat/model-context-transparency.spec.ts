@@ -56,18 +56,6 @@ test.describe("model-context transparency (browser, full stack)", () => {
       throw new Error(`Could not extract chat id from URL: ${page.url()}`);
     }
 
-    // A terminal-run toast may overlay the bottom composer when background
-    // monitoring reports this run. Follow its real action when present so it
-    // cannot intercept the pointer-driven model picker; foreground completion
-    // does not always emit the toast.
-    const notifications = page.getByRole("region", {
-      name: "Notifications alt+T",
-    });
-    const terminalRunView = notifications.getByRole("button", { name: "View" });
-    if ((await terminalRunView.count()) > 0) {
-      await terminalRunView.click();
-    }
-
     const modelPicker = page.locator('button[role="combobox"]');
     await expect(modelPicker).toContainText(DEFAULT_MODEL_ID);
     await modelPicker.click();

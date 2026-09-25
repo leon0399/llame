@@ -25,6 +25,11 @@
  * performs the locator-passthrough acceptance chain: `knowledge_search`,
  * then `read` with the search result's `locator` field passed through
  * unchanged, then answer.
+ *
+ * HOLD: a user prompt containing `HOLD:<token>` (token = `[A-Za-z0-9_-]+`)
+ * answers with SSE headers and writes nothing until the client closes the
+ * response or a test POSTs `/hold/<token>/release`. GET `/hold/<token>`
+ * reports `{ arrived, closed }` for that token. Unheld prompts are unchanged.
  * Requests to /ready serve the Playwright webServer readiness probe.
  */
 
@@ -1018,6 +1023,104 @@ async function writeDefaultAnswer(ctx: ChunkContext): Promise<void> {
   ctx.res.end();
 }
 
+// Per-test hold (design M6). Token lives in the user prompt as HOLD:<token>
+// so parallel Playwright workers never collide. Close is observed on `res`
+// (request `close` can fire once the body is consumed).
+type HoldState = {
+  arrived: boolean;
+  closed: boolean;
+  released: boolean;
+  waiters: Map<ServerResponse, () => void>;
+};
+
+const holds = new Map<string, HoldState>();
+
+const HOLD_TOKEN_RE = /HOLD:([A-Za-z0-9_-]+)/;
+
+function getOrCreateHold(token: string): HoldState {
+  let state = holds.get(token);
+  if (!state) {
+    state = {
+      arrived: false,
+      closed: false,
+      released: false,
+      waiters: new Map(),
+    };
+    holds.set(token, state);
+  }
+  return state;
+}
+
+function releaseHold(token: string): void {
+  const state = getOrCreateHold(token);
+  state.released = true;
+  for (const wake of state.waiters.values()) wake();
+  state.waiters.clear();
+}
+
+function buildChunkContext(
+  res: ServerResponse,
+  raw: string,
+  classification: Classification,
+): ChunkContext {
+  const readKnowledge =
+    classification.knowledgeOperation === "read" ||
+    classification.knowledgeOperation === "error";
+  return {
+    ...classification,
+    res,
+    raw,
+    readKnowledge,
+    hasRequestedKnowledgeTool: readKnowledge
+      ? classification.hasNativeReadTool
+      : classification.hasKnowledgeSearchTool,
+  };
+}
+
+async function waitForHoldRelease(
+  state: HoldState,
+  res: ServerResponse,
+): Promise<void> {
+  if (state.released || res.destroyed) return;
+  await new Promise<void>((resolve) => {
+    state.waiters.set(res, resolve);
+  });
+}
+
+async function respondHeld(
+  res: ServerResponse,
+  raw: string,
+  classification: Classification,
+  token: string,
+): Promise<void> {
+  const state = getOrCreateHold(token);
+  state.arrived = true;
+  // A reused HOLD token must not inherit a prior response's abort.
+  state.closed = false;
+  writeSseHead(res);
+  res.on("error", () => {});
+  // Close fires after a normal end too; only an abort (peer close before
+  // writableFinished) counts as `closed` for the control endpoint / latch.
+  let aborted = false;
+  res.on("close", () => {
+    if (res.writableFinished) return;
+    aborted = true;
+    state.closed = true;
+    const wake = state.waiters.get(res);
+    state.waiters.delete(res);
+    wake?.();
+  });
+
+  await waitForHoldRelease(state, res);
+  state.waiters.delete(res);
+
+  if (aborted || res.destroyed || res.writableEnded) {
+    return;
+  }
+
+  await writeDefaultAnswer(buildChunkContext(res, raw, classification));
+}
+
 async function respondToChatCompletion(
   res: ServerResponse,
   raw: string,
@@ -1034,19 +1137,13 @@ async function respondToChatCompletion(
   }
 
   const classification = classify(raw);
-  const readKnowledge =
-    classification.knowledgeOperation === "read" ||
-    classification.knowledgeOperation === "error";
-  const hasRequestedKnowledgeTool = readKnowledge
-    ? classification.hasNativeReadTool
-    : classification.hasKnowledgeSearchTool;
-  const ctx = {
-    ...classification,
-    res,
-    raw,
-    readKnowledge,
-    hasRequestedKnowledgeTool,
-  };
+  const holdToken = HOLD_TOKEN_RE.exec(classification.lastUserContent)?.[1];
+  if (holdToken !== undefined) {
+    await respondHeld(res, raw, classification, holdToken);
+    return;
+  }
+
+  const ctx = buildChunkContext(res, raw, classification);
 
   writeSseHead(res);
 
@@ -1077,10 +1174,39 @@ async function respondToChatCompletion(
   await writeDefaultAnswer(ctx);
 }
 
+const HOLD_CONTROL_RE = /^\/hold\/([A-Za-z0-9_-]+)(\/release)?$/;
+
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/ready") {
     res.writeHead(200).end("ok");
     return;
+  }
+
+  const holdPath = req.url === undefined ? null : HOLD_CONTROL_RE.exec(req.url);
+  if (holdPath !== null) {
+    const token = holdPath[1];
+    if (token === undefined) {
+      res.writeHead(404).end();
+      return;
+    }
+    const isRelease = holdPath[2] === "/release";
+    if (req.method === "GET" && !isRelease) {
+      const state = holds.get(token);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          arrived: state?.arrived ?? false,
+          closed: state?.closed ?? false,
+          waiting: state?.waiters.size ?? 0,
+        }),
+      );
+      return;
+    }
+    if (req.method === "POST" && isRelease) {
+      releaseHold(token);
+      res.writeHead(200).end("ok");
+      return;
+    }
   }
 
   if (req.method === "POST" && req.url?.endsWith("/chat/completions")) {

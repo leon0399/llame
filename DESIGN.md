@@ -189,7 +189,7 @@ All values below are read from the real primitives in `packages/ui/src/component
 
 ### Overlays
 
-Dialog, Popover, Dropdown menu, Sheet, Tooltip, Command (⌘K palette), Sonner (toasts) — all use the `--popover` surface, hairline borders, the shared radius scale, and the kit's light shadow. Keep overlays on these primitives rather than hand-rolling.
+Dialog, Popover, Dropdown menu, Sheet, Tooltip, Command (⌘K palette), Sonner (toasts; the app mount places them `top-right`) — all use the `--popover` surface, hairline borders, the shared radius scale, and the kit's light shadow. Keep overlays on these primitives rather than hand-rolling.
 
 ---
 
