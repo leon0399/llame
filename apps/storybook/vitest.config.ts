@@ -1,52 +1,21 @@
-import path from "node:path";
-
-import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
-import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
-const dirname = import.meta.dirname;
-
+// Stories run from the workspace that authors them (packages/ui, apps/web),
+// through this package's .storybook configuration. What is left here are
+// node-only guards over that configuration.
 export default defineConfig({
-  // The shared tsconfig sets jsx: "preserve" (the framework bundler does the
-  // real transform) — esbuild doesn't understand "preserve" and falls back to
-  // the classic transform, which needs `React` explicitly in scope. Forcing
-  // the automatic runtime keeps story/preview files free of unused imports.
-  esbuild: { jsx: "automatic" },
   test: {
-    projects: [
-      {
-        extends: true,
-        test: {
-          // Plain node tests (e.g. the globals.css ordering guard) — safe for
-          // `turbo run test`, which runs without Playwright browsers.
-          name: "unit",
-          include: ["test/**/*.test.ts"],
-        },
-      },
-      {
-        extends: true,
-        plugins: [
-          storybookTest({
-            configDir: path.join(dirname, ".storybook"),
-            storybookScript: "pnpm --filter storybook dev",
-          }),
-        ],
-        test: {
-          name: "storybook",
-          // apps/web's stories are displayed here (main.ts globs them) but
-          // run from apps/web, where their coverage counts towards that
-          // workspace's gate. Running them in both places would execute every
-          // web story twice per CI run.
-          exclude: ["../web/**"],
-          browser: {
-            enabled: true,
-            headless: true,
-            provider: playwright(),
-            instances: [{ browser: "chromium" }],
-          },
-          setupFiles: ".storybook/vitest.setup.ts",
-        },
-      },
-    ],
+    include: ["test/**/*.test.ts"],
+    coverage: {
+      provider: "v8",
+      reportOnFailure: true,
+      reporter: ["text-summary", "json"],
+      reportsDirectory: "./coverage",
+      // Ratchet, not an allowance: raise these when coverage rises, never
+      // lower one to admit a regression. preview.tsx and vitest.setup.ts run
+      // only inside the story projects, which report to their own workspace.
+      thresholds: { lines: 26, statements: 25 },
+      include: [".storybook/**/*.{ts,tsx}"],
+    },
   },
 });

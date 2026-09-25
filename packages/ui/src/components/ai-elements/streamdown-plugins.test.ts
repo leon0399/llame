@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { assertSafeMermaidSource } from "@workspace/ui/components/ai-elements/streamdown-plugins";
+import { assertSafeMermaidSource } from "./streamdown-plugins.js";
 
 describe("Streamdown Mermaid plugin", () => {
   test("rejects Mermaid image nodes before they can request an external URL", () => {

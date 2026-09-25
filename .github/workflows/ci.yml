@@ -1,15 +1,16 @@
 # The test pyramid, as a job graph (docs/testing.md is the contract).
 #
-#   typecheck ------> API unit + integration ----+
-#   typecheck + unit -> build --------------------+-> browser-e2e
-#   typecheck + unit -> component (Storybook)
-#   typecheck + unit -> mutation
+#   typecheck -> test (one leg per workspace, coverage) --+
+#   typecheck -> build -----------------------------------+-> browser-e2e
+#   typecheck -> mutation
 #
 # One job per concern, so a red X names what broke instead of hiding inside a
 # grab-bag. Cheap gates run first and unconditionally; each expensive layer
 # waits for the cheaper layer that would have caught the same breakage — a
 # type error never spends a runner on the full-stack browser suite, and the
 # browser suite never boots a stack whose api contract is already failing.
+# Build and mutation wait only for typecheck: no test leg catches a build
+# failure, and Stryker's own initial run fails on a red suite.
 #
 # Static checks (lint, format, workflow linting) live in lint.yml — they need
 # no build, browser or database, and report independently.
@@ -53,36 +54,107 @@ jobs:
       # `nest build` and Next's bundled check exclude. Emit stays on TS 5.x.
       - run: pnpm exec turbo run typecheck
 
-  unit:
-    name: Unit tests
+  # Every test suite runs once, with coverage: each leg runs one workspace's
+  # `test:coverage`, which enforces its Vitest thresholds (and CRAP where the
+  # script adds it), then uploads that report to Codecov as the leg's flag.
+  # Adding a leg means adding its flag to .github/codecov.yml and raising
+  # after_n_builds there.
+  test:
+    name: Tests (${{ matrix.flag }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+    needs: [typecheck]
+    permissions:
+      contents: read
+      # OIDC replaces a CODECOV_TOKEN secret; fork pull requests fall back to
+      # Codecov's tokenless upload inside the action.
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Self-provisioning (Testcontainers in the project's globalSetup): a
+          # throwaway Postgres owned by a NON-superuser role that runs the
+          # migrations — the worst-case single-role self-hosted deployment, so
+          # a green RLS suite proves FORCE constrains even the table owner.
+          # Needs host Docker, hence no container image for this leg.
+          - flag: api
+            dir: apps/api
+          # One Vitest run over node/jsdom tests plus stories in Chromium, so
+          # a single report spans the workspace.
+          - flag: web
+            dir: apps/web
+            browser: true
+          - flag: ui
+            dir: packages/ui
+            browser: true
+          - flag: storybook
+            dir: apps/storybook
+          - flag: bash-executor
+            dir: packages/bash-executor
+          - flag: config-interpolation
+            dir: packages/config-interpolation
+          - flag: native-file-tools
+            dir: packages/native-file-tools
+          - flag: oxlint-plugin-anti-slop
+            dir: packages/oxlint-plugin-anti-slop
+          - flag: runtime-safety
+            dir: packages/runtime-safety
+          # Root tooling scripts: node:test with Node's own coverage (lcov).
+          - flag: scripts
+            dir: .
+            script: test:scripts:coverage
+            report: lcov.info
+    # Browser legs run in the Playwright image, which ships Chromium and its
+    # system libraries, so they skip `playwright install --with-deps`. An
+    # empty image runs the leg on the host, where the api leg's Docker is.
+    container:
+      # Pinned by digest, like every action here: a retag would otherwise
+      # change the browser and base image for an already-reviewed commit.
+      # Refresh with the catalog's playwright version:
+      #   docker buildx imagetools inspect mcr.microsoft.com/playwright:vX.Y.Z-noble
+      image: ${{ matrix.browser && 'mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c' || '' }}
+      # Chromium renderers allocate from /dev/shm, and Docker's default 64 MB
+      # segment is a known crash source under parallel story runs; --ipc=host
+      # is Playwright's documented mitigation for Chromium in containers.
+      options: --ipc=host
+    env:
+      # The image ships its browsers at /ms-playwright, but the step's HOME is
+      # /github/home, so Playwright would look in ~/.cache and find nothing.
+      # Host legs launch no browser.
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      # Same locale pinning as the browser-e2e job: Node >=21 derives
+      # navigator.language from the process locale, and an invalid tag makes
+      # `new Intl.Locale(...)` throw during SSR.
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      # No turbo-cache: the `test` task is `cache: false` (turbo.json), so a
-      # cache here would be written and never read.
+      # No turbo-cache: test tasks are `cache: false` (turbo.json), so a cache
+      # here would be written and never read.
       - uses: ./.github/actions/setup
 
-      # Strictly dependency-free by construction: DB-backed suites are their
-      # own `test:integration` task, evals are opt-in behind RUN_MODEL_EVALS.
-      - run: pnpm test:scripts
+      - env:
+          TEST_DIR: ${{ matrix.dir }}
+          TEST_SCRIPT: ${{ matrix.script || 'test:coverage' }}
+        run: pnpm --dir "$TEST_DIR" run "$TEST_SCRIPT"
 
-      - run: pnpm exec turbo run test --filter='!api' --filter='!web' --filter='!@workspace/config-interpolation' --filter='!@workspace/runtime-safety'
-
-      # Coverage and function-level CRAP replace the plain test command for
-      # these workspaces, so the suite runs once and both thresholds gate CI.
-      # `web` is absent by design: half of its gate renders stories in a real
-      # browser, so it runs in the `component` job's Playwright image.
-      - run: pnpm exec turbo run test:coverage --filter=@workspace/config-interpolation --filter=@workspace/runtime-safety
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          fail_ci_if_error: true
+          disable_search: true
+          flags: ${{ matrix.flag }}
+          files: ${{ matrix.dir }}/coverage/${{ matrix.report || 'coverage-final.json' }}
 
   build:
     name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [typecheck, unit]
+    needs: [typecheck]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -100,29 +172,6 @@ jobs:
       - run: pnpm generate:web-client
       - run: git diff --exit-code
 
-  integration:
-    name: Integration tests (real Postgres)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # This job runs API unit + integration coverage itself. Waiting for the
-    # unrelated web/package unit job adds latency without catching an API failure.
-    needs: [typecheck]
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/setup
-
-      # Self-provisioning (Testcontainers in the project's globalSetup): a
-      # throwaway Postgres owned by a NON-superuser role that runs the
-      # migrations — the worst-case single-role self-hosted deployment, so a
-      # green RLS suite proves FORCE constrains even the table owner. Needs
-      # host Docker, hence no container image for this job.
-      # Runs unit + integration once, then enforces coverage and function-level
-      # CRAP from the fresh Istanbul report.
-      - run: pnpm --filter api test:coverage
-
   # Mutate the lines this diff changed and require them to be detected. No
   # stored index, no baseline restore, no environment fingerprint: the scope is
   # computed from the diff against the pull request's own tree, so it cannot go
@@ -133,7 +182,7 @@ jobs:
     name: Mutation testing (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: [typecheck, unit]
+    needs: [typecheck]
     strategy:
       fail-fast: false
       matrix:
@@ -171,70 +220,16 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-  component:
-    name: Component tests (Storybook + web)
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    needs: [typecheck, unit]
-    # The Playwright image ships the browser and its system libraries, so this
-    # job skips `playwright install --with-deps` entirely. Safe here because
-    # component tests need a browser but no Docker.
-    container:
-      # Pinned by digest, like every action here: a retag would otherwise
-      # change the browser and base image for an already-reviewed commit.
-      # Refresh with the catalog's playwright version:
-      #   docker buildx imagetools inspect mcr.microsoft.com/playwright:vX.Y.Z-noble
-      image: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
-      # Chromium renderers allocate from /dev/shm, and Docker's default 64 MB
-      # segment is a known crash source under parallel story runs; --ipc=host
-      # is Playwright's documented mitigation for Chromium in containers.
-      options: --ipc=host
-    env:
-      # The image ships its browsers at /ms-playwright, but the step's HOME is
-      # /github/home, so Playwright would look in ~/.cache and find nothing.
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      # Same locale pinning as the browser-e2e job: Node >=21 derives
-      # navigator.language from the process locale, and an invalid tag makes
-      # `new Intl.Locale(...)` throw during SSR.
-      LANG: en_US.UTF-8
-      LC_ALL: en_US.UTF-8
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/setup
-
-      # The workflow's own hash is part of the key: this task's turbo inputs
-      # don't include the container image, so bumping the Playwright digest
-      # would otherwise restore a cache whose stored PASS was produced by the
-      # OLD browser — green without ever exercising the new one. Costs one
-      # cold cache per ci.yml edit, which is the cheap side of that trade.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .turbo/cache
-          key: turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.github/workflows/ci.yml') }}-${{ github.sha }}
-          restore-keys: |
-            turbo-storybook-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', '.github/workflows/ci.yml') }}-
-
-      - run: pnpm exec turbo run test:component build --filter=storybook
-
-      # apps/web's gate is one Vitest run over both of its projects: node and
-      # jsdom tests plus its stories in Chromium, so a single coverage report
-      # spans the whole workspace. It needs this job's browser, hence not the
-      # `unit` job.
-      - run: pnpm exec turbo run test:coverage --filter=web
-
   browser-e2e:
     name: Product e2e (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # The top of the pyramid: everything below it has already passed, so a
     # failure here is a genuine cross-stack defect rather than a unit-level
-    # bug wearing a browser costume. The generic build and real-Postgres
-    # integration gates must both pass first. Playwright then rebuilds the web
-    # app with its E2E API URL; the Storybook component suite is orthogonal.
-    needs: [build, integration]
+    # bug wearing a browser costume. The generic build and every test leg,
+    # including real-Postgres integration, must pass first. Playwright then
+    # rebuilds the web app with its E2E API URL.
+    needs: [build, test]
     env:
       # Node >=21 derives navigator.language from the process locale; with
       # LANG=C/unset it reports an invalid tag and `new Intl.Locale(...)`

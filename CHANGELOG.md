@@ -2,6 +2,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-25
 
+- Every test suite now runs with coverage, and CI uploads each report to
+  Codecov. The `unit`, `integration` and `component` jobs are replaced by one
+  `test` matrix with a leg per workspace: each runs that workspace's
+  `test:coverage` and uploads it as its own Codecov flag, and
+  `.github/codecov.yml` adds components that group paths by SPEC area across
+  workspaces. Suites that CI previously ran without coverage now have a
+  coverage ratchet set at their measured level: `packages/ui`,
+  `apps/storybook`, the oxlint plugin (its rule tests now run under Vitest)
+  and the root `scripts/` tests (`pnpm test:scripts:coverage`, Node's
+  built-in coverage). `bash-executor` and `native-file-tools` now run their
+  existing coverage and CRAP gates in CI. `packages/ui` runs its own stories,
+  as `apps/web` already did, so `test:component` is gone. `build` and
+  `mutation` now wait only for typecheck.
+
 - Stop cancels a Chat Run from acceptance: the stream emits the Run id before
   any model output, the composer keeps Stop enabled through the pending window,
   and a held model request aborts and settles `cancelled` (#139).

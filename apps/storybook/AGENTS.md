@@ -1,16 +1,19 @@
 # apps/storybook
 
-Storybook runtime and browser-test host for stories co-located in
-`packages/ui/src` and `apps/web`. This workspace owns `.storybook/`, browser
-tests, and the static build; it does not own component stories.
+Storybook runtime for stories co-located in `packages/ui/src` and `apps/web`.
+This workspace owns `.storybook/` and the static build; it does not own
+component stories. Each story-owning workspace runs its stories in Chromium
+through this configuration from its own `stories` Vitest project, so their
+coverage counts toward that workspace.
 
 ## Commands
 
 ```bash
 pnpm --filter storybook dev
 pnpm --filter storybook build
-pnpm --filter storybook test:component # Playwright Chromium required
 pnpm --filter storybook test           # node-only tooling guards
+pnpm --filter storybook test:coverage
+pnpm --filter @workspace/ui test:stories # Playwright Chromium required
 pnpm --filter storybook lint
 pnpm --filter storybook typecheck
 ```
@@ -30,10 +33,9 @@ pnpm --filter storybook typecheck
 
 - `packages/ui/src/styles/globals.css` excludes stories; `preview.css` restores their
   Tailwind scan. Keep that paired with the inverse Turbo inputs: UI excludes
-  stories from app builds, Storybook includes them in `build` and
-  `test:component`.
-- Keep `test:component` separate from node `test`; only the former may require a
-  browser.
+  stories from app builds, Storybook includes them in `build`.
+- Keep story projects out of each workspace's plain `test`; only
+  `test:stories` and `test:coverage` may require a browser.
 - Pin the same Next version as `apps/web`.
 - Capture and approval require the development server; static builds cannot do
   either.
