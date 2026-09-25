@@ -36,7 +36,8 @@ type UsePendingStopArgs = {
  *
  * - Id known: fire-and-forget `cancelRun`, then `stop()`.
  * - Id unknown: hold until the placeholder appears, then cancel + stop.
- * - Failed or finished send clears the hold without cancelling.
+ * - A failed or finished send clears a hold that never learned the id; when
+ *   the id is already known it still cancels.
  */
 export function usePendingStop({
   messages,
