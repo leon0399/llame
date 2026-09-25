@@ -103,7 +103,8 @@ jobs:
           # Root tooling scripts: node:test with Node's own coverage (lcov).
           - flag: scripts
             dir: .
-            script: test:scripts:coverage
+            filter: //
+            task: test:scripts:coverage
             report: lcov.info
     # Browser legs run in the Playwright image, which ships Chromium and its
     # system libraries, so they skip `playwright install --with-deps`. An
@@ -137,10 +138,12 @@ jobs:
       # here would be written and never read.
       - uses: ./.github/actions/setup
 
+      # Through turbo, not pnpm directly: some packages' test:coverage
+      # depends on ^build, since their workspace imports resolve to dist/.
       - env:
-          TEST_DIR: ${{ matrix.dir }}
-          TEST_SCRIPT: ${{ matrix.script || 'test:coverage' }}
-        run: pnpm --dir "$TEST_DIR" run "$TEST_SCRIPT"
+          TEST_FILTER: ${{ matrix.filter || format('./{0}', matrix.dir) }}
+          TEST_TASK: ${{ matrix.task || 'test:coverage' }}
+        run: pnpm exec turbo run "$TEST_TASK" --filter="$TEST_FILTER"
 
       - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:

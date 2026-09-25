@@ -53,6 +53,9 @@
       // is stripped and Playwright looks in $HOME/.cache instead.
       "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH"]
     },
+    "//#test:scripts:coverage": {
+      "cache": false
+    },
     "test:mutation": {
       "cache": false
     },

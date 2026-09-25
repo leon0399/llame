@@ -40,7 +40,7 @@
     "test:mutation:changed": "node scripts/mutation-changed-lines.mjs run",
     "test:mutation:dry": "turbo run test:mutation:dry --concurrency=1",
     "test:scripts": "node --test scripts/*.test.mjs",
-    "test:scripts:coverage": "node --test --experimental-test-coverage --test-coverage-include='scripts/*.mjs' --test-coverage-exclude='scripts/*.test.mjs' --test-coverage-lines=78 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info scripts/*.test.mjs",
+    "test:scripts:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='scripts/*.mjs' --test-coverage-exclude='scripts/*.test.mjs' --test-coverage-lines=78 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info scripts/*.test.mjs",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
