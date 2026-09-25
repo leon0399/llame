@@ -124,6 +124,10 @@ describe("usePendingStop", () => {
       messages: ReadonlyArray<Pick<UIMessage, "id" | "role">>;
       status: "submitted" | "streaming" | "ready" | "error";
     };
+    const initialProps: Props = {
+      messages: userOnly(),
+      status: "submitted",
+    };
     const { result, rerender } = renderHook(
       (props: Props) =>
         usePendingStop({
@@ -132,12 +136,7 @@ describe("usePendingStop", () => {
           status: props.status,
           deps: { cancelRun, toastError },
         }),
-      {
-        initialProps: {
-          messages: userOnly(),
-          status: "submitted" as const,
-        },
-      },
+      { initialProps },
     );
 
     await act(async () => {
