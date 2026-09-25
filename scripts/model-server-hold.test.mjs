@@ -66,6 +66,8 @@ test("release wakes every concurrent HOLD waiter", async () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: heldBody,
+        // Fail promptly if a shared wake leaves one waiter hanging.
+        signal: AbortSignal.timeout(10_000),
       });
 
     const first = postHeld();
