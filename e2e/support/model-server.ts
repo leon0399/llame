@@ -1197,6 +1197,7 @@ const server = http.createServer((req, res) => {
         JSON.stringify({
           arrived: state?.arrived ?? false,
           closed: state?.closed ?? false,
+          waiting: state?.waiters.size ?? 0,
         }),
       );
       return;

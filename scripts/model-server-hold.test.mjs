@@ -75,10 +75,10 @@ test("release wakes every concurrent HOLD waiter", async () => {
       for (let i = 0; i < 40; i++) {
         const status = await fetch(`http://127.0.0.1:${port}/hold/${token}`);
         const body = await status.json();
-        if (body.arrived === true) return;
+        if (body.arrived === true && body.waiting >= 2) return;
         await delay(50);
       }
-      throw new Error("hold never arrived");
+      throw new Error("hold never registered two waiters");
     });
 
     const release = await fetch(
