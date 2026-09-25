@@ -2,6 +2,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-25
 
+- Toasts mount top-right so they no longer cover the composer (#262).
+
 - Local merges and rebases now resolve the daily `CHANGELOG.md` conflict
   themselves. Two pull requests that each add entries under the same date, or
   each open the same new date heading, no longer conflict: a merge driver in

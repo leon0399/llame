@@ -25,6 +25,11 @@
  * performs the locator-passthrough acceptance chain: `knowledge_search`,
  * then `read` with the search result's `locator` field passed through
  * unchanged, then answer.
+ *
+ * HOLD: a user prompt containing `HOLD:<token>` (token = `[A-Za-z0-9_-]+`)
+ * answers with SSE headers and writes nothing until the client closes the
+ * response or a test POSTs `/hold/<token>/release`. GET `/hold/<token>`
+ * reports `{ arrived, closed }` for that token. Unheld prompts are unchanged.
  * Requests to /ready serve the Playwright webServer readiness probe.
  */
 
@@ -1018,6 +1023,94 @@ async function writeDefaultAnswer(ctx: ChunkContext): Promise<void> {
   ctx.res.end();
 }
 
+// Per-test hold (design M6). Token lives in the user prompt as HOLD:<token>
+// so parallel Playwright workers never collide. Close is observed on `res`
+// (request `close` can fire once the body is consumed).
+type HoldState = {
+  arrived: boolean;
+  closed: boolean;
+  released: boolean;
+  waiters: Array<() => void>;
+};
+
+const holds = new Map<string, HoldState>();
+
+const HOLD_TOKEN_RE = /HOLD:([A-Za-z0-9_-]+)/;
+
+function extractHoldToken(content: string): string | undefined {
+  return HOLD_TOKEN_RE.exec(content)?.[1];
+}
+
+function getOrCreateHold(token: string): HoldState {
+  let state = holds.get(token);
+  if (!state) {
+    state = {
+      arrived: false,
+      closed: false,
+      released: false,
+      waiters: [],
+    };
+    holds.set(token, state);
+  }
+  return state;
+}
+
+function releaseHold(token: string): void {
+  const state = getOrCreateHold(token);
+  state.released = true;
+  for (const wake of state.waiters) wake();
+  state.waiters = [];
+}
+
+async function waitForHoldRelease(
+  state: HoldState,
+  res: ServerResponse,
+): Promise<void> {
+  if (state.released || state.closed || res.destroyed) return;
+  await new Promise<void>((resolve) => {
+    state.waiters.push(resolve);
+    res.on("close", () => {
+      state.closed = true;
+      resolve();
+    });
+  });
+}
+
+async function respondHeld(
+  res: ServerResponse,
+  raw: string,
+  classification: Classification,
+  token: string,
+): Promise<void> {
+  const state = getOrCreateHold(token);
+  state.arrived = true;
+  writeSseHead(res);
+  res.on("error", () => {});
+  res.on("close", () => {
+    state.closed = true;
+  });
+
+  await waitForHoldRelease(state, res);
+
+  if (state.closed || res.destroyed || res.writableEnded) {
+    return;
+  }
+
+  const readKnowledge =
+    classification.knowledgeOperation === "read" ||
+    classification.knowledgeOperation === "error";
+  const ctx: ChunkContext = {
+    ...classification,
+    res,
+    raw,
+    readKnowledge,
+    hasRequestedKnowledgeTool: readKnowledge
+      ? classification.hasNativeReadTool
+      : classification.hasKnowledgeSearchTool,
+  };
+  await writeDefaultAnswer(ctx);
+}
+
 async function respondToChatCompletion(
   res: ServerResponse,
   raw: string,
@@ -1034,6 +1127,12 @@ async function respondToChatCompletion(
   }
 
   const classification = classify(raw);
+  const holdToken = extractHoldToken(classification.lastUserContent);
+  if (holdToken !== undefined) {
+    await respondHeld(res, raw, classification, holdToken);
+    return;
+  }
+
   const readKnowledge =
     classification.knowledgeOperation === "read" ||
     classification.knowledgeOperation === "error";
@@ -1077,10 +1176,38 @@ async function respondToChatCompletion(
   await writeDefaultAnswer(ctx);
 }
 
+const HOLD_CONTROL_RE = /^\/hold\/([A-Za-z0-9_-]+)(\/release)?$/;
+
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/ready") {
     res.writeHead(200).end("ok");
     return;
+  }
+
+  const holdPath = req.url === undefined ? null : HOLD_CONTROL_RE.exec(req.url);
+  if (holdPath !== null) {
+    const token = holdPath[1];
+    if (token === undefined) {
+      res.writeHead(404).end();
+      return;
+    }
+    const isRelease = holdPath[2] === "/release";
+    if (req.method === "GET" && !isRelease) {
+      const state = holds.get(token);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          arrived: state?.arrived ?? false,
+          closed: state?.closed ?? false,
+        }),
+      );
+      return;
+    }
+    if (req.method === "POST" && isRelease) {
+      releaseHold(token);
+      res.writeHead(200).end("ok");
+      return;
+    }
   }
 
   if (req.method === "POST" && req.url?.endsWith("/chat/completions")) {
