@@ -88,7 +88,10 @@ Mid-flight cancellation is process-local. Co-located `all` aborts immediately;
 in split topology, API sets `cancel_requested_at` but a worker already streaming
 does not receive a cross-process signal and may spend until completion. A
 LISTEN/NOTIFY or control-queue channel is required; do not claim full split
-cancellation before it ships.
+cancellation before it ships. Owner-facing Stop from acceptance (start frame,
+held Stop, settlement) is specified in
+[`run-cancellation`](../openspec/changes/run-cancellation/specs/run-cancellation/spec.md);
+issue 207 tracks cross-process abort.
 
 Run liveness uses process wall-clock abort, pg-boss heartbeat/retry, dead-letter
 terminalization, and age-based unwedge for queued rows with no active job.

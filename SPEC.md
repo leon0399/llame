@@ -88,6 +88,8 @@ The current runtime uses only active states `queued` and `running_model` and ter
 
 Run progress is an append-only event stream. Clients subscribe, reconnect, and replay; they do not own execution state. Tool activity and outcomes persist for history reconstruction.
 
+The UI-message bridge emits a `start` frame with the Run id as `messageId` when the stream subscribes, before any event poll, so Stop can cancel from acceptance. See [`run-cancellation`](openspec/changes/run-cancellation/specs/run-cancellation/spec.md).
+
 Persisted event families currently cover Run lifecycle (`run.created`, `run.started`, terminal `run.*`), model activity (`model.requested`, `model.delta`, `model.completed`), `reasoning.delta`, tool activity (`tool.requested`, `tool.started`, `tool.completed`), and `run.step_cap_reached`.
 
 `run_events` is installation-local execution and reconnect state. It is not a cross-node protocol, Personal Realm replication journal, portable synchronization cursor, or grant of authority to resume execution elsewhere.
