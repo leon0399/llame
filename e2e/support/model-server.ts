@@ -1030,7 +1030,7 @@ type HoldState = {
   arrived: boolean;
   closed: boolean;
   released: boolean;
-  wake: (() => void) | null;
+  waiters: Map<ServerResponse, () => void>;
 };
 
 const holds = new Map<string, HoldState>();
@@ -1044,7 +1044,7 @@ function getOrCreateHold(token: string): HoldState {
       arrived: false,
       closed: false,
       released: false,
-      wake: null,
+      waiters: new Map(),
     };
     holds.set(token, state);
   }
@@ -1054,8 +1054,8 @@ function getOrCreateHold(token: string): HoldState {
 function releaseHold(token: string): void {
   const state = getOrCreateHold(token);
   state.released = true;
-  state.wake?.();
-  state.wake = null;
+  for (const wake of state.waiters.values()) wake();
+  state.waiters.clear();
 }
 
 function buildChunkContext(
@@ -1083,7 +1083,7 @@ async function waitForHoldRelease(
 ): Promise<void> {
   if (state.released || res.destroyed) return;
   await new Promise<void>((resolve) => {
-    state.wake = resolve;
+    state.waiters.set(res, resolve);
   });
 }
 
@@ -1106,11 +1106,13 @@ async function respondHeld(
     if (res.writableFinished) return;
     aborted = true;
     state.closed = true;
-    state.wake?.();
-    state.wake = null;
+    const wake = state.waiters.get(res);
+    state.waiters.delete(res);
+    wake?.();
   });
 
   await waitForHoldRelease(state, res);
+  state.waiters.delete(res);
 
   if (aborted || res.destroyed || res.writableEnded) {
     return;
