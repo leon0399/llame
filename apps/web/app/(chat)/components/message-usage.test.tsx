@@ -77,6 +77,8 @@ describe("parseTurnUsage", () => {
           latencyMs: 900,
           costUsd: 0.0001,
           status: "completed",
+          complete: true,
+          billing: "usage",
         },
       }),
     ).toEqual({
@@ -90,7 +92,17 @@ describe("parseTurnUsage", () => {
       latencyMs: 900,
       costUsd: 0.0001,
       status: "completed",
+      complete: true,
+      billing: "usage",
     });
+  });
+
+  it("ignores invalid completeness and billing marker values", () => {
+    const parsed = parseTurnUsage({
+      usage: { complete: "false", billing: "subscription-like" },
+    });
+    expect(parsed?.complete).toBeUndefined();
+    expect(parsed?.billing).toBeUndefined();
   });
 
   it("does not read legacy model/provider fields", () => {
@@ -294,14 +306,19 @@ describe("buildUsageLine", () => {
     );
   });
 
-  it("always includes Reasoning, defaulting to 0 for a non-reasoning model", () => {
+  it("shows unknown reasoning as unavailable beneath Output", () => {
     const result = line({
       modelId: "system:openai:gpt-4o",
       inputTokens: 10,
       outputTokens: 20,
     });
-    const tokens = result?.sections.find((s) => s.header === "Tokens");
-    expect(tokens?.rows).toContainEqual({ label: "Reasoning", value: "0" });
+    const rows = result?.sections.find(
+      (section) => section.header === "Tokens",
+    )?.rows;
+    expect(rows).toContainEqual({ label: "of which reasoning", value: "—" });
+    expect(rows?.[rows.findIndex((row) => row.label === "Output") + 1]).toEqual(
+      { label: "of which reasoning", value: "—" },
+    );
   });
 
   it("abbreviates large token counts (1.5k, 1.2M)", () => {
@@ -315,36 +332,203 @@ describe("buildUsageLine", () => {
     expect(tokens?.rows).toContainEqual({ label: "Output", value: "1.2M" });
   });
 
-  it("puts Model, Total tokens, and Est. cost under Cost & model", () => {
+  it("keeps complete metered usage formatted exactly as before", () => {
     const result = line({
       modelId: "system:openai:gpt-4o",
-      inputTokens: 10,
-      outputTokens: 20,
+      latencyMs: 900,
+      inputTokens: 2400,
+      outputTokens: 300,
+      totalTokens: 2700,
+      costUsd: 0.0063,
+      complete: true,
+      billing: "usage",
+    });
+    expect(result?.text).toBe("GPT-4o · 900ms");
+    expect(result?.incompleteNotice).toBeUndefined();
+    expect(result?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-4o" },
+        { label: "Total tokens", value: "2.7k" },
+        { label: "Est. cost", value: "$0.0063" },
+      ],
+    });
+  });
+
+  it("keeps historical cost as an ordinary estimate", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
       totalTokens: 30,
-      costUsd: 0.05,
+      costUsd: 0.0063,
+    });
+    expect(result?.incompleteNotice).toBeUndefined();
+    expect(
+      result?.sections
+        .find((section) => section.header === "Cost & model")
+        ?.rows.find((row) => row.label === "Est. cost"),
+    ).toEqual({ label: "Est. cost", value: "$0.0063" });
+  });
+
+  it("floors an incomplete cost below display precision at each tier", () => {
+    expect(
+      line({
+        modelId: "system:openai:gpt-4o",
+        totalTokens: 30,
+        costUsd: 0.00625,
+        complete: false,
+      })
+        ?.sections.find((section) => section.header === "Cost & model")
+        ?.rows.find((row) => row.label === "Est. cost"),
+    ).toEqual({ label: "Est. cost", value: "≥ $0.0062" });
+  });
+
+  it("floors an incomplete cost at the dollar, cent, and boundary tiers", () => {
+    const costValue = (costUsd: number) =>
+      line({
+        modelId: "system:openai:gpt-4o",
+        costUsd,
+        complete: false,
+      })
+        ?.sections.find((section) => section.header === "Cost & model")
+        ?.rows.find((row) => row.label === "Est. cost")?.value;
+    expect(costValue(1.239)).toBe("≥ $1.23");
+    expect(costValue(0.0149)).toBe("≥ $0.014");
+    expect(costValue(0.01)).toBe("≥ $0.010");
+    expect(costValue(0.0001)).toBe("≥ $0.0001");
+  });
+
+  it("renders an incomplete zero total as a lower bound with unavailable output", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      reasoningTokens: 5,
+      totalTokens: 0,
+      costUsd: 0,
+      complete: false,
+    });
+    expect(result?.text).toBe("GPT-4o · ≥ 0 tokens · ≥ $0.0000");
+    const tokens = result?.sections.find((s) => s.header === "Tokens");
+    expect(tokens?.rows).toContainEqual({ label: "Output", value: "—" });
+    expect(result?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-4o" },
+        { label: "Total tokens", value: "≥ 0" },
+        { label: "Est. cost", value: "≥ $0.0000" },
+      ],
+    });
+  });
+
+  it("marks an incomplete total and cost as lower bounds of the recorded spend", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      inputTokens: 2400,
+      outputTokens: 300,
+      totalTokens: 2700,
+      costUsd: 0.0063,
+      complete: false,
+      billing: "usage",
+    });
+    expect(result?.text).toBe("GPT-4o · ≥ 2.7k tokens · ≥ $0.0063");
+    expect(result?.incompleteNotice).toBe(
+      "Recorded usage may not cover all of this Run's spend",
+    );
+    expect(result?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-4o" },
+        { label: "Total tokens", value: "≥ 2.7k" },
+        { label: "Est. cost", value: "≥ $0.0063" },
+      ],
+    });
+  });
+
+  it("floors an incomplete total below its display precision", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      totalTokens: 2751,
+      complete: false,
+    });
+    expect(result?.text).toBe("GPT-4o · ≥ 2.7k tokens");
+    expect(result?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-4o" },
+        { label: "Total tokens", value: "≥ 2.7k" },
+      ],
+    });
+  });
+
+  it("floors an incomplete million-scale total below its display precision", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      totalTokens: 1_999_999,
+      complete: false,
+    });
+    expect(result?.text).toBe("GPT-4o · ≥ 1.9M tokens");
+    expect(result?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-4o" },
+        { label: "Total tokens", value: "≥ 1.9M" },
+      ],
+    });
+  });
+
+  it("labels a subscription cost as notional", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      totalTokens: 2700,
+      costUsd: 0.0063,
+      complete: true,
+      billing: "subscription",
     });
     expect(result?.sections).toContainEqual({
       header: "Cost & model",
       rows: [
         { label: "Model", value: "GPT-4o" },
-        { label: "Total tokens", value: "30" },
-        { label: "Est. cost", value: "$0.050" },
+        { label: "Total tokens", value: "2.7k" },
+        { label: "Notional cost", value: "$0.0063" },
       ],
     });
   });
 
-  it("omits Est. cost entirely for an unpriced model (never a fake $0)", () => {
+  it("keeps an incomplete notional cost a lower bound out of the badge", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      totalTokens: 2700,
+      costUsd: 0.0063,
+      complete: false,
+      billing: "subscription",
+    });
+    expect(result?.text).toBe("GPT-4o · ≥ 2.7k tokens");
+    expect(result?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-4o" },
+        { label: "Total tokens", value: "≥ 2.7k" },
+        { label: "Notional cost", value: "≥ $0.0063" },
+      ],
+    });
+  });
+
+  it("omits cost for an unpriced subscription model", () => {
     const result = line({
       modelId: "acme:custom-7b",
       inputTokens: 10,
       outputTokens: 20,
       totalTokens: 30,
       costUsd: null,
+      billing: "subscription",
     });
     const costSection = result?.sections.find(
-      (s) => s.header === "Cost & model",
+      (section) => section.header === "Cost & model",
     );
-    expect(costSection?.rows.map((r) => r.label)).not.toContain("Est. cost");
+    expect(costSection?.rows.map((row) => row.label)).not.toContain(
+      "Notional cost",
+    );
+    expect(costSection?.rows.some((row) => row.value.includes("$"))).toBe(
+      false,
+    );
   });
 });
 
@@ -361,9 +545,11 @@ describe("reload parity (live message-metadata vs. history)", () => {
     finishReason: "stop",
     status: "completed",
     costUsd: 0.001,
+    complete: false,
+    billing: "subscription",
   };
 
-  it("renders the identical usage line whether the metadata came from a live message-metadata chunk or a reloaded history response", () => {
+  it("renders identical incomplete subscription usage from live metadata and reloaded history", () => {
     const liveMetadata = { usage: persistedTelemetry };
     const liveLine = buildUsageLine(parseTurnUsage(liveMetadata), MODELS);
 
@@ -389,7 +575,18 @@ describe("reload parity (live message-metadata vs. history)", () => {
     );
 
     expect(historyLine).toEqual(liveLine);
-    expect(historyLine?.text).toBe("GPT-4o · 900ms");
+    expect(historyLine?.text).toBe("GPT-4o · 900ms · ≥ 12.8k tokens");
+    expect(historyLine?.incompleteNotice).toBe(
+      "Recorded usage may not cover all of this Run's spend",
+    );
+    expect(parseTurnUsage(liveMetadata)).toMatchObject({
+      complete: false,
+      billing: "subscription",
+    });
+    expect(parseTurnUsage(historyMessage?.metadata)).toMatchObject({
+      complete: false,
+      billing: "subscription",
+    });
     expect(historyLine?.sections).toContainEqual({
       header: "Tokens",
       rows: [
@@ -397,15 +594,15 @@ describe("reload parity (live message-metadata vs. history)", () => {
         { label: "of which cached", value: "0" },
         { label: "of which cache write", value: "11.2k" },
         { label: "Output", value: "20" },
-        { label: "Reasoning", value: "0" },
+        { label: "of which reasoning", value: "0" },
       ],
     });
     expect(historyLine?.sections).toContainEqual({
       header: "Cost & model",
       rows: [
         { label: "Model", value: "GPT-4o" },
-        { label: "Total tokens", value: "12.8k" },
-        { label: "Est. cost", value: "$0.0010" },
+        { label: "Total tokens", value: "≥ 12.8k" },
+        { label: "Notional cost", value: "≥ $0.0010" },
       ],
     });
   });
@@ -423,6 +620,8 @@ describe("MessageUsage", () => {
             outputTokens: 20,
             totalTokens: 30,
             status: "completed",
+            complete: true,
+            billing: "usage",
           },
         }}
         models={MODELS}
@@ -446,6 +645,7 @@ describe("MessageUsage", () => {
             totalTokens: 12_820,
             costUsd: 0.01,
             status: "completed",
+            complete: true,
           },
         }}
         models={MODELS}

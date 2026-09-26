@@ -1,5 +1,17 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-26
+
+- The message usage badge shows incomplete usage as a lower bound: total
+  tokens and cost read `≥` when `complete` is false, and the hover card adds
+  one row saying the recorded usage may not cover all of the Run's spend
+  ([#810](https://github.com/leon0399/llame/issues/810)). Reasoning appears as
+  `of which reasoning` under Output, and an unknown count shows `—` instead
+  of 0. A cost recorded under `billing: "subscription"` is labeled
+  `Notional cost`, muted and struck through, and its accessible name says it
+  was not billed ([#959](https://github.com/leon0399/llame/issues/959)).
+  Usage without `billing` renders as before.
+
 # 2026-09-25
 
 - Every test suite now runs with coverage, and CI uploads each report to
