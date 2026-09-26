@@ -29,7 +29,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
 - [x] 1.9 Document `billing` in `llame.config.json.example`, `docs/codex-subscription.md`, and `docs/opencode-go.md` (the default, the override, and that a declared price on a subscription is recorded as notional); add the Run usage accounting paragraph to `SPEC.md` §9 linking `run-usage-accounting`; add a dated `CHANGELOG.md` entry covering summed usage, failed and cancelled usage, the retryable #594 turn, the historical marker with its stop-migrate-start deployment note, and billing mode. Verify `pnpm lint:markdown`.
 - [x] 1.10 Run `pnpm --filter api lint`, `typecheck`, `test:coverage`, `test:integration`, and `build`, plus `pnpm format:check`, `git diff --check`, and `pnpm exec openspec validate run-usage-accounting --strict`; record the commands in the PR body.
 - [x] 1.11 Self-review (SR) the parent-relative draft diff against REVIEW_GUIDE.md, fix accepted findings, and rerun affected checks before marking ready.
-- [ ] 1.12 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before adding the `web` layer.
+- [x] 1.12 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before adding the `web` layer.
 
 ## 2. `run-usage-accounting/web`: usage badge
 
