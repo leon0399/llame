@@ -123,14 +123,12 @@ describe('ModelClient', () => {
 
     const abortSignal = AbortSignal.timeout(1000);
     const onError = vi.fn();
-    const onFinish = vi.fn();
     client.streamText({
       chat: CHAT,
       messages,
       system: 'stable system',
       abortSignal,
       onError,
-      onFinish,
     });
 
     expect(client).toMatchObject({
@@ -148,7 +146,6 @@ describe('ModelClient', () => {
       system: 'stable system',
       abortSignal,
       onError,
-      onFinish,
     });
     expect(streamTextCall?.onAbort).toEqual(expect.any(Function));
   });

@@ -6,7 +6,12 @@ import {
 import { MockLanguageModelV3 } from 'ai/test';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 
-import type { ModelClient, ModelStreamInput } from './model-client';
+import {
+  createModelStreamFinishCallback,
+  type ModelClient,
+  type ModelStreamInput,
+} from './model-client';
+import { applyRequestUsageCallback } from './request-usage';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
 
 /** Default for `resolveCompletion`/`rejectCompletion` before the completion Promise executor below replaces them. */
@@ -22,6 +27,9 @@ export const ZERO_USAGE: LanguageModelUsage = {
   outputTokens: 0,
   outputTokenDetails: { textTokens: 0, reasoningTokens: 0 },
   totalTokens: 0,
+  reasoningTokens: 0,
+  cachedInputTokens: 0,
+  raw: undefined,
 };
 
 /** The canned event sequence for a completed fake response. */
@@ -78,6 +86,7 @@ interface FakeStreamOutcome {
 /** Wires `input`'s callbacks and a completion signal settled once they run. */
 function createFakeStreamOutcome(input: ModelStreamInput): FakeStreamOutcome {
   let resolveCompletion: () => void = noop;
+  const onFinish = createModelStreamFinishCallback(input.onFinish);
   let rejectCompletion: (reason?: unknown) => void = noop;
   const completion = new Promise<void>((resolve, reject) => {
     resolveCompletion = resolve;
@@ -104,11 +113,7 @@ function createFakeStreamOutcome(input: ModelStreamInput): FakeStreamOutcome {
       },
       onFinish: async (event) => {
         try {
-          await input.onFinish?.({
-            text: event.text,
-            usage: ZERO_USAGE,
-            finishReason: event.finishReason,
-          });
+          await onFinish?.(event);
           resolveCompletion();
         } catch (error) {
           rejectCompletion(error);
@@ -116,6 +121,34 @@ function createFakeStreamOutcome(input: ModelStreamInput): FakeStreamOutcome {
       },
     },
   };
+}
+
+function streamFakeResponse(response: string, input: ModelStreamInput) {
+  const { handlers, completion } = createFakeStreamOutcome(input);
+  const streamOptions = {
+    model: new MockLanguageModelV3({
+      provider: 'fake',
+      modelId: 'fake-model',
+      doStream: () =>
+        Promise.resolve({
+          stream: simulateReadableStream({
+            chunks: fakeResponseChunks(response),
+          }),
+        }),
+    }),
+    messages: input.messages,
+    system: input.system,
+    abortSignal: input.abortSignal,
+    ...resolveToolOptions(input),
+    ...handlers,
+  };
+  applyRequestUsageCallback(streamOptions, input);
+  const result = streamText(streamOptions);
+  return wrapStreamTextResult(result, {
+    text: (target) => ({
+      value: Promise.all([target.text, completion]).then(([text]) => text),
+    }),
+  });
 }
 
 /**
@@ -139,31 +172,7 @@ export function createFakeModelClient(
         responses.length === 0
           ? ''
           : responses[responseIndex++ % responses.length];
-      const { handlers, completion } = createFakeStreamOutcome(input);
-
-      const result = streamText({
-        model: new MockLanguageModelV3({
-          provider: 'fake',
-          modelId: 'fake-model',
-          doStream: () =>
-            Promise.resolve({
-              stream: simulateReadableStream({
-                chunks: fakeResponseChunks(response),
-              }),
-            }),
-        }),
-        messages: input.messages,
-        system: input.system,
-        abortSignal: input.abortSignal,
-        ...resolveToolOptions(input),
-        ...handlers,
-      });
-
-      return wrapStreamTextResult(result, {
-        text: (target) => ({
-          value: Promise.all([target.text, completion]).then(([text]) => text),
-        }),
-      });
+      return streamFakeResponse(response, input);
     },
   };
 }

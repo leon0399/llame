@@ -1,7 +1,7 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { streamText } from 'ai';
 
-import type { ChatIdentity, ModelClient } from './model-client';
+import type { BillingMode, ChatIdentity, ModelClient } from './model-client';
 import type { TokenPrice } from './model-catalog';
 import { rejectRedirects } from './openai-codex-model-client';
 import {
@@ -55,6 +55,7 @@ type OpenCodeGoModelClientConfig = {
    * declares rates llame accounts against the reported usage.
    */
   pricing?: TokenPrice;
+  billing?: BillingMode;
   compactionThresholdTokens?: number;
 };
 
@@ -114,6 +115,7 @@ export function createOpenCodeGoModelClient(
         maxOutputTokens: config.maxOutputTokens,
       }),
       ...(config.pricing !== undefined && { pricing: config.pricing }),
+      ...(config.billing !== undefined && { billing: config.billing }),
       ...(config.compactionThresholdTokens !== undefined && {
         compactionThresholdTokens: config.compactionThresholdTokens,
       }),

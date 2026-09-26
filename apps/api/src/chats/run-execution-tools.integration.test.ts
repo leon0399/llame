@@ -228,6 +228,7 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
               text: event.text,
               usage: event.usage,
               finishReason: event.finishReason,
+              stepCount: event.steps.length,
             }),
         });
       }
@@ -249,6 +250,7 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
             text: event.text,
             usage: event.usage,
             finishReason: event.finishReason,
+            stepCount: event.steps.length,
           }),
       });
     },
@@ -843,7 +845,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
         }),
       );
       expect(assistant?.usage).toEqual(
-        expect.objectContaining({ runId: seeded.run.id }),
+        expect.objectContaining({
+          runId: seeded.run.id,
+          status: 'error',
+          complete: false,
+        }),
       );
       expect(settlementSpy).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -863,7 +869,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
       // enqueues it after its own rebuild succeeds (a separate enqueue site,
       // not exercised by this suite).
       expect(enqueueChatEmbed).not.toHaveBeenCalled();
-      expect(telemetryLog).toHaveBeenCalledTimes(1);
+      // D5 records this failed turn as status "error"; the completed-turn
+      // logger must not emit a completion record for progress-write failure.
+      expect(telemetryLog).not.toHaveBeenCalled();
     } finally {
       appendSpy.mockRestore();
       settlementSpy.mockRestore();

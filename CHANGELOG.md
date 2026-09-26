@@ -41,6 +41,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-24
 
+- Assistant usage now sums every model request in the Run attempt and accounts
+  for each request's reported usage before summing (the accounting portion of
+  [#810](https://github.com/leon0399/llame/issues/810)). Failed and cancelled
+  Runs retain their known usage, including cancellation with an open tool call
+  ([#594](https://github.com/leon0399/llame/issues/594)). The #594 turn records
+  status `aborted`, making it retryable and excluding it from conversation
+  search and reads.
+
+- Historical assistant usage receives a `complete` marker without recomputing
+  stored values. Deployment is stop-migrate-start: stop every API and worker
+  process on the old revision before applying the migration.
+
+- Provider and model entries accept optional `billing` (`"usage"` or
+  `"subscription"`), resolved model then provider then provider-type default;
+  `openai-codex` and `opencode-go` default to subscription
+  ([#959](https://github.com/leon0399/llame/issues/959)).
+
 - The root `tsconfig.json` now covers only root-owned TypeScript: the
   Playwright specs, `playwright.config.ts`, and the API's ambient declarations
   those specs import. A bare `tsc --noEmit` at the repository root previously

@@ -74,6 +74,11 @@
         { "$ref": "#/$defs/interpolationToken" }
       ]
     },
+    "billingMode": {
+      "type": "string",
+      "enum": ["usage", "subscription"],
+      "description": "Whether requests are billed per token or run under a flat subscription."
+    },
     "providerType": {
       "type": "string",
       "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"anthropic-messages\" executes the Messages API through @ai-sdk/anthropic at its optional baseUrl (the Anthropic API by default); \"openai-codex\" uses the personal Codex subscription endpoint; \"opencode-go\" executes the Chat Completions wire against the OpenCode Go subscription gateway, at the endpoint fixed in llame's code, from a required `key` and no destination field of its own. This enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
@@ -97,6 +102,7 @@
           "description": "Operator-chosen identifier, unique within `providers[]`. Referenced by `models[].provider`."
         },
         "type": { "$ref": "#/$defs/providerType" },
+        "billing": { "$ref": "#/$defs/billingMode" },
         "key": {
           "$ref": "#/$defs/nullableString",
           "description": "Provider credential. Absent, null, or a resolved-empty `{env:...}` token means keyless (e.g. a local Ollama with no auth) — the client is constructed without raising a missing-credential error. Required (and nonblank after interpolation) for `type: \"openai-codex\"` and `type: \"opencode-go\"`, whose upstreams authenticate every request; such an entry fails startup naming the entry and the field rather than loading keyless."
@@ -313,6 +319,10 @@
           "type": "string",
           "minLength": 1,
           "description": "References a `providers[].id`. An id not defined there fails boot naming this model and the dangling reference."
+        },
+        "billing": {
+          "$ref": "#/$defs/billingMode",
+          "description": "Whether requests are billed per token or run under a flat subscription. Server-only; never returned by GET /api/v1/models."
         },
         "providerModelId": {
           "type": "string",

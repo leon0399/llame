@@ -366,7 +366,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       system:
         'EXACT SNAPSHOTTED PROMPT\n<user_personalization>Ada</user_personalization>\n<user_chat_history>Other chat</user_chat_history>',
       toolDeclarations: declarations,
-      lastTurnTotalTokens: 10,
+      lastRequestTokens: 10,
     });
 
     expect(calls).toHaveLength(1);
@@ -460,7 +460,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       client,
       system: packagedPrompt,
       toolDeclarations: [],
-      lastTurnTotalTokens: 10,
+      lastRequestTokens: 10,
     });
 
     // Replayed verbatim — the exclusion rides the trailing instruction rather
@@ -553,7 +553,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       client: compactionClient({ model: 'source-model', calls }),
       system: 'SNAPSHOT BEFORE RE-BAKE',
       toolDeclarations: [],
-      lastTurnTotalTokens: 10,
+      lastRequestTokens: 10,
     });
 
     expect(calls[0]?.system).toBe('SNAPSHOT BEFORE RE-BAKE');
@@ -626,7 +626,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       client: compactionClient({ model: 'source-model', calls: [] }),
       system: 'BOUND DIGEST PROMPT',
       toolDeclarations: [],
-      lastTurnTotalTokens: 10,
+      lastRequestTokens: 10,
     });
 
     const unchanged = await tenantDb.runAs(userId, (tx) =>
@@ -670,7 +670,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       client: compactionClient({ model: 'source-model', calls: [] }),
       system: 'BOUND DIGEST PROMPT',
       toolDeclarations: [],
-      lastTurnTotalTokens: 10,
+      lastRequestTokens: 10,
     });
 
     const [unchanged, compaction] = await tenantDb.runAs(userId, (tx) =>
@@ -698,7 +698,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       client,
       system: 'LEDGER PROMPT',
       toolDeclarations: [],
-      lastTurnTotalTokens: 10,
+      lastRequestTokens: 10,
     });
     const first = await tenantDb.runAs(userId, (tx) =>
       new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
@@ -757,7 +757,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       client,
       system: 'LEDGER PROMPT',
       toolDeclarations: [],
-      lastTurnTotalTokens: 10,
+      lastRequestTokens: 10,
     });
     const second = await tenantDb.runAs(userId, (tx) =>
       new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
@@ -812,7 +812,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           inputSchema: { type: 'object' },
         },
       ],
-      lastTurnTotalTokens: 10,
+      lastRequestTokens: 10,
     });
 
     expect(calls[0].tools?.['lookup']?.execute).toBeUndefined();
@@ -978,7 +978,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       system: 'EXACT SNAPSHOTTED PROMPT',
       toolDeclarations: [],
       effort: 'xhigh',
-      lastTurnTotalTokens: 10,
+      lastRequestTokens: 10,
     });
 
     expect(calls).toHaveLength(1);
@@ -1001,7 +1001,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       client,
       system: 'EXACT SNAPSHOTTED PROMPT',
       toolDeclarations: [],
-      lastTurnTotalTokens: 10,
+      lastRequestTokens: 10,
     });
 
     expect(calls).toHaveLength(1);

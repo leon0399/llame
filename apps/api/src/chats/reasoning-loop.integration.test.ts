@@ -122,6 +122,7 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
             text: event.text,
             usage: event.usage,
             finishReason: event.finishReason,
+            stepCount: event.steps.length,
           }),
       });
     },

@@ -8,6 +8,7 @@
  */
 
 import type {
+  LanguageModelV3,
   LanguageModelV3StreamPart,
   LanguageModelV3Usage,
 } from '@ai-sdk/provider';
@@ -18,10 +19,12 @@ import {
 } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 
+import { applyRequestUsageCallback } from '../models/request-usage';
 import { TITLE_SYSTEM_PROMPT } from '../titles/title';
 import {
   MissingModelCredentialError,
   type ChatIdentity,
+  createModelStreamFinishCallback,
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
@@ -175,6 +178,31 @@ function createAnswerStream(
   });
 }
 
+function createAnswerModel(options: {
+  modelId: string;
+  turn: FakeTurn;
+  delayMs: number;
+  response: string;
+  usage: LanguageModelUsage;
+}): MockLanguageModelV3 {
+  const { modelId, turn, delayMs, response, usage } = options;
+  const providerUsage = toProviderUsage(usage);
+  return new MockLanguageModelV3({
+    provider: 'fake',
+    modelId,
+    doStream: ({ abortSignal }) =>
+      Promise.resolve({
+        stream: createAnswerStream({
+          abortSignal,
+          turn,
+          delayMs,
+          response,
+          usage: providerUsage,
+        }),
+      }),
+  });
+}
+
 /**
  * The abort-aware stream backing a canned title-generation turn: resolves
  * `titleResponse` and emits `titleResponseChunks`, unless `abortSignal` fires
@@ -275,6 +303,7 @@ function answerStreamHandlers(
   Parameters<typeof sdkStreamText>[0],
   'onChunk' | 'onError' | 'onAbort' | 'onFinish'
 > {
+  const onFinish = createModelStreamFinishCallback(input.onFinish);
   return {
     onChunk: ({ chunk }) => {
       if (chunk.type === 'text-delta') {
@@ -289,13 +318,9 @@ function answerStreamHandlers(
       }
     },
     onAbort: settlement.onAbort,
-    onFinish: async ({ text, usage: actualUsage, finishReason }) => {
+    onFinish: async (event) => {
       onFinishCall();
-      await input.onFinish?.({
-        text,
-        usage: actualUsage,
-        finishReason,
-      });
+      await onFinish?.(event);
     },
   };
 }
@@ -379,7 +404,9 @@ export class FakeStreamingModelClient {
   ): ReturnType<typeof sdkStreamText> {
     this.titleTurns.push(input.messages);
     const titleResponse = this.titleResponse;
-    return sdkStreamText({
+    const streamOptions: Parameters<typeof sdkStreamText>[0] & {
+      model: LanguageModelV3;
+    } = {
       model: new MockLanguageModelV3({
         provider: 'fake',
         modelId: this.model,
@@ -391,7 +418,10 @@ export class FakeStreamingModelClient {
       messages: input.messages,
       system: input.system,
       abortSignal: input.abortSignal,
-    });
+      onFinish: createModelStreamFinishCallback(input.onFinish),
+    };
+    applyRequestUsageCallback(streamOptions, input);
+    return sdkStreamText(streamOptions);
   }
 
   private streamAnswerText(
@@ -408,21 +438,14 @@ export class FakeStreamingModelClient {
     };
     this.turns.push(turn);
     const settlement = trackAbortSettlement(input);
-    const model = new MockLanguageModelV3({
-      provider: 'fake',
+    const model = createAnswerModel({
       modelId: this.model,
-      doStream: ({ abortSignal }) =>
-        Promise.resolve({
-          stream: createAnswerStream({
-            abortSignal,
-            turn,
-            delayMs,
-            response,
-            usage: toProviderUsage(usage),
-          }),
-        }),
+      turn,
+      delayMs,
+      response,
+      usage,
     });
-    const result = sdkStreamText({
+    const streamOptions = {
       model,
       messages: input.messages,
       system: input.system,
@@ -431,7 +454,9 @@ export class FakeStreamingModelClient {
       ...answerStreamHandlers(input, settlement, () => {
         this.onFinishCalls += 1;
       }),
-    });
+    };
+    applyRequestUsageCallback(streamOptions, input);
+    const result = sdkStreamText(streamOptions);
 
     return awaitSettlementAfter(result, settlement);
   }

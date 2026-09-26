@@ -144,7 +144,7 @@ export class CompactionService {
    * Never throws — a compaction failure must not surface into the chat turn.
    *
    * `system` is the exact system prompt the finished turn used and
-   * `lastTurnTotalTokens` its real reported usage: the former keeps the
+   * `lastRequestTokens` its real reported usage: the former keeps the
    * summarization request prefix-cache-aligned with that turn, the latter is
    * the trigger signal (see compaction.ts).
    */
@@ -156,7 +156,7 @@ export class CompactionService {
     toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
     /** The triggering run's effort — see `summarize`. */
     effort?: string;
-    lastTurnTotalTokens?: number;
+    lastRequestTokens?: number;
   }): Promise<void> {
     try {
       await this.compactIfNeeded(input);
@@ -176,7 +176,7 @@ export class CompactionService {
     toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
     /** The triggering run's effort — see `summarize`. */
     effort?: string;
-    lastTurnTotalTokens?: number;
+    lastRequestTokens?: number;
   }): Promise<void> {
     const thresholdTokens = this.thresholdTokens(input.client);
 
@@ -184,8 +184,8 @@ export class CompactionService {
     // planCompaction would prefer anyway, and it's already in hand. Only when
     // it's absent (provider reported nothing) does the estimate need history.
     if (
-      isPositiveFinite(input.lastTurnTotalTokens) &&
-      input.lastTurnTotalTokens < thresholdTokens
+      isPositiveFinite(input.lastRequestTokens) &&
+      input.lastRequestTokens < thresholdTokens
     ) {
       return;
     }
@@ -202,7 +202,7 @@ export class CompactionService {
       previousReplacementHistory: previous?.replacementHistory,
       thresholdTokens,
       keepRecentMessages: DEFAULT_KEEP_RECENT_MESSAGES,
-      measuredContextTokens: input.lastTurnTotalTokens,
+      measuredContextTokens: input.lastRequestTokens,
     });
     if (!plan) {
       return;
@@ -245,6 +245,7 @@ export class CompactionService {
       ...(input.effort !== undefined && { effort: input.effort }),
       latencyMs: Date.now() - startedAt,
       price: input.client.pricing,
+      billing: input.client.billing,
     });
     const replacementHistory = buildCompactionReplacementHistory({
       summary,
@@ -443,6 +444,7 @@ export class CompactionService {
         ...(sourceEffort !== undefined && { effort: sourceEffort }),
         latencyMs: inference.latencyMs,
         price: sourceClient.pricing,
+        billing: sourceClient.billing,
       }),
     });
   }

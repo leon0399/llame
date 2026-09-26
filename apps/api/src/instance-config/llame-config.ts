@@ -7,6 +7,7 @@
  * drift.
  */
 
+import type { BillingMode } from '../models/model-client';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { type ToolPermissionMap } from '../tools/permissions/types';
 
@@ -38,6 +39,7 @@ import { type ToolPermissionMap } from '../tools/permissions/types';
 export type OpenAIResponsesProviderConfig = {
   id: string;
   type: 'openai-responses';
+  billing?: BillingMode;
   key: string | null;
   /** `null` uses the client's own default (OpenAI's hosted API). */
   baseUrl: string | null;
@@ -52,6 +54,7 @@ export type OpenAIResponsesProviderConfig = {
 export type OpenAICompletionsProviderConfig = {
   id: string;
   type: 'openai-completions';
+  billing?: BillingMode;
   key: string | null;
   baseUrl: string;
 };
@@ -64,6 +67,7 @@ export type OpenAICompletionsProviderConfig = {
  */
 export type AnthropicMessagesProviderConfig = {
   id: string;
+  billing?: BillingMode;
   type: 'anthropic-messages';
   key: string | null;
   /** `null` uses the client's own default (the Anthropic API). */
@@ -73,6 +77,7 @@ export type AnthropicMessagesProviderConfig = {
 export type OpenAICodexProviderConfig = {
   id: string;
   type: 'openai-codex';
+  billing?: BillingMode;
   key: string;
   accountId: string;
 };
@@ -88,6 +93,7 @@ export type OpenAICodexProviderConfig = {
  */
 export type OpenCodeGoProviderConfig = {
   id: string;
+  billing?: BillingMode;
   type: 'opencode-go';
   key: string;
 };
@@ -200,12 +206,14 @@ export type RawProviderEntry =
   | {
       id: string;
       type: 'openai-responses';
+      billing?: BillingMode;
       key?: unknown;
       baseUrl?: unknown;
     }
   | {
       id: string;
       type: 'openai-completions';
+      billing?: BillingMode;
       key?: unknown;
       /** Schema-required for this branch; may still be `null`/blank after interpolation. */
       baseUrl: string | null;
@@ -213,18 +221,21 @@ export type RawProviderEntry =
   | {
       id: string;
       type: 'anthropic-messages';
+      billing?: BillingMode;
       key?: unknown;
       baseUrl?: unknown;
     }
   | {
       id: string;
       type: 'openai-codex';
+      billing?: BillingMode;
       key: string | null;
       accountId: string | null;
     }
   | {
       id: string;
       type: 'opencode-go';
+      billing?: BillingMode;
       /** Schema-required for this branch; may still be `null`/blank after interpolation. */
       key: string | null;
     };
@@ -303,6 +314,7 @@ export type SearchCorpusConfig = {
 export type RawModelEntry = {
   id: string;
   provider: string;
+  billing?: BillingMode;
   providerModelId: string;
   contextWindowTokens: unknown;
   compactionThresholdTokens?: unknown;

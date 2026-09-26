@@ -40,6 +40,9 @@
   // `opencode-go` for the OpenCode Go subscription gateway (Chat Completions
   // at an endpoint fixed in llame's code; key required, no baseUrl). Omit key
   // for a keyless endpoint.
+  // Optional `billing` on providers and models accepts "usage" or
+  // "subscription"; a model overrides its provider. Defaults are
+  // `subscription` for `openai-codex` and `opencode-go`, `usage` otherwise.
   "providers": [
     {
       "id": "openai",
@@ -75,7 +78,8 @@
     //   "id": "personal-codex",
     //   "type": "openai-codex",
     //   "key": "{path:/run/secrets/codex-auth.json|json:/tokens/access_token}",
-    //   "accountId": "{path:/run/secrets/codex-auth.json|json:/tokens/account_id}"
+    //   "accountId": "{path:/run/secrets/codex-auth.json|json:/tokens/account_id}",
+    //   "billing": "subscription"
     // },
     // An OpenCode Go subscription is key-only: the endpoint is fixed in
     // llame's code, so this entry accepts no baseUrl, and the key is required

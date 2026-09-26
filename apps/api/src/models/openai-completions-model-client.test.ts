@@ -153,6 +153,20 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
     streamTextMock.mockClear();
   });
 
+  it('exposes billing on the built client only when it is configured', () => {
+    const model = new MockLanguageModelV3({
+      provider: 'openai-compatible.test',
+      modelId: 'deepseek-chat',
+    });
+    const configured = buildClient(model, {
+      overrides: { billing: 'usage' },
+    }).client;
+    const undeclared = buildClient(model).client;
+
+    expect(configured.billing).toBe('usage');
+    expect(undeclared).not.toHaveProperty('billing');
+  });
+
   it('builds requests on the Chat Completions model at the provider base URL', () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai-compatible.test',

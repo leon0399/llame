@@ -60,11 +60,13 @@ describe('createFakeModelClient', () => {
   it('fires callbacks when a response stream is consumed', async () => {
     const client = createFakeModelClient(['done']);
     const onTextDelta = vi.fn();
+    const onRequestUsage = vi.fn();
     const onFinish = vi.fn();
     const result = client.streamText({
       chat: CHAT,
       messages,
       onTextDelta,
+      onRequestUsage,
       onFinish,
     });
 
@@ -74,11 +76,15 @@ describe('createFakeModelClient', () => {
     await expect(collectText(result.textStream)).resolves.toBe('done');
 
     expect(onTextDelta).toHaveBeenCalledWith('done');
-    expect(onFinish).toHaveBeenCalledWith({
-      text: 'done',
-      usage: ZERO_USAGE,
-      finishReason: 'stop',
-    });
+    expect(onRequestUsage).toHaveBeenCalledOnce();
+    expect(onRequestUsage).toHaveBeenCalledWith(ZERO_USAGE);
+    expect(onFinish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'done',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+      }),
+    );
   });
 
   it('keeps empty and unconsumed responses lazy', async () => {
@@ -98,11 +104,13 @@ describe('createFakeModelClient', () => {
     await expect(result.text).resolves.toBe('');
 
     expect(onTextDelta).not.toHaveBeenCalled();
-    expect(onFinish).toHaveBeenCalledWith({
-      text: '',
-      usage: ZERO_USAGE,
-      finishReason: 'stop',
-    });
+    expect(onFinish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: '',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+      }),
+    );
   });
 
   it('does not resolve text until an async onFinish settles', async () => {

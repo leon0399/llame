@@ -828,3 +828,12 @@ describe('createOpenCodeGoModelClient — cost is unknown unless declared (desig
     expect(recordedTelemetry(client).costUsd).toBe(0.0045);
   });
 });
+
+describe('createOpenCodeGoModelClient — billing metadata', () => {
+  it('exposes billing on the built client only when it is configured', () => {
+    expect(buildClient({ billing: 'subscription' }).billing).toBe(
+      'subscription',
+    );
+    expect(buildClient()).not.toHaveProperty('billing');
+  });
+});

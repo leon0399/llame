@@ -13,6 +13,9 @@ import type {
 
 import type { TokenPrice } from './model-catalog';
 
+/** Whether reported model usage is metered or covered by a subscription. */
+export type BillingMode = 'usage' | 'subscription';
+
 export type ModelStreamResult = StreamTextResult<
   ToolSet,
   OutputInterface<string, string, never>
@@ -140,12 +143,47 @@ export interface ModelStreamInput {
     partId?: string,
     providerMetadata?: ProviderMetadata,
   ) => void;
+  /**
+   * Called once for each provider model request when its `finish` part arrives,
+   * before any tool calls from that request execute.
+   */
+  onRequestUsage?: (usage: LanguageModelUsage) => void;
   onError?: StreamTextOnErrorCallback;
-  onFinish?: (event: {
-    text: string;
-    usage: LanguageModelUsage;
-    finishReason: FinishReason;
-  }) => void | Promise<void>;
+  onFinish?: (event: ModelStreamFinishEvent) => void | Promise<void>;
+}
+
+export type ModelStreamFinishEvent = {
+  text: string;
+  usage: LanguageModelUsage;
+  finishReason: FinishReason;
+  /** Number of model requests made by this generation. */
+  stepCount: number;
+};
+
+/** Converts the SDK's finish event to the callback shape exposed by ModelClient. */
+type ModelStreamFinishEventSource = {
+  text: string;
+  usage: LanguageModelUsage;
+  finishReason: FinishReason;
+  steps: ReadonlyArray<unknown>;
+};
+
+export function toModelStreamFinishEvent(
+  event: ModelStreamFinishEventSource,
+): ModelStreamFinishEvent {
+  return {
+    text: event.text,
+    usage: event.usage,
+    finishReason: event.finishReason,
+    stepCount: event.steps.length,
+  };
+}
+
+export function createModelStreamFinishCallback(
+  onFinish: ModelStreamInput['onFinish'],
+): ((event: ModelStreamFinishEventSource) => void | Promise<void>) | undefined {
+  if (onFinish === undefined) return undefined;
+  return (event) => onFinish(toModelStreamFinishEvent(event));
 }
 
 export interface ModelObjectInput<OBJECT> {
@@ -180,6 +218,8 @@ export interface ModelClient {
   readonly contextWindowTokens: number;
   /** Resolved per-million-token pricing for cost telemetry; absent when the model has no configured price. */
   readonly pricing?: TokenPrice;
+  /** Resolved mode stamped on usage; absent only on test clients without one. */
+  readonly billing?: BillingMode;
   /**
    * Explicit compaction trigger override for this model (config
    * `models[].compactionThresholdTokens`); absent falls back to
