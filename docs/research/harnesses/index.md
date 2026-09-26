@@ -80,6 +80,14 @@ failure/coverage mechanics and benchmark limitations. It maps concrete uses
 across chat evidence, code, tools, skills, documents and future Run/artifact
 sources without making relevance an authorization decision.
 
+The [prompt-cache boundaries study](../tool-harness/2026-09-26-prompt-cache-boundaries.md)
+compares how Anthropic, OpenAI, DeepSeek, Gemini and vLLM write and reuse
+prompt-cache entries, then traces which system-prompt items differ between
+llame chats. It sets [OMP's head breakpoints](https://github.com/can1357/oh-my-pi/blob/6ee309d18ba627291b8a099b6b276de071abb7ca/packages/ai/src/providers/anthropic.ts#L4054-L4126)
+and OpenClaw's stable/dynamic system-prompt split against llame's single
+automatic breakpoint for [#972](https://github.com/leon0399/llame/issues/972).
+It measures no cache-hit rates.
+
 Read the ranked index first, then open individual references as needed.
 
 ## Index
