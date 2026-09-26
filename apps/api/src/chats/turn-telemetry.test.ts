@@ -6,6 +6,7 @@ import {
   emitCompletedTurnTelemetryLog,
   requestContextTokens,
   type TokenPrice,
+  type TurnTelemetry,
   type TurnTelemetryLogger,
 } from './turn-telemetry';
 import { type UnknownRecord } from '@workspace/runtime-safety';
@@ -79,6 +80,7 @@ describe('TurnTelemetry', () => {
       costUsd: 0.000084,
     });
     expect(telemetry.cachedInputTokens / telemetry.inputTokens).toBe(0.4);
+    expect(telemetry).not.toHaveProperty('billing');
   });
 
   it('floors total tokens to the component sum when the provider omits the total', () => {
@@ -172,6 +174,8 @@ describe('TurnTelemetry', () => {
         costUsd: 0.0063,
         complete: true,
       });
+      expect(telemetry).not.toHaveProperty('effort');
+      expect(telemetry).not.toHaveProperty('billing');
     });
 
     it('re-rounds the sum of per-request costs to 1e-12 precision', () => {
@@ -374,18 +378,19 @@ describe('TurnTelemetry', () => {
         receipts: [
           usageReceipt({ inputTokens: 10, outputTokens: 5 }),
           usageReceipt({ inputTokens: 20 }),
+          usageReceipt({ outputTokens: 8 }),
         ],
         status: 'completed',
         modelId: 'priced-model',
         latencyMs: 1,
         price,
-        stepCount: 2,
+        stepCount: 3,
       });
 
       expect(telemetry).toMatchObject({
         inputTokens: 30,
-        outputTokens: 5,
-        totalTokens: 35,
+        outputTokens: 13,
+        totalTokens: 43,
         complete: false,
       });
     });
@@ -413,6 +418,7 @@ describe('TurnTelemetry', () => {
       });
 
       expect(telemetry.complete).toBe(false);
+      expect(telemetry).not.toHaveProperty('reasoningTokens');
     });
   });
 
@@ -780,5 +786,72 @@ describe('TurnTelemetry', () => {
       costUsd: null,
     });
     expect(JSON.stringify(info.mock.calls[0]?.[0])).not.toContain('content');
+  });
+
+  it('includes complete and billing in the completed telemetry log', () => {
+    const info = vi.fn<(payload: UnknownRecord) => void>();
+    const telemetry = aggregateTurnTelemetry({
+      receipts: [
+        usageReceipt({
+          inputTokens: 1,
+          outputTokens: 2,
+          reasoningTokens: 1,
+        }),
+      ],
+      status: 'completed',
+      modelId: 'subscription-model',
+      latencyMs: 12,
+      billing: 'subscription',
+      stepCount: 2,
+    });
+
+    emitCompletedTurnTelemetryLog({ info } satisfies TurnTelemetryLogger, {
+      chatId: 'c',
+      messageId: 'a',
+      inReplyTo: 'u',
+      telemetry,
+    });
+
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'assistant_turn_completed',
+        complete: false,
+        billing: 'subscription',
+        reasoningTokens: 1,
+      }),
+    );
+  });
+
+  it('omits absent optional telemetry fields from the completed log', () => {
+    const info = vi.fn<(payload: UnknownRecord) => void>();
+    const telemetry = {
+      modelId: 'unreported-model',
+      latencyMs: 12,
+      finishReason: 'stop',
+      status: 'completed',
+    } satisfies TurnTelemetry;
+
+    emitCompletedTurnTelemetryLog({ info } satisfies TurnTelemetryLogger, {
+      chatId: 'c',
+      messageId: 'a',
+      inReplyTo: 'u',
+      telemetry,
+    });
+
+    const [payload] = info.mock.calls.at(-1) ?? [];
+    for (const field of [
+      'inputTokens',
+      'cachedInputTokens',
+      'cacheWriteTokens',
+      'outputTokens',
+      'totalTokens',
+      'reasoningTokens',
+      'effort',
+      'costUsd',
+      'billing',
+      'complete',
+    ]) {
+      expect(payload).not.toHaveProperty(field);
+    }
   });
 });

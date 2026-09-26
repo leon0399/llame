@@ -634,6 +634,13 @@ describe('createOpenAICodexModelClient', () => {
       return { client, streamTextMock };
     }
 
+    it('exposes billing on the built client only when it is configured', () => {
+      expect(build({ billing: 'subscription' }).client.billing).toBe(
+        'subscription',
+      );
+      expect(build().client).not.toHaveProperty('billing');
+    });
+
     // The subscription transport's invariants sit above the operator's
     // object (design D5): `store` stays false and the summary stays the
     // pinned display value, while the run's effort still overrides the

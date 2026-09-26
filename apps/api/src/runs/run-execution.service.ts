@@ -770,11 +770,11 @@ export class RunExecutionService {
         finishReason,
         status,
         modelId: client.model,
-        ...(effort !== undefined && { effort }),
+        effort,
         latencyMs: Date.now() - streamStartedAt,
         price: client.pricing,
         billing: client.billing,
-        ...(stepCount !== undefined && { stepCount }),
+        stepCount,
       }),
       runId: input.runId,
     });
@@ -1962,7 +1962,7 @@ export class RunExecutionService {
     userId: string;
     runId: string;
     attemptId: string;
-    telemetry?: AssistantTurnTelemetry;
+    telemetry: AssistantTurnTelemetry;
   }): Promise<void> {
     const message = 'Run progress could not be persisted.';
     try {
@@ -1971,9 +1971,7 @@ export class RunExecutionService {
         runId: input.runId,
         status: 'failed',
         attemptId: input.attemptId,
-        ...(input.telemetry !== undefined && {
-          telemetry: input.telemetry,
-        }),
+        telemetry: input.telemetry,
         runPayload: { status: 'failed', message },
         error: { message },
       });
@@ -2133,20 +2131,14 @@ export class RunExecutionService {
     tx: Db,
     input: Pick<
       FinishRunInput,
-      | 'userId'
-      | 'runId'
-      | 'attemptId'
-      | 'assistantTurn'
-      | 'synthesizedTurnTelemetry'
-      | 'modelCompleted'
+      'userId' | 'runId' | 'attemptId' | 'assistantTurn' | 'modelCompleted'
     >,
     run: Run | undefined,
     assistantTurn: AssistantTurnPersistence | undefined = input.assistantTurn,
   ): Promise<void> {
-    const telemetry =
-      assistantTurn?.telemetry ??
-      input.synthesizedTurnTelemetry ??
-      input.modelCompleted?.telemetry;
+    // Telemetry-bearing writers share one object between the completed event
+    // and assistant turn, so finalizing the event's object finalizes both.
+    const telemetry = input.modelCompleted?.telemetry;
     if (!telemetry) {
       return;
     }
@@ -2167,12 +2159,6 @@ export class RunExecutionService {
       run?.status === 'completed' &&
       !receipts.some(({ attemptId }) => attemptId !== input.attemptId) &&
       !replacedUsage;
-    if (assistantTurn) {
-      assistantTurn.telemetry = telemetry;
-    }
-    if (input.modelCompleted) {
-      input.modelCompleted.telemetry = telemetry;
-    }
   }
 
   /**
@@ -2348,12 +2334,7 @@ export class RunExecutionService {
   private async salvageAssistantMessage(
     input: Pick<
       FinishRunInput,
-      | 'userId'
-      | 'runId'
-      | 'attemptId'
-      | 'assistantTurn'
-      | 'synthesizedTurnTelemetry'
-      | 'modelCompleted'
+      'userId' | 'runId' | 'attemptId' | 'assistantTurn' | 'modelCompleted'
     >,
   ): Promise<Message | undefined> {
     if (!input.assistantTurn) {

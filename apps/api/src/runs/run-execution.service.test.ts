@@ -1288,6 +1288,26 @@ describe('RunExecutionService executeRun — stream completion', () => {
     );
   });
 
+  it('measures latency from stream creation through terminal telemetry', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    now.mockReturnValue(10_750);
+    await capturing.streamOptions().onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(
+      spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage,
+    ).toMatchObject({ latencyMs: 750 });
+  });
+
   it('marks the completed aggregate incomplete when step count exceeds receipts', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -1333,13 +1353,16 @@ describe('RunExecutionService executeRun — stream completion', () => {
       requestUsageReceipt({ inputTokens: 102_000, outputTokens: 1000 }),
     );
     options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: 100, outputTokens: 50 }),
+    );
+    options.onRequestUsage?.(
       requestUsageReceipt({ inputTokens: 500, outputTokens: 100 }),
     );
     await options.onFinish?.({
       text: 'answer',
       usage: ZERO_USAGE,
       finishReason: 'stop',
-      stepCount: 2,
+      stepCount: 3,
     });
 
     expect(execution.compaction.maybeCompact).toHaveBeenCalledWith(
@@ -1389,6 +1412,40 @@ describe('RunExecutionService executeRun — stream completion', () => {
     expect(
       appended.find((entry) => entry.type === 'model.completed')?.payload,
     ).toEqual(expect.objectContaining({ telemetry: usage }));
+  });
+
+  it('keeps usage complete when the only prompt receipt belongs to this attempt', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.findByOwnedRun.mockResolvedValue([
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        ownerUserId: userId,
+        runId,
+        attemptId: testAttemptId,
+        source: 'project_default',
+        systemPrompt: 'current attempt prompt',
+        promptHash: 'current-attempt-hash',
+        createdAt: now,
+      },
+    ]);
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+    );
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(
+      spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage,
+    ).toMatchObject({ complete: true });
   });
 
   it('records a reasoning part’s provider metadata on that part and its own event', async () => {
@@ -1595,13 +1652,25 @@ describe('RunExecutionService executeRun — stream completion', () => {
   });
 
   it('omits effort entirely when the run stored none', async () => {
-    mockNormalExecutionRepositories();
+    const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(capturing.client);
 
     await execution.service.executeRun(executionInput(capturing.client));
     expect(capturing.streamOptions().effort).toBeUndefined();
+    await capturing.streamOptions().onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+    const usage = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage;
+    expect(usage).toBeDefined();
+    expect(Object.hasOwn(usage ?? {}, 'effort')).toBe(false);
+    const compactInput = execution.maybeCompact.mock.calls[0]?.[0];
+    expect(compactInput).toBeDefined();
+    expect(Object.hasOwn(compactInput ?? {}, 'effort')).toBe(false);
     expect(appended[1]).toStrictEqual({
       type: 'model.requested',
       payload: { modelId: 'fake-model' },
@@ -2047,6 +2116,133 @@ describe('RunExecutionService executeRun — stream failure', () => {
     );
     expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
   });
+
+  it('uses error telemetry when a cancelled error path loses progress', async () => {
+    const controller = new AbortController();
+    mockNormalExecutionRepositories();
+    const appended: Array<{ type: string; payload: unknown }> = [];
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+      (_runId, eventType, payload) => {
+        if (eventType === 'model.delta') {
+          return Promise.reject(new Error('event log unavailable'));
+        }
+        appended.push({ type: eventType, payload });
+        return Promise.resolve(event);
+      },
+    );
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(
+      executionInput(capturing.client, controller.signal),
+    );
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: 80, outputTokens: 12 }),
+    );
+    options.onTextDelta?.('partial');
+    controller.abort();
+    await options.onError?.({ error: new Error('stream aborted') });
+
+    expect(
+      appended.find((entry) => entry.type === 'model.completed')?.payload,
+    ).toMatchObject({
+      telemetry: {
+        inputTokens: 80,
+        outputTokens: 12,
+        status: 'error',
+      },
+    });
+  });
+
+  it('uses error telemetry when a cancelled finish path loses progress', async () => {
+    const controller = new AbortController();
+    mockNormalExecutionRepositories();
+    const appended: Array<{ type: string; payload: unknown }> = [];
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+      (_runId, eventType, payload) => {
+        if (eventType === 'model.delta') {
+          return Promise.reject(new Error('event log unavailable'));
+        }
+        appended.push({ type: eventType, payload });
+        return Promise.resolve(event);
+      },
+    );
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(
+      executionInput(capturing.client, controller.signal),
+    );
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: 80, outputTokens: 12 }),
+    );
+    options.onTextDelta?.('partial');
+    controller.abort();
+    await options.onFinish?.({
+      text: 'partial',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(
+      appended.find((entry) => entry.type === 'model.completed')?.payload,
+    ).toMatchObject({
+      telemetry: {
+        inputTokens: 80,
+        outputTokens: 12,
+        status: 'error',
+      },
+    });
+  });
+
+  it.each(['onError', 'onFinish'] as const)(
+    'reuses failure telemetry timing on a failed %s progress path',
+    async (callback) => {
+      mockNormalExecutionRepositories();
+      vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+      const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+      const appended: Array<{ type: string; payload: unknown }> = [];
+      vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+        (_runId, eventType, payload) => {
+          if (eventType === 'model.delta') {
+            return Promise.reject(new Error('event log unavailable'));
+          }
+          appended.push({ type: eventType, payload });
+          return Promise.resolve(event);
+        },
+      );
+      const capturing = makeCapturingClient();
+      const execution = makeExecutionService(capturing.client);
+
+      await execution.service.executeRun(executionInput(capturing.client));
+      now.mockReturnValue(10_100);
+      const options = capturing.streamOptions();
+      options.onTextDelta?.('partial');
+      now.mockReturnValueOnce(11_000).mockReturnValueOnce(12_000);
+      if (callback === 'onError') {
+        await options.onError?.({ error: new Error('provider exploded') });
+      } else {
+        await options.onFinish?.({
+          text: 'partial',
+          usage: ZERO_USAGE,
+          finishReason: 'error',
+          stepCount: 1,
+        });
+      }
+
+      expect(
+        appended.find((entry) => entry.type === 'model.completed')?.payload,
+      ).toMatchObject({
+        telemetry: {
+          latencyMs: 1000,
+          status: 'error',
+        },
+      });
+    },
+  );
 
   it('fails the run and rethrows when streamText throws before any callback', async () => {
     const spies = mockNormalExecutionRepositories();
@@ -3197,13 +3393,15 @@ describe('RunExecutionService executeRun — tool loop', () => {
     );
   });
 
-  it('falls back to a non-terminal run when settling a parent abort cannot be persisted', async () => {
+  it('settles a parent abort with error telemetry after a terminal write fails', async () => {
     const controller = new AbortController();
     mockNormalExecutionRepositories();
     const toolOptions = withDeclaredTool();
     const markFinished = vi
       .spyOn(RunsRepository.prototype, 'markFinished')
-      .mockRejectedValue(new Error('run row unavailable'));
+      .mockRejectedValueOnce(new Error('run row unavailable'))
+      .mockResolvedValue({ ...run, status: 'failed' });
+    const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     let releaseTool: (result: { status: 'success' }) => void = () => {};
     const execution = makeExecutionService(
@@ -3226,6 +3424,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
       executionInput(capturing.client, controller.signal),
     );
     const options = capturing.streamOptions();
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+    );
     const call = executeBoundTool(options, { q: 'slow' }, 'call-4');
     await Promise.resolve();
     controller.abort();
@@ -3241,6 +3442,15 @@ describe('RunExecutionService executeRun — tool loop', () => {
         error: { message: 'Run progress could not be persisted.' },
       }),
     );
+    expect(
+      appended.find((entry) => entry.type === 'model.completed')?.payload,
+    ).toMatchObject({
+      telemetry: {
+        inputTokens: 100,
+        outputTokens: 20,
+        status: 'error',
+      },
+    });
   });
 
   it('does not settle open tool calls when the error path already lost a progress write', async () => {
@@ -3295,6 +3505,51 @@ describe('RunExecutionService executeRun — tool loop', () => {
         },
       }),
     );
+  });
+
+  it('fails the run when settling an open tool loses the tool-completion write', async () => {
+    const toolOptions = withDeclaredTool();
+    const spies = mockNormalExecutionRepositories();
+    const appended: Array<string> = [];
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+      (_runId, eventType) => {
+        if (eventType === 'tool.completed') {
+          return Promise.reject(new Error('event log unavailable'));
+        }
+        appended.push(eventType);
+        return Promise.resolve(event);
+      },
+    );
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'read_only',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => new Promise<{ status: 'success' }>(() => {}),
+      }),
+      undefined,
+      toolOptions,
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    void executeBoundTool(options, { q: 'slow' }, 'call-progress-write');
+    await Promise.resolve();
+    await options.onError?.({ error: new Error('provider exploded') });
+
+    expect(spies.markFinished).toHaveBeenCalledTimes(1);
+    expect(spies.markFinished).toHaveBeenLastCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: { message: 'Run progress could not be persisted.' },
+      }),
+    );
+    expect(appended.slice(-2)).toEqual(['model.completed', 'run.failed']);
   });
 
   it('settles open tool calls on a finish that is not a completion', async () => {
@@ -4017,6 +4272,41 @@ describe('RunExecutionService settleTerminalRun', () => {
     expect(execution.searchIndex.reindexChat).not.toHaveBeenCalled();
   });
 
+  it('keeps synthesized telemetry complete when the run has no triggering message', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
+      ...run,
+      messageId: null,
+      status: 'completed',
+    });
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    const appended = recordAppendedEvents();
+    const execution = makeExecutionService();
+    const telemetry = {
+      runId,
+      modelId: 'fake-model',
+      latencyMs: 10,
+      finishReason: 'stop' as const,
+      status: 'completed' as const,
+      complete: true,
+    };
+
+    await execution.service.settleTerminalRun({
+      userId,
+      runId,
+      status: 'completed',
+      telemetry,
+    });
+
+    expect(
+      appended.find((entry) => entry.type === 'model.completed')?.payload,
+    ).toMatchObject({
+      telemetry: { complete: true },
+    });
+  });
+
   it('synthesizes the settlement of a durably-open tool call and persists the reconstructed turn', async () => {
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
       ...run,
@@ -4507,6 +4797,46 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
         usage: retriedUsage,
       }),
     );
+  });
+
+  it('uses the assistant turn identity when checking for replaced usage', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const finishedChatId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const finishedMessageId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    spies.markFinished.mockResolvedValue({
+      ...run,
+      chatId: finishedChatId,
+      messageId: finishedMessageId,
+      status: 'completed',
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockImplementation(
+      (queriedChatId, _ownerUserId, inReplyTo) =>
+        Promise.resolve({
+          userMessage,
+          assistantMessage:
+            queriedChatId === finishedChatId || inReplyTo === finishedMessageId
+              ? { ...assistantMessage, usage: { status: 'error' } }
+              : undefined,
+        }),
+    );
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+    );
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(
+      spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage,
+    ).toMatchObject({ complete: true });
   });
 
   it('leaves an already-completed assistant turn untouched', async () => {

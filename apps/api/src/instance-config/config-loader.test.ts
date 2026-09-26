@@ -1736,7 +1736,9 @@ describe('loadInstanceConfig — billing mode (run-usage-accounting M9)', () => 
           "contextWindowTokens": 1000
         }]
       }`);
-      expect(loadInstanceConfig().models[0]).toMatchObject({
+      const defaults = loadInstanceConfig();
+      expect(defaults.providers[0]).not.toHaveProperty('billing');
+      expect(defaults.models[0]).toMatchObject({
         billing: typeDefault,
       });
     },

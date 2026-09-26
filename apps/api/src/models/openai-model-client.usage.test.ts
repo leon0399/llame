@@ -162,4 +162,88 @@ describe('provider request usage receipts', () => {
       expect.objectContaining({ stepCount: 2 }),
     );
   });
+  it.each([
+    [
+      'input-only usage',
+      {
+        ...toolRequestUsage,
+        outputTokens: { ...toolRequestUsage.outputTokens, total: undefined },
+      },
+      111,
+    ],
+    [
+      'output-only usage',
+      {
+        ...toolRequestUsage,
+        inputTokens: { ...toolRequestUsage.inputTokens, total: undefined },
+      },
+      27,
+    ],
+    [
+      'usage without token counts',
+      {
+        ...toolRequestUsage,
+        inputTokens: { ...toolRequestUsage.inputTokens, total: undefined },
+        outputTokens: { ...toolRequestUsage.outputTokens, total: undefined },
+      },
+      undefined,
+    ],
+  ] as const)(
+    'preserves total tokens for %s',
+    async (_name, usage, expectedTotalTokens) => {
+      const model = new MockLanguageModelV3({
+        provider: 'openai.test',
+        modelId: 'gpt-test',
+        doStream: () => Promise.resolve(providerResponse([], 'stop', usage)),
+      });
+      const provider = vi.fn<OpenAIProvider>();
+      provider.mockReturnValue(model);
+      const client = createOpenAIModelClient(
+        {
+          providerModelId: 'gpt-test',
+          modelId: 'system:openai:gpt-test',
+          contextWindowTokens: 128_000,
+          userAgent: 'llame/test',
+        },
+        { createOpenAI: () => provider, streamText },
+      );
+      const receipts: Array<LanguageModelUsage> = [];
+
+      await expect(
+        client.streamText({
+          chat: CHAT,
+          messages,
+          onRequestUsage: (receipt) => receipts.push(receipt),
+        }).text,
+      ).resolves.toBe('');
+
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0]?.totalTokens).toBe(expectedTotalTokens);
+    },
+  );
+
+  it('exposes billing on the built client only when it is configured', () => {
+    const model = new MockLanguageModelV3({
+      provider: 'openai.test',
+      modelId: 'gpt-test',
+    });
+    const provider = vi.fn<OpenAIProvider>();
+    provider.mockReturnValue(model);
+    const config = {
+      providerModelId: 'gpt-test',
+      modelId: 'system:openai:gpt-test',
+      contextWindowTokens: 128_000,
+      userAgent: 'llame/test',
+    };
+    const dependencies = { createOpenAI: () => provider, streamText };
+
+    const configured = createOpenAIModelClient(
+      { ...config, billing: 'subscription' },
+      dependencies,
+    );
+    const undeclared = createOpenAIModelClient(config, dependencies);
+
+    expect(configured.billing).toBe('subscription');
+    expect(undeclared).not.toHaveProperty('billing');
+  });
 });

@@ -37,6 +37,7 @@ export type TurnTelemetry = {
   status: TurnStatus;
   costUsd?: number | null;
   billing?: BillingMode;
+  complete?: boolean;
 };
 
 type PerRequestTurnTelemetry = TurnTelemetry &
@@ -221,10 +222,8 @@ function addReceiptTelemetry(
     finishReason: input.finishReason,
     status: input.status,
     modelId: input.modelId,
-    ...(input.effort !== undefined && { effort: input.effort }),
     latencyMs: input.latencyMs,
-    ...(input.price !== undefined && { price: input.price }),
-    ...(input.billing !== undefined && { billing: input.billing }),
+    price: input.price,
   });
   totals.inputTokens += telemetry.inputTokens;
   totals.cachedInputTokens += telemetry.cachedInputTokens;
@@ -291,6 +290,8 @@ function completedTurnTelemetryLogPayload(
     latencyMs: telemetry.latencyMs,
     finishReason: telemetry.finishReason,
     status: telemetry.status,
+    ...(telemetry.complete !== undefined && { complete: telemetry.complete }),
+    ...(telemetry.billing !== undefined && { billing: telemetry.billing }),
     ...(telemetry.costUsd !== undefined && { costUsd: telemetry.costUsd }),
   };
 }

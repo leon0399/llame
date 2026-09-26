@@ -299,7 +299,7 @@ describe('createModelClient wire dispatch', () => {
     expect(entry.maxOutputTokens).toBe(4096);
   });
 
-  it('leaves providerOptions and maxOutputTokens absent when the entry declares neither', () => {
+  it('leaves optional model metadata absent when the entry declares none', () => {
     createModelClient(
       {
         userAgent: USER_AGENT,
@@ -314,9 +314,9 @@ describe('createModelClient wire dispatch', () => {
       dependencies,
     );
 
-    // No-options regression guard: the pre-change configs carried no such
-    // keys, so an entry without them still sends none.
+    // Optional config keys stay absent until the model entry declares them.
     const config = createCompletionsClientMock.mock.calls[0]?.[0];
+    expect(config).not.toHaveProperty('billing');
     expect(config).not.toHaveProperty('providerOptions');
     expect(config).not.toHaveProperty('maxOutputTokens');
   });

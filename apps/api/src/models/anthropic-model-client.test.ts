@@ -167,11 +167,12 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
     });
   });
 
-  it('carries the entry pricing and compaction threshold on the client', () => {
+  it('carries the entry pricing, billing mode, and compaction threshold on the client', () => {
     const harness = buildHarness();
     const client = buildClient(harness, {
       pricing: { inputUsdPer1M: 3, outputUsdPer1M: 15 },
       compactionThresholdTokens: 64_000,
+      billing: 'subscription',
     });
 
     // Both ride the built client because a consumer reads them there: cost
@@ -182,6 +183,7 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
       outputUsdPer1M: 15,
     });
     expect(client.compactionThresholdTokens).toBe(64_000);
+    expect(client.billing).toBe('subscription');
   });
 
   it('omits the pricing and compaction keys the entry did not declare', () => {
@@ -193,6 +195,7 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
     // behind.
     expect(client).not.toHaveProperty('pricing');
     expect(client).not.toHaveProperty('compactionThresholdTokens');
+    expect(client).not.toHaveProperty('billing');
   });
 });
 

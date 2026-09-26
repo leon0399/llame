@@ -1,8 +1,22 @@
-import { tool, type LanguageModelUsage, type ModelMessage } from 'ai';
+import type * as AI from 'ai';
+import {
+  streamText,
+  tool,
+  type LanguageModelUsage,
+  type ModelMessage,
+} from 'ai';
 import { z } from 'zod';
 
 import type { ChatIdentity } from '../models/model-client';
 import { ScriptedModelsService } from './scripted-model-client';
+import { scriptedStreamHandlers } from './scripted-model-stream-options';
+
+vi.mock('ai', async (importOriginal) => {
+  const actual = await importOriginal<typeof AI>();
+  return { ...actual, streamText: vi.fn(actual.streamText) };
+});
+
+const scriptedStreamText = vi.mocked(streamText);
 
 /** The Chat identity this suite's scripted requests claim. */
 const chat: ChatIdentity = {
@@ -720,5 +734,90 @@ describe('ScriptedModelsService observable contract', () => {
         toolChoice: 'required',
       }).text,
     ).resolves.toBe('ok');
+  });
+});
+
+describe('ScriptedModelsService streamText options', () => {
+  it('omits tool options that were not requested by a tool-free behavior', async () => {
+    scriptedStreamText.mockClear();
+    const service = new ScriptedModelsService();
+    service.register('plain-with-tools', { kind: 'complete', text: 'done' });
+    const result = service.createClient('plain-with-tools').streamText({
+      chat,
+      messages,
+      tools: {
+        record: tool({
+          inputSchema: z.object({ value: z.string() }),
+          execute: ({ value }) => value,
+        }),
+      },
+    });
+
+    await expect(result.text).resolves.toBe('done');
+
+    const options = scriptedStreamText.mock.lastCall?.[0];
+    expect(options).toBeDefined();
+    expect(options).not.toHaveProperty('toolChoice');
+    expect(options).not.toHaveProperty('stopWhen');
+  });
+
+  it('passes a tool choice and loop condition for a scripted tool sequence', async () => {
+    scriptedStreamText.mockClear();
+    const service = new ScriptedModelsService();
+    service.register('tool-sequence', {
+      kind: 'tool-script',
+      calls: [
+        { id: 'call-one', name: 'record', input: { value: 'one' } },
+        { id: 'call-two', name: 'record', input: { value: 'two' } },
+      ],
+      finalText: 'all recorded',
+    });
+    const executed: Array<string> = [];
+    const result = service.createClient('tool-sequence').streamText({
+      chat,
+      messages,
+      tools: {
+        record: tool({
+          inputSchema: z.object({ value: z.string() }),
+          execute: ({ value }) => {
+            executed.push(value);
+            return value;
+          },
+        }),
+      },
+      toolChoice: 'required',
+      maxSteps: 2,
+    });
+
+    await expect(result.text).resolves.toBe('all recorded');
+    expect(executed).toEqual(['one', 'two']);
+    expect(
+      (await result.steps).flatMap((step) =>
+        step.toolCalls.map((call) => call.toolCallId),
+      ),
+    ).toEqual(['call-one', 'call-two']);
+
+    const options = scriptedStreamText.mock.lastCall?.[0];
+    expect(options).toBeDefined();
+    expect(options).toHaveProperty('toolChoice', 'required');
+    expect(options).toHaveProperty('stopWhen');
+  });
+
+  it('forwards reasoning deltas through the scripted stream handler', () => {
+    const onReasoningDelta = vi.fn();
+    const handlers = scriptedStreamHandlers(
+      { chat, messages, onReasoningDelta },
+      { onAbort: vi.fn(), wait: () => Promise.resolve() },
+    );
+
+    handlers.onChunk?.({
+      chunk: {
+        type: 'reasoning-delta',
+        id: 'reasoning-part',
+        text: 'thinking',
+      },
+    });
+
+    expect(onReasoningDelta).toHaveBeenCalledExactlyOnceWith('thinking');
   });
 });
