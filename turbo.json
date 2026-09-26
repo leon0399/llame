@@ -48,23 +48,19 @@
     },
     "test:coverage": {
       "cache": false,
-      // apps/web's gate renders its stories in Chromium. turbo runs in strict
+      // apps/web's and packages/ui's gates render stories in Chromium. turbo runs in strict
       // env mode, so without this the browser path the CI container provides
       // is stripped and Playwright looks in $HOME/.cache instead.
       "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH"]
+    },
+    "//#test:scripts:coverage": {
+      "cache": false
     },
     "test:mutation": {
       "cache": false
     },
     "test:mutation:dry": {
       "cache": false
-    },
-    // Storybook browser tests need Playwright browsers, so they stay out of
-    // the plain `test` task (which CI runs without them).
-    "test:component": {
-      // Same reasoning as `test`: a gate must run.
-      "cache": false,
-      "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH"]
     },
     "dev": {
       "cache": false,

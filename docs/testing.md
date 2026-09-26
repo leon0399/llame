@@ -6,17 +6,21 @@
 | ----------- | ------------------------------- | ---------------------------------- | ------------------------------------ |
 | Unit        | pure logic/hooks, no I/O        | co-located `*.test.ts(x)`          | `turbo run test`                     |
 | Integration | real Postgres, RLS, queue, HTTP | co-located `*.integration.test.ts` | `pnpm --filter api test:integration` |
-| Component   | browser behavior/a11y/visuals   | co-located `*.stories.tsx`         | `pnpm test:component`                |
+| Component   | browser behavior/a11y/visuals   | co-located `*.stories.tsx`         | `pnpm --filter <ws> test:stories`    |
 | Product E2E | full user flow                  | `e2e/<surface>/*.spec.ts`          | `pnpm test:e2e`                      |
 | Eval        | model-graded quality            | `apps/api/evals/*.test.ts`         | `pnpm --filter api test:evals`       |
 
 Component tests are Vitest Browser Mode: `@storybook/addon-vitest` turns each
-story into a Chromium test. `packages/ui`'s stories run from apps/storybook
-(`pnpm test:component`); `apps/web`'s stories are a `stories` project in that
-workspace (`pnpm --filter web test:stories`), so one `test:coverage` run
-measures its logic and its rendered components together. A browser is
-therefore required for `pnpm --filter web test:coverage` but not for
-`pnpm --filter web test`, which runs the `unit` project alone.
+story into a Chromium test. Stories run from the workspace that authors them:
+`packages/ui` and `apps/web` each have a `stories` project
+(`pnpm --filter <ws> test:stories`) rendered through apps/storybook's
+configuration, so one `test:coverage` run measures a workspace's logic and its
+rendered components together. A browser is therefore required for their
+`test:coverage` but not for `test`, which runs the `unit` project alone.
+
+Every workspace with tests has a `test:coverage` script that enforces its
+coverage ratchet; root `scripts/` uses `pnpm test:scripts:coverage` (Node's
+built-in coverage). CI runs only these, never the plain `test` scripts.
 
 Use unit/integration when a function or repository call proves behavior; use a
 story for one browser component and product E2E for a cross-app user flow.
@@ -30,7 +34,7 @@ Tooling guards may live in the owning workspace's test directory.
 3. Integration global setup provisions a non-superuser, schema-owning Postgres
    through Testcontainers, migrates, and provisions RLS. Docker is the only
    prerequisite; `TEST_DATABASE_URL` overrides. Missing DB fails loudly.
-4. Test gates are uncached. Unit/Storybook disable Turbo cache; integration,
+4. Test gates are uncached. Unit/coverage disable Turbo cache; integration,
    eval, and E2E run outside Turbo.
 5. Component DOM/interaction assertions belong in story play functions. Keep
    jsdom for headless hooks, Query cache logic, and temporarily containers that
@@ -105,18 +109,21 @@ alternatives](research/development-pipeline.md).
 ## CI mapping
 
 ```text
-typecheck ----> integration ----------------+
-typecheck + unit ----> build ----------------+-> product e2e
-typecheck + unit ----> mutation
-typecheck + unit ----> storybook + web
+typecheck ----> test (one leg per workspace) ----+
+typecheck ----> build ---------------------------+-> product e2e
+typecheck ----> mutation
 ```
 
 - Lint workflow: Oxlint, formatting, anti-slop rules, Markdown, OpenAPI, Knip,
   jscpd, and Halstead difficulty.
 - Workflow lint: actionlint, zizmor, pinact.
-- CI: typecheck; unit/coverage/CRAP; build plus generated-diff check;
-  Testcontainers integration; mutation; Storybook plus apps/web's two-project
-  coverage gate in the Playwright image; production Playwright.
+- CI: typecheck; a `test` matrix with one leg per workspace running its
+  `test:coverage` (thresholds, and CRAP where the script adds it), with the
+  api leg on Testcontainers and the `web`/`ui` legs in the Playwright image;
+  build plus generated-diff check; mutation; production Playwright.
+- Each test leg uploads its report to Codecov as its own flag;
+  `.github/codecov.yml` also groups paths into components by SPEC area.
+  Codecov reports trends and pull request deltas; the thresholds stay the gate.
 - Evals never run in CI.
 
 ## Tracked follow-ups
@@ -128,4 +135,7 @@ typecheck + unit ----> storybook + web
   next candidates need a story written first, and `useFileChat` needs a
   preview mock before `chat-item`'s project-filing assertions can move.
 - Remove dead in-file DB guards when touching those suites.
+- Add CRAP to `packages/ui`'s `test:coverage` once `MessageAttachment`,
+  `rewriteChildrenByValue`, `detectPrimaryModifier` and `getTimeOfDay` are
+  covered; each scores above 42 with zero coverage.
 - Enable remaining Vitest style rules one at a time and repair their scope.

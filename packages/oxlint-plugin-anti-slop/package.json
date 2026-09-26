@@ -9,12 +9,15 @@
   "scripts": {
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
-    "test": "node registry.check.mjs && for f in rules/*.test.ts; do node --import tsx \"$f\" || exit 1; done",
+    "test": "node registry.check.mjs && vitest run",
+    "test:coverage": "node registry.check.mjs && vitest run --coverage && crap-typescript --threshold 42 --format none rules shared index.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
+    "@barney-media/crap-typescript": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "oxlint": "catalog:",
-    "tsx": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

@@ -1,0 +1,120 @@
+# Coverage is measured and gated by each workspace's Vitest thresholds; Codecov
+# only tracks it over time and reports it on pull requests.
+#
+# Flags are per upload: each is one workspace's report, uploaded by its leg of
+# the `test` matrix in ci.yml. Components are path slices that follow SPEC.md's
+# areas and may span workspaces.
+# Validate edits: curl --data-binary @.github/codecov.yml https://codecov.io/validate
+
+codecov:
+  notify:
+    # One per flag. The comment and statuses otherwise fire on the first
+    # upload and compare a partial report against a complete base.
+    after_n_builds: 10
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    # The line-coverage target in docs/code-quality-targets.md.
+    patch:
+      default:
+        target: 85%
+
+comment:
+  layout: "header, diff, flags, components, files"
+  after_n_builds: 10
+
+flag_management:
+  individual_flags:
+    - name: api
+      paths: [apps/api/]
+    - name: web
+      paths: [apps/web/]
+    - name: ui
+      paths: [packages/ui/]
+    - name: storybook
+      paths: [apps/storybook/]
+    - name: bash-executor
+      paths: [packages/bash-executor/]
+    - name: config-interpolation
+      paths: [packages/config-interpolation/]
+    - name: native-file-tools
+      paths: [packages/native-file-tools/]
+    - name: oxlint-plugin-anti-slop
+      paths: [packages/oxlint-plugin-anti-slop/]
+    - name: runtime-safety
+      paths: [packages/runtime-safety/]
+    - name: scripts
+      paths: [scripts/]
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        threshold: 1%
+        informational: true
+  individual_components:
+    - component_id: chats-runs
+      name: Chats and runs
+      paths:
+        - apps/api/src/chats/**
+        - apps/api/src/compaction/**
+        - apps/api/src/pins/**
+        - apps/api/src/projects/**
+        - apps/api/src/queue/**
+        - apps/api/src/runs/**
+        - apps/api/src/titles/**
+    - component_id: identity
+      name: Identity and authorization
+      paths:
+        - apps/api/src/auth/**
+        - apps/api/src/db/**
+        - apps/api/src/identity/**
+        - apps/api/src/users/**
+    - component_id: tools
+      name: Tools and integrations
+      paths:
+        - apps/api/src/mcp/**
+        - apps/api/src/skills/**
+        - apps/api/src/tools/**
+        - packages/bash-executor/**
+        - packages/native-file-tools/**
+    - component_id: models
+      name: Models and prompts
+      paths:
+        - apps/api/src/instance-config/**
+        - apps/api/src/models/**
+        - apps/api/src/prompts/**
+        - apps/api/src/system-prompts/**
+        - packages/config-interpolation/**
+    - component_id: knowledge
+      name: Knowledge, memory and search
+      paths:
+        - apps/api/src/knowledge/**
+        - apps/api/src/memory/**
+        - apps/api/src/personalization/**
+        - apps/api/src/search/**
+    - component_id: platform
+      name: API platform
+      paths:
+        - apps/api/src/*.ts
+        - apps/api/src/common/**
+        - packages/runtime-safety/**
+    - component_id: web
+      name: Web client
+      paths:
+        - apps/web/**
+    - component_id: ui
+      name: UI library
+      paths:
+        - packages/ui/**
+    - component_id: tooling
+      name: Repository tooling
+      paths:
+        - apps/storybook/**
+        - packages/oxlint-plugin-anti-slop/**
+        - scripts/**

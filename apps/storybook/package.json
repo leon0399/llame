@@ -6,9 +6,8 @@
   "scripts": {
     "dev": "storybook dev -p 6006 --no-open",
     "build": "storybook build",
-    "test": "vitest run --project unit",
-    "test:component": "vitest run --project storybook",
-    "test:component:watch": "vitest --project storybook",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
     "typecheck": "tsgo --noEmit"
