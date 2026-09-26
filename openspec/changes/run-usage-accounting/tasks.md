@@ -35,9 +35,9 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 - [x] 2.1 Read `complete` in `parseTurnUsage`; render `≥` on totals and cost for incomplete usage with the cause-neutral explanation row, reasoning as `of which reasoning` under Output, and `—` for unknown values (design M8). Verify with `message-usage.test.tsx` cases for the lower-bound display requirement's scenarios, including the live-metadata and reloaded-history equality case.
 - [x] 2.2 Read `billing` in `parseTurnUsage` and render a subscription cost as a labeled, muted, struck-through notional cost whose accessible name says it was not billed, using existing design-system tokens and component variants per DESIGN.md (design M8). Verify with `message-usage.test.tsx` cases for the notional-cost requirement's scenarios, including the accessible name and the unchanged metered and historical rendering.
-- [ ] 2.3 Update the affected stories and add incomplete-usage and subscription-cost stories; run the Storybook story tests and return preview URLs.
-- [ ] 2.4 Add a dated `CHANGELOG.md` entry for the display change. Run `pnpm --filter web lint`, `typecheck`, and `test:coverage`, plus `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record the commands in the PR body, which uses `Closes #810` and `Closes #959`.
-- [ ] 2.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun affected checks before marking ready.
+- [x] 2.3 Update the affected stories and add incomplete-usage and subscription-cost stories; run the Storybook story tests and return preview URLs.
+- [x] 2.4 Add a dated `CHANGELOG.md` entry for the display change. Run `pnpm --filter web lint`, `typecheck`, and `test:coverage`, plus `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record the commands in the PR body, which uses `Closes #810` and `Closes #959`.
+- [x] 2.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun affected checks before marking ready.
 - [ ] 2.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before creating `finalize`.
 
 ## 3. `run-usage-accounting/finalize`: spec sync and archive

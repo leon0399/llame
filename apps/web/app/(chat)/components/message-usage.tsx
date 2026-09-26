@@ -404,7 +404,8 @@ function UsageSectionColumn({ section }: { section: UsageSection }) {
           className={cn(
             "flex items-center justify-between gap-4.5 text-xs",
             // Subset and qualifier rows sit beneath the row they qualify:
-            // cached input and cache writes beneath Input, effort beneath Model.
+            // cached input and cache writes beneath Input, reasoning beneath
+            // Output, effort beneath Model.
             (row.label === "of which cached" ||
               row.label === "of which cache write" ||
               row.label === "of which reasoning" ||
