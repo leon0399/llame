@@ -64,6 +64,8 @@ export type TurnUsage = {
   latencyMs?: number;
   costUsd?: number | null;
   status?: string;
+  complete?: boolean;
+  billing?: "usage" | "subscription";
 };
 
 function isFiniteNumber(value: unknown): value is number {
@@ -72,6 +74,10 @@ function isFiniteNumber(value: unknown): value is number {
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
 }
 
 /** Non-null-object guard; the object's actual shape is unknown to this file. */
@@ -97,6 +103,8 @@ type RawTurnUsage = {
   latencyMs?: unknown;
   costUsd?: unknown;
   status?: unknown;
+  complete?: unknown;
+  billing?: unknown;
 };
 
 /** Parse the opaque `metadata.usage` into the known telemetry fields. */
@@ -108,7 +116,7 @@ export function parseTurnUsage(metadata: unknown): TurnUsage | null {
   const usage = (metadata as { usage?: unknown }).usage;
   if (!isPlainObject(usage)) return null;
   // SAFETY: `RawTurnUsage` only names the fields read below, each still
-  // `unknown` and independently guarded (`num`/`isString`) before use.
+  // validated by its field parser or billing enum check before use.
   const u = usage as RawTurnUsage;
   return {
     inputTokens: num(u.inputTokens),
@@ -122,6 +130,11 @@ export function parseTurnUsage(metadata: unknown): TurnUsage | null {
     latencyMs: num(u.latencyMs),
     costUsd: u.costUsd === null ? null : num(u.costUsd),
     status: isString(u.status) ? u.status : undefined,
+    complete: isBoolean(u.complete) ? u.complete : undefined,
+    billing:
+      u.billing === "usage" || u.billing === "subscription"
+        ? u.billing
+        : undefined,
   };
 }
 
@@ -180,38 +193,91 @@ export function usageStatusLabel(status: string | undefined): string | null {
 
 export type UsageRow = { label: string; value: string };
 export type UsageSection = { header: string; rows: Array<UsageRow> };
+export type UsageLine = {
+  text: string;
+  sections: Array<UsageSection>;
+  incompleteNotice?: string;
+};
 
-/** Derived display values shared by the badge text and the Cost & model section. */
+/** Display values shared by the badge and Cost & model section. */
 type UsageDisplayContext = {
   modelName: string | undefined;
   effortDisplay: string | undefined;
-  hasTokens: boolean;
+  totalTokens: number | undefined;
 };
+
+function buildUsageDisplayContext(
+  usage: TurnUsage,
+  models?: ReadonlyArray<AvailableModel>,
+): UsageDisplayContext {
+  return {
+    modelName:
+      usage.modelId !== undefined
+        ? modelDisplayName(usage.modelId, models)
+        : undefined,
+    effortDisplay:
+      usage.effort !== undefined
+        ? effortDisplayLabel(
+            models?.find((model) => model.id === usage.modelId)?.reasoning
+              ?.effortLevels,
+            usage.effort,
+          )
+        : undefined,
+    totalTokens:
+      usage.totalTokens !== 0 || usage.complete === false
+        ? usage.totalTokens
+        : undefined,
+  };
+}
+
+function incompleteUsageValues(
+  usage: TurnUsage,
+  ctx: UsageDisplayContext,
+): Array<string> {
+  if (usage.complete !== false) return [];
+  return [
+    ctx.totalTokens !== undefined
+      ? `≥ ${fmtTokens(ctx.totalTokens)} tokens`
+      : null,
+    usage.costUsd !== undefined && usage.costUsd !== null
+      ? `≥ ${formatCost(usage.costUsd)}`
+      : null,
+  ].filter((value): value is string => value !== null);
+}
 
 function buildBadgeText(
   usage: TurnUsage,
   label: string | null,
   ctx: UsageDisplayContext,
 ): string | null {
+  const lowerBoundValues = incompleteUsageValues(usage, ctx);
+  const total =
+    ctx.totalTokens !== undefined
+      ? `${usage.complete === false ? "≥ " : ""}${fmtTokens(
+          ctx.totalTokens,
+        )} tokens`
+      : null;
+
   if (usage.modelId) {
-    // The design's badge shape: "model · effort · total time" — tokens/cost
-    // live only in the hover breakdown, not inline. Effort sits between the
-    // two because it qualifies the model, not the timing, and drops out
-    // entirely for a turn that carried none rather than showing a placeholder.
+    // Complete values keep the terse model/time badge; lower bounds are
+    // repeated here so incomplete values are visible before opening the card.
     return [
       label,
       ctx.modelName,
       ctx.effortDisplay ?? null,
       usage.latencyMs !== undefined ? formatLatency(usage.latencyMs) : null,
+      ...lowerBoundValues,
     ]
       .filter((part): part is string => Boolean(part))
       .join(" · ");
   }
-  if (ctx.hasTokens) {
-    // A turn persisted before model tracking existed — degrade to the
-    // token-only shape rather than showing nothing.
-    // SAFETY: `hasTokens` is `totalTokens !== undefined && totalTokens !== 0`.
-    return [label, `${fmtTokens(usage.totalTokens as number)} tokens`]
+  if (ctx.totalTokens !== undefined || lowerBoundValues.length > 0) {
+    // Older turns without model tracking degrade to a token/cost-only badge.
+    return [
+      label,
+      total,
+      ...lowerBoundValues.filter((value) => value !== total),
+    ]
       .filter((part): part is string => Boolean(part))
       .join(" · ");
   }
@@ -248,17 +314,23 @@ function buildTokenSection(usage: TurnUsage): UsageSection | null {
       value: fmtTokens(usage.cacheWriteTokens),
     });
   }
-  if (usage.outputTokens !== undefined) {
-    rows.push({ label: "Output", value: fmtTokens(usage.outputTokens) });
-  }
   if (usage.outputTokens !== undefined || usage.reasoningTokens !== undefined) {
-    // Always shown once we have real turn data (defaulting to 0 for a
-    // non-reasoning model), matching the design's consistent 4-row Tokens
-    // column rather than omitting the row for the common non-reasoning case.
-    rows.push({
-      label: "Reasoning",
-      value: fmtTokens(usage.reasoningTokens ?? 0),
-    });
+    rows.push(
+      {
+        label: "Output",
+        value:
+          usage.outputTokens === undefined
+            ? "—"
+            : fmtTokens(usage.outputTokens),
+      },
+      {
+        label: "of which reasoning",
+        value:
+          usage.reasoningTokens === undefined
+            ? "—"
+            : fmtTokens(usage.reasoningTokens),
+      },
+    );
   }
   return rows.length > 0 ? { header: "Tokens", rows } : null;
 }
@@ -271,22 +343,23 @@ function buildCostSection(
   if (usage.modelId) {
     rows.push({ label: "Model", value: ctx.modelName ?? usage.modelId });
   }
-  // Indented beneath Model the way "of which cached" sits beneath Input: it
-  // qualifies the row above rather than standing as a peer fact.
   if (ctx.effortDisplay !== undefined) {
     rows.push({ label: "at effort", value: ctx.effortDisplay });
   }
-  if (ctx.hasTokens) {
-    // SAFETY: `hasTokens` is `totalTokens !== undefined && totalTokens !== 0`.
+  const lowerBoundPrefix = usage.complete === false ? "≥ " : "";
+  if (ctx.totalTokens !== undefined) {
     rows.push({
       label: "Total tokens",
-      value: fmtTokens(usage.totalTokens as number),
+      value: `${lowerBoundPrefix}${fmtTokens(ctx.totalTokens)}`,
     });
   }
   // Omitted entirely when cost is unknown (an unpriced model) — never a fake
   // "$0.00".
   if (usage.costUsd !== undefined && usage.costUsd !== null) {
-    rows.push({ label: "Est. cost", value: formatCost(usage.costUsd) });
+    rows.push({
+      label: usage.billing === "subscription" ? "Notional cost" : "Est. cost",
+      value: `${lowerBoundPrefix}${formatCost(usage.costUsd)}`,
+    });
   }
   return rows.length > 0 ? { header: "Cost & model", rows } : null;
 }
@@ -299,25 +372,10 @@ function buildCostSection(
 export function buildUsageLine(
   usage: TurnUsage | null,
   models?: ReadonlyArray<AvailableModel>,
-): { text: string; sections: Array<UsageSection> } | null {
+): UsageLine | null {
   if (!usage) return null;
 
-  const ctx: UsageDisplayContext = {
-    modelName:
-      usage.modelId !== undefined
-        ? modelDisplayName(usage.modelId, models)
-        : undefined,
-    effortDisplay:
-      usage.effort !== undefined
-        ? effortDisplayLabel(
-            models?.find((model) => model.id === usage.modelId)?.reasoning
-              ?.effortLevels,
-            usage.effort,
-          )
-        : undefined,
-    hasTokens: usage.totalTokens !== undefined && usage.totalTokens !== 0,
-  };
-
+  const ctx = buildUsageDisplayContext(usage, models);
   const text = buildBadgeText(usage, usageStatusLabel(usage.status), ctx);
   if (text === null) return null;
 
@@ -327,7 +385,12 @@ export function buildUsageLine(
     buildCostSection(usage, ctx),
   ].filter((section): section is UsageSection => section !== null);
 
-  return { text, sections };
+  if (usage.complete !== false) return { text, sections };
+  return {
+    text,
+    sections,
+    incompleteNotice: "Recorded usage may not cover all of this Run's spend",
+  };
 }
 
 // Shared typography/spacing (matches the design's `.tel-badge`) — the
@@ -351,15 +414,30 @@ function UsageSectionColumn({ section }: { section: UsageSection }) {
           className={cn(
             "flex items-center justify-between gap-4.5 text-xs",
             // Subset and qualifier rows sit beneath the row they qualify:
-            // cached input and cache writes beneath Input, effort beneath Model.
+            // cache rows under Input, reasoning under Output, effort beneath Model.
             (row.label === "of which cached" ||
               row.label === "of which cache write" ||
+              row.label === "of which reasoning" ||
               row.label === "at effort") &&
               "pl-3.5",
           )}
         >
           <span className="text-muted-foreground">{row.label}</span>
-          <b className="font-mono font-medium text-foreground">{row.value}</b>
+          <b
+            aria-label={
+              row.label === "Notional cost"
+                ? `${row.value}, not billed`
+                : undefined
+            }
+            className={cn(
+              "font-mono font-medium",
+              row.label === "Notional cost"
+                ? "text-muted-foreground line-through"
+                : "text-foreground",
+            )}
+          >
+            {row.value}
+          </b>
         </div>
       ))}
     </div>
@@ -377,6 +455,45 @@ function UsageBreakdown({ sections }: { sections: Array<UsageSection> }) {
   );
 }
 
+function UsageTrigger({ text }: { text: string }) {
+  // This is a data disclosure, not a sneak peek; reveal it on first hover.
+  return (
+    <HoverCardTrigger
+      delay={0}
+      closeDelay={0}
+      render={
+        <button
+          type="button"
+          aria-label={`Message usage: ${text}`}
+          className={cn(
+            badgeTypographyClassName,
+            "cursor-default transition-colors hover:bg-accent hover:text-foreground",
+          )}
+        />
+      }
+    >
+      {text}
+      <InfoIcon size={12} className="opacity-70" />
+    </HoverCardTrigger>
+  );
+}
+
+function UsageHoverContent({ line }: { line: UsageLine }) {
+  // A non-null line always has a model, total, or cost row to disclose.
+  return (
+    <HoverCardContent side="top" align="start" className="w-fit max-w-none">
+      <div className="flex flex-col gap-2.5">
+        <UsageBreakdown sections={line.sections} />
+        {line.incompleteNotice ? (
+          <p className="text-xs text-muted-foreground">
+            {line.incompleteNotice}
+          </p>
+        ) : null}
+      </div>
+    </HoverCardContent>
+  );
+}
+
 export function MessageUsage({
   metadata,
   models,
@@ -385,46 +502,12 @@ export function MessageUsage({
   models?: ReadonlyArray<AvailableModel>;
 }) {
   const line = buildUsageLine(parseTurnUsage(metadata), models);
-  // `sections` is never empty once `text` is non-null: a known model always
-  // contributes at least a "Model" row and a token-only legacy turn always
-  // contributes at least a "Total tokens" row to Cost & model — so there is
-  // always something to reveal on hover.
   if (!line) return null;
 
   return (
-    // delay=0/closeDelay=0 (on the trigger, per Base UI): this is a
-    // data-disclosure hover, not a "sneak peek" — reveal immediately,
-    // matching the design's plain CSS `:hover` (no delay).
     <HoverCard>
-      <HoverCardTrigger
-        delay={0}
-        closeDelay={0}
-        render={
-          <button
-            type="button"
-            aria-label={`Message usage: ${line.text}`}
-            className={cn(
-              badgeTypographyClassName,
-              "cursor-default transition-colors hover:bg-accent hover:text-foreground",
-            )}
-          />
-        }
-      >
-        {line.text}
-        <InfoIcon size={12} className="opacity-70" />
-      </HoverCardTrigger>
-      <HoverCardContent
-        side="top"
-        align="start"
-        // HoverCardContent already ships the popover-surfaced card treatment
-        // DESIGN.md specifies for these overlays (bg-popover, border,
-        // shadow-md, no arrow) — just widen it past the default w-64 for
-        // this card's 3-column table layout. The primitive's own p-2.5 is
-        // the padding; the column gap belongs on the plain row below it.
-        className="w-fit max-w-none"
-      >
-        <UsageBreakdown sections={line.sections} />
-      </HoverCardContent>
+      <UsageTrigger text={line.text} />
+      <UsageHoverContent line={line} />
     </HoverCard>
   );
 }

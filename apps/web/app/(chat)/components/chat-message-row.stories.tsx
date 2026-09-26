@@ -385,3 +385,124 @@ export const CacheWriteUsage: Story = {
     await expect(cacheWriteRow).toHaveTextContent("11.2k");
   },
 };
+
+const INCOMPLETE_USAGE_MESSAGE: UIMessage = {
+  id: "assistant-incomplete-usage",
+  role: "assistant",
+  metadata: {
+    usage: {
+      inputTokens: 2400,
+      cachedInputTokens: 1000,
+      outputTokens: 300,
+      reasoningTokens: 210,
+      totalTokens: 2700,
+      costUsd: 0.0063,
+      complete: false,
+      billing: "usage",
+      modelId: CLAUDE_SONNET_MODEL.id,
+      latencyMs: 900,
+      status: "completed",
+    },
+  },
+  parts: [{ type: "text", text: "Recorded usage is a lower bound." }],
+};
+
+/**
+ * Incomplete usage keeps its known totals and cost as lower bounds, both in
+ * the badge and breakdown, and explains the uncertainty without guessing why.
+ *
+ * @summary incomplete usage is shown as a lower bound
+ */
+export const IncompleteUsage: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: INCOMPLETE_USAGE_MESSAGE,
+    availableModels: [CLAUDE_SONNET_MODEL],
+  },
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(
+      () => canvas.getByRole("button", { name: /^Message usage:/ }),
+      { timeout: 15_000 },
+    );
+    await expect(trigger).toHaveTextContent("≥ 2.7k");
+    await expect(trigger).toHaveTextContent("≥ $0.0063");
+
+    await userEvent.hover(trigger);
+
+    const totalTokensRow = await waitFor(
+      () => {
+        const row = screen.getByText("Total tokens").parentElement;
+        expect(row).toBeVisible();
+        return row;
+      },
+      { timeout: 2000 },
+    );
+    await expect(totalTokensRow).toHaveTextContent("≥ 2.7k");
+
+    const costRow = screen.getByText("Est. cost").parentElement;
+    await expect(costRow).toHaveTextContent("≥ $0.0063");
+
+    const outputRow = screen.getByText("Output").parentElement;
+    const reasoningRow = screen.getByText("of which reasoning").parentElement;
+    expect(reasoningRow?.previousElementSibling).toBe(outputRow);
+    await expect(reasoningRow).toHaveTextContent("210");
+
+    await expect(
+      screen.getByText("Recorded usage may not cover all of this Run's spend"),
+    ).toBeVisible();
+  },
+};
+
+const SUBSCRIPTION_USAGE_MESSAGE: UIMessage = {
+  id: "assistant-subscription-usage",
+  role: "assistant",
+  metadata: {
+    usage: {
+      inputTokens: 2400,
+      cachedInputTokens: 1000,
+      outputTokens: 300,
+      reasoningTokens: 210,
+      totalTokens: 2700,
+      costUsd: 0.0063,
+      complete: true,
+      billing: "subscription",
+      modelId: CLAUDE_SONNET_MODEL.id,
+      latencyMs: 900,
+      status: "completed",
+    },
+  },
+  parts: [{ type: "text", text: "A subscription-billed answer." }],
+};
+
+/**
+ * A configured price on a subscription is displayed as notional, not billed.
+ *
+ * @summary subscription usage marks cost as not billed
+ */
+export const SubscriptionCost: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: SUBSCRIPTION_USAGE_MESSAGE,
+    availableModels: [CLAUDE_SONNET_MODEL],
+  },
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(
+      () => canvas.getByRole("button", { name: /^Message usage:/ }),
+      { timeout: 15_000 },
+    );
+    await userEvent.hover(trigger);
+
+    const notionalCostRow = await waitFor(
+      () => {
+        const row = screen.getByText("Notional cost").parentElement;
+        expect(row).toBeVisible();
+        return row;
+      },
+      { timeout: 2000 },
+    );
+    await expect(notionalCostRow).toHaveTextContent("$0.0063");
+
+    const costValue = screen.getByText("$0.0063", { exact: true });
+    await expect(costValue).toHaveAccessibleName("$0.0063, not billed");
+  },
+};
