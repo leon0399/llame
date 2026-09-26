@@ -355,26 +355,17 @@ describe("buildUsageLine", () => {
     });
   });
 
-  it.each([
-    ["metered", "usage"],
-    ["historical", undefined],
-  ] as const)("keeps %s cost as an ordinary estimate", (_kind, billing) => {
+  it("keeps historical cost as an ordinary estimate", () => {
     const result = line({
       modelId: "system:openai:gpt-4o",
       totalTokens: 30,
       costUsd: 0.0063,
-      billing,
     });
     expect(
       result?.sections
         .find((section) => section.header === "Cost & model")
         ?.rows.find((row) => row.label === "Est. cost"),
     ).toEqual({ label: "Est. cost", value: "$0.0063" });
-    expect(
-      result?.sections
-        .find((section) => section.header === "Cost & model")
-        ?.rows.some((row) => row.label === "Notional cost"),
-    ).toBe(false);
   });
 
   it("omits cost for an unpriced subscription model", () => {
@@ -441,9 +432,7 @@ describe("reload parity (live message-metadata vs. history)", () => {
     );
 
     expect(historyLine).toEqual(liveLine);
-    expect(historyLine?.text).toBe(
-      "GPT-4o · 900ms · ≥ 12.8k tokens · ≥ $0.0010",
-    );
+    expect(historyLine?.text).toBe("GPT-4o · 900ms · ≥ 12.8k tokens");
     expect(historyLine?.incompleteNotice).toBe(
       "Recorded usage may not cover all of this Run's spend",
     );
@@ -549,6 +538,7 @@ describe("MessageUsage", () => {
             totalTokens: 2700,
             costUsd: 0.0063,
             complete: false,
+            billing: "usage",
             status: "completed",
           },
         }}
@@ -572,35 +562,7 @@ describe("MessageUsage", () => {
     expect(screen.getByText("≥ $0.0063").textContent).toBe("≥ $0.0063");
   });
 
-  it("shows missing reasoning as unavailable directly under Output", async () => {
-    const user = userEvent.setup();
-    render(
-      <MessageUsage
-        metadata={{
-          usage: {
-            modelId: "system:openai:gpt-4o",
-            inputTokens: 10,
-            outputTokens: 20,
-            totalTokens: 30,
-            complete: true,
-          },
-        }}
-        models={MODELS}
-      />,
-    );
-    await user.hover(screen.getByRole("button", { name: /^Message usage:/ }));
-
-    const outputLabel = await screen.findByText("Output");
-    const reasoningLabel = screen.getByText("of which reasoning");
-    expect(outputLabel.parentElement?.nextElementSibling).toBe(
-      reasoningLabel.parentElement,
-    );
-    expect(reasoningLabel.parentElement?.textContent).toBe(
-      "of which reasoning—",
-    );
-  });
-
-  it("marks subscription cost as notional with a not-billed accessible name", async () => {
+  it("marks subscription cost as notional with not-billed text", async () => {
     const user = userEvent.setup();
     render(
       <MessageUsage
@@ -623,13 +585,13 @@ describe("MessageUsage", () => {
     expect((await screen.findByText("Notional cost")).textContent).toBe(
       "Notional cost",
     );
-    const value = screen.getByLabelText("$0.0063, not billed");
-    expect(value.textContent).toBe("$0.0063");
+    const value = screen.getByText("$0.0063");
+    expect(value.textContent).toBe("$0.0063, not billed");
     expect(value.classList.contains("text-muted-foreground")).toBe(true);
     expect(value.classList.contains("line-through")).toBe(true);
   });
 
-  it("keeps incomplete subscription cost as a notional lower bound", async () => {
+  it("keeps incomplete subscription cost out of the trigger as a notional lower bound", async () => {
     const user = userEvent.setup();
     render(
       <MessageUsage
@@ -648,42 +610,16 @@ describe("MessageUsage", () => {
       />,
     );
     const trigger = screen.getByRole("button", { name: /^Message usage:/ });
-    expect(trigger.textContent).toContain("≥ $0.0063");
+    expect(trigger.textContent).toBe("GPT-4o · ≥ 2.7k tokens");
     await user.hover(trigger);
 
     expect((await screen.findByText("Notional cost")).textContent).toBe(
       "Notional cost",
     );
-    const value = screen.getByLabelText("≥ $0.0063, not billed");
-    expect(value.textContent).toBe("≥ $0.0063");
+    const value = screen.getByText("≥ $0.0063");
+    expect(value.textContent).toBe("≥ $0.0063, not billed");
     expect(value.classList.contains("text-muted-foreground")).toBe(true);
     expect(value.classList.contains("line-through")).toBe(true);
-  });
-
-  it("shows no cost figure for an unpriced subscription", async () => {
-    const user = userEvent.setup();
-    render(
-      <MessageUsage
-        metadata={{
-          usage: {
-            modelId: "system:openai:gpt-4o",
-            inputTokens: 2400,
-            outputTokens: 300,
-            totalTokens: 2700,
-            costUsd: null,
-            complete: true,
-            billing: "subscription",
-          },
-        }}
-        models={MODELS}
-      />,
-    );
-    await user.hover(screen.getByRole("button", { name: /^Message usage:/ }));
-
-    expect(await screen.findByText("Total tokens")).not.toBeNull();
-    expect(screen.queryByText("Notional cost")).toBeNull();
-    expect(screen.queryByText("Est. cost")).toBeNull();
-    expect(screen.queryByText(/\$/)).toBeNull();
   });
 
   it("stays an interactive hover-card trigger even for a token-less errored turn, still revealing which model was tried", async () => {

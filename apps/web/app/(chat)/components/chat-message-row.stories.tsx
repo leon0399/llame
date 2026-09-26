@@ -502,7 +502,6 @@ export const SubscriptionCost: Story = {
     );
     await expect(notionalCostRow).toHaveTextContent("$0.0063");
 
-    const costValue = screen.getByText("$0.0063", { exact: true });
-    await expect(costValue).toHaveAccessibleName("$0.0063, not billed");
+    await expect(notionalCostRow).toHaveTextContent("$0.0063, not billed");
   },
 };
