@@ -509,16 +509,13 @@ export const SubscriptionCost: Story = {
 
     await userEvent.hover(trigger);
 
-    await expect(screen.getByText("Notional cost")).toBeVisible();
     const costValue = (await revealedUsageRow("Notional cost")).querySelector(
       "b",
     );
     await expect(costValue).toHaveTextContent("$0.0063, not billed");
     expect(costValue).toHaveClass("text-muted-foreground");
     expect(costValue).toHaveClass("line-through");
-    // Visually hidden but still read aloud: pin the utility, since
-    // `toBeVisible` treats a clipped 1px `sr-only` node as hidden.
-    expect(screen.getByText(", not billed")).toHaveClass("sr-only");
+    await expect(screen.getByText(", not billed")).toBeVisible();
   },
 };
 
