@@ -182,11 +182,11 @@ Operator settings SHALL resolve from exactly two sources, in order: the config f
 
 ### Requirement: Provider list configuration
 
-The config file SHALL support a top-level `providers` array of duplicable provider entries, discriminated by `type`. `id` SHALL be a non-empty operator-chosen identifier, unique within the array. `type` SHALL select the client implementation and the wire API it speaks, and SHALL be constrained by the schema to the set of executable provider types (`"openai-responses"` for the Responses wire through `@ai-sdk/openai`; `"openai-completions"` for the Chat Completions wire through `@ai-sdk/openai-compatible`; `"anthropic-messages"` for the Messages wire through `@ai-sdk/anthropic`; `"openai-codex"` for the Codex subscription backend; `"opencode-go"` for the OpenCode Go subscription gateway, which executes the Chat Completions wire at an endpoint fixed in llame's code). The `openai-responses` variant SHALL accept `{ id, type, key?, baseUrl? }`, with `baseUrl` defaulting to the OpenAI API; the `openai-completions` variant SHALL accept `{ id, type, key?, baseUrl }`, with `baseUrl` required; the `anthropic-messages` variant SHALL accept `{ id, type, key?, baseUrl? }`, with `baseUrl` defaulting to the Anthropic API; the `opencode-go` variant SHALL accept `{ id, type, key }` and no other field, rejecting `baseUrl` and `accountId` at boot, with `key` a string supporting `{env:…}`/`{path:…}` interpolation that SHALL resolve nonblank. For the `openai-responses`, `openai-completions`, and `anthropic-messages` variants, `key` and `baseUrl` SHALL be strings supporting `{env:…}`/`{path:…}` interpolation, and a `key` that resolves to empty SHALL mark the provider **keyless** (no credential), preserving the empty-resolution-means-unset semantics. Duplicate ids, or a `type` outside the schema enum (including the retired `"openai"` and a bare `"anthropic"`), SHALL fail startup naming the offending entry.
+The config file SHALL support a top-level `providers` array of duplicable provider entries, discriminated by `type`. `id` SHALL be a non-empty operator-chosen identifier, unique within the array. `type` SHALL select the client implementation and the wire API it speaks, and SHALL be constrained by the schema to the set of executable provider types (`"openai-responses"` for the Responses wire through `@ai-sdk/openai`; `"openai-completions"` for the Chat Completions wire through `@ai-sdk/openai-compatible`; `"anthropic-messages"` for the Messages wire through `@ai-sdk/anthropic`; `"openai-codex"` for the Codex subscription backend; `"opencode-go"` for the OpenCode Go subscription gateway, which executes the Chat Completions wire at an endpoint fixed in llame's code). The `openai-responses` variant SHALL accept `{ id, type, key?, baseUrl?, billing? }`, with `baseUrl` defaulting to the OpenAI API; the `openai-completions` variant SHALL accept `{ id, type, key?, baseUrl, billing? }`, with `baseUrl` required; the `anthropic-messages` variant SHALL accept `{ id, type, key?, baseUrl?, billing? }`, with `baseUrl` defaulting to the Anthropic API; the `opencode-go` variant SHALL accept `{ id, type, key, billing? }` and no other field, rejecting `baseUrl` and `accountId` at boot, with `key` a string supporting `{env:…}`/`{path:…}` interpolation that SHALL resolve nonblank. For the `openai-responses`, `openai-completions`, and `anthropic-messages` variants, `key` and `baseUrl` SHALL be strings supporting `{env:…}`/`{path:…}` interpolation, and a `key` that resolves to empty SHALL mark the provider **keyless** (no credential), preserving the empty-resolution-means-unset semantics. Duplicate ids, or a `type` outside the schema enum (including the retired `"openai"` and a bare `"anthropic"`), SHALL fail startup naming the offending entry. The optional `billing` key on every variant is defined by the billing-mode requirement below.
 
 Resolved `key` values SHALL never be written to logs, errors, or diagnostics; a load-time error on a provider field SHALL identify the entry by `id` and the field name, never the resolved value.
 
-The `openai-codex` variant SHALL require `{ id, type, key, accountId }`, with nonblank resolved strings for `key` and `accountId`, supporting existing interpolation. It SHALL reject `baseUrl` and arbitrary headers. Resolved `accountId` values SHALL receive the same non-disclosure protections as credentials. Embedding model entries SHALL NOT reference an `openai-codex`, `anthropic-messages`, or `opencode-go` provider.
+The `openai-codex` variant SHALL require `{ id, type, key, accountId }` and MAY declare `billing`, with nonblank resolved strings for `key` and `accountId`, supporting existing interpolation. It SHALL reject `baseUrl` and arbitrary headers. Resolved `accountId` values SHALL receive the same non-disclosure protections as credentials. Embedding model entries SHALL NOT reference an `openai-codex`, `anthropic-messages`, or `opencode-go` provider.
 
 #### Scenario: Duplicable providers of the same type coexist
 
@@ -1076,3 +1076,28 @@ The `models[].reasoning` boolean SHALL NOT be accepted. A config file setting `r
 - **WHEN** a config file predating this change is loaded
 - **THEN** the instance does not start with an inferred effort vocabulary
 - **AND** the operator must author `effortLevels` and `defaultEffort` explicitly
+
+### Requirement: Providers and models may declare their billing mode
+
+A `providers[]` entry and a `models[]` entry MAY each declare an optional `billing` key whose value SHALL be exactly `"usage"` (billed per token) or `"subscription"` (a flat plan under which any declared price is notional). Any other value, including a non-string or an interpolation token, SHALL fail startup naming the offending entry and field. The key SHALL be accepted on every provider `type`. It SHALL be server-only and SHALL NOT be returned by `GET /api/v1/models`. Omitting it everywhere SHALL leave startup and existing configurations unchanged; the billing-mode resolution order is owned by `run-usage-accounting`.
+
+#### Scenario: Declared billing modes boot
+
+- **WHEN** a provider entry declares `"billing": "subscription"` and one of its models declares `"billing": "usage"`
+- **THEN** startup succeeds
+
+#### Scenario: An unknown billing value fails startup
+
+- **WHEN** a provider or model entry declares `"billing": "free"`
+- **THEN** startup fails naming that entry and its `billing` field
+- **AND** no partial configuration is applied
+
+#### Scenario: A non-string or interpolated billing value fails startup
+
+- **WHEN** a provider or model entry declares `"billing": true` or `"billing": "{env:BILLING}"`
+- **THEN** startup fails naming that entry and its `billing` field, before any interpolation resolves
+
+#### Scenario: Billing mode is not exposed in the model catalog
+
+- **WHEN** an authenticated caller reads `GET /api/v1/models` for a model whose provider declares `billing`
+- **THEN** the response contains no billing field

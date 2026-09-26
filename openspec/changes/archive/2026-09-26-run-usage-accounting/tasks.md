@@ -38,11 +38,11 @@ Re-estimate authored size at each layer boundary and before publication; split a
 - [x] 2.3 Update the affected stories and add incomplete-usage and subscription-cost stories; run the Storybook story tests and return preview URLs.
 - [x] 2.4 Add a dated `CHANGELOG.md` entry for the display change. Run `pnpm --filter web lint`, `typecheck`, and `test:coverage`, plus `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record the commands in the PR body, which uses `Closes #810` and `Closes #959`.
 - [x] 2.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun affected checks before marking ready.
-- [ ] 2.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before creating `finalize`.
+- [x] 2.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before creating `finalize`.
 
 ## 3. `run-usage-accounting/finalize`: spec sync and archive
 
-- [ ] 3.1 After both implementation layers are published, verified, and checked, create only the finalize layer with `$gh-stack`, then run `$openspec-sync-specs`. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; this layer contains no application fix and no shipping record.
-- [ ] 3.2 Inspect `pnpm exec openspec status --change run-usage-accounting --json` and this task list; stop if an artifact or earlier task is incomplete. Complete this task as part of `$openspec-archive-change`, preserving checked history, and verify strict specs/all validation, Markdown lint, formatting, and `git diff --check` on the archived result.
+- [x] 3.1 After both implementation layers are published, verified, and checked, create only the finalize layer with `$gh-stack`, then run `$openspec-sync-specs`. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; this layer contains no application fix and no shipping record.
+- [x] 3.2 Inspect `pnpm exec openspec status --change run-usage-accounting --json` and this task list; stop if an artifact or earlier task is incomplete. Complete this task as part of `$openspec-archive-change`, preserving checked history, and verify strict specs/all validation, Markdown lint, formatting, and `git diff --check` on the archived result.
 
 After archive movement, the finalize PR's self-review and GitHub review loop run as post-archive gates; they are not checklist prerequisites of the archive.
