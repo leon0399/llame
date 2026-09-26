@@ -148,7 +148,11 @@ jobs:
       - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           use_oidc: true
-          fail_ci_if_error: true
+          # A fork PR gets no id-token, so the action falls back to a
+          # tokenless upload sharing Codecov's public rate limit. Only fail
+          # the leg on upload error for same-repo runs, so a rate-limited
+          # fork upload can't fail an external contributor's passing tests.
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
           disable_search: true
           flags: ${{ matrix.flag }}
           files: ${{ matrix.dir }}/coverage/${{ matrix.report || 'coverage-final.json' }}
