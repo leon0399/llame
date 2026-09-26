@@ -97,7 +97,7 @@ sources:
     resource: "../../../apps/api/src/runs/runs-repository.ts"
     title: "run event types"
   - id: llame-tool-search-design
-    resource: "../../../openspec/changes/tool-search/design.md"
+    resource: "https://github.com/leon0399/llame/blob/1bab08dcedd9e8279faa500a878e4004005cb43d/openspec/changes/tool-search/design.md"
     title: "tool-search design D1"
   - id: harness-oh-my-pi
     resource: "../harnesses/oh-my-pi.md"
@@ -415,4 +415,4 @@ a partition.
 
 [^llame-runs-repository]: [run event types](../../../apps/api/src/runs/runs-repository.ts)
 
-[^llame-tool-search-design]: [tool-search design D1](../../../openspec/changes/tool-search/design.md)
+[^llame-tool-search-design]: [tool-search design D1](https://github.com/leon0399/llame/blob/1bab08dcedd9e8279faa500a878e4004005cb43d/openspec/changes/tool-search/design.md)
