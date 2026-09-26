@@ -42,6 +42,15 @@ sources:
   - id: codex-prompt-cache-key
     resource: "https://github.com/openai/codex/blob/c8c1ee5da8af5c79ec8433ee88d3d4ebdcfd80fd/codex-rs/core/tests/suite/prompt_cache_key.rs"
     title: "Codex CLI prompt_cache_key tests"
+  - id: openai-gpt6-sol-luna
+    resource: "https://openai.com/index/introducing-gpt-6-sol-and-luna/"
+    title: "Introducing GPT-6 Sol and Luna"
+  - id: openai-gpt6-caching
+    resource: "https://openai.com/index/better-prompt-caching-for-gpt-6/"
+    title: "Better prompt caching for GPT-6"
+  - id: anthropic-mid-conversation-system
+    resource: "https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages"
+    title: "Anthropic mid-conversation system messages and tool changes"
 ---
 
 # Provider prompt caching and llame's dynamic context
@@ -198,11 +207,12 @@ in the template extends the shared head with no other change.
 unavailable (MCP server down, Knowledge Space unmounted) is removed from
 `tools`. On Anthropic, that invalidates the tools, system, and message caches:
 the whole conversation is re-prefilled[^anthropic-prompt-caching]. OpenAI
-treats tool changes the same way and recommends keeping definitions fixed and
-narrowing with `allowed_tools` or `tool_choice`[^openai-prompt-caching].
+treats a changed `tools` array the same way; its diagnostics report such a
+miss as `reason: "tools_changed"`[^openai-gpt6-caching].
 Owner-dependent admission (`knowledge_search`) also splits the shared head by
 owner partway through the tools block. How often availability changes is
-unmeasured.
+unmeasured. Both providers now support changing availability without editing
+`tools` (F10).
 
 **F6: The Responses and Codex clients send no `prompt_cache_key`.** Codex CLI
 sends its session id as `prompt_cache_key`, and a forked thread keeps its
@@ -236,9 +246,45 @@ blocks ahead of owner content.
 - Line 3 renders llame's catalog `model.id`, so two catalog entries for the
   same upstream model stop sharing about 30 tokens into the system prompt.
   Tools stay shared because they come first.
-- A mid-chat effort change invalidates Anthropic's message cache, and OpenAI's
-  entire prefix through the hidden system content. OpenAI's
-  `configuration_update` item avoids this on GPT-6 models[^openai-prompt-caching].
+- llame sends effort as a request-level setting. A mid-chat effort change
+  therefore invalidates Anthropic's message cache, and OpenAI's entire prefix
+  through the hidden system content. Both providers now offer an in-conversation
+  effort change that avoids this (F10).
+
+**F10: GPT-6 and current Claude models can change tools, instructions and
+effort without breaking the cache.** Neither provider made editing the `tools`
+array or the top-level system prompt cache-safe. Both instead let the full set
+be declared once and changed from a point in the conversation onward.
+
+| Change            | OpenAI GPT-6 Sol/Luna/Astra                                                                                  | Anthropic Opus 5.5 and other current flagships, not Sonnet 5                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Tool availability | Keep `tools` fixed; `tool_choice: { type: "allowed_tools" }` or `"none"`; append tools as `additional_tools` | `tool_addition`/`tool_removal` blocks in a mid-conversation `role: "system"` message; `defer_loading` hides a tool until added (beta) |
+| New instructions  | Append developer messages toward the end of the context                                                      | Append a mid-conversation `role: "system"` message; generally available, no beta header                                               |
+| Effort            | Append a `configuration_update` item; keep request-level effort unchanged                                    | `effort` on a mid-conversation system message (beta)                                                                                  |
+
+Sources: the GPT-6 announcement promises that effort and tool availability now
+"preserve earlier context for cache reuse"[^openai-gpt6-sol-luna], and the
+caching post gives the mechanics[^openai-gpt6-caching]. Anthropic's page
+covers the Claude side[^anthropic-mid-conversation-system]. The Anthropic tool
+beta is `inline-tools-2026-09-15`, which also accepts full definitions inside
+`tool_addition`. The older `mid-conversation-tool-changes-2026-07-01` accepts
+only references to declared tools.
+
+The installed SDKs can express all of it:
+
+- `@ai-sdk/openai` 3.0.97 emits `tool_choice: { type: "allowed_tools" }` from
+  its `allowedTools` option. llame strips `allowedTools` from operator
+  `providerOptions` as a reserved key, so the client would have to set it
+  itself.
+- `@ai-sdk/anthropic` 3.0.118 turns a `role: "system"` message inside
+  `messages` into a mid-conversation system message, with `toolChanges`,
+  `effort` and `clearAt` provider options. It adds the matching beta headers
+  itself, using the older reference-only tool-change header.
+- AI SDK 6.0.256 accepts system messages in `messages` behind
+  `allowSystemInMessages`: unset allows them with a warning. The comment in
+  `context-builder.ts` that "AI SDK v6 rejects those" does not match this
+  version.
+- Chat Completions, OpenCode Go and the Codex backend are unchecked.
 
 ## Prior art
 
@@ -257,7 +303,9 @@ blocks ahead of owner content.
   additions land in the uncached suffix[^openclaw-cache-boundary].
 - **OpenAI's own example** for GPT-5.6 has the same shape: stable developer
   text carrying an explicit breakpoint, then a separate developer message with
-  user-specific content and timestamps[^openai-prompt-caching].
+  user-specific content and timestamps[^openai-prompt-caching]. Its GPT-6
+  guidance extends the same append-only idea to tools, instructions and
+  effort[^openai-gpt6-caching].
 
 ## Options
 
@@ -287,10 +335,14 @@ blocks ahead of owner content.
   needs an OpenSpec change. Unverified: whether the extra write is charged when
   the tail write misses as well.
 - **O4: Keep tool declarations fixed across availability changes.** Declare
-  temporarily unavailable tools and restrict them with `allowed_tools` or
-  `tool_choice`, or fail the call with the availability reason. This touches
-  the tool-availability contract. Pursue it only if O1 shows availability
-  changes are frequent.
+  every allowlisted tool in `tools` and express availability through F10's
+  controls: `allowed_tools` on GPT-6, `tool_removal`/`tool_addition` on
+  Anthropic. Where neither exists, fail the call with the availability reason.
+  The tools block then stops varying by owner as well (F5). Cost: the
+  `{{#if tools.*}}` conditionals in the tool descriptions must go, because
+  they rewrite description text whenever the tool set changes. The change
+  touches the tool-availability contract, which today reports availability as
+  a rail item beside a changed declaration.
 - **O5: Leave it.** The in-conversation design is already correct. The
   cross-conversation gain is about 5k tokens per chat opening.
 - **O6: Move the per-chat items out of the system prompt.** The anchor and
@@ -299,18 +351,28 @@ blocks ahead of owner content.
   persisted temporal receipt, so in an uncompacted chat the anchor repeats
   the first message's receipt. Its one unique job is dating the compaction
   summary, which a receipt at the head of the replacement history can do.
-  The digest baseline can become a persisted context item on the first user
-  message of each context window: the chat's first turn, and the first turn
-  after a compaction re-bake. Its deltas already ride the rail. The system
-  prompt then becomes identical across an owner's chats, and
-  conversation-derived text leaves the system role. This conflicts with
-  context-injection residency rule 3, which requires a prefix-resident
-  baseline, and with the temporal-anchor spec, so it needs an OpenSpec change.
-  Like O2, it pays on Anthropic and GPT-5.6+ only together with O3.
+  The digest baseline can leave the system prompt in one of two ways. On wires
+  with mid-conversation system messages (Anthropic, and developer messages on
+  GPT-6), it can be a system-role message ahead of the first user message of
+  each context window: the chat's first turn, and the first turn after a
+  compaction re-bake. It then keeps its system-role authority while staying
+  out of the shared head. On other wires, it can be a persisted
+  `<system-reminder>` context item on that same user message. Its deltas
+  already ride the rail. The system prompt then becomes identical across an
+  owner's chats. This conflicts with context-injection residency rule 3, which
+  requires a prefix-resident baseline, and with the temporal-anchor spec, so
+  it needs an OpenSpec change. Like O2, it pays on Anthropic and GPT-5.6+ only
+  together with O3.
+- **O7: Change effort in the conversation.** Send a mid-chat effort change as
+  a `configuration_update` on GPT-6 and as a mid-conversation system message's
+  `effort` on Anthropic, keeping the request-level effort at the chat's first
+  value. Compaction already reuses the source run's effort for the same cache
+  reason (available-models spec).
 
 Recommended order: O1, then O6 with O3 if openings and compactions are a
-material share of input cost. O6 supersedes O2. Leave O4 unless O1's data
-calls for it.
+material share of input cost. O6 supersedes O2. O4 and O7 now use supported
+provider mechanisms; take them when O1 shows availability or effort changes
+are frequent.
 
 [^anthropic-prompt-caching]: [Anthropic prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
 
@@ -329,3 +391,9 @@ calls for it.
 [^openclaw-cache-boundary]: [OpenClaw system prompt cache boundary](https://github.com/openclaw/openclaw/blob/533664f8825e81439e3aac28bab594aba34a4111/packages/ai/src/utils/system-prompt-cache-boundary.ts)
 
 [^codex-prompt-cache-key]: [Codex CLI prompt_cache_key tests](https://github.com/openai/codex/blob/c8c1ee5da8af5c79ec8433ee88d3d4ebdcfd80fd/codex-rs/core/tests/suite/prompt_cache_key.rs)
+
+[^openai-gpt6-sol-luna]: [Introducing GPT-6 Sol and Luna](https://openai.com/index/introducing-gpt-6-sol-and-luna/)
+
+[^openai-gpt6-caching]: [Better prompt caching for GPT-6](https://openai.com/index/better-prompt-caching-for-gpt-6/)
+
+[^anthropic-mid-conversation-system]: [Anthropic mid-conversation system messages and tool changes](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages)
