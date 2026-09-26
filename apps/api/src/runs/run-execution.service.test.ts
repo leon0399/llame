@@ -3453,6 +3453,52 @@ describe('RunExecutionService executeRun — tool loop', () => {
     });
   });
 
+  it('falls back to a non-terminal run when settling a parent abort cannot be persisted', async () => {
+    const controller = new AbortController();
+    mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredTool();
+    const markFinished = vi
+      .spyOn(RunsRepository.prototype, 'markFinished')
+      .mockRejectedValue(new Error('run row unavailable'));
+    const capturing = makeCapturingClient();
+    let releaseTool: (result: { status: 'success' }) => void = () => {};
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'read_only',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () =>
+          new Promise<{ status: 'success' }>((resolve) => {
+            releaseTool = resolve;
+          }),
+      }),
+      undefined,
+      toolOptions,
+    );
+
+    await execution.service.executeRun(
+      executionInput(capturing.client, controller.signal),
+    );
+    const options = capturing.streamOptions();
+    const call = executeBoundTool(options, { q: 'slow' }, 'call-4');
+    await Promise.resolve();
+    controller.abort();
+    releaseTool({ status: 'success' });
+
+    await expect(call).resolves.toBeDefined();
+    expect(markFinished).toHaveBeenCalledTimes(2);
+    expect(markFinished).toHaveBeenLastCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: { message: 'Run progress could not be persisted.' },
+      }),
+    );
+  });
+
   it('does not settle open tool calls when the error path already lost a progress write', async () => {
     const toolOptions = withDeclaredTool();
     const spies = mockNormalExecutionRepositories();
