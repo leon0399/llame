@@ -173,14 +173,20 @@ export function formatCost(costUsd: number): string {
   return `$${costUsd.toFixed(4)}`;
 }
 
-/** Preserve a numeric floor when an incomplete cost is below display precision. */
-function formatLowerBoundCost(costUsd: number): string {
-  if (costUsd <= 0 || costUsd >= 0.0001) return formatCost(costUsd);
-  const exponent = Math.floor(Math.log10(costUsd));
-  const decimalPlaces = 1 - exponent;
+function truncateCost(costUsd: number, decimalPlaces: number): string {
   const scale = 10 ** decimalPlaces;
-  const truncatedCost = Math.floor(costUsd * scale) / scale;
-  return `$${truncatedCost.toFixed(decimalPlaces)}`;
+  return (Math.floor(costUsd * scale) / scale).toFixed(decimalPlaces);
+}
+
+/** Preserve a numeric floor for every incomplete-cost precision tier. */
+function formatLowerBoundCost(costUsd: number): string {
+  if (costUsd > 0 && costUsd < 0.0001) {
+    const decimalPlaces = 1 - Math.floor(Math.log10(costUsd));
+    return `$${truncateCost(costUsd, decimalPlaces)}`;
+  }
+  if (costUsd >= 1) return `$${truncateCost(costUsd, 2)}`;
+  if (costUsd >= 0.01) return `$${truncateCost(costUsd, 3)}`;
+  return `$${truncateCost(costUsd, 4)}`;
 }
 
 /** A cost as displayed: exact, or a numeric floor after the lower-bound prefix. */

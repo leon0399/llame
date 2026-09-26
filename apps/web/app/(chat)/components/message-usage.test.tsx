@@ -361,11 +361,46 @@ describe("buildUsageLine", () => {
       totalTokens: 30,
       costUsd: 0.0063,
     });
+    expect(result?.incompleteNotice).toBeUndefined();
     expect(
       result?.sections
         .find((section) => section.header === "Cost & model")
         ?.rows.find((row) => row.label === "Est. cost"),
     ).toEqual({ label: "Est. cost", value: "$0.0063" });
+  });
+
+  it("floors an incomplete cost below display precision at each tier", () => {
+    expect(
+      line({
+        modelId: "system:openai:gpt-4o",
+        totalTokens: 30,
+        costUsd: 0.00625,
+        complete: false,
+      })
+        ?.sections.find((section) => section.header === "Cost & model")
+        ?.rows.find((row) => row.label === "Est. cost"),
+    ).toEqual({ label: "Est. cost", value: "≥ $0.0062" });
+  });
+
+  it("renders an incomplete zero total as a lower bound with unavailable output", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      reasoningTokens: 5,
+      totalTokens: 0,
+      costUsd: 0,
+      complete: false,
+    });
+    expect(result?.text).toBe("GPT-4o · ≥ 0 tokens · ≥ $0.0000");
+    const tokens = result?.sections.find((s) => s.header === "Tokens");
+    expect(tokens?.rows).toContainEqual({ label: "Output", value: "—" });
+    expect(result?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-4o" },
+        { label: "Total tokens", value: "≥ 0" },
+        { label: "Est. cost", value: "≥ $0.0000" },
+      ],
+    });
   });
 
   it("omits cost for an unpriced subscription model", () => {
@@ -559,7 +594,10 @@ describe("MessageUsage", () => {
       "Recorded usage may not cover all of this Run's spend",
     );
     expect(screen.getByText("≥ 2.7k").textContent).toBe("≥ 2.7k");
-    expect(screen.getByText("≥ $0.0063").textContent).toBe("≥ $0.0063");
+    const costValue = screen.getByText("≥ $0.0063");
+    expect(costValue.textContent).toBe("≥ $0.0063");
+    expect(costValue.classList.contains("text-muted-foreground")).toBe(false);
+    expect(costValue.classList.contains("line-through")).toBe(false);
   });
 
   it("shows a numeric lower bound for a very small incomplete cost in the badge and card", async () => {
@@ -572,7 +610,7 @@ describe("MessageUsage", () => {
             inputTokens: 10,
             outputTokens: 20,
             totalTokens: 30,
-            costUsd: 0.000042,
+            costUsd: 0.0000429,
             complete: false,
             billing: "usage",
           },
