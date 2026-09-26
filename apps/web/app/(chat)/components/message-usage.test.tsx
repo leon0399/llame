@@ -382,6 +382,21 @@ describe("buildUsageLine", () => {
     ).toEqual({ label: "Est. cost", value: "≥ $0.0062" });
   });
 
+  it("floors an incomplete cost at the dollar, cent, and boundary tiers", () => {
+    const costValue = (costUsd: number) =>
+      line({
+        modelId: "system:openai:gpt-4o",
+        costUsd,
+        complete: false,
+      })
+        ?.sections.find((section) => section.header === "Cost & model")
+        ?.rows.find((row) => row.label === "Est. cost")?.value;
+    expect(costValue(1.239)).toBe("≥ $1.23");
+    expect(costValue(0.0149)).toBe("≥ $0.014");
+    expect(costValue(0.01)).toBe("≥ $0.010");
+    expect(costValue(0.0001)).toBe("≥ $0.0001");
+  });
+
   it("renders an incomplete zero total as a lower bound with unavailable output", () => {
     const result = line({
       modelId: "system:openai:gpt-4o",
@@ -439,6 +454,22 @@ describe("buildUsageLine", () => {
       rows: [
         { label: "Model", value: "GPT-4o" },
         { label: "Total tokens", value: "≥ 2.7k" },
+      ],
+    });
+  });
+
+  it("floors an incomplete million-scale total below its display precision", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      totalTokens: 1_999_999,
+      complete: false,
+    });
+    expect(result?.text).toBe("GPT-4o · ≥ 1.9M tokens");
+    expect(result?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-4o" },
+        { label: "Total tokens", value: "≥ 1.9M" },
       ],
     });
   });
