@@ -316,6 +316,31 @@ const CLAUDE_SONNET_MODEL: AvailableModel = {
   contextWindowTokens: 1_000_000,
 };
 
+/** The catalog entry the usage fixtures resolve to, so the badge and the
+ *  Cost & model column name the model instead of echoing its id. */
+const GPT_4O_MODEL: AvailableModel = {
+  id: "system:openai:gpt-4o",
+  source: "system",
+  name: "GPT-4o",
+  contextWindowTokens: 128_000,
+};
+
+/** One labeled row of a usage hover card. The breakdown portals out of the
+ *  canvas into the document body a frame after hover, so its rows are queried
+ *  through `screen` and waited for. Hovering opens the card immediately
+ *  (delay=0); the wait covers the positioner's first measurement. */
+function revealedUsageRow(label: string): Promise<HTMLElement> {
+  return waitFor(
+    () => {
+      const row = screen.getByText(label).parentElement;
+      if (!row) throw new Error(`No hover-card row labeled "${label}"`);
+      expect(row).toBeVisible();
+      return row;
+    },
+    { timeout: 2000 },
+  );
+}
+
 const CACHE_WRITE_ANSWER = "Summarized the cached document.";
 
 /**
@@ -369,19 +394,7 @@ export const CacheWriteUsage: Story = {
 
     await userEvent.hover(trigger);
 
-    // The breakdown portals out of the canvas into the document body, so the
-    // card's rows are queried through `screen` rather than `canvas`.
-    const cacheWriteRow = await waitFor(
-      () => {
-        const row = screen.getByText("of which cache write").parentElement;
-        expect(row).toBeVisible();
-        return row;
-      },
-      // Hovering opens the card immediately (delay=0); this covers the
-      // positioner's first measurement, which lands a frame later.
-      { timeout: 2000 },
-    );
-
+    const cacheWriteRow = await revealedUsageRow("of which cache write");
     await expect(cacheWriteRow).toHaveTextContent("11.2k");
   },
 };
@@ -399,7 +412,7 @@ const INCOMPLETE_USAGE_MESSAGE: UIMessage = {
       costUsd: 0.0063,
       complete: false,
       billing: "usage",
-      modelId: CLAUDE_SONNET_MODEL.id,
+      modelId: GPT_4O_MODEL.id,
       latencyMs: 900,
       status: "completed",
     },
@@ -417,34 +430,36 @@ export const IncompleteUsage: Story = {
   tags: ["ai-generated"],
   args: {
     message: INCOMPLETE_USAGE_MESSAGE,
-    availableModels: [CLAUDE_SONNET_MODEL],
+    availableModels: [GPT_4O_MODEL],
   },
   play: async ({ canvas }) => {
     const trigger = await waitFor(
       () => canvas.getByRole("button", { name: /^Message usage:/ }),
       { timeout: 15_000 },
     );
-    await expect(trigger).toHaveTextContent("≥ 2.7k");
-    await expect(trigger).toHaveTextContent("≥ $0.0063");
+    // The recorded total and cost repeat their lower-bound marker in the
+    // badge, where complete usage shows only the model, effort and latency.
+    await expect(trigger).toHaveTextContent(
+      /^GPT-4o · 900ms · ≥ 2\.7k tokens · ≥ \$0\.0063$/,
+    );
 
     await userEvent.hover(trigger);
 
-    const totalTokensRow = await waitFor(
-      () => {
-        const row = screen.getByText("Total tokens").parentElement;
-        expect(row).toBeVisible();
-        return row;
-      },
-      { timeout: 2000 },
-    );
+    const totalTokensRow = await revealedUsageRow("Total tokens");
     await expect(totalTokensRow).toHaveTextContent("≥ 2.7k");
 
-    const costRow = screen.getByText("Est. cost").parentElement;
-    await expect(costRow).toHaveTextContent("≥ $0.0063");
+    // A billed cost keeps the ordinary value styling.
+    const costRow = await revealedUsageRow("Est. cost");
+    const costValue = costRow.querySelector("b");
+    expect(costValue).not.toBeNull();
+    await expect(costValue).toHaveTextContent("≥ $0.0063");
+    expect(costValue).not.toHaveClass("text-muted-foreground");
+    expect(costValue).not.toHaveClass("line-through");
 
-    const outputRow = screen.getByText("Output").parentElement;
-    const reasoningRow = screen.getByText("of which reasoning").parentElement;
-    expect(reasoningRow?.previousElementSibling).toBe(outputRow);
+    // Reasoning is a subset of Output, and a real value here.
+    const outputRow = await revealedUsageRow("Output");
+    const reasoningRow = await revealedUsageRow("of which reasoning");
+    expect(reasoningRow.previousElementSibling).toBe(outputRow);
     await expect(reasoningRow).toHaveTextContent("210");
 
     await expect(
@@ -466,7 +481,7 @@ const SUBSCRIPTION_USAGE_MESSAGE: UIMessage = {
       costUsd: 0.0063,
       complete: true,
       billing: "subscription",
-      modelId: CLAUDE_SONNET_MODEL.id,
+      modelId: GPT_4O_MODEL.id,
       latencyMs: 900,
       status: "completed",
     },
@@ -483,26 +498,203 @@ export const SubscriptionCost: Story = {
   tags: ["ai-generated"],
   args: {
     message: SUBSCRIPTION_USAGE_MESSAGE,
-    availableModels: [CLAUDE_SONNET_MODEL],
+    availableModels: [GPT_4O_MODEL],
   },
   play: async ({ canvas }) => {
     const trigger = await waitFor(
       () => canvas.getByRole("button", { name: /^Message usage:/ }),
       { timeout: 15_000 },
     );
+    await expect(trigger).toHaveTextContent("GPT-4o · 900ms");
+
     await userEvent.hover(trigger);
 
-    const notionalCostRow = await waitFor(
-      () => {
-        const row = screen.getByText("Notional cost").parentElement;
-        expect(row).toBeVisible();
-        return row;
-      },
-      { timeout: 2000 },
+    await expect(screen.getByText("Notional cost")).toBeVisible();
+    const costValue = (await revealedUsageRow("Notional cost")).querySelector(
+      "b",
     );
-    await expect(notionalCostRow).toHaveTextContent("$0.0063");
-
-    await expect(notionalCostRow).toHaveTextContent("$0.0063, not billed");
+    await expect(costValue).toHaveTextContent("$0.0063, not billed");
+    expect(costValue).toHaveClass("text-muted-foreground");
+    expect(costValue).toHaveClass("line-through");
     await expect(screen.getByText(", not billed")).toBeVisible();
+  },
+};
+
+const MODEL_ONLY_USAGE_MESSAGE: UIMessage = {
+  id: "assistant-model-only-usage",
+  role: "assistant",
+  metadata: { usage: { modelId: GPT_4O_MODEL.id } },
+  parts: [{ type: "text", text: "A turn that reported no usage at all." }],
+};
+
+/**
+ * A record that names its model but carries no counts: every token value reads
+ * unavailable rather than zero.
+ *
+ * @summary unknown token counts render as unavailable
+ */
+export const ModelOnlyUsage: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: MODEL_ONLY_USAGE_MESSAGE,
+    availableModels: [GPT_4O_MODEL],
+  },
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(
+      () => canvas.getByRole("button", { name: "Message usage: GPT-4o" }),
+      { timeout: 15_000 },
+    );
+    await userEvent.hover(trigger);
+
+    for (const label of ["Input", "Output", "of which reasoning"]) {
+      const row = await revealedUsageRow(label);
+      await expect(row).toHaveTextContent(`${label}—`);
+    }
+  },
+};
+
+const TINY_INCOMPLETE_COST_MESSAGE: UIMessage = {
+  id: "assistant-tiny-incomplete-cost",
+  role: "assistant",
+  metadata: {
+    usage: {
+      inputTokens: 10,
+      outputTokens: 20,
+      totalTokens: 30,
+      costUsd: 0.0000429,
+      complete: false,
+      billing: "usage",
+      modelId: GPT_4O_MODEL.id,
+    },
+  },
+  parts: [{ type: "text", text: "A cheap, incomplete turn." }],
+};
+
+/**
+ * A sub-cent incomplete cost keeps a numeric floor instead of the "less than
+ * $0.0001" wording a complete cost at that size uses.
+ *
+ * @summary a tiny incomplete cost keeps a numeric floor
+ */
+export const TinyIncompleteCost: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: TINY_INCOMPLETE_COST_MESSAGE,
+    availableModels: [GPT_4O_MODEL],
+  },
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(
+      () => canvas.getByRole("button", { name: /^Message usage:/ }),
+      { timeout: 15_000 },
+    );
+    await expect(trigger).toHaveTextContent(
+      /^GPT-4o · ≥ 30 tokens · ≥ \$0\.000042$/,
+    );
+
+    await userEvent.hover(trigger);
+
+    const costValue = (await revealedUsageRow("Est. cost")).querySelector("b");
+    await expect(costValue).toHaveTextContent("≥ $0.000042");
+  },
+};
+
+const INCOMPLETE_SUBSCRIPTION_USAGE_MESSAGE: UIMessage = {
+  id: "assistant-incomplete-subscription-usage",
+  role: "assistant",
+  metadata: {
+    usage: {
+      inputTokens: 2400,
+      outputTokens: 300,
+      totalTokens: 2700,
+      costUsd: 0.0063,
+      complete: false,
+      billing: "subscription",
+      modelId: GPT_4O_MODEL.id,
+    },
+  },
+  parts: [{ type: "text", text: "A subscription turn with incomplete usage." }],
+};
+
+/**
+ * Incomplete subscription usage keeps the lower-bound token total in its badge
+ * but never a cost that was not billed, while the card still shows the
+ * notional floor with the same lower-bound marker.
+ *
+ * @summary a notional cost stays out of the incomplete badge
+ */
+export const IncompleteSubscriptionCost: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: INCOMPLETE_SUBSCRIPTION_USAGE_MESSAGE,
+    availableModels: [GPT_4O_MODEL],
+  },
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(
+      () => canvas.getByRole("button", { name: /^Message usage:/ }),
+      { timeout: 15_000 },
+    );
+    await expect(trigger).toHaveTextContent(/^GPT-4o · ≥ 2\.7k tokens$/);
+
+    await userEvent.hover(trigger);
+
+    const costValue = (await revealedUsageRow("Notional cost")).querySelector(
+      "b",
+    );
+    await expect(costValue).toHaveTextContent("≥ $0.0063, not billed");
+    expect(costValue).toHaveClass("text-muted-foreground");
+    expect(costValue).toHaveClass("line-through");
+  },
+};
+
+const COMPLETE_USAGE_MESSAGE: UIMessage = {
+  id: "assistant-complete-usage",
+  role: "assistant",
+  metadata: {
+    usage: {
+      inputTokens: 12_800,
+      outputTokens: 20,
+      totalTokens: 12_820,
+      costUsd: 0.01,
+      complete: true,
+      billing: "usage",
+      modelId: GPT_4O_MODEL.id,
+      latencyMs: 900,
+      status: "completed",
+    },
+  },
+  parts: [{ type: "text", text: "A complete, metered turn." }],
+};
+
+/**
+ * Complete usage renders exactly as before: no lower-bound marker on the
+ * totals, and no uncertainty explanation in the card.
+ *
+ * @summary complete usage keeps its exact totals and cost
+ */
+export const CompleteUsageBreakdown: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: COMPLETE_USAGE_MESSAGE,
+    availableModels: [GPT_4O_MODEL],
+  },
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(
+      () =>
+        canvas.getByRole("button", { name: "Message usage: GPT-4o · 900ms" }),
+      { timeout: 15_000 },
+    );
+    await userEvent.hover(trigger);
+
+    const totalTokensRow = await revealedUsageRow("Total tokens");
+    await expect(totalTokensRow).toHaveTextContent("12.8k");
+
+    const costRow = await revealedUsageRow("Est. cost");
+    await expect(costRow).toHaveTextContent("$0.010");
+
+    expect(
+      screen.queryByText(
+        "Recorded usage may not cover all of this Run's spend",
+      ),
+    ).toBeNull();
   },
 };

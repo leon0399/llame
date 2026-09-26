@@ -160,6 +160,21 @@ function fmtTokens(n: number): string {
   return String(rounded);
 }
 
+/**
+ * A token count truncated toward zero at the same abbreviation tiers
+ * `fmtTokens` uses. An incomplete total is a lower bound, so it must never be
+ * rounded up past the recorded count ("2,751" stays "2.7k", never "2.8k").
+ */
+function truncateTokens(n: number): string {
+  if (n >= 1_000_000) {
+    return `${trimTrailingZero((Math.floor(n / 100_000) / 10).toFixed(1))}M`;
+  }
+  if (n >= 1000) {
+    return `${trimTrailingZero((Math.floor(n / 100) / 10).toFixed(1))}k`;
+  }
+  return String(Math.floor(n));
+}
+
 export function formatCost(costUsd: number): string {
   // The design's own precision tiers (2dp at/above $1, 3dp at/above a cent,
   // else 4dp), plus a fallback this repo's own review round added: below
@@ -225,7 +240,7 @@ export type UsageLine = {
 type UsageDisplayContext = {
   modelName: string | undefined;
   effortDisplay: string | undefined;
-  totalTokens: number | undefined;
+  totalTokensText: string | undefined;
   lowerBoundPrefix: string;
 };
 
@@ -233,6 +248,11 @@ function buildUsageDisplayContext(
   usage: TurnUsage,
   models?: ReadonlyArray<AvailableModel>,
 ): UsageDisplayContext {
+  const totalTokens =
+    usage.totalTokens !== 0 || usage.complete === false
+      ? usage.totalTokens
+      : undefined;
+  const lowerBoundPrefix = usage.complete === false ? "≥ " : "";
   return {
     modelName:
       usage.modelId !== undefined
@@ -246,11 +266,15 @@ function buildUsageDisplayContext(
             usage.effort,
           )
         : undefined,
-    totalTokens:
-      usage.totalTokens !== 0 || usage.complete === false
-        ? usage.totalTokens
-        : undefined,
-    lowerBoundPrefix: usage.complete === false ? "≥ " : "",
+    totalTokensText:
+      totalTokens === undefined
+        ? undefined
+        : `${lowerBoundPrefix}${
+            lowerBoundPrefix === ""
+              ? fmtTokens(totalTokens)
+              : truncateTokens(totalTokens)
+          }`,
+    lowerBoundPrefix,
   };
 }
 
@@ -260,9 +284,7 @@ function buildBadgeText(
   ctx: UsageDisplayContext,
 ): string | null {
   const totalTokensText =
-    ctx.totalTokens === undefined
-      ? null
-      : `${ctx.lowerBoundPrefix}${fmtTokens(ctx.totalTokens)} tokens`;
+    ctx.totalTokensText === undefined ? null : `${ctx.totalTokensText} tokens`;
   const costText =
     usage.costUsd === undefined || usage.costUsd === null
       ? null
@@ -385,11 +407,8 @@ function buildCostSection(
   if (ctx.effortDisplay !== undefined) {
     rows.push({ label: "at effort", value: ctx.effortDisplay });
   }
-  if (ctx.totalTokens !== undefined) {
-    rows.push({
-      label: "Total tokens",
-      value: `${ctx.lowerBoundPrefix}${fmtTokens(ctx.totalTokens)}`,
-    });
+  if (ctx.totalTokensText !== undefined) {
+    rows.push({ label: "Total tokens", value: ctx.totalTokensText });
   }
   // Omitted entirely when cost is unknown (an unpriced model) — never a fake
   // "$0.00".
