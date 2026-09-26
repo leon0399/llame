@@ -173,6 +173,23 @@ export function formatCost(costUsd: number): string {
   return `$${costUsd.toFixed(4)}`;
 }
 
+/** Preserve a numeric floor when an incomplete cost is below display precision. */
+function formatLowerBoundCost(costUsd: number): string {
+  if (costUsd <= 0 || costUsd >= 0.0001) return formatCost(costUsd);
+  const exponent = Math.floor(Math.log10(costUsd));
+  const decimalPlaces = 1 - exponent;
+  const scale = 10 ** decimalPlaces;
+  const truncatedCost = Math.floor(costUsd * scale) / scale;
+  return `$${truncatedCost.toFixed(decimalPlaces)}`;
+}
+
+/** A cost as displayed: exact, or a numeric floor after the lower-bound prefix. */
+function formatDisplayCost(costUsd: number, lowerBoundPrefix: string): string {
+  return lowerBoundPrefix === ""
+    ? formatCost(costUsd)
+    : `${lowerBoundPrefix}${formatLowerBoundCost(costUsd)}`;
+}
+
 function formatLatency(latencyMs: number): string {
   // 2 decimal places once past 1s, matching the design's `fmtMs` exactly.
   return latencyMs < 1000
@@ -243,7 +260,7 @@ function buildBadgeText(
   const costText =
     usage.costUsd === undefined || usage.costUsd === null
       ? null
-      : `${ctx.lowerBoundPrefix}${formatCost(usage.costUsd)}`;
+      : formatDisplayCost(usage.costUsd, ctx.lowerBoundPrefix);
   const badgeCostText =
     ctx.lowerBoundPrefix !== "" && usage.billing !== "subscription"
       ? costText
@@ -283,7 +300,18 @@ function buildPerformanceSection(usage: TurnUsage): UsageSection | null {
   };
 }
 
-function buildTokenSection(usage: TurnUsage): UsageSection | null {
+function unknownTokenSection(): UsageSection {
+  return {
+    header: "Tokens",
+    rows: [
+      { label: "Input", value: "—" },
+      { label: "Output", value: "—" },
+      { label: "of which reasoning", value: "—" },
+    ],
+  };
+}
+
+function buildInputTokenRows(usage: TurnUsage): Array<UsageRow> {
   const rows: Array<UsageRow> = [];
   if (usage.inputTokens !== undefined) {
     rows.push({ label: "Input", value: fmtTokens(usage.inputTokens) });
@@ -303,6 +331,20 @@ function buildTokenSection(usage: TurnUsage): UsageSection | null {
       value: fmtTokens(usage.cacheWriteTokens),
     });
   }
+  return rows;
+}
+
+function buildTokenSection(usage: TurnUsage): UsageSection | null {
+  const hasTokenCounts =
+    usage.inputTokens !== undefined ||
+    usage.cachedInputTokens !== undefined ||
+    usage.cacheWriteTokens !== undefined ||
+    usage.outputTokens !== undefined ||
+    usage.totalTokens !== undefined ||
+    usage.reasoningTokens !== undefined;
+  if (!hasTokenCounts) return unknownTokenSection();
+
+  const rows = buildInputTokenRows(usage);
   if (usage.outputTokens !== undefined || usage.reasoningTokens !== undefined) {
     rows.push(
       {
@@ -348,7 +390,7 @@ function buildCostSection(
   if (usage.costUsd !== undefined && usage.costUsd !== null) {
     rows.push({
       label: usage.billing === "subscription" ? "Notional cost" : "Est. cost",
-      value: `${ctx.lowerBoundPrefix}${formatCost(usage.costUsd)}`,
+      value: formatDisplayCost(usage.costUsd, ctx.lowerBoundPrefix),
     });
   }
   return rows.length > 0 ? { header: "Cost & model", rows } : null;

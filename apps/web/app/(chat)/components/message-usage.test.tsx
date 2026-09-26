@@ -562,6 +562,53 @@ describe("MessageUsage", () => {
     expect(screen.getByText("≥ $0.0063").textContent).toBe("≥ $0.0063");
   });
 
+  it("shows a numeric lower bound for a very small incomplete cost in the badge and card", async () => {
+    const user = userEvent.setup();
+    render(
+      <MessageUsage
+        metadata={{
+          usage: {
+            modelId: "system:openai:gpt-4o",
+            inputTokens: 10,
+            outputTokens: 20,
+            totalTokens: 30,
+            costUsd: 0.000042,
+            complete: false,
+            billing: "usage",
+          },
+        }}
+        models={MODELS}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: /^Message usage:/ });
+    expect(trigger.textContent).toBe("GPT-4o · ≥ 30 tokens · ≥ $0.000042");
+    await user.hover(trigger);
+
+    const costLabel = await screen.findByText("Est. cost");
+    expect(costLabel.parentElement?.textContent).toBe("Est. cost≥ $0.000042");
+  });
+
+  it("shows unavailable token rows for a model-only record", async () => {
+    const user = userEvent.setup();
+    render(
+      <MessageUsage
+        metadata={{
+          usage: { modelId: "system:openai:gpt-4o" },
+        }}
+        models={MODELS}
+      />,
+    );
+    await user.hover(screen.getByRole("button", { name: /^Message usage:/ }));
+
+    const inputLabel = await screen.findByText("Input");
+    const outputLabel = screen.getByText("Output");
+    const reasoningLabel = screen.getByText("of which reasoning");
+    expect(inputLabel.parentElement?.textContent).toBe("Input—");
+    expect(outputLabel.parentElement?.textContent).toBe("Output—");
+    expect(reasoningLabel.parentElement?.textContent).toBe(
+      "of which reasoning—",
+    );
+  });
   it("marks subscription cost as notional with not-billed text", async () => {
     const user = userEvent.setup();
     render(
