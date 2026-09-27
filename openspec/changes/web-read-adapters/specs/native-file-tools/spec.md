@@ -750,8 +750,9 @@ SHALL state the loaded counts plus `total_count` minus the loaded runs as
 `{n} not loaded` (for example
 `Checks: 97 passed, 1 failed (lint), 2 pending, 40 not loaded`); if the first
 check-runs page does not arrive, the line SHALL render as
-`Checks: unavailable`. Either case SHALL add an omission note naming check
-runs. Then `Created`,
+`Checks: unavailable`. A page that answers but cannot be parsed, or a first
+page without a numeric `total_count`, SHALL count as not arriving. Either case
+SHALL add an omission note naming check runs and its failure category. Then `Created`,
 `Updated`, `Labels`, `URL`, and `Diff: https://github.com/{owner}/{repo}/pull/{number}.diff`,
 then `## Body`, `## Files ({n})` listing every changed file with its status
 and added/deleted counts, `## Reviews ({n})`, `## Review Comments ({n})`, and
@@ -784,7 +785,7 @@ limits are not permission errors and SHALL not be retried.
 - **WHEN** the model reads `https://github.com/o/r/pull/12`
 - **THEN** the metadata block has `Reviews:` counts per latest review,
   `Merge state` as returned, `Checks:` counts from all check-runs pages
-  requested with `per_page=100`, and `Diff: https://github.com/o/r/pull/12.diff`
+  requested with `filter=latest&per_page=100`, and `Diff: https://github.com/o/r/pull/12.diff`
 - **AND** the `## Review Comments` items carry `Reply to` and `Location` lines
   instead of nested headings
 

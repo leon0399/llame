@@ -138,8 +138,8 @@ page, a check-runs page, or the README), the adapter renders what it has and
 attaches one note per missing section, such as
 `review comments omitted: rate_limit, resets 2026-09-27T12:40:00Z`. For check
 runs, a failed later page leaves the loaded counts and states the unloaded
-remainder from `total_count` on the `Checks:` line; the omission note names
-check runs. No adapter failure returns a response body to the model.
+remainder from `total_count` on the `Checks:` line, and a failed or unparsable
+first page renders `Checks: unavailable`; the omission note names check runs. No adapter failure returns a response body to the model.
 
 **Alternative rejected:** OMP's combined `SpecialHandler` returning `null` on
 both mismatch and failure. It makes a handler's precedence and failure reason
@@ -310,7 +310,7 @@ Endpoints: `GET /repos/{o}/{r}/issues/{n}` plus all pages of
 `/issues/{n}/comments`; `GET /repos/{o}/{r}/pulls/{n}` plus all pages of
 `/issues/{n}/comments`, `/pulls/{n}/reviews`, `/pulls/{n}/comments`, and
 `/pulls/{n}/files`, plus all pages of `/commits/{head_sha}/check-runs`
-requested with `per_page=100`. All requests carry `Accept:
+requested with `filter=latest&per_page=100`. All requests carry `Accept:
 application/vnd.github+json` and are `GET`.
 The check-runs pages use the shared call deadline and 5 MiB document bound
 like every other list.
