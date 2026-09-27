@@ -61,24 +61,30 @@ implementation layers.
       scenario, including `read("../../.ssh/id_ed25519")` rejected by an absolute `.ssh` reject and
       omitted bash `cwd` rejected by a `cwd` reject on the root; keep command-text matching unchanged.
 - [ ] 1.4 Register `enter_workspace` and `exit_workspace` as host-capability tools with packaged
-      descriptions and schemas. Implement submitted-path permission evaluation before filesystem
-      probing, canonicalization, independent canonical-path allow/reject evaluation with provenance,
-      same-root no-op, fenced compare-and-set switching, post-commit client stop, and the result
-      shape without skills or MCP (design D2). Classify entry as `execute_code` and exit as
-      `write_low_risk`, bind `runs.worker_id` through native execution, record neither as
+      descriptions and schemas. Implement submitted-path permission evaluation in the runner,
+      then a read-only delivery-fence check before any filesystem probe, followed by the
+      realpath/directory probe, independent canonical-path allow/reject evaluation with
+      provenance, the fenced compare-and-set write, and post-commit client stop and other effects
+      (design D2). At most one `enter_workspace` or `exit_workspace` call may take effect per
+      model step: the first claims the transition slot and later calls return non-fatal
+      `workspace_transition_conflict` without effect. Classify entry as `execute_code` and exit
+      as `write_low_risk`, bind `runs.worker_id` through native execution, record neither as
       `native.attempt`, make queue retries idempotent, and make authorized exit on an unbound Chat
       harmless. Verify non-absolute and non-directory paths, symlink rejection, submitted-path
       rejection, canonical-path `no_allow` with no binding or MCP start, same-root no-op without
-      restart or generation change, switch, missing `nativeExecutorId`, and a superseded attempt
-      with no side effect.
+      restart or generation change, switch, missing `nativeExecutorId`, both same-step transition
+      conflicts (`enter_workspace(A)` then `exit_workspace()` and `enter_workspace(A)` then
+      `enter_workspace(B)`), and a superseded attempt with no side effect.
 - [ ] 1.5 Re-check the binding during accepted-turn preparation before Workspace skills,
       `$skill`, MCP clients/catalog, or the Workspace producer. Detach immediately in its own
       owner-scoped transaction fenced by the Run's current delivery; clear the binding, increment
-      generation, store the closed reason, and expose no Workspace skills or tools to the detaching
-      attempt (design D4). Verify executor mismatch and absence, root missing/non-directory, root
-      moved, permission rejection requiring an allow and no reject, and `tool_not_allowed`. Include
-      the detach-then-fail retry scenario: a retry whose checks would pass still finds the Chat
-      unbound, and an executor returning later does not restore it.
+      generation, store the closed reason, and expose no Workspace skill activation,
+      `skill://` resolution, or tools to the detaching attempt (design D4). An already-frozen
+      skill-catalog baseline may still list Workspace skills, and the next accepted turn's
+      catalog notice removes them. Verify executor mismatch and absence, root missing/non-directory,
+      root moved, permission rejection requiring an allow and no reject, and `tool_not_allowed`.
+      Include the detach-then-fail retry scenario: a retry whose checks would pass still finds the
+      Chat unbound, and an executor returning later does not restore it.
 - [ ] 1.6 Add the `workspace` context-item producer with its packaged template and told-state
       comparison, rail-only `snapshot` current-state item, separate detach `notice`, and reset by a
       newly active compaction (design D6). Verify entry and exit narration, detach reason in a
@@ -162,7 +168,9 @@ implementation layers.
       and unavailable MCP entries in `mcp-runtime.service.ts:199`. Verify an allowlisted
       write-capable MCP tool with an allowing permission group executes, one without a permission
       group is rejected, unavailable entries retain no stale executor, and code-owned tools keep
-      today's host-capability gate.
+      today's host-capability gate. Durably record each MCP dispatch attempt before invoking it by
+      reusing the native-attempt recovery path; verify that a queue retry after a dispatched MCP
+      call recovers as `outcome_unknown` without making a second call.
 - [ ] 4.2 Drop the configured-server lookup from `tools.allowed` MCP validation while keeping
       the grammar and 64-character bound. Verify with config-loader tests that
       `mcp__unconfigured__*` boots, a malformed MCP entry still fails startup naming the path, and
@@ -170,12 +178,16 @@ implementation layers.
 - [ ] 4.3 Update `SPEC.md:130` (the MCP attestation/prohibition sentence), `SPEC.md:134` (queue
       retries of read-only Runs), and `SPEC.md:138` (§13.5 runtime execution of `read_only` tools)
       to reflect `unverified`; update the canonical `mcp-tools` Purpose from explicitly enabled
-      read-only tools to allowlisted tools authorized by permissions. Remove the read-only
-      attestation and write-capable MCP deferral from `VISION.md` and `docs/mcp-tools.md`, adding
-      an operator migration note that permitting `enter_workspace` on a directory that any
-      allowlisted tool can write — `bash`, native `write`/`edit` without W1/W2, or write-capable
-      operator or Workspace MCP tools — is equivalent to `execute_code` and host-secret
-      exfiltration. Add a dated **BREAKING** `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+      read-only tools to allowlisted tools authorized by permissions, and update the canonical
+      `tool-calling` Purpose directly in `openspec/specs/tool-calling/spec.md` during this layer.
+      Update `README.md` (~260-261) to remove the instruction to allowlist each namespaced tool as
+      read-only, and update `apps/api/AGENTS.md` (~248-249) to remove the wildcard read-only
+      attestation. Remove the read-only attestation and write-capable MCP deferral from `VISION.md`
+      and `docs/mcp-tools.md`, adding an operator migration note that permitting
+      `enter_workspace` on a directory that any allowlisted tool can write — `bash`, native
+      `write`/`edit` without W1/W2, or write-capable operator or Workspace MCP tools — is
+      equivalent to `execute_code` and host-secret exfiltration. Add a dated **BREAKING**
+      `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
 - [ ] 4.4 Run the API checks from 1.9 for this layer and record them in the PR body.
 - [ ] 4.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
@@ -229,11 +241,13 @@ workspace_generation)`. Keep Workspace candidates and executors out of the proce
       the executing process's environment and filesystem, including llame's own environment;
       resolve relative `{path:…}` from the Workspace root; make unresolved values unavailable
       with a safe diagnostic; never re-scan resolved values or shell-interpret commands/args.
-      Protect only resolved interpolation values except `:-default` literals; literal `env` and
-      `headers` values are not protected for Workspace entries. Verify merge precedence, defaults,
-      redaction, relative paths, unreadable files, the accepted audited-repository boundary, and
-      that an ambient llame process variable not referenced by Workspace config is absent from its
-      stdio child's environment.
+      Protect every non-empty Workspace remote `headers` value, literal or interpolated; protect
+      resolved interpolation values in stdio `command`, `args`, and `env` except `:-default`
+      fallback literals, while leaving only literal stdio `env` values unprotected solely because
+      they are literal. Verify merge precedence, defaults, redaction, relative paths, unreadable
+      files, the accepted audited-repository boundary, a literal `Authorization` header echoed by
+      a Workspace server being redacted, and that an ambient llame process variable not referenced
+      by Workspace config is absent from its stdio child's environment.
 - [ ] 6.3 Implement deferred shadowing: a byte-equal Workspace/operator server id defers when
       operator tools are already declared in the running attempt, reports `shadows from the next
 Run`, retains operator executors for that Run, and shadows from the next Run after a

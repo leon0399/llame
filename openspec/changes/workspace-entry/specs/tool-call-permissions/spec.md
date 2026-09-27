@@ -6,6 +6,8 @@ After validating the call schema, the evaluator SHALL match originally submitted
 
 While a Workspace is entered, for native `read`, `edit`, and `write` calls with a relative string `path`, and `bash` calls with a relative string `cwd`, the value evaluated by permissions SHALL be the absolute path obtained by resolving the relative path from the canonical Workspace root; resolution SHALL be lexical like POSIX `path.posix.resolve`, preserving a trailing separator, and `..` SHALL be allowed to leave the root. The executor SHALL receive exactly the projected absolute string, including that trailing separator. Projection SHALL NOT perform realpath resolution; symlinks inside the projected path SHALL be followed by the OS as for any absolute path. For this requirement, "relative" means a value not starting with `/` and without a `scheme:` prefix recognized by the shared locator parser (case-insensitive `scheme://`); an unknown scheme SHALL remain `invalid_path` rather than being treated as a relative local path. The submitted relative text SHALL NOT be matched. A `bash` call that omits `cwd` SHALL be evaluated as if the canonical Workspace root had been submitted as `cwd`; this is an explicit exception to the rule that inserted defaults are not matched. This exception SHALL apply only to omitted `bash.cwd` while a Workspace is entered. Absolute paths SHALL remain unchanged. `kb://`, `skill://`, and web locators SHALL remain unchanged by Workspace path projection. The `bash.command` value SHALL continue to be matched only as submitted text. For tool calls issued in the same model step as an `enter_workspace` or `exit_workspace` call, projection SHALL use the Workspace root committed before that step began; a binding change SHALL take effect from the next model step. With no Workspace entered, relative native file paths SHALL remain invalid and an omitted `bash.cwd` SHALL retain its existing process-default behavior without being matched as a submitted field.
 
+The per-attempt Workspace binding re-check is a third named exception: it evaluates the `enter_workspace` group with the stored canonical Workspace root as the `path` field value rather than a model-submitted value. That synthetic evaluation SHALL obtain an allow and SHALL match no reject for the binding to remain valid.
+
 A `read` call whose `path` is an `http://` or `https://` locator SHALL be
 decided over two texts: the locator as submitted, and the locator the shared
 native projection returns, which is the text the request will use — its
@@ -135,6 +137,12 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 - **WHEN** `/work/old` is committed before a model step that calls `enter_workspace` for `/work/new` and `read` for `f`
 - **THEN** the same-step `read` permission value and executor argument use `/work/old/f`
 - **AND** the `/work/new` binding applies to projections beginning with the next model step
+
+#### Scenario: Workspace re-check matches the stored canonical root
+
+- **WHEN** an attempt re-checks a bound Workspace before resolving its sources
+- **THEN** the `enter_workspace` permission group evaluates the stored canonical root as the `path` field value
+- **AND** the synthetic value must obtain an allow and match no reject for the binding to remain
 
 ### Requirement: File permission matching uses logical resource locators
 

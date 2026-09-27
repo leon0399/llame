@@ -25,15 +25,19 @@ call.
   `workspace_generation` increments only when an enter establishes or switches a binding, an exit
   clears a bound Chat, or a detach clears one. Same-root re-entry and exit on an unbound Chat leave
   it unchanged. A same-root entry is a no-op that returns current state without restarting clients
-  or re-reading config. A switch uses a fenced compare-and-set transaction and stops old clients
-  only after commit; superseded attempts do nothing.
+  or re-reading config. At most one `enter_workspace` or `exit_workspace` call takes effect per
+  model step; the first claims the transition slot and later calls return the non-fatal
+  `workspace_transition_conflict`. A switch uses a fenced compare-and-set transaction and stops
+  old clients only after commit; superseded attempts do nothing.
 - Each Run attempt re-checks the binding before resolving Workspace skills, `$skill`, Workspace
   MCP clients or catalog entries, or the Workspace context item. Executor absence or mismatch,
   a missing/non-directory root, a moved canonical root, loss of an `enter_workspace` allow or
   reject-free permission decision, or removal of `enter_workspace` from `tools.allowed` detaches
   immediately in its own owner-scoped delivery-fenced transaction. Detach clears the binding,
-  stores a closed reason, exposes no Workspace skills or tools to that attempt, and never
-  reattaches. A retry after a detach-then-fail attempt therefore remains unbound.
+  stores a closed reason, exposes no Workspace skill activation, `skill://` resolution, or tools
+  to that attempt, and never reattaches; an already-frozen skill-catalog baseline may still list
+  Workspace skills, and the next accepted turn's catalog notice removes them. A retry after a
+  detach-then-fail attempt therefore remains unbound.
 - While entered, relative `path` for `read`, `edit`, and `write`, and relative or omitted `cwd`
   for `bash`, resolve lexically from the root. Projection preserves a trailing separator,
   never calls `realpath`, passes the exact projected absolute string to execution and permission
@@ -74,10 +78,12 @@ call.
   client's fixed base-environment allowlist, so an ambient llame variable not referenced by the
   entry is absent. Relative `{path:…}` values resolve from the Workspace root.
   Unresolvable values make that server unavailable with a diagnostic naming the variable or file
-  location but never its value. Commands and arguments are never shell-interpreted. Only resolved
-  interpolation values (excluding `:-default` literals) are protected for that server's traffic,
-  diagnostics, entry result, and receipts; literal `env`/`headers` values are not protected, and
-  other tools reading the same source are outside this guarantee.
+  location but never its value. Commands and arguments are never shell-interpreted. Every
+  non-empty Workspace remote `headers` value is protected, literal or interpolated; resolved
+  interpolation values in stdio `command`, `args`, and `env` are protected except `:-default`
+  fallback literals, while only literal stdio `env` values remain unprotected solely because they
+  are literal. Values are redacted for that server's traffic, diagnostics, entry result, and
+  receipts; other tools reading the same source are outside this guarantee.
 - Workspace MCP clients stop on exit, switch, detach, shutdown, or idle timeout. A Workspace
   server whose id is byte-equal to an operator server defers shadowing when the operator's tools
   are already declared in the running attempt: it contributes no tools in that Run and reports

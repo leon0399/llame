@@ -57,7 +57,7 @@ A bound Workspace SHALL load its MCP server entries from `<root>/.mcp.json`, wit
 
 Workspace server string values SHALL support `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` interpolation. These tokens SHALL resolve from the executing process's environment and filesystem, including llame's own process environment. A relative `{path:LOCATION}` SHALL resolve from the Workspace root; an absolute location SHALL resolve as written. `${VAR:-default}` SHALL use the literal default when `VAR` is unset or empty. Interpolation SHALL be single-pass and non-recursive: a resolved value SHALL NOT be scanned again for tokens. An unset variable without a default or an unreadable file SHALL make the affected server unavailable, with a diagnostic naming the variable or file location but never the resolved value. Command and argument fields SHALL be passed as literal text and SHALL NOT be shell-interpreted. Reading llame's ambient environment through these tokens, and passing a selected value to a Workspace server, is an accepted risk of permitting entry into an audited Workspace.
 
-Every non-empty resolved interpolation value SHALL be added to that Workspace server's protected-value set, except a literal supplied solely as the `:-default` fallback. Literal values supplied directly in `env` or `headers` SHALL NOT be added to the protected-value set solely because they are literal configuration. Protected values SHALL be redacted before they can appear in that server's declarations, call arguments or results, diagnostics, entry result, receipts, persisted errors, or model-facing content. This protection guarantee is scoped to that server's traffic and server-derived output; another tool that independently reads the same source is outside this guarantee.
+Every non-empty resolved interpolation value SHALL be added to that Workspace server's protected-value set, except a literal supplied solely as the `:-default` fallback in a stdio `command`, `args`, or `env` field. Every non-empty value supplied in a Workspace remote `headers` entry SHALL also be added to the protected-value set, whether literal or interpolated, including a non-empty `:-default` fallback. A literal value supplied directly in a stdio `env` entry SHALL NOT be added to the protected-value set solely because it is literal. Protected values SHALL be redacted before they can appear in that server's declarations, call arguments or results, diagnostics, entry result, receipts, persisted errors, or model-facing content. This protection guarantee is scoped to that server's traffic and server-derived output; another tool that independently reads the same source is outside this guarantee.
 
 A malformed Workspace MCP file, invalid server name or entry, unsupported transport, or unresolvable interpolation SHALL NOT fail Workspace entry. Each affected Workspace MCP server SHALL instead be reported as unavailable and SHALL contribute no callable tools.
 
@@ -114,14 +114,20 @@ A malformed Workspace MCP file, invalid server name or entry, unsupported transp
 
 #### Scenario: Fallback literal is not protected solely by interpolation
 
-- **WHEN** `${MISSING:-literal-default}` supplies its fallback
+- **WHEN** `${MISSING:-literal-default}` supplies a fallback in a Workspace stdio `command`, `args`, or `env` field
 - **THEN** `literal-default` is not added to the protected-value set solely because it was a fallback
 
-#### Scenario: Literal environment and header values are not protected
+#### Scenario: Literal stdio environment values are not protected
 
-- **WHEN** a Workspace `env` or `headers` entry contains a non-empty literal value
+- **WHEN** a Workspace stdio `env` entry contains a non-empty literal value
 - **THEN** that value is not added to the protected-value set solely because it is literal
 - **AND** traffic and results containing that value are neither refused nor redacted solely because of that literal
+
+#### Scenario: Literal Workspace Authorization header is redacted
+
+- **WHEN** a Workspace remote server has a non-empty literal `Authorization` header and echoes that header value in a result
+- **THEN** the header value is protected for that Workspace server
+- **AND** the echoed value is redacted before it reaches diagnostics, receipts, persisted errors, or model-facing content
 
 #### Scenario: Workspace commands and arguments are not shell-interpreted
 

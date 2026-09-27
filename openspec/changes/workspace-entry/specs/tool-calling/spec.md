@@ -86,6 +86,8 @@ Exact and namespace MCP entries SHALL grant eligibility only to exact identities
 
 The executing worker's restart-applied allowlist SHALL filter exact ids and declarations into attempt-local memory when each execution attempt is prepared; wildcard patterns SHALL NOT enter provider requests, manifests, receipts, persistence, or execution binding. After a worker restart, changed exact or namespace rules SHALL apply to its next attempt, including a retry of an already scheduled Run. Declarations SHALL remain fixed within that attempt except that a trusted in-Run Workspace entry action SHALL add each Workspace declaration that passes the same source, allowlist, classification, and schema checks as attempt composition; a Workspace exit, switch, or detach SHALL retain those declarations in the attempt-local catalog while making their executors unavailable, as required by the dynamic-tool failure behavior. The executing process SHALL additionally apply its startup-loaded `tools.permissions` policy to each new invocation, including calls from older Runs. Hot policy reload remains outside this capability; operator changes require a restart. Remote MCP tools SHALL be executable only for a currently admitted declaration selected by the allowlist and only when `tools.permissions` allows the invocation. No `read_only` attestation or idempotence claim SHALL substitute for either gate.
 
+Before invoking an MCP operation, the executing worker SHALL durably record its dispatch attempt through the same owner-scoped recovery path used for native mutation attempts. If a worker failure leaves that dispatch outcome unknown, the Run SHALL recover the call as `outcome_unknown` or fail the attempt terminally, and a queue retry SHALL NOT invoke that MCP operation again.
+
 #### Scenario: Default is no tools
 
 - **WHEN** the operator config does not set `tools.allowed`
@@ -146,11 +148,11 @@ The executing worker's restart-applied allowlist SHALL filter exact ids and decl
 - **THEN** its next attempt, including a retry, omits tools no longer admitted
 - **AND** the earlier attempt's catalog is never recovered from the database
 
-#### Scenario: Queue retry may repeat an admitted MCP operation
+#### Scenario: Queue retry does not replay a dispatched MCP operation
 
-- **WHEN** a queue retry restarts a Run before a prior admitted MCP call result was durably settled
-- **THEN** the restarted attempt may invoke that MCP operation again only if its declaration remains admitted by the current source and allowlist and its invocation passes the current `tools.permissions` policy
-- **AND** no exactly-once external side-effect guarantee follows from MCP classification or allowlisting
+- **WHEN** a worker fails after the MCP dispatch attempt was durably recorded before invocation and the operation's result is unknown
+- **THEN** the Run recovers that call as `outcome_unknown` or the MCP attempt fails terminally, as in `Worker failure does not replay a native mutation`
+- **AND** a queue retry does not invoke that MCP operation again
 
 #### Scenario: Permission reject does not hide a tool
 

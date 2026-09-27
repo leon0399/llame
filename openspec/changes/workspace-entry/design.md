@@ -76,22 +76,28 @@ can start host processes; `exit_workspace` is `write_low_risk`. Neither records
 other host tools and are idempotent over Chat state, so a queue retry after a committed binding
 re-runs to the same final state. An authorized exit on an unbound Chat is a harmless success.
 
+At most one Workspace transition call may take effect in a model step. The first `enter_workspace`
+or `exit_workspace` call executed in that step claims the transition slot; every later transition
+call returns the non-fatal `workspace_transition_conflict` result before changing the binding,
+generation, clients, declarations, or other state.
+
 `enter_workspace` accepts `{ path }` (absolute) and follows this order:
 
 1. reject a non-absolute or NUL-containing path as `invalid_path`;
-2. evaluate the `enter_workspace` permission group on the submitted absolute path, before any
-   filesystem probe; this decision must obtain an allow and must not match a reject;
-3. canonicalize with `realpath` and require an existing directory;
-4. evaluate the same permission group on the canonical path; this decision must independently
+2. the runner evaluates the `enter_workspace` permission group on the submitted absolute path;
+   this decision must obtain an allow and must not match a reject;
+3. perform a read-only delivery-fence check, before any filesystem probe;
+4. canonicalize with `realpath` and require an existing directory;
+5. evaluate the same permission group on the canonical path; this decision must independently
    obtain an allow and must not match a reject, and its policy provenance is recorded like a
    derived-locator decision;
-5. if the canonical root equals the current binding, return the current state as a no-op success
+6. if the canonical root equals the current binding, return the current state as a no-op success
    without incrementing `workspace_generation`, restarting clients, or re-reading configuration;
-6. otherwise perform a fenced compare-and-set switch or initial bind in one owner-scoped
-   transaction, checking the current delivery before any effect; stop old clients only after the
-   new binding commits;
-7. discover Workspace skills and start Workspace MCP clients, adding admitted declarations to
-   the running attempt (D7-D9);
+   otherwise recheck the delivery fence in the owner-scoped transaction and perform a fenced
+   compare-and-set switch or initial bind, checking the fence before the write and stopping old
+   clients only after the new binding commits;
+7. after the fenced write commits, discover Workspace skills and start Workspace MCP clients,
+   adding admitted declarations to the running attempt (D7-D9);
 8. return the canonical root, a host-authority statement, the Workspace skill list, and each
    Workspace server's state.
 
@@ -130,8 +136,10 @@ sources, `$skill` activation, Workspace MCP clients or catalog entries, or the `
 producer. When a check fails, it immediately detaches in its own owner-scoped transaction,
 fenced by the Run's current delivery, rather than waiting for the completed-only terminal
 transaction. The transaction clears the binding, increments `workspace_generation`, and stores
-the closed `workspace_detach_reason`; the attempt carries no Workspace skills or tools and
-narrates the detach.
+the closed `workspace_detach_reason`; the attempt performs no Workspace skill activation,
+`skill://` resolution, or Workspace tools and narrates the detach. An already-frozen
+skill-catalog baseline may still list Workspace skills for that attempt; the next accepted turn's
+skill-catalog notice removes them.
 
 The causes are exhaustive and never restore the binding:
 
@@ -139,8 +147,8 @@ The causes are exhaustive and never restore the binding:
   (`executor_mismatch`);
 - `realpath(workspace_root)` no longer equals the stored canonical root
   (`root_moved`), or the root is missing or not a directory (`root_missing`);
-- the current `enter_workspace` permission group does not both allow the stored root and avoid
-  every reject (`permission_rejected`);
+- the current `enter_workspace` permission group evaluates the stored canonical root as its
+  `path` value and fails to obtain an allow or matches a reject (`permission_rejected`);
 - `enter_workspace` is no longer in `tools.allowed` (`tool_not_allowed`).
 
 The `workspace` producer consumes the stored reason for its detach notice and clears the reason
@@ -151,10 +159,13 @@ only a new successful `enter_workspace` can bind it again.
 ### D5. Tool context carries the root through an attempt-scoped cell
 
 The working root lives in an attempt-scoped mutable cell read by the runner and permission
-evaluator at dispatch. `ToolContext` is spread-copied for each call, so mutating a field on one
-copy does not propagate. `enter_workspace` and `exit_workspace` update the cell only for later
-model steps: a binding change made by a tool call takes effect from the next model step.
-Tool calls issued in the same step as an `enter_workspace` or `exit_workspace` call are
+evaluator at dispatch. The cell also carries a per-model-step transition claim. The first
+`enter_workspace` or `exit_workspace` call executed in a step claims it; a later transition call
+returns the non-fatal `workspace_transition_conflict` result without changing binding, generation,
+clients, declarations, or other state. `ToolContext` is spread-copied for each call, so mutating
+a field on one copy does not propagate. `enter_workspace` and `exit_workspace` update the cell
+only for later model steps: a binding change made by a tool call takes effect from the next model
+step. Tool calls issued in the same step as an `enter_workspace` or `exit_workspace` call are
 projected from the root committed before that step began, including a same-step `read("f")`.
 The cell is initialized only from the binding that passed D4.
 
@@ -182,6 +193,11 @@ override configured sources by name. For a bound Chat these are
 `<root>/.claude/skills`, `<root>/.agents/skills`, and `<root>/.llame/skills`, lowest first, so
 `.llame` wins. The Chat's effective skill sources feed `skill://` resolution, the turn skill
 state, and explicit `$skill` activation.
+
+During attempt preparation, a detaching attempt does not resolve these Workspace sources, activate
+`$skill`, or resolve `skill://`; its skill-catalog baseline content may already list Workspace
+skills when that baseline was frozen in the accepted-turn transaction before worker preparation.
+The next accepted turn's skill-catalog notice removes those entries.
 
 A missing, unreadable, non-directory, or over-limit Workspace skill directory contributes
 nothing and never makes the operator catalog or discovery unavailable. Workspace sources do not
@@ -217,13 +233,15 @@ An unresolvable token (an unset variable without a default or an unreadable file
 server unavailable with a diagnostic naming the variable or file location, never its value.
 Resolved values are not re-scanned, and commands and arguments are never shell-interpreted.
 
-For a Workspace server, only resolved interpolation values, except `:-default` literals, are
-added to that server's protected-value set; literal values in `env` and `headers` entries are not
-protected. Redaction is guaranteed for that server's traffic, diagnostics, entry result, and
-receipts; another tool that independently reads the same source is outside this guarantee. A
-stdio child defaults its `cwd` to the root and resolves a relative `cwd` from it. Clients reuse
-the existing client, discovery, admission, and bounds code. A malformed file, invalid server
-name, or unsupported transport leaves entry successful and reports that server as unavailable.
+For a Workspace server, every non-empty remote `headers` value, literal or interpolated, is added
+to that server's protected-value set. Resolved interpolation values in stdio `command`, `args`, or
+`env` fields are also protected except a literal supplied solely as a `:-default` fallback, while
+a literal stdio `env` value is not protected solely because it is literal. Redaction is guaranteed
+for that server's traffic, diagnostics, entry result, and receipts; another tool that independently
+reads the same source is outside this guarantee. A stdio child defaults its `cwd` to the root and
+resolves a relative `cwd` from it. Clients reuse the existing client, discovery, admission, and
+bounds code. A malformed file, invalid server name, or unsupported transport leaves entry
+successful and reports that server as unavailable.
 
 Alternative rejected: one shared client per root and server. Servers such as Playwright keep
 per-session state, which would then leak between Chats.
@@ -296,6 +314,11 @@ The tool-calling egress scenarios name Workspace MCP servers alongside operator-
 servers as the only operator-permitted external-tool path; neither source bypasses
 `tools.permissions` or receives llame tenant authority.
 
+Before invoking an MCP operation, the worker durably records its dispatch attempt through the
+native-attempt recovery path. If a worker fails after dispatch may have started and before the
+result is known, the Run recovers the operation as `outcome_unknown` (or fails the attempt
+terminally), and a queue retry does not invoke that MCP operation again.
+
 ## Risks / Trade-offs
 
 - [Mutating the SDK tool record relies on undocumented per-step reads] → pin a test at the
@@ -310,8 +333,10 @@ servers as the only operator-permitted external-tool path; neither source bypass
   check. W1/W2 are case-insensitive text rejects for `.mcp.json` and
   `.llame|.agents|.claude` paths; in-repo aliases such as symlinks can bypass those rejects, and
   there is no executor-level guard. F1-F3 remain on the `enter_workspace` group. For Workspace
-  entries, only resolved interpolation values except `:-default` literals are protected; literal
-  `env`/`headers` values are not. Values are redacted only within the owning server's traffic,
+  entries, every non-empty remote `headers` value is protected whether literal or interpolated;
+  resolved interpolation values in stdio `command`, `args`, and `env` are protected except
+  `:-default` fallback literals, while only literal stdio `env` values remain unprotected solely
+  because they are literal. Values are redacted only within the owning server's traffic,
   diagnostics, entry result, and receipts; other tools that independently read the same source
   are outside that guarantee.
 - [Retiring the attestation makes existing operator allowlists write-capable] → **BREAKING**
@@ -364,3 +389,11 @@ owner's RLS scope.
   Q10 binding authority boundary; Q11 stdio environment isolation; Q12 per-Chat MCP resolver
   isolation; Q13 complete mcp-authorization SPEC.md ownership and egress-task split; Q14 proposal
   layer review-budget exception.
+- v4 (PR #979 review) — F1 protects every non-empty Workspace remote header while leaving only
+  literal stdio `env` values unprotected; F2 records MCP dispatch attempts before invocation and
+  recovers uncertain retries as `outcome_unknown`; F3 permits at most one Workspace transition
+  per model step; F4 re-checks `enter_workspace` against the stored canonical root; F5 orders
+  the delivery-fence check before filesystem probing; F6 permits an already-frozen Workspace
+  skill-catalog baseline in a detaching attempt but no activation, `skill://` resolution, or
+  tools; F7 carries the revised MCP authorization contract through the canonical Purpose and
+  operator documentation.
