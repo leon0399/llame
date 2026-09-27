@@ -280,7 +280,7 @@ workspace_generation)`. Keep Workspace candidates and executors out of the proce
       record them in the PR body, which uses `Closes #974`.
 - [x] 6.6 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
-- [ ] 6.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 6.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before creating `finalize`.
 
 ## 7. `workspace-entry/finalize`: spec sync and archive
