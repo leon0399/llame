@@ -66,16 +66,18 @@ have the shape `{ id, use: "github", token? }`; `token`, when present, SHALL
 be an `{env:...}` or `{path:...}` interpolation token. A `rewrite` entry SHALL
 have the shape `{ id, use: "rewrite", hosts, pathPattern?, target }`, where
 `hosts` is an array of exact canonical host matches,
-`pathPattern` is an optional bounded regular expression matched against the
-canonical path, and `target` is a literal `http` or `https` origin followed by
-a path/query template. The target SHALL contain no userinfo or fragment, and
-placeholders SHALL appear only in the path or query portion: `{path}` expands
+`pathPattern` is an optional RE2-compatible regular expression compiled by
+the same bounded matcher `tools.permissions` uses, searched unanchored
+against the canonical path, and `target` is a literal `http` or `https`
+origin followed by a path/query template. The target SHALL contain no
+userinfo or fragment, and placeholders SHALL appear only in the path or
+query portion: `{path}` expands
 to the canonical path as-is and `{query}` expands to
 `encodeURIComponent` of the canonical query without `?`. No other placeholder
 is permitted.
 Unknown fields, unknown uses, duplicate ids, invalid targets, malformed
-templates, and invalid `pathPattern` values SHALL fail startup before serving
-requests.
+templates, and invalid, oversized, or unsupported `pathPattern` values SHALL
+fail startup before serving requests.
 An `{env:...}` or `{path:...}` token in any non-secret field SHALL fail startup
 naming the entry and field. A GitHub `token` SHALL be absent or use an
 interpolation token; a literal token SHALL fail boot rather than be treated as
@@ -129,7 +131,8 @@ redaction behavior for secret fields.
 
 #### Scenario: Invalid rewrite path pattern fails boot
 
-- **WHEN** a rewrite entry supplies an invalid or unbounded `pathPattern`
+- **WHEN** a rewrite entry supplies an invalid, oversized, or unsupported (for
+  example a backreference or lookbehind) `pathPattern`
 - **THEN** startup fails naming the entry and `pathPattern`
 - **AND** no partial adapter configuration is applied
 

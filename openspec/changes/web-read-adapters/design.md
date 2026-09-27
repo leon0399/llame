@@ -134,10 +134,12 @@ Failure has two shapes. When the primary request of a claimed URL fails, the
 adapter records a bounded note naming itself and the category and falls
 through to the next matching entry, then the generic ladder. When the primary
 request succeeded and a later request for the same document fails (a comment
-page, the check-runs summary, the README), the adapter renders what it has and
+page, a check-runs page, or the README), the adapter renders what it has and
 attaches one note per missing section, such as
-`review comments omitted: rate_limit, resets 2026-09-27T12:40:00Z`. No
-adapter failure returns a response body to the model.
+`review comments omitted: rate_limit, resets 2026-09-27T12:40:00Z`. For check
+runs, a failed later page leaves the loaded counts and states the unloaded
+remainder from `total_count` on the `Checks:` line; the omission note names
+check runs. No adapter failure returns a response body to the model.
 
 **Alternative rejected:** OMP's combined `SpecialHandler` returning `null` on
 both mismatch and failure. It makes a handler's precedence and failure reason
@@ -159,10 +161,12 @@ tests, and a spec delta, not a runtime plugin surface.
 derived locators. The same evaluator and projection run before each request,
 followed by the same resolver and pinned address admission. The decision does
 not inherit the source URL's allow, and an adapter request that is refused
-disqualifies only that adapter. A domain allowlist therefore must name each
-secondary origin: a rule for `^https://github\\.com/` does not admit
-`https://api.github.com/` or `https://patch-diff.githubusercontent.com/`; the
-runbook gives the clauses or explains the fallthrough.
+disqualifies only that adapter. A domain allowlist therefore must admit
+`https://api.github.com/` for the GitHub adapter to run; without it the adapter
+falls through with `permission`. The adapter never requests
+`patch-diff.githubusercontent.com`; it only renders a `Diff:` URL. That host
+is needed only when the model separately reads the rendered `Diff:` URL
+through the generic ladder, because the `.diff` URL 302-redirects there.
 
 **Alternative rejected:** Inherit the source decision. That turns a source
 allow into an egress grant and makes prompt-injected or server-chosen targets
@@ -216,7 +220,7 @@ contract that is expensive to change; the internal types are not.
 
 **Decision:** The generic HTTP client keeps the shipped rule that a non-2xx
 status returns no body and no headers other than `Retry-After`
-(`openspec/specs/native-file-tools/spec.md:968-988`). An adapter may inspect
+(`openspec/specs/native-file-tools/spec.md:1190-1196`). An adapter may inspect
 status and the bounded headers `retry-after`, `x-ratelimit-remaining`, and
 `x-ratelimit-reset`. GitHub rate limit means `429`, or `403` with
 `x-ratelimit-remaining: 0` or `retry-after`; `x-ratelimit-reset` only adds
@@ -290,16 +294,23 @@ present), `Location: path:line` and `Side:` (review comments), and `URL:`
 lines, then the body. Three lines are added to the metadata block:
 `Reviews: 2 approved, 1 changes requested (latest per reviewer)` in place of
 OMP's `Review decision`, `Checks: 14 passed, 1 failed (lint), 2 pending` from
-one `GET /repos/{o}/{r}/commits/{head_sha}/check-runs` request reduced to
-counts, and `Diff: https://github.com/{o}/{r}/pull/{n}.diff`. `Merge state`
-renders `mergeable_state` as returned, including `unknown`. Minimized comments
-render like any other comment. There is no events section.
+all pages of `GET /repos/{o}/{r}/commits/{head_sha}/check-runs` requested with
+`per_page=100`, reduced to counts, and `Diff: https://github.com/{o}/{r}/pull/{n}.diff`.
+If not every check-runs page arrives, the rendered `Checks:` line states the
+unloaded remainder from `total_count` (for example
+`Checks: 14 passed, 1 failed (lint), 2 pending, 9 not loaded`), and an
+omission note names check runs. `Merge state` renders `mergeable_state` as
+returned, including `unknown`. Minimized comments render like any other
+comment. There is no events section.
 
 Endpoints: `GET /repos/{o}/{r}/issues/{n}` plus all pages of
 `/issues/{n}/comments`; `GET /repos/{o}/{r}/pulls/{n}` plus all pages of
 `/issues/{n}/comments`, `/pulls/{n}/reviews`, `/pulls/{n}/comments`, and
-`/pulls/{n}/files`, plus the check-runs summary. All requests carry
-`Accept: application/vnd.github+json` and are `GET`.
+`/pulls/{n}/files`, plus all pages of `/commits/{head_sha}/check-runs`
+requested with `per_page=100`. All requests carry `Accept:
+application/vnd.github+json` and are `GET`.
+The check-runs pages use the shared call deadline and 5 MiB document bound
+like every other list.
 
 **Alternative rejected:** GraphQL for `reviewThreads` resolution state and
 `reviewDecision`. It needs a token the default configuration lacks, a `POST`
@@ -311,10 +322,12 @@ levels and Reddit threads do not. Rendering patches inline or claiming
 model there.
 
 **Consequence:** Token and no-token output have the same shape. The model
-learns one layout for GitHub that it may already know from OMP. The
-`patch-diff.githubusercontent.com` redirect target of `.diff` joins the
-allowlist runbook clause. The `/pull/{n}.diff` and `.patch` shapes are
-unclaimed on purpose, and the grammar says so.
+learns one layout for GitHub that it may already know from OMP. The adapter
+never requests `patch-diff.githubusercontent.com`; it only renders the
+`Diff:` URL. When the model separately reads that URL through the generic
+ladder, the `.diff` URL 302-redirects to that host, so its admission is
+needed then. The `/pull/{n}.diff` and `.patch` shapes are unclaimed on
+purpose, and the grammar says so.
 
 ### D10: Read code through the contents and trees endpoints, in the local listing shape
 
@@ -377,8 +390,10 @@ path. The spec records it as a scenario.
 
 ### D12: Rewrite is a bounded local route with two placeholders
 
-**Decision:** A `rewrite` entry declares exact canonical `hosts`, an optional
-`pathPattern` regular expression on the canonical path, and a `target`: a
+**Decision:** A `rewrite` entry declares exact canonical `hosts` and an
+optional `pathPattern`. When present, `pathPattern` is an RE2-compatible
+regular expression compiled by the same bounded matcher `tools.permissions`
+uses, searched unanchored against the canonical path. Its `target` is a
 literal `http(s)` origin with no placeholder in scheme, host, or port, no
 userinfo, and no fragment, followed by a path/query template. `{path}` is
 allowed only in the path and inserts the canonical source path as-is;
@@ -411,9 +426,10 @@ required unique `id` and a `use` of `github` or `rewrite`; the `contract`
 layer accepts `rewrite` only and `github-threads` adds `github`. The GitHub
 `token` uses the existing interpolation resolver; a literal token fails boot.
 Non-secret fields (`hosts`, `pathPattern`, `target`) are validated as
-authored and an interpolation token in them fails boot. Unknown uses,
-duplicate ids, unknown fields, and invalid targets or patterns fail boot
-before any request.
+authored; `pathPattern` uses the same bounded matcher as `tools.permissions`
+and is searched unanchored against the canonical path, while an interpolation
+token in them fails boot. Unknown uses, duplicate ids, unknown fields, and
+invalid, oversized, or unsupported patterns fail boot before any request.
 
 **Alternative rejected:** Enabling `github` when the key is absent. It would
 make an upgrade start contacting `api.github.com` on every instance with an
@@ -449,9 +465,12 @@ group and address admission. The adapter layer adds no host bypass, no
 universal private-address block, and no publisher trust claim.
 
 **Consequence:** Operators using domain allowlists must list
-`api.github.com`, `patch-diff.githubusercontent.com`, and each rewrite
-origin. A model can still request an allowed exfiltration URL by design; the
-runbook states that `read` policy is the outbound boundary.
+`api.github.com` for GitHub adapter use and each rewrite origin.
+`patch-diff.githubusercontent.com` is needed only when the model separately
+reads the rendered `Diff:` URL through the generic ladder, because the
+`.diff` URL 302-redirects there. A model can still request an allowed
+exfiltration URL by design; the runbook states that `read` policy is the
+outbound boundary.
 
 ### D16: Resolve the #939 acceptance narrowing as cross-issue bookkeeping
 

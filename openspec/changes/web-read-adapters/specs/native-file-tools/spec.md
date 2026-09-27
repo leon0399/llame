@@ -726,8 +726,9 @@ SHALL request `/repos/{owner}/{repo}/pulls/{number}` and every page of
 `/repos/{owner}/{repo}/issues/{number}/comments`,
 `/repos/{owner}/{repo}/pulls/{number}/reviews`,
 `/repos/{owner}/{repo}/pulls/{number}/comments`, and
-`/repos/{owner}/{repo}/pulls/{number}/files`, plus the first page of
-`/repos/{owner}/{repo}/commits/{head_sha}/check-runs`. The whole document
+`/repos/{owner}/{repo}/pulls/{number}/files`, and every page of
+`/repos/{owner}/{repo}/commits/{head_sha}/check-runs` requested with
+`per_page=100`. The whole document
 SHALL be loaded before rendering, subject to the shared call deadline and the
 5 MiB document bound; the model SHALL page the rendered text with the ordinary
 `:N-M` selector, and each read SHALL refetch.
@@ -740,9 +741,12 @@ provided.`, then `## Comments ({n})`. The pull request view SHALL render
 `Head`, `Reviews` as latest-per-reviewer counts (for example
 `Reviews: 2 approved, 1 changes requested (latest per reviewer)`),
 `Merge state` as the `mergeable_state` value returned, including `unknown`,
-`Checks` as counts from the check-runs summary (for example
-`Checks: 14 passed, 1 failed (lint), 2 pending`), `Created`, `Updated`,
-`Labels`, `URL`, and `Diff: https://github.com/{owner}/{repo}/pull/{number}.diff`,
+`Checks:` as counts from all check-runs pages requested with `per_page=100`
+(for example `Checks: 14 passed, 1 failed (lint), 2 pending`); if not every
+page arrives, the rendered `Checks:` line SHALL state the unloaded remainder
+from `total_count` (for example `Checks: 14 passed, 1 failed (lint), 2
+pending, 9 not loaded`), and an omission note SHALL name check runs; `Created`,
+`Updated`, `Labels`, `URL`, and `Diff: https://github.com/{owner}/{repo}/pull/{number}.diff`,
 then `## Body`, `## Files ({n})` listing every changed file with its status
 and added/deleted counts, `## Reviews ({n})`, `## Review Comments ({n})`, and
 `## Comments ({n})`. Every comment, review, and review comment SHALL be one
@@ -772,8 +776,11 @@ limits are not permission errors and SHALL not be retried.
 #### Scenario: A pull request view carries Reviews, Checks, and Diff lines
 
 - **WHEN** the model reads `https://github.com/o/r/pull/12`
-- **THEN** the metadata block has `Reviews:` counts per latest review, `Merge state` as returned, `Checks:` counts from one check-runs request, and `Diff: https://github.com/o/r/pull/12.diff`
-- **AND** the `## Review Comments` items carry `Reply to` and `Location` lines instead of nested headings
+- **THEN** the metadata block has `Reviews:` counts per latest review,
+  `Merge state` as returned, `Checks:` counts from all check-runs pages
+  requested with `per_page=100`, and `Diff: https://github.com/o/r/pull/12.diff`
+- **AND** the `## Review Comments` items carry `Reply to` and `Location` lines
+  instead of nested headings
 
 #### Scenario: An unauthenticated GitHub read sends no token
 
@@ -804,6 +811,17 @@ limits are not permission errors and SHALL not be retried.
 - **WHEN** the pull request request succeeded and the third review-comment page answers `403` with `x-ratelimit-remaining: 0`
 - **THEN** the metadata, body, files, reviews, loaded review comments, and comments are rendered
 - **AND** a note states that review comments were omitted with `rate_limit` and the reset time
+
+#### Scenario: Check runs load every page and report an unloaded remainder
+
+- **WHEN** a pull request's check-runs `total_count` exceeds one page at
+  `per_page=100` and a later check-runs page fails after the pull request
+  request succeeds
+- **THEN** every check-runs page is requested with `per_page=100`, and every
+  page that arrives is counted
+- **AND** the failed later page leaves the loaded counts rendered, the
+  `Checks:` line states the unloaded remainder from `total_count` as `N not
+loaded`, and an omission note names check runs
 
 #### Scenario: Private content without a token is not claimed
 
@@ -907,19 +925,21 @@ to split SHALL be a `status` failure.
 ### Requirement: Operator rewrite adapters are validated and opt-in
 
 A `rewrite` adapter entry SHALL be enabled only when an operator declares it.
-Its `hosts` SHALL be exact canonical host matches and its optional
-`pathPattern` SHALL be a bounded regular expression evaluated against the
-canonical path. Its `target` SHALL be a literal `http` or `https` origin
+Its `hosts` SHALL be exact canonical host matches. Its optional
+`pathPattern` SHALL be an RE2-compatible regular expression compiled by the
+same bounded matcher `tools.permissions` uses, searched unanchored against
+the canonical path. Its `target` SHALL be a literal `http` or `https` origin
 containing no placeholder, userinfo, or fragment, followed by a path/query
 template in which only `{path}` and `{query}` occur: `{path}` is allowed only
 in the path and inserts the canonical source path as-is; `{query}` inserts
 `encodeURIComponent` of the canonical query without its `?`. Boot SHALL
 reject any other placeholder, a placeholder in the scheme, host, or port, a
-non-http(s) target, userinfo, a fragment, a malformed template, or an invalid
-`pathPattern`. Per call the target SHALL be rebuilt from the template,
-revalidated against the declared origin and literal path prefix, admitted,
-and address-pinned, then fetched once through the negotiated/text or
-Readability stages only; no alternate, suffix, or `llms.txt` probe SHALL run,
+non-http(s) target, userinfo, a fragment, a malformed template, or an invalid,
+oversized, or unsupported `pathPattern`. Per call the target SHALL be rebuilt
+from the template, revalidated against the declared origin and literal path
+prefix, admitted, and address-pinned, then fetched once through the
+negotiated/text or Readability stages only; no alternate, suffix, or
+`llms.txt` probe SHALL run,
 and a raw, challenge, or failed render SHALL fall through. The result SHALL
 keep the source URL as `finalUrl`, report `method: "adapter"` with route
 `rewrite` and the declared origin, and note that content came through the
