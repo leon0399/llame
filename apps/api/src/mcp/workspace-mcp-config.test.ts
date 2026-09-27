@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -75,6 +75,12 @@ describe('readWorkspaceMcpConfig', () => {
     expect(remote.definition).toEqual({
       url: 'https://example.test/mcp',
     });
+    expect(Object.hasOwn(base.definition, 'args')).toBe(false);
+    expect(Object.hasOwn(base.definition, 'env')).toBe(false);
+    expect(Object.hasOwn(remote.definition, 'headers')).toBe(false);
+    expect(
+      entries.find((entry) => entry.id === '.llame/mcp.json'),
+    ).toBeUndefined();
     expect(shared.protectedValues).toEqual([]);
     expect(base.protectedValues).toEqual([]);
     expect(remote.protectedValues).toEqual([]);
@@ -186,6 +192,7 @@ describe('readWorkspaceMcpConfig', () => {
     expect(local.reason).toContain('INHERITED');
     expect(local.reason).not.toContain('inherited-secret');
   });
+
   it('reports malformed entries, names, and transports without rejecting the file', async () => {
     const root = await workspace();
     await writeJson(path.join(root, '.mcp.json'), {
@@ -193,7 +200,22 @@ describe('readWorkspaceMcpConfig', () => {
         valid: { command: 'server' },
         'bad.name': { command: 'server' },
         unsupported: { type: 'sse', url: 'https://example.test/mcp' },
+        primitive: null,
+        missingTransport: { url: 'https://example.test/mcp' },
+        invalidTransport: { type: {}, url: 'https://example.test/mcp' },
         malformed: { type: 'stdio', command: '' },
+        badArgs: { command: 'server', args: ['valid', 1] },
+        badEnv: { command: 'server', env: 'bad' },
+        badEnvValue: { command: 'server', env: { TOKEN: 1 } },
+        emptyEnvName: { command: 'server', env: { '': 'value' } },
+        badCwd: { command: 'server', cwd: 1 },
+        unknownStdio: { command: 'server', shell: true },
+        unknownRemote: {
+          type: 'http',
+          url: 'https://example.test/mcp',
+          extra: true,
+        },
+        httpWithCommand: { type: 'http', command: 'server' },
       },
     });
 
@@ -205,8 +227,41 @@ describe('readWorkspaceMcpConfig', () => {
     expect(unavailable(entries, 'unsupported').reason).toContain(
       'unsupported transport sse',
     );
+    expect(unavailable(entries, 'missingTransport').reason).toContain(
+      'unsupported transport missing',
+    );
+    expect(unavailable(entries, 'invalidTransport').reason).toContain(
+      'unsupported transport invalid',
+    );
     expect(unavailable(entries, 'malformed').reason).toContain(
       'command must be a non-empty string',
+    );
+    expect(unavailable(entries, 'badArgs').reason).toContain(
+      'args must be an array of strings',
+    );
+    expect(unavailable(entries, 'badEnv').reason).toContain(
+      'env must be an object',
+    );
+    expect(unavailable(entries, 'badEnvValue').reason).toContain(
+      'env.TOKEN must be a string',
+    );
+    expect(unavailable(entries, 'emptyEnvName').reason).toContain(
+      'env. must be a string',
+    );
+    expect(unavailable(entries, 'primitive').reason).toContain(
+      'invalid server entry',
+    );
+    expect(unavailable(entries, 'badCwd').reason).toContain(
+      'cwd must be a string',
+    );
+    expect(unavailable(entries, 'unknownStdio').reason).toContain(
+      'unknown field shell',
+    );
+    expect(unavailable(entries, 'unknownRemote').reason).toContain(
+      'unknown field extra',
+    );
+    expect(unavailable(entries, 'httpWithCommand').reason).toContain(
+      'unknown field command',
     );
   });
 
@@ -222,62 +277,115 @@ describe('readWorkspaceMcpConfig', () => {
     expect(unavailable(entries, '.mcp.json').reason).toContain('malformed');
   });
 
-  it('resolves relative cwd and path tokens from the workspace root', async () => {
+  it('reports file read and parsed-shape failures with precise diagnostics', async () => {
     const root = await workspace();
-    const outside = path.join(
-      path.dirname(root),
-      'workspace-mcp-outside-secret.txt',
+    await mkdir(path.join(root, '.mcp.json'));
+    const readFailure = await readWorkspaceMcpConfig(root, {});
+    expect(unavailable(readFailure, '.mcp.json').reason).toContain(
+      'could not be read',
     );
-    await writeFile(outside, 'outside-secret', 'utf8');
-    await writeJson(path.join(root, '.mcp.json'), {
-      mcpServers: {
-        local: {
-          command: 'server',
-          cwd: 'nested/dir',
-          args: ['{path:../workspace-mcp-outside-secret.txt}'],
-        },
-      },
-    });
+    await rm(path.join(root, '.mcp.json'), { recursive: true });
 
-    const entries = await readWorkspaceMcpConfig(root, {});
-    const local = configured(entries, 'local');
-    if (local.definition.transport !== 'stdio') {
-      throw new Error('expected a stdio definition');
-    }
-    expect(local.definition.cwd).toBe(path.join(root, 'nested', 'dir'));
-    expect(local.definition.args).toEqual(['outside-secret']);
-    expect(local.protectedValues).toEqual(['outside-secret']);
-    await readFile(outside, 'utf8');
+    await writeFile(path.join(root, '.mcp.json'), JSON.stringify([]), 'utf8');
+    const arrayFile = await readWorkspaceMcpConfig(root, {});
+    expect(unavailable(arrayFile, '.mcp.json').reason).toContain(
+      'must contain an object',
+    );
+
+    await writeJson(path.join(root, '.mcp.json'), { mcpServers: 'bad' });
+    const badWrapper = await readWorkspaceMcpConfig(root, {});
+    expect(unavailable(badWrapper, '.mcp.json').reason).toContain(
+      'has an invalid mcpServers object',
+    );
+    expect(
+      badWrapper.find((entry) => entry.id === '.llame/mcp.json'),
+    ).toBeUndefined();
   });
 
-  it('leaves literal stdio env values unprotected and keeps default cwd at root', async () => {
+  it('rejects malformed remote URLs and header configurations', async () => {
     const root = await workspace();
     await writeJson(path.join(root, '.mcp.json'), {
       mcpServers: {
-        local: {
-          command: 'server',
-          env: { PLAIN: 'literal-value', FALLBACK: '${MISSING:-fallback}' },
+        blankUrl: { type: 'http', url: '   ' },
+        ftpUrl: { type: 'http', url: 'ftp://example.test/mcp' },
+        userInfo: { type: 'http', url: 'https://user:pass@example.test/mcp' },
+        badHeaderName: {
+          type: 'http',
+          url: 'https://example.test/mcp',
+          headers: { 'bad header': 'value' },
+        },
+        collidingHeaders: {
+          type: 'http',
+          url: 'https://example.test/mcp',
+          headers: { Foo: 'one', foo: 'two' },
+        },
+        ownedHeader: {
+          type: 'http',
+          url: 'https://example.test/mcp',
+          headers: { Accept: 'value' },
+        },
+        nonStringHeader: {
+          type: 'http',
+          url: 'https://example.test/mcp',
+          headers: { Token: 1 },
+        },
+        blankHeader: {
+          type: 'http',
+          url: 'https://example.test/mcp',
+          headers: { Token: '   ' },
         },
       },
     });
 
     const entries = await readWorkspaceMcpConfig(root, {});
-    const local = configured(entries, 'local');
-    if (local.definition.transport !== 'stdio') {
-      throw new Error('expected a stdio definition');
-    }
-    expect(local.definition.cwd).toBe(root);
-    expect(local.definition.env).toEqual({
-      PLAIN: 'literal-value',
-      FALLBACK: 'fallback',
+    expect(unavailable(entries, 'blankUrl').reason).toContain(
+      'url must be a non-empty string',
+    );
+    expect(unavailable(entries, 'ftpUrl').reason).toContain(
+      'absolute http or https URL',
+    );
+    expect(unavailable(entries, 'userInfo').reason).toContain(
+      'without userinfo',
+    );
+    expect(unavailable(entries, 'badHeaderName').reason).toContain(
+      'invalid header bad header',
+    );
+    expect(unavailable(entries, 'collidingHeaders').reason).toContain(
+      'header names collide',
+    );
+    expect(unavailable(entries, 'ownedHeader').reason).toContain(
+      'transport-owned header Accept',
+    );
+    expect(unavailable(entries, 'nonStringHeader').reason).toContain(
+      'header Token must be a string',
+    );
+    expect(unavailable(entries, 'blankHeader').reason).toContain(
+      'header Token must be non-empty',
+    );
+  });
+
+  it('rejects empty interpolated protected values without adding empty secrets', async () => {
+    const root = await workspace();
+    await writeJson(path.join(root, '.mcp.json'), {
+      mcpServers: {
+        local: { command: 'server', args: ['${EMPTY}'] },
+      },
     });
+
+    const entries = await readWorkspaceMcpConfig(root, { EMPTY: '' });
+    const local = configured(entries, 'local');
     expect(local.protectedValues).toEqual([]);
+    if (local.definition.transport !== 'stdio') {
+      throw new Error('expected a stdio definition');
+    }
+    expect(local.definition.args).toEqual(['']);
   });
 
-  it('protects a literal remote Authorization header', async () => {
+  it('protects literal Authorization and accepts valid HTTP URLs', async () => {
     const root = await workspace();
     await writeJson(path.join(root, '.mcp.json'), {
       mcpServers: {
+        http: { type: 'http', url: 'http://example.test/mcp' },
         remote: {
           type: 'http',
           url: 'https://example.test/mcp',
@@ -287,7 +395,15 @@ describe('readWorkspaceMcpConfig', () => {
     });
 
     const entries = await readWorkspaceMcpConfig(root, {});
-    const remote = configured(entries, 'remote');
-    expect(remote.protectedValues).toEqual(['literal-authorization']);
+    expect(configured(entries, 'http').definition).toEqual({
+      url: 'http://example.test/mcp',
+    });
+    expect(configured(entries, 'remote').definition).toEqual({
+      url: 'https://example.test/mcp',
+      headers: { Authorization: 'literal-authorization' },
+    });
+    expect(configured(entries, 'remote').protectedValues).toEqual([
+      'literal-authorization',
+    ]);
   });
 });

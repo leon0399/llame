@@ -610,6 +610,113 @@ describe('RunExecutionService executeRun', () => {
     );
     await expect(result.text).resolves.toBe('answer');
   });
+  it('keeps Workspace binding metadata live until exit disables the tool', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    const root = mkdtempSync(
+      path.join(tmpdir(), 'workspace-binding-metadata-'),
+    );
+    const operator = new McpRuntimeService({});
+    const workspaceExecute = vi.fn(() =>
+      Promise.resolve({
+        disposition: 'none' as const,
+        result: { status: 'success' as const, value: 'workspace' },
+      }),
+    );
+    const workspaceMcp = new WorkspaceMcpClients(operator, {
+      readConfig: () =>
+        Promise.resolve([
+          {
+            id: 'web',
+            state: 'configured' as const,
+            definition: { url: 'https://workspace.example.test/mcp' },
+            protectedValues: [],
+          },
+        ]),
+      clientFactory: () =>
+        Promise.resolve({
+          discover: () =>
+            Promise.resolve({
+              tools: [
+                {
+                  definition: {
+                    id: 'mcp__web__search',
+                    remoteName: 'search',
+                    description: 'Workspace search.',
+                    inputSchema: { type: 'object', properties: {} },
+                  },
+                  execute: workspaceExecute,
+                },
+              ],
+              refused: [],
+            }),
+          close: () => Promise.resolve(),
+        }),
+    });
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: root,
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+    });
+    vi.spyOn(
+      WorkspaceBindingRepository.prototype,
+      'isCurrentDelivery',
+    ).mockResolvedValue(true);
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'exit').mockResolvedValue({
+      status: 'cleared',
+      previousRoot: root,
+      generation: 5,
+    });
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+      {
+        allowed: ['enter_workspace', 'exit_workspace', 'mcp__web__search'],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          'exit_workspace',
+          'mcp__web__search',
+        ]),
+        workspaceMcp,
+      },
+    );
+
+    try {
+      await execution.service.executeRun(executionInput(capturing.client));
+      const options = capturing.streamOptions();
+      const workspace = options.tools?.['mcp__web__search'];
+      const exit = options.tools?.exit_workspace;
+      if (workspace?.execute === undefined || exit?.execute === undefined) {
+        throw new Error('expected Workspace MCP and exit tools');
+      }
+
+      expect(
+        await workspace.execute(
+          {},
+          { toolCallId: 'workspace-before-exit', messages: [] },
+        ),
+      ).toMatchObject({ status: 'success', value: 'workspace' });
+      await exit.execute({}, { toolCallId: 'exit-workspace', messages: [] });
+      expect(
+        await workspace.execute(
+          {},
+          { toolCallId: 'workspace-after-exit', messages: [] },
+        ),
+      ).toMatchObject({ status: 'error', type: 'not_available' });
+
+      expect(workspaceExecute).toHaveBeenCalledOnce();
+    } finally {
+      await workspaceMcp.onModuleDestroy();
+      await operator.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('passes WorkspaceMcpClients through the production ToolContext', async () => {
     vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
       undefined,
@@ -678,6 +785,66 @@ describe('RunExecutionService executeRun', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+  it('stops Workspace MCP clients when the Run has no bound Workspace', async () => {
+    mockNormalExecutionRepositories();
+    const operator = new McpRuntimeService({});
+    const workspaceMcp = new WorkspaceMcpClients(operator, {
+      readConfig: () => Promise.resolve([]),
+    });
+    const stopForChat = vi.spyOn(workspaceMcp, 'stopForChat');
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      { workspaceMcp },
+    );
+
+    try {
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      expect(stopForChat).toHaveBeenCalledOnce();
+      expect(stopForChat).toHaveBeenCalledWith(chatId);
+    } finally {
+      await workspaceMcp.onModuleDestroy();
+      await operator.stop();
+    }
+  });
+  it('ends a Workspace attempt only once when its release callback repeats', async () => {
+    mockNormalExecutionRepositories();
+    const operator = new McpRuntimeService({});
+    const workspaceMcp = new WorkspaceMcpClients(operator, {
+      readConfig: () => Promise.resolve([]),
+    });
+    const endAttempt = vi.spyOn(workspaceMcp, 'endAttempt');
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      { workspaceMcp },
+    );
+
+    try {
+      await execution.service.executeRun(executionInput(capturing.client));
+      const options = capturing.streamOptions();
+      const finish = {
+        text: 'answer',
+        usage: ZERO_USAGE,
+        finishReason: 'stop' as const,
+        stepCount: 1,
+      };
+      await options.onFinish?.(finish);
+      await options.onFinish?.(finish);
+      expect(endAttempt).toHaveBeenCalledOnce();
+      expect(endAttempt).toHaveBeenCalledWith(chatId);
+    } finally {
+      await workspaceMcp.onModuleDestroy();
+      await operator.stop();
+    }
+  });
+
   it('releases clients from an unbound executeRun after enter_workspace', async () => {
     mockNormalExecutionRepositories();
     const root = mkdtempSync(path.join(tmpdir(), 'workspace-unbound-hold-'));

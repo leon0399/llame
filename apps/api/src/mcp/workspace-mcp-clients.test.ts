@@ -235,6 +235,123 @@ describe('WorkspaceMcpClients', () => {
     await provider.onModuleDestroy();
     await runtime.stop();
   });
+  it('treats generation as part of stale-key identity when the root is unchanged', async () => {
+    const { runtime } = operatorRuntime();
+    const { provider, clients } = workspaceProvider(runtime, () => [
+      config('web', 'same-root'),
+    ]);
+    const oldKey = key('chat-1', '/same-root', 1);
+    const newKey = key('chat-1', '/same-root', 2);
+    await provider.startForChat(oldKey);
+    await provider.startForChat(newKey);
+    expect(clients[0]?.close).toHaveBeenCalledOnce();
+    expect(provider.stateForKey(oldKey)).toBeUndefined();
+    expect(provider.stateForKey(newKey)).toBeDefined();
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
+  it('reports a configuration read failure as an unavailable Workspace server', async () => {
+    const { runtime } = operatorRuntime();
+    const provider = new WorkspaceMcpClients(runtime, {
+      readConfig: () => Promise.reject(new Error('read failed')),
+    });
+    const state = await provider.startForChat(key('chat-1', '/unreadable'));
+    expect(state.servers).toEqual([
+      {
+        id: 'workspace',
+        state: 'unavailable',
+        reason: 'Workspace MCP configuration unavailable',
+      },
+    ]);
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
+  it('reports an unavailable config entry without starting a client', async () => {
+    const { runtime } = operatorRuntime();
+    const provider = new WorkspaceMcpClients(runtime, {
+      readConfig: () =>
+        Promise.resolve([
+          {
+            id: 'bad',
+            state: 'unavailable' as const,
+            reason: 'invalid server entry',
+          },
+        ]),
+    });
+    const state = await provider.startForChat(key('chat-1', '/bad-entry'));
+    expect(state.servers).toEqual([
+      { id: 'bad', state: 'unavailable', reason: 'invalid server entry' },
+    ]);
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+  it('reuses a matching key without rereading or restarting its clients', async () => {
+    const { runtime } = operatorRuntime();
+    const readConfig = vi.fn(() =>
+      Promise.resolve([config('web', 'same-key')]),
+    );
+    const clients: Array<FakeClient> = [];
+    const provider = new WorkspaceMcpClients(runtime, {
+      readConfig,
+      clientFactory: (input) => {
+        const created = client(input.serverId, 'same-key');
+        clients.push(created);
+        return Promise.resolve(created);
+      },
+    });
+    const current = key('chat-1', '/same', 1);
+    await provider.startForChat(current);
+    await provider.startForChat(current);
+    expect(readConfig).toHaveBeenCalledOnce();
+    expect(clients).toHaveLength(1);
+    await provider.onModuleDestroy();
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
+  it('shares an in-flight matching start between concurrent callers', async () => {
+    const { runtime } = operatorRuntime();
+    const pending = deferred<FakeClient>();
+    let factoryCalls = 0;
+    const provider = new WorkspaceMcpClients(runtime, {
+      readConfig: () => Promise.resolve([config('web', 'pending')]),
+      clientFactory: () => {
+        factoryCalls += 1;
+        return pending.promise;
+      },
+    });
+    const current = key('chat-1', '/pending', 1);
+    const first = provider.startForChat(current);
+    await vi.waitFor(() => expect(factoryCalls).toBe(1));
+    const second = provider.startForChat(current);
+    pending.resolve(client('web', 'pending'));
+    const [firstState, secondState] = await Promise.all([first, second]);
+    expect(firstState.key).toEqual(current);
+    expect(secondState.key).toEqual(current);
+    expect(factoryCalls).toBe(1);
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+  it('reports each configured server from the matching runtime state', async () => {
+    const { runtime } = operatorRuntime();
+    const provider = new WorkspaceMcpClients(runtime, {
+      readConfig: () =>
+        Promise.resolve([config('bad', 'bad'), config('web', 'good')]),
+      clientFactory: (input) =>
+        input.serverId === 'bad'
+          ? Promise.reject(new Error('bad server'))
+          : Promise.resolve(client(input.serverId, 'good')),
+    });
+    const state = await provider.startForChat(key('chat-1', '/mixed'));
+    expect(state.servers).toEqual([
+      { id: 'bad', state: 'unavailable', reason: 'source_disconnected' },
+      { id: 'web', state: 'available' },
+    ]);
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
 
   it('defers byte-equal shadowing while retaining operator declarations', async () => {
     const { runtime } = operatorRuntime('web');
@@ -429,10 +546,12 @@ describe('WorkspaceMcpClients', () => {
     provider.beginAttempt(oldKey);
     await provider.startForChat(newKey);
     provider.transferAttempt('chat-1', newKey);
+    provider.transferAttempt('chat-1', newKey);
     now += 30 * 60 * 1e3;
     provider.cleanupIdle();
     await Promise.resolve();
     expect(clients[1]?.close).not.toHaveBeenCalled();
+    provider.endAttempt('chat-1');
     provider.endAttempt('chat-1');
     now += 30 * 60 * 1e3;
     provider.cleanupIdle();
