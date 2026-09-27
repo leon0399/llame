@@ -17,6 +17,7 @@ import type { RunStreamResponder } from '../runs/run-stream-bridge';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
+  PermissionModeNotAvailableError,
 } from '../models/models.service';
 
 const chat: Chat = {
@@ -519,9 +520,10 @@ describe('ChatsController', () => {
     });
     chatLoopService.createMessageStream.mockResolvedValue(streamResult);
 
-    const userMessageId = '0910fd41-1f2f-49de-b1c2-00ff4b3c7c60';
+    const userMessageId = '33333333-3333-3333-3333-333333333333';
     const input = {
       modelId: 'system:openai:gpt-5.4-mini',
+      permissionMode: 'bypass' as const,
       userId: 'attacker',
       message: {
         id: userMessageId,
@@ -541,12 +543,64 @@ describe('ChatsController', () => {
       chatId: chat.id,
       userId: 'verified-user',
       modelId: 'system:openai:gpt-5.4-mini',
+      permissionMode: 'bypass' as const,
       message: {
         id: userMessageId,
         parts: [{ type: 'text', text: 'Hello' }],
       },
     });
     expect(call.abortSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('does not forward an omitted permission mode to the chat loop', async () => {
+    const { controller, chatLoopService } = makeController();
+    const streamResult = streamText({
+      model: new MockLanguageModelV3({
+        provider: 'test',
+        modelId: 'test',
+        doStream: {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(stream) {
+              stream.enqueue({ type: 'stream-start', warnings: [] });
+              stream.enqueue({
+                type: 'finish',
+                finishReason: { unified: 'stop', raw: undefined },
+                usage: {
+                  inputTokens: {
+                    total: 0,
+                    noCache: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                  },
+                  outputTokens: { total: 0, text: 0, reasoning: 0 },
+                },
+              });
+              stream.close();
+            },
+          }),
+          response: {},
+        },
+      }),
+      messages: [{ role: 'user', content: 'Hello' }],
+    });
+    chatLoopService.createMessageStream.mockResolvedValue(streamResult);
+
+    await controller.createMessage(
+      'verified-user',
+      chat.id,
+      {
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: '44444444-4444-4444-4444-444444444444',
+          parts: [{ type: 'text' as const, text: 'Hello' }],
+        },
+      },
+      makeWritableResponse(),
+    );
+
+    expect(chatLoopService.createMessageStream).toHaveBeenCalledTimes(1);
+    const [call] = chatLoopService.createMessageStream.mock.calls[0];
+    expect(call).not.toHaveProperty('permissionMode');
   });
 
   it('maps unavailable model errors to the standard 422 body', async () => {
@@ -575,6 +629,37 @@ describe('ChatsController', () => {
         error: 'Unprocessable Entity',
         message: "Model 'missing-model' is not available.",
         code: 'model_not_available',
+      },
+    });
+  });
+
+  it('maps unavailable permission modes to the standard 422 body', async () => {
+    const { controller, chatLoopService } = makeController();
+    chatLoopService.createMessageStream.mockRejectedValue(
+      new PermissionModeNotAvailableError('bypass'),
+    );
+
+    await expect(
+      controller.createMessage(
+        'verified-user',
+        chat.id,
+        {
+          modelId: 'system:openai:gpt-5.4-mini',
+          permissionMode: 'bypass' as const,
+          message: {
+            id: '1910fd41-1f2f-49de-b1c2-00ff4b3c7c61',
+            parts: [{ type: 'text', text: 'Hello' }],
+          },
+        },
+        makeWritableResponse(),
+      ),
+    ).rejects.toMatchObject({
+      status: 422,
+      response: {
+        statusCode: 422,
+        error: 'Unprocessable Entity',
+        message: "Permission mode 'bypass' is not available.",
+        code: 'permission_mode_not_available',
       },
     });
   });

@@ -18,6 +18,7 @@ import { SessionAuthGuard } from './auth/session-auth.guard';
 import { KnowledgeModule } from './knowledge/knowledge.module';
 import { SkillsModule } from './skills/skills.module';
 import { CanonicalSearchActivationService } from './search/canonical-search-activation.service';
+import { PermissionModesModule } from './permission-modes/permission-modes.module';
 
 // Global per-IP request ceiling per minute. Env-tunable for the same reason
 // AUTH_RATE_LIMIT_PER_MINUTE is (auth/constants.ts): the browser e2e harness
@@ -58,6 +59,7 @@ const API_RATE_LIMIT_PER_MINUTE = (() => {
     SearchModule,
     IdentityModule,
     KnowledgeModule,
+    PermissionModesModule,
     SkillsModule,
   ],
   controllers: [AppController],

@@ -3,6 +3,7 @@ import pino from 'pino';
 
 import type { TokenPrice } from '../models/model-catalog';
 import type { BillingMode } from '../models/model-client';
+import type { PermissionMode } from '../tools/permissions/permission-mode';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
 export type { TokenPrice };
@@ -32,6 +33,8 @@ export type TurnTelemetry = {
    * the model's declared levels or default change later.
    */
   effort?: string;
+  /** Effective permission mode for this attempt; default is omitted. */
+  permissionMode?: PermissionMode;
   latencyMs: number;
   finishReason: FinishReason | null;
   status: TurnStatus;
@@ -69,6 +72,7 @@ export type AggregateTurnTelemetryInput = Omit<
   BuildTurnTelemetryInput,
   'usage'
 > & {
+  permissionMode?: PermissionMode;
   receipts: ReadonlyArray<LanguageModelUsage>;
   stepCount?: number;
 };
@@ -95,12 +99,10 @@ export const turnTelemetryLogger = pino({
   enabled: process.env.NODE_ENV !== 'test',
 });
 
-export function buildTurnTelemetry(
-  input: BuildTurnTelemetryInput,
-): PerRequestTurnTelemetry {
-  const inputTokens = tokenCount(input.usage?.inputTokens);
+function resolveTurnTokenCounts(usage: BuildTurnTelemetryInput['usage']) {
+  const inputTokens = tokenCount(usage?.inputTokens);
   const cachedInputTokens = Math.min(
-    tokenCount(input.usage?.cachedInputTokens),
+    tokenCount(usage?.cachedInputTokens),
     inputTokens,
   );
   // Cache-creation tokens the provider bills, read from the AI SDK's
@@ -109,17 +111,39 @@ export function buildTurnTelemetry(
   // input total, so an inconsistent provider report can never make the priced
   // subsets exceed the input they are subtracted from.
   const cacheWriteTokens = Math.min(
-    tokenCount(input.usage?.inputTokenDetails?.cacheWriteTokens),
+    tokenCount(usage?.inputTokenDetails?.cacheWriteTokens),
     inputTokens - cachedInputTokens,
   );
-  const outputTokens = tokenCount(input.usage?.outputTokens);
+  const outputTokens = tokenCount(usage?.outputTokens);
   // Floor the total to the component sum: providers sometimes omit totalTokens (yielding 0)
   // even when input/output were consumed, which would under-report aggregate usage.
   const totalTokens = Math.max(
-    tokenCount(input.usage?.totalTokens),
+    tokenCount(usage?.totalTokens),
     inputTokens + outputTokens,
   );
-  const reasoningTokens = optionalTokenCount(input.usage?.reasoningTokens);
+  const reasoningTokens = optionalTokenCount(usage?.reasoningTokens);
+
+  return {
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteTokens,
+    outputTokens,
+    totalTokens,
+    reasoningTokens,
+  };
+}
+
+export function buildTurnTelemetry(
+  input: BuildTurnTelemetryInput,
+): PerRequestTurnTelemetry {
+  const {
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteTokens,
+    outputTokens,
+    totalTokens,
+    reasoningTokens,
+  } = resolveTurnTokenCounts(input.usage);
 
   return {
     inputTokens,
@@ -158,6 +182,9 @@ export function aggregateTurnTelemetry(
     }),
     ...(totals.everyReceiptHasReasoning && {
       reasoningTokens: totals.reasoningTokens,
+    }),
+    ...(input.permissionMode === 'bypass' && {
+      permissionMode: 'bypass' as const,
     }),
     modelId: input.modelId,
     ...(input.effort !== undefined && { effort: input.effort }),
@@ -287,6 +314,9 @@ function completedTurnTelemetryLogPayload(
     }),
     modelId: telemetry.modelId,
     ...(telemetry.effort !== undefined && { effort: telemetry.effort }),
+    ...(telemetry.permissionMode === 'bypass' && {
+      permissionMode: 'bypass' as const,
+    }),
     latencyMs: telemetry.latencyMs,
     finishReason: telemetry.finishReason,
     status: telemetry.status,

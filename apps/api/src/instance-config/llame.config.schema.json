@@ -547,6 +547,13 @@
           "propertyNames": { "type": "string", "minLength": 1 },
           "additionalProperties": { "$ref": "#/$defs/permissionGroup" }
         },
+        "permissionModes": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["default", "bypass"] },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Ordered per-Run permission modes enabled by the operator. Default: [\"default\"]."
+        },
         "maxStepsPerRun": {
           "$ref": "#/$defs/numberOrToken",
           "description": "Hard cap on tool-requesting steps per run before the loop stops offering tools and drives the model to answer from accumulated context. Falls back to the built-in default, 100."

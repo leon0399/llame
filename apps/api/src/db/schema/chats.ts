@@ -20,6 +20,7 @@ import { sql } from 'drizzle-orm';
 import { users } from './auth';
 import { projects } from './projects';
 import { type TurnToolAvailabilityEntry } from './model-context';
+import { type PermissionMode } from '../../tools/permissions/permission-mode';
 
 export type RecencyDigestEntry = {
   title: string;
@@ -420,6 +421,10 @@ export const runs = pgTable(
     // `model_id`, which execution cannot proceed without): a run that predates
     // the feature genuinely had no effort.
     effort: text('effort'),
+    permissionMode: text('permission_mode')
+      .notNull()
+      .default('default')
+      .$type<PermissionMode>(),
     // Fresh UUID assigned atomically by each queue-authorized claim/reclaim.
     // Distinct from workerId (native executor trust) — this is the attempt
     // identity for fencing receipts, invocation admission, and publication.
@@ -437,6 +442,10 @@ export const runs = pgTable(
   (t) => [
     index('runs_chat_created_idx').on(t.chatId, t.createdAt),
     index('runs_user_status_idx').on(t.userId, t.status),
+    check(
+      'runs_permission_mode_check',
+      sql`${t.permissionMode} IN ('default', 'bypass')`,
+    ),
     // Composite target for owner-matching system prompt receipts.
     uniqueIndex('runs_id_user_id_unique_idx').on(t.id, t.userId),
     foreignKey({

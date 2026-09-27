@@ -125,6 +125,7 @@ const run: Run = {
   startedAt: null,
   finishedAt: null,
   effort: null,
+  permissionMode: 'default' as const,
 };
 
 const event: RunEvent = {
@@ -161,6 +162,28 @@ describe('RunsRepository', () => {
     expect(values[0]).toMatchObject({ id: run.id, effort: 'high' });
     expect(values[1]).not.toHaveProperty('id');
     expect(values[1]).not.toHaveProperty('effort');
+  });
+  it('persists an explicit permission mode and receives the database default when omitted', async () => {
+    const bypassRun = { ...run, permissionMode: 'bypass' as const };
+    const { db, calls } = makeDb({ insert: [[bypassRun], [run]] });
+    const repository = new RunsRepository(db);
+    const input = {
+      chatId: run.chatId,
+      messageId: 'message-1',
+      userId: run.userId,
+      modelId: run.modelId,
+    };
+
+    await expect(
+      repository.create({ ...input, permissionMode: 'bypass' }),
+    ).resolves.toBe(bypassRun);
+    await expect(repository.create(input)).resolves.toBe(run);
+
+    const values = calls
+      .filter(({ method }) => method === 'values')
+      .map(({ args }) => args[0]);
+    expect(values[0]).toHaveProperty('permissionMode', 'bypass');
+    expect(values[1]).not.toHaveProperty('permissionMode');
   });
 
   it('finds the most recent run and applies a strict message-sequence bound', async () => {

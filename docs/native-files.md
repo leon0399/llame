@@ -40,6 +40,57 @@ needs a distinct, stable `nativeExecutorId`. Co-located API and worker processes
 that use the same native filesystem should use the same identity. Without it,
 absolute-path native access and `bash` are unavailable even when allowlisted.
 
+## Permission modes
+
+`tools.permissionModes` is an ordered list of per-Run modes. It defaults to
+`["default"]` and must always include `default`, so a fresh install does not
+offer `bypass`. Add `bypass` to make it selectable:
+
+```json
+{
+  "tools": {
+    "permissionModes": ["default", "bypass"]
+  }
+}
+```
+
+The setting is instance-wide: enabling `bypass` enables it for every
+authenticated user, with no per-user gate. Restart the API and every worker
+after changing it so the enabled list is consistent. A Run accepted as
+`bypass` uses the worker's effective mode; a worker whose own list omits
+`bypass` executes that attempt in `default` under its startup policy.
+
+For an attempt whose effective mode is `bypass`, every `tools.permissions`
+evaluation is admitted without evaluating the policy: the per-call gate,
+web-read derived locators and resolved addresses, both submitted and
+canonical `enter_workspace` paths, and the per-attempt Workspace re-check.
+This includes paths and addresses that the configured rejects would otherwise
+refuse.
+
+`bypass` does not disable `tools.allowed` availability or catalog admission,
+owner or tenant authorization (including ownership checks for `kb://`), native
+locator validation, Workspace path projection or other Workspace re-check
+conditions, the native recovery fence, web-read header, call, body, and
+redirect bounds, Run step or call-timeout caps, or MCP environment isolation.
+The configured native executor, existing-directory checks, and `realpath`
+validation still apply.
+
+Treat `bypass` as a destructive operator choice. A fetched page can steer the
+model into any tool call in the admitted catalog, including calls that the
+normal `tools.permissions` policy rejects.
+Entering a Workspace whose path would normally be rejected also starts its
+Workspace MCP servers; they run unsandboxed as the `llame` user. Enabling
+`bypass` therefore exposes every authenticated user to prompt-injection and
+Workspace MCP risks; keep it off unless that instance-wide trust boundary is
+intended.
+
+Each bypass admission still writes an owner-private allow decision with reason
+`permission_mode_bypass`, the executing process's policy-instance id, and no
+clause reference. This covers the call, web-read derived-locator, and
+canonical Workspace records; bypassed address checks do not create address
+records because those are recorded only for refused addresses. The decision
+metadata is not model-visible.
+
 ## Workspace entry
 
 `enter_workspace({ path })` and `exit_workspace({})` are native host

@@ -46,6 +46,7 @@ function runResponseFixture(
     chatId: "chat-fixture",
     messageId: null,
     modelId: "system:openai:gpt-5.4-mini",
+    permissionMode: "default",
     error: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     startedAt: null,

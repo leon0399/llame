@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { type Run } from '../../db/schema';
-import { toContextReceiptResponse } from './runs.dto';
+import { toContextReceiptResponse, toRunResponse } from './runs.dto';
 
 const run: Run = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -10,6 +10,7 @@ const run: Run = {
   userId: 'owner',
   modelId: 'system:openai:public-model',
   effort: null,
+  permissionMode: 'default' as const,
   activeAttemptId: null,
   completedAttemptId: null,
   turnToolAvailability: null,
@@ -38,5 +39,14 @@ describe('toContextReceiptResponse', () => {
     const response = toContextReceiptResponse({ ...run, effort: 'high' }, []);
 
     expect(response.effort).toBe('high');
+  });
+
+  it('includes the accepted bypass mode on both response shapes', () => {
+    const bypassRun = { ...run, permissionMode: 'bypass' as const };
+
+    expect(toRunResponse(bypassRun).permissionMode).toBe('bypass');
+    expect(toContextReceiptResponse(bypassRun, []).permissionMode).toBe(
+      'bypass',
+    );
   });
 });

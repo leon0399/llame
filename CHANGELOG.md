@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-28
 
+- Per-Run permission modes now let owners choose `default` or `bypass` on
+  send when the operator enables `tools.permissionModes` (default
+  `["default"]`). `GET /api/v1/permission-modes` lists enabled modes in
+  configuration order; `permissionMode` is accepted on chat sends and
+  returned on Run and context-receipt responses, while effective bypass is
+  recorded as `usage.permissionMode: "bypass"` in assistant usage
+  ([#977](https://github.com/leon0399/llame/issues/977)).
+
 - Native GitHub issue and pull-request reads render complete, paged thread
   views through the configured `github` web adapter, with partial sections and
   rate-limit notes when secondary requests fail

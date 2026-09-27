@@ -28,6 +28,28 @@ function event(eventType: string, payload: unknown): RunEvent {
   };
 }
 
+type StoredPermissionRecord = {
+  readonly policyId: string;
+  readonly decision: string;
+  readonly reason: string;
+  readonly reference: unknown;
+};
+
+function reconstructStoredPermission(permission: StoredPermissionRecord) {
+  return reconstructDurableAssistant([
+    event('tool.requested', {
+      toolCallId: 'stored-permission',
+      toolName: 'search',
+      input: { query: 'needle' },
+      permission,
+    }),
+    event('tool.completed', {
+      toolCallId: 'stored-permission',
+      output: { status: 'success', value: 'ok' },
+    }),
+  ]).collector.parts();
+}
+
 function successToolPart(toolCallId: string): ToolActivityPart {
   return {
     type: 'tool-search',
@@ -581,6 +603,109 @@ describe('reconstructDurableAssistant', () => {
     expect([...result.openToolCalls.values()][0]?.permission).toBeUndefined();
   });
 
+  it('reconstructs an allow decision from permission mode bypass', () => {
+    const permission = {
+      policyId: 'policy-bypass',
+      decision: 'allow' as const,
+      reason: 'permission_mode_bypass' as const,
+      reference: null,
+    };
+
+    expect(reconstructStoredPermission(permission)).toEqual([
+      {
+        type: 'tool-search',
+        toolCallId: 'stored-permission',
+        state: 'output-available',
+        input: { query: 'needle' },
+        output: { status: 'success', value: 'ok' },
+        outcome: 'success',
+        permission,
+      },
+    ]);
+  });
+
+  it('reconstructs an allow decision matched by the policy', () => {
+    const permission = {
+      policyId: 'policy-matched',
+      decision: 'allow' as const,
+      reason: 'matched_allow' as const,
+      reference: null,
+    };
+
+    expect(reconstructStoredPermission(permission)).toEqual([
+      {
+        type: 'tool-search',
+        toolCallId: 'stored-permission',
+        state: 'output-available',
+        input: { query: 'needle' },
+        output: { status: 'success', value: 'ok' },
+        outcome: 'success',
+        permission,
+      },
+    ]);
+  });
+
+  it('drops permission mode bypass when it is stored as a rejection', () => {
+    const permission = {
+      policyId: 'policy-bypass-reject',
+      decision: 'reject' as const,
+      reason: 'permission_mode_bypass' as const,
+      reference: null,
+    };
+
+    expect(reconstructStoredPermission(permission)).toEqual([
+      {
+        type: 'tool-search',
+        toolCallId: 'stored-permission',
+        state: 'output-available',
+        input: { query: 'needle' },
+        output: { status: 'success', value: 'ok' },
+        outcome: 'success',
+      },
+    ]);
+  });
+
+  it('drops a stored decision with an unknown reason', () => {
+    const permission = {
+      policyId: 'policy-unknown',
+      decision: 'reject' as const,
+      reason: 'future_reason',
+      reference: null,
+    };
+
+    expect(reconstructStoredPermission(permission)).toEqual([
+      {
+        type: 'tool-search',
+        toolCallId: 'stored-permission',
+        state: 'output-available',
+        input: { query: 'needle' },
+        output: { status: 'success', value: 'ok' },
+        outcome: 'success',
+      },
+    ]);
+  });
+
+  it('reconstructs a stored rejection with a real rejection reason', () => {
+    const permission = {
+      policyId: 'policy-reject',
+      decision: 'reject' as const,
+      reason: 'explicit_reject' as const,
+      reference: null,
+    };
+
+    expect(reconstructStoredPermission(permission)).toEqual([
+      {
+        type: 'tool-search',
+        toolCallId: 'stored-permission',
+        state: 'output-available',
+        input: { query: 'needle' },
+        output: { status: 'success', value: 'ok' },
+        outcome: 'success',
+        permission,
+      },
+    ]);
+  });
+
   it('carries derived-locator decisions from the completion payload to the stored part', () => {
     const permission = {
       policyId: 'policy-1',
@@ -663,6 +788,42 @@ describe('reconstructDurableAssistant', () => {
 
     expect(result.collector.parts()).toEqual([
       expect.objectContaining({ derivedDecisions: [valid] }),
+    ]);
+  });
+
+  it('reconstructs bypass call and derived decisions while dropping unknown reasons', () => {
+    const bypass = {
+      policyId: 'process-policy',
+      decision: 'allow' as const,
+      reason: 'permission_mode_bypass' as const,
+      reference: null,
+    };
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: { path: 'https://docs.example.test/a' },
+        permission: bypass,
+      }),
+      event('tool.completed', {
+        toolCallId: 'call-1',
+        output: { status: 'success', content: 'body' },
+        derivedDecisions: [
+          { ...bypass, kind: 'hop' as const },
+          {
+            ...bypass,
+            kind: 'suffix' as const,
+            reason: 'future_reason',
+          },
+        ],
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([
+      expect.objectContaining({
+        permission: bypass,
+        derivedDecisions: [{ ...bypass, kind: 'hop' }],
+      }),
     ]);
   });
 

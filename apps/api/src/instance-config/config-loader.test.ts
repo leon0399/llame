@@ -24,6 +24,7 @@ const TEST_ANCHOR: TemporalAnchor = {
 import {
   loadInstanceConfig as loadInstanceConfigFromPath,
   resolveConfigPath,
+  resolvePermissionModes,
 } from './config-loader';
 import {
   BUILT_IN_DEFAULTS,
@@ -141,6 +142,72 @@ describe('resolveConfigPath', () => {
     expect(resolveConfigPath({ LLAME_CONFIG_PATH: 'custom.json' })).toBe(
       path.join(process.cwd(), 'custom.json'),
     );
+  });
+});
+
+describe('resolvePermissionModes', () => {
+  const configPath = 'tools.permissionModes';
+
+  function expectPermissionModesError(
+    raw: string | ReadonlyArray<string>,
+    expected: string,
+  ): void {
+    let thrown: unknown;
+    try {
+      resolvePermissionModes({ configPath, present: true, raw });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(InstanceConfigError);
+    expect(errorMessage(thrown)).toBe(expected);
+  }
+
+  it('rejects a non-array with the exact type error', () => {
+    expectPermissionModesError(
+      'x',
+      `${configPath}: must be an array of strings`,
+    );
+  });
+
+  it('rejects an empty array with the exact empty-value error', () => {
+    expectPermissionModesError([], `${configPath}: must not be empty`);
+  });
+
+  it('rejects an unknown mode with the exact unknown-mode error', () => {
+    expectPermissionModesError(
+      ['default', 'write'],
+      `${configPath}: unknown permission mode "write"`,
+    );
+  });
+
+  it('rejects a duplicate mode with the exact duplicate-mode error', () => {
+    expectPermissionModesError(
+      ['default', 'default'],
+      `${configPath}: duplicate permission mode "default"`,
+    );
+  });
+
+  it('requires the default mode with the exact missing-default error', () => {
+    expectPermissionModesError(
+      ['bypass'],
+      `${configPath}: must include "default"`,
+    );
+  });
+
+  it('returns explicitly enabled modes in order', () => {
+    expect(
+      resolvePermissionModes({
+        configPath,
+        present: true,
+        raw: ['default', 'bypass'],
+      }),
+    ).toEqual(['default', 'bypass']);
+  });
+
+  it('returns the built-in default when the setting is absent', () => {
+    expect(
+      resolvePermissionModes({ configPath, present: false, raw: undefined }),
+    ).toEqual(['default']);
   });
 });
 
@@ -452,6 +519,41 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
     expect(loadInstanceConfig().tools.allowed).toEqual([
       'search_conversations',
     ]);
+  });
+
+  it('defaults tools.permissionModes to default when omitted', () => {
+    expect(loadInstanceConfig().tools.permissionModes).toEqual(['default']);
+  });
+
+  it.each([
+    { label: 'empty', value: [] },
+    { label: 'missing default', value: ['bypass'] },
+    { label: 'unknown value', value: ['default', 'write'] },
+    { label: 'duplicate', value: ['default', 'default'] },
+    { label: 'non-string', value: [123] },
+    { label: 'interpolation token', value: ['default', '{env:X}'] },
+  ])('rejects tools.permissionModes ($label)', ({ value }) => {
+    writeConfig(`{ "tools": { "permissionModes": ${JSON.stringify(value)} } }`);
+    try {
+      loadInstanceConfig();
+      throw new Error('expected tools.permissionModes to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(InstanceConfigError);
+      expect(errorMessage(error).replaceAll('/', '.')).toContain(
+        'tools.permissionModes',
+      );
+    }
+  });
+
+  it.each([
+    { value: ['default'], expected: ['default'] },
+    {
+      value: ['default', 'bypass'],
+      expected: ['default', 'bypass'],
+    },
+  ])('resolves enabled permission modes in order', ({ value, expected }) => {
+    writeConfig(`{ "tools": { "permissionModes": ${JSON.stringify(value)} } }`);
+    expect(loadInstanceConfig().tools.permissionModes).toEqual(expected);
   });
 
   it('resolves tools.promptFiles into an id -> path map', () => {

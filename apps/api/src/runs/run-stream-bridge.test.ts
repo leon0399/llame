@@ -861,6 +861,7 @@ describe('RunStreamBridgeService', () => {
         startedAt: null,
         finishedAt: null,
         effort: null,
+        permissionMode: 'default' as const,
       });
     const { bridge } = bridgeFixture();
 
@@ -1247,6 +1248,7 @@ describe('RunStreamBridgeService window and terminal-status fallbacks', () => {
     startedAt: null,
     finishedAt: null,
     effort: null,
+    permissionMode: 'default' as const,
   });
 
   it('ignores a non-positive configured window and stops on a terminal run row instead', async () => {

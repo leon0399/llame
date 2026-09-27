@@ -1,0 +1,2 @@
+ALTER TABLE "runs" ADD COLUMN "permission_mode" text DEFAULT 'default' NOT NULL;--> statement-breakpoint
+ALTER TABLE "runs" ADD CONSTRAINT "runs_permission_mode_check" CHECK ("runs"."permission_mode" IN ('default', 'bypass'));

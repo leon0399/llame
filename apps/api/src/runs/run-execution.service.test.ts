@@ -98,6 +98,7 @@ import {
 import {
   RunExecutionService,
   RunNotRunnableError,
+  resolveEffectivePermissionMode,
 } from './run-execution.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
@@ -143,6 +144,22 @@ describe('classifyAbortedRun', () => {
     controller.abort(RUN_TIMEOUT_ABORT_REASON);
     expect(classifyAbortedRun(controller.signal)).toBe('expired');
   });
+});
+
+describe('resolveEffectivePermissionMode', () => {
+  it.each([
+    ['bypass', ['default', 'bypass'], 'bypass'],
+    ['bypass', ['default'], 'default'],
+    ['default', ['default', 'bypass'], 'default'],
+    ['default', ['default'], 'default'],
+  ] as const)(
+    'resolves accepted %s with worker modes %j to %s',
+    (accepted, workerModes, expected) => {
+      expect(resolveEffectivePermissionMode(accepted, workerModes)).toBe(
+        expected,
+      );
+    },
+  );
 });
 
 const chatId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -206,6 +223,7 @@ const run: Run = {
   startedAt: now,
   finishedAt: null,
   effort: null,
+  permissionMode: 'default' as const,
 };
 
 const receipt = {

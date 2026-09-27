@@ -24,6 +24,7 @@ describe('RunsController context receipt', () => {
     userId: 'owner',
     modelId: 'system:openai:public-model',
     effort: null,
+    permissionMode: 'default' as const,
     activeAttemptId: null,
     completedAttemptId: null,
     turnToolAvailability: null,
@@ -100,6 +101,7 @@ describe('RunsController context receipt', () => {
 
     expect(receipt).toEqual({
       modelId: 'system:openai:public-model',
+      permissionMode: 'default' as const,
       state: 'prepared',
       receipts: [
         {
@@ -223,6 +225,7 @@ describe('RunsController context receipt', () => {
 
     expect(receipt).toEqual({
       modelId: run.modelId,
+      permissionMode: 'default' as const,
       state: 'not_produced',
       receipts: [],
       createdAt: run.createdAt,
@@ -250,6 +253,7 @@ describe('RunsController context receipt', () => {
 
     expect(receipt).toEqual({
       modelId: attemptedRun.modelId,
+      permissionMode: 'default' as const,
       activeAttemptId: promptReceipt.attemptId,
       completedAttemptId: promptReceipt.attemptId,
       state: 'prepared',
@@ -283,6 +287,7 @@ describe('RunsController context receipt', () => {
 
     expect(receipt).toEqual({
       modelId: pendingRun.modelId,
+      permissionMode: 'default' as const,
       state: 'pending',
       receipts: [],
       createdAt: pendingRun.createdAt,

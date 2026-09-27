@@ -389,6 +389,7 @@ const PERMISSION_REASONS: ReadonlySet<string> = new Set([
   'invalid_field',
   'input_limit',
   'matched_allow',
+  'permission_mode_bypass',
 ]);
 
 function isPermissionReason(value: unknown): value is PermissionDecisionReason {
@@ -397,8 +398,15 @@ function isPermissionReason(value: unknown): value is PermissionDecisionReason {
 
 function isPermissionRejectionReason(
   value: unknown,
-): value is Exclude<PermissionDecisionReason, 'matched_allow'> {
-  return isPermissionReason(value) && value !== 'matched_allow';
+): value is Exclude<
+  PermissionDecisionReason,
+  'matched_allow' | 'permission_mode_bypass'
+> {
+  return (
+    isPermissionReason(value) &&
+    value !== 'matched_allow' &&
+    value !== 'permission_mode_bypass'
+  );
 }
 
 function permissionClauseFromPayload(
@@ -426,8 +434,8 @@ function permissionDecisionFrom(
   if (!isString(policyId)) return undefined;
   const reference = permissionClauseFromPayload(value['reference']);
   if (decision === 'allow') {
-    return reason === 'matched_allow'
-      ? { policyId, decision: 'allow', reason: 'matched_allow', reference }
+    return reason === 'matched_allow' || reason === 'permission_mode_bypass'
+      ? { policyId, decision: 'allow', reason, reference }
       : undefined;
   }
   if (decision !== 'reject' || !isPermissionRejectionReason(reason)) {

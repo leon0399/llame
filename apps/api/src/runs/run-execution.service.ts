@@ -104,6 +104,7 @@ import {
   AttemptToolAdditions,
   type AttemptToolBinding,
 } from '../tools/attempt-tool-additions';
+import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
 import {
   type CompiledPolicy,
@@ -382,6 +383,19 @@ export function classifyAbortedRun(
 ): 'cancelled' | 'expired' | 'failed' {
   if (signal?.reason === NATIVE_MUTATION_ABORT_REASON) return 'failed';
   return signal?.reason === RUN_TIMEOUT_ABORT_REASON ? 'expired' : 'cancelled';
+}
+/**
+ * Resolve the permission mode accepted on a Run against the modes available
+ * to the worker. Kept standalone so the worker's frozen mode decision can be
+ * unit-tested without constructing the full execution service.
+ */
+export function resolveEffectivePermissionMode(
+  accepted: PermissionMode,
+  workerModes: ReadonlyArray<PermissionMode>,
+): PermissionMode {
+  return accepted === 'bypass' && workerModes.includes('bypass')
+    ? 'bypass'
+    : 'default';
 }
 
 /** The already-persisted user turn a run executes against. */
@@ -664,6 +678,7 @@ export class RunExecutionService {
       const startedEvent = await events.append(input.runId, 'run.started');
       return {
         effort: started.effort ?? undefined,
+        permissionMode: started.permissionMode,
         attemptId: started.activeAttemptId!,
         nativeDeliverySequence: startedEvent.sequence,
       };
@@ -684,7 +699,9 @@ export class RunExecutionService {
       });
       throw new RunNotRunnableError(input.runId);
     }
-    const { effort, attemptId } = claim;
+    const { effort, permissionMode, attemptId } = claim;
+    const effectivePermissionMode =
+      this.resolveEffectivePermissionMode(permissionMode);
     if (input.abortSignal?.aborted) {
       await this.settleAbortedRun(input, attemptId);
     }
@@ -699,6 +716,7 @@ export class RunExecutionService {
       input,
       claim.nativeDeliverySequence,
       workspaceChat,
+      effectivePermissionMode,
     );
     const workspaceRoot = createWorkspaceRootCell(workspacePreparation.root);
     const workspaceMcpKey = this.workspaceMcpKey(workspacePreparation);
@@ -714,6 +732,7 @@ export class RunExecutionService {
       input,
       claim.nativeDeliverySequence,
       workspaceRoot,
+      effectivePermissionMode,
     );
     // Prompt/catalog resolution: the worker resolves both prompt surfaces
     // from the current owner state, admitted catalog, and boot-loaded
@@ -849,6 +868,7 @@ export class RunExecutionService {
         status,
         modelId: client.model,
         effort,
+        permissionMode: effectivePermissionMode,
         latencyMs: Date.now() - streamStartedAt,
         price: client.pricing,
         billing: client.billing,
@@ -977,6 +997,7 @@ export class RunExecutionService {
       queryEmbedder: this.queryEmbedder,
       permissionPolicy: this.permissionPolicy,
       webAdapters: this.instanceConfig.config.tools.webAdapters,
+      permissionMode: effectivePermissionMode,
     };
     const { maxStepsPerRun, callTimeoutSeconds } =
       this.instanceConfig.config.tools;
@@ -1838,6 +1859,15 @@ export class RunExecutionService {
     return this.workspaceMcp.resolverFor(key, this.dynamicToolResolver);
   }
 
+  private resolveEffectivePermissionMode(
+    permissionMode: PermissionMode,
+  ): PermissionMode {
+    return resolveEffectivePermissionMode(
+      permissionMode,
+      this.instanceConfig.config.tools.permissionModes,
+    );
+  }
+
   private workspaceMcpKey(
     preparation: WorkspacePreparation,
   ): WorkspaceMcpKey | undefined {
@@ -1853,6 +1883,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     nativeDeliverySequence: number,
     chat: Chat | undefined,
+    effectivePermissionMode: PermissionMode,
   ): Promise<WorkspacePreparation> {
     const root = chat?.workspaceRoot;
     const executorId = chat?.workspaceExecutorId;
@@ -1864,8 +1895,11 @@ export class RunExecutionService {
     if (executorId === null || generation === undefined) {
       return { root: undefined, chat };
     }
-
-    const reason = await this.workspaceDetachReason(root, executorId);
+    const reason = await this.workspaceDetachReason(
+      root,
+      executorId,
+      effectivePermissionMode,
+    );
     if (reason === undefined) return { root, chat };
 
     const detached = await this.tenantDb.runAs(input.userId, (tx) =>
@@ -1901,10 +1935,10 @@ export class RunExecutionService {
     // reuse the root that failed this attempt's checks.
     return { root: undefined, chat };
   }
-
   private async workspaceDetachReason(
     root: string,
     executorId: string,
+    effectivePermissionMode: PermissionMode,
   ): Promise<WorkspaceDetachReason | undefined> {
     const currentExecutorId = this.instanceConfig.config.tools.nativeExecutorId;
     if (currentExecutorId === undefined) return 'executor_absent';
@@ -1921,6 +1955,8 @@ export class RunExecutionService {
     if (!this.instanceConfig.config.tools.allowed.includes('enter_workspace')) {
       return 'tool_not_allowed';
     }
+    // Deliberately mirrors admitPermission; no ToolContext exists here.
+    if (effectivePermissionMode === 'bypass') return undefined;
     const decision = evaluatePermission(this.permissionPolicy, {
       toolId: 'enter_workspace',
       args: { path: root },
@@ -1946,6 +1982,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     nativeDeliverySequence: number,
     workspaceRoot: WorkspaceRootCell,
+    effectivePermissionMode: PermissionMode,
   ): Promise<ReadonlySet<string>> {
     if (
       this.instanceConfig.config.skills.directories.length === 0 &&
@@ -1958,11 +1995,11 @@ export class RunExecutionService {
     const text = partsToText(input.userMessage.parts);
     const mentions = parseSkillMentions(text);
     if (mentions.length === 0) return new Set();
-
     const baseContext = this.buildSkillReadContext(
       input,
       nativeDeliverySequence,
       workspaceRoot,
+      effectivePermissionMode,
     );
     // What a prior attempt of this Run already resolved. Reading it first is
     // what makes recovery replay stored observations rather than re-reading a
@@ -2011,6 +2048,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     nativeDeliverySequence: number,
     workspaceRoot: WorkspaceRootCell,
+    effectivePermissionMode: PermissionMode,
   ): ToolContext {
     return {
       runId: input.runId,
@@ -2027,6 +2065,7 @@ export class RunExecutionService {
       skillCatalog: this.skillCatalog,
       permissionPolicy: this.permissionPolicy,
       webAdapters: this.instanceConfig.config.tools.webAdapters,
+      permissionMode: effectivePermissionMode,
     };
   }
 

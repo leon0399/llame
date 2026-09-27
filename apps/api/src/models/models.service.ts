@@ -57,6 +57,16 @@ export class EffortNotAvailableError extends Error {
   }
 }
 
+export class PermissionModeNotAvailableError extends Error {
+  readonly code = 'permission_mode_not_available';
+  readonly statusCode = 422;
+
+  constructor(readonly mode: string) {
+    super(`Permission mode '${mode}' is not available.`);
+    this.name = 'PermissionModeNotAvailableError';
+  }
+}
+
 /**
  * Resolve the effort a run executes at: the requested level, or the model's
  * declared default when the request omitted one.

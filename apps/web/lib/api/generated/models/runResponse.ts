@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1
  */
 import type { RunResponseError } from "./runResponseError";
+import type { RunResponsePermissionMode } from "./runResponsePermissionMode";
 import type { RunResponseStatus } from "./runResponseStatus";
 
 export interface RunResponse {
@@ -16,6 +17,8 @@ export interface RunResponse {
   modelId: string;
   /** Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. An opaque provider token — a receipt of what ran, never recomputed from current configuration. */
   effort?: string;
+  /** Accepted permission mode for this run. */
+  permissionMode: RunResponsePermissionMode;
   status: RunResponseStatus;
   /** @nullable */
   error: RunResponseError;

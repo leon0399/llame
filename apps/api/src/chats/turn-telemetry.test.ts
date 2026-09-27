@@ -719,6 +719,17 @@ describe('TurnTelemetry', () => {
       });
     });
 
+    it('carries the effective bypass mode through aggregate telemetry', () => {
+      expect(
+        aggregateTurnTelemetry({
+          ...base,
+          permissionMode: 'bypass' as const,
+          receipts: [usageReceipt()],
+          stepCount: 1,
+        }),
+      ).toMatchObject({ permissionMode: 'bypass' });
+    });
+
     it('includes the effort in the structured log payload', () => {
       const info = vi.fn<(payload: UnknownRecord) => void>();
       emitCompletedTurnTelemetryLog({ info } satisfies TurnTelemetryLogger, {
@@ -744,6 +755,42 @@ describe('TurnTelemetry', () => {
 
       const [payload] = info.mock.calls.at(-1) ?? [];
       expect(payload).not.toHaveProperty('effort');
+    });
+
+    it('includes bypass in the completion log and omits default', () => {
+      const info = vi.fn<(payload: UnknownRecord) => void>();
+      const logger = { info } satisfies TurnTelemetryLogger;
+
+      emitCompletedTurnTelemetryLog(logger, {
+        chatId: 'c',
+        messageId: 'a',
+        inReplyTo: 'u',
+        telemetry: aggregateTurnTelemetry({
+          ...base,
+          permissionMode: 'bypass',
+          receipts: [usageReceipt()],
+          stepCount: 1,
+        }),
+      });
+
+      const [bypassPayload] = info.mock.calls.at(-1) ?? [];
+      expect(bypassPayload).toHaveProperty('permissionMode', 'bypass');
+
+      info.mockClear();
+      emitCompletedTurnTelemetryLog(logger, {
+        chatId: 'c',
+        messageId: 'a',
+        inReplyTo: 'u',
+        telemetry: aggregateTurnTelemetry({
+          ...base,
+          permissionMode: 'default',
+          receipts: [usageReceipt()],
+          stepCount: 1,
+        }),
+      });
+
+      const [defaultPayload] = info.mock.calls.at(-1) ?? [];
+      expect(defaultPayload).not.toHaveProperty('permissionMode');
     });
   });
 

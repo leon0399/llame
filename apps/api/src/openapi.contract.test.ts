@@ -100,6 +100,7 @@ const EXPECTED_OPERATION_IDS = [
   'listModels',
   'listOrgUnitMemberships',
   'listOrgUnits',
+  'listPermissionModes',
   'listPins',
   'listProjects',
   'listSessions',

@@ -50,6 +50,11 @@ import {
   type PermissionMatcher,
   type ToolPermissionMap,
 } from '../tools/permissions/types';
+import {
+  DEFAULT_PERMISSION_MODE,
+  PERMISSION_MODES,
+  type PermissionMode,
+} from '../tools/permissions/permission-mode';
 import { createMcpToolId, parseMcpToolId } from '../mcp/tool-id';
 import {
   resolveBillingMode,
@@ -197,6 +202,10 @@ function resolveToolsConfig(
       configPath: 'tools.permissions',
       ...readLeaf(raw, 'tools', 'permissions'),
       env,
+    }),
+    permissionModes: resolvePermissionModes({
+      configPath: 'tools.permissionModes',
+      ...readLeaf(raw, 'tools', 'permissionModes'),
     }),
     maxStepsPerRun: resolveToolNumber(raw, 'maxStepsPerRun', env),
     callTimeoutSeconds: resolveToolNumber(raw, 'callTimeoutSeconds', env),
@@ -922,6 +931,47 @@ function resolveToolAllowlist(opts: {
     assertValidAllowlistId(id, configPath, registered);
   }
   return raw;
+}
+
+export function resolvePermissionModes(opts: {
+  configPath: string;
+  present: boolean;
+  raw: unknown;
+}): ReadonlyArray<PermissionMode> {
+  const { configPath, present, raw } = opts;
+  if (!present) {
+    return BUILT_IN_DEFAULTS.tools.permissionModes;
+  }
+  if (!isStringArray(raw)) {
+    throw new InstanceConfigError(`${configPath}: must be an array of strings`);
+  }
+  if (raw.length === 0) {
+    throw new InstanceConfigError(`${configPath}: must not be empty`);
+  }
+
+  const modes: Array<PermissionMode> = [];
+  const seen = new Set<string>();
+  for (const mode of raw) {
+    const known = PERMISSION_MODES.find((candidate) => candidate === mode);
+    if (known === undefined) {
+      throw new InstanceConfigError(
+        `${configPath}: unknown permission mode "${mode}"`,
+      );
+    }
+    if (seen.has(known)) {
+      throw new InstanceConfigError(
+        `${configPath}: duplicate permission mode "${mode}"`,
+      );
+    }
+    seen.add(known);
+    modes.push(known);
+  }
+  if (!seen.has(DEFAULT_PERMISSION_MODE)) {
+    throw new InstanceConfigError(
+      `${configPath}: must include "${DEFAULT_PERMISSION_MODE}"`,
+    );
+  }
+  return modes;
 }
 
 /** Resolve the operator map: clause/interpolation-checked, still-uncompiled.

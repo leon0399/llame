@@ -44,6 +44,7 @@ import {
   ModelConfigurationError,
   EffortNotAvailableError,
   ModelNotAvailableError,
+  PermissionModeNotAvailableError,
 } from '../models/models.service';
 import { ModelDomainErrorResponse } from '../models/dto/models.dto';
 import {
@@ -323,6 +324,9 @@ export class ChatsController {
         userId,
         modelId: input.modelId,
         ...(input.effort !== undefined && { effort: input.effort }),
+        ...(input.permissionMode !== undefined && {
+          permissionMode: input.permissionMode,
+        }),
         message: input.message,
         abortSignal: abort.signal,
       });
@@ -346,15 +350,16 @@ export class ChatsController {
   }
 
   /**
-   * Same 422 envelope for both `ModelNotAvailableError`/`EffortNotAvailableError`
-   * — the `code` discriminates. Model resolution already ran first, so an
-   * effort failure here always names a model that IS available. Any other
-   * error rethrows unchanged.
+   * Same 422 envelope for `ModelNotAvailableError`, `EffortNotAvailableError`,
+   * and `PermissionModeNotAvailableError` — the `code` discriminates. Model
+   * resolution already ran first, so an effort failure here always names a
+   * model that IS available. Any other error rethrows unchanged.
    */
   private mapModelDomainError(error: unknown): never {
     if (
       error instanceof ModelNotAvailableError ||
-      error instanceof EffortNotAvailableError
+      error instanceof EffortNotAvailableError ||
+      error instanceof PermissionModeNotAvailableError
     ) {
       throw new HttpException(
         {

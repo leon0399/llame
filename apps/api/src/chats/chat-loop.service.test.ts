@@ -13,6 +13,7 @@ import {
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type ModelSelectionValidator } from '../models/models.service';
+import type { PermissionMode } from '../tools/permissions/permission-mode';
 import { type RunAborter } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { stuckRunThresholdMs } from '../runs/run-queues';
@@ -95,6 +96,7 @@ const run: Run = {
   startedAt: null,
   finishedAt: null,
   effort: null,
+  permissionMode: 'default' as const,
 };
 
 const input = {
@@ -121,7 +123,10 @@ function fakeTx(): Db {
   return tx;
 }
 
-function makeService(options?: { streamResponse?: Response }) {
+function makeService(options?: {
+  streamResponse?: Response;
+  permissionModes?: ReadonlyArray<PermissionMode>;
+}) {
   const tx = fakeTx();
   const tenantDb: TenantRunner = new TenantDbService({
     transaction: async <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
@@ -138,7 +143,14 @@ function makeService(options?: { streamResponse?: Response }) {
     validateModelSelection,
     resolveEffortSelection,
   };
-  const instanceConfig: InstanceConfigReader = { config: BUILT_IN_DEFAULTS };
+  const permissionModes =
+    options?.permissionModes ?? BUILT_IN_DEFAULTS.tools.permissionModes;
+  const instanceConfig: InstanceConfigReader = {
+    config: {
+      ...BUILT_IN_DEFAULTS,
+      tools: { ...BUILT_IN_DEFAULTS.tools, permissionModes },
+    },
+  };
   const streamResponse = options?.streamResponse ?? new Response('stream');
   const createUiMessageStreamResponse = vi.fn(() => streamResponse);
   const bridge: RunStreamResponder = { createUiMessageStreamResponse };
@@ -194,6 +206,7 @@ function makeService(options?: { streamResponse?: Response }) {
         userId: runInput.userId,
         modelId: runInput.modelId,
         effort: runInput.effort ?? null,
+        permissionMode: runInput.permissionMode ?? 'default',
       }),
     );
   const appendEvent = vi
@@ -341,6 +354,31 @@ describe('ChatLoopService.createMessageStream', () => {
       }),
     );
     expect(response).toBeInstanceOf(Response);
+  });
+
+  it('persists the default permission mode on an accepted Run', async () => {
+    const { service, createRun } = makeService();
+
+    await service.createMessageStream(input);
+
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionMode: 'default' }),
+    );
+  });
+
+  it('persists an enabled bypass permission mode on an accepted Run', async () => {
+    const { service, createRun } = makeService({
+      permissionModes: ['default', 'bypass'],
+    });
+
+    await service.createMessageStream({
+      ...input,
+      permissionMode: 'bypass' as const,
+    });
+
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ permissionMode: 'bypass' }),
+    );
   });
 
   it('touches a pre-existing chat and aborts superseded retries after commit', async () => {

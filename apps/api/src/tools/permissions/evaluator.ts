@@ -52,6 +52,15 @@ export function evaluatePermission(
   return evaluateGroup(policy.id, options.toolId, group, options);
 }
 
+export function bypassAllow(policyId: string): PermissionDecision {
+  return {
+    policyId,
+    decision: 'allow',
+    reason: 'permission_mode_bypass',
+    reference: null,
+  };
+}
+
 function evaluateGroup(
   policyId: string,
   toolId: string,

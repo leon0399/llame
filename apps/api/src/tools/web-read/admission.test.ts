@@ -29,12 +29,14 @@ function policy(map: ToolPermissionMap): CompiledPolicy {
 function contextOf(
   compiled: CompiledPolicy | undefined,
   onDerivedDecision?: (decision: DerivedDecision) => void,
+  permissionMode?: ToolContext['permissionMode'],
 ): ToolContext {
   return {
     userId: 'owner',
     chatId: 'chat',
     permissionPolicy: compiled,
     onDerivedDecision,
+    ...(permissionMode !== undefined && { permissionMode }),
     tenantDb: {
       runAs: () => Promise.reject(new Error('no database in this test')),
     },
@@ -84,6 +86,27 @@ describe('createDerivedAdmission', () => {
       decision: 'reject',
       reason: 'no_allow',
     });
+  });
+
+  it('admits every derived locator under bypass with no clause reference', () => {
+    const compiled = policy({
+      read: {
+        allow: [{ field: 'path', literal: DOCS_URL }],
+        reject: [{ field: 'path', literal: DOCS_URL }],
+      },
+    });
+    const seen: Array<DerivedDecision> = [];
+    const decision = createDerivedAdmission(
+      contextOf(compiled, (entry) => seen.push(entry), 'bypass'),
+    )('hop', OTHER_URL);
+
+    expect(decision).toEqual({
+      policyId: POLICY_ID,
+      decision: 'allow',
+      reason: 'permission_mode_bypass',
+      reference: null,
+    });
+    expect(seen).toEqual([{ kind: 'hop', url: OTHER_URL, decision }]);
   });
 
   it('applies the read group’s rejects to a derived locator', () => {
@@ -281,6 +304,25 @@ describe('createAddressAdmission', () => {
         },
       },
     ]);
+  });
+
+  it('admits bypass addresses without recording address decisions', () => {
+    const seen: Array<DerivedDecision> = [];
+    const admit = createAddressAdmission(
+      contextOf(
+        policy({
+          read: {
+            allow: true,
+            reject: [{ field: 'path', literal: 'https://10.0.0.5/private' }],
+          },
+        }),
+        (decision) => seen.push(decision),
+        'bypass',
+      ),
+    );
+
+    expect(admit('10.0.0.5', 'https://10.0.0.5/private')).toBe(true);
+    expect(seen).toEqual([]);
   });
 
   it('refuses an address locator rejected before selector projection', () => {
