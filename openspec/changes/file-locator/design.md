@@ -476,8 +476,9 @@ Implementation-layer questions that do not change the contract are:
 1. Which existing native error helper should carry the fixed remote-authority
    message, provided the result remains `invalid_path` and does not expose the
    submitted authority beyond that bounded diagnostic.
-2. Where the pure scheme module lives: `apps/api/src/tools/permissions/` beside
-   `locator-projection.ts`, or a new file in `packages/native-file-tools`.
+2. The file name of the pure scheme module inside `apps/api/src/tools/permissions/`
+   beside `locator-projection.ts`. It cannot live in `packages/native-file-tools`,
+   because its projections call app-owned Knowledge, Skill, and web parsers.
    `native-files.ts` may import it but must never own it; owning it there
    recreates the cycle through `web-read/execute.ts` and `web-read/admission.ts`.
 3. Which current native test fixture is least coupled to executor setup for

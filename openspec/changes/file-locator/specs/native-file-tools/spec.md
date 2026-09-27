@@ -16,9 +16,11 @@ it. A locator beginning `file://` SHALL always be the authority form, and the
 minimal form's path SHALL begin with exactly one `/`. `file` and `localhost`
 SHALL be matched ASCII case-insensitively against the raw, undecoded text. In
 the `//` form, the authority is the text between `//` and the next `/`; it
-SHALL be empty or `localhost`, authority validation SHALL precede every other
-refusal, and a missing path after the authority SHALL fail with
-`invalid_path`. The alias SHALL decode each
+SHALL be empty or `localhost`, authority validation SHALL precede the alias's
+other locator refusals, and a missing path after the authority SHALL fail with
+`invalid_path`. An invalid alias SHALL fail with `invalid_path` at dispatch,
+before the native executor check, and SHALL NOT bind the Run; a valid alias
+then follows the absolute-path executor rules below. The alias SHALL decode each
 percent escape once to bytes and strictly decode the complete path as UTF-8,
 without lexical `.` or `..` normalization, before native operation. A literal
 query, fragment, backslash, C0 control character, or DEL, a malformed or
