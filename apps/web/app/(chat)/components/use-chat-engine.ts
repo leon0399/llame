@@ -8,7 +8,12 @@ import {
 } from "react";
 
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import {
+  DefaultChatTransport,
+  getToolName,
+  isToolUIPart,
+  type UIMessage,
+} from "ai";
 import type { QueryClient } from "@tanstack/react-query";
 
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
@@ -150,6 +155,14 @@ export function useChatRefresh(chatId: string, queryClient: QueryClient) {
     // too — design D5a: a change to a card field invalidates the pins query.
     void queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
   };
+  const refreshChatBinding = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+    void queryClient.invalidateQueries({
+      queryKey: chatQueryKeys.detail(chatId),
+      exact: true,
+    });
+  }, [queryClient, chatId]);
+
   // Compaction (#57) is embedded in this same messages response (#136) — a
   // compaction landing mid-conversation is refreshed "for free" by this same
   // invalidation, with no separate query/cache entry to keep in sync.
@@ -167,7 +180,7 @@ export function useChatRefresh(chatId: string, queryClient: QueryClient) {
     refreshChatMessages();
   };
 
-  return { refreshChatData, refreshChatMessages };
+  return { refreshChatData, refreshChatMessages, refreshChatBinding };
 }
 
 type UseChatEngineArgs = {
@@ -353,12 +366,32 @@ export function useChatHistorySync({
   }, [chatMessages, messages, status, setMessages]);
 }
 
+function hasSuccessStatus(value: unknown): value is { status: "success" } {
+  if (!(value instanceof Object) || !("status" in value)) return false;
+  return value.status === "success";
+}
+
+function successfulWorkspaceTransitionId(
+  part: UIMessage["parts"][number],
+): string | null {
+  if (!isToolUIPart(part) || part.state !== "output-available") return null;
+
+  const toolName = getToolName(part);
+  if (toolName !== "enter_workspace" && toolName !== "exit_workspace") {
+    return null;
+  }
+
+  if (!hasSuccessStatus(part.output)) return null;
+  return part.toolCallId;
+}
+
 type UseChatPresenceEffectsArgs = {
   status: ReturnType<typeof useChat>["status"];
   messages: Array<UIMessage>;
   chatId: string;
   trackRun: (runId: string, chatId: string, label: string) => void;
   markChatSeen: (chatId: string) => void;
+  refreshChatBinding: () => void;
 };
 
 /** Registers the active run globally (for cross-chat completion toasts) and
@@ -369,7 +402,12 @@ export function useChatPresenceEffects({
   chatId,
   trackRun,
   markChatSeen,
+  refreshChatBinding,
 }: UseChatPresenceEffectsArgs) {
+  const handledWorkspaceTransitionIds = useRef<Set<string> | undefined>(
+    undefined,
+  );
+
   // Register the active run globally so its completion notifies (toast + badge)
   // if the user navigates to another chat before it finishes — the durable
   // worker keeps generating regardless (#50). Label the toast with the first
@@ -380,6 +418,27 @@ export function useChatPresenceEffects({
     if (!runId) return;
     trackRun(runId, chatId, notificationLabel(messages));
   }, [status, messages, chatId, trackRun]);
+
+  // Entry and exit commit before a Run finishes; refresh owner caches as soon
+  // as their successful tool result is delivered so the header changes mid-Run.
+  useEffect(() => {
+    const handledIds =
+      handledWorkspaceTransitionIds.current ?? new Set<string>();
+    handledWorkspaceTransitionIds.current = handledIds;
+
+    let bindingChanged = false;
+    for (const message of messages) {
+      for (const part of message.parts) {
+        const toolCallId = successfulWorkspaceTransitionId(part);
+        if (toolCallId === null || handledIds.has(toolCallId)) continue;
+        handledIds.add(toolCallId);
+        bindingChanged =
+          status === "streaming" || status === "submitted" || bindingChanged;
+      }
+    }
+
+    if (bindingChanged) refreshChatBinding();
+  }, [messages, refreshChatBinding, status]);
 
   // Opening a chat clears its unseen-completion badge.
   useEffect(() => {

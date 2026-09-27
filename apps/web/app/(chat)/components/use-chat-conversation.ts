@@ -166,6 +166,7 @@ type UseChatSideEffectsArgs = {
   chatId: string;
   trackRun: (runId: string, chatId: string, label: string) => void;
   markChatSeen: (chatId: string) => void;
+  refreshChatBinding: () => void;
 };
 
 /** Every effect the conversation state drives once messages exist: the
@@ -185,6 +186,7 @@ function useChatSideEffects({
   chatId,
   trackRun,
   markChatSeen,
+  refreshChatBinding,
 }: UseChatSideEffectsArgs) {
   const targetMessageRendered =
     targetSeq !== null &&
@@ -201,7 +203,14 @@ function useChatSideEffects({
     status,
     setMessages,
   });
-  useChatPresenceEffects({ status, messages, chatId, trackRun, markChatSeen });
+  useChatPresenceEffects({
+    status,
+    messages,
+    chatId,
+    trackRun,
+    markChatSeen,
+    refreshChatBinding,
+  });
 }
 
 // Surface conversation compaction (#57): where older turns were folded into

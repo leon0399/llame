@@ -8,6 +8,8 @@ import { usePathname } from "next/navigation";
 
 import { topBarClasses } from "@/app/shell/top-bar";
 import { useTypewriter } from "@/components/use-typewriter";
+import { WorkspaceIndicator } from "@/components/workspace-indicator";
+
 import { useChatQuery, useChatsQuery } from "@/lib/services/chat/queries";
 
 export interface ChatHeaderProps {
@@ -26,11 +28,11 @@ function isResolvedTitle(title: string | null | undefined): title is string {
   return typeof title === "string";
 }
 
-/** Resolves the active chat's title from the sidebar list caches, falling
- *  back to a direct fetch for archived-unpinned chats those caches drop. */
-function useResolvedChatTitle(
+/** Resolves the active chat from sidebar list caches, falling back to a
+ * direct fetch for archived-unpinned chats those caches drop. */
+function useResolvedChat(
   chatId: string | undefined,
-): string | null | undefined {
+): { title: string; workspaceRoot: string | null } | null | undefined {
   // Prefer the sidebar list caches when the active chat is in them — rename /
   // title-generation invalidate lists(), so the header stays in lockstep.
   const { data: pinnedData } = useChatsQuery({
@@ -62,7 +64,10 @@ function useResolvedChatTitle(
     ? null
     : chat === undefined
       ? undefined
-      : (chat.title ?? UNTITLED_CHAT_LABEL);
+      : {
+          title: chat.title ?? UNTITLED_CHAT_LABEL,
+          workspaceRoot: chat.workspaceRoot,
+        };
 }
 
 /** Keeps the tab title in sync with the resolved chat title, and restores the
@@ -102,7 +107,8 @@ export function ChatHeader({ className }: ChatHeaderProps) {
   const chatId = pathname.startsWith("/chat/")
     ? pathname.split("/")[2]
     : undefined;
-  const settledTitle = useResolvedChatTitle(chatId);
+  const resolvedChat = useResolvedChat(chatId);
+  const settledTitle = resolvedChat === null ? null : resolvedChat?.title;
 
   useDocumentTitleSync(settledTitle);
 
@@ -119,8 +125,11 @@ export function ChatHeader({ className }: ChatHeaderProps) {
       {/* Mobile-only: opens the sidebar sheet; the desktop rail has its own toggle. */}
       <SidebarTrigger className="md:hidden" />
 
-      {chatId && isResolvedTitle(settledTitle) ? (
-        <ChatHeaderTitle key={chatId} title={settledTitle} />
+      {chatId && resolvedChat ? (
+        <>
+          <ChatHeaderTitle key={chatId} title={resolvedChat.title} />
+          <WorkspaceIndicator workspaceRoot={resolvedChat.workspaceRoot} />
+        </>
       ) : null}
     </header>
   );

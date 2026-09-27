@@ -163,6 +163,24 @@ describe('ChatsController', () => {
       }),
     ]);
   });
+  it('returns the canonical Workspace root for an owner-bound Chat', async () => {
+    const workspaceRoot = '/srv/workspaces/owner-chat';
+    const { controller } = makeController({
+      getChatById: vi.fn().mockResolvedValue({ ...chat, workspaceRoot }),
+    });
+
+    await expect(
+      controller.getChatById('verified-user', chat.id),
+    ).resolves.toEqual(expect.objectContaining({ workspaceRoot }));
+  });
+
+  it('returns null for an owner Chat without a Workspace binding', async () => {
+    const { controller } = makeController();
+
+    await expect(
+      controller.getChatById('verified-user', chat.id),
+    ).resolves.toEqual(expect.objectContaining({ workspaceRoot: null }));
+  });
 
   it('returns lastMessage null for a chat without messages', async () => {
     const { controller } = makeController({

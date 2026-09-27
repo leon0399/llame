@@ -127,15 +127,15 @@ implementation layers.
 
 ## 2. `workspace-entry/web`: owner binding API and indicator
 
-- [ ] 2.1 Expose the current canonical binding root or null on the owner's Chat API response and
+- [x] 2.1 Expose the current canonical binding root or null on the owner's Chat API response and
       regenerate the OpenAPI client. Verify the owner sees the root, another owner receives 404 for
       the Chat, the RLS path cannot read or write another owner's columns, and public share
       projections and shared/visitor forks never expose the root; a second generation produces no
       diff.
-- [ ] 2.2 Show the bound root in the chat header, updating after entry, exit, and detach, using
+- [x] 2.2 Show the bound root in the chat header, updating after entry, exit, and detach, using
       existing design-system components and tokens per DESIGN.md. Verify with component tests and a
       story; run the Storybook story tests and return preview URLs.
-- [ ] 2.3 Add a dated `CHANGELOG.md` entry. Run `pnpm --filter web lint`, `typecheck`, and
+- [x] 2.3 Add a dated `CHANGELOG.md` entry. Run `pnpm --filter web lint`, `typecheck`, and
       `test:coverage`, plus `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record
       the commands in the PR body.
 - [ ] 2.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun

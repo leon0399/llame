@@ -19,4 +19,9 @@ export interface ChatResponse {
   archivedAt: string | null;
   /** @nullable */
   projectId: string | null;
+  /**
+   * Canonical absolute root of the current Workspace binding. Owner-only; null when this Chat has no binding.
+   * @nullable
+   */
+  workspaceRoot: string | null;
 }

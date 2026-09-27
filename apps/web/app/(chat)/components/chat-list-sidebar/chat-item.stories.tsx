@@ -58,6 +58,7 @@ const baseChat: ChatResponse = {
   lastMessage: "The todos are on the project — want me to draft the IA next?",
   visibility: "private",
   projectId: null,
+  workspaceRoot: null,
   createdAt: "2026-07-20T10:00:00.000Z",
   updatedAt: "2026-07-20T10:00:00.000Z",
   archivedAt: null,

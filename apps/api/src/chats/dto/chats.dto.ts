@@ -246,6 +246,16 @@ export class ChatResponse {
   // (projects-foundation).
   @ApiProperty({ type: String, format: 'uuid', nullable: true })
   projectId!: string | null;
+
+  // The canonical absolute root of the current Workspace binding. This field
+  // is owner-only and null when the Chat has no active binding.
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'Canonical absolute root of the current Workspace binding. Owner-only; null when this Chat has no binding.',
+  })
+  workspaceRoot!: string | null;
 }
 
 export function toChatResponse(chat: Chat): ChatResponse {
@@ -258,6 +268,7 @@ export function toChatResponse(chat: Chat): ChatResponse {
     updatedAt: chat.updatedAt,
     archivedAt: chat.archivedAt,
     projectId: chat.projectId,
+    workspaceRoot: chat.workspaceRoot,
   };
 }
 

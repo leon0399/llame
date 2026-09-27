@@ -82,6 +82,7 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
       new ChatsRepository(tx).create({
         ownerUserId: userId,
         title: 'HTTP share test chat',
+        workspaceRoot: '/srv/private-owner-workspace',
       }),
     );
     chatId = chat.id;
@@ -250,6 +251,7 @@ d(
           ownerUserId: ownerId,
           title: 'Forkable chat',
           visibility: 'public',
+          workspaceRoot: '/srv/private-owner-workspace',
         }),
       );
       publicChatId = publicChat.id;
@@ -302,6 +304,11 @@ d(
         .get(`/api/v1/chats/${forkedId}`)
         .set('Cookie', visitorCookie);
       expect(asVisitor.status).toBe(200);
+      const visitorBody: unknown = asVisitor.body;
+      if (!isRecord(visitorBody)) {
+        throw new Error('Expected visitor fork chat response body');
+      }
+      expect(visitorBody.workspaceRoot).toBeNull();
 
       // ...but the ORIGINAL owner cannot see the fork via their own chat list.
       const asOwner = await request(http)
