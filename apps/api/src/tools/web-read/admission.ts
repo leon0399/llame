@@ -4,16 +4,17 @@ import { type PermissionDecision } from '../permissions/types';
 import { type ToolContext } from '../types';
 
 /**
- * The locator kinds a web read evaluates beyond the submitted locator:
  * redirect hops, announced alternates, `.md` suffixes, `llms.txt` candidates,
- * resolved addresses, and canonical Workspace entry paths. Server-chosen
- * locators are admitted independently before their request (design D3).
+ * adapter targets, resolved addresses, and canonical Workspace entry paths.
+ * Server-chosen locators are admitted independently before their request
+ * (design D3).
  */
 export type DerivedLocatorKind =
   | 'hop'
   | 'alternate'
   | 'suffix'
   | 'llms-txt'
+  | 'adapter'
   | 'address'
   | 'canonical';
 
@@ -43,6 +44,7 @@ const KIND_NAMES: Readonly<Record<DerivedLocatorKind, true>> = {
   alternate: true,
   suffix: true,
   'llms-txt': true,
+  adapter: true,
   address: true,
   canonical: true,
 };

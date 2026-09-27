@@ -2,14 +2,15 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
-
 import type { AdmitDerivedLocator, DerivedLocatorKind } from './admission';
 import type { WebFetchFailure, WebResponse } from './http-client';
 import { canonicalHref } from './locator';
+import type { WebAdapterProvenance } from './adapters/contract';
 
 /** Every adapter a web read can report, in pipeline order. Declared as values
  *  so a caller can enumerate them; the union is derived from this list. */
 export const WEB_RENDER_METHODS = [
+  'adapter',
   'negotiated',
   'alternate',
   'md-suffix',
@@ -30,6 +31,7 @@ export type WebRender = {
    *  response's URL is the call's `finalUrl` already. */
   readonly finalUrl?: string;
   readonly notes?: ReadonlyArray<string>;
+  readonly adapter?: WebAdapterProvenance;
 };
 
 /** One request of the call, bounded by the same client as the first. */
@@ -43,7 +45,10 @@ export type WebPipelineDeps = {
 };
 
 /** The kinds the pipeline derives itself; a hop is the hop loop's. */
-type ProbeKind = Exclude<DerivedLocatorKind, 'hop' | 'address' | 'canonical'>;
+type ProbeKind = Exclude<
+  DerivedLocatorKind,
+  'hop' | 'address' | 'canonical' | 'adapter'
+>;
 
 /** The `method` a winning probe reports, which names the adapter that won. */
 const PROBE_METHODS: Record<ProbeKind, WebRenderMethod> = {

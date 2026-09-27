@@ -202,6 +202,7 @@ describe('createDerivedAdmission', () => {
       'alternate',
       'suffix',
       'llms-txt',
+      'adapter',
     ];
     for (const kind of kinds) admit(kind, DOCS_URL);
 

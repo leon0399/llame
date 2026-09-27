@@ -1,5 +1,16 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-28
+
+- Native web reads gain an ordered, opt-in adapter stage between source
+  admission and the generic ladder, and the first adapter: an operator-declared
+  `rewrite` that fetches a claimed URL from one validated origin and renders it
+  locally. `tools.webAdapters` absent means no adapter; a present array is the
+  exact ordered list. Every adapter request is admitted by the `read` group as
+  its own derived locator, and a failed adapter falls through to the generic
+  ladder with a bounded note
+  ([#708](https://github.com/leon0399/llame/issues/708)).
+
 # 2026-09-27
 
 - Native `read`, `edit`, and `write` accept `file://` and RFC 8089 minimal

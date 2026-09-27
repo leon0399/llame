@@ -3,9 +3,23 @@ import { promises as dns } from 'node:dns';
 import { fetch as undiciFetch } from 'undici';
 
 import { type ToolContext, type ToolResult } from '../types';
-import { createAddressAdmission, createDerivedAdmission } from './admission';
-import { type ResolveHost, createWebFetchSession } from './http-client';
+import {
+  createAddressAdmission,
+  createDerivedAdmission,
+  type AdmitDerivedLocator,
+} from './admission';
+import {
+  type ResolveHost,
+  type WebFetchSession,
+  type WebResponse,
+  createWebFetchSession,
+} from './http-client';
 import { parseWebLocator, type WebLocator } from './locator';
+import {
+  createWebAdapters,
+  dispatchWebAdapters,
+  type WebAdapterIo,
+} from './adapters/contract';
 import { renderWebContent } from './pipeline';
 import { buildWebReadResult } from './result';
 
@@ -22,10 +36,24 @@ type WebReadCall = {
 export type WebReadDeps = {
   readonly parseWebLocator: typeof parseWebLocator;
   readonly createWebFetchSession: typeof createWebFetchSession;
+  readonly createWebAdapters?: typeof createWebAdapters;
   readonly renderWebContent: typeof renderWebContent;
   readonly buildWebReadResult: typeof buildWebReadResult;
   readonly fetch?: typeof undiciFetch;
   readonly resolve?: ResolveHost;
+};
+type WebRenderState = {
+  readonly context: ToolContext;
+  readonly locator: WebLocator;
+  readonly response: WebResponse;
+  readonly session: WebFetchSession;
+  readonly admit: AdmitDerivedLocator;
+  readonly deps: WebReadDeps;
+};
+
+type WebFetchedRenderOptions = WebRenderState & {
+  readonly raw: boolean;
+  readonly prefixNotes?: ReadonlyArray<string>;
 };
 
 /**
@@ -52,6 +80,7 @@ const resolveHost: ResolveHost = async (hostname) => {
 export const realWebReadDeps: WebReadDeps = {
   parseWebLocator,
   createWebFetchSession,
+  createWebAdapters,
   renderWebContent,
   buildWebReadResult,
   fetch: undiciFetch,
@@ -108,9 +137,6 @@ async function fetchAndRender(
   userAgent: string,
   deps: WebReadDeps,
 ): Promise<ToolResult> {
-  // One session per call: the 30-second bound and the 20-hop budget cover the
-  // first request, every hop it answers with, and every probe the pipeline
-  // issues, so a page cannot spend a fresh budget per derived locator.
   const admit = createDerivedAdmission(context);
   const session = deps.createWebFetchSession(
     {
@@ -128,20 +154,74 @@ async function fetchAndRender(
   try {
     const response = await session.fetch(locator.url);
     if ('type' in response) return { status: 'error', ...response };
-    // The render below runs synchronously over a body of up to 5 MiB, where no
-    // abort can interrupt it, so a call the Run has already given up on must
-    // not start that render.
     if (context.abortSignal?.aborted === true) return ABORTED;
-    const render = await deps.renderWebContent(
+
+    const state: WebRenderState = {
+      context,
+      locator,
       response,
-      { raw: isRawSelector(locator.selector) },
-      { fetch: session.fetch, admit },
-    );
-    if ('type' in render) return { status: 'error', ...render };
-    return deps.buildWebReadResult(locator, response, render);
+      session,
+      admit,
+      deps,
+    };
+    if (isRawSelector(locator.selector)) {
+      return renderFetchedResponse({ ...state, raw: true });
+    }
+    return renderWithAdapters(state);
   } finally {
     session.dispose();
   }
+}
+
+async function renderWithAdapters(state: WebRenderState): Promise<ToolResult> {
+  const { context, locator, response, session, admit, deps } = state;
+  const adapterIo: WebAdapterIo = {
+    fetch: (url) => {
+      if (admit('adapter', url).decision === 'reject') {
+        return Promise.resolve({
+          type: 'permission_denied',
+          message: 'The adapter target was refused by operator permissions.',
+        });
+      }
+      return session.fetch(url);
+    },
+  };
+  const adapterResult = await dispatchWebAdapters(
+    new URL(locator.url),
+    (deps.createWebAdapters ?? createWebAdapters)(context.webAdapters ?? []),
+    adapterIo,
+  );
+  if (adapterResult.kind === 'fatal') {
+    return { status: 'error', ...adapterResult.failure };
+  }
+  if (adapterResult.kind === 'rendered') {
+    return deps.buildWebReadResult(locator, response, adapterResult.render);
+  }
+  return renderFetchedResponse({
+    ...state,
+    raw: false,
+    prefixNotes: adapterResult.notes,
+  });
+}
+
+async function renderFetchedResponse(
+  options: WebFetchedRenderOptions,
+): Promise<ToolResult> {
+  const { locator, response, raw, session, admit, deps } = options;
+  const render = await deps.renderWebContent(
+    response,
+    { raw },
+    { fetch: session.fetch, admit },
+  );
+  if ('type' in render) return { status: 'error', ...render };
+  const prefixNotes = options.prefixNotes ?? [];
+  if (prefixNotes.length === 0) {
+    return deps.buildWebReadResult(locator, response, render);
+  }
+  return deps.buildWebReadResult(locator, response, {
+    ...render,
+    notes: [...prefixNotes, ...(render.notes ?? [])],
+  });
 }
 
 /** `:raw` skips every probe and conversion. The selector excludes its

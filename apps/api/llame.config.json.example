@@ -458,6 +458,18 @@
     // To enable Workspace entry/exit on a native host, also add
     // "enter_workspace" and "exit_workspace" to this allowlist.
     "allowed": ["search_conversations"],
+    // Optional ordered rewrite adapters; absent means none, and a present array
+    // is the exact enabled list. This example sends x.com status paths to the
+    // operator-declared origin below.
+    // "webAdapters": [
+    //   {
+    //     "id": "x",
+    //     "use": "rewrite",
+    //     "hosts": ["x.com", "twitter.com"],
+    //     "pathPattern": "^/[^/]+/status/\\d+$",
+    //     "target": "https://x.pcstyle.dev{path}"
+    //   }
+    // ],
     // Optional whole-file replacements for llame-owned tool descriptions,
     // keyed by registered tool id (bash, conversation_read, edit, enter_workspace,
     // exit_workspace, knowledge_search, read, search_conversations, write); MCP ids are

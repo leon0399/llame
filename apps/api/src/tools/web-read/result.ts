@@ -12,6 +12,7 @@ import { type UnknownRecord } from '@workspace/runtime-safety';
 
 import { type WebResponse } from './http-client';
 import { type WebLocator } from './locator';
+import { type WebAdapterProvenance } from './adapters/contract';
 import { type WebRender, type WebRenderMethod } from './pipeline';
 
 /** The native read success object, extended with the web envelope. */
@@ -24,10 +25,11 @@ type WebReadFailure = {
 };
 
 /** The fields a web read adds to the native read result. `notes` is added
- *  only when the render reported something, so an empty list is absent. */
+ * only when the render reported something, so an empty list is absent. */
 type WebResultEnvelope = {
   finalUrl: string;
   method: WebRenderMethod;
+  adapter?: WebAdapterProvenance;
   notes?: ReadonlyArray<string>;
 };
 
@@ -40,6 +42,7 @@ function webResultEnvelope(
   const envelope: WebResultEnvelope = {
     finalUrl: render.finalUrl ?? response.finalUrl,
     method: render.method,
+    ...(render.adapter !== undefined && { adapter: render.adapter }),
   };
   const notes = render.notes ?? [];
   if (notes.length > 0) envelope.notes = notes;

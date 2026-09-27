@@ -974,6 +974,7 @@ export class RunExecutionService {
       skillSelection,
       queryEmbedder: this.queryEmbedder,
       permissionPolicy: this.permissionPolicy,
+      webAdapters: this.instanceConfig.config.tools.webAdapters,
     };
     const { maxStepsPerRun, callTimeoutSeconds } =
       this.instanceConfig.config.tools;
@@ -1048,12 +1049,12 @@ export class RunExecutionService {
     // has its own guard, but without this one enqueueEvent fires a second
     // tool.completed for a call the collector correctly ignored.
     const settledToolCallIds = new Set<string>();
-    // A derived-locator decision (a hop, probe candidate, or refused address)
-    // reaches run execution through the tool context while the executor runs —
-    // after `tool.requested` is already durable — so it is collected on the
-    // open call and recorded at settlement. A call that never settles loses
-    // its records with its result. Address refusals have their own bound and
-    // cannot displace hop or probe decisions.
+    // A derived-locator decision (a hop, probe candidate, adapter target, or
+    // refused address) reaches run execution through the tool context while
+    // the executor runs — after `tool.requested` is already durable — so it
+    // is collected on the open call and recorded at settlement. A call that
+    // never settles loses its records with its result. Address refusals have
+    // their own bound and cannot displace hop, probe, or adapter decisions.
     const recordDerivedDecision = (
       toolCallId: string,
       decision: DerivedDecision,
@@ -2011,6 +2012,7 @@ export class RunExecutionService {
       knowledgeResolver: this.knowledgeResolver,
       skillCatalog: this.skillCatalog,
       permissionPolicy: this.permissionPolicy,
+      webAdapters: this.instanceConfig.config.tools.webAdapters,
     };
   }
 
