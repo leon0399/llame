@@ -48,17 +48,20 @@ critical path.
   their chats by recency (14-day half-life), is resolved once per chat epoch under owner isolation, frozen
   on the chat like the skill-catalog baseline, and re-resolved at compaction. A tool the owner
   has never called successfully is never pre-declared.
-- Add `tool_search`, a read-only, llame-executed code-owned tool with exact-id `select` and a
+- Add `search_tools`, a read-only, llame-executed code-owned tool with exact-id `select` and a
   small keyword query. Like every code-owned tool it needs its own `tools.allowed` entry and
-  `tools.permissions` group; allowlisting it is the operator's opt-in to deferral, and without it
-  every MCP tool stays declared as today. It records which tools it loaded; the loaded set for a request is derived from
-  the `tool_search` observations present in that request's model context, so it follows
+  `tools.permissions` group, and once admitted it is declared on every request like other system
+  tools. Allowlisting it is the operator's opt-in to deferral; without it every MCP tool stays
+  declared as today. (It is not named `tool_search` because `@ai-sdk/openai` reserves that name
+  for the provider's own tool.) It records which tools it loaded; the loaded set for a request is
+  derived from the `search_tools` results the model can still see in that request, so it follows
   compaction, queue retry, and model switches without a new Run column.
 - Make **how loaded schemas reach the model** a per-model strategy, `models[].toolSearch`:
   `harness` (default, every wire) adds loaded tools to the declared set on later steps; `native`
   keeps the `tools` array constant for the chat epoch and loads through the provider's own
   append-only mechanism: deferred tools plus `tool_reference` results on `anthropic-messages`,
-  and deferred functions plus a client-executed `tool_search` on `openai-responses`.
+  and deferred functions plus `search_tools` bound as the provider's client-executed
+  `tool_search` on `openai-responses`.
 - Apply the same partition to Workspace MCP tools that `enter_workspace` adds during a Run:
   tools already declared stay declared, the additions are declared only while they fit, and the
   rest become discoverable, listed in the entry result.
@@ -86,13 +89,17 @@ None.
 ### Modified Capabilities
 
 - `tool-calling`: admitted MCP tools beyond the per-model budget are discoverable through a
-  `tool_search` tool that operators opt into; the most-used MCP tools stay declared; the loaded set derives from
-  replayed `tool_search` observations; in-Run Workspace additions join the partition;
-  `tool_search` observations project through the executing wire's native loading form under the
-  `native` strategy; the transport strategy is per model.
-- `context-injection`: the owner's MCP usage rank is a frozen prefix baseline stored on the chat,
-  resolved by the worker, written by the completing attempt, and re-resolved at compaction.
-- `tool-call-permissions`: the recommended portable permission map gains a `tool_search` group.
+  `search_tools` tool that operators opt into; the most-used MCP tools stay declared; the loaded
+  set derives from `search_tools` results still visible to the model; in-Run Workspace additions
+  join the partition; discoverable tools count as callable for availability disclosure; the
+  transport strategy is per model. Modifies the observation-projection, result-framing, and
+  in-Run-addition requirements so `search_tools` results can project in a wire's native loading
+  form and discoverable additions become callable once loaded.
+- `context-injection`: the owner's MCP usage rank is a frozen chat baseline with no rendered
+  contribution, resolved by the worker, written by the completing attempt, and re-resolved at
+  compaction.
+- `owner-chat-forks`: forks copy the rank and remap its compaction marker.
+- `tool-call-permissions`: the recommended portable permission map gains a `search_tools` group.
 - `workspace-entry`: the entry result lists Workspace tools that became discoverable.
 - `instance-config`: optional `models[].toolSearchThresholdTokens` and `models[].toolSearch`,
   validated against the model's provider type.
@@ -100,12 +107,13 @@ None.
 
 ## Impact
 
-- `apps/api/src/tools`: tier computation beside `composeTurnToolCatalog`, the `tool_search`
+- `apps/api/src/tools`: tier computation beside `composeTurnToolCatalog`, the `search_tools`
   executor and its registry entry, and partitioning of in-Run additions in `attempt-tool-additions.ts`.
 - `apps/api/src/mcp`: the `enter_workspace` result lists discoverable additions.
 - `apps/api/src/runs`: partition at attempt preparation, loaded-set derivation, per-step declared
-  set composed with the existing step cap, the execute-wrapper gate.
-- `apps/api/src/chats`: usage-rank resolution and fork copy, the `tool_search` observation
+  set composed with the existing step cap, the execute-wrapper gate, and the delivered tool set
+  passed to the context-fit check and post-turn compaction.
+- `apps/api/src/chats`: usage-rank resolution and fork copy, the `search_tools` observation
   projection.
 - `apps/api/src/models`: `anthropic-model-client.ts` and `openai-model-client.ts` native
   delivery using installed adapter options; no SDK upgrade.

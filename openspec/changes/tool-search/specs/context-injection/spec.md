@@ -1,9 +1,11 @@
 ## ADDED Requirements
 
-### Requirement: The MCP usage rank is a frozen prefix baseline stored on the chat
+### Requirement: The MCP usage rank is a frozen chat baseline with no rendered contribution
 
-The MCP usage rank that `tool-calling` uses to choose declared MCP tools SHALL be classified as a
-frozen prefix-resident baseline. It SHALL be an ordered list of at most 256 MCP tool ids resolved
+The MCP usage rank that `tool-calling` uses to choose declared MCP tools SHALL be frozen per
+compaction epoch and stored on the chat. It SHALL have no rendered contribution and no rail
+deltas: it changes which admitted tools a request declares, never the system prompt or any
+context item. It SHALL be an ordered list of at most 256 MCP tool ids resolved
 for the chat's owner from that owner's committed assistant message parts, under the owner's
 authenticated identity and datastore isolation, and SHALL never read another owner's rows.
 
@@ -19,7 +21,7 @@ recent use descending, then by id.
 
 Uses SHALL be counted by tool id regardless of whether an operator or a Workspace server served
 them. The rank SHALL be persisted on the chat row under owner isolation together with the
-compaction identity under which it was resolved, following the skill-catalog baseline. Attempt
+compaction identity under which it was resolved. Attempt
 preparation SHALL reuse the stored rank only when one is persisted and its recorded identity
 equals the chat's latest compaction identity; otherwise, when the attempt's admitted catalog
 contains an MCP tool, it SHALL resolve a new rank, and only the attempt that completes the Run

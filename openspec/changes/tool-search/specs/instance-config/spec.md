@@ -34,7 +34,7 @@ the model id and the key.
 
 - **WHEN** a model entry sets `toolSearchThresholdTokens` below the inventory estimate of every eligible MCP tool
 - **THEN** every MCP tool is recorded `unavailable` with reason `declaration_budget_exceeded`
-- **AND** no tool is discoverable, so `tool_search` is not declared
+- **AND** no tool is discoverable, so `search_tools` is not declared
 - **AND** the admitted code-owned tools remain declared
 
 #### Scenario: Invalid threshold fails startup

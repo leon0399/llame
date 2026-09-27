@@ -15,10 +15,10 @@ deferral.
 
 - **WHEN** a server publishes more tools than the total-count limit and the model's declaration budget would defer them
 - **THEN** that server's discovery fails and publishes no catalog exactly as before
-- **AND** nothing from that server is discoverable through `tool_search`
+- **AND** nothing from that server is discoverable through `search_tools`
 
 #### Scenario: Deferral does not narrow discovery
 
 - **WHEN** a server's admitted catalog is within every discovery limit but exceeds the model's declaration budget
-- **THEN** every admitted tool stays admitted for the attempt, either declared, reachable through `tool_search`, or recorded `unavailable` with the closed reason `declaration_budget_exceeded`
+- **THEN** every admitted tool stays admitted for the attempt, either declared, reachable through `search_tools`, or recorded `unavailable` with the closed reason `declaration_budget_exceeded`
 - **AND** the discovery limits are not consulted when deciding tiers

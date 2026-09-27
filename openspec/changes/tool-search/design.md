@@ -41,7 +41,8 @@ type: 'tool-reference', toolName } } }` into a `tool_reference` block (`index.js
   `2291-2368`); that is the server-authored counterpart of a model search.
 - **OpenAI.** The Responses adapter serializes a function tool's `deferLoading` as
   `defer_loading` (`@ai-sdk/openai` `index.js:5144-5156`), ships `openai.tools.toolSearch`
-  with client execution, and on replay turns a `tool_search` call whose input carries `call_id`
+  with client execution, and on replay turns a call to a tool bound as `openai.tool_search` whose
+  input carries `call_id`
   into a `tool_search_call` item and its `json` output `{ tools }` into a client
   `tool_search_output` item (`index.js:3165-3186`, `3446-3458`). Loaded tools are appended at
   the end of context, preserving the cached prefix; for an individual deferred function the
@@ -121,15 +122,14 @@ Workspace's MCP tools, each through source admission, `tools.allowed`, and the a
 declaration match; every call still needs its `tools.permissions` group. Within it:
 
 - **declared** — offered to the model with its schema on this step;
-- **discoverable** — admitted MCP tools not declared; reachable only through `tool_search`;
+- **discoverable** — admitted MCP tools not declared; reachable only through `search_tools`;
 - **loaded** — discoverable tools whose load is visible to the model (D6);
 - **callable** — declared tools plus loaded tools, minus everything once the step cap is reached.
 
-Allowlisted code-owned tools are always declared, never discoverable, and never counted against
-the budget, so an operator's first-party tools are never hidden behind `tool_search` and behave
-exactly as today regardless of MCP catalog size. `tool_search` itself is the one code-owned tool
-declared only when there is something to search (D7). The split exists only for MCP, from either source, because MCP is where catalogs grow
-without bound.
+Allowlisted code-owned tools, `search_tools` included, are always declared, never discoverable,
+and never counted against the budget, so an operator's first-party tools are never hidden behind
+`search_tools` and behave exactly as today regardless of MCP catalog size. The split exists only
+for MCP, from either source, because MCP is where catalogs grow without bound.
 
 ### D2. Per-model budget, unchanged in basis
 
@@ -142,7 +142,7 @@ representative declarations the ratio was 4.2–4.7 chars/token, so `chars / 4` 
 over-counts and defers early, the cheap direction; no local tokenizer can be exact because each
 provider renders tool definitions through its own template.
 
-Tier computation engages only when `tool_search` is admitted (D7) and the eligible MCP estimate
+Tier computation engages only when `search_tools` is admitted (D7) and the eligible MCP estimate
 exceeds the budget (strict). No instance-level knob, per `instance-config`'s rule against instance-level context-window settings.
 
 ### D3. Over budget: declare the owner's most-used MCP tools
@@ -161,8 +161,9 @@ filling), operator-declared priority (a new config surface for a fact the histor
 records), and server round-robin (still arbitrary within a server).
 
 If the inventory alone exceeds the budget (a 1,000-id enum is ~16k tokens, above a 128k model's
-budget), MCP tools are cut from the discoverable set, lowest-ranked first and by descending id
-among unranked tools, until it fits. Cut tools are recorded unavailable with the closed reason
+budget), MCP tools are cut from the discoverable set until it fits: unranked tools first, by
+descending id, then ranked ones from the lowest rank up, so evidence of use is the last thing
+cut. Cut tools are recorded unavailable with the closed reason
 `declaration_budget_exceeded`, so the existing availability reminder discloses them rather than
 letting them vanish. Declared tools are never cut.
 
@@ -235,11 +236,13 @@ anything.
 
 ### D6. The loaded set is what the model can see
 
-A discoverable tool is loaded for a request iff that request's model context contains a
-`tool_search` observation that loaded it, after compaction replacement and after the replay
-budget has dropped whatever it drops. Within the current Run, loads from earlier steps count. The
-loaded set is therefore derived at request assembly from the same projection that builds the
-request, never from a separate record.
+A discoverable tool is loaded for a request iff that request's projected context carries the
+result body of a `search_tools` observation that loaded it. A pair the replay budget omitted, a
+pair it cleared to call and outcome only, and a compaction replacement record (which is always
+cleared) are not loads: the model can no longer see which tools they named. Within the current
+Run, loads from earlier steps count. The loaded set is therefore derived at request assembly from
+the same projection that builds the request, which reports the ids of the `search_tools` pairs it
+kept with their bodies; it is never a separate record.
 
 Consequences, all without new state:
 
@@ -247,11 +250,11 @@ Consequences, all without new state:
   committed, so they are absent; there is nothing to fence. (A retry happens only when the failed
   attempt recorded no MCP dispatch or native attempt; otherwise the Run fails as
   `outcome_unknown` and nothing is retried.)
-- **Compaction.** An observation absorbed into a checkpoint is no longer a load; the epoch
-  resets. An observation retained in the kept tail stays a load, because the model can still
-  see it.
-- **Replay budget.** If the budget drops the pair that loaded a tool, the tool is no longer
-  loaded. Callability never exceeds what the model was shown.
+- **Compaction.** An observation absorbed into a checkpoint survives only as a cleared
+  replacement record, so it is no longer a load; the epoch resets. An observation retained in the
+  kept tail with its body stays a load, because the model can still see it.
+- **Replay budget.** If the budget drops or clears the pair that loaded a tool, the tool is no
+  longer loaded. Callability never exceeds what the model was shown.
 - **Model switch.** The stored observation is wire-neutral (D7), so each wire projects it in its
   own form (D9).
 - **Revocation.** Declarations always come from the current attempt's admitted catalog. A loaded
@@ -263,13 +266,23 @@ them into the next Run's declared set. Deriving from history deletes that column
 the promotion step, and it keeps cross-Run loads cache-safe on `native` wires, where promotion
 would have rewritten `tools`.
 
-### D7. `tool_search` is an opt-in, llame-executed code-owned tool
+### D7. `search_tools` is an opt-in, llame-executed code-owned tool
 
-Input: `{ select?: string[], query?: string, limit?: integer }`. `select` resolves exact ids and
-accepts any MCP-id-shaped string, so a tool added during the Run (D13) is selectable even though
-the schema was fixed when `tool_search` was declared; `query` matches case-insensitive tokens against the id split on `_`/`-` and the neutralized
+The name is `search_tools`, not `tool_search`. `@ai-sdk/openai` treats every tool call and result
+whose name maps to `tool_search` as the provider's tool search (`index.js:3163-3186`,
+`3444-3458`), and `createToolNameMapping` falls back to the tool's own name when no provider tool
+is bound (`@ai-sdk/provider-utils` `index.js:171-175`), so a plain function called `tool_search`
+would be misread on every Responses and Codex request, including under `harness`. Under `native`
+on `openai-responses` the same `search_tools` key is bound to `openai.tools.toolSearch`, and the
+mapping sends it as the provider tool.
+
+Input: `{ select?: string[], query?: string, limit?: integer }`, at least one of `select` and
+`query`. `select` resolves exact ids and accepts any string in the `mcp-tool-id-v1` grammar, so a
+tool added during the Run (D13) is selectable even though the schema was fixed when
+`search_tools` was declared. When both are given, `select` resolves first and `query` fills the
+rest up to `limit`. `query` matches case-insensitive tokens against the id split on `_`/`-` and the neutralized
 description, ranking exact id, then id token, then description token, ties by usage rank then
-id. `limit` defaults to 5, maximum 20. Only discoverable ids of the current attempt are
+id. `limit` defaults to 5, maximum 20, and bounds the total of both. Only discoverable ids of the current attempt are
 candidates; admitted-but-declared, cut, unavailable, and unadmitted ids never appear.
 
 The stored result is wire-neutral and small: `{ status: 'success', loaded: [ids], notFound: [...]
@@ -277,15 +290,18 @@ The stored result is wire-neutral and small: `{ status: 'success', loaded: [ids]
 That removes the previous revision's result-size accounting and its "loaded means delivered"
 truncation rule, because the recorded result is bounded by 20 ids.
 
-`tool_search` is an ordinary code-owned tool, classified `read_only`, needing no tenant database
+`search_tools` is an ordinary code-owned tool, classified `read_only`, needing no tenant database
 access. Like every code-owned tool it needs its own exact `tools.allowed` entry and its own
 `tools.permissions` group, and an absent group rejects its calls. Its admission is the operator's
 opt-in to deferral: without it, no attempt defers and every admitted MCP tool is declared as
-today, so an operator who never heard of `tool_search` loses nothing and keeps a large prompt.
-The recommended portable permission map gains a whole-tool `tool_search` group. When admitted,
-it is declared only on attempts with at least one discoverable tool, and counts toward
-`maxStepsPerRun`; the cap still wins in `prepareStep`. Every call to a tool it loads still needs
-that tool's own group.
+today, so an operator who never heard of `search_tools` loses nothing and keeps a large prompt.
+The recommended portable permission map gains a whole-tool `search_tools` group. When admitted it
+is declared on every request like every other allowlisted code-owned tool, including requests
+with nothing discoverable, where a search simply reports every selected id as not found. Always
+declaring it keeps `tools` stable when deferral first engages and means no Run ever inserts it
+mid-Run. It counts toward `maxStepsPerRun`; the cap still wins in `prepareStep`. Every call to a
+tool it loads still needs that tool's own group. Its description is a packaged, overridable
+template like every llame-owned tool's (`tool-prompt-templates`).
 
 Rejected: a synthesized, non-allowlistable tool exempt from `tools.permissions`. It avoided an
 opt-in but was the only tool outside the rule that an absent group rejects. Also rejected: a
@@ -302,9 +318,10 @@ invisible to llame's usage signal and tie-breaks.
 
 The model must know what is discoverable:
 
-- `harness`, and `native` on `anthropic-messages`: `select.items` discloses the discoverable ids
-  at the moment `tool_search` is declared as a JSON Schema `anyOf` of their `enum` and a bounded
-  `mcp__`-prefixed string, so the enum is the inventory and in-Run additions still validate.
+- `harness`, and `native` on `anthropic-messages`: `select.items` discloses the ids discoverable
+  at the attempt's start as a JSON Schema `anyOf` of their `enum` and the `mcp-tool-id-v1`
+  string form, so the enum is the inventory and in-Run additions still validate. With nothing
+  discoverable at the start, only the string form is present.
   Anthropic withholds deferred tools entirely, so the enum is the only inventory there.
 - `native` on `openai-responses`: no enum. Deferred functions keep their names and descriptions
   visible natively, so an enum would duplicate them.
@@ -318,28 +335,29 @@ listed in prose stays true. Tools made discoverable during a Run are disclosed b
 ### D9. Delivery is a per-model strategy
 
 `models[].toolSearch` selects how declared and loaded schemas reach the model. Budget, rank,
-partition, `tool_search` execution, the loaded-set rule, and the call gate (D10) are identical
+partition, `search_tools` execution, the loaded-set rule, and the call gate (D10) are identical
 under every strategy.
 
 - **`harness`** (default; every wire). Discoverable tools are omitted from `tools`. The per-step
-  active set is `declared ∪ loaded ∪ { tool_search }`, composed with the cap in `prepareStep`
-  (cap reached → `[]`). The `tool_search` observation replays through the ordinary text
+  active set is `declared ∪ loaded`, where the declared set includes `search_tools`, composed
+  with the cap in `prepareStep` (cap reached → `[]`). The `search_tools` observation replays through the ordinary text
   projection, listing the loaded ids. Loading a tool edits `tools` and costs one prefix miss on
   that wire; later steps and later Runs of the epoch see the same sorted set and hit again.
 - **`native` on `anthropic-messages`.** Every admitted tool is sent. Discoverable MCP tools carry
-  `deferLoading: true`; `tool_search` and every declared tool do not, which also satisfies
-  Anthropic's requirement that at least one tool stays non-deferred. A `tool_search` observation
+  `deferLoading: true`; `search_tools` and every declared tool do not, which also satisfies
+  Anthropic's requirement that at least one tool stays non-deferred. A `search_tools` observation
   projects as a tool result whose content is a short text line plus one `tool_reference` per
-  loaded id that is still admitted. The provider expands references inline and throughout
+  loaded id present in this request's `tools` (admitted and not cut). The provider expands references inline and throughout
   history, so `tools` is constant for the epoch and a load costs only the appended result. No
   llame-authored block carries `cache_control`; deferred tools could not carry it anyway, and
   `anthropic-messages` keeps its request-level default.
 - **`native` on `openai-responses`.** Discoverable functions carry `deferLoading: true`;
-  `tool_search` is bound as `openai.tools.toolSearch({ execution: 'client', parameters })`. The
-  observation projects as a `tool_search` call with `{ call_id, arguments }` and a `json` output
+  `search_tools` is bound as `openai.tools.toolSearch({ execution: 'client', parameters })`. The
+  observation projects as a `search_tools` call with `{ call_id, arguments }` and a `json` output
   `{ tools }` holding the current catalog's definitions of the loaded ids, which the adapter
-  emits as `tool_search_call` and client `tool_search_output`. The execute adapter unwraps the
-  SDK's `{ arguments, call_id }` into D7's input.
+  emits as `tool_search_call` and client `tool_search_output`. The SDK hands the tool
+  `{ arguments, call_id }`; llame unwraps it before the call is recorded, so the stored input is
+  always D7's shape and the projection rebuilds `{ call_id: toolCallId, arguments }`.
 
 Startup fails when `native` is declared on `openai-completions`, `opencode-go`, or `openai-codex`,
 naming the model and key. Codex can be admitted after a live check against its backend; until
@@ -347,9 +365,29 @@ then it is `harness` only. Model support is the operator's declaration, like `re
 provider that rejects deferred tools or `tool_search` fails that request under the existing run
 error contract, with no silent fallback to `harness`.
 
-The `native` projection is a documented exception to "the ordinary projection stays portable",
-scoped to `tool_search` observations. It changes representation, not meaning: the stored part is
-the same wire-neutral record, and after a switch to a `harness` model it replays as text.
+The `native` projection is an exception to "the ordinary projection stays portable", scoped to
+`search_tools` observations, and `tool-calling`'s projection requirement is modified to say so.
+It changes representation, not meaning: the stored part is the same wire-neutral record, and
+after a switch to a `harness` model it replays as text. It applies only to a pair the projection
+kept with its body, and only in a request that carries the attempt's native tool set: every
+other request, including transition compaction (which sends no tools) and cleared or replacement
+records, uses the portable text form, because a `tool_reference` to a tool absent from `tools`
+is a 400. The text line keeps the packaged untrusted-output framing; the references and the
+OpenAI `tools` array carry no framing because their content is admitted declarations the request
+already carries as tool definitions.
+
+Three request paths must carry the tools the model actually got, not the admitted catalog:
+
+- **The step cap under `native`.** Returning `activeTools: []` would send no tools while history
+  holds references. Under `native` the cap instead keeps `tools` and sets `toolChoice: 'none'`,
+  which forbids calls; on Anthropic that invalidates the message cache once, at the cap only.
+  `harness` keeps `activeTools: []`.
+- **The context-fit check** (`ensureRequestFitsContextWindow`) measures the delivered set:
+  declared tools plus `search_tools` under `harness`, and every sent tool with its deferral flag
+  under `native`, instead of every admitted declaration. Otherwise the over-budget catalog this
+  change exists for would still trip it.
+- **Post-turn compaction** sends the same tools as the Run's last request, with the same deferral
+  flags, so its prefix matches and its replayed references resolve.
 
 Why `native` is worth a second path: cache, not tokens. Under both strategies discoverable
 schemas cost nothing until loaded. Under `harness` each first load in an epoch re-prefills the
@@ -363,15 +401,17 @@ request with the recorded `not_available` outcome before any executor runs. Unde
 SDK refuses earlier through `activeTools`; under `native` the deferred declaration is in the
 request, so the wrapper is the only gate. llame cannot author the SDK's refusal text for
 inactive tools (`Model tried to call unavailable tool '<id>'. Available tools: …`); because
-`tool_search` is always active when anything is discoverable, that text already points the model
-at it. The loading guidance lives in the `tool_search` description, which exists only when
-deferral engages, so the packaged prompt and its receipt hash are unchanged for every Run.
+`search_tools` is active whenever it is admitted, that text already points the model at it. The
+loading guidance lives in the `search_tools` description, so the packaged system prompt and its
+receipt hash are unchanged for every Run.
 
 ### D11. Availability and receipts are unchanged
 
 Tier membership is not availability. The in-memory manifest and the committed `{id,state}`
 record keep describing admission and availability; a tier change never produces an `Added tools`
-or `Removed tools` reminder. Only a D3 cut does, as an available-to-unavailable transition with
+or `Removed tools` reminder. A discoverable tool counts as callable in the current Run for the
+existing rule that `Added tools` lists only callable tools: one search makes it callable, and
+its native advertisement is the `search_tools` inventory or its deferred declaration. Only a D3 cut does, as an available-to-unavailable transition with
 its closed reason. Receipts remain system-prompt-only; the partition is reproducible from the
 chat's frozen rank, the model's budget, and the attempt's catalog, and every search is an
 ordinary durable tool part the owner can see in the chat.
@@ -400,7 +440,7 @@ What this change fixes so that selector is additive:
    the adapter; until it lands, the selector can narrow instead of load, sending the full set
    with `allowedTools` (llame would stop stripping that key for its own use), which preserves
    the prefix but saves no schema tokens. Under `harness` a selected tool joins the declared set.
-3. **`tool_search` stays the correction path.** A miss costs one search, never an unreachable
+3. **`search_tools` stays the correction path.** A miss costs one search, never an unreachable
    tool.
 
 Open before building it: a measured baseline (all-declared, rank-only, rank plus search) for
@@ -419,24 +459,24 @@ rest of the Run, which is the problem this change exists to prevent.
 The partition therefore runs again, over the additions only, each time `AttemptToolAdditions`
 admits declarations:
 
-1. The additions' MCP estimate is added to the attempt's running MCP estimate. If `tool_search`
+1. The additions' MCP estimate is added to the attempt's running MCP estimate. If `search_tools`
    is not admitted, or deferral was not engaged and the total still fits the budget, the
    additions are declared exactly as workspace-entry adds them today.
 2. Otherwise deferral is engaged for the rest of the attempt. Tools already declared stay
    declared: #974 forbids removing a key, and shrinking the declared set mid-Run would edit
    `tools` for no saving. Among the additions, the ranked ones are declared in rank order while
-   they fit the remaining budget, strict prefix as in D3; the rest are discoverable. If
-   `tool_search` was not yet declared, the harness inserts it now, as a trusted addition under
-   the same rule that inserted the Workspace tools. Additions are never cut: their inventory is
-   the entry result, not the `tool_search` schema, so they add nothing to the budgeted
+   they fit the remaining budget, strict prefix as in D3; the rest are discoverable.
+   `search_tools` is already declared because it is admitted (D7), so nothing but Workspace
+   declarations is ever inserted mid-Run. Additions are never cut: their inventory is
+   the entry result, not the `search_tools` schema, so they add nothing to the budgeted
    inventory.
 3. A discoverable addition is inserted into the tool record like any addition. Under `harness`
    it stays outside the active set until loaded; under `native` it carries `deferLoading`.
 4. The `enter_workspace` result lists each addition that became discoverable, by id, and says
-   it loads through `tool_search`. That result is the inventory for additions, since the
-   declared `tool_search` schema cannot change (D8).
+   it loads through `search_tools`. That result is the inventory for additions, since the
+   declared `search_tools` schema cannot change (D8).
 5. Exit, switch, or detach keeps #974's rule: declarations stay, executors become unavailable.
-   An unavailable addition is no longer a `tool_search` candidate, and a loaded one is refused
+   An unavailable addition is no longer a `search_tools` candidate, and a loaded one is refused
    as unavailable.
 
 The next attempt composes the bound Workspace's tools at its start like any other admitted MCP
@@ -456,7 +496,7 @@ controls, composes with D9: both keep `tools` constant and move change to the ta
 
 ## Risks / Trade-offs
 
-- [Weak tool-use models never call `tool_search`] → the refusal text names it; the per-model
+- [Weak tool-use models never call `search_tools`] → the refusal text names it; the per-model
   override raises the threshold for that model; the rank declares the tools the owner already
   relies on, so the common path needs no search at all.
 - [A new owner starts with every MCP tool discoverable] → intended: the rank adds on evidence.
@@ -468,14 +508,18 @@ controls, composes with D9: both keep `tools` constant and move change to the ta
 - [Crude token estimate] → errs toward deferring early; the override exists per model.
 - [`native` on an unsupported model] → provider error through the existing run failure contract;
   operators declare `native` only on models listed as supporting it.
-- [Anthropic references to a tool that stopped being admitted] → the projection omits references
-  to ids absent from the current catalog, so the request never names an undeclared tool; that
+- [Anthropic references to a tool that stopped being admitted or was cut] → the projection omits
+  references to ids absent from this request's `tools`, so the request never names an undeclared tool; that
   edit to replayed history costs a cache miss, which a change in `tools` already costs.
-- [Replay budget drops an old search] → the tool silently stops being loaded; the model is
-  refused once and searches again.
+- [Replay budget drops or clears an old search] → the tool silently stops being loaded; the
+  model is refused once and searches again.
+- [Owner forks copy assistant messages] → a fork's copies of earlier Runs count again in the
+  owner's rank and in the 2,000-message cap. Accepted: forks are rare, the effect is a mild boost
+  to tools already in use, and deduplicating copies would need a copy-provenance column for a
+  ranking nuance.
 - [A mid-Run Workspace entry engages deferral late] → tools already declared stay declared, so
   one Run can carry more than the budget; the next attempt partitions from scratch.
-- [An operator never admits `tool_search`] → no attempt defers and prompts stay as large as
+- [An operator never admits `search_tools`] → no attempt defers and prompts stay as large as
   today; the operator runbook and `llame.config.json.example` document the opt-in.
 
 ## Migration Plan
@@ -485,9 +529,27 @@ and one new code-owned tool that does nothing until an operator allowlists it.
 Chats without a rank resolve one on their next attempt that admits an MCP tool. A mixed-version window where an
 older worker executes a Run accepted by a newer API only means the older worker declares every
 admitted tool, as today; no stored state is misread. Rollback leaves unused columns and stored
-`tool_search` parts, which replay as ordinary text observations of an unknown tool.
+`search_tools` parts, which replay as ordinary text observations of an unknown tool.
 
 ## Open Questions
 
 - Q1: Is a 14-day half-life right? It is chosen, not measured; the `usage-rank` layer records the
   rank a seeded history produces, and a later change can tune the constant.
+
+## Revision history
+
+- v1 (2026-09-27): redesign against per-attempt catalogs, the shipped Anthropic provider, the
+  frozen owner usage rank, and cache-preserving native delivery.
+- v2 (2026-09-27): aligned with shipped Workspace MCP (#974): both MCP sources partitioned, in-Run
+  additions partitioned (D13), the rank resolved by the worker and persisted by the completing
+  attempt.
+- v3 (2026-09-27): owner decisions from grilling: the search tool is an allowlisted code-owned
+  tool whose admission opts into deferral; the rank decays with a 14-day half-life over a 90-day
+  horizon; no consent gate.
+- v4 (2026-09-27): review round 1: renamed the tool to `search_tools` (the `tool_search` name is
+  reserved by `@ai-sdk/openai`); a load requires a projected result body; the search tool is
+  always declared when admitted, so nothing but Workspace tools is inserted mid-Run; the native
+  projection applies only with the native tool set, and the step cap, context-fit check, and
+  post-turn compaction use the delivered tools; cut order puts unranked tools first; `select`
+  plus `query` semantics; availability disclosure treats discoverable tools as callable; spec
+  deltas modify the contradicting main requirements instead of adding beside them.
