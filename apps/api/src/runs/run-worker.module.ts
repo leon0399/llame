@@ -4,6 +4,7 @@ import { RecencyDigestModule } from '../chats/recency-digest.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { McpRuntimeModule } from '../mcp/mcp-runtime.module';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
+import { WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
 import { MemoryModule } from '../memory/memory.module';
 import { ModelsModule } from '../models/models.module';
 import { PersonalizationModule } from '../personalization/personalization.module';
@@ -52,6 +53,7 @@ import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './snapshot-tool-execution';
   ],
   providers: [
     RunExecutionService,
+    WorkspaceMcpClients,
     RunsWorkerService,
     RunStreamBridgeService,
     RunDispatchService,
