@@ -136,13 +136,9 @@ through to the next matching entry, then the generic ladder. When the primary
 request succeeded and a later request for the same document fails (a comment
 page, a check-runs page, or the README), the adapter renders what it has and
 attaches one note per missing section, such as
-`review comments omitted: rate_limit, resets 2026-09-27T12:40:00Z`. For check
-runs, a page that answers but cannot be parsed counts as not arriving, the
-same as a failed page, because the `Checks:` line can only count runs it
-parsed: a later page that does not arrive leaves the loaded counts plus the
-remainder from `total_count`, and a first page that does not arrive (or has no
-numeric `total_count`) renders `Checks: unavailable`. The omission note names
-check runs and the category, `parse` for an unparsable page. No adapter failure returns a response body to the model.
+`review comments omitted: rate_limit, resets 2026-09-27T12:40:00Z`; D9 owns
+how the `Checks:` line renders its failure states. No adapter failure returns
+a response body to the model.
 
 **Alternative rejected:** OMP's combined `SpecialHandler` returning `null` on
 both mismatch and failure. It makes a handler's precedence and failure reason
@@ -300,12 +296,16 @@ OMP's `Review decision`, `Checks: 14 passed, 1 failed (lint), 2 pending` from
 all pages of `GET /repos/{o}/{r}/commits/{head_sha}/check-runs` requested with
 `filter=latest&per_page=100`, reduced to counts, and `Diff: https://github.com/{o}/{r}/pull/{n}.diff`.
 GitHub returns at most the 1000 most recent check suites, so the counts cover
-what the endpoint returns. If a page after the first does not arrive, the
-`Checks:` line states the loaded counts plus `total_count` minus the loaded
-runs (for example
+what the endpoint returns. A check-runs page that answers but cannot be
+parsed counts as not arriving, the same as a failed page, because the line can
+only count runs it parsed; a first page without a numeric `total_count` counts
+the same way. If a page after the first does not arrive, the `Checks:` line
+states the loaded counts plus `total_count` minus the loaded runs (for example
 `Checks: 97 passed, 1 failed (lint), 2 pending, 40 not loaded`); if the first
 page does not arrive, it renders `Checks: unavailable`, never invented zero
-counts. Either case adds an omission note naming check runs. `Merge state` renders `mergeable_state` as
+counts. Every such case adds an omission note naming check runs and its
+category: `parse` for an unparsable page or missing `total_count`, otherwise
+the failed request's category. `Merge state` renders `mergeable_state` as
 returned, including `unknown`. Minimized comments render like any other
 comment. There is no events section.
 
