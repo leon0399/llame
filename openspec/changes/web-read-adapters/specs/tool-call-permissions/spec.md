@@ -4,7 +4,7 @@
 
 After validating the call schema, the evaluator SHALL match originally submitted parsed argument values, except for the native Workspace path projections defined below. It SHALL NOT match trusted context, inserted defaults, object keys, JSON serialization syntax, or stringified non-string values. The SDK validation adapter SHALL preserve untransformed submitted values for admission while the executor receives separately validated/defaulted arguments. A selected field SHALL match only an own top-level string property; an omitted or non-string field SHALL not match, except for an omitted `bash.cwd` while a Workspace is entered as specified below. All-fields rejection SHALL independently traverse every submitted string value in nested objects and arrays without concatenation; for a native relative `read.path`, `edit.path`, `write.path`, or `bash.cwd` field while a Workspace is entered, it SHALL inspect the projected absolute value rather than the submitted relative text.
 
-While a Workspace is entered, for native `read`, `edit`, and `write` calls with a relative string `path`, and `bash` calls with a relative string `cwd`, the value evaluated by permissions SHALL be the absolute path obtained by resolving the relative path from the canonical Workspace root; resolution SHALL be lexical like POSIX `path.posix.resolve`, preserving a trailing separator, and `..` SHALL be allowed to leave the root. The executor SHALL receive exactly the projected absolute string, including that trailing separator. Projection SHALL NOT perform realpath resolution; symlinks inside the projected path SHALL be followed by the OS as for any absolute path. For this requirement, "relative" means a value not starting with `/` and without a `scheme:` prefix recognized by the shared locator parser (case-insensitive `scheme://`); an unknown scheme SHALL remain `invalid_path` rather than being treated as a relative local path. The submitted relative text SHALL NOT be matched. A `bash` call that omits `cwd` SHALL be evaluated as if the canonical Workspace root had been submitted as `cwd`; this is an explicit exception to the rule that inserted defaults are not matched. This exception SHALL apply only to omitted `bash.cwd` while a Workspace is entered. Absolute paths SHALL remain unchanged. `kb://`, `skill://`, and web locators SHALL remain unchanged by Workspace path projection. The `bash.command` value SHALL continue to be matched only as submitted text. For tool calls issued in the same model step as an `enter_workspace` or `exit_workspace` call, projection SHALL use the Workspace root committed before that step began; a binding change SHALL take effect from the next model step. With no Workspace entered, relative native file paths SHALL remain invalid and an omitted `bash.cwd` SHALL retain its existing process-default behavior without being matched as a submitted field.
+While a Workspace is entered, for native `read`, `edit`, and `write` calls with a relative string `path`, and `bash` calls with a relative string `cwd`, the value evaluated by permissions SHALL be the absolute path obtained by resolving the relative path from the canonical Workspace root; resolution SHALL be lexical like POSIX `path.posix.resolve`, preserving a trailing separator, and `..` SHALL be allowed to leave the root. The executor SHALL receive exactly the projected absolute string, including that trailing separator. Projection SHALL NOT perform realpath resolution; symlinks inside the projected path SHALL be followed by the OS as for any absolute path. For this requirement, "relative" means a value not starting with `/` and without a `scheme:` prefix recognized by the shared locator parser or the file-alias classifier (case-insensitive `scheme://` and `file:` forms); an unknown scheme SHALL remain `invalid_path` rather than being treated as a relative local path. A `file:` alias is always absolute and is classified before this Workspace projection. The submitted relative text SHALL NOT be matched. A `bash` call that omits `cwd` SHALL be evaluated as if the canonical Workspace root had been submitted as `cwd`; this is an explicit exception to the rule that inserted defaults are not matched. This exception SHALL apply only to omitted `bash.cwd` while a Workspace is entered. Absolute paths and valid file aliases SHALL remain unchanged by Workspace path projection. `kb://`, `skill://`, and web locators SHALL remain unchanged by Workspace path projection. The `bash.command` value SHALL continue to be matched only as submitted text. For tool calls issued in the same model step as an `enter_workspace` or `exit_workspace` call, projection SHALL use the Workspace root committed before that step began; a binding change SHALL take effect from the next model step. With no Workspace entered, relative native file paths SHALL remain invalid and an omitted `bash.cwd` SHALL retain its existing process-default behavior without being matched as a submitted field.
 
 The per-attempt Workspace binding re-check is a third named exception: it evaluates the `enter_workspace` group with the stored canonical Workspace root as the `path` field value rather than a model-submitted value. That synthetic evaluation SHALL obtain an allow and SHALL match no reject for the binding to remain valid.
 
@@ -17,6 +17,16 @@ to miss a reject; the allow SHALL be decided on the projected text, because
 an allow names the resource the call will reach and the two texts address one
 resource. The evaluator itself normalizes nothing: the projection is the read
 tool's own parser, so the text matched and the text requested cannot drift.
+A native `read`, `edit`, or `write` call whose `path` is a valid file alias,
+in either the `file://` or the minimal `file:` form, SHALL be decided over
+the submitted locator and the projection's percent-decoded absolute host path,
+including its trailing selector and preserved `.` and `..` segments. The
+classifier SHALL run before Workspace projection, so a valid alias is matched
+as an absolute host path whether or not a Workspace is entered. A reject
+matching either text SHALL refuse the call, and an allow SHALL be decided on
+the projected host path. An invalid file alias SHALL remain unchanged in
+projection and SHALL be refused by permission admission or by native locator
+validation; the permission evaluator SHALL not turn it into a filesystem path.
 Each derived locator a web read issues, meaning a
 redirect hop, an announced alternate, a suffix candidate, an `llms.txt`
 candidate, or an adapter request, SHALL be evaluated against the `read` group as if the model had
@@ -145,6 +155,49 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 - **WHEN** an attempt re-checks a bound Workspace before resolving its sources
 - **THEN** the `enter_workspace` permission group evaluates the stored canonical root as the `path` field value
 - **AND** the synthetic value must obtain an allow and match no reject for the binding to remain
+
+#### Scenario: A minimal-form alias is matched as an absolute path in a Workspace
+
+- **WHEN** a Workspace is entered at `/work/project`, a `read` group rejects `^/etc/`, and the model submits `file:/etc/%70asswd`
+- **THEN** the classifier runs before Workspace projection, the permission value is `/etc/passwd`, and the call is rejected before reading
+- **AND** a `^/work/project/` allow does not admit the alias
+
+#### Scenario: A host-path reject catches a percent-encoded file alias
+
+- **WHEN** a `read` group rejects `path` with regex `^/etc/` and the model submits `file:///etc/%70asswd`
+- **THEN** the submitted text is inspected first and the projected `/etc/passwd` text matches the reject
+- **AND** the native read is refused before filesystem access
+
+#### Scenario: A host-path allow admits a file alias
+
+- **WHEN** a `read` group allows `path` with regex `^/srv/docs(?:/|$)` and the model submits `file:///srv/docs/guide.md`
+- **THEN** the projection matches `/srv/docs/guide.md` and the call is admitted
+- **AND** the executor reads that host path rather than a URL authority
+
+#### Scenario: A submitted file spelling can be rejected independently
+
+- **WHEN** a `read` group rejects `path` with regex `^file://` and the model submits `file:///srv/docs/guide.md`
+- **THEN** the call is rejected on the submitted text
+- **AND** an equivalent `/srv/docs/guide.md` call is not rejected by that clause
+
+#### Scenario: A policy allow does not grant a remote file authority
+
+- **WHEN** a `read` group's only allow is `^file://` and the model submits `file://other.example/srv/docs/guide.md`
+- **THEN** the projection returns the invalid alias unchanged, both texts match the allow, and permission admits the call
+- **AND** native authority validation still returns `invalid_path` before filesystem access or network activity
+
+#### Scenario: A file-form allow does not admit a valid alias
+
+- **WHEN** a `read` group's only allow is `^file:///srv/docs/` and the model submits `file:///srv/docs/guide.md`
+- **THEN** the submitted text matches but the projected `/srv/docs/guide.md` matches no allow
+- **AND** the call is rejected as `no_allow` with `permission_denied`
+- **AND** an allow written as `^/srv/docs/` is the form that admits the alias
+
+#### Scenario: An invalid alias remains unchanged for permission matching
+
+- **WHEN** a `read` group's only allow is `^/srv/docs/` and the model submits `file:///srv/docs/guide.md?`
+- **THEN** projection returns the submitted text unchanged and the call is rejected as `no_allow` with `permission_denied` before native validation
+- **AND** under a whole-tool allow, the same submitted locator reaches native validation and returns `invalid_path`
 
 #### Scenario: An adapter request earns independent admission
 

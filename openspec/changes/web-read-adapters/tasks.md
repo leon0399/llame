@@ -17,13 +17,14 @@ is not budgeted, but any generated churn is reported and verified. Use
 `$gh-stack` for stack operations and `$openspec-apply-change` for implementation.
 
 The sibling changes are `file-locator` (plane 1 and the three-plane
-architecture section) and `read-representations` (plane 3). All three modify
-`native-file-tools`; they remain independent from `master`. If a sibling lands
-first, rebase this stack and reconcile only the overlapping canonical
-requirements. `file-locator` MODIFIES `tool-call-permissions`
-"Match submitted string values without serialization artifacts";
-`read-representations` MODIFIES the web locator requirement that enumerates
-selector grammar (currently "Web locators are fetched by the native read tool").
+architecture section, archived on `master` in #994) and `read-representations`
+(plane 3). All three modify `native-file-tools`. This stack is rebased on the
+archived `file-locator`: its MODIFIED copy of `tool-call-permissions` "Match
+submitted string values without serialization artifacts" carries the
+file-alias clause and scenarios, and none of the web requirements this change
+modifies were touched. `read-representations` MODIFIES the web locator
+requirement that enumerates selector grammar (currently "Web locators are
+fetched by the native read tool").
 Whichever sibling finalizes second reconciles all clauses and scenarios by
 requirement, not by taking one whole delta. If `read.md`, `docs/web-read.md`,
 `CHANGELOG.md`, or example configuration overlaps, the layer landing second
@@ -45,10 +46,10 @@ named budget exception needs Leo's explicit approval before publication.
 Re-measure the actual parent-relative diff before publication. It closes no
 issue.
 
-- [ ] 1.1 [proposal] Complete two independent adversarial review rounds over the proposal, design, and all three delta specs. Verify the adapter order, `:raw` bypass, full derived-locator admission, address pinning, token scoping, rate-limit classification, the primary/secondary failure rule, the no-cap load-everything bounds, config absent-means-none semantics, the GitHub endpoints and layouts, ref resolution, the two-level tree listing, rewrite template encoding, and every negative permission/secret scenario against repository code, canonical specs, the live probes recorded in `design.md`, and `agent://OmpReadPrior/report`; commit each review round separately rather than amending.
-- [ ] 1.2 [proposal] Re-run the canonical-requirement preservation check: for every MODIFIED requirement, compare canonical and delta bodies by a word-level diff, verify every canonical scenario is present exactly once, inspect every intentional adapter insertion, and reject lost words or hyphen splits. Verify changed files cite the re-read line ranges in this worktree and the rechecked OMP checkout.
-- [ ] 1.3 [proposal] Prove the proposal layer with `pnpm exec openspec validate web-read-adapters --strict`, `pnpm exec prettier --write <changed proposal/design/spec/task files>`, `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record authored line counts and the exact commands in the draft PR body, and request Leo's explicit approval of the named budget exception for the measured overage before publication.
-- [ ] 1.4 [proposal] Perform self-review (SR) on the actual parent-relative draft diff against `REVIEW_GUIDE.md`, fix accepted findings in a new commit, and obtain Leo's explicit approval of the published proposal revision before implementation branches are created.
+- [x] 1.1 [proposal] Complete two independent adversarial review rounds over the proposal, design, and all three delta specs. Verify the adapter order, `:raw` bypass, full derived-locator admission, address pinning, token scoping, rate-limit classification, the primary/secondary failure rule, the no-cap load-everything bounds, config absent-means-none semantics, the GitHub endpoints and layouts, ref resolution, the two-level tree listing, rewrite template encoding, and every negative permission/secret scenario against repository code, canonical specs, the live probes recorded in `design.md`, and `agent://OmpReadPrior/report`; commit each review round separately rather than amending.
+- [x] 1.2 [proposal] Re-run the canonical-requirement preservation check: for every MODIFIED requirement, compare canonical and delta bodies by a word-level diff, verify every canonical scenario is present exactly once, inspect every intentional adapter insertion, and reject lost words or hyphen splits. Verify changed files cite the re-read line ranges in this worktree and the rechecked OMP checkout.
+- [x] 1.3 [proposal] Prove the proposal layer with `pnpm exec openspec validate web-read-adapters --strict`, `pnpm exec prettier --write <changed proposal/design/spec/task files>`, `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record authored line counts and the exact commands in the draft PR body, and request Leo's explicit approval of the named budget exception for the measured overage before publication.
+- [x] 1.4 [proposal] Perform self-review (SR) on the actual parent-relative draft diff against `REVIEW_GUIDE.md`, fix accepted findings in a new commit, and obtain Leo's explicit approval of the published proposal revision before implementation branches are created.
 - [ ] 1.5 [proposal] After SR, publish the draft through `$gh-stack`, run the configured GitHub review/CI (GR) loop to completion, and create `web-read-adapters/contract` only from the approved, current proposal head.
 
 ## 2. Contract layer
