@@ -32,10 +32,9 @@ the model id and the key.
 
 #### Scenario: Threshold below any inventory entry cuts every MCP tool
 
-- **WHEN** a model entry sets `toolSearchThresholdTokens` below the inventory estimate of every eligible MCP tool
-- **THEN** every MCP tool is bound as `unavailable` with reason `declaration_budget_exceeded`
-- **AND** no tool is discoverable, so no `tool_search` is bound
-- **AND** the code-owned tools remain declared
+- **WHEN** `search_tools` is admitted, the chat has no frozen MCP usage rank, and a model entry sets `toolSearchThresholdTokens` below the inventory estimate of every eligible MCP tool
+- **THEN** every MCP tool is recorded `unavailable` with reason `declaration_budget_exceeded`
+- **AND** no tool is discoverable, while `search_tools` and the other admitted code-owned tools remain declared
 
 #### Scenario: Invalid threshold fails startup
 
@@ -44,30 +43,38 @@ the model id and the key.
 
 ### Requirement: Per-model tool-search strategy
 
-Each `models[]` entry MAY include an optional `toolSearch` string, one of `harness` or `openai`,
-defaulting to `harness`. `openai` SHALL be accepted only when the entry's provider is the
-provider entry whose `id` is exactly `openai`, the same entry the runtime already routes to the
-Responses API; any other provider SHALL fail startup naming the model id and `toolSearch`. An
-unknown value SHALL fail startup the same way. The published JSON Schema SHALL declare the key
-and its enumeration. The setting SHALL NOT be verified against the provider's model support at
-startup; the operator declares it for models that support the provider's tool search.
+Each `models[]` entry MAY include an optional `toolSearch` string, one of `harness` or `native`,
+defaulting to `harness`. `native` SHALL be accepted only when the entry's provider `type` is
+`anthropic-messages` or `openai-responses`; on any other provider type, including
+`openai-completions`, `opencode-go`, and `openai-codex`, startup SHALL fail naming the model id
+and `toolSearch`. An unknown value SHALL fail startup the same way. The published JSON Schema
+SHALL declare the key and its enumeration. The setting SHALL NOT be verified against the
+provider's model support at startup; the operator declares `native` for models that support the
+provider's deferred tool loading, and a provider that rejects it fails the affected request
+under the existing run failure contract without falling back to `harness`.
 
 #### Scenario: Default strategy
 
 - **WHEN** a model entry omits `toolSearch`
 - **THEN** its Runs use the `harness` strategy
 
-#### Scenario: OpenAI strategy on the native provider
+#### Scenario: Native strategy on a supported wire
 
-- **WHEN** a model on the provider entry with id `openai` sets `toolSearch` to `openai`
-- **THEN** startup succeeds and its Runs use the `openai` strategy
+- **WHEN** a model on an `anthropic-messages` or `openai-responses` provider sets `toolSearch` to `native`
+- **THEN** startup succeeds and its Runs use that wire's native delivery
 
-#### Scenario: OpenAI strategy on a compatible endpoint
+#### Scenario: Native strategy on an unsupported wire
 
-- **WHEN** a model on any other provider sets `toolSearch` to `openai`
+- **WHEN** a model on an `openai-completions`, `opencode-go`, or `openai-codex` provider sets `toolSearch` to `native`
 - **THEN** startup fails naming the model id and `toolSearch`
 
 #### Scenario: Unknown strategy
 
 - **WHEN** a model entry sets `toolSearch` to a value outside the enumeration
 - **THEN** startup fails naming the model id and `toolSearch`
+
+#### Scenario: Provider rejects native delivery
+
+- **WHEN** a model declared `native` is served by a model version that rejects deferred tools
+- **THEN** the affected request fails under the existing run failure contract
+- **AND** no request is retried under `harness`

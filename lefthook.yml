@@ -1,4 +1,10 @@
 # Installed by the root `prepare` script. Hooks never mutate files.
+#
+# Every job is gated on the files the commit or push changes: a job whose
+# `glob` matches none of them is skipped. Jobs whose tool accepts file
+# arguments check only those files; jobs that need the whole project graph
+# (type-aware lint, typecheck, dead code, duplication) run in full once
+# gated. CI still runs every check over the whole repository.
 
 rc: '"$(git rev-parse --show-toplevel)/.lefthookrc"'
 
@@ -6,11 +12,11 @@ pre-commit:
   parallel: true
   jobs:
     - name: code lint
-      glob: "{**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs},**/.oxlintrc.json,.oxlintrc.json,**/package.json,package.json,**/tsconfig*.json,tsconfig*.json,packages/config-typescript/*.json,packages/oxlint-plugin-anti-slop/**/*.json,turbo.json}"
+      glob: &code-glob "{**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs},*.{ts,mts,cts,js,mjs,cjs},**/.oxlintrc.json,.oxlintrc.json,**/package.json,package.json,**/tsconfig*.json,tsconfig*.json,packages/config-typescript/*.json,packages/oxlint-plugin-anti-slop/**/*.json,turbo.json}"
       run: pnpm lint:code
 
     - name: OpenAPI lint
-      glob: "{apps/api/openapi.json,apps/api/redocly.yaml}"
+      glob: &openapi-glob "{apps/api/openapi.json,apps/api/redocly.yaml}"
       run: pnpm lint:openapi
 
     - name: dead-code lint
@@ -34,11 +40,15 @@ pre-commit:
       run: pnpm test:scripts
 
     - name: markdown lint
-      glob: "{**/*.md,.markdownlint-cli2.jsonc}"
+      glob: &markdown-glob "*.md"
+      run: pnpm exec markdownlint-cli2 --no-globs {staged_files}
+
+    - name: markdown lint config
+      glob: &markdown-config-glob ".markdownlint-cli2.jsonc"
       run: pnpm lint:markdown
 
     - name: format
-      glob: "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,md,mdx,json,jsonc,css,scss,yaml,yml,html}"
+      glob: &format-glob "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,md,mdx,json,jsonc,css,scss,yaml,yml,html}"
       files: git diff --name-only --cached --diff-filter=ACMR
       run: pnpm exec prettier --check --cache --cache-strategy content --no-error-on-unmatched-pattern {files}
 
@@ -46,10 +56,41 @@ pre-push:
   parallel: true
   jobs:
     - name: format
+      glob: *format-glob
+      run: pnpm exec prettier --check --cache --cache-strategy content --no-error-on-unmatched-pattern {push_files}
+
+    - name: format config
+      glob: "{.prettierrc*,**/.prettierrc*,.prettierignore,prettier.config.*,**/prettier.config.*}"
       run: pnpm format:check
 
-    - name: lint
-      run: pnpm lint
+    - name: markdown lint
+      glob: *markdown-glob
+      run: pnpm exec markdownlint-cli2 --no-globs {push_files}
+
+    - name: markdown lint config
+      glob: *markdown-config-glob
+      run: pnpm lint:markdown
+
+    - name: code lint
+      glob: [*code-glob, "{pnpm-workspace.yaml,**/turbo.json}"]
+      run: pnpm lint:code
+
+    - name: dead-code lint
+      glob: [*code-glob, "{knip.json,pnpm-workspace.yaml}"]
+      run: pnpm lint:dead-code
+
+    - name: duplication lint
+      glob: [*code-glob, ".jscpd.json"]
+      run: pnpm lint:duplicates
+
+    - name: complexity lint
+      glob: [*code-glob, "scripts/quality-metrics.mjs"]
+      run: pnpm lint:complexity
+
+    - name: OpenAPI lint
+      glob: *openapi-glob
+      run: pnpm lint:openapi
 
     - name: typecheck
+      glob: [*code-glob, "{pnpm-workspace.yaml,**/turbo.json}"]
       run: pnpm typecheck
