@@ -9,11 +9,13 @@ authenticated identity and datastore isolation, and SHALL never read another own
 
 A use SHALL be a stored tool part whose tool id is an MCP id and whose structured outcome is
 `success`; refused, unavailable, hallucinated, failed, and cancelled calls SHALL NOT count. The
-resolution SHALL consider only assistant messages created within the 30 days before resolution
-and at most the 2,000 most recent of them, across all of the owner's chats. A tool's score SHALL
-be the number of distinct assistant messages containing at least one use of it. The list SHALL
-contain only tools with a score of at least one, ordered by score descending, then by most recent
-use descending, then by id.
+resolution SHALL consider only assistant messages created within the 90 days before resolution
+and at most the 2,000 most recent of them, across all of the owner's chats. Each assistant
+message containing at least one use of a tool SHALL contribute `0.5^(age / 14 days)` to that
+tool's score, where `age` is the time from the message's creation to resolution, so repeated uses
+within one message count once and a use loses half its weight every 14 days. The list SHALL
+contain every tool with at least one counted use, ordered by score descending, then by most
+recent use descending, then by id.
 
 Uses SHALL be counted by tool id regardless of whether an operator or a Workspace server served
 them. The rank SHALL be persisted on the chat row under owner isolation together with the
@@ -44,12 +46,17 @@ rendered into the system prompt or any context item.
 
 #### Scenario: A Run's repeated calls count once
 
-- **WHEN** one completed Run called tool A thirty times and two other Runs each called tool B once
+- **WHEN** on the same day one completed Run called tool A thirty times and two other Runs each called tool B once
 - **THEN** tool B ranks above tool A
 
-#### Scenario: Old uses fall out of the window
+#### Scenario: Recent use outweighs older use
 
-- **WHEN** an owner's only successful use of a tool is older than 30 days at resolution
+- **WHEN** tool A was used in two Runs 28 days before resolution and tool B in one Run today
+- **THEN** tool B ranks above tool A, because each of A's uses weighs one quarter of B's
+
+#### Scenario: Uses beyond the horizon do not count
+
+- **WHEN** an owner's only successful use of a tool is older than 90 days at resolution
 - **THEN** that tool is absent from the new rank
 
 #### Scenario: Another owner's usage never enters the rank

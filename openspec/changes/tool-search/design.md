@@ -125,9 +125,10 @@ declaration match; every call still needs its `tools.permissions` group. Within 
 - **loaded** — discoverable tools whose load is visible to the model (D6);
 - **callable** — declared tools plus loaded tools, minus everything once the step cap is reached.
 
-Admitted code-owned tools are always declared, never discoverable, and never counted against the
-budget, so an operator's first-party tools behave exactly as today regardless of MCP catalog
-size. The split exists only for MCP, from either source, because MCP is where catalogs grow
+Allowlisted code-owned tools are always declared, never discoverable, and never counted against
+the budget, so an operator's first-party tools are never hidden behind `tool_search` and behave
+exactly as today regardless of MCP catalog size. `tool_search` itself is the one code-owned tool
+declared only when there is something to search (D7). The split exists only for MCP, from either source, because MCP is where catalogs grow
 without bound.
 
 ### D2. Per-model budget, unchanged in basis
@@ -141,8 +142,8 @@ representative declarations the ratio was 4.2–4.7 chars/token, so `chars / 4` 
 over-counts and defers early, the cheap direction; no local tokenizer can be exact because each
 provider renders tool definitions through its own template.
 
-Tier computation engages only when the eligible MCP estimate exceeds the budget (strict). No
-instance-level knob, per `instance-config`'s rule against instance-level context-window settings.
+Tier computation engages only when `tool_search` is admitted (D7) and the eligible MCP estimate
+exceeds the budget (strict). No instance-level knob, per `instance-config`'s rule against instance-level context-window settings.
 
 ### D3. Over budget: declare the owner's most-used MCP tools
 
@@ -172,12 +173,18 @@ parts under owner RLS:
 
 - a use is a tool part whose id is an MCP id (`mcp__…`) and whose `outcome` is `success`;
   refusals, hallucinated names, errors, and cancellations are not use;
-- the window is assistant messages created in `[T − 30 days, T)`, at most the 2,000 most recent,
-  so resolution latency is bounded by a constant regardless of history size;
-- a tool's score is the number of distinct assistant messages (one per completed Run) containing
-  at least one use, so a Run that loops a tool thirty times counts once;
+- the horizon is assistant messages created in `[T − 90 days, T)`, at most the 2,000 most
+  recent, so resolution latency is bounded by a constant regardless of history size;
+- each assistant message (one per completed Run) containing at least one use of a tool adds
+  `0.5^(age / 14 days)` to that tool's score, so a Run that loops a tool thirty times counts
+  once and a use loses half its weight every 14 days;
 - order is score descending, then most recent use descending, then id; the stored rank keeps at
-  most 256 ids with score ≥ 1.
+  most 256 ids.
+
+Decay rather than a hard window keeps old habits from falling off a cliff at a rank refresh while
+this week's work still outranks last quarter's. At 90 days a use weighs about 1%, which is where
+the horizon cuts; the horizon exists to bound the scan, not to shape the rank. The 14-day
+half-life is a chosen constant, not a measured one.
 
 The query scans `messages` joined to owner chats with `jsonb_array_elements` over `parts`. It runs
 once per chat epoch, not per turn (D5). No index or rollup table is added: the scan is bounded by
@@ -194,12 +201,11 @@ owner uses in one repository are pre-declared the next time a chat enters a Work
 defines the same server. Nothing is sent to the model as text. The one model-visible effect is
 which MCP tools are declared.
 
-This is conversation-derived information crossing chat boundaries, which SPEC §20.2 treats as a
-separate consent decision for `shareRecentChats`. The rank is not gated on that setting: it
-carries no content, title, or excerpt, only a choice among tools this attempt already admitted,
-and the provider already sees every admitted tool's declaration when the catalog fits the
-budget. An owner who never uses MCP sees no difference. This is the design's
-most debatable call; gating it on `shareRecentChats` is a one-line change if review prefers it.
+The rank reads across the owner's chats but is not gated on `shareRecentChats`. SPEC §20.2 makes
+that setting the consent for sending conversation-derived content to the provider: titles and
+excerpts of other chats. The rank sends none. No content, title, or excerpt of any chat reaches
+the model; the only effect is which of the tools this attempt already admitted are declared, and
+the provider sees every admitted tool's declaration anyway whenever the catalog fits the budget.
 
 ### D5. The rank is a frozen chat baseline
 
@@ -257,7 +263,7 @@ them into the next Run's declared set. Deriving from history deletes that column
 the promotion step, and it keeps cross-Run loads cache-safe on `native` wires, where promotion
 would have rewritten `tools`.
 
-### D7. `tool_search` is a reserved, llame-executed tool
+### D7. `tool_search` is an opt-in, llame-executed code-owned tool
 
 Input: `{ select?: string[], query?: string, limit?: integer }`. `select` resolves exact ids and
 accepts any MCP-id-shaped string, so a tool added during the Run (D13) is selectable even though
@@ -271,18 +277,21 @@ The stored result is wire-neutral and small: `{ status: 'success', loaded: [ids]
 That removes the previous revision's result-size accounting and its "loaded means delivered"
 truncation rule, because the recorded result is bounded by 20 ids.
 
-`tool_search` is refused by the registry and by `tools.allowed` validation, like `mcp__*`. It is
-synthesized only when the discoverable set is non-empty, classified `read_only`, needs no tenant
-database access, is absent from the availability manifest, and counts toward `maxStepsPerRun`;
-the cap still wins in `prepareStep`.
+`tool_search` is an ordinary code-owned tool, classified `read_only`, needing no tenant database
+access. Like every code-owned tool it needs its own exact `tools.allowed` entry and its own
+`tools.permissions` group, and an absent group rejects its calls. Its admission is the operator's
+opt-in to deferral: without it, no attempt defers and every admitted MCP tool is declared as
+today, so an operator who never heard of `tool_search` loses nothing and keeps a large prompt.
+The recommended portable permission map gains a whole-tool `tool_search` group. When admitted,
+it is declared only on attempts with at least one discoverable tool, and counts toward
+`maxStepsPerRun`; the cap still wins in `prepareStep`. Every call to a tool it loads still needs
+that tool's own group.
 
-`tool_search` is not evaluated against `tools.permissions`. Every other tool needs its own
-permission group, and an absent group rejects, so requiring one here would make an operator who
-never heard of `tool_search` silently lose every MCP tool beyond the rank. Exempting it widens
-nothing: it has no effect, it discloses only ids and descriptions of tools the attempt already
-admitted (which are declared outright when the catalog fits), and every call to a tool it loads
-still needs that tool's own group. This is the one exception to "an absent group rejects", and
-it is stated in `tool-call-permissions`.
+Rejected: a synthesized, non-allowlistable tool exempt from `tools.permissions`. It avoided an
+opt-in but was the only tool outside the rule that an absent group rejects. Also rejected: a
+synthesized tool that still needs a group, which fails silently. Deferral would engage on budget
+alone, every search would be denied, and the MCP tools outside the declared tier would be
+unreachable with no startup failure, because MCP discovery happens after boot.
 
 llame executes the search on every wire, including `native` ones. Provider-executed search
 (Anthropic BM25/regex, OpenAI hosted) is rejected: its results are provider-specific parts that
@@ -410,9 +419,9 @@ rest of the Run, which is the problem this change exists to prevent.
 The partition therefore runs again, over the additions only, each time `AttemptToolAdditions`
 admits declarations:
 
-1. The additions' MCP estimate is added to the attempt's running MCP estimate. If deferral was
-   not engaged and the total still fits the budget, the additions are declared exactly as
-   workspace-entry adds them today.
+1. The additions' MCP estimate is added to the attempt's running MCP estimate. If `tool_search`
+   is not admitted, or deferral was not engaged and the total still fits the budget, the
+   additions are declared exactly as workspace-entry adds them today.
 2. Otherwise deferral is engaged for the rest of the attempt. Tools already declared stay
    declared: #974 forbids removing a key, and shrinking the declared set mid-Run would edit
    `tools` for no saving. Among the additions, the ranked ones are declared in rank order while
@@ -464,15 +473,15 @@ controls, composes with D9: both keep `tools` constant and move change to the ta
   edit to replayed history costs a cache miss, which a change in `tools` already costs.
 - [Replay budget drops an old search] → the tool silently stops being loaded; the model is
   refused once and searches again.
-- [Cross-chat signal without `shareRecentChats`] → D4; flagged for review.
 - [A mid-Run Workspace entry engages deferral late] → tools already declared stay declared, so
   one Run can carry more than the budget; the next attempt partitions from scratch.
-- [`tool_search` bypasses the permission map] → it has no effect and discloses only admitted
-  tools; every loaded tool's call still needs its own group (D7).
+- [An operator never admits `tool_search`] → no attempt defers and prompts stay as large as
+  today; the operator runbook and `llame.config.json.example` document the opt-in.
 
 ## Migration Plan
 
-Additive: two nullable `chats` columns, one closed unavailable reason, two optional model keys.
+Additive: two nullable `chats` columns, one closed unavailable reason, two optional model keys,
+and one new code-owned tool that does nothing until an operator allowlists it.
 Chats without a rank resolve one on their next attempt that admits an MCP tool. A mixed-version window where an
 older worker executes a Run accepted by a newer API only means the older worker declares every
 admitted tool, as today; no stored state is misread. Rollback leaves unused columns and stored
@@ -480,8 +489,5 @@ admitted tool, as today; no stored state is misread. Rollback leaves unused colu
 
 ## Open Questions
 
-- Q1: Gate the usage rank on `shareRecentChats` (D4)? The design says no.
-- Q2: Is 30 days and 2,000 messages the right window, or should the score decay instead of
-  cutting off? Chosen for simplicity; a decay adds a parameter without a measured need.
-- Q3: Exempt `tool_search` from `tools.permissions` (D7), or require an operator group for it?
-  The design exempts it.
+- Q1: Is a 14-day half-life right? It is chosen, not measured; the `usage-rank` layer records the
+  rank a seeded history produces, and a later change can tune the constant.

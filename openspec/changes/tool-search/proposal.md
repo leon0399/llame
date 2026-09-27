@@ -44,12 +44,14 @@ critical path.
   compaction threshold), overridable as `models[].toolSearchThresholdTokens`. When every eligible
   MCP declaration fits, nothing changes: every admitted tool is declared as today.
 - When the catalog exceeds the budget, **declare the owner's most-used MCP tools** and make the
-  rest discoverable. The ranking counts the owner's own successful calls per MCP tool across
-  their chats in a trailing window, is resolved once per chat epoch under owner isolation, frozen
+  rest discoverable. The ranking weights the owner's own successful calls per MCP tool across
+  their chats by recency (14-day half-life), is resolved once per chat epoch under owner isolation, frozen
   on the chat like the skill-catalog baseline, and re-resolved at compaction. A tool the owner
   has never called successfully is never pre-declared.
-- Add the reserved, read-only, llame-executed `tool_search` tool: exact-id `select` plus a small
-  keyword query. It records which tools it loaded; the loaded set for a request is derived from
+- Add `tool_search`, a read-only, llame-executed code-owned tool with exact-id `select` and a
+  small keyword query. Like every code-owned tool it needs its own `tools.allowed` entry and
+  `tools.permissions` group; allowlisting it is the operator's opt-in to deferral, and without it
+  every MCP tool stays declared as today. It records which tools it loaded; the loaded set for a request is derived from
   the `tool_search` observations present in that request's model context, so it follows
   compaction, queue retry, and model switches without a new Run column.
 - Make **how loaded schemas reach the model** a per-model strategy, `models[].toolSearch`:
@@ -60,8 +62,6 @@ critical path.
 - Apply the same partition to Workspace MCP tools that `enter_workspace` adds during a Run:
   tools already declared stay declared, the additions are declared only while they fit, and the
   rest become discoverable, listed in the entry result.
-- Exempt `tool_search` from `tools.permissions`: it has no effect and discloses only admitted
-  tools, while every call to a tool it loads still needs that tool's own permission group.
 - Keep the discovery limits in `mcp-tools` (1,000 tools, byte bounds, deadline) as wire-level
   resource guards independent of the budget.
 - Record, in design, the road to per-message tool selection by a fast classifier: a
@@ -86,13 +86,13 @@ None.
 ### Modified Capabilities
 
 - `tool-calling`: admitted MCP tools beyond the per-model budget are discoverable through a
-  reserved `tool_search` tool; the most-used MCP tools stay declared; the loaded set derives from
+  `tool_search` tool that operators opt into; the most-used MCP tools stay declared; the loaded set derives from
   replayed `tool_search` observations; in-Run Workspace additions join the partition;
   `tool_search` observations project through the executing wire's native loading form under the
   `native` strategy; the transport strategy is per model.
 - `context-injection`: the owner's MCP usage rank is a frozen prefix baseline stored on the chat,
   resolved by the worker, written by the completing attempt, and re-resolved at compaction.
-- `tool-call-permissions`: `tool_search` is the one tool evaluated without a permission group.
+- `tool-call-permissions`: the recommended portable permission map gains a `tool_search` group.
 - `workspace-entry`: the entry result lists Workspace tools that became discoverable.
 - `instance-config`: optional `models[].toolSearchThresholdTokens` and `models[].toolSearch`,
   validated against the model's provider type.
@@ -101,8 +101,7 @@ None.
 ## Impact
 
 - `apps/api/src/tools`: tier computation beside `composeTurnToolCatalog`, the `tool_search`
-  executor, registry and allowlist refusal of the reserved id, the permission exemption, and
-  partitioning of in-Run additions in `attempt-tool-additions.ts`.
+  executor and its registry entry, and partitioning of in-Run additions in `attempt-tool-additions.ts`.
 - `apps/api/src/mcp`: the `enter_workspace` result lists discoverable additions.
 - `apps/api/src/runs`: partition at attempt preparation, loaded-set derivation, per-step declared
   set composed with the existing step cap, the execute-wrapper gate.

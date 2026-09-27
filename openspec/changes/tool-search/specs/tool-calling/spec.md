@@ -4,13 +4,15 @@
 
 Each execution attempt SHALL partition its admitted catalog after the existing availability gate.
 MCP tools from operator servers and from the bound Workspace's servers SHALL be partitioned
-alike. Every admitted code-owned tool SHALL be declared to the model on every step and SHALL NOT count
-against any budget. The attempt SHALL estimate the eligible MCP declarations at four characters
-per token over each declaration's canonical JSON; when that estimate does not exceed the model's
-declaration budget (`instance-config`), every admitted tool SHALL be declared and the request's
-tools SHALL be identical to those sent without this requirement.
+alike. Every admitted code-owned tool other than `tool_search` SHALL be declared to the model on
+every step, SHALL NOT be discoverable, and SHALL NOT count against any budget. The attempt SHALL
+estimate the eligible MCP declarations at four characters per token over each declaration's
+canonical JSON. When `tool_search` is not admitted, or that estimate does not exceed the model's
+declaration budget (`instance-config`), every admitted tool other than `tool_search` SHALL be
+declared and the request's tools SHALL be identical to those sent without this requirement.
 
-When the estimate exceeds the budget, the attempt SHALL declare the longest prefix of the chat's
+When `tool_search` is admitted and the estimate exceeds the budget, deferral SHALL engage: the
+attempt SHALL declare the longest prefix of the chat's
 frozen MCP usage rank (`context-injection`), restricted to MCP tools admitted in this attempt,
 whose declarations fit the budget together with the inventory estimate, and every other admitted
 MCP tool SHALL be discoverable. An MCP tool absent from the rank SHALL NOT be declared while
@@ -29,8 +31,13 @@ only select among admitted tools and SHALL NOT admit, authorize, or reclassify a
 #### Scenario: Catalog within budget changes nothing
 
 - **WHEN** the eligible MCP declarations of an attempt fit its model's budget
-- **THEN** every admitted tool is declared and no `tool_search` is synthesized
+- **THEN** every admitted tool other than `tool_search` is declared and `tool_search` is not declared
 - **AND** the provider request's tools are the same as without this requirement
+
+#### Scenario: Deferral is off without an admitted tool search
+
+- **WHEN** an attempt's MCP catalog exceeds the budget and `tools.allowed` does not list `tool_search`
+- **THEN** every admitted tool is declared, as without this requirement
 
 #### Scenario: Code-owned tools stay declared beyond the budget
 
@@ -74,9 +81,11 @@ only select among admitted tools and SHALL NOT admit, authorize, or reclassify a
 
 ### Requirement: Tool search loads discoverable tools
 
-When an attempt has at least one discoverable tool, it SHALL synthesize the reserved tool
-`tool_search`, classified `read_only`, needing no tenant database access, absent from the
-availability manifest, and declared on every step until the step cap is reached. Its input SHALL
+`tool_search` SHALL be a code-owned tool classified `read_only` and needing no tenant database
+access. Like every code-owned tool it SHALL require its own exact `tools.allowed` entry, and every
+call SHALL be evaluated against its own `tools.permissions` group; an absent group SHALL reject
+the call. When admitted, it SHALL be declared on every step, until the step cap is reached, of an
+attempt that has at least one discoverable tool, and SHALL NOT be declared otherwise. Its input SHALL
 be `{ select?: string[], query?: string, limit?: integer }`. `select` SHALL accept any bounded
 `mcp__`-prefixed id and SHALL resolve exact discoverable ids. `query` SHALL match case-insensitive tokens against each discoverable id split
 on `_` and `-` and against its neutralized description, ranking an exact id match, then an id
@@ -93,10 +102,8 @@ declaration; a loaded id that is no longer admitted SHALL NOT be declared, refer
 callable. llame's execute wrapper SHALL refuse a call to a discoverable tool that is not loaded for
 the current request with the recorded `not_available` outcome before any executor runs.
 
-The registry SHALL refuse to register `tool_search`, and `tools.allowed` validation SHALL fail
-startup if it lists `tool_search`. `tool_search` calls SHALL NOT be evaluated against
-`tools.permissions` (`tool-call-permissions`); every call to a tool it loaded SHALL be. A step
-whose only calls are `tool_search` SHALL count toward `maxStepsPerRun`.
+Every call to a tool that `tool_search` loaded SHALL be evaluated against that tool's own
+permission group. A step whose only calls are `tool_search` SHALL count toward `maxStepsPerRun`.
 
 #### Scenario: Exact select loads a tool
 
@@ -157,16 +164,16 @@ whose only calls are `tool_search` SHALL count toward `maxStepsPerRun`.
 - **THEN** the search succeeds and lists the tool under `loaded`
 - **AND** a call to that tool is rejected as `permission_denied`
 
-#### Scenario: Reserved id cannot be registered or allowlisted
+#### Scenario: Tool search without a permission group is rejected
 
-- **WHEN** code registers a tool named `tool_search`, or `tools.allowed` lists it
-- **THEN** registration fails, or startup fails naming `tools.allowed`
+- **WHEN** deferral is engaged and `tools.permissions` has no `tool_search` group
+- **THEN** each `tool_search` call is rejected as `permission_denied` and loads nothing
 
 ### Requirement: In-Run Workspace additions join the tool partition
 
 When a trusted Workspace entry adds MCP declarations to an active attempt, the attempt SHALL add
-their estimate to its running MCP estimate. If deferral is not engaged and the total fits the
-budget, the additions SHALL be declared. Otherwise deferral SHALL be engaged for the rest of the
+their estimate to its running MCP estimate. If `tool_search` is not admitted, or deferral is not
+engaged and the total fits the budget, the additions SHALL be declared. Otherwise deferral SHALL be engaged for the rest of the
 attempt: tools already declared SHALL stay declared, the additions present in the chat's usage
 rank SHALL be declared in rank order while they fit the remaining budget as a strict prefix, and
 every other addition SHALL be discoverable. When deferral engages during the attempt and
