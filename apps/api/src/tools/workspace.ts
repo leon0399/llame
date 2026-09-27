@@ -153,14 +153,15 @@ export const enterWorkspaceTool: Tool<EnterWorkspaceInput> = {
 
     // runTool evaluates this same submitted value before execute. Keeping the
     // check here also preserves the order for trusted direct callers.
+    const conflict = claimTransition(context);
+    if (conflict !== undefined) return conflict;
+
     const submittedRejection = requireSubmittedPermission(context, input.path);
     if (submittedRejection !== undefined) return submittedRejection;
 
     if (!(await isCurrentDelivery(context, authority))) {
       return executorUnavailable();
     }
-    const conflict = claimTransition(context);
-    if (conflict !== undefined) return conflict;
 
     const canonicalResult = await canonicalDirectory(input.path);
     if ('status' in canonicalResult) return canonicalResult;
@@ -202,12 +203,12 @@ export const exitWorkspaceTool: Tool<ExitWorkspaceInput> = {
     if ('status' in authority || deliverySequence === undefined) {
       return 'status' in authority ? authority : executorUnavailable();
     }
-    if (!(await isCurrentDelivery(context, authority))) {
-      return executorUnavailable();
-    }
     const conflict = claimTransition(context);
     if (conflict !== undefined) return conflict;
 
+    if (!(await isCurrentDelivery(context, authority))) {
+      return executorUnavailable();
+    }
     context.abortSignal?.throwIfAborted();
     const result = await context.tenantDb.runAs(context.userId, (db) =>
       new WorkspaceBindingRepository(db).exit({

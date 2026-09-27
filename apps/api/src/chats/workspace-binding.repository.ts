@@ -10,25 +10,13 @@ import {
 } from 'drizzle-orm';
 import { chats, runEvents, runs } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import {
-  isWorkspaceDetachReason,
-  type WorkspaceBinding,
-  type WorkspaceDetachReason,
-} from './workspace-binding';
+import { type WorkspaceDetachReason } from './workspace-binding';
 
-type BindingRow = {
+type WorkspaceChatState = {
   workspaceRoot: string | null;
   workspaceExecutorId: string | null;
   workspaceGeneration: number;
-  workspaceTold: string | null;
-  workspaceToldFrom: string | null;
-  workspaceDetachReason: string | null;
 };
-
-type WorkspaceChatState = Pick<
-  BindingRow,
-  'workspaceRoot' | 'workspaceExecutorId' | 'workspaceGeneration'
->;
 
 /**
  * Owner-scoped Workspace binding state and its delivery fence.
@@ -41,25 +29,6 @@ type WorkspaceChatState = Pick<
 export class WorkspaceBindingRepository {
   constructor(private readonly db: Db) {}
 
-  async read(
-    chatId: string,
-    ownerUserId: string,
-  ): Promise<WorkspaceBinding | undefined> {
-    const [row] = await this.db
-      .select({
-        workspaceRoot: chats.workspaceRoot,
-        workspaceExecutorId: chats.workspaceExecutorId,
-        workspaceGeneration: chats.workspaceGeneration,
-        workspaceTold: chats.workspaceTold,
-        workspaceToldFrom: chats.workspaceToldFrom,
-        workspaceDetachReason: chats.workspaceDetachReason,
-      })
-      .from(chats)
-      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
-      .limit(1);
-
-    return row === undefined ? undefined : this.toBinding(row);
-  }
   async isCurrentDelivery(input: {
     runId: string;
     ownerUserId: string;
@@ -315,21 +284,6 @@ export class WorkspaceBindingRepository {
       )
       .returning({ id: chats.id });
     return updated.length;
-  }
-
-  private toBinding(row: BindingRow): WorkspaceBinding {
-    const detachReason = row.workspaceDetachReason;
-    return {
-      root: row.workspaceRoot,
-      executorId: row.workspaceExecutorId,
-      generation: row.workspaceGeneration,
-      told: row.workspaceTold,
-      toldFrom: row.workspaceToldFrom,
-      detachReason:
-        detachReason !== null && isWorkspaceDetachReason(detachReason)
-          ? detachReason
-          : null,
-    };
   }
 
   private async fenceRun(

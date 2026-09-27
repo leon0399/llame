@@ -177,6 +177,74 @@ describe('shipped example configuration', () => {
     return permissions;
   }
 
+  it('rejects each shipped Workspace entry protection by its clause', async () => {
+    const loaded = load(
+      JSON.stringify({ tools: { permissions: examplePermissions() } }),
+    );
+    const entryGroup = loaded.tools.permissions.enter_workspace;
+    if (entryGroup?.reject === undefined) {
+      throw new Error('example enter_workspace rejects missing');
+    }
+    const policy = await buildToolPermissionPolicy({
+      ...loaded.tools.permissions,
+      enter_workspace: {
+        // Widen the test-only allow so E2 is evaluated as an explicit reject
+        // instead of stopping at the example's narrower root allow.
+        allow: [
+          {
+            field: 'path',
+            regex: String.raw`^/(?:home/operator|tmp|var/tmp)(?:/.*)?$`,
+          },
+        ],
+        reject: entryGroup.reject,
+      },
+    });
+    const protectedPaths = [
+      ['/home/operator/projects/app/node_modules', 3],
+      ['/tmp/project', 4],
+      ['/var/tmp/x', 4],
+      ['/home/operator/projects/Downloads', 5],
+    ] as const;
+    for (const [entryPath, clauseIndex] of protectedPaths) {
+      const decision = evaluatePermission(policy, {
+        toolId: 'enter_workspace',
+        args: { path: entryPath },
+        projectFieldValue: nativeFileProjection('enter_workspace'),
+      });
+      expect(decision).toMatchObject({
+        decision: 'reject',
+        reason: 'explicit_reject',
+        reference: {
+          groupId: 'enter_workspace',
+          list: 'reject',
+          clauseIndex,
+        },
+      });
+    }
+    const allowedDecision = evaluatePermission(policy, {
+      toolId: 'enter_workspace',
+      args: { path: '/home/operator/projects/app' },
+      projectFieldValue: nativeFileProjection('enter_workspace'),
+    });
+    expect(allowedDecision).toMatchObject(ALLOW);
+  });
+
+  it('returns canonical no_allow outside the shipped entry allow', async () => {
+    const loaded = load(
+      JSON.stringify({ tools: { permissions: examplePermissions() } }),
+    );
+    const policy = await buildToolPermissionPolicy(loaded.tools.permissions);
+    const decision = evaluatePermission(policy, {
+      toolId: 'enter_workspace',
+      args: { path: '/home/operator/projects/app/sub' },
+      projectFieldValue: nativeFileProjection('enter_workspace'),
+    });
+    expect(decision).toMatchObject({
+      ...NO_ALLOW,
+      reference: null,
+    });
+  });
+
   it('loads through the real pipeline and equals the portable fixture', () => {
     const loaded = load(
       JSON.stringify({ tools: { permissions: examplePermissions() } }),
@@ -216,6 +284,10 @@ describe('shipped example configuration', () => {
       ['read', { path: '/project/docker-compose.yml' }, ALLOW],
       ['read', { path: '/project/certificate.pem' }, ALLOW],
       ['edit', { path: '/project/.mcp.json' }, EXPLICIT_REJECT],
+      ['edit', { path: '/project/.MCP.JSON' }, EXPLICIT_REJECT],
+      ['edit', { path: '/project/.LLAME/skills/x/SKILL.md' }, EXPLICIT_REJECT],
+      ['write', { path: '/project/.MCP.JSON' }, EXPLICIT_REJECT],
+      ['write', { path: '/project/.LLAME/skills/x/SKILL.md' }, EXPLICIT_REJECT],
       ['edit', { path: '/project/.llame/skills/x/SKILL.md' }, EXPLICIT_REJECT],
       ['write', { path: '/project/.mcp.json' }, EXPLICIT_REJECT],
       ['write', { path: '/project/.llame/skills/x/SKILL.md' }, EXPLICIT_REJECT],

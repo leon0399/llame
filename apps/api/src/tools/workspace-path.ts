@@ -12,21 +12,15 @@ export function createWorkspaceRootCell(
   initial: string | undefined,
 ): WorkspaceRootCell & { beginStep(): void } {
   let currentRoot = initial;
-  let pendingRoot: string | undefined;
-  let hasPendingRoot = false;
+  let pendingRoot = initial;
   let transitionClaimed = false;
   return {
     current: () => currentRoot,
     commit: (root) => {
       pendingRoot = root;
-      hasPendingRoot = true;
     },
     beginStep: () => {
-      if (hasPendingRoot) {
-        currentRoot = pendingRoot;
-        pendingRoot = undefined;
-        hasPendingRoot = false;
-      }
+      currentRoot = pendingRoot;
       transitionClaimed = false;
     },
     claimTransition: () => {

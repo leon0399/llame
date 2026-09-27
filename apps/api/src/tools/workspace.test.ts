@@ -16,6 +16,7 @@ import {
   exitWorkspaceTool,
   WORKSPACE_AUTHORITY,
 } from './workspace';
+import { createWorkspaceRootCell } from './workspace-path';
 
 function permissivePolicy() {
   return compileToolPermissionMap(
@@ -42,6 +43,19 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
     permissionPolicy: permissivePolicy(),
     ...overrides,
   };
+}
+
+type Deferred<T> = {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+};
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 describe('Workspace host tools', () => {
@@ -220,6 +234,87 @@ describe('Workspace host tools', () => {
     expect(exit).not.toHaveBeenCalled();
   });
 
+  it('lets the first enter own a slower fence before a same-step exit', async () => {
+    const firstFence = deferred<boolean>();
+    const secondFence = deferred<boolean>();
+    secondFence.resolve(true);
+    const delivery = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'isCurrentDelivery')
+      .mockImplementationOnce(() => firstFence.promise)
+      .mockImplementationOnce(() => secondFence.promise);
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
+      status: 'bound',
+      previousRoot: null,
+      generation: 1,
+    });
+    const cell = createWorkspaceRootCell(undefined);
+
+    const first = enterWorkspaceTool.execute(context({ workspaceRoot: cell }), {
+      path: root,
+    });
+    const second = exitWorkspaceTool.execute(
+      context({ workspaceRoot: cell }),
+      {},
+    );
+
+    await expect(second).resolves.toMatchObject({
+      status: 'error',
+      type: 'workspace_transition_conflict',
+    });
+    expect(delivery).toHaveBeenCalledTimes(1);
+    firstFence.resolve(true);
+    await expect(first).resolves.toMatchObject({
+      status: 'success',
+      root,
+      state: 'bound',
+    });
+    cell.beginStep();
+    expect(cell.current()).toBe(root);
+  });
+
+  it('lets the first enter own a slower fence before a same-step second enter', async () => {
+    const nextRoot = join(root, 'next');
+    await mkdir(nextRoot);
+    const firstFence = deferred<boolean>();
+    const secondFence = deferred<boolean>();
+    secondFence.resolve(true);
+    const delivery = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'isCurrentDelivery')
+      .mockImplementationOnce(() => firstFence.promise)
+      .mockImplementationOnce(() => secondFence.promise);
+    const enter = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'enter')
+      .mockResolvedValue({
+        status: 'bound',
+        previousRoot: null,
+        generation: 1,
+      });
+    const cell = createWorkspaceRootCell(undefined);
+
+    const first = enterWorkspaceTool.execute(context({ workspaceRoot: cell }), {
+      path: root,
+    });
+    const second = enterWorkspaceTool.execute(
+      context({ workspaceRoot: cell }),
+      { path: nextRoot },
+    );
+
+    await expect(second).resolves.toMatchObject({
+      status: 'error',
+      type: 'workspace_transition_conflict',
+    });
+    expect(delivery).toHaveBeenCalledTimes(1);
+    expect(enter).toHaveBeenCalledTimes(0);
+    firstFence.resolve(true);
+    await expect(first).resolves.toMatchObject({
+      status: 'success',
+      root,
+      state: 'bound',
+    });
+    cell.beginStep();
+    expect(cell.current()).toBe(root);
+  });
+
   it('records a canonical-path no_allow decision and does not bind', async () => {
     const alias = join(root, 'alias');
     const target = join(root, 'target');
@@ -353,6 +448,29 @@ describe('Workspace host tools', () => {
       status: 'error',
       type: 'executor_unavailable',
     });
+    expect(cell.commit).not.toHaveBeenCalled();
+  });
+
+  it('does not commit a superseded exit attempt', async () => {
+    const cell = {
+      current: vi.fn(() => root),
+      commit: vi.fn(),
+      claimTransition: vi.fn(() => true),
+    };
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'exit').mockResolvedValue({
+      status: 'fence_lost',
+    });
+
+    const result = await exitWorkspaceTool.execute(
+      context({ workspaceRoot: cell }),
+      {},
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
+    });
+    expect(cell.commit).not.toHaveBeenCalled();
   });
 
   it('exits a binding and reports an unbound exit as harmless', async () => {

@@ -157,17 +157,14 @@ function projectWorkspaceArguments(
   root: string | undefined,
 ): WorkspaceProjection {
   if (root === undefined) return { args, changed: false };
-  if (
-    (tool.id === 'read' || tool.id === 'edit' || tool.id === 'write') &&
-    isString(args.path)
-  ) {
+  if (isNativeFileTool(tool) && isString(args.path)) {
     if (!isWorkspaceRelative(args.path)) return { args, changed: false };
     return {
       args: { ...args, path: resolveWorkspacePath(root, args.path) },
       changed: true,
     };
   }
-  if (tool.id === 'bash') {
+  if (isBashTool(tool)) {
     if (args.cwd === undefined)
       return { args: { ...args, cwd: root }, changed: true };
     if (isString(args.cwd) && isWorkspaceRelative(args.cwd)) {

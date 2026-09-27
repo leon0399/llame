@@ -12,8 +12,6 @@ import {
   isRecencyDigestDeltaPayload,
   isRecencyDigestItem,
   isWorkspaceDetachPayload,
-  isWorkspaceDetachNoticeItem,
-  isWorkspaceSnapshotItem,
   isWorkspaceSnapshotPayload,
   renderCompactionCheckpoint,
 } from './context-item-producers';
@@ -558,7 +556,6 @@ describe('workspace producer', () => {
     });
 
     expect(isWorkspaceSnapshotPayload(item.data.payload)).toBe(true);
-    expect(isWorkspaceSnapshotItem(item)).toBe(true);
     expect(item.data.form).toBe('snapshot');
     expect(item.data.text).toContain(
       'The active Workspace working root is `/home/operator/projects/app`.',
@@ -581,29 +578,17 @@ describe('workspace producer', () => {
     });
 
     expect(isWorkspaceDetachPayload(item.data.payload)).toBe(true);
-    expect(isWorkspaceDetachNoticeItem(item)).toBe(true);
     expect(item.data.form).toBe('notice');
     expect(item.data.payload).toEqual({ reason: 'permission_rejected' });
     expect(item.data.text).toContain('permission_rejected');
     expect(item.data.text).not.toContain('working root');
-    expect(isWorkspaceSnapshotItem(item)).toBe(false);
   });
 
-  it('rejects malformed Workspace payloads and impostor items', () => {
+  it('rejects malformed Workspace payloads', () => {
     expect(isWorkspaceSnapshotPayload({ root: 'relative/path' })).toBe(false);
     expect(isWorkspaceSnapshotPayload({ root: '/tmp', extra: true })).toBe(
       false,
     );
     expect(isWorkspaceDetachPayload({ reason: 'unknown' })).toBe(false);
-
-    const snapshot = createWorkspaceSnapshotItem({
-      runId: RUN_ID,
-      root: '/tmp/project',
-    });
-    const impostor: ContextItemPart = {
-      ...snapshot,
-      data: { ...snapshot.data, producer: 'temporal' },
-    };
-    expect(isWorkspaceSnapshotItem(impostor)).toBe(false);
   });
 });

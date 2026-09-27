@@ -149,28 +149,6 @@ export function createWorkspaceDetachNoticeItem(input: {
   });
 }
 
-export function isWorkspaceSnapshotItem(
-  value: unknown,
-): value is ContextItemPart {
-  return (
-    isContextItemPart(value) &&
-    value.data.producer === 'workspace' &&
-    value.data.form === 'snapshot' &&
-    isWorkspaceSnapshotPayload(value.data.payload)
-  );
-}
-
-export function isWorkspaceDetachNoticeItem(
-  value: unknown,
-): value is ContextItemPart {
-  return (
-    isContextItemPart(value) &&
-    value.data.producer === 'workspace' &&
-    value.data.form === 'notice' &&
-    isWorkspaceDetachPayload(value.data.payload)
-  );
-}
-
 // Re-exported: this producer used to live inline here; every existing
 // importer of it still resolves through this module.
 export {

@@ -31,6 +31,7 @@ import {
   findLiveWindow,
   MessagesRepository,
 } from './chats-repository';
+import { toSharedChatResponse } from './dto/chats.dto';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { toStoredMessages } from '../compaction/compaction.service';
@@ -967,9 +968,9 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         SET workspace_root = '/work/project',
             workspace_executor_id = 'worker-a',
             workspace_generation = 4,
-            workspace_told = '/work/project',
-            workspace_told_from = '11111111-1111-4111-8111-111111111111',
-            workspace_detach_reason = 'root_missing'
+            workspace_told = NULL,
+            workspace_told_from = NULL,
+            workspace_detach_reason = NULL
         WHERE id = ${source.chatId} AND owner_user_id = ${a}
       `),
     );
@@ -979,6 +980,31 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     expect(forked.workspaceRoot).toBe('/work/project');
     expect(forked.workspaceExecutorId).toBe('worker-a');
     expect(forked.workspaceGeneration).toBe(4);
+    expect(forked.workspaceTold).toBeNull();
+    expect(forked.workspaceToldFrom).toBeNull();
+    expect(forked.workspaceDetachReason).toBeNull();
+  });
+
+  it('owner forks a detached Chat without restoring its Workspace binding', async () => {
+    const source = await seedChat(a);
+    await tenantDb.runAs(a, (tx) =>
+      tx.execute(dsql`
+        UPDATE chats
+        SET workspace_root = NULL,
+            workspace_executor_id = NULL,
+            workspace_generation = 5,
+            workspace_told = '/work/project',
+            workspace_told_from = '33333333-3333-4333-8333-333333333333',
+            workspace_detach_reason = 'root_missing'
+        WHERE id = ${source.chatId} AND owner_user_id = ${a}
+      `),
+    );
+
+    const forked = await service.forkChat(source.chatId, a);
+
+    expect(forked.workspaceRoot).toBeNull();
+    expect(forked.workspaceExecutorId).toBeNull();
+    expect(forked.workspaceGeneration).toBe(5);
     expect(forked.workspaceTold).toBeNull();
     expect(forked.workspaceToldFrom).toBeNull();
     expect(forked.workspaceDetachReason).toBeNull();
@@ -998,6 +1024,12 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         WHERE id = ${source.chat.id} AND owner_user_id = ${a}
       `),
     );
+
+    const shared = await service.getSharedChat(source.chat.id);
+    if (shared === undefined) expect.unreachable('expected a public chat');
+    const sharedResponse = toSharedChatResponse(shared.chat, shared.messages);
+    expect(sharedResponse).not.toHaveProperty('workspaceRoot');
+    expect(JSON.stringify(sharedResponse)).not.toContain('/work/public');
     const forked = await service.forkSharedChat(source.chat.id, b);
     if (forked === undefined) expect.unreachable('expected a public fork');
     // A new PRIVATE chat: sharing the source must never share the visitor's
