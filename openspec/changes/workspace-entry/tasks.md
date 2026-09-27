@@ -175,8 +175,11 @@ implementation layers.
       write-capable MCP tool with an allowing permission group executes, one without a permission
       group is rejected, unavailable entries retain no stale executor, and code-owned tools keep
       today's host-capability gate. Durably record each MCP dispatch attempt before invoking it by
-      reusing the native-attempt recovery path; verify that a queue retry after a dispatched MCP
-      call recovers as `outcome_unknown` without making a second call.
+      reusing the native-attempt recovery path. Verify that redelivery of any Run carrying a
+      recorded `native.attempt` fails as `outcome_unknown` without a native-executor or `workerId`
+      precondition, and that every open call with a matching durable `native.result` is settled
+      from that result regardless of tool source; a queue retry after a dispatched MCP call makes
+      no second call.
 - [ ] 4.2 Drop the configured-server lookup from `tools.allowed` MCP validation while keeping
       the grammar and 64-character bound. Verify with config-loader tests that
       `mcp__unconfigured__*` boots, a malformed MCP entry still fails startup naming the path, and

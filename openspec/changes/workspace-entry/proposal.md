@@ -183,7 +183,7 @@ remain in force. This is an accepted audited-repository risk, not filesystem con
   by bash and native file tools and by permission evaluation.
 - `apps/api/src/runs`: Run-start re-check and immediate detach; the Chat binding in tool context;
   in-memory declaration additions and unavailable-executor state.
-- `apps/api/src/db`: five Chat binding columns and their migration; the Run has no persisted
+- `apps/api/src/db`: six Chat binding columns and their migration; the Run has no persisted
   tool-set record, with RLS unchanged in shape.
 - `apps/api/src/skills`, `apps/api/src/mcp`: per-Chat Workspace sources and generation-keyed
   clients; MCP classification and deferred shadowing.

@@ -322,8 +322,8 @@ servers as the only operator-permitted external-tool path; neither source bypass
 
 Before invoking an MCP operation, the worker durably records its dispatch attempt through the
 native-attempt recovery path. If a worker fails after dispatch may have started and before the
-result is known, the Run recovers the operation as `outcome_unknown` (or fails the attempt
-terminally), and a queue retry does not invoke that MCP operation again.
+result is known, the Run recovers the operation as `outcome_unknown` and stops, and a queue retry
+does not invoke that MCP operation again.
 
 ## Risks / Trade-offs
 
@@ -402,5 +402,10 @@ binding roots through shares, exports, search, or another owner's RLS scope.
   already-frozen Workspace skill-catalog baseline in a detaching attempt but no activation,
   `skill://` resolution, or tools; F7 carries the revised MCP authorization contract through the
   canonical Purpose and operator documentation.
-- v5 (this revision) — Made trusted Workspace additions in-memory only; runtime tool resolution is
-  authoritative, and no Run record stores the tool set.
+- v5 — Made trusted Workspace additions in-memory only; runtime tool resolution is authoritative,
+  and no Run record stores the tool set.
+- v6 — Added the sixth Chat binding column `workspace_told_from`, with compaction-identity
+  comparison and an accepted-turn transaction write site; made Workspace shadowing and composition
+  attempt-keyed, including same-Run retries; made MCP recovery deterministically stop with
+  `outcome_unknown` and added the MODIFIED tool-calling checkpoint block; and left literal stdio
+  `command`, `args`, and `env` text unprotected unless interpolated.

@@ -73,10 +73,11 @@ has executed an alpha native `edit` or `write` SHALL NOT automatically replay th
 worker failure, timeout, or unknown settlement. A Run that has dispatched an MCP operation SHALL
 likewise not automatically replay that operation. The host SHALL stop the affected Run with
 `outcome_unknown` and require a new explicit user/model attempt. Client reconnect SHALL replay
-recorded tool activity without executing the mutation or MCP operation again. A redelivered Run with
-any recorded native attempt or MCP dispatch SHALL fail as `outcome_unknown` without replaying its
-loop; before terminal settlement, any open call SHALL be settled from its matching durable result
-when one exists.
+recorded tool activity without executing the mutation or MCP operation again. A redelivered Run
+carrying any recorded `native.attempt` SHALL fail as `outcome_unknown` without replaying its loop;
+this recovery rule has no native-executor or `workerId` precondition. Before terminal settlement,
+each open call with a matching durable `native.result` SHALL be settled from that result regardless
+of tool source; an open call without a matching result SHALL settle as `outcome_unknown`.
 A future durable effect-dedupe capability may replace this terminal behavior; it is outside this
 change.
 
@@ -105,7 +106,7 @@ change.
 
 #### Scenario: A queue retry re-executes the loop from the start
 
-- **WHEN** a read-only Run's job is retried by the queue, the Run is still claimable, and no native attempt or MCP dispatch is recorded
+- **WHEN** a read-only Run's job is retried by the queue, the Run is still claimable, and no `native.attempt` is recorded
 - **THEN** its tool loop executes from the first step again
 - **AND** it may re-invoke read-only tools already invoked in the previous attempt
 
@@ -116,7 +117,7 @@ change.
 
 #### Scenario: Read-only retry remains unchanged
 
-- **WHEN** a claimable Run contains only read-only tools, has no native attempt or MCP dispatch, and its job retries
+- **WHEN** a claimable Run contains only read-only tools, has no recorded `native.attempt`, and its job retries
 - **THEN** the existing read-only retry behavior remains available
 - **AND** no native mutation is inferred from the read-only result
 
@@ -148,9 +149,10 @@ Before invoking an MCP operation, the executing worker SHALL durably append a `n
 event through the same owner-scoped recovery path used for native mutation attempts, with
 `operation: "mcp"` and the MCP tool id in its path field. If the worker is interrupted after that
 record and before a durable `native.result`, the dispatch outcome SHALL be `outcome_unknown` and
-the Run SHALL stop rather than continue its loop. A redelivered Run containing that record SHALL
-fail as `outcome_unknown` without replaying the loop or invoking the MCP operation again; open
-calls are settled from matching durable results when present.
+the Run SHALL stop rather than continue its loop. On redelivery, any Run carrying a recorded
+`native.attempt` SHALL fail as `outcome_unknown` without replaying the loop; this has no
+native-executor or `workerId` precondition. Any open call with a matching durable `native.result`
+SHALL be settled from that result regardless of tool source.
 
 #### Scenario: Default is no tools
 
