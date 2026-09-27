@@ -148,69 +148,6 @@ describeIfDb(
       expect(absentIdentity).toEqual([]);
     });
 
-    it('records additions before terminal state and fences stale attempts', async () => {
-      const run = await seedOwnedRun(ownerA);
-      const started = await tenantDb.runAs(ownerA, (tx) =>
-        new RunsRepository(tx).markStarted(run.id, ownerA),
-      );
-      const attemptId = started?.activeAttemptId;
-      if (attemptId === null || attemptId === undefined) {
-        throw new Error('Expected an active attempt');
-      }
-      const entries = [
-        {
-          id: 'mcp__workspace__lookup',
-          source: 'workspace-mcp' as const,
-          server: 'workspace',
-          step: 2,
-        },
-      ];
-
-      await expect(
-        tenantDb.runAs(ownerA, (tx) =>
-          new RunsRepository(tx).appendAddedToolDeclarations(
-            run.id,
-            ownerA,
-            attemptId,
-            entries,
-          ),
-        ),
-      ).resolves.toBe(true);
-      await tenantDb.runAs(ownerA, async (tx) => {
-        const stored = await new RunsRepository(tx).findById(run.id, ownerA);
-        expect(stored?.status).toBe('running_model');
-        expect(stored?.addedToolDeclarations).toEqual(entries);
-      });
-      await tenantDb.runAs(ownerB, async (tx) => {
-        await expect(
-          new RunsRepository(tx).findById(run.id, ownerB),
-        ).resolves.toBeUndefined();
-        const rawRows = await tx
-          .select()
-          .from(schema.runs)
-          .where(eq(schema.runs.id, run.id));
-        expect(rawRows).toEqual([]);
-        await expect(
-          new RunsRepository(tx).appendAddedToolDeclarations(
-            run.id,
-            ownerB,
-            attemptId,
-            entries,
-          ),
-        ).resolves.toBe(false);
-      });
-      await expect(
-        tenantDb.runAs(ownerA, (tx) =>
-          new RunsRepository(tx).appendAddedToolDeclarations(
-            run.id,
-            ownerA,
-            crypto.randomUUID(),
-            entries,
-          ),
-        ),
-      ).resolves.toBe(false);
-    });
-
     it('refuses a receipt another owner forged for that owner', async () => {
       const run = await seedOwnedRun(ownerA);
 

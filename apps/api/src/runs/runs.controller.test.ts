@@ -27,7 +27,6 @@ describe('RunsController context receipt', () => {
     activeAttemptId: null,
     completedAttemptId: null,
     turnToolAvailability: null,
-    addedToolDeclarations: [],
     status: 'completed',
     workerId: null,
     cancelRequestedAt: null,
@@ -36,17 +35,6 @@ describe('RunsController context receipt', () => {
     createdAt: new Date('2026-07-18T10:00:00.000Z'),
     startedAt: new Date('2026-07-18T10:00:01.000Z'),
     finishedAt: new Date('2026-07-18T10:00:02.000Z'),
-  };
-  const runWithAddedTools: Run = {
-    ...run,
-    addedToolDeclarations: [
-      {
-        id: 'mcp__workspace__search',
-        source: 'workspace-mcp',
-        server: 'workspace',
-        step: 2,
-      },
-    ],
   };
   const promptReceipt: SystemPromptReceipt = {
     id: '55555555-5555-4555-8555-555555555555',
@@ -102,18 +90,13 @@ describe('RunsController context receipt', () => {
   }
 
   it('returns owner-visible system-prompt receipt fields', async () => {
-    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(
-      runWithAddedTools,
-    );
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
     vi.spyOn(
       SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue([promptReceipt]);
 
-    const receipt = await controller().getContextReceipt(
-      'owner',
-      runWithAddedTools.id,
-    );
+    const receipt = await controller().getContextReceipt('owner', run.id);
 
     expect(receipt).toEqual({
       modelId: 'system:openai:public-model',
@@ -127,17 +110,12 @@ describe('RunsController context receipt', () => {
           createdAt: promptReceipt.createdAt,
         },
       ],
-      addedTools: runWithAddedTools.addedToolDeclarations,
-      createdAt: runWithAddedTools.createdAt,
+      createdAt: run.createdAt,
     });
     expect(JSON.stringify(receipt)).not.toMatch(
       /providerModelId|credential|executor|authorization|ownerUserId|runId|path/i,
     );
-    expect(JSON.stringify(receipt.addedTools)).not.toMatch(
-      /schema|description|hash|endpoint/i,
-    );
   });
-
   it('reports a run the owner cannot see as missing by id', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(undefined);
 
@@ -246,7 +224,6 @@ describe('RunsController context receipt', () => {
       modelId: run.modelId,
       state: 'not_produced',
       receipts: [],
-      addedTools: [],
       createdAt: run.createdAt,
     });
   });
@@ -284,7 +261,6 @@ describe('RunsController context receipt', () => {
           createdAt: promptReceipt.createdAt,
         },
       ],
-      addedTools: [],
       createdAt: attemptedRun.createdAt,
     });
   });
@@ -308,7 +284,6 @@ describe('RunsController context receipt', () => {
       modelId: pendingRun.modelId,
       state: 'pending',
       receipts: [],
-      addedTools: [],
       createdAt: pendingRun.createdAt,
     });
   });

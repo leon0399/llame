@@ -47,32 +47,6 @@ function EffectiveContextError() {
   );
 }
 
-function AddedToolsMetadata({
-  tools,
-}: {
-  tools: RunContextReceipt["addedTools"];
-}) {
-  if (tools.length === 0) return null;
-
-  return (
-    <>
-      <dt className="text-muted-foreground">Tools added</dt>
-      <dd>
-        <ul className="flex flex-col gap-1">
-          {tools.map((tool) => (
-            <li key={`${tool.id}:${tool.server}:${tool.step}`}>
-              <span className="break-all font-mono text-xs">{tool.id}</span>{" "}
-              <span className="text-muted-foreground">
-                ({tool.source}, {tool.server}, step {tool.step})
-              </span>
-            </li>
-          ))}
-        </ul>
-      </dd>
-    </>
-  );
-}
-
 function EffectiveContextMetadata({ data }: { data: RunContextReceipt }) {
   return (
     // Three tracks, with every value spanning two of them: the label column
@@ -91,7 +65,6 @@ function EffectiveContextMetadata({ data }: { data: RunContextReceipt }) {
       ) : null}
       <dt className="text-muted-foreground">State</dt>
       <dd className="font-mono">{data.state}</dd>
-      <AddedToolsMetadata tools={data.addedTools} />
       {data.activeAttemptId ? (
         <>
           <dt className="text-muted-foreground">Active attempt</dt>

@@ -1,10 +1,7 @@
 import { type ToolSet } from 'ai';
 
 import { canonicalJson } from '../canonical-json';
-import {
-  type AddedToolDeclaration,
-  type ModelToolDeclaration,
-} from '../db/schema';
+import { type ModelToolDeclaration } from '../db/schema';
 import {
   composeTurnToolCatalog,
   type AdmittedTurnTool,
@@ -37,7 +34,6 @@ type AttemptToolAdditionsOptions = {
   callTimeoutSeconds: number;
   boundExecutables: Map<string, AttemptToolBinding>;
   createTool: (declaration: ModelToolDeclaration) => ToolSet[string];
-  persist: (entries: ReadonlyArray<AddedToolDeclaration>) => Promise<boolean>;
 };
 
 type PlannedAddition = {
@@ -208,31 +204,11 @@ export class AttemptToolAdditions {
     return plan;
   }
 
-  private async commit(
+  private commit(
     server: string,
-    step: number,
     plan: AdditionPlan,
     record: ToolSet,
-  ): Promise<AttemptToolAdditionResult> {
-    const entries: Array<AddedToolDeclaration> = plan.planned.map(({ id }) => ({
-      id,
-      source: 'workspace-mcp',
-      server,
-      step,
-    }));
-    if (!(await this.options.persist(entries))) {
-      return {
-        added: [],
-        availableFromNextRun: plan.availableFromNextRun,
-        refused: [
-          ...plan.refused,
-          ...plan.planned.map(({ id }) => ({
-            id,
-            reason: 'attempt_not_current',
-          })),
-        ],
-      };
-    }
+  ): AttemptToolAdditionResult {
     const added = plan.planned.map((addition) => {
       bindAddition(this.options, record, server, addition);
       return addition.id;
@@ -247,7 +223,6 @@ export class AttemptToolAdditions {
   async add(
     server: string,
     tools: ReadonlyArray<Tool>,
-    step: number,
   ): Promise<AttemptToolAdditionResult> {
     const admission = await admitWorkspaceTools(this.options, server, tools);
     const plan = this.plan(tools, admission);
@@ -272,7 +247,7 @@ export class AttemptToolAdditions {
         ],
       };
     }
-    return this.commit(server, step, plan, record);
+    return this.commit(server, plan, record);
   }
 
   disableServer(server: string): void {

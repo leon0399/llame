@@ -13,7 +13,6 @@ const run: Run = {
   activeAttemptId: null,
   completedAttemptId: null,
   turnToolAvailability: null,
-  addedToolDeclarations: [],
   status: 'completed',
   workerId: null,
   cancelRequestedAt: null,
@@ -39,46 +38,5 @@ describe('toContextReceiptResponse', () => {
     const response = toContextReceiptResponse({ ...run, effort: 'high' }, []);
 
     expect(response.effort).toBe('high');
-  });
-
-  it('projects only minimal provenance for Workspace additions', () => {
-    const response = toContextReceiptResponse(
-      {
-        ...run,
-        addedToolDeclarations: [
-          {
-            id: 'mcp__workspace__search',
-            source: 'workspace-mcp',
-            server: 'workspace',
-            step: 2,
-          },
-          {
-            id: 'mcp__workspace__write',
-            source: 'workspace-mcp',
-            server: 'workspace',
-            step: 4,
-          },
-        ],
-      },
-      [],
-    );
-
-    expect(response.addedTools).toEqual([
-      {
-        id: 'mcp__workspace__search',
-        source: 'workspace-mcp',
-        server: 'workspace',
-        step: 2,
-      },
-      {
-        id: 'mcp__workspace__write',
-        source: 'workspace-mcp',
-        server: 'workspace',
-        step: 4,
-      },
-    ]);
-    expect(JSON.stringify(response.addedTools)).not.toMatch(
-      /schema|description|hash|endpoint/i,
-    );
   });
 });

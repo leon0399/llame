@@ -102,21 +102,6 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
     if (!isString(firstAttemptId) || !isString(secondAttemptId)) {
       throw new Error('Expected worker attempts to be assigned');
     }
-    await tenantDb.runAs(ownerId, (tx) =>
-      new RunsRepository(tx).appendAddedToolDeclarations(
-        run.id,
-        ownerId,
-        secondAttemptId,
-        [
-          {
-            id: 'mcp__workspace__search',
-            source: 'workspace-mcp',
-            server: 'workspace',
-            step: 3,
-          },
-        ],
-      ),
-    );
 
     await tenantDb.runAs(ownerId, (tx) =>
       tx.insert(systemPromptReceipts).values([
@@ -168,14 +153,6 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
           promptSource: 'model_override',
           systemPrompt: 'Second effective prompt',
           promptHash: 'second-prompt-hash',
-        },
-      ],
-      addedTools: [
-        {
-          id: 'mcp__workspace__search',
-          source: 'workspace-mcp',
-          server: 'workspace',
-          step: 3,
         },
       ],
     });

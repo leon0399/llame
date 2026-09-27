@@ -848,7 +848,6 @@ describe('ChatsService message windows, updates and forks', () => {
       activeAttemptId: null,
       completedAttemptId: null,
       turnToolAvailability: null,
-      addedToolDeclarations: [],
       cancelRequestedAt: null,
       error: null,
       contextItems: null,

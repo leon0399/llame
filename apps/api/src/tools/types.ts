@@ -104,8 +104,6 @@ export interface ToolContext {
   readonly permissionPolicy?: CompiledPolicy;
   /** Attempt-scoped Workspace root; changes become visible at the next model step. */
   readonly workspaceRoot?: WorkspaceRootCell;
-  /** Trusted one-based model step for in-Run Workspace additions. */
-  readonly toolStep?: number;
   /** Trusted handle for adding Workspace declarations during this attempt. */
   readonly toolAdditions?: AttemptToolAdditions;
 }

@@ -19,7 +19,6 @@ import {
   isNull,
   lt,
   notInArray,
-  sql,
   type SQL,
 } from 'drizzle-orm';
 import {
@@ -27,7 +26,6 @@ import {
   messages,
   runEvents,
   runs,
-  type AddedToolDeclaration,
   type Run,
   type RunContextItem,
   type RunEvent,
@@ -457,39 +455,6 @@ export class RunsRepository {
       )
       .returning();
     return updated;
-  }
-  /**
-   * Append Workspace declaration receipts while the active attempt owns the
-   * non-terminal Run. The JSONB concatenation is atomic under the row update,
-   * so concurrent additions preserve occurrence order per transaction.
-   */
-  async appendAddedToolDeclarations(
-    runId: string,
-    userId: string,
-    attemptId: string,
-    entries: ReadonlyArray<AddedToolDeclaration>,
-  ): Promise<boolean> {
-    if (entries.length === 0) return true;
-    const [updated] = await this.db
-      .update(runs)
-      .set({
-        addedToolDeclarations: sql`${runs.addedToolDeclarations} || ${JSON.stringify(entries)}::jsonb`,
-      })
-      .where(
-        and(
-          eq(runs.id, runId),
-          eq(runs.userId, userId),
-          eq(runs.activeAttemptId, attemptId),
-          notInArray(runs.status, [
-            'completed',
-            'failed',
-            'cancelled',
-            'expired',
-          ]),
-        ),
-      )
-      .returning({ id: runs.id });
-    return updated !== undefined;
   }
 }
 

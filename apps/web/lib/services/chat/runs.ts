@@ -18,7 +18,6 @@ export type RunContextReceipt = Pick<
   | "completedAttemptId"
   | "state"
   | "receipts"
-  | "addedTools"
   | "createdAt"
 >;
 

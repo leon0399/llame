@@ -12,11 +12,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Open calls settle from durable results where present, while a Run with no
   native or MCP attempt restarts from its first step
   ([#974](https://github.com/leon0399/llame/issues/974)).
-- Workspace MCP tools added during a Run are recorded immediately as owner-only
-  receipt metadata (`id`, source/server, and step). The prompt receipt now
-  shows those additions without persisting schemas, descriptions, or hashes,
-  and public shares, exports, and search continue to omit the metadata
-  ([#974](https://github.com/leon0399/llame/issues/974)).
+- Mid-Run Workspace tool additions are attempt-memory only: they become
+  available to the model on the next step and leave no receipt row or persisted
+  Run tool record ([#974](https://github.com/leon0399/llame/issues/974)).
 
 - The owner Chat header now shows the bound Workspace root name with the full
   path in a tooltip. It refreshes mid-Run after entry, exit, or stream-start

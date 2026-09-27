@@ -4,7 +4,6 @@ import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
 
 import {
   modelContextPromptSource,
-  type AddedToolDeclaration,
   runStatus,
   type Run,
   type RunStatus,
@@ -94,32 +93,7 @@ export class AttemptReceiptResponse {
   createdAt!: Date;
 }
 
-/** Owner-visible provenance for one Workspace tool added during a Run. */
-export class AddedToolResponse {
-  @ApiProperty({ description: 'Exact admitted tool id.' })
-  id!: string;
-
-  @ApiProperty({
-    enum: ['workspace-mcp'],
-    description: 'Declaration source.',
-  })
-  source!: AddedToolDeclaration['source'];
-
-  @ApiProperty({ description: 'Workspace MCP server name.' })
-  server!: string;
-
-  @ApiProperty({
-    type: 'integer',
-    description: 'Model step in which the declaration was added.',
-  })
-  step!: number;
-}
-
-/**
- * System-only receipt response for a run: resolution state plus an ordered
- * list of per-attempt receipts. Added tools expose only id/source/server/step;
- * schemas, descriptions, hashes, and other declaration content stay private.
- */
+/** Owner-visible receipt response for one run. */
 export class ContextReceiptResponse {
   @ApiProperty({
     description: 'Public llame model id selected for this run.',
@@ -160,14 +134,6 @@ export class ContextReceiptResponse {
       'that reached prompt preparation. Earliest first.',
   })
   receipts!: Array<AttemptReceiptResponse>;
-
-  @ApiProperty({
-    type: () => [AddedToolResponse],
-    description:
-      'Workspace tool declarations added during this Run. Only ids and ' +
-      'minimal source/server/step provenance are disclosed.',
-  })
-  addedTools!: Array<AddedToolResponse>;
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
@@ -246,16 +212,6 @@ export function toRunResponse(run: Run): RunResponse {
   };
 }
 
-function toAddedToolResponse(
-  declaration: AddedToolDeclaration,
-): AddedToolResponse {
-  return {
-    id: declaration.id,
-    source: declaration.source,
-    server: declaration.server,
-    step: declaration.step,
-  };
-}
 /** Maps a run and its attempt receipts to the owner-receipt egress shape. */
 export function toContextReceiptResponse(
   run: Run,
@@ -290,7 +246,6 @@ export function toContextReceiptResponse(
       promptHash: r.promptHash,
       createdAt: r.createdAt,
     })),
-    addedTools: run.addedToolDeclarations.map(toAddedToolResponse),
     createdAt: run.createdAt,
   };
 }

@@ -196,7 +196,6 @@ const run: Run = {
   activeAttemptId: null,
   completedAttemptId: null,
   turnToolAvailability: null,
-  addedToolDeclarations: [],
   status: 'running_model',
   workerId: null,
   cancelRequestedAt: null,
@@ -3272,11 +3271,7 @@ function createMidRunAdditionTools() {
     execute: async (context) => {
       const additions = context.toolAdditions;
       if (additions === undefined) throw new Error('Missing additions handle.');
-      const result = await additions.add(
-        'workspace',
-        [addedTool],
-        context.toolStep ?? 0,
-      );
+      const result = await additions.add('workspace', [addedTool]);
       return { status: 'success', ...result };
     },
   };
@@ -3290,9 +3285,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
   it('executes an in-Run addition on the next model step', async () => {
     mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
-    const persisted = vi
-      .spyOn(RunsRepository.prototype, 'appendAddedToolDeclarations')
-      .mockResolvedValue(true);
     const { adder, executeAdded } = createMidRunAdditionTools();
     registerTestOnlyTool(adder);
     try {
@@ -3317,14 +3309,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         ]),
       );
       expect(executeAdded).toHaveBeenCalledTimes(1);
-      expect(persisted).toHaveBeenCalledWith(runId, userId, testAttemptId, [
-        {
-          id: MID_RUN_ADDED_ID,
-          source: 'workspace-mcp',
-          server: 'workspace',
-          step: 1,
-        },
-      ]);
       const addedEvents = appended.filter((entry) => {
         const payload = entry.payload;
         return isRecord(payload) && payload.toolName === MID_RUN_ADDED_ID;
@@ -6382,7 +6366,6 @@ function completedPredecessor(overrides: Partial<Run> = {}): Run {
     completedAttemptId: testAttemptId,
     turnToolAvailability: [{ id: contextToolId, state: 'available' }],
     ...overrides,
-    addedToolDeclarations: overrides.addedToolDeclarations ?? [],
   };
 }
 

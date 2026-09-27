@@ -95,7 +95,6 @@ function seededAdditions() {
         inputSchema: z.strictObject({}),
         execute: () => ({ status: 'success' as const }),
       }),
-    persist: () => Promise.resolve(true),
   });
   additions.bindToolRecord(record);
   record[id] = tool({

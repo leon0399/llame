@@ -42,24 +42,22 @@ function setup(
   boundExecutables = new Map<string, AttemptToolBinding>(),
   record: ToolSet = {},
 ) {
-  const persist = vi.fn().mockResolvedValue(true);
   const additions = new AttemptToolAdditions({
     allowedToolRules: [`mcp__${SERVER}__*`],
     callTimeoutSeconds: 15,
     boundExecutables,
     createTool: modelTool,
-    persist,
   });
   additions.bindToolRecord(record);
-  return { additions, boundExecutables, persist, record };
+  return { additions, boundExecutables, record };
 }
 
 describe('AttemptToolAdditions', () => {
-  it('persists and inserts an admitted declaration into the bound tool record', async () => {
+  it('inserts an admitted declaration into the bound tool record', async () => {
     const first = makeTool();
     const state = setup();
 
-    await expect(state.additions.add(SERVER, [first], 2)).resolves.toEqual({
+    await expect(state.additions.add(SERVER, [first])).resolves.toEqual({
       added: [TOOL_ID],
       availableFromNextRun: [],
       refused: [],
@@ -67,9 +65,6 @@ describe('AttemptToolAdditions', () => {
 
     expect(state.record[TOOL_ID]).toBeDefined();
     expect(state.boundExecutables.get(TOOL_ID)?.executor).toBe(first);
-    expect(state.persist).toHaveBeenCalledWith([
-      { id: TOOL_ID, source: 'workspace-mcp', server: SERVER, step: 2 },
-    ]);
   });
 
   it('rebinds an identical retained declaration after its server is disabled', async () => {
@@ -77,11 +72,11 @@ describe('AttemptToolAdditions', () => {
     const second = makeTool();
     const state = setup();
 
-    await state.additions.add(SERVER, [first], 1);
+    await state.additions.add(SERVER, [first]);
     state.additions.disableServer(SERVER);
     expect(state.boundExecutables.get(TOOL_ID)?.executor).not.toBe(first);
 
-    await expect(state.additions.add(SERVER, [second], 3)).resolves.toEqual({
+    await expect(state.additions.add(SERVER, [second])).resolves.toEqual({
       added: [TOOL_ID],
       availableFromNextRun: [],
       refused: [],
@@ -94,10 +89,10 @@ describe('AttemptToolAdditions', () => {
     const changed = makeTool(TOOL_ID, 'A changed declaration.');
     const state = setup();
 
-    await state.additions.add(SERVER, [first], 1);
+    await state.additions.add(SERVER, [first]);
     state.additions.disableServer(SERVER);
     const before = state.boundExecutables.get(TOOL_ID);
-    const result = await state.additions.add(SERVER, [changed], 2);
+    const result = await state.additions.add(SERVER, [changed]);
 
     expect(result).toEqual({
       added: [],
@@ -108,15 +103,14 @@ describe('AttemptToolAdditions', () => {
     expect(
       canonicalJson(state.boundExecutables.get(TOOL_ID)?.declaration),
     ).toContain('Look up a value.');
-    expect(state.persist).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a declaration that collides by ASCII case with a retained id', async () => {
     const state = setup();
-    await state.additions.add(SERVER, [makeTool()], 1);
+    await state.additions.add(SERVER, [makeTool()]);
     const collision = makeTool('mcp__workspace__LOOKUP');
 
-    await expect(state.additions.add(SERVER, [collision], 2)).resolves.toEqual({
+    await expect(state.additions.add(SERVER, [collision])).resolves.toEqual({
       added: [],
       availableFromNextRun: [],
       refused: [
@@ -126,12 +120,11 @@ describe('AttemptToolAdditions', () => {
         },
       ],
     });
-    expect(state.persist).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a disabled declaration callable as a non-fatal unavailable result', async () => {
     const state = setup();
-    await state.additions.add(SERVER, [makeTool()], 1);
+    await state.additions.add(SERVER, [makeTool()]);
     state.additions.disableAll();
 
     const executor = state.additions.executorFor(TOOL_ID);
@@ -149,43 +142,17 @@ describe('AttemptToolAdditions', () => {
   });
   it('refuses declarations that fail allowlist or schema admission', async () => {
     const state = setup();
-    const refused = await state.additions.add(
-      SERVER,
-      [
-        makeTool('mcp__other__lookup'),
-        {
-          ...makeTool(),
-          inputSchema: { type: 'not-a-schema' },
-        },
-      ],
-      1,
-    );
-
+    const refused = await state.additions.add(SERVER, [
+      makeTool('mcp__other__lookup'),
+      {
+        ...makeTool(),
+        inputSchema: { type: 'not-a-schema' },
+      },
+    ]);
     expect(refused.added).toEqual([]);
     expect(refused.refused).toEqual([
       { id: 'mcp__other__lookup', reason: 'not_allowlisted' },
       { id: TOOL_ID, reason: 'declaration_refused' },
     ]);
-    expect(state.persist).not.toHaveBeenCalled();
-  });
-
-  it('does not mutate memory when the attempt fence rejects persistence', async () => {
-    const record: ToolSet = {};
-    const persist = vi.fn().mockResolvedValue(false);
-    const state = new AttemptToolAdditions({
-      allowedToolRules: [`mcp__${SERVER}__*`],
-      callTimeoutSeconds: 15,
-      boundExecutables: new Map(),
-      createTool: modelTool,
-      persist,
-    });
-    state.bindToolRecord(record);
-
-    await expect(state.add(SERVER, [makeTool()], 1)).resolves.toEqual({
-      added: [],
-      availableFromNextRun: [],
-      refused: [{ id: TOOL_ID, reason: 'attempt_not_current' }],
-    });
-    expect(record).toEqual({});
   });
 });

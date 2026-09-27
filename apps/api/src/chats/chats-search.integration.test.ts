@@ -30,7 +30,6 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from './chats-repository';
-import { RunsRepository } from '../runs/runs-repository';
 import { renderConversationCheckpoint } from './context-builder';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -208,43 +207,6 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
         replacementHistory: compactionReplacementHistory('zzcompactionlilac'),
       }),
     );
-    const controlMessages = await tenantDb.runAs(a, (tx) =>
-      new MessagesRepository(tx).findByChatId(controlProjectionChat, a),
-    );
-    const controlUserMessage = controlMessages.find(
-      ({ role }) => role === 'user',
-    );
-    if (!controlUserMessage) throw new Error('Expected control user message');
-    const controlRun = await tenantDb.runAs(a, (tx) =>
-      new RunsRepository(tx).create({
-        chatId: controlProjectionChat,
-        messageId: controlUserMessage.id,
-        userId: a,
-        modelId: 'system:test',
-      }),
-    );
-    const controlStarted = await tenantDb.runAs(a, (tx) =>
-      new RunsRepository(tx).markStarted(controlRun.id, a),
-    );
-    const controlAttemptId = controlStarted?.activeAttemptId;
-    if (!controlAttemptId) throw new Error('Expected control run attempt');
-    await expect(
-      tenantDb.runAs(a, (tx) =>
-        new RunsRepository(tx).appendAddedToolDeclarations(
-          controlRun.id,
-          a,
-          controlAttemptId,
-          [
-            {
-              id: 'PRIVATE_ADDED_TOOL',
-              source: 'workspace-mcp',
-              server: 'private',
-              step: 2,
-            },
-          ],
-        ),
-      ),
-    ).resolves.toBe(true);
 
     // Populate the projection for every seeded chat (post-commit reindex).
     for (const { id, owner } of owned) {
@@ -361,7 +323,6 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     );
     expect(visible).toBeDefined();
     expect(visible?.snippet).toContain('zzhumanoriginalgreen');
-    expect(visible).not.toHaveProperty('addedTools');
     expect(JSON.stringify(visible)).not.toMatch(
       /zz(prevmodel|currentmodel|reminderprose|removedtool|unavailabletool|availabilityreminder|systemprompt|toolschema|compaction|checkpoint)/,
     );

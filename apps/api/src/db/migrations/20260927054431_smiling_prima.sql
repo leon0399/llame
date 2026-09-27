@@ -1,1 +1,0 @@
-ALTER TABLE "runs" ADD COLUMN "added_tool_declarations" jsonb DEFAULT '[]'::jsonb NOT NULL;

@@ -28,7 +28,6 @@ const RECEIPT = {
       createdAt: "2026-07-18T12:34:56.000Z",
     },
   ],
-  addedTools: [],
   createdAt: "2026-07-18T12:34:56.000Z",
 };
 
@@ -86,49 +85,6 @@ export const Receipt: Story = {
     await expect(
       dialog.queryByText(/\/etc\/|systemPromptFile|host path/i),
     ).not.toBeInTheDocument();
-  },
-};
-
-/**
- * A receipt carrying the minimal provenance for tools added by a trusted
- * Workspace action during the Run. The row intentionally has no schemas,
- * descriptions, hashes, endpoints, or other declaration content.
- *
- * @summary Workspace tools added during a Run
- */
-export const AddedTools: Story = {
-  tags: ["ai-generated"],
-  beforeEach: () => {
-    useRunContextReceipt.mockReturnValue({
-      isPending: false,
-      isError: false,
-      data: {
-        ...RECEIPT,
-        addedTools: [
-          {
-            id: "mcp__workspace__search",
-            source: "workspace-mcp" as const,
-            server: "project",
-            step: 3,
-          },
-        ],
-      },
-    });
-  },
-  play: async () => {
-    const dialog = within(
-      await within(document.body).findByRole("dialog", {
-        name: "System prompt receipt",
-      }),
-    );
-    await expect(dialog.getByText("Tools added")).toBeVisible();
-    await expect(dialog.getByText("mcp__workspace__search")).toBeVisible();
-    await expect(
-      dialog.getByText("(workspace-mcp, project, step 3)"),
-    ).toBeVisible();
-    await expect(
-      dialog.queryByText(/inputSchema|description|endpoint/i),
-    ).toBeNull();
   },
 };
 

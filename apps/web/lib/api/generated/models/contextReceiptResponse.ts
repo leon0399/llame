@@ -5,7 +5,6 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
-import type { AddedToolResponse } from "./addedToolResponse";
 import type { AttemptReceiptResponse } from "./attemptReceiptResponse";
 import type { ContextReceiptResponseState } from "./contextReceiptResponseState";
 
@@ -22,7 +21,5 @@ export interface ContextReceiptResponse {
   state: ContextReceiptResponseState;
   /** Ordered list of system-prompt receipts, one per execution attempt that reached prompt preparation. Earliest first. */
   receipts: AttemptReceiptResponse[];
-  /** Workspace tool declarations added during this Run. Only ids and minimal source/server/step provenance are disclosed. */
-  addedTools: AddedToolResponse[];
   createdAt: string;
 }

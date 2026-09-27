@@ -53,7 +53,6 @@ const run: Run = {
   activeAttemptId: null,
   completedAttemptId: null,
   turnToolAvailability: null,
-  addedToolDeclarations: [],
   status: 'queued',
   workerId: null,
   cancelRequestedAt: null,

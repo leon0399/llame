@@ -939,7 +939,6 @@ export class RunExecutionService {
     // NEVER from model input, so a tool's data scope can't be widened by the
     // model (authorization identity from a trusted source only). Matches
     // ToolContext (tools/types.ts) exactly.
-    let toolStep = 0;
     const toolContext: ToolContext = {
       runId: input.runId,
       nativeExecutorId: this.instanceConfig.config.tools.nativeExecutorId,
@@ -950,7 +949,6 @@ export class RunExecutionService {
       userId: input.userId,
       chatId: input.chatId,
       workspaceRoot,
-      toolStep,
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
@@ -1278,15 +1276,6 @@ export class RunExecutionService {
       callTimeoutSeconds,
       boundExecutables,
       createTool: createModelToolDefinition,
-      persist: (entries) =>
-        this.tenantDb.runAs(input.userId, (tx) =>
-          new RunsRepository(tx).appendAddedToolDeclarations(
-            input.runId,
-            input.userId,
-            attemptId,
-            entries,
-          ),
-        ),
     });
     Object.assign(toolContext, { toolAdditions });
     if (workspacePreparation.detached) toolAdditions.disableAll();
@@ -1388,8 +1377,6 @@ export class RunExecutionService {
           maxSteps: maxStepsPerRun,
           onStepStart: () => {
             workspaceRoot.beginStep();
-            toolStep += 1;
-            Object.assign(toolContext, { toolStep });
           },
           // Fires once, the moment the model client disables tools for
           // the next step because maxStepsPerRun tool-requesting steps
