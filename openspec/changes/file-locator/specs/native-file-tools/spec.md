@@ -9,10 +9,16 @@ locators under the Knowledge locator requirement. `read` SHALL additionally
 accept read-only skill locators under the Skill locator requirement and
 read-only web locators under the Web locator requirements. A file alias SHALL
 accept `file://<authority><absolute-path>` and the RFC 8089 minimal form
-`file:<absolute-path>`, with `file` and `localhost` matched
-case-insensitively. In the `//` form, the authority is the text between `//`
-and the next `/`; it SHALL be empty or `localhost`, and a missing path after
-the authority SHALL fail with `invalid_path`. The alias SHALL decode each
+`file:<absolute-path>`; in these requirements a `file://` alias means either
+form. One pure classifier SHALL recognize a leading `file:` before any other
+scheme parsing, and both native dispatch and permission projection SHALL use
+it. A locator beginning `file://` SHALL always be the authority form, and the
+minimal form's path SHALL begin with exactly one `/`. `file` and `localhost`
+SHALL be matched ASCII case-insensitively against the raw, undecoded text. In
+the `//` form, the authority is the text between `//` and the next `/`; it
+SHALL be empty or `localhost`, authority validation SHALL precede every other
+refusal, and a missing path after the authority SHALL fail with
+`invalid_path`. The alias SHALL decode each
 percent escape once to bytes and strictly decode the complete path as UTF-8,
 without lexical `.` or `..` normalization, before native operation. A literal
 query, fragment, backslash, C0 control character, or DEL, a malformed or

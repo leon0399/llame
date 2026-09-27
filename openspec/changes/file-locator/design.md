@@ -200,15 +200,23 @@ same textual and filesystem semantics as a directly submitted host path.
 **Decision.** A pure parser examines the submitted locator before any
 generic scheme dispatch. The scheme `file` is matched ASCII
 case-insensitively. It accepts `file://<authority><path>` and `file:<path>`
-when the path starts with `/`. For the `//` form, authority is the text
-between `//` and the next `/`; it must be empty or ASCII-case-insensitive
-`localhost`. A missing path after the authority is invalid, so `file://` and
-`file://localhost` fail while `file:///` denotes the POSIX root. The minimal
-`file:/absolute/path` form is accepted; `file:x` is invalid.
-The top-level dispatcher checks this `file` grammar before the no-scheme host
-branch, because the existing `parsePathScheme` recognizes only `://`; this
-explicit check is what admits `file:/absolute/path` without making it a
-relative host filename.
+when the path starts with `/`. A locator beginning `file://` is always the
+authority form; the minimal form's path begins with exactly one `/`, so
+`file:////x` is the authority form with an empty authority and path `//x`,
+never the minimal form. For the `//` form, authority is the raw, undecoded
+text between `//` and the next `/`; it must be empty or ASCII-case-insensitive
+`localhost` (so `file://%6Cocalhost/x` and `file://localhoſt/x` are remote
+authorities), and this check precedes every other refusal. A missing path
+after the authority is invalid, so `file://` and `file://localhost` fail while
+`file:///` denotes the POSIX root. The minimal `file:/absolute/path` form is
+accepted; `file:x` is invalid.
+One pure classifier recognizes a leading ASCII-case-insensitive `file:` before
+`parsePathScheme`, which recognizes only `://`. Both `executeNative` and
+`projectNativeFilePath` call it, so the minimal form is dispatched to the host
+executor and projected to its host path; without the shared classifier the
+projection's early return for scheme-less text (`locator-projection.ts:33-35`)
+would leave `file:/home/u/%2Essh/id_rsa` unprojected and let it miss a
+host-path reject.
 
 The parser refuses any literal `?`, `#`, `\\`, C0 control character including
 tab, carriage return, and line feed, or DEL. A literal space, including a
@@ -342,8 +350,9 @@ would make symlink behavior part of permission matching.
 `file:///etc/%70asswd` after projection. An allow such as `^/srv/docs/` admits
 `file:///srv/docs/guide.md`. An allow written as `^file:///srv/docs/` does not
 admit a valid alias because the projected text has no scheme. A reject such as
-`^file://` can still refuse the submitted spelling, subject to its
-case-sensitive matcher. The same projection applies when an all-fields reject
+`(?i)^file:` can still refuse every submitted alias spelling, including the
+minimal form; a case-sensitive `^file://` misses both `FILE://` and `file:/`.
+The same projection applies when an all-fields reject
 visits the native `path` field. An invalid alias remains unchanged in
 projection: under a host-path-only allow it is rejected as `no_allow` before
 native validation; under a whole-tool allow it reaches native `invalid_path`.
@@ -421,7 +430,7 @@ and preserves the source table and architecture paragraph.
   separate issue and is not part of #929.
 - **Policy bypass through percent encoding.** The submitted text and decoded
   host path are both evaluated. A host-path reject catches `%70` spellings,
-  and a submitted `^file://` reject still works. Projection does not probe or
+  and a submitted `(?i)^file:` reject still works. Projection does not probe or
   resolve the filesystem.
 - **Query and fragment confusion.** Literal `?` and `#`, including empty
   components such as `file:///a?` and `file:///a#`, are refused before
@@ -437,8 +446,8 @@ and preserves the source table and architecture paragraph.
   the equivalent absolute host path would be allowed by some unrelated tool.
 - **Host reject veto.** A reject for `^/etc/` rejects
   `file:///etc/passwd` after projection, even when a whole-tool allow exists.
-- **Submitted reject veto.** A reject for `^file://` rejects the alias even when
-  its projected host path matches an allow, subject to the regex's case.
+- **Submitted reject veto.** A reject for `(?i)^file:` rejects every alias
+  spelling even when its projected host path matches an allow.
 - **URL-form allow is inert for valid aliases.** A group whose only allow is
   `^file:///srv/docs/` rejects a valid alias as `no_allow`, because projection
   drops the scheme; operators must write alias allows against host paths.
@@ -467,9 +476,10 @@ Implementation-layer questions that do not change the contract are:
 1. Which existing native error helper should carry the fixed remote-authority
    message, provided the result remains `invalid_path` and does not expose the
    submitted authority beyond that bounded diagnostic.
-2. Whether the source-table type belongs beside `executeNative` or in the
-   existing permissions locator module. Keep one owner and avoid a new package;
-   the choice must not duplicate the table or create a runtime registry.
+2. Where the pure scheme module lives: `apps/api/src/tools/permissions/` beside
+   `locator-projection.ts`, or a new file in `packages/native-file-tools`.
+   `native-files.ts` may import it but must never own it; owning it there
+   recreates the cycle through `web-read/execute.ts` and `web-read/admission.ts`.
 3. Which current native test fixture is least coupled to executor setup for
    alias equivalence. The candidate seams are
    `apps/api/src/tools/native-files.test.ts` and

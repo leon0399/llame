@@ -13,14 +13,14 @@ to miss a reject; the allow SHALL be decided on the projected text, because
 an allow names the resource the call will reach and the two texts address one
 resource. The evaluator itself normalizes nothing: the projection is the read
 tool's own parser, so the text matched and the text requested cannot drift.
-A native `read`, `edit`, or `write` call whose `path` is a valid `file://`
-alias SHALL be decided over the submitted locator and the projection's
-percent-decoded absolute host path, including its trailing selector and
-preserved `.` and `..` segments. A reject matching either text SHALL refuse the
-call, and an allow SHALL be decided on the projected host path. An invalid file
-alias SHALL remain unchanged in projection and SHALL fail closed during native
-locator validation; the permission evaluator SHALL not turn it into a
-filesystem path.
+A native `read`, `edit`, or `write` call whose `path` is a valid file alias, in
+either the `file://` or the minimal `file:` form, SHALL be decided over the
+submitted locator and the projection's percent-decoded absolute host path,
+including its trailing selector and preserved `.` and `..` segments. A reject
+matching either text SHALL refuse the call, and an allow SHALL be decided on
+the projected host path. An invalid file alias SHALL remain unchanged in
+projection and SHALL be refused by permission admission or by native locator
+validation; the permission evaluator SHALL not turn it into a filesystem path.
 Each derived locator a web read issues, meaning a
 redirect hop, an announced alternate, a suffix candidate, or an `llms.txt`
 candidate, SHALL be evaluated against the `read` group as if the model had
@@ -125,10 +125,10 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 - **THEN** the call is rejected on the submitted text
 - **AND** an equivalent `/srv/docs/guide.md` call is not rejected by that clause
 
-#### Scenario: A remote file authority is not admitted by a broad allow
+#### Scenario: A policy allow does not grant a remote file authority
 
-- **WHEN** a `read` group allows every `file://` spelling and the model submits `file://other.example/srv/docs/guide.md`
-- **THEN** permission evaluation may admit the submitted and projected texts only as policy inputs
+- **WHEN** a `read` group's only allow is `^file://` and the model submits `file://other.example/srv/docs/guide.md`
+- **THEN** the projection returns the invalid alias unchanged, both texts match the allow, and permission admits the call
 - **AND** native authority validation still returns `invalid_path` before filesystem access or network activity
 
 #### Scenario: A file-form allow does not admit a valid alias
@@ -189,6 +189,12 @@ This projection SHALL NOT rewrite executor arguments, accept an invalid locator 
 
 #### Scenario: An allow does not authorize a remote file authority
 
-- **WHEN** a permission group allows `^/srv/docs/` and a call submits `file://other.example/srv/docs/guide.md`
-- **THEN** the authority is not converted into an admitted host path
-- **AND** native validation refuses the call before filesystem access
+- **WHEN** a permission group's only allow is `^/srv/docs/` and a call submits `file://other.example/srv/docs/guide.md`
+- **THEN** the projection leaves the locator unchanged, no allow matches, and the call is rejected as `no_allow` with `permission_denied`
+- **AND** the authority is never converted into an admitted host path
+
+#### Scenario: A minimal-form alias is projected like the authority form
+
+- **WHEN** a permission group rejects `^/etc/` and a call submits `file:/etc/%70asswd`
+- **THEN** the projected text `/etc/passwd` matches the reject and the call is refused
+- **AND** no filesystem probe occurs
