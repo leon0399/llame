@@ -10,6 +10,7 @@ import {
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { type CompiledPolicy } from './permissions/types';
+import { type WorkspaceRootCell } from './workspace-path';
 import { type DerivedDecision } from './web-read/admission';
 
 /**
@@ -98,6 +99,8 @@ export interface ToolContext {
    * or replace it.
    */
   readonly permissionPolicy?: CompiledPolicy;
+  /** Attempt-scoped Workspace root; changes become visible at the next model step. */
+  readonly workspaceRoot?: WorkspaceRootCell;
 }
 
 /** SPEC §13.5 classification. Non-read-only execution requires an exact,

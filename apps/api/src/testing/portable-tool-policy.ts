@@ -20,6 +20,9 @@ const B8_PIPE_TO_SHELL = String.raw`\b(curl|wget)\s+[^\r\n;|]*\x7c\s*(ba|z|da|k)
 const F1_CREDENTIAL_DIRECTORY = String.raw`(^|[/\\])(\.ssh|\.aws|\.azure|\.gnupg|\.kube)([/\\]|$|:)`;
 const F2_CREDENTIAL_FILE = String.raw`(^|[/\\])(\.git-credentials|\.npmrc|\.pypirc)([/\\]|$|:)`;
 const F3_TOOL_CREDENTIAL = String.raw`(^|[/\\])(\.docker[/\\]config\.json|\.gem[/\\]credentials|\.config[/\\]gh)([/\\]|$|:)`;
+const E1_WORKSPACE_NODE_MODULES = String.raw`(^|[/\\])node_modules([/\\]|$)`;
+const E2_WORKSPACE_TEMP_ROOT = String.raw`^/(tmp|var/tmp)(/|$)`;
+const E3_WORKSPACE_DOWNLOADS = String.raw`(^|[/\\])Downloads([/\\]|$)`;
 const F4_ENV_FILE = String.raw`(^|[/\\])\.env($|:|\.(local|development|production|staging|test)(\.local)?($|:))`;
 const F5A_CLEARTEXT_PUBLIC_IPV4_FIRST_OCTET = String.raw`^http://(?:[1-9]|1[1-9]|[2-9]\d|10[1-9]|11\d|12[0-689]|1[3-5]\d|16[0-8]|17[013-9]|18\d|19[013-9]|2[0-4]\d|25[0-5])\.\d{1,3}\.\d{1,3}\.\d{1,3}[:/]`;
 const F5B_CLEARTEXT_CGNAT = String.raw`^http://100\.(?:\d|[1-5]\d|6[0-3]|12[89]|1[3-9]\d|2\d\d)\.\d{1,3}\.\d{1,3}[:/]`;
@@ -28,6 +31,8 @@ const F5D_CLEARTEXT_PRIVATE_172 = String.raw`^http://172\.(?:\d|1[0-5]|3[2-9]|[4
 const F5E_CLEARTEXT_PRIVATE_192 = String.raw`^http://192\.(?:\d|[1-9]\d|1[0-5]\d|16[0-79]|1[7-9]\d|2\d\d)\.\d{1,3}\.\d{1,3}[:/]`;
 const F5F_CLEARTEXT_PUBLIC_IPV6 = String.raw`^http://\[(?:::(?:[02-9a-f]|1[^\]])|(?:[0-9a-f]{1,3}|[0-9a-e][0-9a-f]{3}|f[0-9abf][0-9a-f]{2}|fe[0-7c-f][0-9a-f]):)`;
 const F6_GROKIPEDIA_HOST = String.raw`^https?://([^/]*\.)?grokipedia\.com\.?([/:]|$)`;
+const W1_WORKSPACE_MCP_CONFIG = String.raw`(?i)(^|[/\\])\.mcp\.json$`;
+const W2_WORKSPACE_SUPPORTING_FILES = String.raw`(?i)(^|[/\\])\.(llame|agents|claude)[/\\]`;
 const F7_METADATA_ENDPOINTS = String.raw`^https?://(?:169\.254\.169\.254|169\.254\.170\.2|169\.254\.0\.23|100\.100\.100\.200|\[fd00:ec2::254\])[:/]`;
 
 function commandRegex(regex: string): PermissionClause {
@@ -72,7 +77,23 @@ const MUTATE_REJECTS: ReadonlyArray<PermissionClause> = [
   pathRegex(F1_CREDENTIAL_DIRECTORY),
   pathRegex(F2_CREDENTIAL_FILE),
   pathRegex(F3_TOOL_CREDENTIAL),
+  pathRegex(W1_WORKSPACE_MCP_CONFIG),
+  pathRegex(W2_WORKSPACE_SUPPORTING_FILES),
 ];
+
+const ENTRY_REJECTS: ReadonlyArray<PermissionClause> = [
+  pathRegex(F1_CREDENTIAL_DIRECTORY),
+  pathRegex(F2_CREDENTIAL_FILE),
+  pathRegex(F3_TOOL_CREDENTIAL),
+  pathRegex(E1_WORKSPACE_NODE_MODULES),
+  pathRegex(E2_WORKSPACE_TEMP_ROOT),
+  pathRegex(E3_WORKSPACE_DOWNLOADS),
+];
+
+const ENTRY_ALLOW: PermissionClause = {
+  field: 'path',
+  regex: '^/home/operator/projects/[^/]+/?$',
+};
 
 export const PORTABLE_TOOL_PERMISSIONS: ToolPermissionMap = {
   bash: { allow: true, reject: BASH_REJECTS },
@@ -82,6 +103,8 @@ export const PORTABLE_TOOL_PERMISSIONS: ToolPermissionMap = {
   knowledge_search: { allow: true },
   search_conversations: { allow: true },
   conversation_read: { allow: true },
+  enter_workspace: { allow: [ENTRY_ALLOW], reject: ENTRY_REJECTS },
+  exit_workspace: { allow: true },
 };
 
 export const PORTABLE_PERMISSION_TOOL_IDS: ReadonlyArray<string> = Object.keys(

@@ -76,6 +76,12 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     skillCatalogBaseline: null,
     skillCatalogRebakedFrom: null,
     skillCatalogTold: null,
+    workspaceRoot: null,
+    workspaceExecutorId: null,
+    workspaceGeneration: 0,
+    workspaceTold: null,
+    workspaceToldFrom: null,
+    workspaceDetachReason: null,
   };
 
   function message(seq: number): Message {
@@ -243,6 +249,12 @@ describe('ChatsService message windows, updates and forks', () => {
     skillCatalogBaseline: null,
     skillCatalogRebakedFrom: null,
     skillCatalogTold: null,
+    workspaceRoot: null,
+    workspaceExecutorId: null,
+    workspaceGeneration: 0,
+    workspaceTold: null,
+    workspaceToldFrom: null,
+    workspaceDetachReason: null,
   };
 
   function message(seq: number, overrides: Partial<Message> = {}): Message {
@@ -517,6 +529,9 @@ describe('ChatsService message windows, updates and forks', () => {
       skillCatalogBaseline: null,
       skillCatalogTold: null,
       skillCatalogRebakedFrom: null,
+      workspaceRoot: null,
+      workspaceExecutorId: null,
+      workspaceGeneration: 0,
     };
 
     it('copies the whole chat, renumbering seq from 1 and remapping in-reply-to edges', async () => {

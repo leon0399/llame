@@ -306,11 +306,13 @@ describe('evaluatePermission value selection', () => {
 });
 
 describe('portable policy fixture', () => {
-  it('groups exactly the seven code-owned tools', () => {
+  it('groups exactly the nine code-owned tools', () => {
     expect([...PORTABLE_PERMISSION_TOOL_IDS].sort()).toEqual([
       'bash',
       'conversation_read',
       'edit',
+      'enter_workspace',
+      'exit_workspace',
       'knowledge_search',
       'read',
       'search_conversations',

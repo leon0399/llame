@@ -444,6 +444,9 @@
 
   // Empty allowed disables tools. MCP ids are mcp__<server>__<tool>.
   // Exact ids are safer; use mcp__<server>__* only for an entirely read-only server.
+  // Workspace entry/exit are native host tools; add both ids only when a
+  // trusted nativeExecutorId is configured and their permission groups below
+  // are intentionally enabled.
   "tools": {
     // Built-in or discovered MCP tool ids to allow. To enable Knowledge after
     // mounting the root above, add "knowledge_search" and "read"; search
@@ -452,10 +455,12 @@
     // Allowlisting search_conversations makes complete canonical projection
     // coverage a startup gate. Add conversation_read independently for exact
     // line reads; see docs/conversation-recall.md.
+    // To enable Workspace entry/exit on a native host, also add
+    // "enter_workspace" and "exit_workspace" to this allowlist.
     "allowed": ["search_conversations"],
     // Optional whole-file replacements for llame-owned tool descriptions,
-    // keyed by registered tool id (bash, conversation_read, edit,
-    // knowledge_search, read, search_conversations, write); MCP ids are
+    // keyed by registered tool id (bash, conversation_read, edit, enter_workspace,
+    // exit_workspace, knowledge_search, read, search_conversations, write); MCP ids are
     // rejected. A models[].toolPromptFiles entry above wins over this one,
     // which wins over the packaged default. Paths are literal, resolve against
     // this file, and are read when an execution process starts — editing one
@@ -463,11 +468,15 @@
     // "promptFiles": { "search_conversations": "./prompts/search.md" },
     // Allow/reject rules per exact tool id. There is NO built-in policy:
     // omitting this property rejects every call. This block is the recommended
-    // portable map — the seven code-owned tools, each with a whole-tool allow
-    // plus destructive-command and credential-locator rejects — copy it (or
-    // replace it with your own). A supplied map is the complete policy: list
-    // every group you intend to keep, and note that `{}` rejects every call.
-    // MCP tools need an explicit group here; permission rules never change tool
+    // portable map — nine code-owned tools, each with a whole-tool allow except
+    // enter_workspace, whose operator-edited field allow names trusted roots.
+    // Every admitted entry root is trusted to run code and read host secrets
+    // through its Workspace MCP configuration. W1/W2 below reject text paths to
+    // Workspace control files; in-repository aliases such as symlinks can bypass
+    // those rejects because there is no executor-level guard. A supplied map is
+    // the complete policy: list every group you intend to keep, and note that
+    // `{}` rejects every call.
+    // MCP tools need an explicit group; permission rules never change tool
     // visibility. Regex values are engine input; operator JSON must escape
     // backslashes and any interpolation-looking opening brace.
     "permissions": {
@@ -585,6 +594,14 @@
           {
             "field": "path",
             "regex": "(^|[/\\\\])(\\.docker[/\\\\]config\\.json|\\.gem[/\\\\]credentials|\\.config[/\\\\]gh)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(?i)(^|[/\\\\])\\.mcp\\.json$"
+          },
+          {
+            "field": "path",
+            "regex": "(?i)(^|[/\\\\])\\.(llame|agents|claude)[/\\\\]"
           }
         ]
       },
@@ -602,6 +619,14 @@
           {
             "field": "path",
             "regex": "(^|[/\\\\])(\\.docker[/\\\\]config\\.json|\\.gem[/\\\\]credentials|\\.config[/\\\\]gh)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(?i)(^|[/\\\\])\\.mcp\\.json$"
+          },
+          {
+            "field": "path",
+            "regex": "(?i)(^|[/\\\\])\\.(llame|agents|claude)[/\\\\]"
           }
         ]
       },
@@ -613,7 +638,44 @@
       },
       "conversation_read": {
         "allow": true
-      }
+      },
+      "enter_workspace": {
+        "allow": [
+          {
+            "field": "path",
+            "regex": "^/home/operator/projects/[^/]+/?$"
+          }
+        ],
+        "reject": [
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.ssh|\\.aws|\\.azure|\\.gnupg|\\.kube)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.git-credentials|\\.npmrc|\\.pypirc)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])(\\.docker[/\\\\]config\\.json|\\.gem[/\\\\]credentials|\\.config[/\\\\]gh)([/\\\\]|$|:)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])node_modules([/\\\\]|$)"
+          },
+          {
+            "field": "path",
+            "regex": "^/(tmp|var/tmp)(/|$)"
+          },
+          {
+            "field": "path",
+            "regex": "(^|[/\\\\])Downloads([/\\\\]|$)"
+          }
+        ]
+      },
+      "exit_workspace": {
+        "allow": true
+      },
     },
     // Maximum tool-requesting steps per run.
     "maxStepsPerRun": 100,

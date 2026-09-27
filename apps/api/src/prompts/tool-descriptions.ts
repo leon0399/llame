@@ -7,6 +7,8 @@ export const TOOL_PROMPT_IDS = [
   'edit',
   'write',
   'bash',
+  'enter_workspace',
+  'exit_workspace',
   'search_conversations',
   'conversation_read',
   'knowledge_search',

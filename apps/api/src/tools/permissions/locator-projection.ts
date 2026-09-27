@@ -10,6 +10,7 @@ import {
   parseSkillLocator,
   SKILL_LOCATOR_SCHEME,
 } from '../../skills/skill-locator';
+import { isWorkspaceRelative, resolveWorkspacePath } from '../workspace-path';
 import { parseWebLocator } from '../web-read/locator';
 
 const WEB_LOCATOR_SCHEMES = { http: true, https: true } as const;
@@ -24,31 +25,40 @@ const NATIVE_FILE_PERMISSION_TOOL_IDS = new Set(['read', 'edit', 'write']);
  * the read tool's own parser, so the text a clause matches is the text that
  * will be requested plus the selector that trails it — a fragment the request
  * drops cannot smuggle clause-matching text past an allow, and a locator with
- * no path is matched with the slash its request carries. Direct host locators
- * and invalid locators are returned unchanged. Nothing touches the
- * filesystem, and the resolved host path is never substituted — a skill
- * locator is matched as the locator the caller wrote, so the shared read
- * rules (including the credential path rejects) apply to it unchanged.
+ * no path is matched with the slash its request carries. Relative direct host
+ * paths are projected lexically from the Workspace root when one is supplied;
+ * absolute host locators and invalid locators are otherwise returned unchanged.
+ * Nothing touches the filesystem, and the resolved host path is never
+ * substituted — a skill locator is matched as the locator the caller wrote, so
+ * the shared read rules (including the credential path rejects) apply to it
+ * unchanged.
  */
-export function projectNativeFilePath(value: string): string {
-  const scheme = parsePathScheme(value);
-  if (scheme === undefined) return value;
+export function projectNativeFilePath(
+  value: string,
+  workspaceRoot?: string,
+): string {
+  const projected =
+    workspaceRoot !== undefined && isWorkspaceRelative(value)
+      ? resolveWorkspacePath(workspaceRoot, value)
+      : value;
+  const scheme = parsePathScheme(projected);
+  if (scheme === undefined) return projected;
   if (scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME) {
     const parsed = parseKnowledgeLocator(scheme.rest);
-    return parsed === undefined ? value : formatKnowledgeLocator(parsed);
+    return parsed === undefined ? projected : formatKnowledgeLocator(parsed);
   }
   if (scheme.scheme === SKILL_LOCATOR_SCHEME) {
     const parsed = parseSkillLocator(scheme.rest);
-    return parsed === undefined ? value : formatSkillLocator(parsed);
+    return parsed === undefined ? projected : formatSkillLocator(parsed);
   }
   if (scheme.scheme in WEB_LOCATOR_SCHEMES) {
-    const parsed = parseWebLocator(value);
-    if ('type' in parsed) return value;
+    const parsed = parseWebLocator(projected);
+    if ('type' in parsed) return projected;
     return parsed.selector === undefined
       ? parsed.url
       : `${parsed.url}:${parsed.selector}`;
   }
-  return value;
+  return projected;
 }
 
 /**
@@ -58,10 +68,11 @@ export function projectNativeFilePath(value: string): string {
  */
 export function nativeFileProjection(
   toolId: string,
+  workspaceRoot?: string,
 ): (field: string, value: string) => string {
   if (!NATIVE_FILE_PERMISSION_TOOL_IDS.has(toolId)) {
     return (_field, value) => value;
   }
   return (field, value) =>
-    field === 'path' ? projectNativeFilePath(value) : value;
+    field === 'path' ? projectNativeFilePath(value, workspaceRoot) : value;
 }

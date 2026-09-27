@@ -207,6 +207,45 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
     }
   });
+  it('binding columns remain owner-scoped under FORCE RLS', async () => {
+    const chatId = crypto.randomUUID();
+    await asUser(
+      userAId,
+      (tx) =>
+        tx`INSERT INTO chats (id, owner_user_id, title, workspace_root, workspace_executor_id, workspace_generation, workspace_told_from) VALUES (${chatId}, ${userAId}, 'Bound A', '/work/a', 'worker-a', 3, '11111111-1111-4111-8111-111111111111')`,
+    );
+
+    try {
+      const hidden = await asUser(
+        userBId,
+        (tx) =>
+          tx`SELECT workspace_root, workspace_executor_id, workspace_generation, workspace_told_from FROM chats WHERE id = ${chatId}`,
+      );
+      expect(hidden).toHaveLength(0);
+
+      const attempted = await asUser(
+        userBId,
+        (tx) =>
+          tx`UPDATE chats SET workspace_root = '/work/b', workspace_executor_id = 'worker-b', workspace_generation = 99, workspace_told_from = '22222222-2222-4222-8222-222222222222' WHERE id = ${chatId}`,
+      );
+      expect(attempted.count).toBe(0);
+
+      const ownerRead = await asUser(
+        userAId,
+        (tx) =>
+          tx`SELECT workspace_root, workspace_executor_id, workspace_generation, workspace_told_from FROM chats WHERE id = ${chatId}`,
+      );
+      expect(ownerRead).toHaveLength(1);
+      expect(ownerRead[0]).toMatchObject({
+        workspace_root: '/work/a',
+        workspace_executor_id: 'worker-a',
+        workspace_generation: 3,
+        workspace_told_from: '11111111-1111-4111-8111-111111111111',
+      });
+    } finally {
+      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
+    }
+  });
 
   it('messages.parts round-trips AI SDK v5 UIMessage parts via the real repository (write→read equality)', async () => {
     // Exercises the PRODUCTION code path (Drizzle jsonb) inside an RLS-scoped

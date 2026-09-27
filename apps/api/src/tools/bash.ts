@@ -5,9 +5,12 @@ import {
   type BashExecutorContext,
   type BashResult,
 } from '@workspace/bash-executor';
+import { parsePathScheme } from '@workspace/native-file-tools';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { isNativeFileTool } from './native-files';
+import { isWorkspaceTool } from './workspace';
 import { bashWorkingDirectory } from './env';
+import { isWorkspaceRelative, resolveWorkspacePath } from './workspace-path';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 
@@ -18,8 +21,15 @@ type AdmittedBashExecution = Extract<
 type AdmittedBashContext = ToolContext &
   Required<Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId'>>;
 
-function managedContext(): BashExecutorContext {
-  const workingDirectory = bashWorkingDirectory();
+type BashInput = {
+  command: string;
+  cwd?: string;
+  env?: Record<string, string>;
+};
+
+function managedContext(context: ToolContext): BashExecutorContext {
+  const workingDirectory =
+    context.workspaceRoot?.current() ?? bashWorkingDirectory();
   return {
     workingDirectory,
     // ponytail: alpha host claims; managed Sandbox must prove these for stronger isolation.
@@ -30,6 +40,28 @@ function managedContext(): BashExecutorContext {
     durationMs: Number('300000'),
     maxProcesses: 1,
   };
+}
+
+function projectBashInput(
+  context: ToolContext,
+  input: BashInput,
+): BashInput | ToolResult {
+  const root = context.workspaceRoot?.current();
+  if (
+    root !== undefined &&
+    input.cwd !== undefined &&
+    parsePathScheme(input.cwd) !== undefined
+  ) {
+    return {
+      status: 'error',
+      type: 'invalid_path',
+      message: 'The working directory must be a local path.',
+    };
+  }
+  if (root === undefined) return input;
+  if (input.cwd === undefined) return { ...input, cwd: root };
+  if (!isWorkspaceRelative(input.cwd)) return input;
+  return { ...input, cwd: resolveWorkspacePath(root, input.cwd) };
 }
 
 export function toToolResult(result: BashResult): ToolResult {
@@ -100,11 +132,7 @@ async function runAdmittedBash(
   }
 }
 
-export const bashTool: Tool<{
-  command: string;
-  cwd?: string;
-  env?: Record<string, string>;
-}> = {
+export const bashTool: Tool<BashInput> = {
   id: 'bash',
   classification: 'execute_code',
   description: loadPackagedToolDescription('bash'),
@@ -122,16 +150,18 @@ export const bashTool: Tool<{
         message: 'Native host authority is unavailable.',
       };
     }
+    const projectedInput = projectBashInput(context, input);
+    if ('status' in projectedInput) return projectedInput;
     // Always wrap in bash -c: the managed allowlist only admits basenames like
     // `bash`, not `ls`/`cat`. Models pass ordinary shell text here.
     const admitted = admitManagedBash(
       {
         command: 'bash',
-        args: ['-c', input.command],
-        cwd: input.cwd,
-        env: input.env,
+        args: ['-c', projectedInput.command],
+        cwd: projectedInput.cwd,
+        env: projectedInput.env,
       },
-      managedContext(),
+      managedContext(context),
       {
         signal: context.abortSignal,
         timeoutSignal: context.timeoutSignal,
@@ -151,7 +181,7 @@ export function isBashTool(tool: Tool): boolean {
   return tool === bashTool;
 }
 
-/** Native files + alpha host bash admission. */
+/** Native files, alpha host bash, and Workspace binding tools. */
 export function isHostCapabilityTool(tool: Tool): boolean {
-  return isNativeFileTool(tool) || isBashTool(tool);
+  return isNativeFileTool(tool) || isBashTool(tool) || isWorkspaceTool(tool);
 }

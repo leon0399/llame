@@ -9,6 +9,7 @@ import {
   pgEnum,
   pgPolicy,
   pgTable,
+  integer,
   text,
   uniqueIndex,
   uuid,
@@ -146,6 +147,15 @@ export const chats = pgTable(
     // description-only change cannot produce a notice, and the told state
     // cannot itself become a stale copy of catalog content.
     skillCatalogTold: jsonb('skill_catalog_told').$type<Array<string>>(),
+    workspaceRoot: text('workspace_root'),
+    workspaceExecutorId: text('workspace_executor_id'),
+    workspaceGeneration: integer('workspace_generation').notNull().default(0),
+    workspaceTold: text('workspace_told'),
+    // The compaction epoch in which the Workspace snapshot was last told.
+    // Deliberately carries no foreign key, matching skillCatalogRebakedFrom:
+    // a stale id fails closed and causes the next turn to re-tell the snapshot.
+    workspaceToldFrom: uuid('workspace_told_from'),
+    workspaceDetachReason: text('workspace_detach_reason'),
   },
   (t) => [
     // Matches findByOwner's ORDER BY (recency); pin state now lives in the
@@ -154,6 +164,10 @@ export const chats = pgTable(
     index('chats_owner_updated_idx').on(t.ownerUserId, t.updatedAt),
     uniqueIndex('chats_id_owner_user_id_unique_idx').on(t.id, t.ownerUserId),
     index('chats_project_idx').on(t.projectId),
+    check(
+      'chats_workspace_detach_reason_check',
+      sql`${t.workspaceDetachReason} IS NULL OR ${t.workspaceDetachReason} IN ('executor_mismatch', 'executor_absent', 'root_missing', 'root_moved', 'permission_rejected', 'tool_not_allowed')`,
+    ),
     // RLS policy: text = text comparison (no ::uuid cast — owner_user_id is text).
     // NOTE: `.enableRLS()` only emits ENABLE. The migration ALSO issues
     // `FORCE ROW LEVEL SECURITY` on both tables, which Drizzle cannot express here

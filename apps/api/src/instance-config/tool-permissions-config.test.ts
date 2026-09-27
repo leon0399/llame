@@ -177,6 +177,74 @@ describe('shipped example configuration', () => {
     return permissions;
   }
 
+  it('rejects each shipped Workspace entry protection by its clause', async () => {
+    const loaded = load(
+      JSON.stringify({ tools: { permissions: examplePermissions() } }),
+    );
+    const entryGroup = loaded.tools.permissions.enter_workspace;
+    if (entryGroup?.reject === undefined) {
+      throw new Error('example enter_workspace rejects missing');
+    }
+    const policy = await buildToolPermissionPolicy({
+      ...loaded.tools.permissions,
+      enter_workspace: {
+        // Widen the test-only allow so E2 is evaluated as an explicit reject
+        // instead of stopping at the example's narrower root allow.
+        allow: [
+          {
+            field: 'path',
+            regex: String.raw`^/(?:home/operator|tmp|var/tmp)(?:/.*)?$`,
+          },
+        ],
+        reject: entryGroup.reject,
+      },
+    });
+    const protectedPaths = [
+      ['/home/operator/projects/app/node_modules', 3],
+      ['/tmp/project', 4],
+      ['/var/tmp/x', 4],
+      ['/home/operator/projects/Downloads', 5],
+    ] as const;
+    for (const [entryPath, clauseIndex] of protectedPaths) {
+      const decision = evaluatePermission(policy, {
+        toolId: 'enter_workspace',
+        args: { path: entryPath },
+        projectFieldValue: nativeFileProjection('enter_workspace'),
+      });
+      expect(decision).toMatchObject({
+        decision: 'reject',
+        reason: 'explicit_reject',
+        reference: {
+          groupId: 'enter_workspace',
+          list: 'reject',
+          clauseIndex,
+        },
+      });
+    }
+    const allowedDecision = evaluatePermission(policy, {
+      toolId: 'enter_workspace',
+      args: { path: '/home/operator/projects/app' },
+      projectFieldValue: nativeFileProjection('enter_workspace'),
+    });
+    expect(allowedDecision).toMatchObject(ALLOW);
+  });
+
+  it('returns canonical no_allow outside the shipped entry allow', async () => {
+    const loaded = load(
+      JSON.stringify({ tools: { permissions: examplePermissions() } }),
+    );
+    const policy = await buildToolPermissionPolicy(loaded.tools.permissions);
+    const decision = evaluatePermission(policy, {
+      toolId: 'enter_workspace',
+      args: { path: '/home/operator/projects/app/sub' },
+      projectFieldValue: nativeFileProjection('enter_workspace'),
+    });
+    expect(decision).toMatchObject({
+      ...NO_ALLOW,
+      reference: null,
+    });
+  });
+
   it('loads through the real pipeline and equals the portable fixture', () => {
     const loaded = load(
       JSON.stringify({ tools: { permissions: examplePermissions() } }),
@@ -208,10 +276,21 @@ describe('shipped example configuration', () => {
       ],
       ['bash', { command: 'echo "git reset --hard"' }, EXPLICIT_REJECT],
       ['read', { path: '/home/operator/.ssh/id_ed25519' }, EXPLICIT_REJECT],
+      ['enter_workspace', { path: '/home/operator/projects/app' }, ALLOW],
+      ['enter_workspace', { path: '/project' }, NO_ALLOW],
+      ['exit_workspace', {}, ALLOW],
       ['read', { path: 'kb://SPACE/.env.production:raw' }, EXPLICIT_REJECT],
       ['read', { path: 'kb://SPACE/.env.example' }, ALLOW],
       ['read', { path: '/project/docker-compose.yml' }, ALLOW],
       ['read', { path: '/project/certificate.pem' }, ALLOW],
+      ['edit', { path: '/project/.mcp.json' }, EXPLICIT_REJECT],
+      ['edit', { path: '/project/.MCP.JSON' }, EXPLICIT_REJECT],
+      ['edit', { path: '/project/.LLAME/skills/x/SKILL.md' }, EXPLICIT_REJECT],
+      ['write', { path: '/project/.MCP.JSON' }, EXPLICIT_REJECT],
+      ['write', { path: '/project/.LLAME/skills/x/SKILL.md' }, EXPLICIT_REJECT],
+      ['edit', { path: '/project/.llame/skills/x/SKILL.md' }, EXPLICIT_REJECT],
+      ['write', { path: '/project/.mcp.json' }, EXPLICIT_REJECT],
+      ['write', { path: '/project/.llame/skills/x/SKILL.md' }, EXPLICIT_REJECT],
       ['read', { path: 'http://example.test/page' }, ALLOW],
       ['read', { path: 'http://93.184.216.34/page' }, EXPLICIT_REJECT],
       ['read', { path: 'http://127.0.0.1:3000/' }, ALLOW],
@@ -259,6 +338,27 @@ describe('shipped example configuration', () => {
         expected,
       );
     }
+  });
+
+  it('rejects a protected canonical Workspace entry path', async () => {
+    const policy = await buildToolPermissionPolicy({
+      ...PORTABLE_TOOL_PERMISSIONS,
+      enter_workspace: {
+        allow: [
+          {
+            field: 'path',
+            regex: String.raw`^/home/operator(?:/.*)?$`,
+          },
+        ],
+        reject: PORTABLE_TOOL_PERMISSIONS.enter_workspace.reject,
+      },
+    });
+    const decision = evaluatePermission(policy, {
+      toolId: 'enter_workspace',
+      args: { path: '/home/operator/.ssh' },
+      projectFieldValue: nativeFileProjection('enter_workspace'),
+    });
+    expect(decision).toMatchObject(EXPLICIT_REJECT);
   });
 
   it('admits only the allowed authority when a read group has a domain allow', async () => {

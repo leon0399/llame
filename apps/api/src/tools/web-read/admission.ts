@@ -6,15 +6,16 @@ import { type ToolContext } from '../types';
 /**
  * The locator kinds a web read evaluates beyond the submitted locator:
  * redirect hops, announced alternates, `.md` suffixes, `llms.txt` candidates,
- * and resolved addresses. Server-chosen locators are admitted independently
- * before their request (design D3).
+ * resolved addresses, and canonical Workspace entry paths. Server-chosen
+ * locators are admitted independently before their request (design D3).
  */
 export type DerivedLocatorKind =
   | 'hop'
   | 'alternate'
   | 'suffix'
   | 'llms-txt'
-  | 'address';
+  | 'address'
+  | 'canonical';
 
 /** One derived locator's admission, handed to the trusted run loop beside the
  *  call decision; never model-visible. */
@@ -27,22 +28,23 @@ export type DerivedDecision = {
 /**
  * A {@link DerivedDecision} as run execution records it beside the call
  * decision: the decision plus the kind of locator it judged, so stored
- * provenance tells a refused hop from a refused `llms.txt` candidate. The
- * locator itself is never recorded — a hop or address locator is
- * server-chosen text.
+ * provenance tells a refused hop from a refused `llms.txt` candidate or
+ * canonical Workspace path. The locator itself is never recorded — a hop,
+ * address, or canonical path is server- or host-derived text.
  */
 export type DerivedDecisionRecord = PermissionDecision & {
   readonly kind: DerivedLocatorKind;
 };
 
 /** Every kind, exhaustive by construction so the guard below and the type
- *  above cannot drift apart. */
+ * above cannot drift apart. */
 const KIND_NAMES: Readonly<Record<DerivedLocatorKind, true>> = {
   hop: true,
   alternate: true,
   suffix: true,
   'llms-txt': true,
   address: true,
+  canonical: true,
 };
 
 /** Whether a stored provenance record names a kind this build knows: stored

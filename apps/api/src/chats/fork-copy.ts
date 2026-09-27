@@ -63,7 +63,9 @@ function remapRebakeMarker(
  * oldest-first, so its last row is the copied chat's active checkpoint.
  *
  * The frozen baselines and told-sets travel verbatim — the fork continues the
- * disclosure the source made, rather than resolving its own.
+ * disclosure the source made, rather than resolving its own. Workspace root,
+ * executor, and generation travel too, while Workspace told, toldFrom, and
+ * detach state stay local to the source attempt.
  */
 export function inheritForkedChatState(
   source: Chat,
@@ -94,6 +96,9 @@ export function inheritForkedChatState(
         compactionIds,
         activeCompactionId,
       ),
+      workspaceRoot: source.workspaceRoot,
+      workspaceExecutorId: source.workspaceExecutorId,
+      workspaceGeneration: source.workspaceGeneration,
     } satisfies ChatInheritedValues,
   };
 }

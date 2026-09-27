@@ -263,6 +263,12 @@ describe('ChatLoopService accept/worker context binding', () => {
       skillCatalogBaseline: null,
       skillCatalogRebakedFrom: null,
       skillCatalogTold: null,
+      workspaceRoot: null,
+      workspaceExecutorId: null,
+      workspaceGeneration: 0,
+      workspaceTold: null,
+      workspaceToldFrom: null,
+      workspaceDetachReason: null,
     });
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
     vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(

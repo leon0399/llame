@@ -4,6 +4,7 @@ import {
   nativeWriteTool,
 } from './native-files';
 import { bashTool, isHostCapabilityTool } from './bash';
+import { enterWorkspaceTool, exitWorkspaceTool } from './workspace';
 import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
 import { conversationReadTool } from './conversation-read';
 import { searchConversationsTool } from './search-conversations';
@@ -21,6 +22,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
   nativeEditTool,
   nativeWriteTool,
   bashTool,
+  enterWorkspaceTool,
+  exitWorkspaceTool,
   searchConversationsTool,
   conversationReadTool,
   knowledgeSearchTool,

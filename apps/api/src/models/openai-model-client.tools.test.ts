@@ -337,6 +337,27 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     expect(model.doStreamCalls[2]?.tools).toHaveLength(1);
     expect(onCapReached).not.toHaveBeenCalled();
   });
+  it('fires onStepStart once at each model step boundary', async () => {
+    const model = scriptedModel([
+      toolResponse([{ toolName: 'echo', input: '{"value":"first"}' }]),
+      toolResponse([{ toolName: 'echo', input: '{"value":"second"}' }]),
+      textResponse(),
+    ]);
+    const client = buildClient(model);
+    const onStepStart = vi.fn();
+
+    await expect(
+      client.streamText({
+        chat: CHAT,
+        messages,
+        tools,
+        maxSteps: 3,
+        onStepStart,
+      }).text,
+    ).resolves.toBe('done');
+
+    expect(onStepStart).toHaveBeenCalledTimes(3);
+  });
 
   it('disables tools and fires onCapReached when maxSteps prior tool-steps have run', async () => {
     const model = scriptedModel([

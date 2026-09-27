@@ -1,5 +1,11 @@
 import type { MockInstance } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Logger } from '@nestjs/common';
@@ -50,6 +56,8 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from '../chats/chats-repository';
+import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
+import type { WorkspaceDetachReason } from '../chats/workspace-binding';
 import { isContextItemPart, type ContextItemPart } from '../chats/context-item';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { createModelChangeItem } from '../chats/context-item-producers';
@@ -145,6 +153,12 @@ const chat: Chat = {
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,
+  workspaceRoot: null,
+  workspaceExecutorId: null,
+  workspaceGeneration: 0,
+  workspaceTold: null,
+  workspaceToldFrom: null,
+  workspaceDetachReason: null,
 };
 
 const userMessage: Message = {
@@ -495,6 +509,457 @@ describe('RunExecutionService executeRun', () => {
       executionInput(execution.client),
     );
     await expect(result.text).resolves.toBe('answer');
+  });
+  it('detaches when the executing worker has no native executor', async () => {
+    await executeWorkspaceDetachCase({
+      reason: 'executor_absent',
+      root: '/workspace/project',
+      boundExecutorId: 'host-a',
+      toldRoot: '/workspace/project',
+      allowed: ['enter_workspace'],
+    });
+  });
+
+  it('detaches when the executing worker does not match the binding', async () => {
+    await executeWorkspaceDetachCase({
+      reason: 'executor_mismatch',
+      root: '/workspace/project',
+      boundExecutorId: 'host-a',
+      nativeExecutorId: 'host-b',
+      allowed: ['enter_workspace'],
+    });
+  });
+
+  it('detaches when the bound root is missing', async () => {
+    await executeWorkspaceDetachCase({
+      reason: 'root_missing',
+      root: path.join(tmpdir(), 'workspace-entry-root-does-not-exist'),
+      boundExecutorId: 'host-a',
+      nativeExecutorId: 'host-a',
+      allowed: ['enter_workspace'],
+    });
+  });
+  it('detaches when the bound root is no longer a directory', async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), 'workspace-entry-file-'));
+    const root = path.join(parent, 'root');
+    writeFileSync(root, 'not a directory');
+    try {
+      await executeWorkspaceDetachCase({
+        reason: 'root_missing',
+        root,
+        boundExecutorId: 'host-a',
+        nativeExecutorId: 'host-a',
+        allowed: ['enter_workspace'],
+      });
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it('detaches when the bound root was replaced by another symlink target', async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), 'workspace-entry-moved-'));
+    const root = path.join(parent, 'root');
+    const replacement = path.join(parent, 'replacement');
+    mkdirSync(root);
+    mkdirSync(replacement);
+    rmSync(root, { recursive: true, force: true });
+    symlinkSync(replacement, root);
+
+    try {
+      await executeWorkspaceDetachCase({
+        reason: 'root_moved',
+        root,
+        boundExecutorId: 'host-a',
+        nativeExecutorId: 'host-a',
+        allowed: ['enter_workspace'],
+      });
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it('detaches when the current entry policy no longer allows the root', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-entry-policy-'));
+    try {
+      await executeWorkspaceDetachCase({
+        reason: 'permission_rejected',
+        root,
+        boundExecutorId: 'host-a',
+        nativeExecutorId: 'host-a',
+        allowed: ['enter_workspace'],
+        permissionPolicy: compileToolPermissionMap(
+          { read: { allow: true } },
+          'test-policy',
+        ),
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('detaches when the current entry policy rejects the bound root', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-entry-reject-'));
+    try {
+      await executeWorkspaceDetachCase({
+        reason: 'permission_rejected',
+        root,
+        boundExecutorId: 'host-a',
+        nativeExecutorId: 'host-a',
+        allowed: ['enter_workspace'],
+        permissionPolicy: compileToolPermissionMap(
+          {
+            enter_workspace: {
+              allow: true,
+              reject: [{ field: 'path', literal: root }],
+            },
+          },
+          'test-policy',
+        ),
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('detaches when enter_workspace is removed from the allowlist', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-entry-allowlist-'));
+    try {
+      await executeWorkspaceDetachCase({
+        reason: 'tool_not_allowed',
+        root,
+        boundExecutorId: 'host-a',
+        nativeExecutorId: 'host-a',
+        allowed: [],
+        permissionPolicy: compileTestPermissionPolicy(['enter_workspace']),
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not execute the model when Workspace detachment loses its fence', async () => {
+    mockNormalExecutionRepositories();
+    const detach = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'detach')
+      .mockResolvedValue('fence_lost');
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: path.join(
+        tmpdir(),
+        'workspace-entry-fence-lost-does-not-exist',
+      ),
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+    });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      'host-a',
+      { allowed: ['enter_workspace'] },
+    );
+    const stream = vi.spyOn(execution.client, 'streamText');
+
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+    expect(detach).toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
+  });
+
+  it('does not reuse a root after a concurrent Workspace transition wins', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const detach = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'detach')
+      .mockResolvedValue('stale');
+    const setTold = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
+      .mockResolvedValue(undefined);
+    const root = path.join(
+      tmpdir(),
+      'workspace-entry-stale-transition-does-not-exist',
+    );
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: root,
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+      workspaceTold: null,
+      workspaceToldFrom: null,
+      workspaceDetachReason: null,
+    });
+    const observedContexts: Array<ToolContext> = [];
+    const toolId = toolDeclaration.id;
+    const observedTool: Tool = {
+      id: toolId,
+      description: toolDeclaration.description,
+      classification: 'read_only',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: (context) => {
+        observedContexts.push(context);
+        return { status: 'success' as const };
+      },
+    };
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(observedTool),
+      undefined,
+      {
+        allowed: ['enter_workspace', toolId],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          toolId,
+        ]),
+        dynamicCandidates: [
+          {
+            source: { type: 'mcp', serverId: 'demo' },
+            state: 'available',
+            tool: observedTool,
+          },
+        ],
+      },
+    );
+
+    await execution.service.executeRun(executionInput(execution.client));
+    const options = capturing.streamOptions();
+    await executeBoundTool(
+      options,
+      { q: 'query' },
+      'stale-workspace-tool-call',
+    );
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+    expect(detach).toHaveBeenCalled();
+    expect(observedContexts).toHaveLength(1);
+    expect(observedContexts[0]?.workspaceRoot?.current()).toBeUndefined();
+    const workspaceItems = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'workspace',
+    );
+    expect(workspaceItems).toHaveLength(1);
+    expect(workspaceItems[0]?.data.form).toBe('snapshot');
+    expect(workspaceItems[0]?.data.payload).toEqual({ root });
+    expect(setTold).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      told: root,
+      toldFrom: null,
+      clearDetachReason: false,
+    });
+  });
+
+  it('keeps and clears a valid Workspace binding under its exact entry policy', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const detach = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'detach')
+      .mockResolvedValue('detached');
+    const setTold = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
+      .mockResolvedValue(undefined);
+    const root = mkdtempSync(
+      path.join(tmpdir(), 'workspace-entry-policy-allow-'),
+    );
+    try {
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'host-a',
+        workspaceGeneration: 4,
+        workspaceTold: null,
+        workspaceToldFrom: null,
+        workspaceDetachReason: 'root_missing',
+      });
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        {
+          allowed: ['enter_workspace'],
+          permissionPolicy: compileToolPermissionMap(
+            { enter_workspace: { allow: true } },
+            'test-policy',
+          ),
+        },
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      expect(detach).not.toHaveBeenCalled();
+      const workspaceItems = stagedItemsOf(
+        repositories.updateUserMessageParts,
+        'workspace',
+      );
+      expect(workspaceItems.map((item) => item.data.form)).toEqual([
+        'snapshot',
+        'notice',
+      ]);
+      expect(setTold).toHaveBeenCalledWith({
+        chatId,
+        ownerUserId: userId,
+        told: root,
+        toldFrom: null,
+        clearDetachReason: true,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not rebind a detached Chat when its executor returns for a retry', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const setTold = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
+      .mockResolvedValue(undefined);
+    const detachedChat: Chat = {
+      ...chat,
+      workspaceRoot: null,
+      workspaceExecutorId: null,
+      workspaceGeneration: 5,
+      workspaceTold: null,
+      workspaceToldFrom: null,
+      workspaceDetachReason: 'root_missing',
+    };
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
+      detachedChat,
+    );
+    const enter = vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      'host-a',
+      { allowed: ['enter_workspace'] },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(enter).not.toHaveBeenCalled();
+    const workspaceItems = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'workspace',
+    );
+    const notice = workspaceItems.find((item) => item.data.form === 'notice');
+    expect(notice?.data.payload).toEqual({ reason: 'root_missing' });
+    expect(workspaceItems.some((item) => item.data.form === 'snapshot')).toBe(
+      false,
+    );
+    expect(setTold).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      told: null,
+      toldFrom: null,
+      clearDetachReason: true,
+    });
+  });
+  it('keeps the detaching attempt root cell unbound', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'detach').mockResolvedValue(
+      'detached',
+    );
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: '/workspace/project',
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+      workspaceTold: '/workspace/project',
+      workspaceToldFrom: null,
+      workspaceDetachReason: null,
+    });
+    const observedContexts: Array<ToolContext> = [];
+    const toolId = toolDeclaration.id;
+    const observedTool: Tool = {
+      id: toolId,
+      description: toolDeclaration.description,
+      classification: 'read_only',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: (context) => {
+        observedContexts.push(context);
+        return { status: 'success' as const };
+      },
+    };
+    const capturing = makeCapturingClient();
+    const modelExecution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(observedTool),
+      undefined,
+      {
+        allowed: ['enter_workspace', toolId],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          toolId,
+        ]),
+        dynamicCandidates: [
+          {
+            source: { type: 'mcp', serverId: 'demo' },
+            state: 'available',
+            tool: observedTool,
+          },
+        ],
+      },
+    );
+    await modelExecution.service.executeRun(
+      executionInput(modelExecution.client),
+    );
+    await executeBoundTool(
+      capturing.streamOptions(),
+      { q: 'query' },
+      'detaching-tool-call',
+    );
+
+    expect(observedContexts).toHaveLength(1);
+    expect(observedContexts[0]?.workspaceRoot?.current()).toBeUndefined();
+  });
+
+  it('applies a Workspace root committed in one step at the next step', async () => {
+    mockNormalExecutionRepositories();
+    const seenRoots: Array<string | undefined> = [];
+    const changingTool: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'read_only',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: (context) => {
+        if (context.workspaceRoot === undefined) {
+          throw new Error('Workspace root cell was not provided');
+        }
+        seenRoots.push(context.workspaceRoot.current());
+        context.workspaceRoot.commit('/workspace/new');
+        return { status: 'success' as const };
+      },
+    };
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(changingTool),
+      undefined,
+      {
+        allowed: [toolDeclaration.id],
+        permissionPolicy: compileTestPermissionPolicy([toolDeclaration.id]),
+        dynamicCandidates: [
+          {
+            source: { type: 'mcp', serverId: 'demo' },
+            state: 'available',
+            tool: changingTool,
+          },
+        ],
+      },
+    );
+
+    await execution.service.executeRun(executionInput(execution.client));
+    const options = capturing.streamOptions();
+    await executeBoundTool(options, { q: 'first' }, 'workspace-step-1');
+    options.onStepStart?.();
+    await executeBoundTool(options, { q: 'second' }, 'workspace-step-2');
+
+    expect(seenRoots).toEqual([undefined, '/workspace/new']);
   });
 
   it('recovers a persisted native result into its still-open tool activity', async () => {
@@ -1172,6 +1637,72 @@ function executionInput(client: ModelClient, abortSignal?: AbortSignal) {
     client,
     ...(abortSignal && { abortSignal }),
   };
+}
+type WorkspaceDetachCase = {
+  readonly reason: WorkspaceDetachReason;
+  readonly root: string;
+  readonly boundExecutorId: string;
+  readonly nativeExecutorId?: string;
+  readonly allowed: ReadonlyArray<string>;
+  readonly permissionPolicy?: CompiledPolicy;
+  /** A named root was already disclosed before the detach. */
+  readonly toldRoot?: string;
+};
+
+async function executeWorkspaceDetachCase(input: WorkspaceDetachCase) {
+  const repositories = mockNormalExecutionRepositories();
+  const detach = vi
+    .spyOn(WorkspaceBindingRepository.prototype, 'detach')
+    .mockResolvedValue('detached');
+  vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
+    undefined,
+  );
+  vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+    ...chat,
+    workspaceRoot: input.root,
+    workspaceExecutorId: input.boundExecutorId,
+    workspaceGeneration: 4,
+    workspaceTold: input.toldRoot ?? null,
+    workspaceToldFrom: null,
+    workspaceDetachReason: null,
+  });
+  const execution = makeExecutionService(
+    createFakeModelClient(['answer']),
+    undefined,
+    input.nativeExecutorId,
+    {
+      allowed: input.allowed,
+      permissionPolicy: input.permissionPolicy ?? compileTestPermissionPolicy(),
+    },
+  );
+  const stream = vi.spyOn(execution.client, 'streamText');
+
+  const result = await execution.service.executeRun(
+    executionInput(execution.client),
+  );
+  await expect(result.text).resolves.toBe('answer');
+
+  expect(detach).toHaveBeenCalledWith(
+    expect.objectContaining({
+      chatId,
+      ownerUserId: userId,
+      runId,
+      deliverySequence: 1,
+      expectedGeneration: 4,
+      reason: input.reason,
+    }),
+  );
+  const workspaceItems = stagedItemsOf(
+    repositories.updateUserMessageParts,
+    'workspace',
+  );
+  const notice = workspaceItems.find((item) => item.data.form === 'notice');
+  expect(notice?.data.payload).toEqual({ reason: input.reason });
+  const snapshots = workspaceItems.filter(
+    (item) => item.data.form === 'snapshot',
+  );
+  expect(snapshots).toHaveLength(input.toldRoot === undefined ? 0 : 1);
+  expect(stream).toHaveBeenCalled();
 }
 
 describe('RunExecutionService executeRun — stream completion', () => {
@@ -3712,6 +4243,34 @@ describe('RunExecutionService executeRun — context preparation', () => {
     );
   });
 
+  it('renders a byte-identical system prompt for bound and unbound Chats', async () => {
+    mockNormalExecutionRepositories();
+    const boundChat: Chat = {
+      ...chat,
+      workspaceRoot: '/workspace/project',
+      workspaceTold: '/workspace/project',
+      workspaceToldFrom: null,
+    };
+    vi.spyOn(ChatsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(chat)
+      .mockResolvedValueOnce(boundChat);
+    const unboundCapture = makeCapturingClient();
+    const boundCapture = makeCapturingClient();
+
+    const unboundExecution = makeExecutionService(unboundCapture.client);
+    const boundExecution = makeExecutionService(boundCapture.client);
+    await unboundExecution.service.executeRun(
+      executionInput(unboundCapture.client),
+    );
+    await boundExecution.service.executeRun(
+      executionInput(boundCapture.client),
+    );
+
+    expect(boundCapture.streamOptions().system).toBe(
+      unboundCapture.streamOptions().system,
+    );
+  });
+
   it('stops without streaming when the context items cannot be recorded', async () => {
     const spies = mockNormalExecutionRepositories();
     spies.updateForAttempt
@@ -5597,6 +6156,140 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     });
 
     expect(execution.compaction.compactForTransition).toHaveBeenCalledTimes(1);
+  });
+
+  it("narrates an owner's copied Workspace root on the first accepted turn", async () => {
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: '/workspace/project',
+      workspaceTold: null,
+      workspaceToldFrom: null,
+    });
+    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    const workspaceItems = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'workspace',
+    );
+    expect(workspaceItems).toHaveLength(1);
+    expect(workspaceItems[0]?.data.form).toBe('snapshot');
+    expect(workspaceItems[0]?.data.payload).toEqual({
+      root: '/workspace/project',
+    });
+    expect(workspaceItems[0]?.data.text).toContain(
+      'does not confine host authority',
+    );
+  });
+
+  it('narrates Workspace exit when a named root is no longer bound', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: null,
+      workspaceTold: '/workspace/project',
+      workspaceToldFrom: null,
+    });
+    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    const workspaceItems = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'workspace',
+    );
+    expect(workspaceItems).toHaveLength(1);
+    expect(workspaceItems[0]?.data.form).toBe('snapshot');
+    expect(workspaceItems[0]?.data.payload).toEqual({ root: null });
+    expect(workspaceItems[0]?.data.text).toContain('No Workspace is entered.');
+  });
+
+  it('stays silent when the Workspace binding is unchanged', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: '/workspace/project',
+      workspaceTold: '/workspace/project',
+      workspaceToldFrom: null,
+    });
+    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(
+      stagedItemsOf(repositories.updateUserMessageParts, 'workspace'),
+    ).toEqual([]);
+  });
+
+  it('stays silent for a Chat that has never had a Workspace binding', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(
+      stagedItemsOf(repositories.updateUserMessageParts, 'workspace'),
+    ).toEqual([]);
+  });
+  it('re-narrates a Workspace snapshot on the first turn after compaction', async () => {
+    const compactionId = '77777777-7777-4777-8777-777777777777';
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: '/workspace/project',
+      workspaceTold: '/workspace/project',
+      workspaceToldFrom: '66666666-6666-4666-8666-666666666666',
+    });
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'findLatestByChatId',
+    ).mockResolvedValue(activeCompaction(now, compactionId));
+    const setTold = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
+      .mockResolvedValue(undefined);
+    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    const workspaceItems = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'workspace',
+    );
+    expect(workspaceItems).toHaveLength(1);
+    expect(workspaceItems[0]?.data.form).toBe('snapshot');
+    expect(workspaceItems[0]?.data.payload).toEqual({
+      root: '/workspace/project',
+    });
+    expect(setTold).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      told: '/workspace/project',
+      toldFrom: compactionId,
+      clearDetachReason: false,
+    });
   });
 
   it('stages the rebake marker on the first turn of a re-baked epoch', async () => {

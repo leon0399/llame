@@ -4,6 +4,7 @@ import { Logger } from '@nestjs/common';
 
 import {
   isRecord,
+  isString,
   truncateOversizedResult,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
@@ -15,6 +16,7 @@ import { isBashCommandField } from './permissions/bash-command-field';
 import { declaredStringProperties } from './permissions/declared-fields';
 import { nativeFileProjection } from './permissions/locator-projection';
 import { permissionDeniedResult } from './permissions/messages';
+import { isWorkspaceRelative, resolveWorkspacePath } from './workspace-path';
 import { type PermissionDecision } from './permissions/types';
 
 const logger = new Logger('ToolRunner');
@@ -122,6 +124,8 @@ export function invalidCallResult(toolName: string): ToolResult {
     message: `The call to "${toolName}" had invalid arguments.`,
   };
 }
+/** The admitted schema of an MCP tool is static for the process lifetime. */
+const declaredFieldCache = new WeakMap<Tool, ReadonlySet<string>>();
 
 /**
  * Declared string fields for a dynamic MCP tool, checked against its currently
@@ -140,14 +144,45 @@ function mcpDeclaredStringFields(tool: Tool): ReadonlySet<string> | undefined {
   return fields;
 }
 
-/** The admitted schema of an MCP tool is static for the process lifetime. */
-const declaredFieldCache = new WeakMap<Tool, ReadonlySet<string>>();
+type SubmittedToolArguments = UnknownRecord;
+
+type WorkspaceProjection = {
+  readonly args: SubmittedToolArguments;
+  readonly changed: boolean;
+};
+
+function projectWorkspaceArguments(
+  tool: Tool,
+  args: SubmittedToolArguments,
+  root: string | undefined,
+): WorkspaceProjection {
+  if (root === undefined) return { args, changed: false };
+  if (isNativeFileTool(tool) && isString(args.path)) {
+    if (!isWorkspaceRelative(args.path)) return { args, changed: false };
+    return {
+      args: { ...args, path: resolveWorkspacePath(root, args.path) },
+      changed: true,
+    };
+  }
+  if (isBashTool(tool)) {
+    if (args.cwd === undefined)
+      return { args: { ...args, cwd: root }, changed: true };
+    if (isString(args.cwd) && isWorkspaceRelative(args.cwd)) {
+      return {
+        args: { ...args, cwd: resolveWorkspacePath(root, args.cwd) },
+        changed: true,
+      };
+    }
+  }
+  return { args, changed: false };
+}
 
 /**
  * Evaluate the trusted process policy for one already-schema-validated call.
  * `undefined` means no trusted policy was supplied (a code error); the caller
  * converts it to a fail-closed rejection. The originally submitted `args` are
- * matched, never the schema-defaulted executor copy.
+ * matched except for Workspace-projected native paths and Bash cwd values;
+ * those projected values are matched instead of their submitted spelling.
  *
  * A native locator is judged twice when normalizing changes it — a web
  * locator whose host, port, encoding, or fragment the request rewrites, or a
@@ -160,27 +195,32 @@ const declaredFieldCache = new WeakMap<Tool, ReadonlySet<string>>();
  */
 function evaluateToolPermission(
   tool: Tool,
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- originally submitted tool-call input; `admitToolCall` already validated it against the tool's own schema before this is reached.
-  args: unknown,
+  args: SubmittedToolArguments,
   context: ToolContext,
 ): PermissionDecision | undefined {
   const policy = context.permissionPolicy;
   if (policy === undefined) return undefined;
+  const root = context.workspaceRoot?.current();
+  const workspace = projectWorkspaceArguments(tool, args, root);
   const options = {
     toolId: tool.id,
-    args,
+    args: workspace.args,
     isFlexibleWhitespaceField: (field: string) =>
       isBashCommandField(tool.id, field),
     validFields: mcpDeclaredStringFields(tool),
+    projectFieldValue: nativeFileProjection(tool.id, root),
   };
-  const submitted = evaluatePermission(policy, options);
+  if (workspace.changed) return evaluatePermission(policy, options);
+
+  const submitted = evaluatePermission(policy, {
+    ...options,
+    args,
+    projectFieldValue: undefined,
+  });
   if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
     return submitted;
   }
-  return evaluatePermission(policy, {
-    ...options,
-    projectFieldValue: nativeFileProjection(tool.id),
-  });
+  return evaluatePermission(policy, options);
 }
 
 /**
@@ -206,9 +246,9 @@ export async function runTool(
 ): Promise<ToolResult> {
   const admission = admitToolCall(tool, args, context, callTimeoutSeconds);
   if ('result' in admission) return admission.result;
-  const { context: validContext, args: validArgs } = admission;
+  const { context: validContext, args: validArgs, submittedArgs } = admission;
 
-  const decision = evaluateToolPermission(tool, args, validContext);
+  const decision = evaluateToolPermission(tool, submittedArgs, validContext);
   if (decision === undefined) return permissionDeniedResult('no_allow');
   if (onAdmitted !== undefined) await onAdmitted(decision);
   if (decision.decision === 'reject') {
@@ -308,6 +348,30 @@ function classifyToolExecutionError(
   };
 }
 
+type AdmittedArguments = {
+  readonly args: UnknownRecord;
+  readonly submittedArgs: SubmittedToolArguments;
+};
+
+function invalidToolArguments(tool: Tool): ToolResult {
+  return {
+    status: 'error',
+    type: 'invalid_input',
+    message: `Invalid arguments for tool "${tool.id}".`,
+  };
+}
+
+function parseToolArguments(
+  tool: Tool,
+  args: SubmittedToolArguments,
+): AdmittedArguments | ToolResult {
+  const parsed = safeParseArgs(tool.inputSchema, args);
+  if (!parsed.success || !isRecord(parsed.data)) {
+    return invalidToolArguments(tool);
+  }
+  return { args: parsed.data, submittedArgs: args };
+}
+
 /**
  * The D4/D6 fail-closed guards (resolvable identity, not already cancelled,
  * a trusted timeout) plus schema validation (2.2), run before anything is
@@ -316,11 +380,17 @@ function classifyToolExecutionError(
  */
 function admitToolCall(
   tool: Tool,
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated via `safeParseArgs(tool.inputSchema, args)` a few statements down, after three unrelated guard checks (identity, abort, timeout) that must run first; genuinely validated, just not as this function's *first* statement, which the structural exemption requires.
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated via `safeParseArgs(tool.inputSchema, args)` a few statements down, after three unrelated guard checks (identity, abort, timeout) that must run first; genuinely validated, just not as this function's *first* statement, which the structural exemption doesn't cover.
   args: unknown,
   context: ToolContext | undefined,
   callTimeoutSeconds: number,
-): { context: ToolContext; args: UnknownRecord } | { result: ToolResult } {
+):
+  | {
+      context: ToolContext;
+      args: UnknownRecord;
+      submittedArgs: SubmittedToolArguments;
+    }
+  | { result: ToolResult } {
   if (!context?.userId) {
     // Defensive: the run loop always resolves an owner before offering
     // tools. A call with no resolvable identity must fail closed — no reads.
@@ -347,16 +417,10 @@ function admitToolCall(
     return { result: refusalResult(tool.id) };
   }
 
-  const parsed = safeParseArgs(tool.inputSchema, args);
-  if (!parsed.success || !isRecord(parsed.data)) {
-    return {
-      result: {
-        status: 'error',
-        type: 'invalid_input',
-        message: `Invalid arguments for tool "${tool.id}".`,
-      },
-    };
+  if (!isRecord(args)) {
+    return { result: invalidToolArguments(tool) };
   }
-
-  return { context, args: parsed.data };
+  const parsed = parseToolArguments(tool, args);
+  if ('status' in parsed) return { result: parsed };
+  return { context, ...parsed };
 }

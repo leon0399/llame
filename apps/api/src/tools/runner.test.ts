@@ -6,10 +6,13 @@ import {
   RESULT_TRUNCATE_CHARS,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
+import { bashTool } from './bash';
+import { nativeReadTool } from './native-files';
 import { runTool } from './runner';
 import { type Tool, type ToolContext } from './types';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
+import { createWorkspaceRootCell } from './workspace-path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 function fakeContext(userId = 'user-A'): ToolContext {
@@ -528,9 +531,116 @@ describe('runTool permission gate', () => {
     id: 'read',
     description: 'reads a locator',
     classification: 'read_only',
+
     inputSchema: z.strictObject({ path: z.string() }),
     execute: (_ctx, { path }) => ({ status: 'success', path }),
   };
+  it('matches a relative native path only after Workspace projection', async () => {
+    const result = await runTool(
+      nativeReadTool,
+      { path: '../../.ssh/id_ed25519' },
+      {
+        ...contextWith({
+          read: {
+            allow: true,
+            reject: [
+              {
+                field: 'path',
+                regex: '^/home/operator/\\.ssh(?:/|$)',
+              },
+            ],
+          },
+        }),
+        workspaceRoot: createWorkspaceRootCell(
+          '/home/operator/project/subdirectory',
+        ),
+      },
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
+    });
+  });
+
+  it('matches an omitted Bash cwd as the entered Workspace root', async () => {
+    const result = await runTool(
+      bashTool,
+      { command: 'git status' },
+      {
+        ...contextWith({
+          bash: {
+            allow: true,
+            reject: [
+              {
+                field: 'cwd',
+                regex: '^/home/operator/project$',
+              },
+            ],
+          },
+        }),
+        workspaceRoot: createWorkspaceRootCell('/home/operator/project'),
+      },
+      5,
+    );
+    expect(result).toEqual({
+      status: 'error',
+      type: 'permission_denied',
+      message: EXPLICIT_REJECT,
+    });
+  });
+  it('keeps Bash command matching on the submitted shell text', async () => {
+    const result = await runTool(
+      bashTool,
+      { command: 'git push', cwd: 'nested' },
+      {
+        ...contextWith({
+          bash: {
+            allow: true,
+            reject: [{ field: 'command', regex: '^git push$' }],
+          },
+        }),
+        workspaceRoot: createWorkspaceRootCell('/home/operator/project'),
+      },
+      5,
+    );
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
+    });
+  });
+
+  it('uses the root committed before the current model step', async () => {
+    const root = createWorkspaceRootCell('/work/old');
+    root.commit('/work/new');
+    vi.spyOn(nativeReadTool, 'execute').mockResolvedValue({
+      status: 'success',
+    });
+    const admitted = vi.fn();
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'f' },
+      {
+        ...contextWith({
+          read: {
+            allow: [{ field: 'path', literal: '/work/old/f' }],
+          },
+        }),
+        workspaceRoot: root,
+      },
+      5,
+      admitted,
+    );
+
+    expect(result).toEqual({ status: 'success' });
+    expect(admitted).toHaveBeenCalledWith(
+      expect.objectContaining({ decision: 'allow' }),
+    );
+    expect(root.current()).toBe('/work/old');
+    root.beginStep();
+    expect(root.current()).toBe('/work/new');
+  });
 
   it('rejects a spelling written to miss a reject clause', async () => {
     // The request will go to `https://grokipedia.com/page`, so a reject
@@ -598,5 +708,124 @@ describe('runTool permission gate', () => {
         5,
       ),
     ).toMatchObject({ type: 'permission_denied', message: NO_ALLOW });
+  });
+  it('does not match a native reject against the submitted relative spelling', async () => {
+    vi.spyOn(nativeReadTool, 'execute').mockResolvedValue({
+      status: 'success',
+    });
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'src/app.ts' },
+      {
+        ...contextWith({
+          read: {
+            allow: true,
+            reject: [{ field: 'path', regex: '^src/app\\.ts$' }],
+          },
+        }),
+        workspaceRoot: createWorkspaceRootCell('/home/operator/project'),
+      },
+      5,
+    );
+
+    expect(result).toEqual({ status: 'success' });
+  });
+
+  it('preserves an absolute native path with duplicate leading separators', async () => {
+    vi.spyOn(nativeReadTool, 'execute').mockResolvedValue({
+      status: 'success',
+    });
+    const result = await runTool(
+      nativeReadTool,
+      { path: '//host/file' },
+      {
+        ...contextWith({
+          read: {
+            allow: [{ field: 'path', literal: '//host/file' }],
+          },
+        }),
+        workspaceRoot: createWorkspaceRootCell('/home/operator/project'),
+      },
+      5,
+    );
+
+    expect(result).toEqual({ status: 'success' });
+  });
+
+  it('does not add a Workspace cwd field to a non-Bash tool', async () => {
+    const root = '/home/operator/project';
+    const result = await runTool(
+      echoTool,
+      { value: 'x' },
+      {
+        ...contextWith({
+          echo: {
+            allow: true,
+            reject: [{ field: 'cwd', literal: root }],
+          },
+        }),
+        workspaceRoot: createWorkspaceRootCell(root),
+      },
+      5,
+    );
+
+    expect(result).toEqual({ status: 'success', value: 'x' });
+  });
+
+  it('matches Bash cwd rules against the projected relative cwd', async () => {
+    vi.spyOn(bashTool, 'execute').mockResolvedValue({ status: 'success' });
+    const result = await runTool(
+      bashTool,
+      { command: 'printf hi', cwd: '.' },
+      {
+        ...contextWith({
+          bash: {
+            allow: true,
+            reject: [{ field: 'cwd', literal: '.' }],
+          },
+        }),
+        workspaceRoot: createWorkspaceRootCell('/tmp'),
+      },
+      5,
+    );
+
+    expect(result).toEqual({ status: 'success' });
+  });
+
+  it('does not Workspace-project an impostor native tool before matching rejects', async () => {
+    const result = await runTool(
+      pathTool,
+      { path: 'src/app.ts' },
+      {
+        ...contextWith({
+          read: {
+            allow: true,
+            reject: [{ field: 'path', regex: '^src/app\\.ts$' }],
+          },
+        }),
+        workspaceRoot: createWorkspaceRootCell('/home/operator/project'),
+      },
+      5,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'permission_denied',
+      message: EXPLICIT_REJECT,
+    });
+  });
+  it('reports the tool id in invalid schema argument errors', async () => {
+    const result = await runTool(
+      echoTool,
+      { value: 42 },
+      contextWith({ echo: { allow: true } }),
+      5,
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_input',
+      message: 'Invalid arguments for tool "echo".',
+    });
   });
 });

@@ -111,6 +111,7 @@ export function applyToolCallingOptions(
   // accumulated context in the SAME streamText() call, rather
   // than the run ending mid tool-call.
   streamOptions.prepareStep = ({ steps }) => {
+    input.onStepStart?.();
     const priorToolSteps = steps.filter(
       (step) => step.toolCalls.length > 0,
     ).length;

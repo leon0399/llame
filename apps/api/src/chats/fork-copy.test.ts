@@ -35,6 +35,12 @@ const chat = (overrides: Partial<Chat> = {}): Chat => ({
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,
+  workspaceRoot: null,
+  workspaceExecutorId: null,
+  workspaceGeneration: 0,
+  workspaceTold: null,
+  workspaceToldFrom: null,
+  workspaceDetachReason: null,
   ...overrides,
 });
 
@@ -176,6 +182,27 @@ describe('inheritForkedChatState', () => {
     expect(inherited.recencyDigestTold).toEqual(source.recencyDigestTold);
     expect(inherited.skillCatalogBaseline).toEqual(source.skillCatalogBaseline);
     expect(inherited.skillCatalogTold).toEqual(source.skillCatalogTold);
+  });
+  it('copies the active binding but not told state or a detach reason', () => {
+    const source = chat({
+      workspaceRoot: '/work/project',
+      workspaceExecutorId: 'worker-a',
+      workspaceGeneration: 7,
+      workspaceTold: '/work/project',
+      workspaceToldFrom: 'compaction-a',
+      workspaceDetachReason: 'root_missing',
+    });
+
+    const { inherited } = inheritForkedChatState(source, []);
+
+    expect(inherited).toMatchObject({
+      workspaceRoot: '/work/project',
+      workspaceExecutorId: 'worker-a',
+      workspaceGeneration: 7,
+    });
+    expect(inherited).not.toHaveProperty('workspaceTold');
+    expect(inherited).not.toHaveProperty('workspaceToldFrom');
+    expect(inherited).not.toHaveProperty('workspaceDetachReason');
   });
 
   it('allocates every copied compaction a distinct new id that is not its source id', () => {

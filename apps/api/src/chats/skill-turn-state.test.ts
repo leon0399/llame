@@ -58,6 +58,12 @@ const chat = (overrides: Partial<Chat> = {}): Chat => ({
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,
   ...overrides,
+  workspaceRoot: null,
+  workspaceExecutorId: null,
+  workspaceGeneration: 0,
+  workspaceTold: null,
+  workspaceToldFrom: null,
+  workspaceDetachReason: null,
 });
 
 const snapshot = (

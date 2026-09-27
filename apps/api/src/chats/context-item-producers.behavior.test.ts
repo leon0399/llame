@@ -5,10 +5,14 @@ import {
   createRecencyDigestDeltaItem,
   createRecencyDigestSupersessionItem,
   createTemporalItem,
+  createWorkspaceDetachNoticeItem,
+  createWorkspaceSnapshotItem,
   isModelChangeItem,
   isModelChangePayload,
   isRecencyDigestDeltaPayload,
   isRecencyDigestItem,
+  isWorkspaceDetachPayload,
+  isWorkspaceSnapshotPayload,
   renderCompactionCheckpoint,
 } from './context-item-producers';
 import { type ContextItemPart } from './context-item';
@@ -542,5 +546,64 @@ describe('temporal and checkpoint wording', () => {
         'Earlier we discussed migrations.',
       ].join('\n'),
     );
+  });
+});
+describe('workspace producer', () => {
+  it('renders and validates a bound-root snapshot', () => {
+    const item = createWorkspaceSnapshotItem({
+      runId: RUN_ID,
+      root: '/home/operator/projects/app',
+    });
+
+    expect(isWorkspaceSnapshotPayload(item.data.payload)).toBe(true);
+    expect(item.data.form).toBe('snapshot');
+    expect(item.data.text).toContain(
+      'The active Workspace working root is `/home/operator/projects/app`.',
+    );
+    expect(item.data.text).toContain('does not confine host authority');
+  });
+
+  it('renders a no-Workspace snapshot without a root', () => {
+    const item = createWorkspaceSnapshotItem({ runId: RUN_ID, root: null });
+
+    expect(item.data.payload).toEqual({ root: null });
+    expect(item.data.text).toContain('No Workspace is entered.');
+    expect(item.data.text).not.toContain('working root is `');
+  });
+
+  it('keeps detach notices separate from snapshots', () => {
+    const item = createWorkspaceDetachNoticeItem({
+      runId: RUN_ID,
+      reason: 'permission_rejected',
+    });
+
+    expect(isWorkspaceDetachPayload(item.data.payload)).toBe(true);
+    expect(item.data.form).toBe('notice');
+    expect(item.data.payload).toEqual({ reason: 'permission_rejected' });
+    expect(item.data.text).toContain('permission_rejected');
+    expect(item.data.text).not.toContain('working root');
+  });
+
+  it('rejects malformed Workspace payloads and constructor inputs', () => {
+    expect(isWorkspaceSnapshotPayload({ root: 'relative/path' })).toBe(false);
+    expect(isWorkspaceSnapshotPayload({ root: '/tmp', extra: true })).toBe(
+      false,
+    );
+    expect(
+      isWorkspaceDetachPayload({ reason: 'root_missing', extra: true }),
+    ).toBe(false);
+    expect(isWorkspaceDetachPayload({ reason: 'unknown' })).toBe(false);
+
+    expect(() =>
+      createWorkspaceSnapshotItem({
+        runId: RUN_ID,
+        root: 'relative/path',
+      }),
+    ).toThrow('Invalid server-authored Workspace snapshot metadata');
+
+    expect(() => {
+      // @ts-expect-error Testing runtime validation with malformed input.
+      createWorkspaceDetachNoticeItem({ runId: RUN_ID, reason: 'unknown' });
+    }).toThrow('Invalid server-authored Workspace detach metadata');
   });
 });

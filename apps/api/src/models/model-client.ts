@@ -82,6 +82,11 @@ export interface ModelStreamInput {
    */
   maxSteps?: number;
   /**
+   * Fired at the beginning of every model step in a tool-calling stream.
+   * Provider clients single-source this callback through `prepareStep`.
+   */
+  onStepStart?: () => void;
+  /**
    * Fired at most once, the moment the client disables tools for the
    * following step because `maxSteps` tool-requesting steps have already
    * run (D6: "the cap-reaching step completes atomically... drives the model

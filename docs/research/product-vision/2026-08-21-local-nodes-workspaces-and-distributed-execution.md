@@ -291,6 +291,14 @@ owner column.
 - A trusted daemon resolves a Workspace handle to an allowlisted local path and
   mount mode. The model never supplies a raw host path or Docker bind directly.
 
+The native-executor alpha is an explicit absolute-path exception to this
+handle-only boundary: on the trusted native executor, `enter_workspace`
+accepts an operator-permitted absolute path, canonicalizes it, and binds the
+Chat to that root for sticky follow-up Runs. Relative native paths are lexical
+projections from that root and do not create confinement. Remote or Sandbox
+entry keeps the handle model: it selects or resolves a Workspace handle and
+does not accept or expose a raw host path.
+
 ### 5.5 Workspace entry and permission policy
 
 **Agreed direction — high confidence**

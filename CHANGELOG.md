@@ -1,5 +1,12 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-27
+
+- Native host Workspaces can be entered and exited per Chat with canonical
+  absolute-root binding, lexical relative-path projection, and fail-closed
+  re-check detachment. The documented example policy now covers Workspace
+  entry/exit and protects Workspace control files ([#974](https://github.com/leon0399/llame/issues/974)).
+
 # 2026-09-26
 
 - The message usage badge shows incomplete usage as a lower bound: total

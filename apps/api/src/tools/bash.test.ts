@@ -18,9 +18,11 @@ import {
   resetManagedExecutorForTests,
   type BashResult,
 } from '@workspace/bash-executor';
+import * as bashExecutor from '@workspace/bash-executor';
 import { bashTool, toToolResult } from './bash';
 import { runTool } from './runner';
 import { type ToolContext } from './types';
+import { createWorkspaceRootCell } from './workspace-path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 function testContext(
@@ -140,6 +142,163 @@ describe('bash durable admission', () => {
       );
     } finally {
       await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the entered root for omitted cwd and resolves relative cwd', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'bash-workspace-root-'));
+    const nested = join(root, 'nested');
+    await mkdir(nested);
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValue(undefined);
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+    const workspaceContext = {
+      ...testContext(),
+      workspaceRoot: createWorkspaceRootCell(root),
+    };
+
+    try {
+      await expect(
+        runTool(
+          bashTool,
+          { command: 'printf root > root-effect' },
+          workspaceContext,
+          5,
+        ),
+      ).resolves.toMatchObject({ status: 'success' });
+      await expect(readFile(join(root, 'root-effect'), 'utf8')).resolves.toBe(
+        'root',
+      );
+
+      await expect(
+        runTool(
+          bashTool,
+          { command: 'printf nested > nested-effect', cwd: 'nested' },
+          { ...workspaceContext, toolCallId: 'call-2' },
+          5,
+        ),
+      ).resolves.toMatchObject({ status: 'success' });
+      await expect(
+        readFile(join(nested, 'nested-effect'), 'utf8'),
+      ).resolves.toBe('nested');
+      expect(begin).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ operation: 'bash', path: root }),
+      );
+      expect(begin).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ operation: 'bash', path: nested }),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an unknown cwd scheme before starting a process', async () => {
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+    await expect(
+      runTool(
+        bashTool,
+        { command: 'printf never', cwd: 'vault://notes' },
+        {
+          ...testContext(),
+          workspaceRoot: createWorkspaceRootCell('/tmp'),
+        },
+        5,
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'The working directory must be a local path.',
+    });
+    expect(begin).not.toHaveBeenCalled();
+  });
+
+  it('leaves a non-local cwd literal alone when no Workspace root is entered', async () => {
+    await expect(
+      runTool(
+        bashTool,
+        { command: 'printf never', cwd: 'vault://notes' },
+        testContext(),
+        5,
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'unavailable',
+      message:
+        'Working directory argument "vault://notes" is not usable. The command did not run; the argument was taken literally with no ~ or variable expansion. List its parent or create the directory.',
+    });
+  });
+
+  it('preserves the submitted spelling of an absolute cwd', async () => {
+    await expect(
+      runTool(
+        bashTool,
+        {
+          command: 'printf never',
+          cwd: '/tmp/../definitely-no-such-dir',
+        },
+        {
+          ...testContext(),
+          workspaceRoot: createWorkspaceRootCell('/tmp'),
+        },
+        5,
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'unavailable',
+      message:
+        'Working directory argument "/tmp/../definitely-no-such-dir" is not usable. The command did not run; the argument was taken literally with no ~ or variable expansion. List its parent or create the directory.',
+    });
+  });
+
+  it('hands the executor a projected trailing cwd string', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'bash-workspace-trailing-'));
+    const nested = join(root, 'nested');
+    await mkdir(nested);
+    const admit = vi.spyOn(bashExecutor, 'admitManagedBash');
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    try {
+      await expect(
+        runTool(
+          bashTool,
+          { command: 'printf trailing > trailing-effect', cwd: 'nested/' },
+          {
+            ...testContext(),
+            workspaceRoot: createWorkspaceRootCell(root),
+          },
+          5,
+        ),
+      ).resolves.toMatchObject({ status: 'success' });
+      expect(admit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd: `${nested}/`,
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
+      await expect(
+        readFile(join(nested, 'trailing-effect'), 'utf8'),
+      ).resolves.toBe('trailing');
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 

@@ -41,7 +41,7 @@ implementation layers.
 
 ## 1. `workspace-entry/core`: binding, tools, projection, and narration
 
-- [ ] 1.1 Add nullable `workspace_root`, `workspace_executor_id`, `workspace_told`,
+- [x] 1.1 Add nullable `workspace_root`, `workspace_executor_id`, `workspace_told`,
       `workspace_told_from`, and `workspace_detach_reason`, plus integer
       `workspace_generation`, to `chats` with a generated Drizzle migration (design D1). Use the
       closed detach-reason codes and increment generation only when an enter establishes or
@@ -51,7 +51,7 @@ implementation layers.
       successful accepted-turn transaction; the compaction path never writes Chat state. Verify
       `pnpm db:generate` reproduces it, the migration applies to a populated database, and an
       integration test shows user A cannot read or write user B's binding columns under RLS.
-- [ ] 1.2 Add the pure lexical `resolveWorkspacePath` projection and feed it to `read`, `edit`,
+- [x] 1.2 Add the pure lexical `resolveWorkspacePath` projection and feed it to `read`, `edit`,
       `write` path handling and bash `cwd` through the attempt-scoped root cell (design D3, D5).
       Preserve a trailing separator, do not call `realpath`, follow symlinks only through the OS, and
       define relative as no leading `/` and no recognized case-insensitive `scheme://` prefix.
@@ -59,11 +59,11 @@ implementation layers.
       `cwd` defaulting to the root, relative bash `cwd`, locator schemes unaffected, a trailing
       separator staying in the projected string and producing the same `not_found`/invalid behavior
       as its absolute form, and a same-step `read("f")` using the root committed before entry.
-- [ ] 1.3 Evaluate projected values in `evaluateToolPermission`, including the implied bash
+- [x] 1.3 Evaluate projected values in `evaluateToolPermission`, including the implied bash
       `cwd`, without matching submitted relative text (design D3). Verify every projection permission
       scenario, including `read("../../.ssh/id_ed25519")` rejected by an absolute `.ssh` reject and
       omitted bash `cwd` rejected by a `cwd` reject on the root; keep command-text matching unchanged.
-- [ ] 1.4 Register `enter_workspace` and `exit_workspace` as host-capability tools with packaged
+- [x] 1.4 Register `enter_workspace` and `exit_workspace` as host-capability tools with packaged
       descriptions and schemas. Implement submitted-path permission evaluation in the runner,
       then a read-only delivery-fence check before any filesystem probe, followed by the
       realpath/directory probe, independent canonical-path allow/reject evaluation with
@@ -78,7 +78,7 @@ implementation layers.
       restart or generation change, switch, missing `nativeExecutorId`, both same-step transition
       conflicts (`enter_workspace(A)` then `exit_workspace()` and `enter_workspace(A)` then
       `enter_workspace(B)`), and a superseded attempt with no side effect.
-- [ ] 1.5 Re-check the binding during attempt preparation on the worker before Workspace skills,
+- [x] 1.5 Re-check the binding during attempt preparation on the worker before Workspace skills,
       `$skill`, MCP clients/catalog, or the Workspace producer. Detach immediately in its own
       owner-scoped transaction fenced by the Run's current delivery; clear the binding, increment
       generation, store the closed reason, and expose no Workspace skill activation,
@@ -88,7 +88,7 @@ implementation layers.
       moved, permission rejection requiring an allow and no reject, and `tool_not_allowed`. Include
       the detach-then-fail retry scenario: a retry whose checks would pass still finds the Chat
       unbound, and an executor returning later does not restore it.
-- [ ] 1.6 Add the `workspace` context-item producer with its packaged template and comparison
+- [x] 1.6 Add the `workspace` context-item producer with its packaged template and comparison
       rule: treat the told state as null whenever `workspace_told_from` differs from the Chat's
       latest compaction identity. Emit a rail-only `snapshot` current-state item, a separate
       detach `notice`, and stage `workspace_told` with `workspace_told_from` for the same
@@ -96,12 +96,12 @@ implementation layers.
       Verify entry and exit narration, detach reason in a separate notice, unchanged binding
       silence, compaction re-establishment, no notice for a never-bound Chat, and the rendered
       system prompt remaining byte-identical before and after entry.
-- [ ] 1.7 Copy the binding root, executor id, and generation in owner forks but not
+- [x] 1.7 Copy the binding root, executor id, and generation in owner forks but not
       `workspace_told`, `workspace_told_from`, or detach reason. Verify an owner fork keeps the
       binding, its first accepted turn narrates it, its first Run re-checks it, and a visitor fork
       of a public bound Chat is unbound and discloses no root; a fork of a detached Chat stays
       unbound.
-- [ ] 1.8 Document the nine-group recommended policy in `llame.config.json.example`: add
+- [x] 1.8 Document the nine-group recommended policy in `llame.config.json.example`: add
       `enter_workspace` and `exit_workspace`; the `enter_workspace` group uses an operator-edited
       field allow such as
       `{ "field": "path", "regex": "^/home/operator/projects/[^/]+/?$" }`, plus F1-F3 and
@@ -117,10 +117,10 @@ implementation layers.
       recording the absolute-path exception to §5.4, and add a dated `CHANGELOG.md` entry. Verify
       the example-policy scenarios, including the canonical `no_allow` case and preservation of
       F1-F3.
-- [ ] 1.9 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused API
+- [x] 1.9 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused API
       integration files touched above, `pnpm format:check`, `git diff --check`, and
       `pnpm exec openspec validate workspace-entry --strict`; record the commands in the PR body.
-- [ ] 1.10 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix accepted
+- [x] 1.10 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix accepted
       findings, and rerun affected checks before marking ready.
 - [ ] 1.11 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `web` layer.
