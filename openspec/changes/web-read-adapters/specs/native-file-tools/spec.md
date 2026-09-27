@@ -728,7 +728,7 @@ SHALL request `/repos/{owner}/{repo}/pulls/{number}` and every page of
 `/repos/{owner}/{repo}/pulls/{number}/comments`, and
 `/repos/{owner}/{repo}/pulls/{number}/files`, and every page of
 `/repos/{owner}/{repo}/commits/{head_sha}/check-runs` requested with
-`per_page=100`. The whole document
+`filter=latest&per_page=100`. The whole document
 SHALL be loaded before rendering, subject to the shared call deadline and the
 5 MiB document bound; the model SHALL page the rendered text with the ordinary
 `:N-M` selector, and each read SHALL refetch.
@@ -741,11 +741,17 @@ provided.`, then `## Comments ({n})`. The pull request view SHALL render
 `Head`, `Reviews` as latest-per-reviewer counts (for example
 `Reviews: 2 approved, 1 changes requested (latest per reviewer)`),
 `Merge state` as the `mergeable_state` value returned, including `unknown`,
-`Checks:` as counts from all check-runs pages requested with `per_page=100`
-(for example `Checks: 14 passed, 1 failed (lint), 2 pending`); if not every
-page arrives, the rendered `Checks:` line SHALL state the unloaded remainder
-from `total_count` (for example `Checks: 14 passed, 1 failed (lint), 2
-pending, 9 not loaded`), and an omission note SHALL name check runs; `Created`,
+`Checks:` as counts from all check-runs pages requested with
+`filter=latest&per_page=100` (for example
+`Checks: 14 passed, 1 failed (lint), 2 pending`); the counts cover what the
+endpoint returns, which GitHub limits to the 1000 most recent check suites.
+If a check-runs page after the first does not arrive, the `Checks:` line
+SHALL state the loaded counts plus `total_count` minus the loaded runs as
+`{n} not loaded` (for example
+`Checks: 97 passed, 1 failed (lint), 2 pending, 40 not loaded`); if the first
+check-runs page does not arrive, the line SHALL render as
+`Checks: unavailable`. Either case SHALL add an omission note naming check
+runs. Then `Created`,
 `Updated`, `Labels`, `URL`, and `Diff: https://github.com/{owner}/{repo}/pull/{number}.diff`,
 then `## Body`, `## Files ({n})` listing every changed file with its status
 and added/deleted counts, `## Reviews ({n})`, `## Review Comments ({n})`, and
@@ -814,14 +820,21 @@ limits are not permission errors and SHALL not be retried.
 
 #### Scenario: Check runs load every page and report an unloaded remainder
 
-- **WHEN** a pull request's check-runs `total_count` exceeds one page at
-  `per_page=100` and a later check-runs page fails after the pull request
-  request succeeds
-- **THEN** every check-runs page is requested with `per_page=100`, and every
-  page that arrives is counted
-- **AND** the failed later page leaves the loaded counts rendered, the
-  `Checks:` line states the unloaded remainder from `total_count` as `N not
-loaded`, and an omission note names check runs
+- **WHEN** a pull request's check-runs `total_count` is 140 at
+  `filter=latest&per_page=100` and the second check-runs page fails after the
+  first arrives
+- **THEN** both check-runs pages are requested and the 100 loaded runs are
+  counted
+- **AND** the `Checks:` line ends with `40 not loaded` and an omission note
+  names check runs
+
+#### Scenario: A failed first check-runs page renders the line as unavailable
+
+- **WHEN** the pull request request succeeds and the first check-runs page
+  fails
+- **THEN** the pull request renders with `Checks: unavailable`, never with
+  invented zero counts
+- **AND** an omission note names check runs and the failure category
 
 #### Scenario: Private content without a token is not claimed
 

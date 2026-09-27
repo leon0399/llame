@@ -295,11 +295,14 @@ lines, then the body. Three lines are added to the metadata block:
 `Reviews: 2 approved, 1 changes requested (latest per reviewer)` in place of
 OMP's `Review decision`, `Checks: 14 passed, 1 failed (lint), 2 pending` from
 all pages of `GET /repos/{o}/{r}/commits/{head_sha}/check-runs` requested with
-`per_page=100`, reduced to counts, and `Diff: https://github.com/{o}/{r}/pull/{n}.diff`.
-If not every check-runs page arrives, the rendered `Checks:` line states the
-unloaded remainder from `total_count` (for example
-`Checks: 14 passed, 1 failed (lint), 2 pending, 9 not loaded`), and an
-omission note names check runs. `Merge state` renders `mergeable_state` as
+`filter=latest&per_page=100`, reduced to counts, and `Diff: https://github.com/{o}/{r}/pull/{n}.diff`.
+GitHub returns at most the 1000 most recent check suites, so the counts cover
+what the endpoint returns. If a page after the first does not arrive, the
+`Checks:` line states the loaded counts plus `total_count` minus the loaded
+runs (for example
+`Checks: 97 passed, 1 failed (lint), 2 pending, 40 not loaded`); if the first
+page does not arrive, it renders `Checks: unavailable`, never invented zero
+counts. Either case adds an omission note naming check runs. `Merge state` renders `mergeable_state` as
 returned, including `unknown`. Minimized comments render like any other
 comment. There is no events section.
 
