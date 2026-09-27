@@ -7,6 +7,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   re-check detachment. The documented example policy now covers Workspace
   entry/exit and protects Workspace control files ([#974](https://github.com/leon0399/llame/issues/974)).
 
+- The owner Chat header now shows the bound Workspace root name with the full
+  path in a tooltip. It refreshes mid-Run after entry, exit, or stream-start
+  preparation changes; shared views never expose the indicator.
+
 # 2026-09-26
 
 - The message usage badge shows incomplete usage as a lower bound: total

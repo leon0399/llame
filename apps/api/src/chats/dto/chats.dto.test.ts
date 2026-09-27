@@ -450,7 +450,11 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
 });
 
 describe('toSharedChatResponse — public-share egress allowlist (tool-calling-loop task 3.3)', () => {
-  const fakeChat = { id: 'chat-1', title: 'Shared chat' };
+  const fakeChat = {
+    id: 'chat-1',
+    title: 'Shared chat',
+    workspaceRoot: '/srv/private-owner-workspace',
+  };
 
   function fakeMessage(overrides: Partial<Message>): Message {
     return {
@@ -467,6 +471,12 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       ...overrides,
     };
   }
+  it('omits the owner-only Workspace binding from the shared projection', () => {
+    const dto = toSharedChatResponse(fakeChat, []);
+
+    expect(dto).not.toHaveProperty('workspaceRoot');
+    expect(Object.keys(dto).sort()).toEqual(['id', 'messages', 'title']);
+  });
 
   it('strips tool-<name> parts from the public payload (never leaked to a share)', () => {
     const message = fakeMessage({

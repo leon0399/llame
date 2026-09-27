@@ -285,11 +285,19 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
     const { queryClient } = renderProbe("chat-viewed", {
       viewedChatId: "chat-viewed",
     });
+    queryClient.setQueryData(chatQueryKeys.infinite({ pinned: "exclude" }), {
+      pages: [[]],
+      pageParams: [undefined],
+    });
+    queryClient.setQueryData(chatQueryKeys.detail("chat-viewed"), {
+      id: "chat-viewed",
+      title: "Viewed chat",
+      workspaceRoot: null,
+    });
     queryClient.setQueryData(chatQueryKeys.messages("chat-viewed"), {
       messages: [],
       compaction: null,
     });
-
     screen.getByText("track").click();
     await waitFor(() =>
       expect(screen.getByTestId("processing").textContent).toBe("true"),
@@ -300,15 +308,23 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
       status: "completed",
     });
 
-    await waitFor(() =>
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryState(chatQueryKeys.infinite({ pinned: "exclude" }))
+          ?.isInvalidated,
+      ).toBe(true);
+      expect(
+        queryClient.getQueryState(chatQueryKeys.detail("chat-viewed"))
+          ?.isInvalidated,
+      ).toBe(true);
       expect(
         queryClient.getQueryState(chatQueryKeys.messages("chat-viewed"))
           ?.isInvalidated,
-      ).toBe(true),
-    );
+      ).toBe(true);
+    });
     // Suppressed as already-visible: no toast, no unread badge — but the
-    // messages cache is still invalidated so the visible chat's content
-    // catches up to the true server state.
+    // chat list, detail, and messages caches are invalidated so the visible
+    // chat's content and binding state catch up to the server.
     expect(screen.queryByText(/Reply ready/)).toBeNull();
     expect(screen.getByTestId("unread").textContent).toBe("false");
   });

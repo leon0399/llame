@@ -313,8 +313,14 @@ function handleTerminalRun(
   });
   drop(runId);
   // Unconditional: a run can reach terminal without the client ever seeing
-  // it live (#132 review), so this keeps the chat's cache correct even when
-  // nobody's watching (cheap — React Query only marks it stale here).
+  // it live (#132 review), so this keeps the chat's list, detail, and
+  // messages caches correct even when nobody's watching (cheap — React Query
+  // only marks them stale here).
+  void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+  void queryClient.invalidateQueries({
+    queryKey: chatQueryKeys.detail(meta.chatId),
+    exact: true,
+  });
   void queryClient.invalidateQueries({
     queryKey: chatQueryKeys.messages(meta.chatId),
   });

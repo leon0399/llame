@@ -69,6 +69,7 @@ describe("groupChatsByTimePeriod", () => {
         updatedAt: today.toISOString(),
         lastMessage: null,
         projectId: null,
+        workspaceRoot: null,
         archivedAt: null,
       },
     ]);
@@ -88,6 +89,7 @@ describe("groupChatsByTimePeriod", () => {
       updatedAt: updatedAt.toISOString(),
       lastMessage: null,
       projectId: null,
+      workspaceRoot: null,
       archivedAt: null,
     });
 
@@ -115,6 +117,7 @@ describe("groupChatsByTimePeriod", () => {
       updatedAt: updatedAt.toISOString(),
       lastMessage: null,
       projectId: null,
+      workspaceRoot: null,
       archivedAt: null,
     });
     const daysAgo = (n: number) =>
@@ -503,7 +506,12 @@ describe("useChatsQuery", () => {
 
 describe("useChatQuery", () => {
   it("fetches the chat under its exact detail key", async () => {
-    const chat = { id: "c1", title: "Chat", visibility: "private" };
+    const chat = {
+      id: "c1",
+      title: "Chat",
+      visibility: "private",
+      workspaceRoot: "/home/operator/projects/llame",
+    };
     fetchMock.mockResolvedValue(jsonResponse(chat));
     const queryClient = newTestQueryClient();
 

@@ -2843,6 +2843,11 @@
             "format": "uuid",
             "nullable": true
           },
+          "workspaceRoot": {
+            "type": "string",
+            "nullable": true,
+            "description": "Canonical absolute root of the current Workspace binding. Owner-only; null when this Chat has no binding."
+          },
           "lastMessage": {
             "type": "string",
             "nullable": true,
@@ -2858,6 +2863,7 @@
           "updatedAt",
           "archivedAt",
           "projectId",
+          "workspaceRoot",
           "lastMessage"
         ]
       },
@@ -2931,6 +2937,11 @@
             "type": "string",
             "format": "uuid",
             "nullable": true
+          },
+          "workspaceRoot": {
+            "type": "string",
+            "nullable": true,
+            "description": "Canonical absolute root of the current Workspace binding. Owner-only; null when this Chat has no binding."
           }
         },
         "required": [
@@ -2941,7 +2952,8 @@
           "createdAt",
           "updatedAt",
           "archivedAt",
-          "projectId"
+          "projectId",
+          "workspaceRoot"
         ]
       },
       "ChatMessageResponse": {

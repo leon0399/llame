@@ -141,6 +141,7 @@ function makeChat(
     lastMessage: null,
     visibility: "private",
     projectId: null,
+    workspaceRoot: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     archivedAt: null,
