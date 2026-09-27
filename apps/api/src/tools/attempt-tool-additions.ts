@@ -113,7 +113,7 @@ function retainedConflict(
     retained !== undefined &&
     (retained.server === undefined || declarationChanged)
   ) {
-    if (declarationChanged) {
+    if (declarationChanged && retained.server !== undefined) {
       boundExecutables.set(id, {
         ...retained,
         executor: unavailableExecutor(retained.declaration),

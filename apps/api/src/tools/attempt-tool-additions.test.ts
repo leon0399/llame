@@ -52,6 +52,31 @@ function setup(
   return { additions, boundExecutables, record };
 }
 
+function operatorFixture() {
+  const id = 'mcp__web__lookup';
+  const declaration: ModelToolDeclaration = {
+    id,
+    description: 'Look up a value.',
+    inputSchema: { type: 'object', properties: {} },
+  };
+  const execute = vi.fn(() => ({
+    status: 'success' as const,
+    value: 'operator',
+  }));
+  const operator: Tool = {
+    ...declaration,
+    classification: 'unverified',
+    execute,
+  };
+  return {
+    id,
+    operator,
+    state: setup(new Map([[id, { declaration, executor: operator }]]), {}, [
+      'mcp__web__*',
+    ]),
+  };
+}
+
 describe('AttemptToolAdditions', () => {
   it('inserts an admitted declaration into the bound tool record', async () => {
     const first = makeTool();
@@ -68,28 +93,34 @@ describe('AttemptToolAdditions', () => {
   });
 
   it('keeps an operator binding available for an identical Workspace declaration', async () => {
-    const id = 'mcp__web__lookup';
-    const declaration: ModelToolDeclaration = {
-      id,
-      description: 'Look up a value.',
-      inputSchema: { type: 'object', properties: {} },
-    };
-    const execute = vi.fn(() => ({
-      status: 'success' as const,
-      value: 'operator',
-    }));
-    const operator: Tool = {
-      ...declaration,
-      classification: 'unverified',
-      execute,
-    };
-    const state = setup(
-      new Map([[id, { declaration, executor: operator }]]),
-      {},
-      ['mcp__web__*'],
-    );
+    const { id, operator, state } = operatorFixture();
 
     await expect(state.additions.add('web', [operator])).resolves.toEqual({
+      added: [],
+      availableFromNextRun: [id],
+      refused: [],
+    });
+    expect(state.additions.executorFor(id)).toBe(operator);
+    state.additions.disableAll();
+    expect(state.additions.executorFor(id)).toBe(operator);
+    const executor = state.additions.executorFor(id);
+    if (executor === undefined) throw new Error('expected operator executor');
+    expect(
+      executor.execute(
+        { userId: 'u', chatId: 'c', tenantDb: { runAs: vi.fn() } },
+        {},
+      ),
+    ).toEqual({ status: 'success', value: 'operator' });
+  });
+
+  it('keeps an operator binding callable for a changed Workspace declaration', async () => {
+    const { id, operator, state } = operatorFixture();
+    const readded: Tool = {
+      ...operator,
+      description: 'Changed Workspace declaration.',
+    };
+
+    await expect(state.additions.add('web', [readded])).resolves.toEqual({
       added: [],
       availableFromNextRun: [id],
       refused: [],

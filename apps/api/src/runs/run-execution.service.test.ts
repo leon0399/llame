@@ -3248,9 +3248,13 @@ function createToolLoopClient(
 }
 const MID_RUN_ADDER_ID = 'mid_run_add_workspace_tool';
 const MID_RUN_ADDED_ID = 'mcp__workspace__added';
+const MID_RUN_ADDED_SECOND_ID = 'mcp__workspace__second';
 
 function createMidRunAdditionTools() {
   const executeAdded = vi.fn(() =>
+    Promise.resolve({ status: 'success' as const }),
+  );
+  const executeAddedSecond = vi.fn(() =>
     Promise.resolve({ status: 'success' as const }),
   );
   const addedTool: Tool = {
@@ -3260,19 +3264,29 @@ function createMidRunAdditionTools() {
     inputSchema: z.strictObject({}),
     execute: executeAdded,
   };
+  const secondAddedTool: Tool = {
+    id: MID_RUN_ADDED_SECOND_ID,
+    description: 'Second added Workspace tool.',
+    classification: 'unverified',
+    inputSchema: z.strictObject({}),
+    execute: executeAddedSecond,
+  };
   const adder: Tool = {
     id: MID_RUN_ADDER_ID,
-    description: 'Adds a Workspace tool.',
+    description: 'Adds Workspace tools.',
     classification: 'read_only',
     inputSchema: z.strictObject({}),
     execute: async (context) => {
       const additions = context.toolAdditions;
       if (additions === undefined) throw new Error('Missing additions handle.');
-      const result = await additions.add('workspace', [addedTool]);
+      const result = await additions.add('workspace', [
+        addedTool,
+        secondAddedTool,
+      ]);
       return { status: 'success', ...result };
     },
   };
-  return { adder, executeAdded };
+  return { adder, executeAdded, executeAddedSecond };
 }
 
 describe('RunExecutionService executeRun — tool loop', () => {
@@ -3282,19 +3296,22 @@ describe('RunExecutionService executeRun — tool loop', () => {
   it('executes an in-Run addition on the next model step', async () => {
     mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
-    const { adder, executeAdded } = createMidRunAdditionTools();
+    const { adder, executeAdded, executeAddedSecond } =
+      createMidRunAdditionTools();
     registerTestOnlyTool(adder);
     try {
       const { client, model } = createToolLoopClient([
         providerToolCall(MID_RUN_ADDER_ID, 'add-call'),
         providerToolCall(MID_RUN_ADDED_ID, 'added-call'),
+        providerToolCall(MID_RUN_ADDED_SECOND_ID, 'second-added-call'),
         providerText('done'),
       ]);
       const execution = makeExecutionService(client, undefined, undefined, {
-        allowed: [MID_RUN_ADDER_ID, MID_RUN_ADDED_ID],
+        allowed: [MID_RUN_ADDER_ID, MID_RUN_ADDED_ID, MID_RUN_ADDED_SECOND_ID],
         permissionPolicy: compileTestPermissionPolicy([
           MID_RUN_ADDER_ID,
           MID_RUN_ADDED_ID,
+          MID_RUN_ADDED_SECOND_ID,
         ]),
       });
       const result = await execution.service.executeRun(executionInput(client));
@@ -3303,18 +3320,18 @@ describe('RunExecutionService executeRun — tool loop', () => {
       expect(model.doStreamCalls[1]?.tools).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ name: MID_RUN_ADDED_ID }),
+          expect.objectContaining({ name: MID_RUN_ADDED_SECOND_ID }),
         ]),
       );
       expect(executeAdded).toHaveBeenCalledTimes(1);
+      expect(executeAddedSecond).toHaveBeenCalledTimes(1);
 
       await vi.waitFor(() => {
         const compactInput = execution.maybeCompact.mock.calls.at(-1)?.[0];
         expect(compactInput).toBeDefined();
-        expect(compactInput?.toolDeclarations).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({ id: MID_RUN_ADDED_ID }),
-          ]),
-        );
+        expect(
+          compactInput?.toolDeclarations.map(({ id }) => id).slice(-2),
+        ).toEqual([MID_RUN_ADDED_ID, MID_RUN_ADDED_SECOND_ID]);
       });
       const addedEvents = appended.filter((entry) => {
         const payload = entry.payload;
