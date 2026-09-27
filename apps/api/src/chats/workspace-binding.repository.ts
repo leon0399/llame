@@ -1,15 +1,7 @@
-import {
-  and,
-  desc,
-  eq,
-  isNotNull,
-  isNull,
-  notInArray,
-  or,
-  sql,
-} from 'drizzle-orm';
-import { chats, runEvents, runs } from '../db/schema';
+import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { chats } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { NativeFilesRepository } from '../runs/native-files-repository';
 import { type WorkspaceDetachReason } from './workspace-binding';
 
 type WorkspaceChatState = {
@@ -34,16 +26,11 @@ export class WorkspaceBindingRepository {
     ownerUserId: string;
     deliverySequence: number | undefined;
   }): Promise<boolean> {
-    if (input.deliverySequence === undefined) return false;
-    const [run] = await this.db
-      .select({ id: runs.id })
-      .from(runs)
-      .where(and(eq(runs.id, input.runId), eq(runs.userId, input.ownerUserId)))
-      .limit(1);
-    if (run === undefined) return false;
-    return (
-      (await this.latestStartedSequence(input.runId)) === input.deliverySequence
-    );
+    return new NativeFilesRepository(this.db).isCurrentDelivery({
+      runId: input.runId,
+      userId: input.ownerUserId,
+      deliverySequence: input.deliverySequence,
+    });
   }
 
   async enter(input: {
@@ -61,17 +48,7 @@ export class WorkspaceBindingRepository {
       }
     | { status: 'fence_lost' }
   > {
-    if (
-      !(await this.fenceRun(
-        input.runId,
-        input.ownerUserId,
-        input.deliverySequence,
-        input.executorId,
-      ))
-    ) {
-      return { status: 'fence_lost' };
-    }
-
+    if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
     const current = await this.lockChat(input.chatId, input.ownerUserId);
     if (current === undefined) return { status: 'fence_lost' };
 
@@ -98,16 +75,7 @@ export class WorkspaceBindingRepository {
     | { status: 'unbound' }
     | { status: 'fence_lost' }
   > {
-    if (
-      !(await this.fenceRun(
-        input.runId,
-        input.ownerUserId,
-        input.deliverySequence,
-        input.executorId,
-      ))
-    ) {
-      return { status: 'fence_lost' };
-    }
+    if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
 
     const current = await this.lockChat(input.chatId, input.ownerUserId);
     if (current === undefined) return { status: 'fence_lost' };
@@ -130,15 +98,7 @@ export class WorkspaceBindingRepository {
     expectedGeneration: number;
     reason: WorkspaceDetachReason;
   }): Promise<'detached' | 'stale' | 'fence_lost'> {
-    if (
-      !(await this.fenceRun(
-        input.runId,
-        input.ownerUserId,
-        input.deliverySequence,
-      ))
-    ) {
-      return 'fence_lost';
-    }
+    if (!(await this.fenceRun(input))) return 'fence_lost';
 
     const current = await this.lockChat(input.chatId, input.ownerUserId);
     if (current === undefined) return 'stale';
@@ -286,68 +246,24 @@ export class WorkspaceBindingRepository {
     return updated.length;
   }
 
-  private async fenceRun(
-    runId: string,
-    ownerUserId: string,
-    deliverySequence: number | undefined,
-    executorId?: string,
-  ): Promise<boolean> {
-    const runLocked = await this.lockRun(runId, ownerUserId);
-    if (!runLocked || deliverySequence === undefined) return false;
-    if ((await this.latestStartedSequence(runId)) !== deliverySequence)
+  private async fenceRun(input: {
+    runId: string;
+    ownerUserId: string;
+    deliverySequence: number | undefined;
+    executorId?: string;
+  }): Promise<boolean> {
+    const native = new NativeFilesRepository(this.db);
+    if (
+      !(await native.isCurrentDelivery({
+        runId: input.runId,
+        userId: input.ownerUserId,
+        deliverySequence: input.deliverySequence,
+      }))
+    ) {
       return false;
-    return executorId === undefined
+    }
+    return input.executorId === undefined
       ? true
-      : this.bindRun(runId, ownerUserId, executorId);
-  }
-
-  private async lockRun(runId: string, ownerUserId: string): Promise<boolean> {
-    const rows = await this.db
-      .select({ id: runs.id })
-      .from(runs)
-      .where(and(eq(runs.id, runId), eq(runs.userId, ownerUserId)))
-      .for('update')
-      .limit(1);
-    return rows.length === 1;
-  }
-
-  private async latestStartedSequence(
-    runId: string,
-  ): Promise<number | undefined> {
-    const [latestStarted] = await this.db
-      .select({ sequence: runEvents.sequence })
-      .from(runEvents)
-      .where(
-        and(eq(runEvents.runId, runId), eq(runEvents.eventType, 'run.started')),
-      )
-      .orderBy(desc(runEvents.sequence))
-      .limit(1);
-    return latestStarted?.sequence;
-  }
-
-  private async bindRun(
-    runId: string,
-    ownerUserId: string,
-    executorId: string,
-  ): Promise<boolean> {
-    const rows = await this.db
-      .update(runs)
-      .set({ workerId: executorId })
-      .where(
-        and(
-          eq(runs.id, runId),
-          eq(runs.userId, ownerUserId),
-          isNull(runs.cancelRequestedAt),
-          notInArray(runs.status, [
-            'completed',
-            'failed',
-            'cancelled',
-            'expired',
-          ]),
-          or(isNull(runs.workerId), eq(runs.workerId, executorId)),
-        ),
-      )
-      .returning({ id: runs.id });
-    return rows.length === 1;
+      : native.bind(input.runId, input.ownerUserId, input.executorId);
   }
 }

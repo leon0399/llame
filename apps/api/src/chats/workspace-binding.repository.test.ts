@@ -107,7 +107,7 @@ describe('WorkspaceBindingRepository', () => {
       }),
     ).resolves.toEqual({ status: 'fence_lost' });
   });
-  it('checks the current owner delivery without locking or writing', async () => {
+  it('checks the current owner delivery without writing', async () => {
     const current = makeDb({ select: [run, started] });
     await expect(
       new WorkspaceBindingRepository(current.db).isCurrentDelivery({

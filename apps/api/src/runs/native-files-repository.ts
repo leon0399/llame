@@ -13,6 +13,18 @@ export type NativeFenceMode =
 export class NativeFilesRepository {
   constructor(private readonly db: Db) {}
 
+  async isCurrentDelivery(input: {
+    runId: string;
+    userId: string;
+    deliverySequence: number | undefined;
+  }): Promise<boolean> {
+    if (input.deliverySequence === undefined) return false;
+    if (!(await this.lockRun(input.runId, input.userId))) return false;
+    return (
+      (await this.latestStartedSequence(input.runId)) === input.deliverySequence
+    );
+  }
+
   /**
    * Binding pins the Run to one host filesystem, which an absolute path needs
    * and a `kb://` locator does not: every runs worker resolves every owner's
@@ -30,11 +42,12 @@ export class NativeFilesRepository {
     operation: 'read' | 'edit' | 'write' | 'bash';
     path: string;
   }): Promise<ToolResult | undefined> {
-    if (!(await this.lockRun(input.runId, input.userId)))
-      return executorUnavailable();
     if (
-      input.deliverySequence === undefined ||
-      (await this.latestStartedSequence(input.runId)) !== input.deliverySequence
+      !(await this.isCurrentDelivery({
+        runId: input.runId,
+        userId: input.userId,
+        deliverySequence: input.deliverySequence,
+      }))
     )
       return executorUnavailable();
     if (
