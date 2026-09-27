@@ -4,7 +4,7 @@ title: "OKF (Open Knowledge Format)"
 description: "Optional authorship, verification, and freshness metadata"
 resource: "https://github.com/GoogleCloudPlatform/open-knowledge-format"
 observed:
-  date: "2026-09-10"
+  date: "2026-09-27"
   revision: "ad30107c31c06aec8a7d5636e0d1058118604e6f"
 sources:
   - id: spec-md-l736-l764
@@ -24,8 +24,6 @@ sources:
 # OKF (Open Knowledge Format)
 
 - **Stack:** Markdown/YAML specification and Python reference agent; Apache-2.0
-- **Recheck:** upstream `main` was still the observed revision (v0.2) on
-  2026-09-27
 
 High-confidence reference for optional Knowledge provenance metadata. Its
 conformance rules[^spec-md-l736-l764]
@@ -33,7 +31,7 @@ require typed frontmatter in every non-reserved Markdown file. Making that a
 Knowledge Space requirement would exclude existing owner notes; retain llame's
 arbitrary-file read contract.
 
-**Study**
+**llame fit: study**
 
 1. **Authorship and verification.** Separate fields[^spec-md-l366-l410]
    distinguish content generation from a list of independent verification events.

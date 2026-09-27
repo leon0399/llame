@@ -48,7 +48,7 @@ Markdown-companion URL forms and direct agent consumption[^llmstxt-changes].
    its mechanical omission semantics and the context-expansion tool from the
    proposal[^llmstxt-changes].
 
-**llame fit: adopted.** The shipped native web `read` already sends
+**llame fit: consumed.** The shipped native web `read` already sends
 `Accept: text/markdown`, follows announced alternates, probes a `.md` suffix
 and walks `llms.txt` from the deepest path segment to the root; see
 [adapter order](../../web-read.md#adapter-order). Two v2 details are not

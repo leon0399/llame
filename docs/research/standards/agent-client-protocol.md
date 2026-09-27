@@ -28,6 +28,12 @@ sources:
   - id: acp-agents
     resource: "https://agentclientprotocol.com/get-started/agents"
     title: "ACP agents"
+  - id: acp-v1-methods
+    resource: "https://github.com/agentclientprotocol/agent-client-protocol/blob/15219ed70b6cfc19a0951b2a7e9272ed1d23640f/schema/v1/meta.json"
+    title: "ACP v1 method table"
+  - id: acp-v2-methods
+    resource: "https://github.com/agentclientprotocol/agent-client-protocol/blob/15219ed70b6cfc19a0951b2a7e9272ed1d23640f/schema/v2/meta.json"
+    title: "ACP v2 draft method table"
 ---
 
 # ACP (Agent Client Protocol)
@@ -52,9 +58,10 @@ newline-delimited JSON over stdio[^acp-v1-overview].
 4. **Client environment.** v1 clients may offer `fs/*` and `terminal/*` so
    the agent reads, writes and executes inside the client's environment. The v2
    draft drops that surface in favor of MCP.
-5. **Resume.** v1 has `session/load` (replay) and `session/resume`; v2
-   consolidates on `resume` with replay cursors plus `session/list` and
-   `session/close`.
+5. **Session management.** v1 already declares `session/load` (replay),
+   `session/resume`, `session/list` and `session/close`, with resume and close
+   advertised as capabilities. The v2 draft drops `session/load` and folds
+   replay into `resume` through cursors[^acp-v1-methods][^acp-v2-methods].
 6. **Remote.** Streamable HTTP and WebSocket transports are an RFD, not
    stable[^acp-remote-rfd].
 7. **Adopters.** goose, Gemini CLI, OpenCode, OpenHands, Cline, and adapters
@@ -90,3 +97,7 @@ replay.
 [^acp-remote-rfd]: [Streamable HTTP and WebSocket transport RFD](https://agentclientprotocol.com/rfds/streamable-http-websocket-transport)
 
 [^acp-agents]: [ACP agents](https://agentclientprotocol.com/get-started/agents)
+
+[^acp-v1-methods]: [ACP v1 method table](https://github.com/agentclientprotocol/agent-client-protocol/blob/15219ed70b6cfc19a0951b2a7e9272ed1d23640f/schema/v1/meta.json)
+
+[^acp-v2-methods]: [ACP v2 draft method table](https://github.com/agentclientprotocol/agent-client-protocol/blob/15219ed70b6cfc19a0951b2a7e9272ed1d23640f/schema/v2/meta.json)

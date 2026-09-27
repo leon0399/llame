@@ -89,7 +89,8 @@ the server identity with the URI, and bind approval to the manifest so that
 changed content needs fresh approval[^ext-skills-spec]. `SKILL.md` format stays
 owned by Agent Skills. Client support is still sparse[^mcp-client-matrix].
 
-**llame fit**
+**llame fit: consumed.** Operator MCP servers ship over stdio and Streamable
+HTTP; the newer revisions raise three points:
 
 - **Upgrade gap.** The pinned `@modelcontextprotocol/sdk` 1.29.0 negotiates at
   most `2025-11-25`. A server that speaks only `2026-07-28` cannot complete the

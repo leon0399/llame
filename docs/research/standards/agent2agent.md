@@ -22,6 +22,12 @@ sources:
   - id: ibm-acp-merge
     resource: "https://github.com/orgs/i-am-bee/discussions/5"
     title: "IBM Agent Communication Protocol merges into A2A"
+  - id: a2a-spec-security
+    resource: "https://github.com/a2aproject/A2A/blob/72b3761bd84c59291da694dcd97cdfc2c010df39/docs/specification.md#L1877-L1905"
+    title: "A2A transport security and server authentication"
+  - id: a2a-spec-authz
+    resource: "https://github.com/a2aproject/A2A/blob/72b3761bd84c59291da694dcd97cdfc2c010df39/docs/specification.md#L3081-L3108"
+    title: "A2A data access and authorization scoping"
 ---
 
 # A2A (Agent2Agent Protocol)
@@ -62,9 +68,13 @@ The terminal states map onto Run outcomes, and `input-required` and
 [qwen-audio-agent](../harnesses/qwen-audio-agent.md) and
 [Baro](../harnesses/baro.md).
 
-**Caution:** authorization, history retention and credential semantics are
-agent-defined, so a client cannot assume complete replay. Signed cards are
-optional and prove nothing without a trusted key source.
+**Caution:** the spec fixes enforcement but not policy. Servers must use
+encrypted transport and authenticate every request[^a2a-spec-security], and
+must check authorization on every operation, before any query that could leak
+another caller's resources[^a2a-spec-authz]. What the authorization model is,
+which history is retained and how credentials are issued remain agent-defined,
+so a client cannot assume complete replay. Signed cards are optional and prove
+nothing without a trusted key source.
 
 [^a2a-spec]: [A2A protocol specification](https://a2a-protocol.org/latest/specification/)
 
@@ -75,3 +85,7 @@ optional and prove nothing without a trusted key source.
 [^a2a-governance]: [A2A governance](https://github.com/a2aproject/A2A/blob/72b3761bd84c59291da694dcd97cdfc2c010df39/GOVERNANCE.md)
 
 [^ibm-acp-merge]: [IBM Agent Communication Protocol merges into A2A](https://github.com/orgs/i-am-bee/discussions/5)
+
+[^a2a-spec-security]: [A2A transport security and server authentication](https://github.com/a2aproject/A2A/blob/72b3761bd84c59291da694dcd97cdfc2c010df39/docs/specification.md#L1877-L1905)
+
+[^a2a-spec-authz]: [A2A data access and authorization scoping](https://github.com/a2aproject/A2A/blob/72b3761bd84c59291da694dcd97cdfc2c010df39/docs/specification.md#L3081-L3108)

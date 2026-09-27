@@ -9,11 +9,13 @@ conventions that agents and harnesses use to exchange tools, tasks, knowledge,
 content and UI. A standard can ship a reference implementation or SDK without
 becoming an agentic harness.
 
-Each entry records what was observed on its `observed` date. `revision` is
-present when the standard lives in a Git repository; web-only publications
-carry their version in the Status line. Entries end with a llame fit
-(adopted, study or watch); adoption still needs its own llame decision, and
-llame's specs define whether and how the application uses a standard.
+Each entry's `observed.date` is when its sources were last inspected.
+`revision` is present when the standard lives in a Git repository; web-only
+publications carry their version in the Status line. Every entry states a
+bold `llame fit:` label with one of three values: **consumed** (shipped llame
+behavior already uses the standard), **study** or **watch**. No label records
+a decision to adopt; llame's specs define whether and how the application uses
+a standard.
 
 ## Agent protocols
 

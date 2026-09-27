@@ -40,7 +40,7 @@ vendor feature over ordinary HTTP content negotiation, not a new format.
    tags, the cleaned body, and JSON-LD in a fenced `json` block
    [^cf-md-conversion]. Only HTML up to 2 MiB is converted.
 
-**llame fit: already consumed.** llame's web `read` sends
+**llame fit: consumed.** llame's web `read` sends
 `Accept: text/markdown` on every request, so an enabled zone is served through
 the existing `negotiated` adapter without vendor code; see
 [adapter order](../../web-read.md#adapter-order). The result deliberately
