@@ -233,17 +233,19 @@ decoded host path in `path`, not the submitted URL.
 
 - **WHEN** the model reads `app.ts/` with a Workspace entered at `/work/project`
 - **THEN** lexical projection passes `/work/project/app.ts/` exactly to the host
+- **AND** the regular-file target returns `not_found` without being read
 
 #### Scenario: Unknown scheme is invalid
 
 - **WHEN** the model calls `read` with `vault://notes/a.md` while a Workspace is entered
 - **THEN** the tool returns `invalid_path`
-- **AND** it is not projected as a relative path or sent to the executor
+- **AND** it does not treat the unknown-scheme value as a relative local path or probe a file
 
 #### Scenario: Relative local paths are refused without a Workspace
 
 - **WHEN** no Workspace is entered and `read`, `edit`, or `write` receives a relative local path
 - **THEN** the tool returns the existing `invalid_path` error
+- **AND** it does not read, create, or modify a local entry
 
 #### Scenario: A file alias ignores the entered Workspace root
 
@@ -379,7 +381,7 @@ Write SHALL NOT produce sibling-name suggestions on either failure.
 
 - **WHEN** write targets an absent path with valid bounded content
 - **THEN** the file is created atomically
-- **AND** the result identifies the created target as the caller named it: the submitted absolute path for an absolute path, the projected absolute path for a Workspace-relative path, the decoded host path for a `file://` alias, or the locator for a `kb://` write, never the resolved host path
+- **AND** the result identifies the created target as the caller named it: the submitted absolute path for an absolute path, the projected absolute path for a Workspace-relative path, or the locator for a `kb://` write, never the resolved host path
 
 #### Scenario: Missing intermediate directories are created
 

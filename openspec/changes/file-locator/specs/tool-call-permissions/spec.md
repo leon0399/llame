@@ -8,6 +8,15 @@ While a Workspace is entered, for native `read`, `edit`, and `write` calls with 
 
 The per-attempt Workspace binding re-check is a third named exception: it evaluates the `enter_workspace` group with the stored canonical Workspace root as the `path` field value rather than a model-submitted value. That synthetic evaluation SHALL obtain an allow and SHALL match no reject for the binding to remain valid.
 
+A `read` call whose `path` is an `http://` or `https://` locator SHALL be
+decided over two texts: the locator as submitted, and the locator the shared
+native projection returns, which is the text the request will use — its
+fragment cut, its host, port, and encoding normalized. A reject clause
+matching either text SHALL refuse the call, so a spelling cannot be arranged
+to miss a reject; the allow SHALL be decided on the projected text, because
+an allow names the resource the call will reach and the two texts address one
+resource. The evaluator itself normalizes nothing: the projection is the read
+tool's own parser, so the text matched and the text requested cannot drift.
 A native `read`, `edit`, or `write` call whose `path` is a valid file alias,
 in either the `file://` or the minimal `file:` form, SHALL be decided over
 the submitted locator and the projection's percent-decoded absolute host path,
@@ -143,6 +152,7 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 
 - **WHEN** an attempt re-checks a bound Workspace before resolving its sources
 - **THEN** the `enter_workspace` permission group evaluates the stored canonical root as the `path` field value
+- **AND** the synthetic value must obtain an allow and match no reject for the binding to remain
 
 #### Scenario: A minimal-form alias is matched as an absolute path in a Workspace
 
@@ -201,8 +211,7 @@ This logical-resource projection SHALL NOT rewrite executor arguments except tha
 
 #### Scenario: Literal host filename resembles a selector
 
-- **GIVEN** only an anchored exact allow for `/tmp/file`
-- **WHEN** a direct host read submits `/tmp/file:1-2`
+- **WHEN** only an anchored exact allow for `/tmp/file` exists and a direct host read submits `/tmp/file:1-2`
 - **THEN** the allow does not match, whether that literal filename exists or would be interpreted as a selector
 - **AND** permission evaluation performs no filesystem probe
 
