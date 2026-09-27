@@ -45,71 +45,29 @@ supports the alias as a local-file spelling rather than a remote protocol. This
 proposal adopts that placement but adds llame-specific authority, permission,
 POSIX, mutation, and refusal rules.
 
-## Three-plane read architecture
+## Read architecture context
 
-The read surface is divided into three static, code-owned planes. Each plane is
-an ordered TypeScript array or record of typed entries. It is not a runtime
-registry, operator-loaded code path, plugin loader, or dynamic import. Adding a
-source, a web adapter, or a representation means one module, one list entry,
-and a spec delta. This is justified here because each plane has at least two
-real implementations at introduction and the current dispatch is duplicated;
-it does not pre-allocate a general extension system.
+The `read` surface is planned as three code-owned layers: sources decide what a
+path reaches (local host, `kb://`, `skill://`, web, and `ssh://` later), web
+service adapters render specific sites before the generic web ladder, and
+representation readers decide how admitted content is presented. Each layer is
+a static list of typed entries in code, never a runtime registry, plugin loader,
+or dynamic import. The adapter layer is drafted in `web-read-adapters` and the
+reader layer in `read-representations`; each documents its own layer in
+`SPEC.md` when it ships, so `SPEC.md` never describes a layer that does not run.
 
 ```text
 read(path)
-  -> source plane: host | file alias -> host | kb | skill | http/https | ssh later
+  -> source: host | file alias -> host | kb | skill | http/https | ssh later
        submitted and projected permission admission
        source authority resolution and bounded content
-       http/https only -> web service adapter plane -> generic web ladder
-  -> representation plane -> shared selectors, paging, result bound, envelope
+       http/https only -> web service adapters -> generic web ladder
+  -> representation reader -> shared selectors, paging, result bound, envelope
 ```
 
-### Plane 1: sources, owned here
-
-`file-locator` owns the source table and the `file://` alias in issue #929. The
-source entries are:
-
-1. host paths, the no-scheme default;
-2. `file`, an alias that resolves to the host entry;
-3. `kb`, Knowledge authority;
-4. `skill`, read-only Skill authority;
-5. web, `http` and `https`, the existing API-process fetch authority.
-
-Each entry declares its scheme id or ids, supported operations, permission
-projection, and executor. The same table drives top-level native dispatch and
-permission projection. Existing entries retain their current executors and
-projection functions, so existing schemes have no observable change. `ssh://`
-is the next source entry and remains issue #936, not a hidden part of this
-change.
-
-### Plane 2: web service adapters, owned by `web-read-adapters`
-
-`web-read-adapters` owns the ordered adapters inside the existing HTTP(S)
-source. It covers native first-party APIs, operator-configured delegated
-services, and operator-declared rewrites, with the unauthenticated public
-GitHub adapter and Telegram adapter as the built-in default list. An optional
-operator GitHub token is scoped by the operator's policy; delegated adapters
-such as an FxEmbed protocol or a Telegram-API-style bridge, and rewrites such
-as `x.pcstyle.dev`, are opt-in configuration entries. The adapter contract is
-general across native APIs, service protocols, and rewrites, and every
-delegated request records its origin and leak. It must reuse the existing
-derived-locator admission, address pinning, bounds, provenance, and generic
-fallthrough. Its change name is `web-read-adapters`; this design does not
-implement or modify that plane.
-
-### Plane 3: representations, owned by `read-representations`
-
-`read-representations` owns content readers selected after source resolution,
-including the representation selector slot and future Markdown or AST readers.
-Readers consume authorized source content and preserve common selector paging,
-bounds, source envelopes, and coordinates. They do not resolve authorities or
-perform filesystem or network I/O. Its change name is
-`read-representations`; this design does not implement or modify that plane.
-
-`file-locator` owns the three-plane architecture paragraph in `SPEC.md` when
-its implementation layer ships. Sibling changes own their plane-specific
-requirements and must preserve this source-first, adapter-second,
-representation-third order.
+This change adds only the `file` alias to the source layer. It does not
+refactor source dispatch into a table: that refactor is deferred to `ssh://`
+(#936), the next real source, which can justify it.
 
 ## Goals / Non-Goals
 
@@ -119,11 +77,10 @@ representation-third order.
   host paths for all three native operations.
 - Keep authority selection, executor fencing, mutation ordering, selector
   semantics, permission admission, result identity, and bounds on one path.
-- Make source dispatch and permission projection change together through one
-  small static table.
+- Keep native dispatch and permission projection in agreement through one
+  shared pure `file:` classifier and decoder.
 - Fail closed on remote authority, unsafe URL escapes, query/fragment text, and
   malformed locators before filesystem access.
-- Document the three-plane architecture and name the sibling owners.
 
 **Non-Goals:**
 
@@ -138,39 +95,31 @@ representation-third order.
 
 ## Decisions
 
-### D1: Share pure scheme metadata and key exhaustive executor dispatch by it
+### D1: One shared file-alias classifier; defer the source table to #936
 
-**Decision.** A pure scheme contract module, with no executor imports, owns the
-scheme ids, supported-operation metadata, and projection functions. The
-permission projection consumes its static table. `native-files.ts` owns an
-exhaustive `Record<SchemeId, Executor>` keyed by those same ids, so the
-compiler forces a new source to receive both a projection entry and an
-executor entry. Per-source mutation refusal and serialization details remain
-inside each executor, preserving the different existing error and ordering
-semantics. The host default is selected when no scheme exists; `file` delegates
-to the host executor after strict decoding and is not a sixth authority.
+**Decision.** Add one pure module beside
+`apps/api/src/tools/permissions/locator-projection.ts` that exports the
+ASCII-case-insensitive `file:` classifier and the strict decoder. Both
+`executeNative` and `projectNativeFilePath` call it before `parsePathScheme`:
+dispatch sends a valid alias to the existing host branch with the decoded path,
+and projection returns the decoded path. The existing `kb`, `skill`, and web
+branches in both switches stay as they are. The module imports no executor, so
+`native-files.ts` may import it without closing the cycle through
+`web-read/execute.ts` and `web-read/admission.ts`.
 
-The five real source entries are host default, `file` alias, `kb`, `skill`, and
-web (`http` and `https`). This is the internal source table described by the
-three-plane architecture: one pure scheme table and one exhaustive dispatch
-record keyed by it, not a runtime registry.
+**Alternatives rejected.** Replace both switches with a pure scheme table and an
+exhaustive `Record<SchemeId, Executor>`. It keeps dispatch and projection from
+drifting for every future scheme, but its justification is future sources; one
+alias does not need it, and it would turn this change into a rewiring of every
+scheme with the existing `kb`, `skill`, and web tests as its regression
+evidence. `ssh://` (#936) adds the next real source and pays for the refactor
+then. Classify `file:` only in dispatch. The projection's early return for
+scheme-less text (`locator-projection.ts:33-35`) would then leave
+`file:/home/u/%2Essh/id_rsa` unprojected, and it would miss a host-path reject.
 
-**Alternatives rejected.** Keep two independent scheme switches and add `file`
-to both places. That is shorter for one scheme but preserves two lists that
-must change together for every later source, already evidenced by
-`native-files.ts:70-87` and `locator-projection.ts:33-51`. Put executors in the
-pure table. That closes the current import graph through
-`web-read/execute.ts` and `web-read/admission.ts` back into
-`locator-projection.ts`, risks ESM initialization cycles, and forces
-source-specific mutation refusals into a generic shape. Create a runtime
-registry or plugin loader. That would violate `CODING_STANDARDS.md:38-41`, add
-lifecycle and trust surface without an operator need, and make source authority
-loadable at runtime.
-
-**Consequence.** A source addition has one pure scheme entry and one
-compiler-checked executor entry. The existing schemes remain wired to their
-current behavior. The table is a local coordination device, not an externally
-extensible API. `ssh://` (#936) is the next source entry.
+**Consequence.** The change touches two call sites and one new pure module.
+Dispatch and projection share the alias grammar by construction; the other
+schemes keep their two switches until #936.
 
 ### D2: Treat `file://` as a host alias, not a source authority
 
@@ -330,7 +279,7 @@ fetch that machine, and no remote fallback is attempted.
 
 ### D6: Project the decoded host path while retaining submitted-text admission
 
-**Decision.** The source-table projection for a valid file alias returns the
+**Decision.** The shared projection for a valid file alias returns the
 decoded absolute host path plus any trailing selector. It preserves `.` and
 `..` segments exactly as submitted after one percent-decoding pass. The
 permission runner continues to evaluate the submitted string first and the
@@ -379,7 +328,7 @@ that first reads the absolute path.
 
 ### D8: Keep unknown scheme behavior byte-for-byte stable
 
-**Decision.** A parsed scheme not present in the source table returns the
+**Decision.** A parsed scheme that neither switch recognizes returns the
 existing `invalid_path` result with message `This path scheme is not
 available.` The change does not reinterpret an unknown scheme as a host path.
 
@@ -392,27 +341,26 @@ without helping the requested alias.
 **Consequence.** `ftp://`, `vault://`, and future schemes remain refused until
 their own source design is approved. `ssh://` remains #936.
 
-### D9: Land documentation and architecture in the implementation layer
+### D9: Land documentation in the implementation layer
 
-**Decision.** The single implementation layer owns the source-table refactor,
-file URL parser/alias, focused tests, `read.md`, `edit.md`, `write.md`,
-`docs/native-files.md`, the `SPEC.md` three-plane paragraph, and the dated
+**Decision.** The single implementation layer owns the shared classifier and
+decoder, the dispatch and projection call sites, focused tests, `read.md`,
+`edit.md`, `write.md`, `docs/native-files.md`, one `SPEC.md` §13.7 sentence
+naming the `file://` alias and its host-path permission identity, and the dated
 `CHANGELOG.md` entry. The proposal branch owns only planning artifacts. The
-architecture paragraph names all three planes and the sibling change owners,
-while the native and mutation prompts and operator docs explain local file
-alias authority, host-only permission allows, selectors, `%3A`, and refusals.
+native and mutation prompts and operator docs explain local file alias
+authority, host-only permission allows, selectors, `%3A`, and refusals.
 
-**Alternatives rejected.** Put shipped architecture in proposal or finalize.
-Proposal is not shipped documentation, and finalize owns spec synchronization
-and archive movement only. Split the source table and alias into separate
-implementation layers. They change the same dispatch and projection boundary,
-so splitting would leave an intermediate branch with inconsistent policy and
-executor behavior.
+**Alternatives rejected.** Write the three-layer architecture into `SPEC.md`
+now. `SPEC.md` describes shipped behavior, and two of the three layers would
+not run. Put shipped documentation in proposal or finalize. Proposal is not
+shipped documentation, and finalize owns spec synchronization and archive
+movement only.
 
 **Consequence.** One implementation PR closes #929. If a sibling lands first,
 this layer rebases before editing shared `native-files.ts`, `read.md`, `edit.md`,
 `write.md`, docs, or `SPEC.md`; if this layer lands first, the sibling rebases
-and preserves the source table and architecture paragraph.
+and preserves the alias classifier and its `SPEC.md` sentence.
 
 ## Threats and negative permission cases
 
