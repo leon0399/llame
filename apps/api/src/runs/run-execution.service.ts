@@ -635,10 +635,7 @@ export class RunExecutionService {
         return false;
       }
 
-      if (
-        started.workerId != null &&
-        (await new NativeFilesRepository(tx).hasMutation(input.runId))
-      ) {
+      if (await new NativeFilesRepository(tx).hasMutation(input.runId)) {
         return {
           nativeRecovery: true as const,
           attemptId: started.activeAttemptId!,
@@ -1193,15 +1190,18 @@ export class RunExecutionService {
               },
             );
             if (input.abortSignal?.aborted) {
-              // Bash gets a bounded chance to report its own proven result after
-              // cancellation. Other tools are settled synchronously by the
-              // parent-abort listener. An unknown bash result remains owned by
-              // that listener's synthetic settlement.
+              // Bash gets a bounded chance to report its own proven result
+              // after cancellation. A persisted unknown MCP result is already
+              // the durable settlement and must not be replaced by cancellation.
               if (
-                isBashTool(executor) &&
-                !(
-                  result.status === 'error' && result.type === 'outcome_unknown'
-                )
+                (isBashTool(executor) &&
+                  !(
+                    result.status === 'error' &&
+                    result.type === 'outcome_unknown'
+                  )) ||
+                (executor.id.startsWith('mcp__') &&
+                  result.status === 'error' &&
+                  result.type === 'outcome_unknown')
               ) {
                 recordToolCompleted(toolCallId, declaration.id, args, result);
               } else {
@@ -1213,13 +1213,16 @@ export class RunExecutionService {
               recordToolCompleted(toolCallId, declaration.id, args, result);
             }
             if (
-              isHostCapabilityTool(executor) &&
+              (isHostCapabilityTool(executor) ||
+                executor.id.startsWith('mcp__')) &&
               result.status === 'error' &&
               result.type === 'outcome_unknown'
             ) {
               await deltaWrites;
               throw new Error(
-                'Host command or mutation outcome is unknown; the Run cannot continue.',
+                isHostCapabilityTool(executor)
+                  ? 'Host command or mutation outcome is unknown; the Run cannot continue.'
+                  : 'MCP operation outcome is unknown; the Run cannot continue.',
               );
             }
             return isNativeFileTool(executor)
@@ -2353,7 +2356,10 @@ export class RunExecutionService {
         );
       }
       const nativeResult =
-        toolName === 'edit' || toolName === 'write' || toolName === 'bash'
+        toolName === 'edit' ||
+        toolName === 'write' ||
+        toolName === 'bash' ||
+        toolName.startsWith('mcp__')
           ? await new NativeFilesRepository(tx).priorOutcome(
               input.runId,
               toolCallId,

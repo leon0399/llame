@@ -446,6 +446,107 @@ describe('operator-configured MCP production acceptance', () => {
     }
   });
 
+  it('replays a recorded MCP outcome without a second remote call', async () => {
+    const fixture = await createMcpTestFixture({
+      $get: [{ kind: 'raw', status: 405, body: '' }],
+      initialize: [mcpStreamableHttpInitialize({ sessionId: 'retry-session' })],
+      'notifications/initialized': [{ kind: 'raw', status: 204, body: '' }],
+      'tools/list': [discoveredSearch()],
+      'tools/call': [
+        rpcResult(2, {
+          content: [{ type: 'text', text: 'fixture retry result' }],
+          structuredContent: { value: 'fixture retry result' },
+        }),
+      ],
+      $delete: [{ kind: 'raw', status: 204, body: '' }],
+    });
+    let moduleRef: TestingModule | undefined;
+    const chatId = crypto.randomUUID();
+    try {
+      const graph = await startRuntimeGraph({
+        ...BUILT_IN_DEFAULTS,
+        mcpServers: {
+          web: { type: 'streamable-http', url: fixture.url },
+        },
+      });
+      moduleRef = graph.moduleRef;
+      await waitFor(
+        () => graph.runtime.resolveDynamicTool(TOOL_ID).state === 'available',
+      );
+      const seeded = await tenantDb.runAs(userId, async (tx) => {
+        await new ChatsRepository(tx).createIfAbsent({
+          id: chatId,
+          ownerUserId: userId,
+          title: 'MCP retry',
+        });
+        const userMessage = await new MessagesRepository(tx).create({
+          chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'Run the MCP retry probe.' }],
+        });
+        const run = await new RunsRepository(tx).create({
+          chatId,
+          messageId: userMessage.id,
+          userId,
+          modelId: 'test:mcp-retry',
+        });
+        const started = await new RunsRepository(tx).markStarted(
+          run.id,
+          userId,
+        );
+        if (!started) throw new Error('MCP retry Run did not start.');
+        const startedEvent = await new RunEventsRepository(tx).append(
+          run.id,
+          'run.started',
+        );
+        return { run, deliverySequence: startedEvent.sequence };
+      });
+      const resolution = graph.runtime.resolveDynamicTool(TOOL_ID);
+      if (resolution.state !== 'available') {
+        throw new Error('expected the dynamic tool to be available');
+      }
+      const context = {
+        runId: seeded.run.id,
+        nativeDeliverySequence: seeded.deliverySequence,
+        userId,
+        chatId,
+        tenantDb,
+        toolCallId: 'same-mcp-call',
+      };
+      const first = await resolution.executor.execute(context, {
+        query: 'retry',
+      });
+      const second = await resolution.executor.execute(context, {
+        query: 'retry',
+      });
+
+      expect(second).toEqual(first);
+      expect(first).toMatchObject({
+        status: 'success',
+        output: { structuredContent: { value: 'fixture retry result' } },
+      });
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      expect(
+        events.filter((event) => event.eventType === 'native.attempt'),
+      ).toHaveLength(1);
+      expect(
+        events.filter((event) => event.eventType === 'native.result'),
+      ).toHaveLength(1);
+      expect(
+        fixture
+          .requestSummaries()
+          .filter(({ rpcMethod }) => rpcMethod === 'tools/call'),
+      ).toHaveLength(1);
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${chatId}`;
+      await moduleRef?.close();
+      await fixture.close();
+    }
+  });
+
   it('binds independent API/worker state, persists a redacted result, replays it, and emits disconnect/reconnect deltas', async () => {
     const fixture = await createMcpTestFixture({
       $get: [

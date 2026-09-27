@@ -103,8 +103,9 @@ export interface ToolContext {
   readonly workspaceRoot?: WorkspaceRootCell;
 }
 
-/** SPEC §13.5 classification. Non-read-only execution requires an exact,
- * code-owned capability; classification alone never grants write authority. */
+/** SPEC §13.5 classification. Code-owned non-read-only execution requires an
+ * exact host capability; MCP executors use `unverified` because llame makes no
+ * claim about their effects. */
 export type ToolClassification =
   | 'read_only'
   | 'write_low_risk'
@@ -112,7 +113,8 @@ export type ToolClassification =
   | 'execute_code'
   | 'external_send'
   | 'financial_or_sensitive'
-  | 'admin';
+  | 'admin'
+  | 'unverified';
 
 /**
  * Structured tool observation — never a raw blob; small and typed. The

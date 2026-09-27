@@ -44,6 +44,7 @@ function isClassifiedTool(
     case 'external_send':
     case 'financial_or_sensitive':
     case 'admin':
+    case 'unverified':
       return true;
     default:
       return false;
@@ -116,18 +117,24 @@ export function getRegisteredToolIds(): ReadonlyArray<string> {
   return [...TOOL_REGISTRY.keys()];
 }
 
-/** Operator allowlist intersected with read-only or exact native executors.
- * The native host capability is checked when constructing candidates and at execution. */
+/** Operator allowlist intersected with source-safe executors. Code-owned tools
+ * retain the read-only or exact native host-capability gate; MCP ids use the
+ * `unverified` classification and remain allowlist-gated. */
 export function resolveAdvertisedTools(
   allowed: ReadonlySet<string> | ReadonlyArray<string>,
   candidates: Iterable<Tool> = TOOL_REGISTRY.values(),
 ): Array<Tool> {
   const allowedRules = Array.isArray(allowed) ? allowed : [...allowed];
-  return [...candidates].filter(
-    (tool) =>
-      (tool.classification === 'read_only' || isHostCapabilityTool(tool)) &&
-      (tool.id.startsWith('mcp__')
+  return [...candidates].filter((tool) => {
+    const mcp = tool.id.startsWith('mcp__');
+    const sourceEligible = mcp
+      ? tool.classification === 'unverified'
+      : tool.classification === 'read_only' || isHostCapabilityTool(tool);
+    return (
+      sourceEligible &&
+      (mcp
         ? matchesAllowedToolId(tool.id, allowedRules)
-        : matchesCodeOwnedToolId(tool.id, allowedRules)),
-  );
+        : matchesCodeOwnedToolId(tool.id, allowedRules))
+    );
+  });
 }

@@ -777,7 +777,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         source: { type: 'mcp', serverId: 'web' },
         state: 'unavailable',
         id,
-        classification: 'read_only',
+        classification: 'unverified',
         reason: 'source_disconnected',
       },
     ];
@@ -1193,7 +1193,7 @@ describe('ChatLoopService accept/worker context binding', () => {
             source: { type: 'mcp', serverId: 'web' },
             state: 'unavailable',
             id,
-            classification: 'read_only',
+            classification: 'unverified',
             reason: 'source_disconnected',
           },
         ],

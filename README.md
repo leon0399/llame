@@ -24,7 +24,8 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   llame's code.
 - Owner-only Projects for organizing chats, with pinning and reversible archive.
 - Bounded tool loop: `search_conversations`, optional line-ranged
-  `conversation_read`, and operator-configured Streamable HTTP MCP tools.
+  `conversation_read`, and operator-configured MCP tools authorized by the
+  instance permission policy.
 - Optional native host file tools: selector-based `read`, exact `edit`, and
   create-or-replace `write`, with durable mutation fencing, plus host `bash`
   with per-call literal `cwd` and additive `env`, fresh processes, and bounded
@@ -257,8 +258,10 @@ value secret: resolved values are redacted from diagnostics, results, and
 errors, never visible to users or models. A stdio child receives only its
 declared `env` plus the MCP SDK's base allowlist — llame's own credentials do
 not reach it. Runs unsandboxed as the
-llame user. Operators must explicitly allowlist each namespaced tool as
-read-only. See [docs/mcp-tools.md](docs/mcp-tools.md).
+llame user. Operators must explicitly allowlist each namespaced tool or its
+server namespace, and every call must have an applicable `tools.permissions`
+group; allowlisting selects eligibility but does not attest to read-only
+behavior. See [docs/mcp-tools.md](docs/mcp-tools.md).
 
 ## Documentation
 

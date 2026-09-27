@@ -1,9 +1,10 @@
 # MCP tools
 
-llame connects to operator-managed MCP servers and exposes selected read-only
-tools. Put `mcpServers` in `apps/api/llame.config.json`; `LLAME_CONFIG_PATH`
-overrides that path. Configuration is restart-applied, and every API/worker
-process owns its clients and sessions.
+llame connects to operator-managed MCP servers and exposes allowlisted tools
+whose calls pass per-tool permissions. Put `mcpServers` in
+`apps/api/llame.config.json`; `LLAME_CONFIG_PATH` overrides that path.
+Configuration is restart-applied, and every API/worker process owns its clients
+and sessions.
 
 ## Configure remote HTTP
 
@@ -16,7 +17,10 @@ process owns its clients and sessions.
       "headers": { "Authorization": "Bearer {env:SEARCH_MCP_TOKEN}" },
     },
   },
-  "tools": { "allowed": ["mcp__web__search"] },
+  "tools": {
+    "allowed": ["mcp__web__search"],
+    "permissions": { "mcp__web__search": { "allow": true } },
+  },
 }
 ```
 
@@ -40,7 +44,10 @@ persistence, errors, or logs.
       "env": { "GITHUB_TOKEN": "{env:GITHUB_MCP_PAT}" },
     },
   },
-  "tools": { "allowed": ["mcp__github__search_issues"] },
+  "tools": {
+    "allowed": ["mcp__github__search_issues"],
+    "permissions": { "mcp__github__search_issues": { "allow": true } },
+  },
 }
 ```
 
@@ -85,20 +92,41 @@ refused. ASCII-case-folded collisions across native and MCP catalogs refuse
 every colliding member.
 
 Allowlist entries must be an exact canonical ID or exactly
-`mcp__<configured-server>__*`; malformed/noncanonical/unknown-server patterns
-fail boot without connecting. Fresh offline processes invent no unavailable
-IDs. After successful discovery, each process retains only its last fully
-admitted exact IDs for outage disclosure.
+`mcp__<server>__*`; malformed or noncanonical patterns fail boot without
+connecting. A grammar-valid MCP ID or wildcard may name a server that is not
+configured yet. Fresh offline processes invent no unavailable IDs. After
+successful discovery, each process retains only its last fully admitted exact
+IDs for outage disclosure.
 
-## Read-only authority
+## Authorization and recovery
 
-Exact allowlisting attests one tool is read-only. A wildcard attests every
-current and future safely admitted tool from that server is read-only. Remote
-annotations grant no authority. Never allowlist write, send, delete, execute,
-financial, or administrative tools, including nominally idempotent ones.
+An exact allowlist entry or namespace wildcard selects safely admitted MCP
+identities for a Run; it does not attest to an operation's effects. Every MCP
+call also requires an applicable `tools.permissions` group. Remote annotations
+grant no authority, and a missing or rejecting permission group refuses the
+call. Write, send, delete, execute, financial, and administrative operations
+are allowed only when the source is allowlisted and the call passes its
+permission group.
 
-Run recovery is at least once: a worker death after execution but before durable
-settlement may repeat a read. MCP calls have no automatic retry.
+The worker records each MCP dispatch before invoking it. On queue redelivery,
+any Run with a recorded native attempt or MCP dispatch fails as
+`outcome_unknown` without re-running its model loop; open calls settle from
+durable results where present, and no recorded operation is invoked again. A
+Run with no native or MCP attempt may restart its tool loop from the first
+step. MCP calls have no automatic retry.
+
+## Workspace entry migration
+
+**Breaking:** Existing MCP allowlists no longer attest that tools are read-only.
+Add a `tools.permissions` group for every allowlisted MCP tool and use rejects
+for operations that must not mutate, send, execute, or administer.
+
+Permitting `enter_workspace` on a directory that any allowlisted tool can write
+— `bash`, native `write`/`edit` without the W1/W2 rejects described in
+[Native file tools](native-files.md#workspace-entry), or write-capable operator
+or Workspace MCP tools — is equivalent to `execute_code` and host-secret
+exfiltration. Treat such a directory as host authority and keep the entry
+policy plus W1/W2 rejects aligned with the tools it admits.
 
 Tool arguments leave llame. Trust the server for any conversation data the
 model may send. Redirects are disabled. Private/loopback endpoints are allowed;
@@ -126,9 +154,9 @@ MCP is not a network sandbox.
 ## Deployment
 
 Pre-alpha deployments run one code revision. Restart every API and worker with
-matching server config, allowlists, secrets, and reachability. Enable one exact
-read-only tool first and verify execution, replay, outage recovery, and secret
-absence before adding more.
+matching server config, allowlists, secrets, and reachability. Enable one
+exact MCP tool first and verify execution, permission denial, outage recovery,
+unknown-outcome recovery, and secret absence before adding more.
 
 Before an availability-writer migration, stop API writers and drain accepted
 Runs on compatible workers. Apply the migration, then restart every process on

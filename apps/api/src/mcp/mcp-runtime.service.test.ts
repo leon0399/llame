@@ -1,3 +1,5 @@
+import { drizzle } from 'drizzle-orm/postgres-js';
+
 import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,7 +17,11 @@ import {
   type McpDiscoveryResult,
 } from './mcp-server-client';
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
-import { type TenantRunner } from '../db/tenant-db.service';
+import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import * as schema from '../db/schema';
+import { NativeFilesRepository } from '../runs/native-files-repository';
+import { RunEventsRepository } from '../runs/runs-repository';
+import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
 
 const MINUTE_MS = 60_000;
 
@@ -25,6 +31,8 @@ const fakeTenantDb: TenantRunner = {
     throw new Error('runAs should not be called by these executor contexts');
   },
 };
+
+const fakeDispatchDb: Db = drizzle.mock({ schema });
 
 type Deferred<T> = {
   readonly promise: Promise<T>;
@@ -207,6 +215,364 @@ describe('McpRuntimeService', () => {
 
     await runtime.onModuleDestroy();
   });
+  it('records an MCP dispatch before invoking and persists its result', async () => {
+    const order: Array<string> = [];
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockImplementation(() => {
+        order.push('record');
+        return Promise.resolve(undefined);
+      });
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation((runId, eventType, payload) => {
+        order.push('result');
+        return Promise.resolve({
+          sequence: 0,
+          runId,
+          eventType,
+          payload: payload ?? null,
+          createdAt: new Date(),
+        });
+      });
+    const discovered: McpDiscoveredTool = {
+      ...discoveredTool('web', 'recorded'),
+      execute: vi.fn(() => {
+        order.push('invoke');
+        return Promise.resolve({
+          disposition: 'none' as const,
+          result: { status: 'success' as const, value: 'done' },
+        });
+      }),
+    };
+    const client = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discovered))),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+    });
+    runtime.onModuleInit();
+    await flushAsync();
+
+    const resolution = runtime.resolveDynamicTool('mcp__web__recorded');
+    if (resolution.state !== 'available') {
+      throw new Error('expected the dynamic tool to be available');
+    }
+    const tenantDb: TenantRunner = {
+      runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
+    };
+    const result = await resolution.executor.execute(
+      {
+        runId: 'run-1',
+        nativeDeliverySequence: 1,
+        userId: 'user-1',
+        chatId: 'chat-1',
+        tenantDb,
+        toolCallId: 'call-1',
+      },
+      {},
+    );
+
+    expect(result).toEqual({ status: 'success', value: 'done' });
+    expect(order).toEqual(['record', 'invoke', 'result']);
+    expect(begin).toHaveBeenCalledWith({
+      runId: 'run-1',
+      userId: 'user-1',
+      fence: { bound: false },
+      deliverySequence: 1,
+      toolCallId: 'call-1',
+      operation: 'mcp',
+      path: 'mcp__web__recorded',
+    });
+    expect(append).toHaveBeenCalledWith(
+      'run-1',
+      'native.result',
+      expect.objectContaining({
+        toolCallId: 'call-1',
+        result: { status: 'success', value: 'done' },
+      }),
+    );
+
+    await runtime.onModuleDestroy();
+  });
+
+  it('returns outcome_unknown when result persistence fails and still reconnects', async () => {
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValue(undefined);
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockRejectedValue(new Error('event log unavailable'));
+    const unknown = vi.fn();
+    const discovered: McpDiscoveredTool = {
+      ...discoveredTool('web', 'persist-failure'),
+      execute: vi.fn(() =>
+        Promise.resolve({
+          disposition: 'reconnect' as const,
+          result: { status: 'success' as const, value: 'remote-result' },
+        }),
+      ),
+    };
+    const client = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discovered))),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+    });
+    runtime.onModuleInit();
+    await flushAsync();
+
+    const resolution = runtime.resolveDynamicTool('mcp__web__persist-failure');
+    if (resolution.state !== 'available') {
+      throw new Error('expected the dynamic tool to be available');
+    }
+    const tenantDb: TenantRunner = {
+      runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
+    };
+    await expect(
+      resolution.executor.execute(
+        {
+          runId: 'run-persist-failure',
+          nativeDeliverySequence: 1,
+          userId: 'user-1',
+          chatId: 'chat-1',
+          tenantDb,
+          toolCallId: 'call-persist-failure',
+          onNativeMutationUnknown: unknown,
+        },
+        {},
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'outcome_unknown',
+      message: 'The MCP operation may have executed; it will not be repeated.',
+    });
+    expect(begin).toHaveBeenCalledOnce();
+    expect(append).toHaveBeenCalledOnce();
+    expect(unknown).toHaveBeenCalledOnce();
+    expect(client.close).toHaveBeenCalledOnce();
+    expect(runtime.resolveDynamicTool('mcp__web__persist-failure')).toEqual({
+      state: 'unavailable',
+    });
+    await runtime.onModuleDestroy();
+  });
+
+  it('persists the truncated result observed by the Run loop', async () => {
+    const huge = 'x'.repeat(RESULT_TRUNCATE_CHARS * 2);
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation((runId, eventType, payload) =>
+        Promise.resolve({
+          sequence: 0,
+          runId,
+          eventType,
+          payload: payload ?? null,
+          createdAt: new Date(),
+        }),
+      );
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    const discovered: McpDiscoveredTool = {
+      ...discoveredTool('web', 'truncated'),
+      execute: vi.fn(() =>
+        Promise.resolve({
+          disposition: 'none' as const,
+          result: { status: 'success' as const, output: huge },
+        }),
+      ),
+    };
+    const client = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discovered))),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+    });
+    runtime.onModuleInit();
+    await flushAsync();
+
+    const resolution = runtime.resolveDynamicTool('mcp__web__truncated');
+    if (resolution.state !== 'available') {
+      throw new Error('expected the dynamic tool to be available');
+    }
+    const tenantDb: TenantRunner = {
+      runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
+    };
+    const result = await resolution.executor.execute(
+      {
+        runId: 'run-truncated',
+        nativeDeliverySequence: 1,
+        userId: 'user-1',
+        chatId: 'chat-1',
+        tenantDb,
+        toolCallId: 'call-truncated',
+      },
+      {},
+    );
+
+    expect(result).toMatchObject({ status: 'success', truncated: true });
+    const persistedResult: unknown = expect.objectContaining({
+      status: 'success',
+      truncated: true,
+    });
+    expect(append).toHaveBeenCalledWith(
+      'run-truncated',
+      'native.result',
+      expect.objectContaining({ result: persistedResult }),
+    );
+    await runtime.onModuleDestroy();
+  });
+
+  it('returns a prior unknown MCP outcome on retry without invoking twice', async () => {
+    const prior = {
+      status: 'error' as const,
+      type: 'outcome_unknown',
+      message: 'A prior MCP dispatch may have executed.',
+    };
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(prior);
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation((runId, eventType, payload) =>
+        Promise.resolve({
+          sequence: 0,
+          runId,
+          eventType,
+          payload: payload ?? null,
+          createdAt: new Date(),
+        }),
+      );
+    const discovered = discoveredTool('web', 'retry');
+    const invoke = discovered.execute;
+    const client = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discovered))),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+    });
+    runtime.onModuleInit();
+    await flushAsync();
+
+    const resolution = runtime.resolveDynamicTool('mcp__web__retry');
+    if (resolution.state !== 'available') {
+      throw new Error('expected the dynamic tool to be available');
+    }
+    const tenantDb: TenantRunner = {
+      runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
+    };
+    const context = {
+      runId: 'run-2',
+      nativeDeliverySequence: 2,
+      userId: 'user-1',
+      chatId: 'chat-1',
+      tenantDb,
+      toolCallId: 'call-2',
+    };
+    await expect(
+      resolution.executor.execute(context, {}),
+    ).resolves.toMatchObject({ status: 'success' });
+    await expect(resolution.executor.execute(context, {})).resolves.toEqual(
+      prior,
+    );
+    expect(begin).toHaveBeenCalledTimes(2);
+    expect(append).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledOnce();
+    await runtime.onModuleDestroy();
+  });
+
+  it('does not record or invoke an MCP call when the Run is already aborted', async () => {
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+    const discovered = discoveredTool('web', 'aborted-before-record');
+    const invoke = discovered.execute;
+    const client = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discovered))),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+    });
+    runtime.onModuleInit();
+    await flushAsync();
+
+    const resolution = runtime.resolveDynamicTool(
+      'mcp__web__aborted-before-record',
+    );
+    if (resolution.state !== 'available') {
+      throw new Error('expected the dynamic tool to be available');
+    }
+    const controller = new AbortController();
+    controller.abort();
+    const tenantDb: TenantRunner = {
+      runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
+    };
+
+    await expect(
+      resolution.executor.execute(
+        {
+          runId: 'run-aborted-before-record',
+          nativeDeliverySequence: 1,
+          userId: 'user-1',
+          chatId: 'chat-1',
+          tenantDb,
+          toolCallId: 'call-aborted-before-record',
+          abortSignal: controller.signal,
+        },
+        {},
+      ),
+    ).rejects.toThrow(/aborted/i);
+    expect(begin).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+    await runtime.onModuleDestroy();
+  });
+
+  it('does not invoke an MCP call when abort lands after durable recording', async () => {
+    const controller = new AbortController();
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockImplementation(() => {
+        controller.abort();
+        return Promise.resolve(undefined);
+      });
+    const discovered = discoveredTool('web', 'aborted-after-record');
+    const invoke = discovered.execute;
+    const client = fakeClient(
+      vi.fn(() => Promise.resolve(discovery(discovered))),
+    );
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+    });
+    runtime.onModuleInit();
+    await flushAsync();
+
+    const resolution = runtime.resolveDynamicTool(
+      'mcp__web__aborted-after-record',
+    );
+    if (resolution.state !== 'available') {
+      throw new Error('expected the dynamic tool to be available');
+    }
+    const tenantDb: TenantRunner = {
+      runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
+    };
+
+    await expect(
+      resolution.executor.execute(
+        {
+          runId: 'run-aborted-after-record',
+          nativeDeliverySequence: 1,
+          userId: 'user-1',
+          chatId: 'chat-1',
+          tenantDb,
+          toolCallId: 'call-aborted-after-record',
+          abortSignal: controller.signal,
+        },
+        {},
+      ),
+    ).rejects.toThrow(/aborted/i);
+    expect(begin).toHaveBeenCalledOnce();
+    expect(invoke).not.toHaveBeenCalled();
+    await runtime.onModuleDestroy();
+  });
 
   it('returns unavailable for a canonical tool removed by refresh', async () => {
     vi.useFakeTimers();
@@ -305,14 +671,19 @@ describe('McpRuntimeService', () => {
       expect.objectContaining({
         id: 'mcp__web__first',
         state: 'unavailable',
+        classification: 'unverified',
         reason: 'source_disconnected',
       }),
       expect.objectContaining({
         id: 'mcp__web__second',
         state: 'unavailable',
+        classification: 'unverified',
         reason: 'source_disconnected',
       }),
     ]);
+    for (const candidate of runtime.snapshotCandidates()) {
+      expect(candidate).not.toHaveProperty('tool');
+    }
     expect(runtime.snapshotCandidates()).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'mcp__web__refused' }),
@@ -584,7 +955,7 @@ describe('McpRuntimeService', () => {
       }),
     );
     expect(resolution.executor.id).toBe('mcp__web__valid');
-    expect(resolution.executor.classification).toBe('read_only');
+    expect(resolution.executor.classification).toBe('unverified');
     const abortController = new AbortController();
     await expect(
       resolution.executor.execute(

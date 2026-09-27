@@ -1068,6 +1068,68 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
+  it('recovers an open MCP dispatch as outcome_unknown without replaying the Run', async () => {
+    const seeded = await seedBoundRun(`mcp-retry-${crypto.randomUUID()}`);
+    const toolId = 'mcp__web__write';
+    await tenantDb.runAs(userId, async (tx) => {
+      const runs = new RunsRepository(tx);
+      const started = await runs.markStarted(seeded.run.id, userId);
+      if (!started) throw new Error('MCP recovery Run did not start.');
+      const events = new RunEventsRepository(tx);
+      await events.append(seeded.run.id, 'run.started');
+      await events.append(seeded.run.id, 'tool.requested', {
+        toolCallId: 'mcp-retry-call',
+        toolName: toolId,
+        input: { value: 'external mutation' },
+      });
+      await events.append(seeded.run.id, 'native.attempt', {
+        toolCallId: 'mcp-retry-call',
+        operation: 'mcp',
+        path: toolId,
+      });
+    });
+
+    const modelCalls = vi.fn();
+    const service = serviceWithTools();
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        modelCalls();
+        return Promise.resolve(textResponse('must not replay'));
+      },
+    });
+
+    try {
+      await expect(
+        executeSeeded(seeded, service, createMockModelClient(model)),
+      ).rejects.toThrow('no longer runnable');
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      expect(modelCalls).not.toHaveBeenCalled();
+      expect(
+        events.filter((event) => event.eventType === 'native.attempt'),
+      ).toHaveLength(1);
+      expect(
+        events.find((event) => event.eventType === 'tool.completed')?.payload,
+      ).toMatchObject({
+        toolCallId: 'mcp-retry-call',
+        toolName: toolId,
+        status: 'error',
+        output: { type: 'outcome_unknown' },
+      });
+      const run = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(seeded.run.id, userId),
+      );
+      expect(run).toMatchObject({
+        status: 'failed',
+        error: { code: 'outcome_unknown' },
+      });
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+    }
+  });
+
   it('progress-write failure settles the durable open call before run.failed and persists it', async () => {
     const reindexChat = vi
       .fn()
@@ -1585,7 +1647,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const seedTool: Tool = {
       id: toolId,
       description: 'Search current fixture evidence.',
-      classification: 'read_only',
+      classification: 'unverified',
       inputSchema: z.strictObject({ query: z.string().min(1) }),
       execute: seedExecute,
     };
@@ -1729,7 +1791,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const remoteTool: Tool = {
       id: toolId,
       description: 'Search the offline fixture.',
-      classification: 'read_only',
+      classification: 'unverified',
       inputSchema: z.strictObject({ query: z.string() }),
       execute: remoteExecute,
     };

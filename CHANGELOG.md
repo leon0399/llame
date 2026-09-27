@@ -2,6 +2,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-27
 
+- **BREAKING:** MCP tools are now classified `unverified`: an exact
+  `tools.allowed` entry or namespace wildcard selects eligibility, and each
+  call requires an applicable `tools.permissions` group. Operators must ensure
+  permission groups cover every MCP tool they allow; allowlisting no longer
+  attests to read-only behavior. The worker records each MCP dispatch before
+  invoking it; queue redelivery of any Run with a recorded native attempt or
+  MCP dispatch fails as `outcome_unknown` without replaying the model loop.
+  Open calls settle from durable results where present, while a Run with no
+  native or MCP attempt restarts from its first step
+  ([#974](https://github.com/leon0399/llame/issues/974)).
+
+- The owner Chat header now shows the bound Workspace root name with the full
+  path in a tooltip. It refreshes mid-Run after entry, exit, or stream-start
+  preparation changes; shared views never expose the indicator.
+
 - Native host Workspaces can be entered and exited per Chat with canonical
   absolute-root binding, lexical relative-path projection, and fail-closed
   re-check detachment. The documented example policy now covers Workspace
@@ -10,10 +25,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `.agents/skills`, and `.llame/skills` sources with bounded entry-result
   listings, live `skill://` reads, and operator-catalog isolation
   ([#974](https://github.com/leon0399/llame/issues/974)).
-
-- The owner Chat header now shows the bound Workspace root name with the full
-  path in a tooltip. It refreshes mid-Run after entry, exit, or stream-start
-  preparation changes; shared views never expose the indicator.
 
 # 2026-09-26
 

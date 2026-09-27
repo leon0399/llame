@@ -381,6 +381,47 @@ describe('runTool permission gate', () => {
     });
     expect(execute).not.toHaveBeenCalled();
   });
+  it('executes a write-capable MCP tool when its permission group allows it', async () => {
+    const execute = vi.fn(() => ({
+      status: 'success' as const,
+      value: 'sent',
+    }));
+    const mcpTool: Tool = {
+      ...echoTool,
+      id: 'mcp__demo__write',
+      classification: 'unverified',
+      execute,
+    };
+
+    const result = await runTool(
+      mcpTool,
+      { value: 'x' },
+      contextWith({ mcp__demo__write: { allow: true } }),
+      5,
+    );
+
+    expect(result).toEqual({ status: 'success', value: 'sent' });
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an MCP tool without a permission group as canonical no_allow', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const }));
+    const mcpTool: Tool = {
+      ...echoTool,
+      id: 'mcp__demo__write',
+      classification: 'unverified',
+      execute,
+    };
+
+    const result = await runTool(mcpTool, { value: 'x' }, contextWith({}), 5);
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'permission_denied',
+      message: NO_ALLOW,
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
 
   it('does not invoke the executor for a rejected call', async () => {
     const execute = vi.fn(() => ({ status: 'success' as const, value: 'x' }));

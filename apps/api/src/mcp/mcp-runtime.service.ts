@@ -7,10 +7,12 @@ import {
 import {
   McpProtocolUnsupportedError,
   McpServerClient,
+  type McpCallOutcome,
   type McpDiscoveredTool,
   type McpDiscoveryResult,
   type McpServerClientConfig,
   type McpStdioServerClientConfig,
+  type McpToolExecutor,
 } from './mcp-server-client';
 import { parseMcpToolId } from './tool-id';
 import {
@@ -22,7 +24,13 @@ import {
   type ToolUnavailableReason,
   type TurnToolCandidate,
 } from '../tools/turn-tool-catalog';
-import { type Tool } from '../tools/types';
+import { NativeFilesRepository } from '../runs/native-files-repository';
+import { RunEventsRepository } from '../runs/runs-repository';
+import { type Tool, type ToolContext } from '../tools/types';
+import {
+  truncateOversizedResult,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 import {
   frozenRuntimeDefinition,
   isStdio,
@@ -196,7 +204,7 @@ export class McpRuntimeService
               }),
               state: 'unavailable' as const,
               id,
-              classification: 'read_only' as const,
+              classification: 'unverified' as const,
               reason: record.unavailableReason,
             }),
           );
@@ -436,6 +444,75 @@ export class McpRuntimeService
     return Object.freeze({ entries });
   }
 
+  /** Records MCP dispatches before invocation for Run recovery. */
+  private async executeMcpDispatch(
+    context: ToolContext,
+    args: UnknownRecord,
+    toolId: string,
+    execute: McpToolExecutor,
+  ): Promise<McpCallOutcome> {
+    const runId = context.runId;
+    const toolCallId = context.toolCallId ?? toolId;
+    if (runId !== undefined) {
+      context.abortSignal?.throwIfAborted();
+      const prior = await context.tenantDb.runAs(context.userId, (db) =>
+        new NativeFilesRepository(db).begin({
+          runId,
+          userId: context.userId,
+          fence: { bound: false },
+          deliverySequence: context.nativeDeliverySequence,
+          toolCallId,
+          operation: 'mcp',
+          path: toolId,
+        }),
+      );
+      if (prior !== undefined) {
+        return { disposition: 'none', result: prior };
+      }
+      context.abortSignal?.throwIfAborted();
+    }
+
+    const outcome = await execute(args, {
+      toolCallId,
+      messages: [],
+      abortSignal: context.abortSignal,
+    });
+    const observed = {
+      ...outcome,
+      result: truncateOversizedResult(outcome.result),
+    };
+    if (runId === undefined) return observed;
+    return this.persistMcpResult(context, runId, toolCallId, observed);
+  }
+
+  private async persistMcpResult(
+    context: ToolContext,
+    runId: string,
+    toolCallId: string,
+    outcome: McpCallOutcome,
+  ): Promise<McpCallOutcome> {
+    try {
+      await context.tenantDb.runAs(context.userId, (db) =>
+        new RunEventsRepository(db).append(runId, 'native.result', {
+          toolCallId,
+          result: outcome.result,
+        }),
+      );
+      return outcome;
+    } catch {
+      context.onNativeMutationUnknown?.();
+      return {
+        disposition: outcome.disposition,
+        result: {
+          status: 'error',
+          type: 'outcome_unknown',
+          message:
+            'The MCP operation may have executed; it will not be repeated.',
+        },
+      };
+    }
+  }
+
   private createExecutor(
     connection: ConnectionContext,
     discovered: McpDiscoveredTool,
@@ -443,12 +520,12 @@ export class McpRuntimeService
   ): Tool {
     const { record, generation, client } = connection;
     const definition = discovered.definition;
-    const executor: Tool = {
+    return Object.freeze({
       id: definition.id,
       description: definition.description,
-      classification: 'read_only',
+      classification: 'unverified',
       inputSchema: definition.inputSchema,
-      execute: async (context, args) => {
+      execute: async (context: ToolContext, args: UnknownRecord) => {
         const current = record.catalog.entries.get(definition.id);
         if (
           this.shuttingDown ||
@@ -461,20 +538,20 @@ export class McpRuntimeService
             status: 'error',
             type: 'not_available',
             message: `Tool "${definition.id}" is not available.`,
-          };
+          } as const;
         }
-        const outcome = await discovered.execute(args, {
-          toolCallId: context.toolCallId ?? definition.id,
-          messages: [],
-          abortSignal: context.abortSignal,
-        });
+        const outcome = await this.executeMcpDispatch(
+          context,
+          args,
+          definition.id,
+          discovered.execute,
+        );
         if (outcome.disposition === 'reconnect') {
           this.handleDisconnect(record, generation, client);
         }
         return outcome.result;
       },
-    };
-    return Object.freeze(executor);
+    });
   }
 
   private failCurrentOperation(

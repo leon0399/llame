@@ -69,6 +69,14 @@ describe('registry startup validation (fail loud, not at call time)', () => {
       expect(() => buildRegistry([invalid])).toThrow(/classification/);
     },
   );
+  it('accepts the unverified classification for a classified tool', () => {
+    const mcpAdapter = {
+      ...searchConversationsTool,
+      id: 'remote_adapter',
+      classification: 'unverified' as const,
+    };
+    expect(buildRegistry([mcpAdapter]).get(mcpAdapter.id)).toBe(mcpAdapter);
+  });
 
   it('rejects a duplicate tool id at startup, naming it', () => {
     const dup = { ...searchConversationsTool };
@@ -91,7 +99,7 @@ describe('registry startup validation (fail loud, not at call time)', () => {
   });
 });
 
-describe('resolveAdvertisedTools (fail-closed gate: allowlisted ∩ read_only)', () => {
+describe('resolveAdvertisedTools (fail-closed source and allowlist gate)', () => {
   it('default (empty allowlist) advertises nothing', () => {
     expect(resolveAdvertisedTools(new Set())).toEqual([]);
   });
@@ -111,6 +119,16 @@ describe('resolveAdvertisedTools (fail-closed gate: allowlisted ∩ read_only)',
       resolveAdvertisedTools(new Set(['write_something']), [writeTool]),
     ).toEqual([]);
   });
+  it('does not advertise an unverified non-MCP id without a host capability', () => {
+    const unverifiedTool: Tool = {
+      ...searchConversationsTool,
+      id: 'remote_adapter',
+      classification: 'unverified',
+    };
+    expect(
+      resolveAdvertisedTools(new Set(['remote_adapter']), [unverifiedTool]),
+    ).toEqual([]);
+  });
 
   it('does not advertise a registered tool absent from the allowlist', () => {
     expect(resolveAdvertisedTools(new Set(['something_else']))).toEqual([]);
@@ -120,12 +138,13 @@ describe('resolveAdvertisedTools (fail-closed gate: allowlisted ∩ read_only)',
     const webTool = {
       ...searchConversationsTool,
       id: 'mcp__web__search',
+      classification: 'unverified' as const,
     };
     const webExtraTool = {
       ...searchConversationsTool,
       id: 'mcp__webExtra__search',
+      classification: 'unverified' as const,
     };
-
     expect(
       resolveAdvertisedTools(new Set(['mcp__web__*']), [
         webTool,
@@ -133,9 +152,12 @@ describe('resolveAdvertisedTools (fail-closed gate: allowlisted ∩ read_only)',
       ]).map((tool) => tool.id),
     ).toEqual(['mcp__web__search']);
   });
-
   it('retains a candidate once when exact and namespace permissions overlap', () => {
-    const tool = { ...searchConversationsTool, id: 'mcp__web__search' };
+    const tool = {
+      ...searchConversationsTool,
+      id: 'mcp__web__search',
+      classification: 'unverified' as const,
+    };
     expect(
       resolveAdvertisedTools(new Set(['mcp__web__*', tool.id]), [tool]),
     ).toEqual([tool]);

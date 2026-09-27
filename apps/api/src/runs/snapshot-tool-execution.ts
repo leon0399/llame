@@ -66,7 +66,7 @@ function unavailableExecutor(declaration: ModelToolDeclaration): Tool {
   return {
     id: declaration.id,
     description: declaration.description,
-    classification: 'read_only',
+    classification: 'unverified',
     inputSchema: declaration.inputSchema,
     execute: () => ({
       status: 'error',
@@ -161,7 +161,7 @@ function resolveDynamicToolBinding(
     dynamicResolution.state === 'available' &&
     dynamicResolution.declarationHash === hashToolDeclaration(declaration) &&
     dynamicResolution.executor.id === declaration.id &&
-    dynamicResolution.executor.classification === 'read_only'
+    dynamicResolution.executor.classification === 'unverified'
   ) {
     return { declaration, executor: dynamicResolution.executor };
   }

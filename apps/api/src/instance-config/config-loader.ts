@@ -177,7 +177,6 @@ function resolveDbConfig(
 function resolveToolsConfig(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
-  mcpServers: Readonly<Record<string, McpServerConfig>>,
 ): LlameConfig['tools'] {
   const nativeExecutorId = resolveNullableString({
     configPath: 'tools.nativeExecutorId',
@@ -188,7 +187,6 @@ function resolveToolsConfig(
     allowed: resolveToolAllowlist({
       configPath: 'tools.allowed',
       ...readLeaf(raw, 'tools', 'allowed'),
-      configuredMcpServerIds: new Set(Object.keys(mcpServers)),
     }),
     permissions: resolveToolPermissions({
       configPath: 'tools.permissions',
@@ -281,7 +279,7 @@ export function loadInstanceConfig(
     runs: resolveRunsConfig(raw, env),
     http: resolveHttpConfig(raw, env),
     db: resolveDbConfig(raw, env),
-    tools: resolveToolsConfig(raw, env, mcpServers),
+    tools: resolveToolsConfig(raw, env),
     mcpServers,
     knowledge: resolveKnowledge(raw, env),
     skills: resolveSkillsConfig(raw, configPath),
@@ -743,16 +741,15 @@ function isStringArray(value: unknown): value is Array<string> {
  * `isStringArray` re-checks it at runtime rather than trust that guarantee
  * silently. Code-owned ids remain strict against the registry; exact MCP ids
  * use the mcp-tool-id-v1 parser and namespace permissions use the single
- * canonical `mcp__<configured-server>__*` form. Neither depends on discovery
- * succeeding during boot.
+ * canonical `mcp__<server>__*` form. Neither depends on configured servers or
+ * discovery succeeding during boot.
  */
 /** Validate ONE `tools.allowed` entry — a wildcard MCP namespace, an exact
- *  MCP tool id, or a code-owned id — against the registered tools and the
- *  configured MCP servers. Throws on the first invalid or unreferenceable id. */
+ * MCP tool id, or a code-owned id — against the registered tools. Throws on
+ * the first invalid id. */
 function assertValidAllowlistId(
   id: string,
   configPath: string,
-  configuredMcpServerIds: ReadonlySet<string>,
   registered: ReadonlySet<string>,
 ): void {
   if (id.includes('*')) {
@@ -762,11 +759,6 @@ function assertValidAllowlistId(
         `${configPath}: invalid MCP namespace wildcard "${id}"`,
       );
     }
-    if (!configuredMcpServerIds.has(match[1])) {
-      throw new InstanceConfigError(
-        `${configPath}: MCP namespace wildcard "${id}" references an undeclared mcpServers entry`,
-      );
-    }
     return;
   }
   if (id.startsWith('mcp__')) {
@@ -774,11 +766,6 @@ function assertValidAllowlistId(
     if (!parsed.success) {
       throw new InstanceConfigError(
         `${configPath}: invalid MCP tool id "${id}"`,
-      );
-    }
-    if (!configuredMcpServerIds.has(parsed.serverId)) {
-      throw new InstanceConfigError(
-        `${configPath}: MCP tool id "${id}" references an undeclared mcpServers entry`,
       );
     }
     return;
@@ -794,9 +781,8 @@ function resolveToolAllowlist(opts: {
   configPath: string;
   present: boolean;
   raw: unknown;
-  configuredMcpServerIds: ReadonlySet<string>;
 }): ReadonlyArray<string> {
-  const { configPath, present, raw, configuredMcpServerIds } = opts;
+  const { configPath, present, raw } = opts;
   if (!present) {
     return BUILT_IN_DEFAULTS.tools.allowed;
   }
@@ -805,7 +791,7 @@ function resolveToolAllowlist(opts: {
   }
   const registered = new Set(getRegisteredToolIds());
   for (const id of raw) {
-    assertValidAllowlistId(id, configPath, configuredMcpServerIds, registered);
+    assertValidAllowlistId(id, configPath, registered);
   }
   return raw;
 }

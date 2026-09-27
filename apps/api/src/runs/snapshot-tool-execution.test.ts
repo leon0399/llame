@@ -189,7 +189,7 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
         properties: { query: { type: 'string' } },
         required: ['query'],
       },
-      { id: 'mcp__web__search' },
+      { id: 'mcp__web__search', classification: 'unverified' },
     );
     const declaration = await makeDeclaration(tool);
     const resolver = {
@@ -254,6 +254,7 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
       });
       expect(liveExecute).not.toHaveBeenCalled();
       expect(bound.executor.id).toBe(declaration.id);
+      expect(bound.executor.classification).toBe('unverified');
       expect(bound.executor.description).toBe(declaration.description);
       expect(bound.executor.inputSchema).toBe(declaration.inputSchema);
     },

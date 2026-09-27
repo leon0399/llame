@@ -18,9 +18,10 @@ boundaries, and traps. DB work follows [`src/db/AGENTS.md`](src/db/AGENTS.md).
 | `evals/`               | opt-in model-graded tests; never CI                   |
 
 Each feature owns one Nest module and exports services consumers need; never
-re-provide them. `RunExecutionService` stays transport-neutral. The current tool
-gate admits allowlisted read-only tools, the exact configured native file
-capability, and allowlisted alpha host `bash` under the same
+re-provide them. `RunExecutionService` stays transport-neutral. The current
+tool gate admits allowlisted tools, then applies `tools.permissions` per call;
+code-owned host tools still require the exact configured native file capability,
+and allowlisted alpha host `bash` stays under the same
 `tools.nativeExecutorId` gate. Native mutations require durable pre-effect
 fencing. Native `read` also fetches an absolute `http://` or `https://` locator
 through the API process's own outbound HTTP, so `read` is advertised whenever
@@ -243,11 +244,16 @@ source chat does not erase copies in prompts, appends, or receipts.
   validation is primary; local parse is defense in depth.
 - Every OpenAI function/dynamic tool is lowered with `strict: false`; do this at
   the provider boundary, never by rewriting persisted schemas.
-- Queue retry restarts the tool loop, so write-capable tools require checkpoint
-  or dedupe semantics.
-- MCP config supports stdio and Streamable HTTP. Wildcards
-  `mcp__<server>__*` attest that every current and future tool is read-only;
-  exact IDs are safer. Remote metadata grants no authority.
+- Queue redelivery restarts the tool loop only when no native or MCP attempt
+  was recorded. Native write-capable tools require checkpoint or dedupe
+  semantics; the worker records each native/MCP dispatch before invocation,
+  and any redelivered Run with one settles as `outcome_unknown` without
+  invoking the recorded operation again (open calls use durable results where
+  present).
+- MCP config supports stdio and Streamable HTTP. MCP tools are classified
+  `unverified`; exact IDs and `mcp__<server>__*` wildcards select allowlisted
+  source identities, and each call needs an applicable `tools.permissions`
+  group. Remote metadata grants no authority.
 - Stdio children receive only the SDK base env plus declared `env`, run
   unsandboxed as llame, and have bounded/sanitized stderr. Only interpolated
   segments are protected.
