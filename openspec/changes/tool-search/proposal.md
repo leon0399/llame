@@ -20,6 +20,10 @@ The approved revision of this change no longer matches the system it targets:
 - It refused to pre-declare any MCP tool once the catalog crossed the budget, because every
   candidate ordering it considered (id order, first-N) was arbitrary. The owner's own call history
   is a non-arbitrary ordering: the tools an owner keeps calling are the ones worth declaring.
+- Workspace MCP servers now start per Chat and can join a Run in the middle, and MCP
+  eligibility accepts namespace rules such as `mcp__playwright__*`
+  ([#974](https://github.com/leon0399/llame/issues/974)). One allowlist line and one
+  `enter_workspace` call can now put a 60-tool server in front of the model mid-Run.
 - OpenAI and Anthropic now both let an application change which tools the model is offered
   without editing the `tools` array, so loading a tool mid-conversation no longer has to cost a
   full prefix re-prefill ([prompt-cache study F10](../../../docs/research/tool-harness/2026-09-26-prompt-cache-boundaries.md)).
@@ -53,6 +57,11 @@ critical path.
   keeps the `tools` array constant for the chat epoch and loads through the provider's own
   append-only mechanism: deferred tools plus `tool_reference` results on `anthropic-messages`,
   and deferred functions plus a client-executed `tool_search` on `openai-responses`.
+- Apply the same partition to Workspace MCP tools that `enter_workspace` adds during a Run:
+  tools already declared stay declared, the additions are declared only while they fit, and the
+  rest become discoverable, listed in the entry result.
+- Exempt `tool_search` from `tools.permissions`: it has no effect and discloses only admitted
+  tools, while every call to a tool it loads still needs that tool's own permission group.
 - Keep the discovery limits in `mcp-tools` (1,000 tools, byte bounds, deadline) as wire-level
   resource guards independent of the budget.
 - Record, in design, the road to per-message tool selection by a fast classifier: a
@@ -62,11 +71,11 @@ critical path.
 Not in scope: the per-message selector and any Jev integration; provider-executed search
 (Anthropic BM25/regex, OpenAI hosted search); OpenAI namespaces; embeddings or BM25 over the
 catalog; cache-preserving availability changes for unavailable tools
-([#972](https://github.com/leon0399/llame/issues/972)); tools added in the middle of a Run
-([#974](https://github.com/leon0399/llame/issues/974)); a user-facing tool picker; tool
-declarations in the owner receipt; and any change to authorization. A discoverable tool is
-admitted, allowlisted, read-only, and executed under the same attempt-local declaration match as
-before.
+([#972](https://github.com/leon0399/llame/issues/972)); adding Workspace tools by value through
+Anthropic's `inline-tools` beta; a user-facing tool picker; tool declarations in the owner
+receipt; and any change to authorization. A discoverable tool is admitted by `tools.allowed`,
+authorized per call by its own `tools.permissions` group, and executed under the same
+attempt-local declaration match as before.
 
 ## Capabilities
 
@@ -78,10 +87,13 @@ None.
 
 - `tool-calling`: admitted MCP tools beyond the per-model budget are discoverable through a
   reserved `tool_search` tool; the most-used MCP tools stay declared; the loaded set derives from
-  replayed `tool_search` observations; `tool_search` observations project through the executing
-  wire's native loading form under the `native` strategy; the transport strategy is per model.
+  replayed `tool_search` observations; in-Run Workspace additions join the partition;
+  `tool_search` observations project through the executing wire's native loading form under the
+  `native` strategy; the transport strategy is per model.
 - `context-injection`: the owner's MCP usage rank is a frozen prefix baseline stored on the chat,
-  resolved in the accepted-turn transaction and re-resolved at compaction.
+  resolved by the worker, written by the completing attempt, and re-resolved at compaction.
+- `tool-call-permissions`: `tool_search` is the one tool evaluated without a permission group.
+- `workspace-entry`: the entry result lists Workspace tools that became discoverable.
 - `instance-config`: optional `models[].toolSearchThresholdTokens` and `models[].toolSearch`,
   validated against the model's provider type.
 - `mcp-tools`: discovery limits are resource guards independent of the declaration budget.
@@ -89,11 +101,13 @@ None.
 ## Impact
 
 - `apps/api/src/tools`: tier computation beside `composeTurnToolCatalog`, the `tool_search`
-  executor, registry and allowlist refusal of the reserved id.
+  executor, registry and allowlist refusal of the reserved id, the permission exemption, and
+  partitioning of in-Run additions in `attempt-tool-additions.ts`.
+- `apps/api/src/mcp`: the `enter_workspace` result lists discoverable additions.
 - `apps/api/src/runs`: partition at attempt preparation, loaded-set derivation, per-step declared
   set composed with the existing step cap, the execute-wrapper gate.
-- `apps/api/src/chats`: usage-rank resolution in the accepted-turn transaction, fork copy, the
-  `tool_search` observation projection.
+- `apps/api/src/chats`: usage-rank resolution and fork copy, the `tool_search` observation
+  projection.
 - `apps/api/src/models`: `anthropic-model-client.ts` and `openai-model-client.ts` native
   delivery using installed adapter options; no SDK upgrade.
 - `apps/api/src/db`: two nullable `chats` columns for the rank baseline and its compaction

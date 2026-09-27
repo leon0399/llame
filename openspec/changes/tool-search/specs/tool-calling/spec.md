@@ -3,7 +3,8 @@
 ### Requirement: Admitted MCP tools beyond the declaration budget are discoverable
 
 Each execution attempt SHALL partition its admitted catalog after the existing availability gate.
-Every admitted code-owned tool SHALL be declared to the model on every step and SHALL NOT count
+MCP tools from operator servers and from the bound Workspace's servers SHALL be partitioned
+alike. Every admitted code-owned tool SHALL be declared to the model on every step and SHALL NOT count
 against any budget. The attempt SHALL estimate the eligible MCP declarations at four characters
 per token over each declaration's canonical JSON; when that estimate does not exceed the model's
 declaration budget (`instance-config`), every admitted tool SHALL be declared and the request's
@@ -76,8 +77,8 @@ only select among admitted tools and SHALL NOT admit, authorize, or reclassify a
 When an attempt has at least one discoverable tool, it SHALL synthesize the reserved tool
 `tool_search`, classified `read_only`, needing no tenant database access, absent from the
 availability manifest, and declared on every step until the step cap is reached. Its input SHALL
-be `{ select?: string[], query?: string, limit?: integer }`. `select` SHALL resolve exact
-discoverable ids. `query` SHALL match case-insensitive tokens against each discoverable id split
+be `{ select?: string[], query?: string, limit?: integer }`. `select` SHALL accept any bounded
+`mcp__`-prefixed id and SHALL resolve exact discoverable ids. `query` SHALL match case-insensitive tokens against each discoverable id split
 on `_` and `-` and against its neutralized description, ranking an exact id match, then an id
 token match, then a description token match, and breaking ties by the chat's usage rank and then
 by id. `limit` SHALL default to 5 with a maximum of 20; `select` SHALL accept at most 20 ids.
@@ -93,8 +94,9 @@ callable. llame's execute wrapper SHALL refuse a call to a discoverable tool tha
 the current request with the recorded `not_available` outcome before any executor runs.
 
 The registry SHALL refuse to register `tool_search`, and `tools.allowed` validation SHALL fail
-startup if it lists `tool_search`. A step whose only calls are `tool_search` SHALL count toward
-`maxStepsPerRun`.
+startup if it lists `tool_search`. `tool_search` calls SHALL NOT be evaluated against
+`tools.permissions` (`tool-call-permissions`); every call to a tool it loaded SHALL be. A step
+whose only calls are `tool_search` SHALL count toward `maxStepsPerRun`.
 
 #### Scenario: Exact select loads a tool
 
@@ -135,7 +137,7 @@ startup if it lists `tool_search`. A step whose only calls are `tool_search` SHA
 
 #### Scenario: Queue retry starts without the failed attempt's loads
 
-- **WHEN** an attempt loads a tool and then fails, and the queue retries the Run
+- **WHEN** an attempt loads a tool and then fails without having recorded an MCP dispatch or native attempt, and the queue retries the Run
 - **THEN** the retry's first request treats that tool as not loaded
 - **AND** a call to it on the retry is refused until the retry loads it
 
@@ -149,10 +151,53 @@ startup if it lists `tool_search`. A step whose only calls are `tool_search` SHA
 - **WHEN** the step cap is reached on a step that only called `tool_search`
 - **THEN** no further tool executes and the model is driven to answer
 
+#### Scenario: A loaded tool still needs its own permission group
+
+- **WHEN** `tools.permissions` has no group for a discoverable MCP tool and the model loads it through `tool_search`
+- **THEN** the search succeeds and lists the tool under `loaded`
+- **AND** a call to that tool is rejected as `permission_denied`
+
 #### Scenario: Reserved id cannot be registered or allowlisted
 
 - **WHEN** code registers a tool named `tool_search`, or `tools.allowed` lists it
 - **THEN** registration fails, or startup fails naming `tools.allowed`
+
+### Requirement: In-Run Workspace additions join the tool partition
+
+When a trusted Workspace entry adds MCP declarations to an active attempt, the attempt SHALL add
+their estimate to its running MCP estimate. If deferral is not engaged and the total fits the
+budget, the additions SHALL be declared. Otherwise deferral SHALL be engaged for the rest of the
+attempt: tools already declared SHALL stay declared, the additions present in the chat's usage
+rank SHALL be declared in rank order while they fit the remaining budget as a strict prefix, and
+every other addition SHALL be discoverable. When deferral engages during the attempt and
+`tool_search` is not yet declared, the harness SHALL add it as a trusted in-Run addition.
+Additions SHALL never be cut. A discoverable addition SHALL be added to the attempt's tool record
+without being offered to the model under `harness`, and with the adapter's deferred-loading
+option under `native`. An addition whose executor becomes unavailable through exit, switch, or
+detach SHALL stop being a `tool_search` candidate. The next attempt SHALL partition the bound
+Workspace's tools at its start like every other admitted MCP tool.
+
+#### Scenario: A small addition within budget is declared
+
+- **WHEN** a Run whose MCP catalog fits its budget enters a Workspace whose admitted tools still fit
+- **THEN** the added tools are declared from the next step and no `tool_search` is added
+
+#### Scenario: A large addition engages deferral mid-Run
+
+- **WHEN** a Run whose MCP catalog fits its budget enters a Workspace whose admitted tools would exceed it
+- **THEN** the tools declared before entry stay declared
+- **AND** `tool_search` is added, ranked additions are declared while they fit, and the other additions are discoverable
+- **AND** the entry result lists each discoverable addition by id
+
+#### Scenario: A discoverable addition is selectable by id
+
+- **WHEN** the model calls `tool_search` with `select` naming an id that became discoverable after `tool_search` was declared
+- **THEN** the call passes schema validation and the id is listed under `loaded`
+
+#### Scenario: Exit withdraws a discoverable addition from search
+
+- **WHEN** a Workspace exit makes a discoverable addition's executor unavailable
+- **THEN** `tool_search` no longer lists or loads it, and a call to it is refused as unavailable
 
 ### Requirement: Tool-search delivery is a per-model strategy
 
@@ -178,8 +223,10 @@ search without an id enumeration, and a `tool_search` result SHALL reach the mod
 Run and on replay, as the provider's tool-search call and client tool-search output carrying the
 current attempt's declarations of the loaded ids that it admits.
 
-Under `harness` and under `native` on `anthropic-messages`, the `select` items SHALL carry an
-enumeration of the discoverable ids; under `native` on `openai-responses` they SHALL NOT.
+Under `harness` and under `native` on `anthropic-messages`, the `select` items SHALL disclose the
+ids discoverable when `tool_search` is declared as an enumeration alongside the bounded
+`mcp__`-prefixed string form; under `native` on `openai-responses` they SHALL carry no
+enumeration.
 
 The `native` projections SHALL apply only to `tool_search` observations and SHALL be an explicit
 exception to the ordinary projection's provider portability. The stored part SHALL stay the

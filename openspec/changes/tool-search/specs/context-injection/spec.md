@@ -15,25 +15,27 @@ be the number of distinct assistant messages containing at least one use of it. 
 contain only tools with a score of at least one, ordered by score descending, then by most recent
 use descending, then by id.
 
-The rank SHALL be persisted on the chat row under owner isolation together with the compaction
-identity under which it was resolved, following the skill-catalog baseline. Accepted-turn
+Uses SHALL be counted by tool id regardless of whether an operator or a Workspace server served
+them. The rank SHALL be persisted on the chat row under owner isolation together with the
+compaction identity under which it was resolved, following the skill-catalog baseline. Attempt
 preparation SHALL reuse the stored rank only when one is persisted and its recorded identity
-equals the chat's latest compaction identity, and SHALL otherwise resolve a new rank in the same
-accepted-turn transaction as the user message and Run. No rank SHALL be written on an instance
-with no configured MCP server. An owner fork SHALL copy the rank and remap its compaction
-identity the way it remaps the skill-catalog marker. The rank SHALL NOT be rendered into the
-system prompt or any context item.
+equals the chat's latest compaction identity; otherwise, when the attempt's admitted catalog
+contains an MCP tool, it SHALL resolve a new rank, and only the attempt that completes the Run
+SHALL persist it, in its fenced terminal transaction. An attempt whose admitted catalog contains
+no MCP tool SHALL neither resolve nor persist a rank. An owner fork SHALL copy the rank and remap
+its compaction identity the way it remaps the skill-catalog marker. The rank SHALL NOT be
+rendered into the system prompt or any context item.
 
 #### Scenario: The rank is frozen within an epoch
 
 - **WHEN** the owner uses an MCP tool in another chat between two user turns of this chat with no compaction between them
-- **THEN** the second turn reuses the stored rank unchanged
+- **THEN** the second turn's attempt reuses the stored rank unchanged
 - **AND** its declared MCP tools are the same as the first turn's for the same model and admitted catalog
 
 #### Scenario: Compaction resolves a new rank
 
 - **WHEN** a chat is compacted after the owner started using a new MCP tool
-- **THEN** the next accepted turn resolves a rank that includes that tool
+- **THEN** the next attempt that admits an MCP tool resolves a rank that includes that tool
 
 #### Scenario: Only successful uses count
 
@@ -60,3 +62,14 @@ system prompt or any context item.
 
 - **WHEN** an owner forks a chat with a stored rank
 - **THEN** the fork's rank equals the source's and its compaction identity names the copied checkpoint
+
+#### Scenario: A failed attempt does not freeze its rank
+
+- **WHEN** an attempt resolves a rank and then fails, and a retry attempt completes the Run
+- **THEN** the persisted rank is the one the completing attempt resolved
+
+#### Scenario: A Workspace tool's uses rank by id
+
+- **WHEN** the owner's successful uses of `mcp__playwright__browser_click` were served by a Workspace server in another chat
+- **THEN** the id appears in this chat's rank
+- **AND** it is declared here only when this attempt admits that id

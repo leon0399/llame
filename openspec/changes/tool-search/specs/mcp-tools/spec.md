@@ -4,7 +4,8 @@
 
 The fixed v1 discovery limits (page size, total tool count, byte bounds, nesting depth, retained
 declaration bytes, page cap, cursor guard, and the aggregate deadline) SHALL protect the process
-while reading a catalog and SHALL remain in force unchanged when the `tool-calling` declaration
+while reading an operator or Workspace server's catalog and SHALL remain in force unchanged when
+the `tool-calling` declaration
 budget makes MCP tools discoverable. Deferral SHALL change only which admitted declarations are
 offered to the model on a step; it SHALL NOT read fewer bytes, admit more tools, or relax any
 discovery limit, and a discovery that breaches a limit SHALL fail exactly as it does without

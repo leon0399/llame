@@ -2,7 +2,9 @@
 
 See `proposal.md` for motivation. Facts that shape the design, verified on 2026-09-27 against
 `master` at `1bab08dc` and the installed packages (`ai@6.0.256`, `@ai-sdk/openai@3.0.97`,
-`@ai-sdk/anthropic@3.0.118`):
+`@ai-sdk/anthropic@3.0.118`); the Workspace facts were verified at `12c63828`, after
+[workspace-entry](../archive/2026-09-27-workspace-entry/design.md) shipped
+([#974](https://github.com/leon0399/llame/issues/974)):
 
 - **Per-attempt catalogs.** The worker composes each attempt's admitted catalog in memory
   (`run-execution.service.ts:2825-2859`, `effective-context-resolver.ts:43-75`) and persists only a
@@ -59,6 +61,24 @@ type: 'tool-reference', toolName } } }` into a `tool_reference` block (`index.js
   `{ type: 'tool-<id>', toolCallId, state, input, output?, errorText?, outcome }` inside
   `messages.parts` (`assistant-transcript.ts:307-348`), committed only with the winning
   attempt's assistant message. No invocation table or per-tool index exists.
+- **Two MCP sources, one id space.** Operator servers are process-wide; Workspace servers from
+  `.llame/mcp.json` and `.mcp.json` start per Chat, keyed by `(chatId, canonical root,
+workspace_generation)` (`mcp/workspace-mcp-clients.ts`, workspace-entry D8). Both produce
+  `mcp__<server>__<tool>` ids; a started Workspace server shadows a byte-equal operator server
+  id from the next attempt. MCP tools are classified `unverified`: an exact `tools.allowed` entry
+  or a namespace rule such as `mcp__playwright__*` makes them eligible, and every call needs an
+  applicable `tools.permissions` group (`tool-calling` "Tool registry with mandatory safety
+  classification", workspace-entry D10). A namespace rule makes a 60-tool server one allowlist
+  line, so large catalogs are now the easy path.
+- **In-Run additions.** Entering a Workspace inserts admitted declarations into the exact tool
+  record the wire client handed to `streamText`, which re-reads it every step
+  (`tools/attempt-tool-additions.ts`, `run-execution.service.ts` `onToolSet`). Keys are never
+  removed or replaced within the attempt; exit, switch, or detach leaves the declaration with an
+  unavailable executor (`tool-calling` "Trusted in-Run tool additions are admitted and made
+  unavailable with Workspace state"). Nothing about additions is persisted.
+- **MCP dispatch is not replayed.** The worker records each MCP dispatch before invoking it; a
+  queue redelivery of a Run with a recorded native attempt or MCP dispatch fails as
+  `outcome_unknown` instead of re-running the model loop.
 - **Replay.** Ordinary tool observations replay as portable, text-bearing SDK call/result pairs
   under a per-pair and per-turn budget (`tool-calling` "Tool observations survive into later turns
   as stored UI parts"); compaction replaces absorbed observations with replacement records.
@@ -88,6 +108,7 @@ make the second option cache-preserving and application-driven.
 - Shipping per-message selection, Jev, or any model call during preparation.
 - Provider-executed search, OpenAI namespaces, BM25 or embeddings over the catalog.
 - Cache-preserving handling of tools that become unavailable (#972 owns that direction).
+- Adding Workspace tools by value through Anthropic's `inline-tools` beta.
 - Owner-visible receipts of declarations; receipts stay system-only (SPEC §9.7).
 - Any change to `tools.allowed` or to the availability comparison.
 
@@ -95,8 +116,9 @@ make the second option cache-preserving and application-driven.
 
 ### D1. Admitted, declared, discoverable, callable
 
-The admitted catalog is exactly today's (allowlist, classification, admission, attempt-local
-declaration match). Within it:
+The admitted catalog is exactly today's: code-owned tools, operator MCP tools, and the bound
+Workspace's MCP tools, each through source admission, `tools.allowed`, and the attempt-local
+declaration match; every call still needs its `tools.permissions` group. Within it:
 
 - **declared** — offered to the model with its schema on this step;
 - **discoverable** — admitted MCP tools not declared; reachable only through `tool_search`;
@@ -105,7 +127,8 @@ declaration match). Within it:
 
 Admitted code-owned tools are always declared, never discoverable, and never counted against the
 budget, so an operator's first-party tools behave exactly as today regardless of MCP catalog
-size. The split exists only for MCP because MCP is where catalogs grow without bound.
+size. The split exists only for MCP, from either source, because MCP is where catalogs grow
+without bound.
 
 ### D2. Per-model budget, unchanged in basis
 
@@ -163,25 +186,33 @@ measured resolution exceeds its latency target, the fix is an expression index o
 maintained by an existing pg-boss schedule, decided then.
 
 The rank is owner-scoped across all of the owner's chats, including earlier epochs of the current
-chat; deleted chats drop out because the query reads live rows. Nothing is sent to the model as
-text. The one model-visible effect is which MCP tools are declared.
+chat; deleted chats drop out because the query reads live rows. It counts ids, whichever source
+served them: a Workspace's `mcp__playwright__browser_click` and an operator server of the same
+name share one id, one allowlist entry, and one permission group, so they share one rank entry.
+A ranked id takes effect only where the current attempt admits it, so the Playwright tools an
+owner uses in one repository are pre-declared the next time a chat enters a Workspace that
+defines the same server. Nothing is sent to the model as text. The one model-visible effect is
+which MCP tools are declared.
 
 This is conversation-derived information crossing chat boundaries, which SPEC §20.2 treats as a
 separate consent decision for `shareRecentChats`. The rank is not gated on that setting: it
-carries no content, title, or excerpt, only a choice among tools the operator already admitted
-for every owner, and the provider already sees every admitted tool's declaration when the
-catalog fits the budget. An owner who never uses MCP sees no difference. This is the design's
+carries no content, title, or excerpt, only a choice among tools this attempt already admitted,
+and the provider already sees every admitted tool's declaration when the catalog fits the
+budget. An owner who never uses MCP sees no difference. This is the design's
 most debatable call; gating it on `shareRecentChats` is a one-line change if review prefers it.
 
 ### D5. The rank is a frozen chat baseline
 
-The ordered id list is resolved in the accepted-turn transaction, stored on the `chats` row as
-`mcp_tool_rank_baseline` with `mcp_tool_rank_rebaked_from` (the compaction identity it was
-resolved under), and reused while that identity equals the chat's latest compaction, exactly the
-skill-catalog pattern (`context-injection` "The skill catalog is a frozen prefix baseline stored
-on the chat"). A chat that has never been compacted keeps its first rank. Owner forks copy both
-columns with the rebake marker remapped like the skill marker. No baseline is written on an
-instance with no configured MCP server.
+The ordered id list is stored on the `chats` row as `mcp_tool_rank_baseline` with
+`mcp_tool_rank_rebaked_from` (the compaction identity it was resolved under) and reused while that
+identity equals the chat's latest compaction, following the skill-catalog baseline as the code
+implements it: the worker resolves a missing or stale rank while preparing an attempt, under the
+owner's isolation, and the attempt that completes the Run writes it in its fenced terminal
+transaction (`run-execution.service.ts` `resolveTurnSkillState` and `setSkillCatalogBaseline`).
+A losing or failed attempt writes nothing. A chat that has never been compacted keeps its first
+rank. Owner forks copy both columns with the rebake marker remapped like the skill marker. An
+attempt whose admitted catalog contains no MCP tool resolves and writes nothing, so a chat that
+never meets MCP keeps both columns `NULL`.
 
 Freezing is what makes the ranking cache-safe. A live rank would move whenever the owner uses a
 tool in another chat, change the declared set, rewrite `tools`, and invalidate the whole prefix
@@ -189,10 +220,12 @@ on the next turn of every open chat. Frozen, the declared set changes only at co
 rewrites the prefix anyway), on model switch (a different budget), or when the admitted catalog
 changes (which already rewrites `tools`).
 
-Resolving at acceptance rather than in the worker matches the skill baseline and keeps one
-authority per epoch: a queue retry reuses the stored rank instead of recomputing it against a
-history that moved. The worker intersects the frozen rank with the attempt's admitted catalog,
-so a frozen id that is no longer admitted is simply skipped; the rank never grants anything.
+Resolving in the worker keeps the history scan off the user's send path. A retry of a Run whose
+earlier attempt failed before completing resolves again, which can differ only by uses committed
+in between; the first completed attempt fixes the epoch's rank. The worker intersects the frozen
+rank with the attempt's admitted catalog, so a frozen id that is no longer admitted, for example
+a tool of a Workspace this chat has not entered, is simply skipped; the rank never grants
+anything.
 
 ### D6. The loaded set is what the model can see
 
@@ -205,7 +238,9 @@ request, never from a separate record.
 Consequences, all without new state:
 
 - **Retry.** A queue retry starts from committed history. A failed attempt's loads were never
-  committed, so they are absent; there is nothing to fence.
+  committed, so they are absent; there is nothing to fence. (A retry happens only when the failed
+  attempt recorded no MCP dispatch or native attempt; otherwise the Run fails as
+  `outcome_unknown` and nothing is retried.)
 - **Compaction.** An observation absorbed into a checkpoint is no longer a load; the epoch
   resets. An observation retained in the kept tail stays a load, because the model can still
   see it.
@@ -224,8 +259,9 @@ would have rewritten `tools`.
 
 ### D7. `tool_search` is a reserved, llame-executed tool
 
-Input: `{ select?: string[], query?: string, limit?: integer }`. `select` resolves exact ids;
-`query` matches case-insensitive tokens against the id split on `_`/`-` and the neutralized
+Input: `{ select?: string[], query?: string, limit?: integer }`. `select` resolves exact ids and
+accepts any MCP-id-shaped string, so a tool added during the Run (D13) is selectable even though
+the schema was fixed when `tool_search` was declared; `query` matches case-insensitive tokens against the id split on `_`/`-` and the neutralized
 description, ranking exact id, then id token, then description token, ties by usage rank then
 id. `limit` defaults to 5, maximum 20. Only discoverable ids of the current attempt are
 candidates; admitted-but-declared, cut, unavailable, and unadmitted ids never appear.
@@ -240,6 +276,14 @@ synthesized only when the discoverable set is non-empty, classified `read_only`,
 database access, is absent from the availability manifest, and counts toward `maxStepsPerRun`;
 the cap still wins in `prepareStep`.
 
+`tool_search` is not evaluated against `tools.permissions`. Every other tool needs its own
+permission group, and an absent group rejects, so requiring one here would make an operator who
+never heard of `tool_search` silently lose every MCP tool beyond the rank. Exempting it widens
+nothing: it has no effect, it discloses only ids and descriptions of tools the attempt already
+admitted (which are declared outright when the catalog fits), and every call to a tool it loads
+still needs that tool's own group. This is the one exception to "an absent group rejects", and
+it is stated in `tool-call-permissions`.
+
 llame executes the search on every wire, including `native` ones. Provider-executed search
 (Anthropic BM25/regex, OpenAI hosted) is rejected: its results are provider-specific parts that
 cannot replay on another wire after a model switch, and the ranking would be the provider's,
@@ -249,16 +293,18 @@ invisible to llame's usage signal and tie-breaks.
 
 The model must know what is discoverable:
 
-- `harness`, and `native` on `anthropic-messages`: `select.items` carries a JSON Schema `enum` of
-  the discoverable ids. Anthropic withholds deferred tools entirely, so the enum is the only
-  inventory there. The enum also validates `select` for free.
+- `harness`, and `native` on `anthropic-messages`: `select.items` discloses the discoverable ids
+  at the moment `tool_search` is declared as a JSON Schema `anyOf` of their `enum` and a bounded
+  `mcp__`-prefixed string, so the enum is the inventory and in-Run additions still validate.
+  Anthropic withholds deferred tools entirely, so the enum is the only inventory there.
 - `native` on `openai-responses`: no enum. Deferred functions keep their names and descriptions
   visible natively, so an enum would duplicate them.
 
 The inventory is charged against the budget with one strategy-neutral estimate (ids plus admitted
 descriptions), so both strategies partition the same catalog identically. The enum is a
 provider-native disclosure of callable-after-load tools; the rule that callable tools are never
-listed in prose stays true.
+listed in prose stays true. Tools made discoverable during a Run are disclosed by the
+`enter_workspace` result that added them (D13), because the declared schema cannot change.
 
 ### D9. Delivery is a per-model strategy
 
@@ -354,14 +400,50 @@ requests; whether Anthropic's reference-only beta header or the newer `inline-to
 is required on the operator's models; and the Jev study's warning that routed tools reduced task
 success in one probe (3/5 versus 5/5), which a selector must beat, not assume away.
 
-### D13. Relation to #974 and #972
+### D13. Workspace additions during a Run join the partition
 
-This change partitions the catalog an attempt composes at its start. Tools that #974's Workspace
-MCP adds in the middle of a Run are outside that partition and follow #974's contract; whichever
-change lands second states how mid-Run additions join the discoverable tier. On `native`
-Anthropic wires, #974 can add them by value with `inline-tools-2026-09-15` without editing
-`tools`. #972's direction of keeping unavailable tools declared and withdrawing them with
-provider controls composes with D9: both keep `tools` constant and move change to the tail.
+Workspace entry adds MCP declarations in the middle of a Run, and a namespace allowlist rule
+makes a large Workspace server as easy to add as a small one. Without this decision a single
+`enter_workspace` would put an entire Playwright or GitHub server in front of the model for the
+rest of the Run, which is the problem this change exists to prevent.
+
+The partition therefore runs again, over the additions only, each time `AttemptToolAdditions`
+admits declarations:
+
+1. The additions' MCP estimate is added to the attempt's running MCP estimate. If deferral was
+   not engaged and the total still fits the budget, the additions are declared exactly as
+   workspace-entry adds them today.
+2. Otherwise deferral is engaged for the rest of the attempt. Tools already declared stay
+   declared: #974 forbids removing a key, and shrinking the declared set mid-Run would edit
+   `tools` for no saving. Among the additions, the ranked ones are declared in rank order while
+   they fit the remaining budget, strict prefix as in D3; the rest are discoverable. If
+   `tool_search` was not yet declared, the harness inserts it now, as a trusted addition under
+   the same rule that inserted the Workspace tools. Additions are never cut: their inventory is
+   the entry result, not the `tool_search` schema, so they add nothing to the budgeted
+   inventory.
+3. A discoverable addition is inserted into the tool record like any addition. Under `harness`
+   it stays outside the active set until loaded; under `native` it carries `deferLoading`.
+4. The `enter_workspace` result lists each addition that became discoverable, by id, and says
+   it loads through `tool_search`. That result is the inventory for additions, since the
+   declared `tool_search` schema cannot change (D8).
+5. Exit, switch, or detach keeps #974's rule: declarations stay, executors become unavailable.
+   An unavailable addition is no longer a `tool_search` candidate, and a loaded one is refused
+   as unavailable.
+
+The next attempt composes the bound Workspace's tools at its start like any other admitted MCP
+tool, so from then on they are partitioned by D3 with no special case.
+
+Cache effect of an addition, per wire: under `harness`, adding a declared tool, or loading a
+discoverable one, edits `tools` once, which #974 already accepts. Under `native` on
+`openai-responses`, a deferred function's name and description are visible, so inserting one
+edits the prefix once. Under `native` on `anthropic-messages`, deferred tools are excluded from
+the rendered prefix, so inserting a deferred tool may leave the cache intact; that is unverified
+and task 3.0 measures it. Anthropic's `inline-tools-2026-09-15` beta could instead add a
+Workspace tool by value in a mid-conversation `tool_addition` without touching `tools`; that is
+part of the road in D12, not this change.
+
+The direction #972 takes, keeping unavailable tools declared and withdrawing them with provider
+controls, composes with D9: both keep `tools` constant and move change to the tail.
 
 ## Risks / Trade-offs
 
@@ -383,11 +465,15 @@ provider controls composes with D9: both keep `tools` constant and move change t
 - [Replay budget drops an old search] → the tool silently stops being loaded; the model is
   refused once and searches again.
 - [Cross-chat signal without `shareRecentChats`] → D4; flagged for review.
+- [A mid-Run Workspace entry engages deferral late] → tools already declared stay declared, so
+  one Run can carry more than the budget; the next attempt partitions from scratch.
+- [`tool_search` bypasses the permission map] → it has no effect and discloses only admitted
+  tools; every loaded tool's call still needs its own group (D7).
 
 ## Migration Plan
 
 Additive: two nullable `chats` columns, one closed unavailable reason, two optional model keys.
-Chats without a rank resolve one on their next accepted turn. A mixed-version window where an
+Chats without a rank resolve one on their next attempt that admits an MCP tool. A mixed-version window where an
 older worker executes a Run accepted by a newer API only means the older worker declares every
 admitted tool, as today; no stored state is misread. Rollback leaves unused columns and stored
 `tool_search` parts, which replay as ordinary text observations of an unknown tool.
@@ -397,3 +483,5 @@ admitted tool, as today; no stored state is misread. Rollback leaves unused colu
 - Q1: Gate the usage rank on `shareRecentChats` (D4)? The design says no.
 - Q2: Is 30 days and 2,000 messages the right window, or should the score decay instead of
   cutting off? Chosen for simplicity; a decay adds a parameter without a measured need.
+- Q3: Exempt `tool_search` from `tools.permissions` (D7), or require an operator group for it?
+  The design exempts it.
