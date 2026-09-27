@@ -5,7 +5,7 @@ planning artifacts only:
 
 ```text
 master <- web-read-adapters/proposal <- web-read-adapters/contract
-       <- web-read-adapters/github <- web-read-adapters/telegram
+       <- web-read-adapters/github-threads <- web-read-adapters/github-code
        <- web-read-adapters/finalize
 ```
 
@@ -25,23 +25,29 @@ requirements. `file-locator` MODIFIES `tool-call-permissions`
 `read-representations` MODIFIES the web locator requirement that enumerates
 selector grammar (currently "Web locators are fetched by the native read tool").
 Whichever sibling finalizes second reconciles all clauses and scenarios by
-requirement, not by taking one whole delta. If `read.md`, `docs/web-read.md`, `CHANGELOG.md`, or example
-configuration overlaps, the layer landing second resolves the textual conflict
-against both approved contracts and keeps one runbook. Finalize names the
-reconciliation before spec sync.
+requirement, not by taking one whole delta. If `read.md`, `docs/web-read.md`,
+`CHANGELOG.md`, or example configuration overlaps, the layer landing second
+resolves the textual conflict against both approved contracts and keeps one
+runbook. Finalize names the reconciliation before spec sync.
+
+Follow-ups this change does not own: issue and pull request lists (#995),
+GraphQL review-thread resolution state and `reviewDecision` (#996), `#L10-L40`
+anchors (#927), a `json` representation (#833), Telegram (#940).
 
 ## 1. Proposal layer
 
 Branch `web-read-adapters/proposal`, parent `master`. Owns `proposal.md`,
-`design.md`, the three delta spec files, and this task ledger. Estimated about
-2,084 authored lines after master reconciliation (2,086 including generated metadata); measure
-the actual parent-relative diff before publication. This exceeds the
-approximately 2,000-line target by about 84 authored lines because each MODIFIED block reproduces canonical requirement text and all
-scenarios. Record that named budget exception in task 1.3 and request Leo's explicit approval of the exception before publication. It closes no issue.
+`design.md`, the three delta spec files, and this task ledger. Measured at
+2,107 authored lines against `master` (2,109 including generated metadata),
+about 107 over the approximately 2,000-line target, because the MODIFIED
+blocks reproduce 988 lines of canonical requirement text and scenarios. That
+named budget exception needs Leo's explicit approval before publication.
+Re-measure the actual parent-relative diff before publication. It closes no
+issue.
 
-- [ ] 1.1 [proposal] Complete two independent adversarial review rounds over the proposal, design, and all three delta specs. Verify the adapter order, `:raw` bypass, full derived-locator admission, address pinning, credential stripping, rate-limit classification, the 8-adapter/shared-redirect budget, config replacement semantics, GitHub endpoints, Telegram scope, rewrite encoding, and every negative permission/secret scenario against repository code, canonical specs, the live spikes, and `agent://OmpReadPrior/report`; commit each review round separately rather than amending.
+- [ ] 1.1 [proposal] Complete two independent adversarial review rounds over the proposal, design, and all three delta specs. Verify the adapter order, `:raw` bypass, full derived-locator admission, address pinning, token scoping, rate-limit classification, the primary/secondary failure rule, the no-cap load-everything bounds, config absent-means-none semantics, the GitHub endpoints and layouts, ref resolution, the two-level tree listing, rewrite template encoding, and every negative permission/secret scenario against repository code, canonical specs, the live probes recorded in `design.md`, and `agent://OmpReadPrior/report`; commit each review round separately rather than amending.
 - [ ] 1.2 [proposal] Re-run the canonical-requirement preservation check: for every MODIFIED requirement, compare canonical and delta bodies by a word-level diff, verify every canonical scenario is present exactly once, inspect every intentional adapter insertion, and reject lost words or hyphen splits. Verify changed files cite the re-read line ranges in this worktree and the rechecked OMP checkout.
-- [ ] 1.3 [proposal] Prove the proposal layer with `pnpm exec openspec validate web-read-adapters --strict`, `pnpm exec prettier --write <changed proposal/design/spec/task files>`, `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record authored line counts and the exact commands in the draft PR body, and request Leo's explicit approval of the named budget exception for the measured overage (2,040 authored lines, about 40 over) before publication.
+- [ ] 1.3 [proposal] Prove the proposal layer with `pnpm exec openspec validate web-read-adapters --strict`, `pnpm exec prettier --write <changed proposal/design/spec/task files>`, `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record authored line counts and the exact commands in the draft PR body, and request Leo's explicit approval of the named budget exception for the measured overage before publication.
 - [ ] 1.4 [proposal] Perform self-review (SR) on the actual parent-relative draft diff against `REVIEW_GUIDE.md`, fix accepted findings in a new commit, and obtain Leo's explicit approval of the published proposal revision before implementation branches are created.
 - [ ] 1.5 [proposal] After SR, publish the draft through `$gh-stack`, run the configured GitHub review/CI (GR) loop to completion, and create `web-read-adapters/contract` only from the approved, current proposal head.
 
@@ -49,66 +55,67 @@ scenarios. Record that named budget exception in task 1.3 and request Leo's expl
 
 Branch `web-read-adapters/contract`, parent `web-read-adapters/proposal`.
 Owns the adapter seam in `apps/api/src/tools/web-read/`, static contract and
-provenance, shared request/deadline/redirect accounting, `tools.webAdapters`
-schema/loader and boot validation for code-owned `fxembed` and `rewrite`, the
-x.com runbook examples, the packaged read description, and focused contract
-fixtures. Estimated about 1,900 authored lines. This layer starts with absent
-`tools.webAdapters` => `[]`; it is the functionality completing #708 layer
-and its PR body carries `Closes #708` after the narrowing comment below. It
-adds no GitHub or Telegram default before those adapters exist.
+provenance, shared deadline/redirect accounting for adapter requests,
+`tools.webAdapters` schema/loader and boot validation, the `rewrite` adapter,
+the x.com runbook example, the packaged read description, and focused
+contract fixtures. Estimated about 1,700 authored lines. This layer accepts
+only `use: "rewrite"`; it is the functionality completing #708 and its PR
+body carries `Closes #708` after the narrowing comment below.
 
-- [ ] 2.1 [contract] Add typed static adapter entries with pure matching, route kinds, explicit matched-failure fallthrough, `adapter` result provenance, and `:raw` bypass; verify unit cases prove matching performs no I/O and a refusal/non-2xx/parse/empty result reaches the next candidate without returning an error body.
-- [ ] 2.2 [contract] Extend the existing web session so adapter requests use the same header/body/deadline/redirect/address admission, an eight-request adapter budget including redirects, and the existing shared 20-hop/30-second bounds; verify a fixture server proves adapter budget exhaustion falls through and generic ladder quotas remain unchanged.
-- [ ] 2.3 [contract] Extend derived admission and trusted provenance with the `adapter` kind, while preserving source, hop, probe, and address semantics; verify a domain allow for the source does not admit `api.github.com` or a declared service, and a rejected adapter target is not requested.
-- [ ] 2.4 [contract] Scope credential/header attachment to the declared origin and strip it across origin-changing redirects; verify a fixture redirect captures no GitHub token or rewrite secret at the second origin, and no token appears in notes, errors, decisions, or result content.
-- [ ] 2.5 [contract] Add the closed `tools.webAdapters` shape to `LlameConfig`, the published JSON Schema, raw-shape validation, interpolation/redaction, reserved-header checks, and resolver defaults; verify contract-layer absent means `[]`, explicit arrays replace rather than merge, duplicate/unknown/invalid entries fail boot, non-secret interpolation fails, and an interpolated secret is value-free in diagnostics. Do not claim GitHub or Telegram defaults until their layers land.
-- [ ] 2.6 [contract] Implement the opt-in FxEmbed protocol and source-preserving adapter rendering from the observed JSON mapping; add its code-owned `use` value, base-origin validation, docs, and CHANGELOG entry; verify host/path variants, base-origin reduction, `new URL(`/status/${id}`, baseOrigin)` routing to `https://api.fxtwitter.com/status/20`, author/timestamp/text/quoted/media notes, no fabricated reply thread, service-origin provenance, and no contact when undeclared.
-- [ ] 2.7 [contract] Implement validated literal-origin rewrite matching, canonical path/query/url placeholder encoding (including `https://x.com/a&admin=1`), and literal-query handling, per-call same-origin revalidation, target admission, one-request local negotiated/text/Readability rendering without probes, and origin-scoped headers; add its code-owned config validation, docs, and CHANGELOG entry; verify the x.com fixture route, delimiter-containing data, userinfo/non-http/malformed boot failures, redirect secret stripping, budget fallthrough, and `finalUrl` source identity.
-- [ ] 2.8 [contract] Update `docs/web-read.md`, the example config, the packaged `read` description, dated `CHANGELOG.md`, and any relevant `ROADMAP.md` removal for the shipped contract. Document contract-layer absent `[]`, `api.fxtwitter.com` and declared-origin allowlist clauses, x.com FxEmbed and `x.pcstyle.dev` rewrite leaks, threat model, and the absent/explicit-replacement distinction; leave GitHub token tenancy to the GitHub layer; verify Markdown and schema examples against the loader.
-- [ ] 2.9 [contract] Extend `apps/api/src/tools/web-read.integration.test.ts` using the existing local fixture-server approach for raw bypass, adapter fallthrough, derived permission refusal, address refusal, request accounting, FxEmbed, and rewrite behavior; run the focused integration test and the adapter/config focused tests.
-- [ ] 2.10 [contract] Before closing #708, post a narrowing comment stating that FxEmbed exposes no llame-owned reply thread and that a rewrite delegates any thread and reply bound to the operator's service; link the accepted scope and keep `Closes #708` blocked until the comment exists.
-- [ ] 2.11 [contract] Re-measure the layer against the 2,000-line budget, self-review the actual draft PR diff (SR), fix accepted findings with new commits, publish with `$gh-stack`, and complete the GitHub review/CI (GR) loop before creating `github`; only after acceptance evidence is recorded use `Closes #708`.
+- [ ] 2.1 [contract] Add typed static adapter entries with pure matching, route kinds `native` and `rewrite`, claimed/unclaimed dispatch, the primary-failure fallthrough note and the secondary-failure per-section omission note, `adapter` result provenance, and `:raw` bypass; verify unit cases prove matching performs no I/O, an unclaimed URL produces no note, and a refusal/non-2xx/parse/empty primary result reaches the next candidate without returning an error body.
+- [ ] 2.2 [contract] Extend the existing web session so adapter requests use the same header/body/deadline/redirect/address admission and the shared 30-second and 20-hop bounds, with a 5 MiB bound on the rendered adapter document; verify a fixture server proves that reaching the deadline after a primary success renders partial content with a note and that generic ladder quotas remain unchanged.
+- [ ] 2.3 [contract] Extend derived admission and trusted provenance with the `adapter` kind, while preserving source, hop, probe, and address semantics; verify a domain allow for the source does not admit a rewrite origin, and a rejected adapter target is not requested.
+- [ ] 2.4 [contract] Add the closed `tools.webAdapters` shape to `LlameConfig`, the published JSON Schema, raw-shape validation, and resolver defaults; verify absent means `[]`, explicit arrays are exact lists, duplicate ids, unknown uses, unknown fields (including `headers`), invalid `pathPattern`, invalid targets, and non-secret interpolation fail boot naming the entry and field.
+- [ ] 2.5 [contract] Implement validated literal-origin rewrite matching, `{path}` and `{query}` placeholder encoding (including `https://x.com/a&admin=1`), literal-query handling, per-call same-origin revalidation, target admission, one-request local negotiated/text/Readability rendering without probes, and no credential on any rewrite request; add docs and the CHANGELOG entry; verify the x.com fixture route, delimiter-containing data, userinfo/non-http/placeholder-in-host/unknown-placeholder/malformed boot failures, and `finalUrl` source identity.
+- [ ] 2.6 [contract] Update `docs/web-read.md`, the example config, the packaged `read` description, dated `CHANGELOG.md`, and any relevant `ROADMAP.md` removal for the shipped contract. Document absent-means-none, the declared-origin allowlist clause, the `x.pcstyle.dev` rewrite leak, the threat model, and the exact-list semantics; leave GitHub token tenancy to the GitHub layers; verify Markdown and schema examples against the loader.
+- [ ] 2.7 [contract] Extend `apps/api/src/tools/web-read.integration.test.ts` using the existing local fixture-server approach for raw bypass, claimed and unclaimed dispatch, adapter fallthrough, derived permission refusal, address refusal, and rewrite behavior; run the focused integration test and the adapter/config focused tests.
+- [ ] 2.8 [contract] Before closing #708, post a narrowing comment stating that no code-owned third-party protocol ships, that a rewrite delegates rendering to the operator's declared origin, and that per-entry headers are not supported; link the accepted scope and keep `Closes #708` blocked until the comment exists.
+- [ ] 2.9 [contract] Re-measure the layer against the 2,000-line budget, self-review the actual draft PR diff (SR), fix accepted findings with new commits, publish with `$gh-stack`, and complete the GitHub review/CI (GR) loop before creating `github-threads`; only after acceptance evidence is recorded use `Closes #708`.
 
-## 3. GitHub layer
+## 3. GitHub threads layer
 
-Branch `web-read-adapters/github`, parent `web-read-adapters/contract`.
-Owns the native GitHub matcher, REST/GraphQL request and renderer, token
-scoping, rate-limit classification, bounded pagination, README/blob/commit/
-issue/PR output, and fixture coverage. Estimated about 1,500 authored lines.
-This layer carries `Closes #939` only after its narrowed acceptance is recorded.
+Branch `web-read-adapters/github-threads`, parent `web-read-adapters/contract`.
+Owns the native `github` matcher for `/issues/{n}` and `/pull/{n}`, the typed
+issue/pull/comment/review/review-comment document and its renderer, load-all
+pagination, the `Checks:` and `Diff:` lines, token scoping, rate-limit
+classification, the `use: "github"` config value with `token`, and fixture
+coverage. Estimated about 1,700 authored lines. It references #939 and
+closes nothing.
 
-- [ ] 3.1 [github] Implement the exact GitHub grammar and native API routes using JSON contents objects (`Accept: application/vnd.github+json`), base64 decoding and binary/invalid-UTF-8/too-large fallthrough: repo README, contents blob with ref, commit summary, issue metadata/comments, PR base/head/merge/check-runs/review comments, and token-only GraphQL `reviewThreads`; add the `github` use value, absent-default `[github]`, boot validation, token-tenancy docs, the domain-allowlist runbook clause for `api.github.com` (or the fallthrough it causes), and CHANGELOG entry. Verify every route against a local fixture and assert no `raw.githubusercontent.com` or Enterprise request is introduced.
-- [ ] 3.2 [github] Implement line-preserving UTF-8 blob rendering, structured issue/PR thread rendering, bounded comment/review pagination, omission notes, and commit/README formatting; verify rendered lines remain addressable by `:N-M`, path segments cannot traverse or alter API paths, pagination cannot exceed the adapter budget, and no unsupported GitHub shape is claimed.
-- [ ] 3.3 [github] Implement unauthenticated public default and optional interpolated operator token with instance-wide authority; verify public requests omit `Authorization`, private visibility requires the token, the token is sent only to `api.github.com`, and redirect/delegated requests never receive it.
-- [ ] 3.4 [github] Extend the transport for the fixed GraphQL POST/body, admit both the GraphQL endpoint and REST resource locator, and treat any 3xx as an adapter status failure without following it. Classify `429`, `403` with `x-ratelimit-remaining: 0`, and `403` with `retry-after` as rate-limit fallthrough notes; `x-ratelimit-reset` alone does not classify. Verify each status and reset-note case against the fixture server.
-- [ ] 3.5 [github] Add focused integration and renderer tests for root, blob, commit, issue, pull, GraphQL resolution availability, private/no-token fallthrough, API-origin permission refusal, and rate limits; run the focused GitHub test commands and capture request counts.
-- [ ] 3.6 [github] Before closing #939, post the required #939 comment linking #927 and explicitly move the original `#L10-L40` acceptance row to #927; retain line-for-line blob output and `:N-M` selectors in the narrowed #939 acceptance. Update the GitHub-layer dated `CHANGELOG.md`/`ROADMAP.md` records for the `[github]` default and token-tenancy scope before the closure PR.
-- [ ] 3.7 [github] Re-measure the layer, self-review its actual parent-relative diff (SR), fix accepted findings with new commits, publish with `$gh-stack`, and complete the GitHub review/CI (GR) loop; only then use `Closes #939` in the PR body.
+- [ ] 3.1 [github-threads] Implement the exact `github.com` grammar for issue and pull request URLs, leaving lists, `.diff`, `.patch`, `/files`, Actions, Projects, Discussions, search, gists, and Enterprise hosts unclaimed; add the `github` use value, `token` interpolation, boot validation, and the `api.github.com` and `patch-diff.githubusercontent.com` domain-allowlist runbook clause. Verify unclaimed shapes produce no request and no note.
+- [ ] 3.2 [github-threads] Implement the typed document and the `pr://`-shaped renderer: metadata lines, `## Body`, `## Files`, `## Reviews`, `## Review Comments`, `## Comments`, flat `### author · timestamp` items with `ID`, `Reply to`, `Location`, `Side`, and `URL` lines, `Reviews:` per-reviewer counts, `Merge state` as returned, `Checks:` from one check-runs request, and the `Diff:` line; verify the rendered text against a fixture and that `:N-M` pages it like a file.
+- [ ] 3.3 [github-threads] Implement load-all pagination for comments, reviews, review comments, and files under the shared deadline and the 5 MiB document bound with per-section omission notes; verify a fixture proves a secondary page failure renders the primary content with a note and a primary failure falls through.
+- [ ] 3.4 [github-threads] Implement the unauthenticated public default and the optional interpolated operator token with instance-wide authority; verify public requests omit `Authorization`, the token is sent only to `api.github.com`, and a redirect to another origin or a rewrite request never receives it.
+- [ ] 3.5 [github-threads] Classify `429`, `403` with `x-ratelimit-remaining: 0`, and `403` with `retry-after` as rate-limit notes; `x-ratelimit-reset` alone does not classify. Verify each status and reset-note case against the fixture server, for both primary and secondary requests.
+- [ ] 3.6 [github-threads] Add focused integration and renderer tests for issue, pull request, partial render, private/no-token fallthrough, API-origin permission refusal, and rate limits; update `docs/web-read.md` with token tenancy, the 60-per-hour shared-egress note, and the long-thread recommendation; add the dated `CHANGELOG.md` entry.
+- [ ] 3.7 [github-threads] Re-measure the layer, self-review its actual parent-relative diff (SR), fix accepted findings with new commits, publish with `$gh-stack`, and complete the GitHub review/CI (GR) loop before creating `github-code`.
 
-## 4. Telegram layer
+## 4. GitHub code layer
 
-Branch `web-read-adapters/telegram`, parent `web-read-adapters/github`.
-Owns the first-party public single-post Telegram adapter, `linkedom` parser,
-reserved-channel grammar, claimed-empty semantics, quoted-forward/media-note
-rendering, private/feed exclusions, and fixture coverage. Estimated about 800
-authored lines. This layer adds Telegram to the absent default, so the final
-state is `[github, telegram]`, and carries `Closes #940` after the narrowing
-comment below.
+Branch `web-read-adapters/github-code`, parent
+`web-read-adapters/github-threads`. Owns the repository root, `/tree`,
+`/blob`, and `/commit` shapes, ref resolution through `matching-refs`, the
+recursive tree fetch and two-level listing renderer, blob decoding and
+binary/size fallthrough, the commit view, and fixture coverage. Estimated
+about 1,500 authored lines. This layer carries `Closes #939` only after its
+narrowed acceptance is recorded.
 
-- [ ] 4.1 [telegram] Run and record the bounded Telegram embed spike against `https://t.me/durov/300?embed=1&mode=tme` with installed `linkedom`, including the observed author/date/text/media selectors; keep the implementation test fixture local and never make a live site a test dependency.
-- [ ] 4.2 [telegram] Implement the pure match grammar for `t.me`/`telegram.me`, reserved segments, numeric ids, and query rules; add the `telegram` use value, final default member, boot validation, docs including the domain-allowlist clause for `t.me` (the embed origin even for `telegram.me` sources), and CHANGELOG entry; verify the `telegram.me` to `t.me` embed derivation in a fixture. Derive the first-party embed, parse author/date/text/forward/media, and preserve source provenance; verify the local HTML fixture matches the spike's fields and does not fetch media or comments.
-- [ ] 4.3 [telegram] Reject or fall through for `t.me/c/...`, feeds, channel roots, search, comments, malformed/empty embeds, and any credential route; distinguish unclaimed shapes from claimed `empty` widgets, preserve media-only posts, and verify request counters show no private or media request and generic fallback remains available.
-- [ ] 4.4 [telegram] Add focused integration/parser tests and the Telegram runbook/dated changelog or roadmap text required by the shared docs; post a narrowing comment on #940 moving channel reads and `t.me/s/` paging to a linked follow-up before `Closes #940`; run the focused fixture test and recheck the no-credential negative cases.
-- [ ] 4.5 [telegram] Re-measure the layer, self-review its actual parent-relative diff (SR), fix accepted findings with new commits, publish with `$gh-stack`, and complete the GitHub review/CI (GR) loop; only then use `Closes #940` in the PR body.
+- [ ] 4.1 [github-code] Extend the grammar to `/o/r`, `/tree/{ref}[/path]`, `/blob/{ref}/path`, and `/commit/{sha}`; implement the contents blob request with base64 decoding, line-for-line rendering without a heading, and `binary`/`too_large` fallthrough; verify `:N-M` addresses source lines, path segments cannot traverse or alter API paths, and `raw.githubusercontent.com` is never requested.
+- [ ] 4.2 [github-code] Implement ref resolution: first segment tried as the ref, `matching-refs/heads` then `/tags` on a `404` with segments remaining, the segment-boundary rule, longest match, the 40-hex SHA shortcut, and `status` fallthrough with nothing left to split; verify the `feature/foo` branch and tag fixtures, the request counts in `design.md` D11, and the documented tag-shadows-branch scenario.
+- [ ] 4.3 [github-code] Implement the one-request recursive tree fetch for directories and the root, local filtering to two levels, and rendering in the host directory listing shape with `… N more`, `… N entries`, truncation, and range-selector rules; verify a fixture directory renders identically to the equivalent host directory listing and a response over 5 MiB falls through as `too_large`.
+- [ ] 4.4 [github-code] Implement the repository root (metadata lines, root listing, decoded README) and the commit view (message, author, timestamp, file list, `Diff:` line, no patches); verify request counts and that `/commit/{sha}.diff` stays unclaimed and readable through the generic ladder.
+- [ ] 4.5 [github-code] Add focused integration and renderer tests for root, tree, blob, commit, slash refs, and binary/too-large; update `docs/web-read.md` and the dated `CHANGELOG.md`/`ROADMAP.md` records.
+- [ ] 4.6 [github-code] Before closing #939, post the narrowing comment that moves `#L10-L40` to #927, review-thread resolution state and `reviewDecision` to #996, and list URLs to #995, and records the REST shape as the shipped acceptance; keep `Closes #939` blocked until the comment exists.
+- [ ] 4.7 [github-code] Re-measure the layer, self-review its actual parent-relative diff (SR), fix accepted findings with new commits, publish with `$gh-stack`, and complete the GitHub review/CI (GR) loop; only then use `Closes #939` in the PR body.
 
 ## 5. Finalize layer
 
-Branch `web-read-adapters/finalize`, parent `web-read-adapters/telegram`.
+Branch `web-read-adapters/finalize`, parent `web-read-adapters/github-code`.
 Owns only canonical spec synchronization, task records, and archive movement;
 never application fixes. Estimated under 200 authored lines with rename
 detection. Enter this branch before any sync command.
 
-- [ ] 5.1 [finalize] Use `$gh-stack` to create `web-read-adapters/finalize` from the reviewed, CI-green Telegram layer; verify every implementation task and issue-closing PR is complete and no sibling conflict remains before synchronization.
+- [ ] 5.1 [finalize] Use `$gh-stack` to create `web-read-adapters/finalize` from the reviewed, CI-green `github-code` layer; verify every implementation task and issue-closing PR is complete and no sibling conflict remains before synchronization.
 - [ ] 5.2 [finalize] Run `$openspec-sync-specs` for `native-file-tools`, `instance-config`, and `tool-call-permissions`; reconcile any sibling edits requirement-by-requirement, preserving all approved adapter scenarios, the file-locator architecture ownership, and the read-representations representation boundary. Verify `pnpm exec openspec status --change web-read-adapters --json` reports all artifacts complete.
 - [ ] 5.3 [finalize] Verify archive readiness: every task is checked, MODIFIED requirements still contain the canonical scenarios plus approved edits, no application/docs fix is being smuggled into finalize, and authored size is within budget; run `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
 - [ ] 5.4 [finalize] Run `$openspec-archive-change` only after readiness, then verify the archive preserves checked history and passes the final OpenSpec, Product Markdown, and Any change rows: strict specs/all validation, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.

@@ -304,5 +304,5 @@ Tool call stopped by operator permissions. Every address of the target host was 
 
 - **WHEN** a matched adapter's derived request is refused by the `read` group before I/O
 - **THEN** trusted tool activity records an `adapter` decision with the call's policy identity and the adapter's own reason and clause reference
-- **AND** the target URL, service headers, token, and matched secret are absent from model-visible output and stored provenance
+- **AND** the target URL, token, and matched secret are absent from model-visible output and stored provenance
 - **AND** the adapter falls through without a model-visible status body

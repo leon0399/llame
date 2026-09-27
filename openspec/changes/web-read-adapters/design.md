@@ -16,48 +16,57 @@ list (`pipeline.ts:10-22`), short-circuits `:raw` before probes
 (`pipeline.ts:104-115`), and orders alternate, suffix, local render,
 `llms.txt`, and raw (`pipeline.ts:123-180`). The fetch session shares one
 30-second deadline and redirect counter across probes
-(`http-client.ts:72-90`, `436-452`). Derived admission currently enumerates
-hops, alternates, suffixes, `llms.txt`, and addresses and decides each before
-I/O (`admission.ts:12-18`, `145-159`). The result builder reserves the native
+(`http-client.ts:72-90`, `436-452`); the transport issues `GET` only
+(`connection.ts:212-216`). Derived admission currently enumerates hops,
+alternates, suffixes, `llms.txt`, and addresses and decides each before I/O
+(`admission.ts:12-18`, `145-159`). The result builder reserves the native
 result envelope before applying selectors and bounds (`result.ts:26-73`).
 
 The config loader resolves `tools` as one typed object
-(`apps/api/src/instance-config/config-loader.ts:177-203`), uses single-pass
-interpolation with value-free errors (`config-loader.ts:588-627`), and already
-has a private interpolated-header resolver for MCP origins
-(`config-loader.ts:962-1007`, `1032-1057`). `tools` currently has no web
-adapter field (`apps/api/src/instance-config/llame-config.ts:427-446`), so
-this change adds the consumer-owned field and schema entry rather than a
-second configuration source. `linkedom` is already an API dependency at
-`apps/api/package.json:74`.
+(`apps/api/src/instance-config/config-loader.ts:177-203`) and uses single-pass
+interpolation with value-free errors (`config-loader.ts:588-627`). `tools`
+currently has no web adapter field
+(`apps/api/src/instance-config/llame-config.ts:427-446`), so this change adds
+the consumer-owned field and schema entry rather than a second configuration
+source.
 
 Prior art was inspected in `agent://OmpReadPrior/report` and rechecked at OMP
-HEAD `22269d67cb29a77e5fbf0b2a3918f58a6d682454`. OMP's `SpecialHandler` combines
-match, fetch, and render and returns nullable results
-(`/home/leon0399/.cache/checkouts/github.com/can1357/oh-my-pi/packages/coding-agent/src/web/scrapers/types.ts:13-29`); its barrel order puts GitHub before the rest and Twitter in the social list
-(`.../web/scrapers/index.ts:164-183`); handlers return null for recoverable
-failure through `handleSpecialUrls` (`.../tools/fetch.ts:1031-1049`). OMP's
-GitHub handler calls `api.github.com`, adds an optional bearer token, and
-collapses all non-2xx responses to `{ ok: false }`
-(`.../web/scrapers/github.ts:112-145`). Its Twitter handler tries an ordered
-Nitter list and returns a non-null blocked result when all fail
-(`.../web/scrapers/twitter.ts:6-11`, `29-68`, `71-93`). This design keeps the
-useful ordered handlers and provenance, but separates pure matching from
-network work, makes fallthrough explicit, and does not copy OMP's credential
-and secondary-origin policy gaps.
+HEAD `09e7bf6564bb7a818d503076dfa595ad0018fa0d`. Two OMP surfaces matter.
+The `pr://` and `issue://` internal URLs render a fixed Markdown layout from
+`gh` JSON: a title line, `Key: value` metadata, `## Body`, then `## Files`,
+`## Reviews`, `## Review Comments`, and `## Comments` sections
+(`packages/coding-agent/src/tools/gh-view.ts:339-440`). They load every
+comment and review-comment page (`gh-view.ts:176-219`), cut only the file
+list at 50 entries, put the diff at a separate address, and can afford to
+load everything because the rendered document is cached in SQLite across
+sessions (`tools/github-cache.ts`). The web scraper for `github.com` URLs is
+thinner: one renderer for issues and pull requests with no review comments
+(`web/scrapers/github.ts:189-240`), blobs through
+`raw.githubusercontent.com` (`:107`, `:710-726`), commits with full patches
+from a single request (`:259-321`), and a first-segment ref parser that
+mis-splits branches containing `/` (`:57`). Its `SpecialHandler` returns
+`null` for both mismatch and failure (`web/scrapers/types.ts:13-29`,
+`tools/fetch.ts:1031-1049`). This design takes the `pr://` layout and the
+load-everything rule, replaces the session cache with the ordinary `:N-M`
+window over a refetched document, separates pure matching from network work,
+makes fallthrough explicit, and does not copy OMP's credential-from-environment
+policy.
 
-A 2026-09-27 live spike supplied the protocol evidence. Fetching
-`https://t.me/durov/300?embed=1&mode=tme` and parsing with the installed
-`linkedom` returned author `Pavel Durov`, date
-`2024-06-30T06:48:04+00:00`, the full post text, ten media nodes, and a
-26,458-byte HTML body. Fetching
-`https://api.fxtwitter.com/jack/status/20` returned `code: 200`, source URL
-`https://x.com/jack/status/20`, id `20`, author `jack`, timestamp
-`Tue Mar 21 20:50:14 +0000 2006`, text `just setting up my twttr`, and no
-reply or media object. Fetching
-`https://x.pcstyle.dev/jack/status/20` returned Markdown with the source URL
-and a bounded reply thread. The rewrite therefore uses only local negotiated/text or Readability stages,
-while FxEmbed maps only the fields the protocol actually supplies.
+Live probes on 2026-09-27 supplied the GitHub protocol evidence.
+`https://github.com/leon0399/llame/pull/990.diff` answers `302` to
+`https://patch-diff.githubusercontent.com/raw/leon0399/llame/pull/990.diff`,
+which serves `text/plain` (151,776 bytes); `commit/<sha>.diff` serves
+`text/plain` from `github.com` directly. `GET
+/repos/leon0399/llame/git/trees/master:apps/api?recursive=1` returns 850
+entries in 200 KB and the whole repository tree returns 3,827 entries in
+1.0 MB with `truncated: false`. `GET /git/matching-refs/heads/web-read`
+returns `refs/heads/web-read-adapters/proposal`, so prefix matching crosses
+segment boundaries. The contents endpoint answers `404` both for a missing
+ref (`No commit found for the ref feature`) and a missing path (`Not Found`),
+distinguishable only by body; a short SHA (`c91b31c`) is accepted as `ref`.
+The unauthenticated quota on the probing machine's shared egress address was
+already exhausted by unrelated traffic, which is the operational case for the
+operator token.
 
 ## Goals / Non-Goals
 
@@ -66,19 +75,23 @@ while FxEmbed maps only the fields the protocol actually supplies.
 - Add one traceable adapter stage between admitted source resolution and the
   existing ladder without changing selectors, result bounds, or address
   admission.
-- Make every secondary origin explicit, independently admitted, credential
-  scoped, and visible in provenance.
-- Keep defaults first-party only, make delegated routes explicit operator
+- Make every secondary origin explicit, independently admitted, and visible in
+  provenance.
+- Enable nothing by default, make delegated routes explicit operator
   attestations, and keep adapter failures non-fatal unless the shipped call
   bound or source request itself ends the call.
+- Render GitHub issues and pull requests in the layout a coding agent already
+  reads in oh-my-pi, so the model reads a pull request the way it reads a file:
+  whole, paged by `:N-M`.
 - Give implementation layers stable interfaces and fixture-server seams so
   each adapter can be verified without live third-party dependence.
 
 **Non-Goals:**
 
-- A runtime plugin loader, dynamic module registry, arbitrary rewrite service,
-  GitHub Enterprise, Telegram credentials, authenticated X sessions, anchor
-  fragments, forced adapter selection, or a new web tool id.
+- A runtime plugin loader, dynamic module registry, code-owned third-party
+  protocol, per-entry request headers, GitHub Enterprise, Telegram, GraphQL,
+  a `POST` transport, anchor fragments, forced adapter selection, a `json`
+  representation, or a new web tool id.
 - Changing the generic status-error body contract, the #914 address policy, or
   the representation slot owned by the sibling change.
 
@@ -88,11 +101,11 @@ while FxEmbed maps only the fields the protocol actually supplies.
 
 **Decision:** Parse, canonicalize, and admit the submitted HTTP(S) source as
 shipped. If the selector is `:raw`, fetch and return the response without
-running adapters. Otherwise run the ordered built-in/configured adapter list,
-then the existing negotiated/alternate/suffix/Readability/`llms.txt`/raw
-ladder. A rewrite fetches its target once, applies only negotiated Markdown/text or the
-local Readability stage with its quality gate, and remains the selected adapter
-for provenance; it does not run alternate, suffix, or `llms.txt` probes.
+running adapters. Otherwise run the ordered adapter list from
+`tools.webAdapters`, then the existing negotiated/alternate/suffix/
+Readability/`llms.txt`/raw ladder. A URL an adapter's `match` accepts is
+_claimed_; a URL every `match` rejects is _unclaimed_ and reaches the ladder
+with no adapter request and no note, exactly as today.
 
 **Alternative rejected:** Put each adapter inside one generic ladder slot, or
 let adapters replace the source executor. The former makes source-specific
@@ -101,346 +114,408 @@ bypass the existing shared session and address admission.
 
 **Consequence:** A source URL is admitted once before matching, but every
 adapter-derived URL is admitted again. Generic behavior remains observable
-when no adapter claims or when an adapter fails. The `file-locator` and
+when nothing claims or when an adapter fails. The `file-locator` and
 `read-representations` changes can compose around this stage without knowing
 site protocol details.
 
-### D2: Use a typed contract with pure match, explicit route, and fallthrough
+### D2: Use a typed contract with pure match, two route kinds, and explicit fallthrough
 
-**Decision:** Each static entry has `id`, pure synchronous `match(url)`, route
-kind, declared origins, bounded request/render, and an explicit outcome. Route
-`native` fixes first-party origins in code; `service` fixes a code-owned
-protocol while taking only its base origin and secret headers from config;
-`rewrite` takes a validated literal-origin operator target and uses the local
-negotiated/text or Readability renderer. New service protocols are code-owned
-`use` values with operator-declared origins, not operator-supplied parsers.
-Failure categories are `permission`, `address`, `status`, `rate_limit`,
-`transport`, `parse`, `empty`, `budget`, `binary`, `too_large`, and
-`content_type`. Transport notes use only the
-bounded named classes `dns`, `tls`, `connect`, `reset`, or `other` when the
-runtime can classify them; they never forward a platform exception string. A
-matched failure produces a bounded note and tries the next matching entry or
-generic ladder.
+**Decision:** Each static entry has `id`, pure synchronous `match(url)`, a
+route kind, declared origins, a bounded request/render path, and an explicit
+outcome. Route `native` fixes first-party origins in code; `rewrite` takes a
+validated literal-origin operator target and uses the local negotiated/text
+or Readability renderer. Failure categories are `permission`, `address`,
+`status`, `rate_limit`, `transport`, `parse`, `empty`, `binary`,
+`too_large`, and `content_type`. Transport notes use only the bounded named
+classes `dns`, `tls`, `connect`, `reset`, or `other` when the runtime can
+classify them; they never forward a platform exception string.
 
-**Alternative rejected:** OMP's combined `SpecialHandler` returning null on
+Failure has two shapes. When the primary request of a claimed URL fails, the
+adapter records a bounded note naming itself and the category and falls
+through to the next matching entry, then the generic ladder. When the primary
+request succeeded and a later request for the same document fails (a comment
+page, the check-runs summary, the README), the adapter renders what it has and
+attaches one note per missing section, such as
+`review comments omitted: rate_limit, resets 2026-09-27T12:40:00Z`. No
+adapter failure returns a response body to the model.
+
+**Alternative rejected:** OMP's combined `SpecialHandler` returning `null` on
 both mismatch and failure. It makes a handler's precedence and failure reason
-invisible and allowed Twitter to block generic fallback while GitHub fell
-through. A universal registry is also rejected: the approved architecture
-requires static lists with real implementations, and CODING_STANDARDS.md
-prohibits a registry without present need.
+invisible. All-or-nothing on secondary failure was also rejected: it discards
+a pull request whose title, body, and head were already fetched in favor of
+Readability output of GitHub's page chrome, which is the case #939 exists to
+avoid. A `service` route kind with code-owned third-party protocols was
+drafted and cut: a rewrite pointed at such a service reads its JSON through
+the generic text path, and a protocol-specific renderer has no second caller.
 
 **Consequence:** The implementation can test matching with zero I/O, test each
 failure category against a local fixture, and prove that a refusal does not
-become a network attempt. Adding the GitHub, Telegram, and service protocols
-still changes one module and one static list entry each, not a runtime plugin
-surface.
+become a network attempt. Adding an adapter is a module, a static entry,
+tests, and a spec delta, not a runtime plugin surface.
 
 ### D3: Admit every derived adapter locator independently
 
-**Decision:** An API URL, embed URL, service target, rewrite target, and every
-redirect hop are full derived locators. The same evaluator and projection run
-before each request, followed by the same resolver and pinned address
-admission. The decision does not inherit the source URL's allow, and an
-adapter request that is refused disqualifies only that adapter. A domain
-allowlist therefore must name each declared secondary origin: a GitHub rule
-for `^https://github\\.com/` does not admit `https://api.github.com/`; the
-runbook gives both clauses or explains the fallthrough.
+**Decision:** An API URL, a rewrite target, and every redirect hop are full
+derived locators. The same evaluator and projection run before each request,
+followed by the same resolver and pinned address admission. The decision does
+not inherit the source URL's allow, and an adapter request that is refused
+disqualifies only that adapter. A domain allowlist therefore must name each
+secondary origin: a rule for `^https://github\\.com/` does not admit
+`https://api.github.com/` or `https://patch-diff.githubusercontent.com/`; the
+runbook gives the clauses or explains the fallthrough.
 
 **Alternative rejected:** Inherit the source decision. That turns a source
 allow into an egress grant and makes prompt-injected or server-chosen targets
-escape operator policy. A reject-only check is insufficient because the
-operator's allowlist must be able to admit a configured service origin while
-still rejecting all other hosts.
+escape operator policy.
 
-**Consequence:** The adapter can never contact `api.github.com`, Telegram's
-embed, or a configured service merely because the source matched. The cost is
-one policy evaluation per derived request and explicit operator configuration
-for every secondary origin. Adapter decisions use the `adapter` provenance
-kind; address decisions remain `address` and never expose resolved addresses.
+**Consequence:** The adapter can never contact `api.github.com` or a rewrite
+origin merely because the source matched. Adapter decisions use the `adapter`
+provenance kind; address decisions remain `address` and never expose resolved
+addresses.
 
-### D4: Scope credentials to the declared origin and strip on redirects
+### D4: One adapter credential, scoped to `api.github.com`, stripped on redirects
 
-**Decision:** The GitHub token is allowed only on the fixed
-`api.github.com` origin. FxEmbed/rewrite secret headers are allowed only on
-their configured origin. The request wrapper compares origin before attaching
-headers and removes adapter credentials whenever a response redirects to a
-different origin. Submitted source and generic ladder requests send no adapter credentials.
-An adapter credential may be sent only to its declared origin and a same-origin
-hop; it is stripped before any cross-origin hop.
+**Decision:** The GitHub token is the only adapter credential in this change.
+It is attached only to requests whose origin is `https://api.github.com` and
+removed before any hop to another origin. Rewrite entries carry no headers.
+Submitted source and generic ladder requests send no adapter credential.
+Token presence and value never appear in notes, errors, decisions, or model
+output.
 
-**Alternative rejected:** Attach headers to every request in one call, or
-allow the runtime's automatic redirect to carry them. That leaks an operator
-secret to a source host, a server-selected host, or a prompt-injected rewrite
-origin.
+**Alternative rejected:** Per-entry interpolated `headers` on rewrite entries,
+with reserved-header validation and literal-versus-interpolated redaction
+rules. No current rewrite target needs a credential, and the feature brought a
+class of secret-leak paths and four config scenarios with it. Adding headers
+later changes no existing configuration.
 
-**Consequence:** A redirect can still be followed under normal admission, but
-it cannot retain the adapter credential across an origin boundary. A same-
-origin redirect remains within the declared origin. Token presence and its
-value are never part of notes, errors, decisions, or model output.
+**Consequence:** One origin comparison covers every credential decision, and
+the negative tests are two: a redirect from `api.github.com` to another origin
+captures no token, and a rewrite target never receives one.
 
 ### D5: Add `method: "adapter"` and a structured adapter object
 
 **Decision:** Keep the shipped closed `WebRenderMethod` values for generic
-stages and add `adapter` as the one method for all site/service/rewrite
-successes. Add `adapter: { id, route, origin? }`; native entries omit origin,
-while service and rewrite entries report the origin. `finalUrl` stays the
-source URL for every adapter success. Notes say when content came through a
-third-party or operator-configured origin.
+stages and add `adapter` as the one method for all adapter successes. Add
+`adapter: { id, route, origin? }`: native entries omit `origin`, rewrite
+entries report their target origin. `finalUrl` stays the source URL for every
+adapter success. Notes say when content came through an operator-configured
+origin.
 
 **Alternative rejected:** Encode each adapter as a new union value such as
-`github`, `telegram`, and `fxembed`, or prepend a text header. Per-adapter
-method values grow a closed union and make generic consumers branch for every
-site; a text header pollutes source lines and selector coordinates. A free-form
-method string loses type safety.
+`github`, or prepend a text header. Per-adapter method values grow a closed
+union and make generic consumers branch for every site; a text header
+pollutes source lines and selector coordinates.
 
-**Consequence:** Consumers can branch once on `method: "adapter"` and inspect
-stable structured provenance. Existing selector and result-bound code remains
-shared. The result envelope reservation grows by the adapter fields, so a
-long adapter render truncates content before dropping provenance.
+**Consequence:** Consumers branch once on `method: "adapter"` and inspect
+stable structured provenance. The result envelope reservation grows by the
+adapter fields, so a long adapter render truncates content before dropping
+provenance. The object is stored in tool parts and is the one part of the
+contract that is expensive to change; the internal types are not.
 
 ### D6: Preserve status-error secrecy while classifying rate limits
 
 **Decision:** The generic HTTP client keeps the shipped rule that a non-2xx
 status returns no body and no headers other than `Retry-After`
 (`openspec/specs/native-file-tools/spec.md:968-988`). An adapter may inspect
-status and the bounded rate-limit headers needed for routing. GitHub rate limit means 429, or 403 with
+status and the bounded headers `retry-after`, `x-ratelimit-remaining`, and
+`x-ratelimit-reset`. GitHub rate limit means `429`, or `403` with
 `x-ratelimit-remaining: 0` or `retry-after`; `x-ratelimit-reset` only adds
-reset metadata. It becomes a `rate_limit` note and fallthrough, not a
-model-visible body or permission error. Other adapter
-status, parse, and empty failures use the same note plus fallthrough rule.
+reset metadata. It becomes a `rate_limit` note and fallthrough or a
+per-section omission, not a model-visible body or permission error.
 
 **Alternative rejected:** Return bounded error JSON to the model, or map every
-403 to permission denied. The former changes the explicit #930-sensitive
-status-body contract and gives attacker-controlled diagnostics a new surface;
-the latter mislabels rate exhaustion and cannot tell the model to use another
-route.
+403 to permission denied. The former changes the #930-sensitive status-body
+contract; the latter mislabels rate exhaustion.
 
 **Consequence:** A generic status error still ends the call as shipped. A
-matched adapter can fail without hiding a usable generic representation, but
-its note contains only category and bounded reset metadata, never response
-body text.
+claimed URL can fail without hiding a usable generic representation, and its
+note contains only category and bounded reset metadata.
 
-### D7: Keep one shared budget and reserve an adapter sub-budget
+### D7: Load everything, bound by time and size, page with `:N-M`
 
-**Decision:** Extend the existing per-call session instead of creating a
-session per adapter. Every request consumes the shared 10-second header,
-30-second call, 5 MiB body, and redirect budget. The adapter phase has its own
-cap of eight requests per call, including redirects of those requests; those
-redirects also consume the shared 20-hop budget. Exhausting the adapter cap is
-a `budget` adapter failure that falls through, not a new call-ending error.
-The generic ladder keeps its existing one-alternate, one-suffix, and four-
-`llms.txt` quotas.
+**Decision:** An adapter loads its whole document: every comment, review,
+review-comment, and file page of a pull request, the whole two-level tree of
+a directory. There is no adapter request cap. The bounds are the shared
+30-second call deadline, the 5 MiB per-response body bound, and a 5 MiB bound
+on the rendered adapter document. Reaching a bound after the primary request
+succeeded renders what arrived with an omission note (D2). The model pages the
+rendered document with the ordinary `:N-M` selector; each page refetches, and
+the tool does not promise that two reads return the same text, as shipped.
 
-**Alternative rejected:** Give every adapter a fresh session or let a GitHub
-comment walk consume an unbounded number of calls. Fresh sessions permit a
-hostile source to multiply work; unbounded pagination violates the bounded
-read contract.
+**Alternative rejected:** A fixed request cap of eight with head-and-tail
+paging and continuation markers. It needed a universal thread-paging contract
+before a second thread-rendering adapter exists, and it cut long threads at
+exactly the end the model needs most. A per-Run cache of the rendered
+document, which is how OMP affords load-everything, was deferred: it adds
+worker state and changes the shipped refetch rule, so it needs its own change
+if quota use shows the need.
 
-**Consequence:** An adapter can spend eight bounded requests without changing
-the generic ladder quotas. Redirects still share the global 20-hop and 30-second
-limits, and fixture tests can count every adapter request.
+**Consequence:** A normal issue or pull request loads completely in a handful
+of requests. Paging a very long thread unauthenticated spends the instance's
+60-per-hour GitHub quota on every page; the runbook says to configure a token
+when reading long threads or when llame shares its egress address. A future
+nested-thread adapter (Reddit, Hacker News, X replies) chooses its own
+strategy, such as top-level items with score and reply count so the model
+opens subthreads itself; that is guidance here, not a requirement.
 
-### D8: Use fixed GitHub REST paths and one token-gated GraphQL field
+### D8: Build a typed document and render it; `:json` comes later
 
-**Decision:** Match only the five source shapes in the contract with the stated
-owner/repo/number/sha/ref/path grammars and encode each API path segment after
-parsing. Use `GET /repos/{o}/{r}/readme` and
-`GET /repos/{o}/{r}/contents/{path}?ref={ref}` with
-`Accept: application/vnd.github+json`; decode the JSON contents object and
-refuse binary, invalid UTF-8, `encoding: none`, empty large-file content, and
-oversize. Use `GET /repos/{o}/{r}/commits/{sha}` for commits,
-`GET /repos/{o}/{r}/issues/{N}` plus bounded comment pages for issues, and
-`GET /repos/{o}/{r}/pulls/{N}` plus bounded issue/review comments and
-`/repos/{o}/{r}/commits/{sha}/check-runs` for PRs. With a token, a fixed
-GraphQL POST carries owner/repo/number variables and is admitted under both the
-literal graphql endpoint and the REST pull locator; any 3xx response is a status adapter failure and no redirect is followed.
-Blob content is rendered without a heading so `:N-M` remains a source line
-selector. Missing pagination is stated in notes.
+**Decision:** The GitHub adapter normalizes each REST response into a typed
+document per shape (`repository`, `tree`, `blob`, `commit`, `issue`, `pull`,
+`comment`, `review`, `reviewComment`), and one deterministic renderer turns
+the document into Markdown. The schema is internal. When eval cells land
+(#833), `json` becomes a member of the representation slot owned by
+`read-representations` (#989): it returns the whole document or fails with
+`too_large`, because a JSON body cannot be line-paged, and publishing it fixes
+the schema.
 
-**Alternative rejected:** Fetch GitHub HTML/raw.githubusercontent.com, call
-`gh`, or add the entire GitHub API surface. HTML loses review structure, a
-second raw origin complicates token scoping, and `gh` introduces process and
-credential behavior outside the read HTTP contract. Raw media also fails the
-shipped text gate and can mislabel binary bytes.
+**Alternative rejected:** Render Markdown straight from API responses, as OMP
+does; adding `:json` later would rewrite every renderer. Shipping `:json` now
+was also rejected: its only consumer is unbuilt, and it would couple this
+change to two unmerged proposals.
 
-**Consequence:** The first native adapter is deterministic and only contacts
-`api.github.com`. Public reads work without a token; a token adds instance-
-wide authority and resolution state with a documented blast radius. Enterprise
-hosts and unsupported paths fall through.
+**Consequence:** Normalization and rendering test separately, a fixture can
+assert the document and the text independently, and the later nested-thread
+layout (D7) becomes a renderer option rather than a second fetch path.
 
-### D9: Parse Telegram's first-party embed with the installed DOM dependency
+### D9: Render issues and pull requests in the `pr://` layout, over REST only
 
-**Decision:** Pure-match `t.me` or `telegram.me` with a channel matching
-`^[A-Za-z][A-Za-z0-9_]{3,31}$` outside the reserved set and a post id matching
-`^[1-9][0-9]{0,9}$`; permit no query or only `single`, never `comment` or
-`thread`. Always derive the `t.me` embed target
-`https://t.me/<channel>/<id>?embed=1&mode=tme`, even for `telegram.me` sources,
-then parse server-rendered widget selectors with `linkedom` and render
-author/date/text, quoted origin, and media type notes. A matched error widget,
-missing author, or missing both text and media is a claimed `empty` failure; a
-media-only post renders normally and an out-of-grammar shape is unclaimed. Do not request media or
-comments. The proposal-time spike observed `.tgme_widget_message_author`, the
-`time` datetime, `.tgme_widget_message_text`, and ten media nodes on `durov/300`.
+**Decision:** The issue and pull request views follow OMP's `formatIssueView`
+and `formatPrView` (`gh-view.ts:339-440`): a `# Pull Request #N: title` line,
+`Key: value` metadata, `## Body`, `## Files (n)` listing every changed file
+with status and counts, `## Reviews (n)`, `## Review Comments (n)`, and
+`## Comments (n)`. Every comment-like item is one `### author · timestamp`
+heading at the same depth, in source order, with `ID:`, `Reply to:` (when
+present), `Location: path:line` and `Side:` (review comments), and `URL:`
+lines, then the body. Three lines are added to the metadata block:
+`Reviews: 2 approved, 1 changes requested (latest per reviewer)` in place of
+OMP's `Review decision`, `Checks: 14 passed, 1 failed (lint), 2 pending` from
+one `GET /repos/{o}/{r}/commits/{head_sha}/check-runs` request reduced to
+counts, and `Diff: https://github.com/{o}/{r}/pull/{n}.diff`. `Merge state`
+renders `mergeable_state` as returned, including `unknown`. Minimized comments
+render like any other comment. There is no events section.
 
-**Alternative rejected:** Bot API and MTProto. They require different
-credentials and privilege models and cannot read arbitrary public channels in
-the first slice. A `t.me/s/` feed is also deferred because it introduces
-ordering and paging semantics that are not single-post read semantics.
+Endpoints: `GET /repos/{o}/{r}/issues/{n}` plus all pages of
+`/issues/{n}/comments`; `GET /repos/{o}/{r}/pulls/{n}` plus all pages of
+`/issues/{n}/comments`, `/pulls/{n}/reviews`, `/pulls/{n}/comments`, and
+`/pulls/{n}/files`, plus the check-runs summary. All requests carry
+`Accept: application/vnd.github+json` and are `GET`.
 
-**Consequence:** Markup changes can cause parse/empty fallthrough rather than
-an incorrect claim. `t.me/c/...`, feeds, comments, search, and channel roots
-remain unclaimed and never receive credentials.
+**Alternative rejected:** GraphQL for `reviewThreads` resolution state and
+`reviewDecision`. It needs a token the default configuration lacks, a `POST`
+transport in `connection.ts`, and a dual-admission rule for the endpoint; it
+is #996. Heading depth for reply nesting was rejected because Markdown has six
+levels and Reddit threads do not. Rendering patches inline or claiming
+`/pull/{n}/files` was rejected: GitHub already serves the diff as text at
+`.diff`, the generic ladder reads it today, and the `Diff:` line steers the
+model there.
 
-### D10: Treat FxEmbed as a protocol and rewrite as a bounded local route
+**Consequence:** Token and no-token output have the same shape. The model
+learns one layout for GitHub that it may already know from OMP. The
+`patch-diff.githubusercontent.com` redirect target of `.diff` joins the
+allowlist runbook clause. The `/pull/{n}.diff` and `.patch` shapes are
+unclaimed on purpose, and the grammar says so.
 
-**Decision:** FxEmbed has one operator base origin and matches x.com,
-twitter.com, www/mobile variants, and `/user/status/id`, `/i/status/id`, or
-`/i/web/status/id` shapes. It reduces `baseUrl` to its origin and constructs
-`new URL(`/status/${id}`, baseOrigin)`, producing
-`https://api.fxtwitter.com/status/20`; it maps only the bounded JSON fields supplied. Rewrite templates have a literal http(s)
-origin with no placeholders in scheme/host/port; userinfo and fragments are
-forbidden and a literal query is allowed. Placeholders are limited to the
-target path/query; `{path}` is allowed only in the path, while `{host}`,
-`{query}`, and `{url}` use `encodeURIComponent` of canonical values wherever
-they appear after the origin. Each
-target is revalidated per call for the declared origin and literal path prefix,
-admitted, and address-pinned. It is fetched once using only negotiated/text or
-Readability stages, without probes; raw/challenge/failed renders fall through.
-Provenance reports route `rewrite` and the source URL.
+### D10: Read code through the contents and trees endpoints, in the local listing shape
 
-**Alternative rejected:** Let operators supply executable code, dynamic
-parsers, or unvalidated target origins. Operator-declared fixed-origin maps are
-accepted: opt-in, per-target admission/address pinning, credential scoping, and
-provenance answer the open-redirect concern without making configuration a
-plugin loader.
+**Decision:** A blob requests
+`GET /repos/{o}/{r}/contents/{path}?ref={ref}`, decodes the JSON contents
+object from base64, and renders valid UTF-8 text line-for-line without a
+heading, so `:N-M` addresses source lines. NUL bytes, invalid UTF-8,
+`encoding: none`, empty content for a large file, or a declared size over the
+body bound are `binary` or `too_large` and fall through. A directory requests
+one `GET /repos/{o}/{r}/git/trees/{ref}:{path}?recursive=1` (the root:
+`git/trees/{ref}?recursive=1`), filters the flat result to the requested
+level and one child level, and renders the local directory listing shape: the
+requested level, then each child directory's first 20 entries followed by
+`… N more`, with the same `… N entries`, truncation, and range-selector rules
+as a host directory read. A response over 5 MiB is `too_large` and falls
+through. The repository root renders `Description`, `Default branch`,
+`Visibility`, and `Language` lines from `GET /repos/{o}/{r}`, then the
+two-level root listing, then `## README` from `GET /repos/{o}/{r}/readme`
+decoded. A commit requests `GET /repos/{o}/{r}/commits/{sha}` and renders
+message, author, timestamp, a file list with counts, and
+`Diff: https://github.com/{o}/{r}/commit/{sha}.diff`; patches are not
+rendered.
 
-**Consequence:** x.com has no third-party default. An operator can choose
-FxEmbed or `x.pcstyle.dev`, sees the leak in the runbook and result notes, and
-can disable it by removing the declaration. Path/query text remains a model-
-chosen egress input, so the source and target both require admission.
+**Alternative rejected:** Fetching `raw.githubusercontent.com`, calling `gh`,
+or one contents request per child directory. The raw origin complicates token
+scoping and fails the text gate on binaries; `gh` introduces process and
+credential behavior outside the read HTTP contract; per-child contents costs
+`1 + N` requests where the recursive tree costs one and gives exact counts.
 
-### D11: Make config absence safe and presence an exact replacement
+**Consequence:** Every directory costs one request, the root three. A
+repository whose subtree JSON exceeds 5 MiB (on the order of 20,000 entries;
+GitHub's own cut-off is 100,000 entries or 7 MB) falls through to the generic
+ladder; a fallback to per-child requests is added only if a real repository
+needs it. The model browses root → `tree/main/src` → `blob/main/src/a.ts`
+inside the adapter.
 
-**Decision:** `tools.webAdapters` is an optional closed array. Absent SHALL select
-exactly `[github, telegram]` in that order; present always means exactly the
-listed entries, including `[]`. Intermediate subset defaults are delivery
-steps recorded only in tasks.md. `github.token` and service/rewrite headers use the existing
-interpolation resolver. Non-secret fields (hosts, regexes, base URL shape,
-target templates) are validated as authored and do not silently interpolate.
-Unknown ids, uses, duplicate ids, origins, placeholders, and target forms fail
-boot before requests.
+### D11: Resolve refs containing `/` by trying first, then `matching-refs`
 
-**Alternative rejected:** Merge operator entries into built-in defaults, or
-use one boolean per service. Merge makes disabling and ordering ambiguous and
-could contact a declared third party unexpectedly; booleans cannot represent
-ordered protocol instances or explicit replacement.
+**Decision:** A blob or tree URL does not mark where the ref ends and the path
+begins. The adapter tries the first path segment as the ref. On a `404` with
+segments remaining, it requests `GET /git/matching-refs/heads/{segment}`, then
+`/tags/{segment}` if heads yield nothing; a candidate is acceptable only when
+it equals the remainder or is followed by `/` in it, and the longest
+acceptable candidate wins; the contents or tree request is retried at that
+ref. A 40-character hexadecimal first segment is a SHA and skips the lookup; a
+shorter hexadecimal segment is tried like any ref, which the API accepts. A
+`404` with nothing left to split is a `status` failure. Worked cases:
+`blob/main/src/a.ts` costs one request; `blob/feature/foo/src/a.ts` on branch
+`feature/foo` costs three; a tag `feature/foo` costs four.
 
-**Consequence:** An operator who wants x.com service access must attest to a
-specific origin. An absent key never contacts a third party. A configured
-GitHub token is an instance setting, like MCP headers, and the runbook must
-state that every owner on the instance can address its private visibility.
+**Alternative rejected:** Always look up refs first. It never returns the
+wrong file but costs one or two extra requests on every read against the
+60-per-hour unauthenticated quota.
 
-### D12: Keep the implementation static rather than runtime-loadable
+**Consequence:** One documented limit: when a tag `v1` and a branch `v1/x`
+both contain the requested path, `blob/v1/x/README.md` returns the tag's file
+with no signal, because the first attempt succeeds. Git forbids a branch `v1`
+beside `v1/x`, so the case needs a tag and a branch sharing a prefix and a
+path. The spec records it as a scenario.
 
-**Decision:** The list is a code-owned TypeScript array/record with interfaces;
+### D12: Rewrite is a bounded local route with two placeholders
+
+**Decision:** A `rewrite` entry declares exact canonical `hosts`, an optional
+`pathPattern` regular expression on the canonical path, and a `target`: a
+literal `http(s)` origin with no placeholder in scheme, host, or port, no
+userinfo, and no fragment, followed by a path/query template. `{path}` is
+allowed only in the path and inserts the canonical source path as-is;
+`{query}` inserts `encodeURIComponent` of the canonical query without its
+`?`. Each target is rebuilt per call, revalidated against the declared origin
+and literal path prefix, admitted, and address-pinned. It is fetched once
+using only the negotiated/text or Readability stages, without alternate,
+suffix, or `llms.txt` probes; a raw, challenge, or failed render falls
+through. Provenance reports `route: "rewrite"`, the target origin, and the
+source URL as `finalUrl`; a note states that content came through the
+configured origin. The runbook example is
+`{ hosts: ["x.com", "twitter.com"], pathPattern: "^/[^/]+/status/\\d+$", target: "https://x.pcstyle.dev{path}" }`.
+
+**Alternative rejected:** `{host}` and `{url}` placeholders, and a
+`?url=`-style target. `{url}` is the widest model-controlled egress channel
+and no current target needs it; the first target that does adds it with its
+own encoding tests. Operator-supplied code, parsers, or unvalidated origins
+remain rejected.
+
+**Consequence:** x.com has no third-party default. An operator who wants it
+attests to one origin, sees the leak in the runbook and result notes, and
+removes the entry to disable it. Path text remains a model-chosen egress
+input, so source and target both require admission.
+
+### D13: Make config absence mean none and presence an exact list
+
+**Decision:** `tools.webAdapters` is an optional closed array. Absent selects
+`[]`; present means exactly the listed entries, in order. Every entry has a
+required unique `id` and a `use` of `github` or `rewrite`; the `contract`
+layer accepts `rewrite` only and `github-threads` adds `github`. The GitHub
+`token` uses the existing interpolation resolver; a literal token fails boot.
+Non-secret fields (`hosts`, `pathPattern`, `target`) are validated as
+authored and an interpolation token in them fails boot. Unknown uses,
+duplicate ids, unknown fields, and invalid targets or patterns fail boot
+before any request.
+
+**Alternative rejected:** Enabling `github` when the key is absent. It would
+make an upgrade start contacting `api.github.com` on every instance with an
+open read policy, and it makes "on by default" a per-adapter decision instead
+of one rule. Merging operator entries into built-in defaults was rejected
+because it makes disabling and ordering ambiguous.
+
+**Consequence:** An upgrade changes nothing until an operator lists an entry.
+The `id` field does real work once two rewrites match the same host: first
+match wins, a failed match falls through to the next, and notes name the entry.
+
+### D14: Keep the implementation static rather than runtime-loadable
+
+**Decision:** The list is a code-owned TypeScript array with interfaces;
 configuration selects known `use` values and data, never modules or code.
-Operator-declared rewrite maps and service origins are supported as data. This
-satisfies the approved three-plane architecture and the repository standard
-against registries over a fixed set while providing four real route families
-at introduction.
+Operator-declared rewrite maps are supported as data.
 
-**Alternative rejected:** Dynamic import, executable config, or an operator
-supplied parser URL. Those expand the boot and egress trust boundary and make
-permission review impossible from source.
+**Alternative rejected:** Dynamic import, executable config, or an
+operator-supplied parser URL. Those expand the boot and egress trust boundary
+and make permission review impossible from source.
 
 **Consequence:** A new adapter is a module, a static entry, tests, and a spec
-delta. Configuration can opt in to a fixed protocol or target shape but cannot
-smuggle code into the API process.
+delta.
 
-### D13: Threat model both directions and rely on address admission
+### D15: Threat model both directions and rely on address admission
 
 **Decision:** Treat fetched content as untrusted: adapter Markdown and
-third-party service responses can contain prompt injection, so notes and
-provenance are data, not instructions. Treat model-authored source path,
-query, and rewrite-derived target data as outbound egress: a page can instruct
-the model to encode conversation text in a URL, but every source and derived
-request still passes the operator `read` group and address admission. The
-adapter layer does not add a host bypass, universal private-address block, or
-publisher trust claim.
+rewrite responses can contain prompt injection, so notes and provenance are
+data, not instructions. Treat model-authored source path and query text as
+outbound egress: a page can instruct the model to encode conversation text in
+a URL, but every source and derived request still passes the operator `read`
+group and address admission. The adapter layer adds no host bypass, no
+universal private-address block, and no publisher trust claim.
 
-**Alternative rejected:** Trust the source host and inherit its allow, or
-block only obvious private hostnames in adapter code. The former makes service
-origins invisible; the latter duplicates and weakens the shipped #914 resolver
-and pinning policy.
+**Consequence:** Operators using domain allowlists must list
+`api.github.com`, `patch-diff.githubusercontent.com`, and each rewrite
+origin. A model can still request an allowed exfiltration URL by design; the
+runbook states that `read` policy is the outbound boundary.
 
-**Consequence:** Operators using domain allowlists must list `api.github.com`,
-`t.me`, and each declared service/rewrite origin. A model can still request an
-allowed exfiltration URL by design; the runbook states that `read` policy is
-the outbound boundary. Third-party tampering remains visible through source
-identity, route, origin, and notes but is not cryptographically solved.
+### D16: Resolve the #939 acceptance narrowing as cross-issue bookkeeping
 
-### D14: Resolve the #939 fragment acceptance as a cross-issue bookkeeping change
+**Decision:** Do not reinterpret fragments in this change. Before the
+`github-code` layer closes #939, it posts an issue comment that moves
+`#L10-L40` to #927, review-thread resolution state and `reviewDecision`
+to #996, and issue/pull request list URLs to #995, and records the REST
+shape (`Reviews:` per-reviewer counts, `Merge state` as returned) as the
+shipped acceptance. Issue #939 then closes against its narrowed acceptance.
 
-**Decision:** Do not reinterpret fragments in this change. Fragments are cut
-before permission and request as shipped; GitHub blobs render line-for-line
-and use the existing `:N-M` selector. Before the GitHub layer closes #939, it
-must post an issue comment linking #927 and move the original `#L10-L40`
-acceptance row to #927, then close #939 against its narrowed acceptance.
-
-**Alternative rejected:** Parse `#L10-L40` inside GitHub while generic web
-fragments remain stripped. That would create a site-specific selector
-precedence and contradict the approved architecture's ownership of anchors in
-issue #927.
-
-**Consequence:** #939's native adapter is complete for source-line selectors
-without claiming anchor work. The issue comment is a required delivery task,
-not an implementation workaround.
+**Consequence:** #939's native adapter is complete for the shapes it claims.
+The comment is a required delivery task, not an implementation workaround.
 
 ## Risks / Trade-offs
 
-- [A model can prompt-inject a service URL or a source page can contain
+- [A model can prompt-inject a rewrite URL or a source page can contain
   instructions to exfiltrate text] -> every derived URL uses full read-group
   and address admission; the runbook states both inbound content tampering and
   outbound model-authored URL risk.
 - [An operator token exposes every private repository it can see] -> no token
   is the default, the token is instance-wide and documented as operator
-  attestation, and the runbook recommends fine-grained repository scope.
-- [A rewrite can send source-derived path/query text to a third party] ->
-  rewrites are opt-in, target templates are closed and encoded, boot rejects
-  unsafe targets, each target is admitted, and result notes state the leak.
-- [Service markup or JSON changes] -> parser failures are bounded and fall
-  through; Telegram uses a fixture-server parser test and the live spike is
-  recorded as evidence, not a test dependency.
-- [Adapters compete with generic probes for the call deadline] -> the adapter
-  sub-budget is eight, GitHub pagination is bounded, adapter redirects consume
-  the shared 20-hop limit, and generic ladder quotas remain unchanged.
+  attestation, and the runbook recommends a fine-grained repository scope.
+- [Load-everything spends the unauthenticated quota on long threads and on
+  shared egress] -> the runbook recommends a token for both; a per-Run cache
+  is a later change if measured use shows the need.
+- [A rewrite sends source path text to a third party] -> rewrites are opt-in,
+  target templates are closed to two placeholders, boot rejects unsafe
+  targets, each target is admitted, and result notes state the leak.
+- [GitHub JSON changes shape] -> normalization failures are bounded `parse`
+  notes and fall through; fixtures record the observed shapes.
+- [A tag shadows a branch sharing its prefix and a path] -> documented limit
+  with a scenario (D11).
 - [A rate-limit body could contain attacker-controlled text] -> classification
-  uses status and bounded headers only; the existing no-status-body rule stays
-  intact and the model receives a short category note.
-- [OMP's `null` fallthrough was ambiguous and Twitter blocked generic fallback]
-  -> this design has explicit matched failure outcomes and the spec requires
-  failure notes plus fallthrough.
-- [The #939 issue originally names URL fragments] -> the design narrows that
-  acceptance to `:N-M`, requires an issue comment linking #927, and leaves the
-  architecture owner unchanged.
+  uses status and bounded headers only; the model receives a short category
+  note.
+- [OMP's `null` fallthrough was ambiguous] -> explicit claimed/unclaimed
+  vocabulary and two failure shapes.
+- [The #939 issue names URL fragments, resolution state, and lists] -> D16
+  narrows the acceptance with a comment linking #927, #996, and #995.
 
 ## Migration Plan
 
-The change is additive and off-by-default for every delegated route. Deploy
-code with built-in GitHub and Telegram first; an absent config key contacts no
-third party beyond those fixed first-party origins. Operators who want x.com
-must add and review one `fxembed` or `rewrite` entry, then restart so boot
-validation and secret interpolation apply atomically. Removing the entry or
-setting `tools.webAdapters: []` disables adapters on the next boot. Rollback
-is a code rollback or config replacement; there is no database migration,
-result replay migration, or persisted adapter state.
+The change is additive and off by default. Deploy code; an absent
+`tools.webAdapters` contacts nothing. Operators who want GitHub add one
+`github` entry and, if they read long threads or share an egress address, a
+token; operators who want x.com add one `rewrite` entry; both restart so boot
+validation and secret interpolation apply atomically. Removing an entry
+disables it on the next boot. Rollback is a code rollback or config
+replacement; there is no database migration, result replay migration, or
+persisted adapter state.
+
+## Deferred
+
+- `:json` representation of the typed document: #833 (comment posted
+  2026-09-27), as a member of the #989 representation slot.
+- GraphQL review-thread resolution state and `reviewDecision`: #996.
+- Issue and pull request list URLs: #995.
+- `#L10-L40` blob anchors: #927.
+- Telegram: #940, a separate change.
+- Nested-thread rendering strategy for tree-shaped sources: guidance in D7,
+  decided by the first such adapter.
 
 ## Open Questions
 
-- The original #939 `#L10-L40` row is intentionally not implemented here. The
-  GitHub layer must post the narrowing comment with a link to #927 before
-  writing `Closes #939`; no implementation decision remains open, but closure
-  is blocked on that issue bookkeeping.
 - Final module names and fixture route names are implementation details. They
-  must preserve the interfaces and request/accounting decisions above and do
-  not require another proposal decision.
+  must preserve the interfaces and request accounting above and do not require
+  another proposal decision.
