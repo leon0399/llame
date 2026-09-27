@@ -530,6 +530,53 @@ describe("ChatPage — compaction checkpoint render", () => {
     });
   });
 
+  it("refreshes binding caches at the start of each streamed Run", async () => {
+    const chatId = "chat-live-workspace-two-runs";
+    const { queryClient, rerenderChatPage } = renderChatPage(chatId, {
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          parts: [{ type: "text", text: "continue the project" }],
+          metadata: { seq: 1 },
+        },
+      ],
+      compaction: null,
+    });
+    const { listKey, detailKey } = seedWorkspaceCaches(queryClient, chatId);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    useChatStatus = "streaming";
+    rerenderChatPage();
+    await waitFor(() => {
+      expect(queryClient.getQueryState(listKey)?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(detailKey)?.isInvalidated).toBe(true);
+    });
+    const firstRunCallCount = invalidateSpy.mock.calls.length;
+
+    queryClient.setQueryData(listKey, {
+      pages: [[{ id: chatId, workspaceRoot: "/home/operator/projects/next" }]],
+      pageParams: [undefined],
+    });
+    queryClient.setQueryData(detailKey, {
+      id: chatId,
+      workspaceRoot: "/home/operator/projects/next",
+    });
+    expect(queryClient.getQueryState(listKey)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(detailKey)?.isInvalidated).toBe(false);
+
+    useChatStatus = "ready";
+    rerenderChatPage();
+    useChatStatus = "streaming";
+    rerenderChatPage();
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledTimes(firstRunCallCount + 2);
+      expect(queryClient.getQueryState(listKey)?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(detailKey)?.isInvalidated).toBe(true);
+    });
+  });
+
   it("does not refresh binding caches for a historical transition on chat open", async () => {
     const chatId = "chat-historical-workspace-transition";
     useChatMessages = [
