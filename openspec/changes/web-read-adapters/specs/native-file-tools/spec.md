@@ -200,9 +200,9 @@ probe locator does. Adapter requests SHALL have an adapter-phase budget of at
 most eight requests per call, including redirects of those requests. They SHALL
 share the 30-second call deadline, 5 MiB body bound, and 20-hop redirect
 budget; exhausting the adapter budget SHALL disqualify the adapter and fall
-through, not create a new call-ending error. The generic ladder quotas remain
-one alternate request, one suffix-probe request, and four `llms.txt` requests,
-and SHALL follow at most 20 redirects in total across all requests.
+through, not create a new call-ending error. A call SHALL issue at most one alternate request, one suffix-probe request,
+and four `llms.txt` requests, and SHALL follow at most 20 redirects in total
+across all of its requests.
 
 #### Scenario: Every request identifies llame
 
@@ -379,10 +379,10 @@ first 2 KiB of the body, else as UTF-8.
 - **THEN** the returned text is decoded with that charset
 - **AND** a response that declares no charset and carries no `<meta charset>` in its first 2 KiB is decoded as UTF-8
 
-#### Scenario: A refused adapter content type falls through
+#### Scenario: A content-type adapter failure falls through
 
 - **WHEN** a matched adapter response declares `application/pdf` or `image/png`
-- **THEN** the adapter is disqualified with an `unsupported_content_type` note
+- **THEN** the adapter is disqualified with a `content_type` (`unsupported_content_type`) note
 - **AND** no adapter body is returned and the source may continue through the next candidate
 
 ### Requirement: Web reads follow redirects under per-hop permission admission
@@ -420,9 +420,9 @@ probe rule, so a page cannot end a read of itself through a redirect it
 announced. A rejected hop inside an adapter chain SHALL disqualify that
 adapter instead. When the
 redirect budget is exhausted the call SHALL fail with `too_many_redirects`
-and SHALL issue no further request. The result SHALL name the URL of the
-response that produced the content as `finalUrl` and SHALL NOT enumerate the
-hop chain: when a publisher-Markdown probe won, that is the probe's own
+and SHALL issue no further request. The result SHALL name the URL of the response that produced the content as
+`finalUrl` and SHALL NOT enumerate the hop chain, except that an adapter result
+reports its source URL under the result requirement: when a publisher-Markdown probe won, that is the probe's own
 final URL, including any redirect it followed, rather than the page's.
 The `read` tool description SHALL state that redirects are
 followed and that `finalUrl` reports where the content came from, so the
@@ -489,8 +489,8 @@ the adapter on an adapter chain, as that requirement states.
 ### Requirement: Web reads connect only to addresses the read group admits
 
 Before each request a web read issues (the submitted locator, a redirect hop,
-an announced alternate, a suffix candidate, or an `llms.txt` candidate) and
-after that locator's own text is admitted, the tool SHALL determine the
+an announced alternate, a suffix candidate, an `llms.txt` candidate, or an
+adapter request) and after that locator's own text is admitted, the tool SHALL determine the
 addresses the request may connect to. A host that is an IP literal SHALL be its
 own single address. Any other host SHALL be resolved through the system
 resolver, so hosts files and the platform's name service apply as they do for
@@ -666,7 +666,7 @@ A credential SHALL be sent only to its adapter's declared origin and SHALL be
 removed before a redirect crosses origins. An adapter SHALL never widen the
 source permission or bypass address admission.
 
-A matched adapter that cannot claim its source, is refused before its request,
+A matched adapter that is refused before its request,
 returns a non-2xx status, is rate-limited, cannot parse a bounded response,
 produces an empty render, or exhausts its adapter sub-budget SHALL yield a
 bounded note naming the adapter and failure category, then fall through to the
@@ -710,14 +710,16 @@ the result provenance requirement, including the source URL as `finalUrl`.
 
 ### Requirement: GitHub native adapter reads bounded public resources
 
-The built-in `github` adapter SHALL match canonical `github.com/{owner}/{repo}`
+The built-in `github` adapter SHALL be enabled when `tools.webAdapters` is absent and SHALL match canonical `github.com/{owner}/{repo}`
 repository roots and the first-slice paths `/issues/{number}`,
 `/pull/{number}`, `/blob/{ref}/{path}`, and `/commit/{sha}`. Owner segments
 SHALL match `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`; repo segments SHALL match
 `^[A-Za-z0-9._-]{1,100}$` but SHALL not be `.` or `..`; issue/PR numbers SHALL
 match `^[1-9][0-9]{0,9}$`; and commit SHAs SHALL match
-`^[0-9a-fA-F]{7,40}$`. A blob ref is the single path segment after `blob/`;
-refs containing `/` are unsupported. Blob path segments SHALL be decoded once
+`^[0-9a-fA-F]{7,40}$`. A blob ref is the single path segment after `blob/`; refs containing `/` are
+unsupported. The ref SHALL be decoded once, be non-empty, not `.` or `..`, and
+contain no `/`, `\`, NUL, or control character; it SHALL be passed with
+`URLSearchParams` rather than concatenated into the query. Blob path segments SHALL be decoded once
 and be non-empty, not `.` or `..`, and contain no `/`, `\`, NUL, or control
 character; each segment SHALL be re-encoded with `encodeURIComponent` when
 building the API URL. Any shape outside these grammars SHALL be unclaimed. It SHALL use
@@ -746,7 +748,8 @@ query document with owner, repo, and number variables to POST to
 `https://api.github.com/graphql` for `reviewThreads` resolution state. The
 GraphQL request SHALL be admitted under both the literal GraphQL endpoint and
 the admitted REST pull-request locator for the same owner/repo/number; it
-SHALL use POST with a body and SHALL not follow a 303. Without a token it SHALL
+SHALL use POST with a body and SHALL follow no redirect: any 3xx response is
+a `status` adapter failure. Without a token it SHALL
 use REST data and state that review-thread resolution is unavailable. A
 per-call GitHub adapter budget SHALL be no more than eight API requests,
 including redirects, bounded comment/review pagination, and the optional
@@ -757,8 +760,8 @@ Without a configured token, requests SHALL carry no GitHub credential and
 private repositories SHALL not be claimed as readable. An optional operator
 token SHALL be interpolated as a secret and sent only to `api.github.com` for
 this adapter; it SHALL never be sent to a rewrite, service origin, source
-host, or redirected origin. The token is instance-wide authority: every URL
-owner can address any repository visible to that token. GitHub `429`, or `403` with `x-ratelimit-remaining: 0` or with
+host, or redirected origin. The token is instance-wide authority: every owner
+on the instance can address any repository visible to that token. GitHub `429`, or `403` with `x-ratelimit-remaining: 0` or with
 `retry-after` (including a secondary limit) SHALL be classified as a rate-limit
 failure with reset information when `x-ratelimit-reset` is also available. An
 `x-ratelimit-reset` header alone SHALL not classify a response. Rate limits
@@ -822,15 +825,16 @@ SHALL fall through as unclaimed.
 
 ### Requirement: Telegram native adapter reads one public embed post
 
-The built-in `telegram` adapter SHALL pure-match only canonical public
+The built-in `telegram` adapter SHALL be enabled when `tools.webAdapters` is absent and SHALL pure-match only canonical public
 `https://t.me/<channel>/<numeric-post-id>` or `https://telegram.me/<channel>/<numeric-post-id>` locators. The channel SHALL match
 `^[A-Za-z][A-Za-z0-9_]{3,31}$` and SHALL not be `s`, `c`, `joinchat`,
 `addstickers`, `share`, `proxy`, `socks`, `iv`, `addlist`, or `boost`; the post
 id SHALL match `^[1-9][0-9]{0,9}$`; and the query SHALL be empty or only
 `single`, never `comment` or `thread`. The locator SHALL not be under `t.me/c/`
-and is not a feed, search, comment, or channel listing. It SHALL request the
-first-party embed form with `embed=1&mode=tme`, subject to the same derived
-locator and address admission as every web request. It SHALL parse the
+and is not a feed, search, comment, or channel listing. It SHALL always request the first-party embed at
+`https://t.me/<channel>/<id>?embed=1&mode=tme`, including when the source
+host is `telegram.me`, subject to the same derived locator and address
+admission as every web request. It SHALL parse the
 server-rendered widget into Markdown containing the channel/author, timestamp,
 post text, a bounded quoted or forwarded origin when present, and notes for
 each media attachment naming its type. It SHALL not fetch media, follow
@@ -838,9 +842,10 @@ comment threads, or claim private channels.
 
 A channel URL without one post id, `t.me/s/<channel>`, `t.me/c/<id>/<post>`,
 search URL, comment URL, or another shape outside the pure grammar SHALL be
-unclaimed and SHALL fall through without a note. A matched embed whose widget
-contains `tgme_widget_message_error` or lacks author or text SHALL be a claimed
-`empty` failure with a bounded note before fallthrough. No Bot API token, MTProto user session, or
+unclaimed and SHALL fall through without a note. A matched embed whose widget contains `tgme_widget_message_error`, lacks an
+author, or has neither text nor any media node SHALL be a claimed `empty`
+failure with a bounded note before fallthrough. A media-only post with an
+author and media node SHALL be rendered with author, date, and media notes. No Bot API token, MTProto user session, or
 operator Telegram credential SHALL be introduced by this adapter.
 
 #### Scenario: A public post is parsed from the first-party embed
@@ -854,6 +859,12 @@ operator Telegram credential SHALL be introduced by this adapter.
 - **WHEN** the embed contains a photo, video, document, or other media class
 - **THEN** the result carries a bounded type note
 - **AND** no media URL is fetched
+
+#### Scenario: A media-only post is not empty
+
+- **WHEN** the embed has an author and media node but no text node
+- **THEN** the adapter returns author, timestamp, and media notes
+- **AND** it does not record an `empty` failure
 
 #### Scenario: Private t.me/c URLs are not claimed
 
@@ -886,9 +897,11 @@ A configured `fxembed` entry SHALL match only canonical status URLs on
 `mobile.twitter.com`. It SHALL accept `/{user}/status/{id}`, `/i/status/{id}`,
 or `/i/web/status/{id}` (with an optional trailing `/photo/N` ignored), where
 `{user}` matches `^[A-Za-z0-9_]{1,15}$` when present and `{id}` matches
-`^[1-9][0-9]{0,9}$`. The entry SHALL use its required operator-declared
-HTTPS base origin and request `{baseUrl}/status/{id}` with no path traversal or
-source-origin credential. A successful JSON response with a status code and a tweet object
+`^[1-9][0-9]{0,19}$` (status ids are 64-bit snowflakes of up to 20 digits). The entry SHALL use its required operator-declared
+HTTPS base URL reduced at boot to a base origin and construct the target with
+`new URL(`/status/${id}`, baseOrigin)`, producing
+`https://api.fxtwitter.com/status/20`, with no path traversal or source-origin
+credential. A successful JSON response with a status code and a tweet object
 SHALL render the source post's author, timestamp, text, quoted post when
 present, and bounded media notes. The result SHALL name the x.com source as
 `finalUrl`, set `method: "adapter"`, and record the configured service origin.
@@ -923,18 +936,17 @@ setting SHALL not contact FxEmbed or any other third party.
 A `rewrite` adapter entry SHALL be enabled only when an operator declares it.
 Its match SHALL contain an exact canonical host list and an optional bounded
 path regular expression. Its target SHALL have a literal `http` or `https`
-scheme, host, and optional port with no placeholder, userinfo, query, or
-fragment. Placeholders SHALL occur only in the target path or query; boot
-validation SHALL replace them with sentinels and record that literal origin and
-literal target-path prefix. It SHALL reject an unknown placeholder, malformed
-template, non-http(s) target, userinfo, or a template that cannot produce a
-valid target with bounded sentinel values. The supported placeholders SHALL be
-`{host}`, `{path}`, `{query}`, and `{url}`. `{host}` SHALL be the canonical
-source host encoded as one value after the literal origin; `{path}` SHALL be
-the canonical source path verbatim, preserving its existing percent escapes
-and leading `/`; `{query}` SHALL be `encodeURIComponent` of the canonical
-query without `?`; and `{url}` SHALL be `encodeURIComponent` of the whole
-canonical source URL. Every produced target SHALL be re-parsed per call and
+scheme, host, and optional port with no placeholder, userinfo, or fragment; a
+literal query is allowed. Placeholders SHALL occur only after that literal
+origin, with `{path}` allowed only in the target path. Boot validation SHALL
+replace them with sentinels and record that literal origin and literal
+target-path prefix. It SHALL reject an unknown placeholder, malformed template,
+non-http(s) target, userinfo, or a template that cannot produce a valid target
+with bounded sentinel values. The supported placeholders SHALL be `{host}`,
+`{path}`, `{query}`, and `{url}`. `{host}`, `{query}`, and `{url}` SHALL each
+be `encodeURIComponent` of their canonical source values wherever they appear
+after the origin; `{path}` SHALL be the canonical source path verbatim,
+preserving its existing percent escapes and leading `/`. Every produced target SHALL be re-parsed per call and
 its origin SHALL equal the declared literal origin and its path SHALL start
 with the declared literal target-path prefix. A target SHALL be admitted and
 address-pinned before it is requested.
@@ -975,7 +987,7 @@ next call; the read permission and address admission remain mandatory.
 
 #### Scenario: Placeholder data cannot inject target syntax
 
-- **WHEN** the source query or path contains `@`, `#`, `?`, or URL delimiter text
+- **WHEN** the source is `https://x.com/a&admin=1` or its path/query contains `@`, `#`, `?`, or URL delimiter text
 - **THEN** placeholder encoding keeps it data in the configured target position
 - **AND** it cannot create target userinfo, a new scheme, or an unvalidated host
 

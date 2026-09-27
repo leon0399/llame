@@ -3,9 +3,9 @@
 ### Requirement: First-slice setting surface
 
 The schema SHALL cover the shape-stable operator settings and SHALL be extended by consumer changes, each adding its own keys (add-when-consumed). The settings include: `defaults.modelId`, `defaults.titleGenerationModelId` (instance-level model _pointers_ — not the catalog itself, which lives in the top-level `models` array), `runs.maxOutputTokens`, `runs.heartbeatSeconds`, `runs.timeoutSeconds`, `http.trustProxy`, the `tools` namespace (`tools.allowed`, default empty = no tools, fail closed; `tools.permissions`, default explicit portable code-owned policy without affecting availability; `tools.maxStepsPerRun`, default 100; `tools.callTimeoutSeconds`, default 120;
-`tools.webAdapters`, whose absent value selects the documented final built-in
-list and whose present array is an explicit replacement, including `[]` to
-disable adapters), the top-level `mcpServers` named object (default empty = no MCP servers of any transport; entries are `type`-discriminated and may be remote Streamable HTTP or local stdio), the optional `knowledge.root` absolute path (default absent = no local Knowledge capability), the `providers` array (provider connections), and the `models` array (the executable catalog). `tools.allowed` SHALL accept registered code-owned ids, exact canonical configured-MCP ids, and the single configured-MCP namespace wildcard form `mcp__<server>__*`. Provider connection settings (formerly the `OPENAI_BASE_URL` / `OPENAI_API_KEY` environment variables) SHALL be expressed as `providers[]` entries; those environment variables remain valid **interpolation inputs** (`{env:OPENAI_API_KEY:-}`) but are no longer read directly. No `compaction.*` or context-window-fallback setting SHALL exist at the instance level: compaction is driven by the model — every model declares its `contextWindowTokens`, and its trigger threshold resolves per-model via the optional `models[].compactionThresholdTokens`, never by an instance knob.
+`tools.webAdapters`, whose absent value SHALL select exactly `[github, telegram]`
+in that order and whose present array is an explicit replacement, including `[]`
+to disable adapters), the top-level `mcpServers` named object (default empty = no MCP servers of any transport; entries are `type`-discriminated and may be remote Streamable HTTP or local stdio), the optional `knowledge.root` absolute path (default absent = no local Knowledge capability), the `providers` array (provider connections), and the `models` array (the executable catalog). `tools.allowed` SHALL accept registered code-owned ids, exact canonical configured-MCP ids, and the single configured-MCP namespace wildcard form `mcp__<server>__*`. Provider connection settings (formerly the `OPENAI_BASE_URL` / `OPENAI_API_KEY` environment variables) SHALL be expressed as `providers[]` entries; those environment variables remain valid **interpolation inputs** (`{env:OPENAI_API_KEY:-}`) but are no longer read directly. No `compaction.*` or context-window-fallback setting SHALL exist at the instance level: compaction is driven by the model — every model declares its `contextWindowTokens`, and its trigger threshold resolves per-model via the optional `models[].compactionThresholdTokens`, never by an instance knob.
 
 #### Scenario: Migrated settings resolve from the file
 
@@ -52,7 +52,7 @@ disable adapters), the top-level `mcpServers` named object (default empty = no M
 #### Scenario: Absent web adapter setting selects the current default list
 
 - **WHEN** the file omits `tools.webAdapters` while `tools` is otherwise configured
-- **THEN** the effective adapter list is the built-in list shipped by the current stack layer
+- **THEN** the effective adapter list is exactly `[github, telegram]` in that order
 - **AND** no undeclared service or rewrite origin is contacted
 
 ## ADDED Requirements
@@ -62,12 +62,13 @@ disable adapters), the top-level `mcpServers` named object (default empty = no M
 The optional `tools.webAdapters` setting SHALL be an ordered array of unique
 entries. Each entry SHALL contain a non-empty operator id and a `use` value
 from exactly `github`, `telegram`, `fxembed`, or `rewrite`. The array SHALL be
-an explicit replacement, not an extension of defaults: absent selects the
-current built-in list, while present `[]` disables every adapter. A
+an explicit replacement, not an extension of defaults: absent SHALL select exactly
+`[github, telegram]` in that order, while present `[]` disables every adapter. A
 `github` entry MAY contain only an optional `token`; a `telegram` entry SHALL
 contain no options; an `fxembed` entry SHALL require an HTTPS `baseUrl` with
 no userinfo, query, or fragment and a path that is empty or `/` (an explicit
-port is allowed), and MAY contain interpolated secret `headers`; a `rewrite`
+port is allowed), and MAY contain interpolated secret `headers`; the resolved `baseUrl` is reduced
+to its origin at boot; a `rewrite`
 entry SHALL contain the validated match and target fields, and MAY contain
 interpolated secret `headers`. Header names SHALL be case-folded for
 validation; `host`, `user-agent`, `accept`, `accept-encoding`, `cookie`,

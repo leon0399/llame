@@ -115,7 +115,8 @@ protocol while taking only its base origin and secret headers from config;
 negotiated/text or Readability renderer. New service protocols are code-owned
 `use` values with operator-declared origins, not operator-supplied parsers.
 Failure categories are `permission`, `address`, `status`, `rate_limit`,
-`transport`, `parse`, `empty`, and `budget`. Transport notes use only the
+`transport`, `parse`, `empty`, `budget`, `binary`, `too_large`, and
+`content_type`. Transport notes use only the
 bounded named classes `dns`, `tls`, `connect`, `reset`, or `other` when the
 runtime can classify them; they never forward a platform exception string. A
 matched failure produces a bounded note and tries the next matching entry or
@@ -202,10 +203,10 @@ long adapter render truncates content before dropping provenance.
 **Decision:** The generic HTTP client keeps the shipped rule that a non-2xx
 status returns no body and no headers other than `Retry-After`
 (`openspec/specs/native-file-tools/spec.md:968-988`). An adapter may inspect
-status and the bounded rate-limit headers needed for routing. GitHub rate limit
-means 403 with `x-ratelimit-remaining: 0`, 429, or a response carrying
-`retry-after`/`x-ratelimit-reset`; it becomes a `rate_limit` note and
-fallthrough, not a model-visible body or permission error. Other adapter
+status and the bounded rate-limit headers needed for routing. GitHub rate limit means 429, or 403 with
+`x-ratelimit-remaining: 0` or `retry-after`; `x-ratelimit-reset` only adds
+reset metadata. It becomes a `rate_limit` note and fallthrough, not a
+model-visible body or permission error. Other adapter
 status, parse, and empty failures use the same note plus fallthrough rule.
 
 **Alternative rejected:** Return bounded error JSON to the model, or map every
@@ -252,7 +253,7 @@ oversize. Use `GET /repos/{o}/{r}/commits/{sha}` for commits,
 `GET /repos/{o}/{r}/pulls/{N}` plus bounded issue/review comments and
 `/repos/{o}/{r}/commits/{sha}/check-runs` for PRs. With a token, a fixed
 GraphQL POST carries owner/repo/number variables and is admitted under both the
-literal graphql endpoint and the REST pull locator; it does not follow 303.
+literal graphql endpoint and the REST pull locator; any 3xx response is a status adapter failure and no redirect is followed.
 Blob content is rendered without a heading so `:N-M` remains a source line
 selector. Missing pagination is stated in notes.
 
@@ -272,10 +273,12 @@ hosts and unsupported paths fall through.
 **Decision:** Pure-match `t.me` or `telegram.me` with a channel matching
 `^[A-Za-z][A-Za-z0-9_]{3,31}$` outside the reserved set and a post id matching
 `^[1-9][0-9]{0,9}$`; permit no query or only `single`, never `comment` or
-`thread`. Derive `?embed=1&mode=tme`, parse server-rendered widget selectors
-with `linkedom`, and render author/date/text, quoted origin, and media type
-notes. A matched error widget or missing author/text is a claimed `empty`
-failure; an out-of-grammar shape is unclaimed. Do not request media or
+`thread`. Always derive the `t.me` embed target
+`https://t.me/<channel>/<id>?embed=1&mode=tme`, even for `telegram.me` sources,
+then parse server-rendered widget selectors with `linkedom` and render
+author/date/text, quoted origin, and media type notes. A matched error widget,
+missing author, or missing both text and media is a claimed `empty` failure; a
+media-only post renders normally and an out-of-grammar shape is unclaimed. Do not request media or
 comments. The proposal-time spike observed `.tgme_widget_message_author`, the
 `time` datetime, `.tgme_widget_message_text`, and ten media nodes on `durov/300`.
 
@@ -292,11 +295,14 @@ remain unclaimed and never receive credentials.
 
 **Decision:** FxEmbed has one operator base origin and matches x.com,
 twitter.com, www/mobile variants, and `/user/status/id`, `/i/status/id`, or
-`/i/web/status/id` shapes. It requests `{baseUrl}/status/{id}` and maps only
-the bounded JSON fields supplied. Rewrite templates have a literal http(s)
-origin with no placeholders in scheme/host/port/query/fragment; placeholders
-are limited to path/query. `{path}` is the canonical source path verbatim,
-while `{query}` and `{url}` use `encodeURIComponent` of canonical values. Each
+`/i/web/status/id` shapes. It reduces `baseUrl` to its origin and constructs
+`new URL(`/status/${id}`, baseOrigin)`, producing
+`https://api.fxtwitter.com/status/20`; it maps only the bounded JSON fields supplied. Rewrite templates have a literal http(s)
+origin with no placeholders in scheme/host/port; userinfo and fragments are
+forbidden and a literal query is allowed. Placeholders are limited to the
+target path/query; `{path}` is allowed only in the path, while `{host}`,
+`{query}`, and `{url}` use `encodeURIComponent` of canonical values wherever
+they appear after the origin. Each
 target is revalidated per call for the declared origin and literal path prefix,
 admitted, and address-pinned. It is fetched once using only negotiated/text or
 Readability stages, without probes; raw/challenge/failed renders fall through.
@@ -315,10 +321,10 @@ chosen egress input, so the source and target both require admission.
 
 ### D11: Make config absence safe and presence an exact replacement
 
-**Decision:** `tools.webAdapters` is an optional closed array. Intermediate
-stack layers intentionally use absent defaults `[]`, then `[github]`; the final
-Telegram layer makes absent exactly `[github, telegram]`. Present always means
-exactly the listed entries, including `[]`. `github.token` and service/rewrite headers use the existing
+**Decision:** `tools.webAdapters` is an optional closed array. Absent SHALL select
+exactly `[github, telegram]` in that order; present always means exactly the
+listed entries, including `[]`. Intermediate subset defaults are delivery
+steps recorded only in tasks.md. `github.token` and service/rewrite headers use the existing
 interpolation resolver. Non-secret fields (hosts, regexes, base URL shape,
 target templates) are validated as authored and do not silently interpolate.
 Unknown ids, uses, duplicate ids, origins, placeholders, and target forms fail
