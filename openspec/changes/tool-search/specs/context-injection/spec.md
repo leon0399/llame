@@ -1,0 +1,62 @@
+## ADDED Requirements
+
+### Requirement: The MCP usage rank is a frozen prefix baseline stored on the chat
+
+The MCP usage rank that `tool-calling` uses to choose declared MCP tools SHALL be classified as a
+frozen prefix-resident baseline. It SHALL be an ordered list of at most 256 MCP tool ids resolved
+for the chat's owner from that owner's committed assistant message parts, under the owner's
+authenticated identity and datastore isolation, and SHALL never read another owner's rows.
+
+A use SHALL be a stored tool part whose tool id is an MCP id and whose structured outcome is
+`success`; refused, unavailable, hallucinated, failed, and cancelled calls SHALL NOT count. The
+resolution SHALL consider only assistant messages created within the 30 days before resolution
+and at most the 2,000 most recent of them, across all of the owner's chats. A tool's score SHALL
+be the number of distinct assistant messages containing at least one use of it. The list SHALL
+contain only tools with a score of at least one, ordered by score descending, then by most recent
+use descending, then by id.
+
+The rank SHALL be persisted on the chat row under owner isolation together with the compaction
+identity under which it was resolved, following the skill-catalog baseline. Accepted-turn
+preparation SHALL reuse the stored rank only when one is persisted and its recorded identity
+equals the chat's latest compaction identity, and SHALL otherwise resolve a new rank in the same
+accepted-turn transaction as the user message and Run. No rank SHALL be written on an instance
+with no configured MCP server. An owner fork SHALL copy the rank and remap its compaction
+identity the way it remaps the skill-catalog marker. The rank SHALL NOT be rendered into the
+system prompt or any context item.
+
+#### Scenario: The rank is frozen within an epoch
+
+- **WHEN** the owner uses an MCP tool in another chat between two user turns of this chat with no compaction between them
+- **THEN** the second turn reuses the stored rank unchanged
+- **AND** its declared MCP tools are the same as the first turn's for the same model and admitted catalog
+
+#### Scenario: Compaction resolves a new rank
+
+- **WHEN** a chat is compacted after the owner started using a new MCP tool
+- **THEN** the next accepted turn resolves a rank that includes that tool
+
+#### Scenario: Only successful uses count
+
+- **WHEN** an owner's history contains refused and failed calls to a tool and no successful call
+- **THEN** that tool is absent from the rank
+
+#### Scenario: A Run's repeated calls count once
+
+- **WHEN** one completed Run called tool A thirty times and two other Runs each called tool B once
+- **THEN** tool B ranks above tool A
+
+#### Scenario: Old uses fall out of the window
+
+- **WHEN** an owner's only successful use of a tool is older than 30 days at resolution
+- **THEN** that tool is absent from the new rank
+
+#### Scenario: Another owner's usage never enters the rank
+
+- **WHEN** owner B calls an operator MCP tool that owner A has never used
+- **THEN** owner A's resolved rank does not contain that tool
+- **AND** supplying owner B's identifier to the resolution does not authorize reading owner B's messages
+
+#### Scenario: A fork keeps its source's rank
+
+- **WHEN** an owner forks a chat with a stored rank
+- **THEN** the fork's rank equals the source's and its compaction identity names the copied checkpoint
