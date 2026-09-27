@@ -27,9 +27,6 @@ describe('McpRuntimeModule', () => {
       typeof EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS
     >(MCP_RUNTIME_SERVER_DEFINITIONS);
     const runtime = moduleRef.get(McpRuntimeService);
-    expect(moduleRef.get(WorkspaceMcpClients)).toBeInstanceOf(
-      WorkspaceMcpClients,
-    );
 
     expect(definitions).toBe(EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS);
     expect(Object.isFrozen(definitions)).toBe(true);
@@ -96,6 +93,7 @@ describe('McpRuntimeModule', () => {
       provide: DYNAMIC_TOOL_EXECUTOR_RESOLVER,
       useExisting: McpRuntimeService,
     });
+    expect(workerProviders).toContain(WorkspaceMcpClients);
   });
 
   it('creates one runtime per Nest application graph', async () => {
