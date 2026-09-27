@@ -1,5 +1,3 @@
-# Design
-
 ## Context
 
 See [proposal.md](proposal.md) for the problem and issue scope. This design
@@ -140,36 +138,49 @@ representation-third order.
 
 ## Decisions
 
-### D1: Use one static source table for dispatch and projection
+### D1: Share pure scheme metadata and key exhaustive executor dispatch by it
 
-**Decision.** Replace the two scheme switches with one static table. The table
-has five real entries: host default, `file` alias, `kb`, `skill`, and web
-(`http` and `https`). An entry records the accepted operations, a projection
-from submitted text to policy text, and its executor. The host entry is selected
-when no scheme exists. The `file` executor delegates to the host executor after
-normalization; it is not a sixth authority.
+**Decision.** A pure scheme contract module, with no executor imports, owns the
+scheme ids, supported-operation metadata, and projection functions. The
+permission projection consumes its static table. `native-files.ts` owns an
+exhaustive `Record<SchemeId, Executor>` keyed by those same ids, so the
+compiler forces a new source to receive both a projection entry and an
+executor entry. Per-source mutation refusal and serialization details remain
+inside each executor, preserving the different existing error and ordering
+semantics. The host default is selected when no scheme exists; `file` delegates
+to the host executor after strict decoding and is not a sixth authority.
 
-**Alternatives rejected.** Keep a second switch and add `file` to both places.
-That is shorter for one scheme but preserves two lists that must change together
-for every later source, already evidenced by
-`native-files.ts:70-87` and `locator-projection.ts:33-51`. Create a runtime
+The five real source entries are host default, `file` alias, `kb`, `skill`, and
+web (`http` and `https`). This is the internal source table described by the
+three-plane architecture: one pure scheme table and one exhaustive dispatch
+record keyed by it, not a runtime registry.
+
+**Alternatives rejected.** Keep two independent scheme switches and add `file`
+to both places. That is shorter for one scheme but preserves two lists that
+must change together for every later source, already evidenced by
+`native-files.ts:70-87` and `locator-projection.ts:33-51`. Put executors in the
+pure table. That closes the current import graph through
+`web-read/execute.ts` and `web-read/admission.ts` back into
+`locator-projection.ts`, risks ESM initialization cycles, and forces
+source-specific mutation refusals into a generic shape. Create a runtime
 registry or plugin loader. That would violate `CODING_STANDARDS.md:38-41`, add
 lifecycle and trust surface without an operator need, and make source authority
 loadable at runtime.
 
-**Consequence.** A source addition has one table entry and one spec delta. The
-existing schemes remain wired to their current behavior. The table is a local
-coordination device, not an externally extensible API. The implementation must
-keep the entry ordering explicit so dispatch and projection are auditable.
+**Consequence.** A source addition has one pure scheme entry and one
+compiler-checked executor entry. The existing schemes remain wired to their
+current behavior. The table is a local coordination device, not an externally
+extensible API. `ssh://` (#936) is the next source entry.
 
 ### D2: Treat `file://` as a host alias, not a source authority
 
 **Decision.** A file locator with an empty authority or a case-insensitive
-`localhost` authority normalizes to an absolute POSIX host path. The alias uses
-host executor binding, host mutation serialization, host directory and regular
-file checks, host sibling suggestions, host `realPath`, and host result bounds.
-It supports `read`, `edit`, and `write`. A successful result reports the
-normalized host path in `path`; it never echoes the submitted URL as identity.
+`localhost` authority decodes to an absolute POSIX host path without lexical
+dot-segment normalization. The alias uses host executor binding, host mutation
+serialization, host directory and regular file checks, host sibling
+suggestions, host `realPath`, and host result bounds. It supports `read`,
+`edit`, and `write`. A successful result reports the decoded host path in
+`path`; it never echoes the submitted URL as identity.
 
 **Alternatives rejected.** Add `file` as a separate source with its own reader
 and result envelope. That duplicates the host selector and mutation behavior,
@@ -181,91 +192,139 @@ independent read authority to justify a split.
 **Consequence.** A `file://` call needs accepted native host authority just as
 its absolute-path equivalent does and binds the same Run identity on its first
 absolute operation. `kb://` and web behavior is unchanged. A file URL cannot
-route through Knowledge, Sandbox, or a remote host.
+route through Knowledge, Sandbox, or a remote host. `.` and `..` retain the
+same textual and filesystem semantics as a directly submitted host path.
 
-### D3: Normalize with WHATWG URL plus `fileURLToPath`, then reuse host parsing
+### D3: Use a strict total parser over the submitted text
 
-**Decision.** Parse the URL with Node's WHATWG URL implementation, validate the
-file-specific authority and forbidden components, convert with
-`fileURLToPath`, reject NUL after conversion, and pass the resulting string to
-the existing host resolver. Do not split selectors before conversion. This
-keeps the host resolver's literal-path probe ahead of selector interpretation,
-including for a literal filename containing a colon.
+**Decision.** A pure parser examines the submitted locator before any
+generic scheme dispatch. The scheme `file` is matched ASCII
+case-insensitively. It accepts `file://<authority><path>` and `file:<path>`
+when the path starts with `/`. For the `//` form, authority is the text
+between `//` and the next `/`; it must be empty or ASCII-case-insensitive
+`localhost`. A missing path after the authority is invalid, so `file://` and
+`file://localhost` fail while `file:///` denotes the POSIX root. The minimal
+`file:/absolute/path` form is accepted; `file:x` is invalid.
+The top-level dispatcher checks this `file` grammar before the no-scheme host
+branch, because the existing `parsePathScheme` recognizes only `://`; this
+explicit check is what admits `file:/absolute/path` without making it a
+relative host filename.
 
-The bounded Node spike in this worktree produced these results:
+The parser refuses any literal `?`, `#`, `\\`, C0 control character including
+tab, carriage return, and line feed, or DEL. A literal space, including a
+trailing space, is a legal POSIX filename character and is retained. It
+decodes each `%XX` escape once to bytes and strictly decodes the complete path
+as UTF-8. Malformed escapes, non-UTF-8 output, `%2F`, and `%00` are invalid.
+`.` and `..` segments are not normalized; after decoding they have exactly the
+host-path semantics of the equivalent absolute path. The parser is total: it
+returns either a decoded host path or a typed `invalid_path` result and never
+throws. Permission projection invokes the same function and returns the
+submitted text unchanged for an invalid result.
 
-| Input                           | Observed Node result                                         | Design response                                        |
-| ------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------ |
-| `file://localhost/x`            | URL host becomes empty, `href` is `file:///x`, path `/x`     | accept as `/x`                                         |
-| `file:///a%2Fb`                 | `fileURLToPath` throws `ERR_INVALID_FILE_URL_PATH`           | map to `invalid_path`                                  |
-| `file:///a%00`                  | conversion returns a string containing NUL                   | reject before filesystem access                        |
-| `file:///a?x`                   | conversion silently returns `/a`                             | refuse the query                                       |
-| `file:///a#x`                   | conversion silently returns `/a`                             | refuse the fragment                                    |
-| `FILE:///x`                     | WHATWG protocol is `file:`, `href` is `file:///x`, path `/x` | accept the lower-cased scheme alias                    |
-| `file://LOCALHOST/x`            | host becomes empty, path `/x`                                | accept case-insensitively                              |
-| `file://otherhost/x`            | conversion throws `ERR_INVALID_FILE_URL_HOST`                | return the explicit remote-authority refusal           |
-| `file:///C:/x`                  | POSIX conversion returns `/C:/x`                             | apply no drive special case                            |
-| `file:///tmp/%2e%2e/secret`     | WHATWG normalization returns `/secret`                       | policy and execution see `/secret`                     |
-| `file:///tmp/%252e%252e/secret` | conversion returns `/tmp/%2e%2e/secret` after one decode     | keep the literal `%2e%2e` segment; never double-decode |
+The bounded parser spike in this worktree produced these outcomes:
 
-**Alternatives rejected.** Use `fileURLToPath` alone. It silently discards
-query and fragment text and accepts a NUL-containing result. Hand-parse the
-authority and percent escapes. That risks disagreement with URL dot-segment,
-case, and malformed-escape behavior and duplicates a platform parser.
-Normalize only by string replacement. That cannot safely distinguish authority,
-encoded separators, and path selectors.
+- `file://C:/x` -> refused because `C:` is a non-local authority.
+- `file://C|/x` -> refused because `C|` is a non-local authority.
+- `file://C\\|/x` -> refused because `C\\|` is a non-local authority before the forbidden backslash check.
+- `file:///C|/x` -> `/C|/x`, a literal POSIX path with no drive handling.
+- `file:///a<TAB>b` -> refused for a literal C0 control.
+- `file:///a<LF>b` -> refused for a literal C0 control.
+- `file:///tmp/a.md<trailing-space>` -> `/tmp/a.md<trailing-space>`; the `<trailing-space>` marker denotes one retained literal space.
+- `file:///tmp/a\\b` -> refused for a literal backslash.
+- `file:///a?` -> refused for a literal query marker.
+- `file:///a#` -> refused for a literal fragment marker.
+- `file://` -> refused because the path after the authority is missing.
+- `file://localhost` -> refused because the path after the authority is missing.
+- `file:///` -> `/`, the POSIX root.
+- `file:///a%FF` -> refused because the decoded bytes are not UTF-8.
+- `file:///a%zz` -> refused for a malformed percent escape.
+- `file:///a%2F` -> refused for a percent-encoded `/`.
+- `file:///a%00` -> refused for a decoded NUL.
+- `file:///tmp/%2e%2e/secret` -> `/tmp/../secret`; the dot segment is preserved.
+- `file:///tmp/notes%3A10-12` -> `/tmp/notes:10-12`; `%3A` becomes `:` before host selector rules.
+- `FILE:///x` -> `/x`; the scheme is ASCII case-insensitive.
+- `file:/x` -> `/x`; this is the RFC 8089 minimal form.
+- `file:x` -> refused because the path does not start with `/`.
 
-**Consequence.** URL syntax is used only to establish a local host path. A
-query or fragment is never silently discarded. A selector after conversion is
-owned by the host parser, so `file:///tmp/guide.md:10-12` has the same meaning
-as `/tmp/guide.md:10-12`. `%2F`, malformed escapes, NUL, and empty paths fail
-before any host operation.
+**Rejected alternative evidence.** An earlier Node spike against WHATWG URL
+plus `fileURLToPath` observed `file://localhost/x` becoming `/x`,
+`file:///a%2Fb` throwing `ERR_INVALID_FILE_URL_PATH`, `file:///a%00`
+producing a NUL-containing string, `file:///a?x` and `file:///a#x` silently
+becoming `/a`, `FILE:///x` and `file://LOCALHOST/x` becoming `/x`, and
+`file://otherhost/x` throwing `ERR_INVALID_FILE_URL_HOST`. It also observed
+`file:///C:/x` as `/C:/x`, `%2e%2e` dot-segment normalization, and one-level
+decoding of `%252e%252e`. Those results are useful evidence for why the
+platform helper is tempting, but they are rejected here because silent input
+rewrites, drive quirks, dot normalization, and uncaught conversion errors do
+not preserve exact host-path semantics.
+
+**Alternatives rejected.** Use WHATWG URL plus `fileURLToPath`. It rewrites or
+drops submitted controls, backslashes, queries, fragments, authorities, drive
+forms, and dot segments, and it can throw for malformed or non-UTF-8 escapes.
+Use a hand parser that returns exceptions. A shared total function is required
+because permission projection and mutation execution call the same boundary.
+Split selectors before decoding. That would make selector behavior differ from
+the host parser's literal-path precedence.
+
+**Consequence.** The alias has no platform-specific drive interpretation and no
+lexical traversal normalization. A selector after decoding is owned by the
+host parser, so `file:///tmp/guide.md:10-12` has the same meaning as
+`/tmp/guide.md:10-12`. `%3A` decodes to `:` and then follows host selector
+rules, with literal-path probing first; there is no escaped literal-colon form.
 
 ### D4: Answer all three #929 selector and mutation questions explicitly
 
 **Decision.** A selector after a valid file URL means the same as the selector
-after the normalized host path. `file:///srv/app.log:100-120` is equivalent to
-`/srv/app.log:100-120`. On POSIX, `file:///C:/x` means `/C:/x`; the colon in
-`C:` is before the final slash and is not a selector. `edit` and `write` accept
-valid local file aliases and use the host operation.
+after the decoded host path. `file:///srv/app.log:100-120` is equivalent to
+`/srv/app.log:100-120`. `%3A` decodes to `:` and follows host selector rules
+after the literal-path probe; there is no escaped literal-colon form. On POSIX,
+`file:///C:/x` means `/C:/x`, and `file:///C|/x` means `/C|/x`, with no drive
+handling. `file://C:/x` and `file://C|/x` are remote authorities and are
+refused. The minimal `file:/absolute/path` form is equivalent to its absolute
+host path. `edit` and `write` accept valid local file aliases and use the host
+operation.
 
-**Alternatives rejected.** Refuse drive-looking forms or percent-encode the
-colon specially. That would invent Windows behavior in a POSIX process and
-break equivalence with `/C:/x`. Accept the alias only for `read`. That makes a
-single local file have inconsistent mutation spellings and does not match the
-approved contract.
+**Alternatives rejected.** Treat `%3A` as an escaped literal colon as the web
+and Knowledge locators do. That would make the alias differ from the host
+parser after decoding and would invent an escape form the host path does not
+have. Refuse drive-looking paths after the authority has been validated. That
+would invent Windows behavior in a POSIX process. Accept the alias only for
+`read`. That makes one local file have inconsistent mutation spellings and does
+not match the approved contract.
 
-**Consequence.** The prompt can state one selector rule and one authority rule.
-Tests compare file URL and host calls at the result and mutation seams rather
-than duplicating a new selector grammar.
+**Consequence.** The prompts state one selector rule and identify the
+`%3A`/colon exception. Tests compare file URL and host calls at the result and
+mutation seams rather than duplicating a new selector grammar.
 
-### D5: Refuse authority, query, fragment, empty-path, and unsafe escape cases
+### D5: Refuse unsafe submitted text before decoding
 
 **Decision.** Before filesystem resolution, refuse a non-empty authority other
-than case-insensitive `localhost`, query, fragment, empty path, malformed
-percent escape, percent-encoded `/`, or NUL. The authority refusal uses this
-fixed message: `The URL names another machine; only this host's files are
-reachable as the absolute path; remote hosts are a separate scheme.` Other
-invalid file URL cases use the existing `invalid_path` error family without
-returning a host path.
+than case-insensitive `localhost`, a missing path after an authority, any
+literal query or fragment marker, a backslash, a C0 control character, DEL,
+malformed or non-UTF-8 percent escapes, percent-encoded `/`, or NUL. The
+authority refusal uses this exact message: `A file:// URL with a host other
+than localhost names another machine. Only this host's files are readable;
+write the absolute path instead.` Other invalid file URL cases use the
+existing `invalid_path` error family without returning a host path.
 
-**Alternatives rejected.** Let Node normalize and silently drop query or
-fragment. That makes text which was part of permission input disappear before
-request and can hide a model mistake. Treat a non-local authority as a local
-path by dropping the host. That converts an explicit remote target into a
-possibly unrelated local path. Percent-decode all escapes and let the host
-resolver decide. Encoded `/` and NUL can change path boundaries or produce
+**Alternatives rejected.** Let Node normalize and silently drop query,
+fragment, controls, backslashes, or spaces. That makes text which was part of
+permission input disappear before execution and changes legal POSIX filenames.
+Treat a non-local authority as a local path by dropping the host. That converts
+an explicit remote target into a possibly unrelated local path. Decode
+non-UTF-8 or NUL bytes and let the host resolver decide. That can produce
 unsafe strings before policy and filesystem checks.
 
 **Consequence.** Refusals happen before a filesystem probe, network request, or
-mutation. `file://localhost/` remains the local root; an empty path without the
-root slash is invalid. A URL naming another machine is not a request to fetch
-that machine, and no remote fallback is attempted.
+mutation. `file:///` is the local root; `file://` and `file://localhost` have
+no path and are invalid. A URL naming another machine is not a request to
+fetch that machine, and no remote fallback is attempted.
 
 ### D6: Project the decoded host path while retaining submitted-text admission
 
 **Decision.** The source-table projection for a valid file alias returns the
-percent-decoded normalized absolute host path plus any trailing selector. The
+decoded absolute host path plus any trailing selector. It preserves `.` and
+`..` segments exactly as submitted after one percent-decoding pass. The
 permission runner continues to evaluate the submitted string first and the
 projection second. A reject matching either spelling vetoes the call; an allow
 matches the projected host path. Invalid aliases are returned unchanged by the
@@ -274,24 +333,27 @@ filesystem probe, realpath, URL fetch, authority lookup, or argument rewrite.
 
 **Alternatives rejected.** Match only the submitted URL. A host-path reject
 could be bypassed with a percent-encoded or URL spelling. Match only the
-resolved path. An operator could not reject `file://` spellings, and invalid or
+decoded path. An operator could not reject `file://` spellings, and invalid or
 remote aliases could be made to look local before validation. Substitute the
 resolved real path. That changes the existing direct-host policy identity and
 would make symlink behavior part of permission matching.
 
 **Consequence.** A reject such as `^/etc/` catches
 `file:///etc/%70asswd` after projection. An allow such as `^/srv/docs/` admits
-`file:///srv/docs/guide.md`. A reject such as `^file://` can still refuse the
-submitted spelling. The same projection applies when an all-fields reject
-visits the native `path` field. A broad policy allow cannot grant a remote file
-authority because execution remains fail closed.
+`file:///srv/docs/guide.md`. An allow written as `^file:///srv/docs/` does not
+admit a valid alias because the projected text has no scheme. A reject such as
+`^file://` can still refuse the submitted spelling, subject to its
+case-sensitive matcher. The same projection applies when an all-fields reject
+visits the native `path` field. An invalid alias remains unchanged in
+projection: under a host-path-only allow it is rejected as `no_allow` before
+native validation; under a whole-tool allow it reaches native `invalid_path`.
 
 ### D7: Preserve host fencing, operation semantics, and result identity
 
-**Decision.** The implementation layer delegates normalized aliases to the
+**Decision.** The implementation layer delegates decoded aliases to the
 same host read, edit, and write functions. It does not add a second mutation
 queue, a second durable attempt kind, a second executor binding, or a second
-result format. Alias results report the normalized host path. Host `realPath`
+result format. Alias results report the decoded host path. Host `realPath`
 and sibling suggestions remain governed by their current success and error
 conditions.
 
@@ -324,11 +386,12 @@ their own source design is approved. `ssh://` remains #936.
 ### D9: Land documentation and architecture in the implementation layer
 
 **Decision.** The single implementation layer owns the source-table refactor,
-file URL parser/alias, focused tests, `read.md`, `docs/native-files.md`, the
-`SPEC.md` three-plane paragraph, and the dated `CHANGELOG.md` entry. The
-proposal branch owns only planning artifacts. The architecture paragraph names
-all three planes and the sibling change owners, while native docs explain local
-file alias authority and refusals.
+file URL parser/alias, focused tests, `read.md`, `edit.md`, `write.md`,
+`docs/native-files.md`, the `SPEC.md` three-plane paragraph, and the dated
+`CHANGELOG.md` entry. The proposal branch owns only planning artifacts. The
+architecture paragraph names all three planes and the sibling change owners,
+while the native and mutation prompts and operator docs explain local file
+alias authority, host-only permission allows, selectors, `%3A`, and refusals.
 
 **Alternatives rejected.** Put shipped architecture in proposal or finalize.
 Proposal is not shipped documentation, and finalize owns spec synchronization
@@ -338,38 +401,51 @@ so splitting would leave an intermediate branch with inconsistent policy and
 executor behavior.
 
 **Consequence.** One implementation PR closes #929. If a sibling lands first,
-this layer rebases before editing shared `native-files.ts`, `read.md`, docs, or
-`SPEC.md`; if this layer lands first, the sibling rebases and preserves the
-source table and architecture paragraph.
+this layer rebases before editing shared `native-files.ts`, `read.md`, `edit.md`,
+`write.md`, docs, or `SPEC.md`; if this layer lands first, the sibling rebases
+and preserves the source table and architecture paragraph.
 
 ## Threats and negative permission cases
 
-- **Authority smuggling.** `file://other.example/secret` is refused before
-  `fileURLToPath`, filesystem access, or network activity. A policy allow cannot
-  transform that remote authority into a local path.
-- **Encoded traversal.** WHATWG dot-segment normalization occurs before the
-  host path is admitted. `file:///tmp/%2e%2e/secret` projects to `/secret`, so
-  a reject on `/tmp` is not incorrectly treated as a guarantee about the
-  normalized target. Encoded `/` is refused, and double-encoded dot text is
-  decoded only once.
-- **Policy bypass through percent encoding.** The submitted text and projected
-  host path are both evaluated. A host-path reject catches `%70` spellings, and
-  a submitted `^file://` reject still works. Projection does not probe or
+- **Authority smuggling.** `file://other.example/secret`, `file://C:/x`, and
+  `file://C|/x` are refused by submitted-text authority validation before
+  decoding, filesystem access, or network activity. A policy allow cannot
+  transform a remote authority into a local path.
+- **Pre-existing host traversal semantics.** The strict parser preserves `.`
+  and `..` after one percent-decoding pass, so
+  `file:///tmp/%2e%2e/secret` projects to `/tmp/../secret`, exactly like the
+  equivalent host path. Direct host permissions already match submitted text,
+  so an anchored allow such as `^/srv/docs/` admits
+  `/srv/docs/../../etc/passwd`. This is a pre-existing native-file-tools
+  property, not introduced or widened by this alias; changing it requires a
+  separate issue and is not part of #929.
+- **Policy bypass through percent encoding.** The submitted text and decoded
+  host path are both evaluated. A host-path reject catches `%70` spellings,
+  and a submitted `^file://` reject still works. Projection does not probe or
   resolve the filesystem.
-- **Query and fragment confusion.** Node would drop these during
-  `fileURLToPath`; this design refuses them so hidden text cannot change the
-  permission identity or disappear before execution.
-- **NUL injection.** Node can return a NUL-containing string for `%00`; the
-  alias rejects NUL before the host parser or filesystem.
-- **Case variants.** WHATWG lower-cases the scheme and host. Submitted-text
-  admission still lets an operator reject an uppercase or `file://` spelling,
-  while projected host-path rules remain effective.
+- **Query and fragment confusion.** Literal `?` and `#`, including empty
+  components such as `file:///a?` and `file:///a#`, are refused before
+  decoding, so no submitted text disappears before execution.
+- **NUL and malformed bytes.** Strict UTF-8 decoding rejects `%00`, `%FF`,
+  malformed escapes, and encoded `/` before the host parser or filesystem.
+- **Case variants.** The parser accepts the `file` scheme and `localhost`
+  authority case-insensitively. A `^file://` regex reject remains
+  case-sensitive; operators who want every scheme case should use
+  `(?i)^file:`, which the current RE2 matcher accepts
+  (`apps/api/src/tools/permissions/matcher.ts:40-63`).
 - **No allow.** A group with no matching allow rejects a `file://` call even if
   the equivalent absolute host path would be allowed by some unrelated tool.
-- **Host reject veto.** A reject for `^/etc/` rejects `file:///etc/passwd` after
-  projection, even when a whole-tool allow exists.
+- **Host reject veto.** A reject for `^/etc/` rejects
+  `file:///etc/passwd` after projection, even when a whole-tool allow exists.
 - **Submitted reject veto.** A reject for `^file://` rejects the alias even when
-  its projected host path matches an allow.
+  its projected host path matches an allow, subject to the regex's case.
+- **URL-form allow is inert for valid aliases.** A group whose only allow is
+  `^file:///srv/docs/` rejects a valid alias as `no_allow`, because projection
+  drops the scheme; operators must write alias allows against host paths.
+- **Invalid alias precedence.** An invalid alias remains unchanged in
+  projection. A host-path-only allow therefore yields `no_allow` and
+  `permission_denied` before native validation; a whole-tool allow reaches the
+  native `invalid_path` result.
 - **All-fields traversal.** An all-fields reject visits the native `path`
   through the same projection; it cannot be bypassed by placing an alias in a
   different field shape.
@@ -383,7 +459,7 @@ source table and architecture paragraph.
 
 No contract-shaping questions remain: the three #929 Decide questions,
 local-only authority, POSIX drive treatment, refusal set, two-pass permission
-projection, and normalized result identity are settled above and in the delta
+projection, and decoded result identity are settled above and in the delta
 specs.
 
 Implementation-layer questions that do not change the contract are:

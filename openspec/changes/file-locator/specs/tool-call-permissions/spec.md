@@ -15,11 +15,12 @@ resource. The evaluator itself normalizes nothing: the projection is the read
 tool's own parser, so the text matched and the text requested cannot drift.
 A native `read`, `edit`, or `write` call whose `path` is a valid `file://`
 alias SHALL be decided over the submitted locator and the projection's
-percent-decoded absolute host path, including its trailing selector. A reject
-matching either text SHALL refuse the call, and an allow SHALL be decided on
-the projected host path. An invalid file alias SHALL remain subject to
-submitted-text matching and SHALL fail closed during native locator validation;
-the permission evaluator SHALL not turn it into a filesystem path.
+percent-decoded absolute host path, including its trailing selector and
+preserved `.` and `..` segments. A reject matching either text SHALL refuse the
+call, and an allow SHALL be decided on the projected host path. An invalid file
+alias SHALL remain unchanged in projection and SHALL fail closed during native
+locator validation; the permission evaluator SHALL not turn it into a
+filesystem path.
 Each derived locator a web read issues, meaning a
 redirect hop, an announced alternate, a suffix candidate, or an `llms.txt`
 candidate, SHALL be evaluated against the `read` group as if the model had
@@ -130,11 +131,24 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 - **THEN** permission evaluation may admit the submitted and projected texts only as policy inputs
 - **AND** native authority validation still returns `invalid_path` before filesystem access or network activity
 
+#### Scenario: A file-form allow does not admit a valid alias
+
+- **WHEN** a `read` group's only allow is `^file:///srv/docs/` and the model submits `file:///srv/docs/guide.md`
+- **THEN** the submitted text matches but the projected `/srv/docs/guide.md` matches no allow
+- **AND** the call is rejected as `no_allow` with `permission_denied`
+- **AND** an allow written as `^/srv/docs/` is the form that admits the alias
+
+#### Scenario: An invalid alias remains unchanged for permission matching
+
+- **WHEN** a `read` group's only allow is `^/srv/docs/` and the model submits `file:///srv/docs/guide.md?`
+- **THEN** projection returns the submitted text unchanged and the call is rejected as `no_allow` with `permission_denied` before native validation
+- **AND** under a whole-tool allow, the same submitted locator reaches native validation and returns `invalid_path`
+
 ### Requirement: File permission matching uses logical resource locators
 
-For native Knowledge file locators, the selected `path` SHALL be projected through a shared pure parser/formatter to a canonical logical resource identity. Knowledge resources SHALL retain the Space ID and canonically encoded relative path; configured roots and resolved host paths SHALL NOT enter policy matching. Supported Knowledge read selectors SHALL be excluded from resource matching. Direct host locators SHALL match their submitted absolute text, preserving trailing separators and selector-like suffixes without filesystem probes or realpath resolution. A valid `file://` alias SHALL be projected to its percent-decoded absolute POSIX host path while preserving a trailing selector for matching; its submitted URL is not replaced in the first admission pass. The existing executor SHALL retain literal-path precedence over selector interpretation. The same projection SHALL apply when all-fields rejection visits the native `path` field. Other submitted values SHALL remain unchanged.
+For native Knowledge file locators, the selected `path` SHALL be projected through a shared pure parser/formatter to a canonical logical resource identity. Knowledge resources SHALL retain the Space ID and canonically encoded relative path; configured roots and resolved host paths SHALL NOT enter policy matching. Supported Knowledge read selectors SHALL be excluded from resource matching. Direct host locators SHALL match their submitted absolute text, preserving trailing separators and selector-like suffixes without filesystem probes or realpath resolution. A valid `file://` alias SHALL be projected to its percent-decoded absolute POSIX host path without lexical dot-segment normalization while preserving a trailing selector for matching; its submitted URL is not replaced in the first admission pass. The existing executor SHALL retain literal-path precedence over selector interpretation. The same projection SHALL apply when all-fields rejection visits the native `path` field. Other submitted values SHALL remain unchanged.
 
-This projection SHALL NOT rewrite executor arguments, accept an invalid locator or mutation selector, change current percent-decoding rules for Knowledge, skill, or direct host locators (a web locator's escapes follow the native `read` tool's web normalization, which this projection reuses), bypass current Knowledge ownership/symlink checks, or introduce HTTP fetching. A file alias with a non-local authority, query, fragment, empty path, malformed escape, encoded `/`, or NUL SHALL remain invalid even when a policy clause would otherwise allow its submitted spelling. Arbitrary MCP values SHALL not receive native locator normalization.
+This projection SHALL NOT rewrite executor arguments, accept an invalid locator or mutation selector, change current percent-decoding rules for Knowledge, skill, or direct host locators (a web locator's escapes follow the native `read` tool's web normalization, which this projection reuses), bypass current Knowledge ownership/symlink checks, or introduce HTTP fetching. A file alias with a non-local authority, query, fragment, backslash, control character, DEL, empty path, malformed or non-UTF-8 escape, encoded `/`, or NUL SHALL remain invalid even when a policy clause would otherwise allow its submitted spelling. An invalid file alias SHALL be returned unchanged by projection. Arbitrary MCP values SHALL not receive native locator normalization.
 
 #### Scenario: Selector does not change resource permission
 

@@ -7,25 +7,34 @@ and equivalent `file://` aliases and execute them with the trusted host
 process's OS authority in this alpha capability, and SHALL accept `kb://`
 locators under the Knowledge locator requirement. `read` SHALL additionally
 accept read-only skill locators under the Skill locator requirement and
-read-only web locators under the Web locator requirements. A `file://` alias
-SHALL accept `file:///absolute/path` and `file://localhost/absolute/path`, with
-the `localhost` authority compared case-insensitively, and SHALL normalize to
-the decoded absolute POSIX host path before native operation. An empty path,
-a non-empty authority other than `localhost`, a query, a fragment, a malformed
-percent escape, a percent-encoded `/`, or a NUL SHALL fail with `invalid_path`
-before filesystem access. A trailing selector after a valid file URL SHALL have
-the same meaning as it has after the normalized host path. On POSIX,
-`file:///C:/x` SHALL denote `/C:/x` without drive-letter handling. The scheme
-of the `path` argument SHALL select the authority; no other argument or
-persisted declaration field SHALL. A web locator SHALL be fetched by the API
-process's own outbound HTTP and SHALL NOT require or bind a native executor
-identity. `edit` and `write` SHALL operate only on regular files, and both
-SHALL reject an `http://` or `https://` locator with `invalid_path` before any
-request. `read` SHALL operate on regular files and directories, and a web
-locator SHALL be governed by the Web locator requirements instead of by entry
-kind; every other entry kind SHALL fail. A `read` that misses a regular file
-SHALL offer bounded sibling-name suggestions from its existing parent
-directory on every scheme that resolves a local directory, names only,
+read-only web locators under the Web locator requirements. A file alias SHALL
+accept `file://<authority><absolute-path>` and the RFC 8089 minimal form
+`file:<absolute-path>`, with `file` and `localhost` matched
+case-insensitively. In the `//` form, the authority is the text between `//`
+and the next `/`; it SHALL be empty or `localhost`, and a missing path after
+the authority SHALL fail with `invalid_path`. The alias SHALL decode each
+percent escape once to bytes and strictly decode the complete path as UTF-8,
+without lexical `.` or `..` normalization, before native operation. A literal
+query, fragment, backslash, C0 control character, or DEL, a malformed or
+non-UTF-8 escape, a percent-encoded `/`, or a NUL SHALL fail with
+`invalid_path` before filesystem access. A literal space, including a trailing
+space, SHALL remain part of the POSIX path. A trailing selector after a valid
+file URL SHALL have the same meaning as it has after the decoded host path.
+`%3A` SHALL decode to `:` and then follow host selector rules after the
+literal-path probe; there is no escaped literal-colon form. `file:///C:/x`
+SHALL denote `/C:/x`, and `file:///C|/x` SHALL denote `/C|/x`, without drive
+handling; `file://C:/x` and `file://C|/x` SHALL be refused as remote
+authorities. `file:///` SHALL denote the POSIX root. The scheme of the `path`
+argument SHALL select the authority; no other argument or persisted
+declaration field SHALL. A web locator SHALL be fetched by the API process's
+own outbound HTTP and SHALL NOT require or bind a native executor identity.
+`edit` and `write` SHALL operate only on regular files, and both SHALL reject
+an `http://` or `https://` locator with `invalid_path` before any request.
+`read` SHALL operate on regular files and directories, and a web locator SHALL
+be governed by the Web locator requirements instead of by entry kind; every
+other entry kind SHALL fail. A `read` that misses a regular file SHALL offer
+bounded sibling-name suggestions from its existing parent directory on every
+scheme that resolves a local directory, names only,
 with one bounded directory read and bounded scoring work on the error path
 and none on success; an absolute-path miss SHALL follow a symbolic-link
 parent exactly as the read itself follows links. A web locator SHALL NOT
@@ -48,7 +57,7 @@ operation, including `read` and a `file://` alias, and SHALL remain bound to
 it; a `kb://` or web operation SHALL NOT bind or require an executor identity;
 a later reattachment to another executor SHALL fail closed rather than
 resolving the physical path there. A successful `file://` result SHALL report
-the normalized host path in `path`, not the submitted URL.
+the decoded host path in `path`, not the submitted URL.
 
 #### Scenario: Coding file is read by absolute path
 
@@ -131,7 +140,7 @@ the normalized host path in `path`, not the submitted URL.
 #### Scenario: A file URL selector follows host selector rules
 
 - **WHEN** the model calls `read` with `file:///tmp/guide.md:10-12`
-- **THEN** the file URL is normalized to `/tmp/guide.md` before native selector handling
+- **THEN** the file URL is decoded to `/tmp/guide.md` before native selector handling
 - **AND** the result selects lines 10 through 12 with the same context, bounds, and range metadata as `/tmp/guide.md:10-12`
 
 #### Scenario: A file URL mutation uses the host operation
@@ -142,27 +151,62 @@ the normalized host path in `path`, not the submitted URL.
 
 #### Scenario: A remote file authority is refused before access
 
-- **WHEN** `read`, `edit`, or `write` targets `file://other.example/tmp/guide.md`
-- **THEN** the tool returns `invalid_path` with a message that the URL names another machine and only this host's files are reachable
+- **WHEN** `read`, `edit`, or `write` targets `file://other.example/tmp/guide.md`, `file://C:/x`, or `file://C|/x`
+- **THEN** the tool returns `invalid_path` with `A file:// URL with a host other than localhost names another machine. Only this host's files are readable; write the absolute path instead.`
 - **AND** it performs no filesystem probe, mutation, or network request
 
 #### Scenario: Query or fragment on a file URL is refused
 
-- **WHEN** `read`, `edit`, or `write` targets `file:///tmp/guide.md?version=1` or `file:///tmp/guide.md#section`
-- **THEN** the tool returns `invalid_path` before conversion or filesystem access
+- **WHEN** `read`, `edit`, or `write` targets `file:///tmp/guide.md?version=1`, `file:///tmp/guide.md#section`, `file:///tmp/guide.md?`, or `file:///tmp/guide.md#`
+- **THEN** the tool returns `invalid_path` before decoding or filesystem access
 - **AND** it does not silently discard the query or fragment
 
-#### Scenario: Encoded separator or NUL is refused
+#### Scenario: Encoded separator, NUL, or invalid UTF-8 is refused
 
-- **WHEN** `read`, `edit`, or `write` targets a file URL containing a percent-encoded `/` or NUL, such as `file:///tmp/a%2Fb` or `file:///tmp/a%00b`
+- **WHEN** `read`, `edit`, or `write` targets a file URL containing a percent-encoded `/`, NUL, or non-UTF-8 escape, such as `file:///tmp/a%2Fb`, `file:///tmp/a%00b`, or `file:///tmp/%FF`
 - **THEN** the tool returns `invalid_path` before filesystem access
 - **AND** it does not decode the spelling into a different host path
 
+#### Scenario: Unsafe literal file URL characters are refused
+
+- **WHEN** a file URL contains a literal backslash, tab, line feed, carriage return, DEL, or another C0 control character
+- **THEN** the tool returns `invalid_path` before decoding or filesystem access
+- **AND** a literal trailing space remains accepted as part of the POSIX filename
+
+#### Scenario: A file URL with no authority path is refused
+
+- **WHEN** `read` targets `file://` or `file://localhost`
+- **THEN** the tool returns `invalid_path`
+- **AND** it does not read the root directory
+
+#### Scenario: The file URL root is a directory
+
+- **WHEN** `read` targets `file:///`
+- **THEN** the native host returns the ordinary root directory listing under its existing directory bounds
+- **AND** the result identifies `/`
+
+#### Scenario: The minimal file URL form equals its host path
+
+- **WHEN** the model calls `read` with `file:/tmp/guide.md`
+- **THEN** it reads the same file and returns the same native metadata as `/tmp/guide.md`
+
+#### Scenario: A file URL without an absolute path is invalid
+
+- **WHEN** the model calls `read` with `file:x`
+- **THEN** the tool returns `invalid_path`
+- **AND** it does not treat `x` as a relative or host filename
+
 #### Scenario: POSIX drive syntax is an ordinary path
 
-- **WHEN** the model calls `read` with `file:///C:/x` on the POSIX host
-- **THEN** the native target is `/C:/x`
+- **WHEN** the model calls `read` with `file:///C:/x` or `file:///C|/x` on the POSIX host
+- **THEN** the native target is `/C:/x` or `/C|/x` respectively
 - **AND** no Windows drive-letter interpretation is applied
+
+#### Scenario: A decoded colon follows host selector rules
+
+- **WHEN** the model calls `read` with `file:///tmp/notes%3A10-12`
+- **THEN** `%3A` decodes to `:` and the host literal-path probe runs before selector interpretation
+- **AND** there is no escaped literal-colon spelling distinct from `/tmp/notes:10-12`
 
 ### Requirement: Exact edit replaces one current unique match
 
@@ -175,9 +219,8 @@ SHALL execute sequentially in the host runtime. The operation SHALL preserve
 bytes outside the replacement and return a bounded diff plus post-edit content
 with one adjacent live line on each side when available. No prior read, snapshot
 tag, read hash, or permission rule is required in this iteration. A `file://`
-alias SHALL be normalized and validated under the native file locator
-requirement before this operation, and its result identity SHALL be the
-normalized host path.
+alias SHALL be decoded and validated under the native file locator requirement
+before this operation, and its result identity SHALL be the decoded host path.
 
 #### Scenario: Unrelated change does not block edit
 
@@ -202,22 +245,23 @@ normalized host path.
 - **THEN** the first call applies
 - **AND** the second call observes the changed bytes and fails without overwriting the first result
 
-#### Scenario: File URL edit uses the normalized host target
+#### Scenario: File URL edit uses the decoded host target
 
 - **WHEN** `edit` targets `file:///tmp/guide.md` with one matching `oldText`
 - **THEN** it applies the exact unique replacement to `/tmp/guide.md`
-- **AND** it reports the same bounded diff and normalized result identity as an edit naming `/tmp/guide.md`
+- **AND** it reports the same bounded diff and decoded result identity as an edit naming `/tmp/guide.md`
 
 ### Requirement: Write creates or explicitly replaces
 
-`write` SHALL accept `path` naming an absolute host path or a valid `file://`
-alias, `content`, and a boolean `replace` argument; absent or `false` SHALL
-select create-only, `true` SHALL select replace mode, and every other type SHALL
-be rejected by the input schema before dispatch and in production before any
-mutation. In create mode it SHALL create a new regular file when the target is
-absent, creating missing intermediate directories beneath the resolved
-authority root on every scheme. It SHALL fail with `file_exists` when the target
-already exists, regardless of the provided content, and with
+`write` SHALL accept `path`, `content`, and a boolean `replace` argument;
+absent or `false` SHALL select create-only, `true` SHALL select replace mode,
+and every other type SHALL be rejected by the input schema before dispatch and
+in production before any mutation. A valid `file://` alias is accepted
+wherever an absolute host path is accepted and is decoded under the native file
+locator requirement. In create mode it SHALL create a new regular file when the
+target is absent, creating missing intermediate directories beneath the
+resolved authority root on every scheme. It SHALL fail with `file_exists` when
+the target already exists, regardless of the provided content, and with
 `not_regular_file` when an intermediate path component exists and is not a
 directory. Create mode SHALL otherwise behave exactly as before this change.
 
@@ -228,7 +272,7 @@ after validation and before publication, SHALL fail with `not_found` under the
 host-ordering guarantee and SHALL create no file under it; no guarantee beyond
 that boundary is made, and a widening race is the specified behavior, identical
 in kind to `edit` today. A replace target that is a directory SHALL fail with
-`not_regular_file` and change nothing. On an absolute path or a normalized
+`not_regular_file` and change nothing. On an absolute path or a decoded
 `file://` alias, a symbolic link at the target SHALL resolve to and replace its
 target entry exactly as `edit` does, and a dangling symbolic link SHALL fail with
 `not_found`; on a `kb://` locator, the target SHALL resolve with the leaf required
@@ -242,12 +286,12 @@ any byte changes, and SHALL leave the target unchanged on every failure.
 Non-boolean `replace` values SHALL fail schema validation before dispatch.
 Native file size SHALL NOT be restricted by the legacy Knowledge byte limit.
 Every result SHALL identify the target as the caller named it: the absolute host
-path for an absolute path or `file://` alias, the locator for a `kb://` write,
-never the resolved host path. The create-mode `file_exists` message SHALL name
-`replace` as the explicit path for replacing the file's contents, and the
-replace-mode `not_found` message SHALL state that `replace` requires an existing
-target and that omitting it creates a new file. Write SHALL NOT produce
-sibling-name suggestions on either failure.
+path for an absolute path, the decoded host path for a `file://` alias, the
+locator for a `kb://` write, never the resolved host path. The create-mode
+`file_exists` message SHALL name `replace` as the explicit path for replacing
+the file's contents, and the replace-mode `not_found` message SHALL state that
+`replace` requires an existing target and that omitting it creates a new file.
+Write SHALL NOT produce sibling-name suggestions on either failure.
 
 #### Scenario: Non-boolean replace value is rejected
 
@@ -325,7 +369,7 @@ sibling-name suggestions on either failure.
 - **THEN** the file is replaced under the locator-named target with the Knowledge envelope and never the resolved host path
 - **AND** a locator whose leaf or any parent directory is missing returns `not_found` and creates nothing
 
-#### Scenario: File URL write uses the normalized host target
+#### Scenario: File URL write uses the decoded host target
 
 - **WHEN** write with `replace: true` targets `file:///tmp/guide.md` and the target is an existing regular file
 - **THEN** it replaces `/tmp/guide.md` atomically under host mutation ordering
