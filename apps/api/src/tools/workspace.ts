@@ -130,11 +130,11 @@ async function isCurrentDelivery(
   );
 }
 
-function claimTransition(context: ToolContext): ToolResult | undefined {
-  return context.workspaceRoot !== undefined &&
-    !context.workspaceRoot.claimTransition()
-    ? transitionConflict()
-    : undefined;
+function claimTransition(context: ToolContext): boolean {
+  return (
+    context.workspaceRoot === undefined ||
+    context.workspaceRoot.claimTransition()
+  );
 }
 
 export const enterWorkspaceTool: Tool<EnterWorkspaceInput> = {
@@ -151,10 +151,7 @@ export const enterWorkspaceTool: Tool<EnterWorkspaceInput> = {
       );
     }
 
-    // runTool evaluates this same submitted value before execute. Keeping the
-    // check here also preserves the order for trusted direct callers.
-    const conflict = claimTransition(context);
-    if (conflict !== undefined) return conflict;
+    if (!claimTransition(context)) return transitionConflict();
 
     const submittedRejection = requireSubmittedPermission(context, input.path);
     if (submittedRejection !== undefined) return submittedRejection;
@@ -164,12 +161,14 @@ export const enterWorkspaceTool: Tool<EnterWorkspaceInput> = {
     }
 
     const canonicalResult = await canonicalDirectory(input.path);
+    context.abortSignal?.throwIfAborted();
     if ('status' in canonicalResult) return canonicalResult;
     const canonical = canonicalResult.path;
 
     const canonicalRejection = requireCanonicalPermission(context, canonical);
     if (canonicalRejection !== undefined) return canonicalRejection;
 
+    context.abortSignal?.throwIfAborted();
     const result = await context.tenantDb.runAs(context.userId, (db) =>
       new WorkspaceBindingRepository(db).enter({
         chatId: context.chatId,
@@ -203,8 +202,7 @@ export const exitWorkspaceTool: Tool<ExitWorkspaceInput> = {
     if ('status' in authority || deliverySequence === undefined) {
       return 'status' in authority ? authority : executorUnavailable();
     }
-    const conflict = claimTransition(context);
-    if (conflict !== undefined) return conflict;
+    if (!claimTransition(context)) return transitionConflict();
 
     if (!(await isCurrentDelivery(context, authority))) {
       return executorUnavailable();

@@ -1,7 +1,15 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
+import type * as NodeFsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,6 +25,11 @@ import {
   WORKSPACE_AUTHORITY,
 } from './workspace';
 import { createWorkspaceRootCell } from './workspace-path';
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof NodeFsPromises>();
+  return { ...actual, realpath: vi.fn(actual.realpath) };
+});
 
 function permissivePolicy() {
   return compileToolPermissionMap(
@@ -125,6 +138,36 @@ describe('Workspace host tools', () => {
 
     expect(result).toMatchObject({ status: 'error', type: 'not_directory' });
     expect(enter).not.toHaveBeenCalled();
+  });
+
+  it('does not bind after cancellation during the canonical path probe', async () => {
+    const probe = deferred<string>();
+    vi.mocked(realpath).mockImplementationOnce(() => probe.promise);
+    const controller = new AbortController();
+    const cell = createWorkspaceRootCell(undefined);
+    const enter = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'enter')
+      .mockResolvedValue({
+        status: 'bound',
+        previousRoot: null,
+        generation: 1,
+      });
+    const resultPromise = enterWorkspaceTool.execute(
+      context({
+        abortSignal: controller.signal,
+        workspaceRoot: cell,
+      }),
+      { path: root },
+    );
+
+    await vi.waitFor(() => expect(realpath).toHaveBeenCalledWith(root));
+    controller.abort();
+    probe.resolve(root);
+
+    await expect(resultPromise).rejects.toThrow(/aborted/u);
+    expect(enter).not.toHaveBeenCalled();
+    cell.beginStep();
+    expect(cell.current()).toBeUndefined();
   });
 
   it('rejects the submitted path before probing it', async () => {
