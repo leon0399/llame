@@ -142,9 +142,9 @@ function startSkillEpoch(
 
   const snapshot = catalog.getSnapshot(deps.extraSources);
   // Unreadable, missing, or oversized sources are not an empty advertisement:
-  // freezing one would bind it to the chat for the whole epoch without
-  // self-healing, and `toldFromBaseline` would throw on the missing entries
-  // during accepted-turn preparation. Render no section; the next turn retries.
+  // freezing one would bind an empty baseline to the chat for the whole epoch,
+  // turning a transient read failure into a silently absent skill section.
+  // Render no section; the next turn retries.
   if (
     !snapshot.available ||
     (snapshot.directories.length === 0 && snapshot.entries.length === 0)
