@@ -1,5 +1,3 @@
-# Design
-
 ## Context
 
 See [proposal.md](proposal.md) for motivation and the observable contract. This
@@ -10,9 +8,9 @@ source authority -> web service adapter/render (http/https only)
                  -> representation reader -> shared selector/result envelope
 ```
 
-The source plane is owned by the sibling `read-file-locator` change. It drives
+The source plane is owned by the sibling `file-locator` change. It drives
 host paths, the `file://` alias, `kb://`, and `skill://` admission and
-resolution. The web plane is owned by the sibling `read-web-adapters` change;
+resolution. The web plane is owned by the sibling `web-read-adapters` change;
 its operator-configurable delegated routes remain opt-in and preserve the
 submitted source URL in provenance. This change must not duplicate either
 plane, add authority, or issue network requests.
@@ -41,19 +39,23 @@ processing is separate (`apps/api/src/prompts/tools/read.md:3-10`;
 
 Web rendering already labels its output methods and reports Markdown for
 publisher and local rendered bodies (`apps/api/src/tools/web-read/pipeline.ts:1-33`,
-`:104-115`, `:443-485`). The reader seam therefore consumes the body after a
-web method wins, not before adapter selection. A Knowledge result must retain
-its notice and attribution, and a Skill result must retain its path envelope.
+`:104-115`, `:443-485`). The current ladder is already available on `master`;
+the reader consumes its Markdown outputs without waiting for the sibling
+adapter change. A future adapter result can opt in by labeling its output
+Markdown. A Knowledge result must retain its notice and attribution, and a
+Skill result must retain its path envelope.
 
 No current API or native package owns a Markdown parser. `apps/api` has
 `linkedom`, `turndown`, `yaml`, and the web conversion dependencies but no
 Markdown structure parser (`apps/api/package.json:44-85`).
 `packages/native-file-tools` has only its runtime-safety dependency and no
 parser (`packages/native-file-tools/package.json:17-29`). The UI directly uses
-`marked@16.4.2` while the lockfile contains `micromark@4.0.2`,
+`marked@16.4.2`, resolved from the workspace store with an MIT license
+(`packages/ui/package.json:25-38`;
+`node_modules/.pnpm/marked@16.4.2/node_modules/marked/package.json:1-5`,
+`:31-40`), while the lockfile contains `micromark@4.0.2`,
 `mdast-util-from-markdown@2.0.2`, and `remark-parse@11.0.0` in the UI's
-transitive graph (`packages/ui/package.json:25-38`,
-`pnpm-lock.yaml:808-878`, `:7587-7627`).
+transitive graph (`pnpm-lock.yaml:808-878`, `:7587-7627`).
 
 ## Goals / Non-Goals
 
@@ -78,18 +80,18 @@ transitive graph (`packages/ui/package.json:25-38`,
 
 ## Decisions
 
-### D1: Keep representation dispatch as a static plane-3 list
+### D1: Keep representation dispatch as a static plane-3 set
 
-**Decision:** After source admission and content acquisition, dispatch through a
-code-owned ordered list containing the existing text reader/default and the
-explicit Markdown `outline` reader. The list is not runtime-configurable and
-its entries are not dynamically imported. An omitted representation selects the
-content type's default, which remains text. An explicit name selects one reader
-only after the content type is known.
+**Decision:** After source admission and content acquisition, use a code-owned
+set containing the existing `raw` member and the explicit Markdown `outline`
+member. The set is not runtime-configurable and its entries are not dynamically
+imported. With no member named, the existing text read is unchanged. Each
+member declares the content types it accepts; an unsupported explicit member
+returns `invalid_selector` naming that member's accepted types.
 
 This is a real seam, not a speculative framework. It has two concrete members
-at introduction: the existing text default and the Markdown outline. Both are
-needed by the shipped behavior, and both use the same selector and result
+at introduction: the existing raw/text path and the Markdown outline. Both are
+needed by the shipped behavior and both use the same selector and result
 serializer. No PDF, image, JQ, or code reader is preallocated. #572 and #801
 both forbid designing a generic extractor framework before a concrete first
 outline exists; #544 requires a shared Markdown parser but explicitly excludes
@@ -106,32 +108,31 @@ using index infrastructure for universal overviews.
 - Let operators configure readers. Reader code is trusted and static; an
   operator-controlled reader would be an authority and supply-chain surface.
 
-**Consequence:** Adding the later code outline is a new concrete reader and a
-static entry, not a new abstraction design. The list's order is observable only
-for applicability conflicts; `outline` is explicit and cannot silently replace
-text.
+**Consequence:** Adding the later code outline is a new concrete member, not a
+new abstraction design. Byte-level readers for #916 and #935 will require their
+own input contract rather than being forced through decoded text.
 
-### D2: Use `outline` as the representation spelling
+### D2: Use `outline` as the representation spelling and preserve splitter precedence
 
-**Decision:** The representation slot accepts `:<name>` or
-`:<name>:<ranges>`. This change reserves `outline` and
-`outline:<numeric-range-list>`. `raw` remains the existing representation and
-its `raw:<ranges>` form. `:raw:outline` and `:outline:raw` are invalid rather
-than a composition of two readers.
+**Decision:** The representation slot accepts `:raw`, `:raw:<ranges>`,
+`:outline`, and `:outline:<ranges>`. The outline form is recognized before the
+last-colon numeric fallback, just as the existing raw form is recognized.
+`outline:raw`, `raw:outline`, and other mixed forms are not members; each source
+applies its shipped precedence instead of a new blanket refusal. On host and
+web, `:outline:raw` is therefore the raw read of a path or URL ending in
+`:outline`; `:raw:outline` fails the existing raw-member validation. Knowledge
+and Skill reject either invalid suffix with `invalid_path`.
 
-`outline` does not match the current selector keywords or numeric grammar:
-`isSelectorSuffix` currently admits only `raw` and numeric members
-(`packages/native-file-tools/src/path.ts:216-225`). A host path whose complete
-literal spelling exists still wins before splitting (`packages/native-file-tools/src/path.ts:182-212`),
-so a real filename ending in `:outline` retains literal-path behavior. In
-`kb://` and `skill://`, the first raw colon after the logical path/name opens
-the selector and a literal colon remains percent-encoded
-(`apps/api/src/knowledge/knowledge-locator.ts:44-65`;
-`apps/api/src/skills/skill-locator.ts:61-80`). In web locators, a colon can
-open a selector only after the path separator and never inside query/fragment
-text (`apps/api/src/tools/web-read/locator.ts:33-60`). Thus `outline` adds no
-new interpretation of a legitimate port, query, fragment, or encoded path
-colon.
+`outline` does not match the current numeric grammar
+(`packages/native-file-tools/src/path.ts:216-225`). The host full-locator
+literal probe still runs first, but a non-existent full spelling ending in
+`:outline:<ranges>` or `:outline:raw` is no longer interpreted by the
+last-colon fallback as a different path and numeric selector. A literal colon
+is written as `%3A` where the source grammar requires it. Knowledge and Skill
+split before decoding path segments (`apps/api/src/knowledge/knowledge-locator.ts:44-65`;
+`apps/api/src/skills/skill-locator.ts:61-80`). Web splits after a path
+separator, never inside query or fragment text, and recognizes the outline
+form before its last-colon fallback (`apps/api/src/tools/web-read/locator.ts:33-60`).
 
 **Alternatives rejected:**
 
@@ -145,26 +146,26 @@ colon.
   specific and would break the one trailing-selector split. The slot requested
   by #938 is the shared future surface.
 
-**Consequence:** The model sees one short, copyable name. The output range
-shown in an outline is an ordinary source suffix, while a range after
-`outline` pages outline lines. There is no name-based selector, so duplicate
-headings cannot select the wrong occurrence.
+**Consequence:** The model sees one short, copyable name. A source range shown
+in an outline is an ordinary selector suffix, while a range after `outline`
+pages outline lines. Duplicate headings remain range-addressed, not
+name-addressed.
 
 ### D3: Apply a pure reader over decoded text, before shared paging
 
-**Decision:** The reader boundary receives the already-authorized decoded text,
-source display identity, content type, selected representation name, and the
-call's ordinary budget context. It returns generated text plus its
-representation label. It has no authority resolver, filesystem port, network
-port, permission callback, owner identity, or envelope mutator. The shared
-selector/result code then pages and bounds the returned text; the source
-executor merges its normal envelope afterwards.
+**Decision:** The reader boundary receives only admitted decoded text, source
+display identity, and the selected representation's content type. It returns
+generated text plus its representation label. It has no authority resolver,
+filesystem port, network port, permission callback, owner identity, or
+envelope mutator. The shared selector/result code then pages and bounds the
+returned text; the source executor merges its normal envelope afterwards.
 
-The Markdown parser itself is pure and source-independent. The outline reader
-uses it to produce text lines, then the shared line serializer applies
-`requestedRange`, `shownRange`, `requestedRanges`, `shownRanges`, truncation,
-and `nextOffset` to outline output lines. The generated source coordinates are
-part of the text, not a second authority channel.
+The Markdown parser itself is pure and source-independent. Outline output lines
+are emitted verbatim by the outline reader: no generated line-number prefixes
+and no context expansion. The shared selector machinery applies the requested
+outline-output range exactly and reports `nextOffset` as the zero-based next
+outline line. Generated source coordinates are text, not a second authority
+channel.
 
 **Alternatives rejected:**
 
@@ -190,11 +191,13 @@ semantics are not CommonMark and no MDX parser is being added. Other extensions
 remain text by default and cannot select `outline`.
 
 For web, the representation sees the final rendered content type. A response
-served as `text/markdown` is Markdown. An adapter or generic ladder render
-counts as Markdown only when that renderer labels its output Markdown. The
-reader does not infer Markdown from `text/plain`, JSON, XML, raw HTML, or
-heading-looking bytes. The web pipeline's existing renderer is the authority
-for whether a body was rendered (`apps/api/src/tools/web-read/pipeline.ts:431-485`).
+is Markdown only when its Content-Type is `text/markdown` for the
+`negotiated` method. `alternate`, `md-suffix`, `readability`, and `llms-txt`
+are Markdown. `text`, `raw`, and `negotiated` `text/plain` are not Markdown.
+A future adapter result can opt in by labeling its output Markdown. The reader
+does not infer Markdown from JSON, XML, raw HTML, plain text, or heading-looking
+bytes. The web pipeline supplies the method and content body
+(`apps/api/src/tools/web-read/pipeline.ts:1-33`, `:104-115`, `:443-485`).
 
 **Alternatives rejected:**
 
@@ -208,9 +211,10 @@ for whether a body was rendered (`apps/api/src/tools/web-read/pipeline.ts:431-48
   readers with their own evidence.
 
 **Consequence:** An explicit unsupported request returns `invalid_selector`
-with Markdown types named, while ordinary text or raw reading follows the
-existing contract. The host extension table applies equally to `file://` once
-plane 1 lands, and no source gets a hidden Markdown exception.
+with the requested member's accepted types named, while ordinary text or raw
+reading follows the existing contract. The host extension table applies equally
+to `file://` once plane 1 lands, and no source gets a hidden Markdown
+exception.
 
 ### D5: Share a small Markdown structure parser from the native package
 
@@ -226,52 +230,73 @@ type MarkdownHeading = {
   endLine: number;
 };
 
-type MarkdownFrontmatter = {
+type MarkdownFrontmatterSpan = {
   startLine: 1;
   endLine: number;
-  malformed: boolean;
 };
 
 type MarkdownStructure = {
   headings: ReadonlyArray<MarkdownHeading>;
-  frontmatter?: MarkdownFrontmatter;
+  frontmatter?: MarkdownFrontmatterSpan;
 };
 
 parseMarkdownStructure(source: string): MarkdownStructure;
 ```
 
-`endLine` on a heading is the computed section boundary, not just the syntax
-block. The parser recognizes ATX and setext headings through CommonMark, keeps
-original one-based lines when frontmatter is blanked, and excludes fenced and
-indented code and HTML blocks through the parser's block model. It reports a
-line-one frontmatter span separately; the API outline reader uses the existing
-`yaml` dependency to inspect only scalar `title` and `description` values. The
-parser does not render HTML, execute directives, mutate source, or construct
-index rows. #544 can use headings, line boundaries, and the frontmatter span
-without importing the read result or relying on an index.
+The parser reports only a closed line-one `---` block as `frontmatter`; an
+unclosed opener is ordinary Markdown and produces no span. Every closed span
+is blanked with newline-preserving placeholders before CommonMark parsing,
+regardless of whether the API `yaml` parser later accepts it as a mapping.
+Only root-level document headings are walked; headings nested in list items or
+blockquotes are ignored. ATX and setext positions, section ends, and EOF use
+the native LF line model from `splitSourceLines`: lone CR is source text and a
+trailing LF opens no extra line (`packages/native-file-tools/src/source-lines.ts:43-46`).
+The parser derives positions from source offsets under that model instead of
+trusting parser line numbers.
+
+Heading text is the concatenated text of inline content: code spans contribute
+their text, links contribute link text, images contribute alt text, and inline
+HTML is dropped. Whitespace and line breaks collapse to one space and the
+result is trimmed. A heading section ends immediately before the next root
+heading whose depth is less than or equal to its own, or at the source's last
+line. The outline renderer writes each heading as
+`<"#" repeated depth> <text> [<N>-<M>]`, with no generated line prefix or
+context expansion. Authored metadata and notes start with `[` and therefore
+cannot be confused with heading entries.
+
+The API outline reader uses the existing `yaml` dependency to classify the
+closed span as a mapping or malformed, emits only scalar `title` and
+`description` values, collapses their whitespace to one line, trims them, and
+caps each at 200 characters with a trailing `…`. It does not emit arbitrary
+metadata or let frontmatter choose a reader. The parser does not render HTML,
+execute directives, mutate source, or construct index rows. #544 can use
+headings, line boundaries, and the frontmatter span without importing the read
+result or relying on an index.
 
 The dependency decision follows the repository inspection:
 
 | Candidate                  | Observed version and license                                                                                                                                              | Position/conformance                                                                                            | Cost and decision                                                                                                          |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `marked`                   | 16.4.2 direct in UI; MIT (`node_modules/.pnpm/marked@17.0.6/node_modules/marked/package.json:1-5`, `:31-40`)                                                              | Fast token stream, but heading line positions are not the primary API and section offsets need custom tracking  | Small migration because UI already uses it, but extra line-tracking and token-shape coupling make it second choice         |
+| `marked`                   | 16.4.2 direct in UI; MIT (`node_modules/.pnpm/marked@16.4.2/node_modules/marked/package.json:1-5`, `:31-40`)                                                              | Fast token stream, but heading line positions are not the primary API and section offsets need custom tracking  | Small migration because UI already uses it, but extra line-tracking and token-shape coupling make it second choice         |
 | `micromark`                | 4.0.2 in lockfile; MIT and explicitly CommonMark/positional (`node_modules/.pnpm/micromark@4.0.2_supports-color@8.1.1/node_modules/micromark/package.json:1-5`, `:26-27`) | Strong conformance and concrete positional events, but heading text extraction and block grouping are low-level | Small parser core, more code in the shared module; viable fallback                                                         |
 | `mdast-util-from-markdown` | 2.0.2 in lockfile; MIT (`node_modules/.pnpm/mdast-util-from-markdown@2.0.2_supports-color@8.1.1/node_modules/mdast-util-from-markdown/package.json:7-21`, `:67-68`)       | Uses micromark, exposes MDAST node positions with heading depth and CommonMark semantics                        | **Selected.** Direct dependency in the native package gives the minimal AST boundary without unified's processor pipeline  |
 | `remark-parse`             | 11.0.0 in lockfile; MIT (`node_modules/.pnpm/remark-parse@11.0.0_supports-color@8.1.1/node_modules/remark-parse/package.json:1-5`)                                        | MDAST positions and CommonMark, but includes `unified` and plugin machinery                                     | Larger dependency graph and unnecessary processor abstraction; fallback only if the selected package cannot meet the spike |
 
 The parser layer runs a bounded spike before committing the dependency: a
 throwaway fixture covers ATX, setext, duplicate headings, fenced and indented
-code, HTML blocks, valid and malformed line-one frontmatter, inline links, and
-Unicode. The spike checks heading depth/text/line positions, section ends,
-frontmatter span, and parser behavior against expected output. It records the
-command and result in the implementation PR, not a tracked artifact. A failed
-spike blocks the dependency addition and requires a new design decision before
-implementation continues.
+code, HTML blocks, list and blockquote headings, valid closed frontmatter,
+malformed closed frontmatter, a closed non-mapping block, an unclosed opener,
+inline links, Unicode, lone CR, CRLF, and trailing LF. The spike checks root
+heading selection, normalized text, depth/positions, section ends,
+frontmatter span, native line coordinates, and parser behavior against
+expected output. It records the command and result in the implementation PR,
+not a tracked artifact. A failed spike blocks the dependency addition and
+requires a new design decision before implementation continues.
 
 **Alternatives rejected:**
 
 - A hand-written heading regex. It would mishandle fenced code, HTML blocks,
-  setext boundaries, and CommonMark indentation.
+  setext boundaries, containers, and CommonMark indentation.
 - Reuse the UI renderer or web Turndown pipeline. Those are presentation paths,
   not a source-independent structural parser and do not preserve source lines.
 - Build an AST abstraction shared with #801 now. #801 gets this concrete
@@ -281,25 +306,28 @@ implementation continues.
 and #544 indexing, without making either depend on the other's persistence or
 result format.
 
-### D6: Treat frontmatter as a bounded authored header
+### D6: Treat closed frontmatter as a bounded authored header
 
-**Decision:** A frontmatter scanner runs before Markdown parsing only when line 1
-is exactly the YAML opener `---`. A valid block ends at a line containing only
-`---` or `...`; its span is blanked with newline-preserving placeholders before
-CommonMark parsing. The outline reader parses valid YAML through the already
-installed API `yaml` package and emits only exact string scalar keys `title` and
-`description` as authored lines. It does not emit arbitrary metadata or let
-frontmatter choose a reader.
+**Decision:** A frontmatter scanner recognizes a line-one YAML opener only
+when line 1 is exactly `---` and finds a later line containing only `---` or
+`...`. Every such closed span is blanked with newline-preserving placeholders
+before Markdown parsing, regardless of whether YAML later parses it as a
+mapping. The API outline reader uses the installed `yaml` package to classify
+the span: a parse error or non-mapping emits the fixed bounded note, while a
+mapping emits only exact string scalar `title` and `description` values.
+Authored values collapse whitespace to one line, trim, and cap at 200
+characters with a trailing `…`. Frontmatter does not choose a reader.
 
-An unclosed or malformed block is marked malformed, not treated as a body-wide
-frontmatter region. The parser then preserves line positions and parses the
-body as Markdown, while the outline reader emits the fixed bounded note. A
-later `---` is ordinary Markdown when no valid line-one block exists.
+An unclosed line-one opener is not frontmatter. It is parsed as ordinary
+Markdown and emits no malformed-frontmatter note. A later `---` is ordinary
+Markdown when no closed line-one span exists.
 
 **Alternatives rejected:**
 
-- Treat all leading `---` rules as frontmatter. That breaks ordinary Markdown
-  horizontal rules and arbitrary files.
+- Treat an unclosed opener as a body-wide frontmatter region. That would hide
+  real headings and make malformed content change section structure.
+- Let malformed closed YAML reach CommonMark unblanked. Its YAML lines can be
+  parsed as setext headings and would leak authored text into derived structure.
 - Return raw YAML in a metadata field. The result envelope has no such field,
   and arbitrary metadata would consume the shared bound and blur authored and
   derived content.
@@ -307,29 +335,37 @@ later `---` is ordinary Markdown when no valid line-one block exists.
   remain usable without OKF or metadata conventions.
 
 **Consequence:** Authored values remain visibly distinct from derived headings,
-malformed metadata never blocks ordinary read, and #544 can ignore metadata
-without losing body headings.
+malformed closed metadata never blocks ordinary read, and #544 can ignore
+metadata without losing body headings.
 
 ### D7: Parse whole input under a 5 MiB representation ceiling
 
 **Decision:** The outline reader must see the whole decoded document to compute
-section ends. It reads through the source's already-authorized bounded path and
-rejects decoded UTF-8 input above 5 MiB with `representation_too_large` before
-parsing. This reuses the web read's existing 5 MiB body ceiling for web and
-sets the same documented local/Knowledge/Skill representation ceiling without
-imposing a ceiling on ordinary reads. No partial outline is returned.
-
-The reader uses the existing abort signal and result-envelope reservation. A
-successful outline is passed to the shared selector serializer, which applies
-the 2,000-line and serialized result caps after generated lines and source
-ranges are present. A range after `outline` addresses generated output lines;
-`nextOffset` is zero-based in that generated output. A source `N-M` shown inside
-an outline line is a navigation hint and does not alter paging coordinates.
+section ends. For host, `file://`, `kb://`, and `skill://` files, the native
+package adds a bounded whole-file loader that preserves resolver authority,
+`O_NOFOLLOW`/follow-symlink policy, `not_regular_file`, and `invalid_utf8`
+semantics. It checks the opened file's size before decoding and reads at most
+5 MiB plus one byte; either an oversized stat or an extra byte returns the new
+`representation_too_large` error before parsing. This does not impose a cap on
+ordinary reads. Web bodies already obey the web read's 5 MiB cap. No partial
+outline is returned.
+The new error is added to the closed `NativeFileError` union and the native
+error vocabulary documentation, which currently enumerate the union and
+cross-scheme failures (`packages/native-file-tools/src/path.ts:16-33`;
+`docs/native-files.md:207-211`). The reader uses the existing abort signal and
+result-envelope reservation. A successful outline is emitted without generated
+line prefixes or context expansion and then paged exactly by outline-output
+lines under the 2,000-line and serialized result caps. `nextOffset` is the
+zero-based next outline line; a source `N-M` shown inside an outline line is a
+navigation hint and does not alter paging coordinates.
 
 **Alternatives rejected:**
 
 - Parse a streaming prefix and guess section ends. A later heading can change
   every open section's boundary, so a partial result would claim false ranges.
+- Call the existing unbounded `loadText` and check afterward. That allocates
+  the entire file before enforcing the representation bound
+  (`packages/native-file-tools/src/read.ts:76-94`).
 - Remove the cap because host reads currently have no blanket size cap. That
   makes an explicit whole-document representation an unbounded allocation and
   is not required for ordinary windows.
@@ -392,11 +428,12 @@ content without an implied index authority or content version.
 
 - **[Risk]** `mdast-util-from-markdown` positions or CommonMark edge cases differ
   from the expected fixture. **Mitigation**: run the bounded parser spike before
-  adding the dependency; keep fixtures for ATX, setext, code, HTML, frontmatter,
-  and Unicode in the parser layer.
+  adding the dependency; keep fixtures for ATX, setext, containers, code, HTML,
+  frontmatter, native line endings, and Unicode in the parser layer.
 - **[Risk]** Whole-document outline parsing uses more memory than a normal
-  window. **Mitigation**: enforce the 5 MiB decoded-input ceiling, the existing
-  abort signal, and the shared result bounds; ordinary reads remain streaming.
+  window. **Mitigation**: check file size before reading, cap reads at 5 MiB plus
+  one byte, enforce the existing abort signal and result bounds, and keep
+  ordinary reads streaming.
 - **[Risk]** Heading text can contain prompt-injection instructions.
   **Mitigation**: keep heading and authored values in ordinary untrusted tool
   output; preserve the Knowledge notice and web provenance; never route parsed
@@ -423,9 +460,10 @@ content without an implied index authority or content version.
    dependency.
 3. Land the `outline` layer on top of `parser`. It adds the representation
    grammar and reader, source-type selection, focused source equivalence and
-   negative tests, prompt/docs, changelog, and closes #572. It integrates with
-   whichever sibling source/web layers are present at that stack point; no
-   sibling is silently reimplemented.
+   negative tests, prompt/docs, changelog, and closes #572. It consumes the
+   current web ladder's labeled Markdown outputs immediately; future adapter
+   labels are forward-compatible. Only `file://` waits for the sibling
+   source-plane layer, and no sibling is silently reimplemented.
 4. Enter `read-representations/finalize` with `$gh-stack` before any
    `$openspec-sync-specs` invocation. Synchronize the native-file-tools delta
    and archive only after every implementation task and review gate is complete.

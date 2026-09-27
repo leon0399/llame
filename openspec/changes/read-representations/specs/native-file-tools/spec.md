@@ -1,39 +1,47 @@
-# Spec Delta
-
 ## MODIFIED Requirements
 
 ### Requirement: Read selectors and context are deterministic
 
-`read` SHALL accept trailing one-based inclusive selectors `:N-M`, `:N+K`,
-`:raw`, and `:raw:N-M`, plus comma-separated selectors under the
-multi-range requirement below. It SHALL also accept the explicit
-representation selectors `:outline` and `:outline:<ranges>` for a supported
-Markdown source; the range list after `outline` SHALL use the same positive
-one-based range grammar and SHALL page the representation output rather than
-filtering source lines. A valid selector SHALL be normalized once to internal
+`read` SHALL accept trailing one-based inclusive numeric selectors `:N-M`,
+`:N+K`, and comma-separated numeric selectors under the multi-range
+requirement below. It SHALL accept the two representation members `:raw` and
+`:outline`, each optionally followed by `:<ranges>`; `raw` retains its
+existing verbatim meaning, while `outline` is available only for supported
+Markdown content. A valid selector SHALL be normalized once to internal
 zero-based ranges. The tool SHALL recognize a `scheme://` prefix before
 splitting a trailing selector, so a scheme's own colon is never read as a
-selector. For absolute paths, existing literal paths SHALL take precedence over
-selector parsing; a `kb://` path component SHALL NOT contain `:`, so the split
-is unambiguous without probing. A `path` that begins with a `scheme://` prefix the
-SHALL NOT be treated as a relative or literal filename. For regular-file reads,
-ordinary single bounded ranges SHALL include one preceding and one following
-source line when available, and the extended lines SHALL appear in the same
-`content` block as the requested lines. For single-range reads, result details
-SHALL identify requested and shown ranges, representation, path, and common
-truncation state. For an `outline` result, requested and shown ranges SHALL
-refer to lines of the generated outline content, while each generated outline
-entry carries its own one-based source `N-M` range. Requested bounds SHALL
-remain the normalized request even when the displayed source ends earlier; shown
-bounds SHALL describe only emitted source lines. Empty files SHALL return null
-ranges. `nextOffset` SHALL identify the next requested source line. Raw reads
-SHALL return verbatim selected source content without generated line prefixes,
-context expansion, or processors. `:raw:outline` and `:outline:raw` SHALL fail
-with `invalid_selector`; `:raw` SHALL remain the existing raw representation.
-Directory reads SHALL apply single-range selectors to listing entries under the
-directory listing requirements and SHALL NOT add context lines. An outline
-request on a directory SHALL fail under the outline refusal requirement rather
-than reinterpret listing text as Markdown.
+selector. For absolute paths, existing literal paths SHALL take precedence
+over selector parsing; after that literal probe, an `:outline` form with an
+optional range list SHALL be recognized before the last-colon numeric fallback.
+A `kb://` path component SHALL NOT contain `:`, so the split is unambiguous
+without probing; its selector SHALL be validated as one of the two
+representation members or a numeric form. A `skill://` selector SHALL follow
+the same validation rule. A `path` that begins with a `scheme://` prefix the
+SHALL NOT be treated as a relative or literal filename. Web locators SHALL
+recognize the `:outline` form before the last-colon fallback while preserving
+the existing path, query, fragment, and port rules. For regular-file reads,
+ordinary single bounded numeric ranges SHALL include one preceding and one
+following source line when available, and the extended lines SHALL appear in
+the same `content` block as the requested lines. For single-range reads, result
+details SHALL identify requested and shown ranges, representation, path, and
+common truncation state. For an `outline` result, generated lines SHALL be
+returned without generated line-number prefixes or context expansion, and
+requested and shown ranges SHALL refer exactly to outline output lines. Each
+outline entry carries its own one-based source `N-M` range. Requested bounds
+SHALL remain the normalized request even when the displayed source ends
+earlier; shown bounds SHALL describe only emitted source lines. Empty files
+SHALL return null ranges. `nextOffset` SHALL identify the next requested source
+line for an ordinary read, and the zero-based next outline output line for an
+outline read. Raw reads SHALL return verbatim selected source content without
+generated line prefixes, context expansion, or processors. `:outline:raw` and
+`:raw:outline` are not representation members and SHALL follow each source's
+shipped precedence: host and web preserve their raw interpretation of
+`:outline:raw` as a path or URL ending in `:outline`, while `kb://` and
+`skill://` return `invalid_path` for either invalid suffix. Directory reads
+SHALL apply single-range selectors to listing entries under the directory
+listing requirements and SHALL NOT add context lines. An outline request on a
+directory SHALL fail under the outline refusal requirement rather than
+reinterpret listing text as Markdown.
 
 #### Scenario: Bounded read includes live adjacent lines
 
@@ -110,11 +118,11 @@ symbolic-link component or entry without following it, returning `not_found`.
 list it under the directory listing requirements; a bare `kb://` or a locator
 with no identifier SHALL fail with `invalid_path`. Beyond those rules, `kb://`
 targets SHALL follow the same regular-file, directory, selector, context,
-truncation, mutation, and `file_exists` behavior as absolute paths. Ordinary
-`kb://` operations SHALL NOT acquire a Markdown-only or per-file byte policy;
-the explicit `outline` representation SHALL be available only for a supported
-Markdown file and SHALL NOT change that authority or ordinary non-Markdown
-behavior.
+truncation, mutation, and `file_exists` behavior as absolute paths. No
+Markdown-only or per-file byte policy SHALL apply to `kb://` operations, except
+that the explicit `outline` representation is limited to Markdown files and to
+the outline input ceiling; text and raw reads, edits, and writes are
+unaffected.
 
 Every `kb://` result SHALL identify the target by its locator and SHALL carry
 the response-time Knowledge Space identifier and display name. It SHALL expose
@@ -191,22 +199,184 @@ unsupported operation SHALL return a structured error without side effects.
 - **THEN** the read returned the text unchanged
 - **AND** the edit finds exactly one match and applies
 
+### Requirement: Web locators are fetched by the native read tool
+
+The native `read` tool SHALL accept an absolute `http://` or `https://`
+locator as its `path` and SHALL fetch it with the API process's own outbound
+HTTP. No other web scheme SHALL be admitted, and `edit` and `write` SHALL
+reject a web locator with `invalid_path` before any request. A submitted web
+locator, after any fragment is cut and its selector is split off, SHALL be
+normalized to its WHATWG URL serialization and requested as that text: an
+uppercase scheme or host, a percent-encoded or Unicode host, an explicit
+default port, a host's root dot, an empty path, unencoded path or query
+characters, and percent-escapes in the path or query SHALL each be
+normalized rather than refused, because none of them
+addresses a different resource and refusing them cost a call that taught the
+model nothing it could carry to the next locator. Path and query escapes
+SHALL be normalized in one pass that yields a fixed point: a `%` that does not
+begin a valid escape SHALL be encoded as `%25`, an escape of an unreserved
+character (`A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~`) SHALL be decoded, and every
+other escape, `%2F` included, SHALL stay encoded with uppercase hexadecimal
+digits, so normalizing the normalized text changes nothing and llame's
+normalization forms no new escape. A fragment SHALL be cut
+before anything else reads the locator, because the request drops it anyway.
+What no normalization can repair SHALL still fail before any request: a text
+that is not a URL, a scheme outside `http` and `https`, a suffix outside the
+selector grammar, and userinfo, which SHALL fail with `invalid_path` so the
+tool never sends credentials the model embedded in a URL, and whose message
+SHALL NOT echo them.
+
+Because the text requested is no longer always the text submitted, the
+permission decision SHALL be taken over both: any reject clause matching
+either the submitted locator or its normalized form SHALL refuse the call, so
+a spelling cannot be arranged to miss a reject, while the allow SHALL be
+decided on the normalized form, because an allow names the resource the call
+will reach and the two texts are one resource. A redirect hop is a different
+resource and SHALL keep being admitted in its own right, and every address a
+request would connect to SHALL additionally be judged under the
+address-admission requirement below. Availability and
+restriction for the web SHALL come only from the `read` permission group's
+`path` clauses: a prefix allow admits the web, and a prefix or domain reject
+removes a host. No web tool id, `tools.allowed` entry, configuration block, or
+advertisement condition SHALL be added; a process that does not advertise
+`read` SHALL NOT reach a URL through it. Each call SHALL fetch afresh: no
+response or render SHALL be cached, and a later selector read of the same
+locator SHALL issue a new request. The tool SHALL NOT consult `robots.txt` or
+any publisher signal such as `content-signal`, and a fetch SHALL NOT be
+represented as permission from the publisher. The scheme split and trailing
+selector rules that protect a `scheme://` prefix SHALL apply unchanged: the
+scheme's own colon is never read as a selector, and the shipped
+trailing-selector split (the last colon after the last slash) governs the
+rest, except that `:raw` and `:outline` representation forms are recognized
+before that last-colon fallback. A selector SHALL be split only from a locator
+that has a path and carries no `?` and no `#`, so a colon inside a query is
+part of the URL (`https://example.test/search?at=2026:10`) and the only colon
+of a pathless locator opens its port: `https://example.test:88` is port 88,
+`https://example.test/:88` is line 88 of the site root, and
+`https://example.test:88/:88` is line 88 served from port 88. A literal colon
+in the last path segment of a query-free locator SHALL be written as `%3A`
+(`https://w.example/wiki/Special%3ASearch`), because a trailing colon is
+always read as a selector split and the shipped grammar admits `raw`,
+`raw:N`, `raw:N-M`, `N`, `N-M`, `N+K`, and comma lists of those, plus
+`outline`, `outline:N`, `outline:N-M`, `outline:N+K`, and `outline` followed
+by comma-separated numeric ranges. `Search` is outside it, so
+`https://w.example/wiki/Special:Search` fails as `invalid_selector`, while
+`https://w.example/docs/2024:10` selects line 10 and
+`https://w.example/docs/2024:10-20` lines 10 through 20 of
+`https://w.example/docs/2024`. A suffix `:outline:<ranges>` is split as the
+outline representation before the last-colon fallback, so
+`https://h.example/p:outline:5` requests `https://h.example/p` and selects
+outline output line 5. A literal last-segment colon in a path intended to end
+in `outline` SHALL be percent-encoded.
+Each refusal that remains SHALL name the spelling that would work rather than
+the rule that was broken: a selector written straight after the authority
+(`https://example.test:1-5`, which is not a URL at all because `1-5` is not a
+port) SHALL be answered with the authority's own serialization carrying that
+selector (`https://example.test/:1-5`); a port that is not a number
+(`https://example.test:abc/`) SHALL be answered by naming that rule and the
+same locator without a port, rather than by the generic message, since the
+locator is absolute and only its port is broken; a suffix that meant a line the
+grammar cannot serve (`:12+`) SHALL be answered with the line forms first and
+the literal colon's encoding second; and a selector the render could not
+serve — past its end, or with no line in it — SHALL be answered with the
+number of lines the page rendered, which the model cannot know before reading
+it.
+
+#### Scenario: A web locator is fetched by the API process
+
+- **WHEN** the model calls `read` with `https://example.test/guide`
+- **THEN** the API process issues the request and returns the page content
+- **AND** no native executor identity is required, bound, or reported
+
+#### Scenario: A rejected cleartext scheme never reaches the network
+
+- **WHEN** the `read` group rejects `path` matching `^http://` and the model reads `http://example.test/guide`
+- **THEN** the call is rejected before any request is issued
+- **AND** an admitted `https://` locator is unaffected by that reject
+
+#### Scenario: A web locator is never mutated
+
+- **WHEN** `edit` or `write` targets `https://example.test/guide`
+- **THEN** it returns `invalid_path`
+- **AND** no request is issued
+
+#### Scenario: A noncanonical spelling is normalized, not refused
+
+- **WHEN** the model reads `https://g%72okipedia.com/page`, `HTTPS://Example.test/guide`, `https://example.test:443/guide`, or `https://example.test./guide`
+- **THEN** the read requests the normalized locator (`https://grokipedia.com/page`, `https://example.test/guide`) without a refusal first
+- **AND** a reject clause written against the canonical spelling still refuses every one of those variants, because the decision is taken over the submitted text and the normalized text alike
+- **AND** a reject clause written against the submitted spelling, such as one naming `%72`, also refuses
+
+#### Scenario: An encoded unreserved character cannot slip past a path reject
+
+- **WHEN** the `read` group rejects `path` matching `^https://example\.test/private` and the model reads `https://example.test/%70rivate`
+- **THEN** the call is rejected before any request, because the normalized text is `https://example.test/private`
+- **AND** `https://example.test/%%370rivate` is requested as `https://example.test/%2570rivate`, whose once-decoded path is the literal `/%70rivate` it named, so llame's normalization forms no new escape; a server that decodes a path twice can still read it as `/private`, which a path-scoped rule cannot bound
+- **AND** `https://example.test/a%2fb` is requested as `https://example.test/a%2Fb`, still encoded
+
+#### Scenario: A pathless host reads its port, a path reads its line
+
+- **WHEN** the model reads `https://example.test:88`, which has no path for a selector to trail
+- **THEN** the read requests `https://example.test:88/` on port 88, and the permission decision matched that same text
+- **AND** `https://example.test/:88` requests the site root and returns line 88 of its render
+- **AND** `https://example.test:88/:88` requests the root on port 88 and returns line 88 of it
+
+#### Scenario: Userinfo in a locator fails closed
+
+- **WHEN** the model reads `https://user:secret@example.test/guide`
+- **THEN** the read returns `invalid_path` before any request
+- **AND** no credential from the locator is sent to the host
+
+#### Scenario: A colon in the last path segment is a selector unless encoded
+
+- **WHEN** the model reads `https://w.example/wiki/Special:Search`
+- **THEN** the read fails with `invalid_selector` and issues no request, because the split-off suffix is present but outside the grammar
+- **AND** `https://w.example/wiki/Special%3ASearch` is fetched as written, while `https://w.example/docs/2024:10` selects line 10 and `https://w.example/docs/2024:10-20` lines 10 through 20 of `https://w.example/docs/2024`
+
+#### Scenario: Outline representation splits before the last-colon fallback
+
+- **WHEN** the model reads `https://h.example/p:outline:5`
+- **THEN** the request targets `https://h.example/p` and selects outline output line 5
+- **AND** the `:outline` text is not sent as part of the URL path
+
+#### Scenario: A refused locator names the spelling that works
+
+- **WHEN** the model reads `https://example.test:1-5`, which no URL parser accepts because `1-5` is not a port
+- **THEN** the read returns `invalid_path` naming `https://example.test/:1-5`, and resubmitting that reads lines 1 through 5 of the page
+- **AND** reading `https://example.test/guide:12+` returns `invalid_selector` naming the `:N`, `:N-M`, and `:N+K` forms before the `%3A` spelling
+- **AND** a suffix outside the grammar with no line number in it, such as `https://w.example/wiki/Special:Search`, still names only the encoded spelling
+
+#### Scenario: A selector the page cannot serve reports the page's length
+
+- **WHEN** the model reads `https://example.test/guide:100-200` and the render is 3 lines long
+- **THEN** the read returns `invalid_selector` reporting that the page rendered 3 lines
+- **AND** the message does not repeat the error type as its text
+
+#### Scenario: A local-only allow does not admit the web
+
+- **WHEN** the `read` group's only allow clause is a `path` regex for `^/`
+- **THEN** an `https://` locator matches no allow and is rejected as `no_allow` before any request
+
+#### Scenario: Publisher signals are not permission
+
+- **WHEN** a page's `robots.txt` disallows the path or its response carries `content-signal: ai-train=no`
+- **THEN** an admitted read still fetches the locator and returns its content
+- **AND** the read does not report or enforce the signal
+
 ## ADDED Requirements
 
 ### Requirement: Read representations use the admitted content type
 
-After the source-specific authority has admitted and resolved a `read`, the tool
-SHALL select the content-type default reader when no explicit representation is
-present. The default reader SHALL remain the existing line-numbered text
-reader, with `:raw` retaining its existing verbatim behavior. An explicit
-representation name SHALL select only a reader that supports the resolved
-content type. The initial representation list SHALL contain `outline` for
-Markdown content; the list SHALL be code-owned and static. A representation
-reader SHALL not change source admission, permission projection, owner
-resolution, executor binding, request policy, result bounds, or source-specific
-result envelope. If a representation does not support the resolved type, the
-tool SHALL return `invalid_selector` naming the supported Markdown types and
-SHALL leave an ordinary read of that source available.
+The representation slot SHALL name one member of a closed, code-owned set:
+`raw` (the existing verbatim member) and `outline`. Each member SHALL declare
+the content types it accepts. With no member named, reading SHALL remain
+unchanged. A member requested for a content type it does not accept SHALL fail
+with `invalid_selector` naming that member's accepted types. A representation
+reader SHALL receive only the admitted decoded content and source display
+identity and SHALL NOT change source admission, permission projection, owner
+resolution, executor binding, request policy, bounds, or source-specific result
+envelope. Future byte-level readers for #916 or #935 SHALL define their own
+input contract rather than widening this decoded-text seam.
 
 #### Scenario: A Markdown file selects the outline reader
 
@@ -214,53 +384,56 @@ SHALL leave an ordinary read of that source available.
 - **THEN** the result has `representation: "outline"` and contains the deterministic outline
 - **AND** the source is admitted exactly as it is for an ordinary read
 
-#### Scenario: An omitted representation keeps the text reader
+#### Scenario: An omitted representation keeps the existing read
 
 - **WHEN** the model reads an authorized Markdown file without a representation name
 - **THEN** the result uses the existing text representation and line-numbered source content
 - **AND** no outline is appended or inferred
 
-#### Scenario: An unsupported representation names Markdown support
+#### Scenario: An unsupported representation names its accepted types
 
 - **WHEN** the model requests `:outline` for an otherwise readable JSON, PDF, or binary source
-- **THEN** the tool returns `invalid_selector` naming the supported Markdown content types
+- **THEN** the tool returns `invalid_selector` naming the `outline` member's accepted Markdown content types
 - **AND** an ordinary read of that source remains governed by its existing default reader
 
-#### Scenario: A denied source is not parsed
+#### Scenario: Admission denies the submitted representation locator
 
-- **WHEN** permission admission denies a path for an ordinary read and the model requests `:outline`
+- **WHEN** permission admission denies the submitted `:outline` locator, including a host rule that matches the suffix-bearing submitted text
 - **THEN** the tool returns the same `permission_denied` result as the ordinary read
 - **AND** no content-type detection or Markdown parsing is attempted
 
-#### Scenario: Raw and outline are not combined
+#### Scenario: Mixed representation text follows source precedence
 
-- **WHEN** the model calls `read` with `:raw:outline` or `:outline:raw`
-- **THEN** the tool returns `invalid_selector`
-- **AND** it does not return source bytes or outline content
+- **WHEN** the model submits `:outline:raw` or `:raw:outline`
+- **THEN** host and web parsing applies their shipped raw-first precedence, while Knowledge and Skill return `invalid_path`
+- **AND** no new combined representation is selected
 
 ### Requirement: Markdown outlines have bounded navigable output
 
-For a supported Markdown source, `:outline` SHALL return one generated output line
-per recognized heading in document order, with indentation of two spaces per
-heading depth below level one, the heading's plain text, and its one-based
-inclusive source range written as `N-M`. The `N-M` token SHALL be directly
+For a supported Markdown source, `:outline` SHALL return one generated output
+line per recognized document-level heading in source order, exactly in the
+format `<"#" repeated depth> <text> [<N>-<M>]`, with no generated line-number
+prefix and no context expansion. Heading text SHALL concatenate inline text:
+code spans contribute their text, links contribute link text, images contribute
+alt text, and inline HTML is dropped. Whitespace and line breaks SHALL collapse
+to one space and the result SHALL be trimmed. The `N-M` token SHALL be directly
 usable as the ordinary selector suffix on the original locator. Authored
-frontmatter metadata and generated notes SHALL precede heading lines and SHALL
-be marked as non-derived lines. The output SHALL contain no model-generated
-summary, body excerpt, or heading-name selector. A Markdown source with no
-recognized headings SHALL return its authored metadata, if any, followed by the
-fixed minimal line `[outline] No headings found.`
+frontmatter metadata and generated notes SHALL precede heading lines, start
+with `[`, and SHALL be marked as non-derived lines. The output SHALL contain no
+model-generated summary, body excerpt, or heading-name selector. A Markdown
+source with no recognized headings SHALL return its authored metadata, if any,
+followed by the fixed minimal line `[outline] No headings found.`
 
 #### Scenario: Outline entries carry source ranges
 
 - **WHEN** an authorized Markdown file contains `# Guide` on line 3 and its section ends on line 12
-- **THEN** outline content contains one line whose heading text is `Guide` and whose range token is `3-12`
+- **THEN** outline content contains `# Guide [3-12]` without a generated line prefix or context line
 - **AND** reading the original locator with `:3-12` addresses that section
 
-#### Scenario: Hierarchy is represented by indentation
+#### Scenario: Heading depth is represented by repeated hash marks
 
 - **WHEN** a Markdown file contains a level-one heading followed by a level-three heading
-- **THEN** the level-one line has no indentation and the level-three line has four spaces of indentation
+- **THEN** the outline contains `# One [1-M]` and `### Three [N-M]` forms with no leading indentation
 - **AND** entries remain in source order without inserted ancestors
 
 #### Scenario: A document without headings has a minimal result
@@ -278,26 +451,28 @@ fixed minimal line `[outline] No headings found.`
 ### Requirement: Markdown heading sections use deterministic CommonMark boundaries
 
 The outline SHALL recognize CommonMark ATX headings and setext headings only
-outside fenced code blocks, indented code blocks, frontmatter, and HTML blocks.
-An ATX heading starts at its ATX line. A setext heading starts at its text line
-and includes its underline line. A heading's section SHALL begin at that
-heading block and end at the line immediately before the next heading of equal
-or greater depth, or at EOF when no such heading exists. A deeper heading SHALL
-remain inside the nearest preceding shallower section. Heading text SHALL be
-source-derived and untrusted; duplicate heading text SHALL remain separate,
-and no selector SHALL address a heading by name.
+at the root document level, outside fenced code blocks, indented code blocks,
+frontmatter, and HTML blocks. Headings nested in list items or blockquotes
+SHALL NOT produce entries. An ATX heading starts at its ATX line. A setext
+heading starts at its text line and includes its underline line. A heading's
+section SHALL begin at that heading block and end at the line immediately
+before the next root heading whose depth is less than or equal to this
+heading's depth (the same or a shallower level), or at the source's last line.
+A deeper heading SHALL remain inside the nearest preceding shallower section.
+Heading text SHALL be source-derived and untrusted; duplicate heading text
+SHALL remain separate, and no selector SHALL address a heading by name.
 
 #### Scenario: ATX and setext headings produce sections
 
-- **WHEN** a Markdown file contains `# One` at line 1 and `Two` followed by `---` at lines 8 and 9
-- **THEN** the outline reports the ATX section from line 1 and the setext section from line 8
-- **AND** the first section ends before the next equal-or-higher heading
+- **WHEN** a 12-line Markdown file contains `# One` at line 1 and setext `Two` at lines 8 and 9
+- **THEN** the outline reports `# One [1-12]` and `## Two [8-12]`
+- **AND** the setext range starts at its text line and includes its underline
 
-#### Scenario: Nested sections end at equal or higher depth
+#### Scenario: Nested sections end at the same or a shallower level
 
 - **WHEN** a level-two heading is followed by a level-three heading and then another level-two heading
-- **THEN** the level-three range ends before the second level-two heading
-- **AND** the first level-two range includes the nested level-three section through the preceding line
+- **THEN** the level-three range ends at the line before the second level-two heading
+- **AND** the first level-two range includes the nested level-three section through that preceding line
 
 #### Scenario: Fenced and indented code are not headings
 
@@ -317,35 +492,46 @@ and no selector SHALL address a heading by name.
 - **THEN** the outline contains two entries with their own source ranges
 - **AND** no name selector chooses either occurrence implicitly
 
-### Requirement: Authored frontmatter is distinct from derived outline structure
+#### Scenario: Container headings are excluded
 
-Only a YAML frontmatter block that starts at line 1 with `---` and closes with
-`---` or `...` SHALL be considered frontmatter. The block SHALL be excluded
-from heading parsing. String scalar keys named exactly `title` and `description`
-SHALL be emitted before headings as `[authored title] <value>` and
-`[authored description] <value>` lines. Those lines SHALL be marked authored and
-SHALL not claim source section ranges. A later horizontal rule SHALL remain
-ordinary Markdown. A malformed or unclosed line-one frontmatter block SHALL be
-ignored for metadata and headings SHALL still be parsed; the outline SHALL
-include the fixed note `[note] Authored frontmatter ignored: malformed YAML.`
+Only a YAML block that starts at line 1 with `---` and closes with `---` or
+`...` SHALL be considered frontmatter. Every such closed block SHALL be
+excluded from heading parsing, even when its YAML is malformed or is not a
+mapping. String scalar keys named exactly `title` and `description` SHALL be
+emitted before headings as `[authored title] <value>` and
+`[authored description] <value>` lines. Authored values SHALL collapse all
+whitespace and line breaks to single spaces, trim the result, and cap it at 200
+characters with a trailing `…` when truncated. Those lines SHALL be marked
+authored, SHALL start with `[`, and SHALL not claim source section ranges. A
+closed block whose YAML fails to parse or is not a mapping SHALL emit the fixed
+note `[note] Authored frontmatter ignored: malformed YAML.`. An unclosed
+line-one opener SHALL NOT be considered frontmatter, SHALL be parsed as
+ordinary Markdown, and SHALL emit no malformed-frontmatter note. A later
+horizontal rule SHALL remain ordinary Markdown.
 
 #### Scenario: Authored title and description are marked
 
 - **WHEN** line one begins a valid YAML frontmatter block containing string `title` and `description` keys
 - **THEN** the outline starts with `[authored title]` and `[authored description]` lines before derived heading entries
-- **AND** those lines are visibly distinct from heading structure
+- **AND** those lines are visibly distinct from heading structure and contain no source range
 
-#### Scenario: Frontmatter is excluded from heading parsing
+#### Scenario: Authored values remain one line
 
-- **WHEN** frontmatter contains `title: "# not a heading"` and the body contains one real Markdown heading
-- **THEN** only the body heading produces a derived outline entry
-- **AND** the authored title line contains the frontmatter value without a source range
+- **WHEN** a valid frontmatter title contains line breaks, repeated whitespace, and more than 200 characters
+- **THEN** the outline emits exactly one `[authored title]` line with collapsed whitespace, a trimmed value, and a trailing `…` at the cap
+- **AND** authored text cannot create a line beginning with `#`
 
-#### Scenario: Malformed frontmatter does not block reading
+#### Scenario: A closed frontmatter block is excluded even when malformed
 
-- **WHEN** a line-one `---` block is unclosed or has malformed YAML and the body contains a valid heading
-- **THEN** the outline contains the fixed malformed-frontmatter note and the body heading
-- **AND** an ordinary read still returns the source under its existing contract
+- **WHEN** a closed line-one block contains malformed YAML or a scalar instead of a mapping and the body contains a valid heading
+- **THEN** the outline emits the fixed malformed-frontmatter note and only the body heading as derived structure
+- **AND** no YAML line or closing delimiter becomes a heading
+
+#### Scenario: An unclosed opener is ordinary Markdown
+
+- **WHEN** a line-one `---` opener has no closing `---` or `...` and the body contains a valid heading
+- **THEN** the outline parses the document as ordinary Markdown without a frontmatter note
+- **AND** the body heading retains its source coordinates
 
 #### Scenario: A later horizontal rule is not frontmatter
 
@@ -355,16 +541,24 @@ include the fixed note `[note] Authored frontmatter ignored: malformed YAML.`
 
 ### Requirement: Outline parsing and output obey explicit bounds
 
-An outline reader SHALL parse the complete decoded Markdown source only when the
-source is no larger than 5 MiB in UTF-8 bytes. A larger source SHALL fail with
-`representation_too_large`, SHALL not return a partial outline, and SHALL leave
-ordinary reads available. The 5 MiB ceiling SHALL also apply to a web body
-already bounded by the web read contract. Successful outline output SHALL use
-the shared serialized result cap and 2,000-line ceiling after its source
-ranges, authored lines, and notes are included. `truncated` and zero-based
-`nextOffset` SHALL describe omitted outline output lines, and a continuation
-SHALL re-run outline selection against the source observed by that call. A
-successful outline SHALL not imply a source snapshot.
+For host, `file://`, `kb://`, and `skill://` sources, an outline reader SHALL
+check the opened file's size before decoding and SHALL read at most 5 MiB plus
+one byte. A source whose size or bounded read exceeds that ceiling SHALL fail
+with `representation_too_large`, SHALL not return a partial outline, and SHALL
+leave ordinary reads available. The loader SHALL preserve the source resolver's
+authority, symlink policy, `not_regular_file`, and `invalid_utf8` behavior. Web
+bodies are already bounded by the web read contract. Successful outline output
+SHALL use the shared serialized result cap and 2,000-line ceiling after its
+source ranges, authored lines, and notes are included. `truncated` and
+zero-based `nextOffset` SHALL describe omitted outline output lines, and a
+continuation SHALL re-run outline selection against the source observed by that
+call. A successful outline SHALL not imply a source snapshot.
+
+#### Scenario: Coordinates use the native LF line model
+
+- **WHEN** a Markdown source contains CRLF, a lone CR, and a trailing LF
+- **THEN** outline coordinates count LF delimiters exactly as ordinary native reads count them, keep lone CR inside a line, and add no line for the trailing LF
+- **AND** every emitted `N-M` remains a valid ordinary selector range
 
 #### Scenario: A large source fails before parsing
 
@@ -390,14 +584,17 @@ The `outline` representation SHALL be available for host and `file://` sources
 when their content type is identified as Markdown by the extension table
 `.md`, `.markdown`, `.mdown`, or `.mkd`, and SHALL be available for `kb://` and
 `skill://` resources under the same content-type rule. `.mdx` SHALL NOT be
-included initially. For web sources, `outline` SHALL be available only when
-the final adapter or generic ladder explicitly rendered the body as Markdown;
-raw HTML, plain text, JSON, XML, and other non-Markdown text SHALL not be
-reinterpreted by appearance. A directory target, unsupported content type,
+included initially. For web sources, `outline` SHALL be available only for a
+Markdown result: `negotiated` counts only when the response Content-Type is
+`text/markdown`; `alternate`, `md-suffix`, `readability`, and `llms-txt` are
+Markdown; `text`, `raw`, and `negotiated` `text/plain` are not. A future
+adapter result may opt in by labeling its output Markdown. Raw HTML, plain
+text, JSON, XML, and other non-Markdown text SHALL not be reinterpreted by
+appearance. A directory target, skill catalog, unsupported content type,
 invalid representation composition, or unsupported rendered web type SHALL
-return `invalid_selector` naming Markdown outline support. A plain read,
-including the existing directory listing, SHALL retain its result or error
-contract.
+return `invalid_selector` naming the requested member's accepted types. A
+plain read, including the existing directory or catalog listing, SHALL retain
+its result or error contract.
 
 #### Scenario: Markdown extensions select outline support
 
@@ -414,7 +611,7 @@ contract.
 #### Scenario: A non-Markdown web body is refused
 
 - **WHEN** a web read returns raw HTML, JSON, or plain text and the model requests `:outline`
-- **THEN** the tool returns `invalid_selector` naming the supported Markdown types
+- **THEN** the tool returns `invalid_selector` naming the `outline` member's accepted Markdown content types
 - **AND** the ordinary web read remains available under its existing content-type and rendering contract
 
 #### Scenario: A directory is not an outline document
@@ -422,6 +619,12 @@ contract.
 - **WHEN** the model requests `:outline` on a host, `file://`, `kb://`, or `skill://` directory
 - **THEN** the tool returns `invalid_selector`
 - **AND** it does not reinterpret the listing as headings or return a partial listing
+
+#### Scenario: A skill catalog is not an outline document
+
+- **WHEN** the model requests `skill://:outline`
+- **THEN** the catalog returns `invalid_selector`
+- **AND** it does not return the first catalog page as outline content
 
 ### Requirement: Representation output preserves source attribution and authority
 

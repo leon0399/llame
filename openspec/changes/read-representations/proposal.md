@@ -1,5 +1,3 @@
-# Proposal
-
 ## Why
 
 `read` already resolves host files, `kb://`, `skill://`, and web content through
@@ -12,44 +10,63 @@ framework both issues reject.
 
 ## What Changes
 
-- Add an explicit representation slot to the trailing selector grammar. The
-  first member is `outline`; existing `raw` and numeric range selectors keep
-  their meaning. `:outline:<ranges>` pages the outline output, while the
-  source ranges printed in that output are used with a subsequent ordinary
-  read.
+- Add a representation slot whose members are `raw` and `outline`, each
+  optionally followed by the existing numeric range list. `:outline:<ranges>`
+  pages outline output lines exactly; source ranges printed in that output are
+  used with a subsequent ordinary read. Host and web splitters recognize the
+  outline form before their last-colon fallback, while Knowledge and Skill
+  selectors validate it as a member of the shared grammar.
 - Add a content-type reader boundary after source resolution and authorization
   and before shared selector paging, result bounds, and source envelopes.
-  Readers are pure post-processors over decoded text and cannot resolve
-  authority, access a path, issue a request, or alter Knowledge, Skill, or web
-  attribution.
-- Make the default reader the existing line-numbered text reader for every
-  content type. An explicit representation is accepted only when the resolved
-  content type supports it; otherwise `invalid_selector` names the supported
-  Markdown types and ordinary read remains available.
-- Implement the first non-default reader, the Markdown `outline`, for Markdown
+  Readers receive only admitted decoded text and source display identity. They
+  cannot resolve authority, access a path, issue a request, or alter Knowledge,
+  Skill, or web attribution. Future byte-level readers own a separate input
+  contract.
+- With no explicit member, keep the existing default text reader. An explicit
+  member is accepted only when its declared content type is supported;
+  `invalid_selector` names that member's accepted types, and ordinary read
+  remains available.
+- Implement the first non-default reader, Markdown `outline`, for Markdown
   content from authorized host paths and `kb://` locators, with the same
   structure and source coordinates. The same reader applies to `file://` once
   the sibling source change lands, to `skill://` Markdown resources, and to
-  web output only after the adapter or generic ladder has produced Markdown.
-- Define deterministic Markdown structure: CommonMark ATX and setext
-  headings, heading depth and hierarchy, fenced and indented code excluded,
-  HTML blocks excluded, and YAML frontmatter at line 1 treated as authored
-  metadata rather than a heading. Each heading line reports its source section
-  as a one-based inclusive `N-M` range; duplicate text is navigated by ranges,
-  never by a heading-name selector.
-- Surface authored frontmatter `title` and `description` as explicitly marked
-  outline header lines. Malformed frontmatter is ignored and produces a
-  bounded note. A Markdown file without headings produces a defined minimal
-  outline rather than an empty or inferred synopsis.
-- Apply the ordinary result line, character, envelope, truncation, and
-  `nextOffset` bounds to outline output. Outline parsing has a bounded whole
-  input ceiling because it needs the complete decoded document; it never
-  creates a snapshot or grants access beyond the ordinary source read.
-- Refuse `:outline` on directories and unsupported content types with
-  `invalid_selector`, without changing the directory listing or plain-read
-  contract. A denied path fails with the same permission result as an
-  ordinary read, before parsing. `:raw:outline` and `:outline:raw` are refused
-  rather than composing incompatible representations.
+  the current web ladder's Markdown outputs. Future adapter results count when
+  an adapter labels its output Markdown; they do not block this change.
+- Define deterministic Markdown structure: document-level CommonMark ATX and
+  setext headings, with headings inside list items or blockquotes excluded;
+  fenced and indented code and HTML blocks are excluded. Each output line is
+  `<"#" repeated depth> <text> [<N>-<M>]`, with no generated line prefix or
+  context. The section ends before the next heading whose depth is less than
+  or equal to its own, or at the source's last line. Duplicate text is
+  navigated by ranges, never by a heading-name selector.
+- Surface authored frontmatter `title` and `description` as one-line,
+  explicitly marked metadata lines. Every closed line-one `---` block is
+  blanked before heading parsing; YAML parse errors and non-mappings emit a
+  fixed note, while an unclosed opener is ordinary Markdown. Authored values
+  collapse whitespace and are capped at 200 characters with a trailing `…`.
+  A Markdown file without headings produces a defined minimal outline.
+- Apply the ordinary result character and envelope bounds to outline output,
+  but no generated prefixes or context expansion. Outline parsing has a
+  bounded whole-input ceiling of 5 MiB, with `representation_too_large` above
+  it; file-backed sources check size before reading and web bodies already
+  obey their 5 MiB cap. `nextOffset` is the zero-based next outline line.
+- For web, `negotiated` counts as Markdown only when the response
+  `Content-Type` is `text/markdown`; `alternate`, `md-suffix`, `readability`,
+  and `llms-txt` are Markdown. `text`, `raw`, and `negotiated` `text/plain`
+  are not Markdown. A future adapter may opt in by labeling its output
+  Markdown without making this change depend on that adapter.
+- `:outline` on directories and unsupported content types returns
+  `invalid_selector`, without changing directory listing or plain-read
+  behavior. `:outline:raw` and `:raw:outline` are not representation members;
+  host and web source precedence therefore keeps their shipped raw
+  interpretation of `:outline:raw` as a path or URL ending in `:outline`,
+  while Knowledge and Skill return `invalid_path` for either invalid suffix.
+  A denied submitted `:outline` locator fails before parsing.
+- Preserve source-specific identity, permissions, and attribution. Host,
+  `file://`, `kb://`, `skill://`, and web sources retain their existing
+  envelopes, including the Knowledge untrusted-content notice and web
+  provenance. Coordinates describe the source observed at execution and never
+  imply a snapshot.
 - Update the model-facing `read` description, operator documentation, tests,
   changelog, and shared Markdown structure package in the implementation
   layers. Those files are not changed on this proposal branch.
@@ -94,10 +111,10 @@ permission behavior stay on the shipped `read` surface.
   `pnpm-lock.yaml:720-749`, `:808-878`). The design compares available
   CommonMark parsers and assigns a bounded spike before any dependency is
   added.
-- The sibling `read-file-locator` change owns the source plane and
-  `file://` alias; the sibling `read-web-adapters` change owns the web service
-  plane. This change consumes those sources and must not duplicate their
-  authority or network policy.
+- The sibling `file-locator` change owns the source plane and `file://` alias;
+  the sibling `web-read-adapters` change owns the web service plane. This
+  change consumes those sources and must not duplicate their authority or
+  network policy.
 - The implementation stack closes #572 on its outline layer. #801 remains
   blocked by #572 and is not closed here. #544 shares only the Markdown
   structure primitive. Related decisions are tracked in #544, #573, #705,
@@ -122,43 +139,52 @@ permission behavior stay on the shipped `read` surface.
 ## Acceptance
 
 - An authorized absolute Markdown path and equivalent authorized `kb://`
-  content produce equivalent outline headings, depths, and source `N-M`
+  content produce equivalent outline headings, depths, text, and source `N-M`
   coordinates while retaining source-specific identity and attribution.
-- `read path:outline` returns one bounded line per heading with indentation,
-  heading text, and its source range. Authored title and description lines are
-  marked as authored, and malformed frontmatter emits a note without blocking
-  the outline or ordinary read.
-- A heading's range starts at the heading block and ends immediately before the
-  next heading of equal or greater depth, or at EOF. ATX and setext headings
-  work; headings inside fenced or indented code and HTML blocks do not.
+- `read path:outline` returns one output line per heading in the exact
+  `<"#" repeated depth> <text> [<N>-<M>]` format, without generated line
+  prefixes or context. Authored title and description lines start with
+  `[authored ...]`, and malformed closed frontmatter emits `[note]` without
+  blocking outline or ordinary read.
+- A 12-line document with `# One` at line 1 and setext `Two` at lines 8-9
+  reports `1-12` for `One` and `8-12` for `Two`. A section ends before the
+  next heading whose depth is less than or equal to its own, or at the last
+  source line. Headings in fenced, indented, list, blockquote, and HTML blocks
+  do not produce entries.
 - Duplicate heading text never chooses a section by name. Each occurrence has
   its own source range, and ordinary `:N-M` or multi-range selectors read the
   selected source section.
-- `:outline:N-M` pages outline lines, not source lines, under the existing
-  line/result bounds. A truncated outline reports `nextOffset`; the ranges in
-  emitted outline lines remain source coordinates.
-- `:raw:outline` and `:outline:raw` fail with `invalid_selector`; a directory
-  request fails with `invalid_selector`; an unsupported PDF, binary, or JSON
-  representation fails with `invalid_selector` naming Markdown support while
-  an otherwise-valid plain read is unchanged.
-- Permission denial occurs before outline parsing and has the same
-  `permission_denied` result as a plain read. Outline output carries no extra
-  authority, and coordinates describe the source observed for that execution,
-  not a snapshot.
-- The implementation layers prove the parser and reader with focused tests,
-  then run `pnpm exec openspec validate read-representations --strict`,
-  `pnpm exec prettier --write <changed files>`, `pnpm format:check`,
-  `pnpm lint:markdown`, and `git diff --check`.
+- `:outline:N-M` pages outline lines exactly, without prefixes or context, not
+  source lines. A truncated outline reports the zero-based next outline line;
+  emitted entries retain source coordinates in the native LF line model.
+- A closed line-one frontmatter block is excluded from headings even when its
+  YAML is malformed or not a mapping, and emits the fixed note in those cases.
+  An unclosed line-one opener is ordinary Markdown with no frontmatter note.
+  Authored values are one line, whitespace-collapsed, and capped at 200
+  characters with a trailing `…`.
+- `:outline:raw` and `:raw:outline` are not members and follow source
+  precedence; a host or web `...:outline:raw` is the shipped raw read of a
+  path or URL ending in `:outline`, while Knowledge and Skill return
+  `invalid_path`. A directory
+  request returns `invalid_selector`; an unsupported PDF, binary, JSON, plain
+  text, or `.mdx` request returns `invalid_selector` naming the requested
+  member's accepted Markdown types while ordinary read is unchanged.
+- Outline parsing checks file-backed size before reading and returns
+  `representation_too_large` above 5 MiB; web bodies use their existing cap.
+  Permission admission denies the submitted `:outline` locator before any
+  content-type detection or parsing, with the ordinary `permission_denied`.
+  Coordinates describe the source observed for that execution, not a snapshot.
 
 ## Open questions
 
 - The implementation spike must confirm the selected parser's CommonMark
-  behavior, positional line data, frontmatter handling boundary, bundle size,
-  and MIT license before its dependency is added. If the spike fails, the
-  parser comparison in `design.md` names the replacement and records why;
-  product behavior does not change.
-- The outline layer depends on the sibling source-plane branch for `file://`
-  and on the sibling web-plane branch for rendered Markdown. Their integration
-  must preserve this representation contract; any same-file conflict in
-  `native-files.ts`, `read.md`, or docs is resolved by the later landing
-  change, as recorded in `tasks.md`.
+  behavior, positional line data under the native LF line model, root-only
+  heading walk, frontmatter blanking, bundle size, and MIT license before its
+  dependency is added. If the spike fails, the parser comparison in
+  `design.md` names the replacement and records why; product behavior does not
+  change.
+- The outline layer depends on the sibling source-plane branch only for
+  `file://`. The current web ladder already labels its Markdown outputs, and
+  future adapter labels are forward-compatible rather than a dependency. Any
+  same-file conflict in `native-files.ts`, `read.md`, or docs is resolved by
+  the later landing change, as recorded in `tasks.md`.
