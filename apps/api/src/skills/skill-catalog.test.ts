@@ -123,6 +123,25 @@ describe('SkillCatalog discovery', () => {
     });
   });
 
+  it('keeps the no-argument snapshot operator-only', () => {
+    const source = temporaryDirectory('operator-only');
+    createPackage(source, 'pdf');
+    const reads: Array<string> = [];
+    const fileSystem: SkillCatalogFileSystem = {
+      ...NODE_SKILL_FILE_SYSTEM,
+      readDirectory: (directory) => {
+        reads.push(directory);
+        return NODE_SKILL_FILE_SYSTEM.readDirectory(directory);
+      },
+    };
+
+    const snapshot = new SkillCatalog([source], fileSystem).getSnapshot();
+
+    expect(snapshot.available).toBe(true);
+    expect(snapshot.entries.map((entry) => entry.name)).toEqual(['pdf']);
+    expect(reads).toEqual([source]);
+  });
+
   it('discovers immediate child packages of a collection root only', () => {
     const source = temporaryDirectory('source');
     createPackage(source, 'pdf');
@@ -264,6 +283,25 @@ describe('SkillCatalog discovery', () => {
     expect(new SkillCatalog(directories).getSnapshot().available).toBe(false);
   });
 
+  it('reports the operator source bound before reading its sources', () => {
+    const directories = Array.from(
+      { length: MAX_SKILL_SOURCES + 1 },
+      (_, index) => `/opt/readable-skills-${index}`,
+    );
+    const snapshot = snapshotWith(directories, {
+      ...NODE_SKILL_FILE_SYSTEM,
+      readDirectory: () => [],
+    });
+
+    expect(snapshot).toEqual({
+      available: false,
+      directories,
+      entries: [],
+      diagnostics: [
+        `At most ${MAX_SKILL_SOURCES} skill sources are supported; the catalog is unavailable.`,
+      ],
+    });
+  });
   it('refuses to resolve precedence above the per-source child bound', () => {
     const source = temporaryDirectory('wide');
     const children: ReadonlyArray<CatalogDirent> = Array.from(
@@ -282,6 +320,31 @@ describe('SkillCatalog discovery', () => {
 
     expect(snapshot.available).toBe(false);
     expect(snapshot.entries).toEqual([]);
+  });
+
+  it('reports an unexpected child read failure as an unavailable source', () => {
+    const source = temporaryDirectory('child-failure');
+    const child: CatalogDirent = {
+      name: 'pdf',
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    };
+    const snapshot = snapshotWith([source], {
+      ...NODE_SKILL_FILE_SYSTEM,
+      readDirectory: () => [child],
+      fileKind: () => {
+        throw new Error('permission denied');
+      },
+    });
+
+    expect(snapshot).toEqual({
+      available: false,
+      directories: [source],
+      entries: [],
+      diagnostics: [
+        `Skill source ${source} is missing or unreadable; the catalog is unavailable.`,
+      ],
+    });
   });
 
   it('layers Workspace sources above operators in ordered precedence', () => {

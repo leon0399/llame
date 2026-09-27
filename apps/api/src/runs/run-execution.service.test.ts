@@ -1035,6 +1035,150 @@ describe('RunExecutionService executeRun', () => {
     }
   });
 
+  it('activates an explicitly named operator skill without a Workspace root', async () => {
+    const source = mkdtempSync(path.join(tmpdir(), 'operator-skill-'));
+    const packageDirectory = path.join(source, 'pdf');
+    mkdirSync(packageDirectory, { recursive: true });
+    writeFileSync(
+      path.join(packageDirectory, 'SKILL.md'),
+      '---\nname: pdf\ndescription: PDF skill\n---\n# PDF instructions\n',
+    );
+    try {
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        ActivationPartsRepository.prototype,
+        'resolvedSkillsForRun',
+      ).mockResolvedValue(new Set());
+      const appendActivation = vi
+        .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
+        .mockResolvedValue({ applied: true });
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        undefined,
+        {
+          skillCatalog: new SkillCatalog([source]),
+          skillDirectories: [source],
+        },
+      );
+      const input = executionInput(execution.client);
+      const result = await execution.service.executeRun({
+        ...input,
+        userMessage: {
+          ...input.userMessage,
+          parts: [{ type: 'text', text: '$pdf' }],
+        },
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+      const activationItems = appendActivation.mock.calls.flatMap(
+        ([call]) => call.items,
+      );
+      expect(activationItems).toHaveLength(1);
+      expect(activationItems[0]?.data.payload).toMatchObject({
+        kind: 'activation',
+        skill: 'pdf',
+      });
+    } finally {
+      rmSync(source, { recursive: true, force: true });
+    }
+  });
+
+  it('does not attempt explicit activation when no skill source is configured', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      ActivationPartsRepository.prototype,
+      'resolvedSkillsForRun',
+    ).mockResolvedValue(new Set());
+    const appendActivation = vi
+      .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
+      .mockResolvedValue({ applied: true });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        skillCatalog: new SkillCatalog([]),
+        skillDirectories: [],
+      },
+    );
+    const input = executionInput(execution.client);
+    const result = await execution.service.executeRun({
+      ...input,
+      userMessage: {
+        ...input.userMessage,
+        parts: [{ type: 'text', text: '$absent' }],
+      },
+    });
+
+    await expect(result.text).resolves.toBe('answer');
+    expect(appendActivation).not.toHaveBeenCalled();
+  });
+
+  it('activates an explicitly named Workspace skill with a bound root', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-skill-'));
+    const packageDirectory = path.join(
+      root,
+      '.llame',
+      'skills',
+      'workspace-only',
+    );
+    mkdirSync(packageDirectory, { recursive: true });
+    writeFileSync(
+      path.join(packageDirectory, 'SKILL.md'),
+      '---\nname: workspace-only\ndescription: Workspace skill\n---\n# Workspace instructions\n',
+    );
+    try {
+      mockNormalExecutionRepositories();
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'host-a',
+        workspaceGeneration: 4,
+        workspaceTold: root,
+        workspaceToldFrom: null,
+        workspaceDetachReason: null,
+      });
+      vi.spyOn(
+        ActivationPartsRepository.prototype,
+        'resolvedSkillsForRun',
+      ).mockResolvedValue(new Set());
+      const appendActivation = vi
+        .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
+        .mockResolvedValue({ applied: true });
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        {
+          allowed: ['enter_workspace'],
+          skillCatalog: new SkillCatalog([]),
+          skillDirectories: [],
+        },
+      );
+      const input = executionInput(execution.client);
+      const result = await execution.service.executeRun({
+        ...input,
+        userMessage: {
+          ...input.userMessage,
+          parts: [{ type: 'text', text: '$workspace-only' }],
+        },
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+      const activationItems = appendActivation.mock.calls.flatMap(
+        ([call]) => call.items,
+      );
+      expect(activationItems).toHaveLength(1);
+      expect(activationItems[0]?.data.payload).toMatchObject({
+        kind: 'activation',
+        skill: 'workspace-only',
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('recovers a persisted native result into its still-open tool activity', async () => {
     const repositories = mockNormalExecutionRepositories();
     repositories.markStarted.mockResolvedValue({ ...run, workerId: 'host-a' });

@@ -281,6 +281,64 @@ describe('the frozen skill-catalog baseline', () => {
     expect(state.told).toBeUndefined();
   });
 
+  it('does not freeze when no operator or Workspace sources are configured', () => {
+    const state = resolve(
+      deps({
+        skillDirectories: [],
+        skillCatalog: {
+          getSnapshot: () =>
+            snapshot({ entries: [entry('unexpected', 'Unexpected')] }),
+        },
+      }),
+      chat(),
+    );
+
+    expect(state.baseline).toBeUndefined();
+    expect(state.freeze).toBeUndefined();
+    expect(state.told).toBeUndefined();
+  });
+
+  it('freezes an available catalog when entries lack directory metadata', () => {
+    const state = resolve(
+      deps({
+        skillDirectories: [],
+        extraSources: ['/work/.llame/skills'],
+        skillCatalog: {
+          getSnapshot: () =>
+            snapshot({
+              directories: [],
+              entries: [entry('workspace-only', 'Workspace skill')],
+            }),
+        },
+      }),
+      chat(),
+    );
+
+    expect(state.baseline).toEqual({
+      entries: [{ name: 'workspace-only', description: 'Workspace skill' }],
+      omitted: 0,
+    });
+    expect(state.freeze).toBeDefined();
+  });
+
+  it('freezes an empty baseline for an effective source with no entries', () => {
+    const reported: Array<ReadonlyArray<string>> = [];
+    const state = resolve(
+      deps({
+        skillCatalog: {
+          getSnapshot: () => snapshot({ directories: [SOURCE], entries: [] }),
+        },
+        skillDirectories: [SOURCE],
+        reportUnavailable: (diagnostics) => reported.push(diagnostics),
+      }),
+      chat(),
+    );
+
+    expect(state.baseline).toEqual({ entries: [], omitted: 0 });
+    expect(state.freeze).toBeDefined();
+    expect(reported).toEqual([]);
+  });
+
   it('resolves the current catalog and freezes it on the chat', () => {
     const state = resolve(
       deps({
@@ -345,6 +403,7 @@ describe('the frozen skill-catalog baseline', () => {
   });
 
   it('does not freeze a baseline when all Workspace sources are missing', () => {
+    const reported: Array<ReadonlyArray<string>> = [];
     const state = resolve(
       deps({
         skillDirectories: [],
@@ -360,6 +419,7 @@ describe('the frozen skill-catalog baseline', () => {
               entries: [],
             }),
         },
+        reportUnavailable: (diagnostics) => reported.push(diagnostics),
       }),
       chat(),
     );
@@ -367,6 +427,7 @@ describe('the frozen skill-catalog baseline', () => {
     expect(state.baseline).toBeUndefined();
     expect(state.freeze).toBeUndefined();
     expect(state.told).toBeUndefined();
+    expect(reported).toEqual([]);
   });
 
   it('passes an empty baseline through when the catalog admits nothing', () => {

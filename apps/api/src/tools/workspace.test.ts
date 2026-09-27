@@ -138,6 +138,109 @@ describe('Workspace host tools', () => {
     });
   });
 
+  it('omits Workspace skills when the effective catalog is unavailable', async () => {
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
+      status: 'bound',
+      previousRoot: null,
+      generation: 1,
+    });
+
+    const result = await enterWorkspaceTool.execute(
+      context({
+        skillCatalog: {
+          getSnapshot: () => ({
+            available: false,
+            directories: [],
+            entries: [
+              {
+                name: 'unavailable-catalog-entry',
+                description: 'Should not leak',
+                proactive: true,
+                sourceDirectory: join(root, '.llame', 'skills'),
+                skillDirectory: join(
+                  root,
+                  '.llame',
+                  'skills',
+                  'unavailable-catalog-entry',
+                ),
+                available: true,
+                diagnostics: [],
+              },
+            ],
+            diagnostics: ['unavailable'],
+          }),
+        },
+      }),
+      { path: root },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      root,
+      skills: [],
+      skillsOmitted: 0,
+    });
+  });
+
+  it('returns only available proactive Workspace entries from the selected sources', async () => {
+    const sources = [
+      join(root, '.claude', 'skills'),
+      join(root, '.agents', 'skills'),
+      join(root, '.llame', 'skills'),
+    ];
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
+      status: 'bound',
+      previousRoot: null,
+      generation: 1,
+    });
+
+    const entry = (
+      name: string,
+      overrides: Partial<{
+        readonly available: boolean;
+        readonly proactive: boolean;
+        readonly description: string | null;
+        readonly sourceDirectory: string | null;
+      }> = {},
+    ) => ({
+      name,
+      description: 'Workspace description',
+      proactive: true,
+      sourceDirectory: sources[2],
+      skillDirectory: join(sources[2], name),
+      available: true,
+      diagnostics: [],
+      ...overrides,
+    });
+
+    const result = await enterWorkspaceTool.execute(
+      context({
+        skillCatalog: {
+          getSnapshot: () => ({
+            available: true,
+            directories: sources,
+            entries: [
+              entry('valid'),
+              entry('unavailable', { available: false }),
+              entry('manual', { proactive: false }),
+              entry('missing-description', { description: null }),
+              entry('missing-source', { sourceDirectory: null }),
+              entry('operator', { sourceDirectory: '/operator/skills' }),
+            ],
+            diagnostics: [],
+          }),
+        },
+      }),
+      { path: root },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      skills: [{ name: 'valid', description: 'Workspace description' }],
+      skillsOmitted: 0,
+    });
+  });
+
   it('bounds the Workspace skill list', async () => {
     const source = join(root, '.llame', 'skills');
     for (let index = 0; index < 257; index += 1) {
