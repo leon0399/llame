@@ -11,8 +11,8 @@ identity, lifecycle, provenance, and isolation; peer coding agents and protocols
 This directory is reserved for software that hosts tool-enabled agent execution,
 directly or through peer executors. Agent runtimes and orchestration hosts belong
 here. Standalone tools, plugins, memory services and prompt utilities belong in
-[tools and extensions](../tools/index.md); data specifications belong in
-[formats](../formats/index.md).
+[tools and extensions](../tools/index.md); protocols and data specifications belong in
+[standards](../standards/index.md).
 
 SPEC, OpenSpec, and shipped code win any disagreement with notes here. This bundle
 records upstream repositories and in-repo deep dives only. Refresh a local clone
