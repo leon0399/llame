@@ -252,10 +252,11 @@ workspace_generation)`. Keep Workspace candidates and executors out of the proce
       echoed by a Workspace server being redacted, and that an ambient llame process variable not
       referenced by Workspace config is absent from its stdio child's environment.
 - [ ] 6.3 Implement deferred shadowing: a byte-equal Workspace/operator server id defers when
-      operator tools are already declared in the running attempt, reports `shadows from the next
-    Run`, retains operator executors for that attempt, and attempt-start composition shadows from
-      the next attempt that composes the live binding, including a retry attempt of the same Run,
-      after a successful Workspace start under the same tool ids and exact-id permission groups. A
+      operator tools are already declared in the running attempt, reports
+      `shadows from the next Run`, retains operator executors for that attempt, and attempt-start
+      composition shadows from the next attempt that composes the live binding, including a retry
+      attempt of the same Run, after a successful Workspace start under the same tool ids and
+      exact-id permission groups. A
       Workspace id differing from an operator id only by ASCII case is unavailable with reason
       `case-only collision with an operator server` and contributes no tools; operator tools are
       unaffected. A failed Workspace server does not shadow. Verify deferred shadowing, the
