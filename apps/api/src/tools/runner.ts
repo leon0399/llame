@@ -107,19 +107,6 @@ function prepareToolExecution(
   };
 }
 
-function contextWithMcpDispatchMarker(
-  context: ToolContext,
-  onRecorded: () => void,
-): ToolContext {
-  return {
-    ...context,
-    onMcpDispatchRecorded: () => {
-      onRecorded();
-      context.onMcpDispatchRecorded?.();
-    },
-  };
-}
-
 /** Structured refusal for a tool the model requested but is unavailable (D3/D6). */
 export function refusalResult(toolName: string): ToolResult {
   return {
@@ -296,9 +283,12 @@ async function executeAdmittedTool(
     composedSignal,
   } = prepareToolExecution(tool, context, callTimeoutSeconds);
   let mcpDispatchRecorded = false;
-  const executionContext = contextWithMcpDispatchMarker(preparedContext, () => {
-    mcpDispatchRecorded = true;
-  });
+  const executionContext = {
+    ...preparedContext,
+    onMcpDispatchRecorded: () => {
+      mcpDispatchRecorded = true;
+    },
+  };
   try {
     const execution = Promise.resolve(
       tool.execute(executionContext, validArgs),

@@ -195,6 +195,37 @@ describe('runTool', () => {
       type: 'outcome_unknown',
     });
   });
+  it('notifies the Run when a recorded MCP attempt returns outcome_unknown', async () => {
+    const id = 'mcp__demo__replayed';
+    const onNativeMutationUnknown = vi.fn();
+    const tool: Tool = {
+      ...echoTool,
+      id,
+      classification: 'unverified',
+      execute: (context) => {
+        context.onMcpDispatchRecorded?.();
+        return {
+          status: 'error' as const,
+          type: 'outcome_unknown' as const,
+          message: 'A durable MCP attempt already exists.',
+        };
+      },
+    };
+
+    const result = await runTool(
+      tool,
+      { value: 'x' },
+      {
+        ...fakeContext(),
+        onNativeMutationUnknown,
+        permissionPolicy: compileTestPermissionPolicy([id]),
+      },
+      15,
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'outcome_unknown' });
+    expect(onNativeMutationUnknown).toHaveBeenCalledOnce();
+  });
 
   it('keeps an MCP timeout before dispatch as timeout', async () => {
     const id = 'mcp__demo__pre-dispatch-timeout';
