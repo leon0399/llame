@@ -137,9 +137,12 @@ request succeeded and a later request for the same document fails (a comment
 page, a check-runs page, or the README), the adapter renders what it has and
 attaches one note per missing section, such as
 `review comments omitted: rate_limit, resets 2026-09-27T12:40:00Z`. For check
-runs, a failed later page leaves the loaded counts and states the unloaded
-remainder from `total_count` on the `Checks:` line, and a failed or unparsable
-first page renders `Checks: unavailable`; the omission note names check runs. No adapter failure returns a response body to the model.
+runs, a page that answers but cannot be parsed counts as not arriving, the
+same as a failed page, because the `Checks:` line can only count runs it
+parsed: a later page that does not arrive leaves the loaded counts plus the
+remainder from `total_count`, and a first page that does not arrive (or has no
+numeric `total_count`) renders `Checks: unavailable`. The omission note names
+check runs and the category, `parse` for an unparsable page. No adapter failure returns a response body to the model.
 
 **Alternative rejected:** OMP's combined `SpecialHandler` returning `null` on
 both mismatch and failure. It makes a handler's precedence and failure reason

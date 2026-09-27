@@ -39,9 +39,10 @@ anchors (#927), a `json` representation (#833), Telegram (#940).
 
 Branch `web-read-adapters/proposal`, parent `master`. Owns `proposal.md`,
 `design.md`, the three delta spec files, and this task ledger. Measured at
-2,223 authored lines against `master` (2,225 including generated metadata),
-about 223 over the approximately 2,000-line target, because the MODIFIED
-blocks reproduce 1,041 lines of canonical requirement text and scenarios. That
+about 2,240 authored lines against `master`, about 240 over the approximately
+2,000-line target, because the MODIFIED blocks reproduce 1,041 lines of
+canonical requirement text and scenarios; the PR body carries the exact count
+for its head. That
 named budget exception needs Leo's explicit approval before publication.
 Re-measure the actual parent-relative diff before publication. It closes no
 issue.

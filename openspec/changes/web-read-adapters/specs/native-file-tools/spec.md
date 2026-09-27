@@ -837,6 +837,15 @@ limits are not permission errors and SHALL not be retried.
   invented zero counts
 - **AND** an omission note names check runs and the failure category
 
+#### Scenario: An unparsable check-runs page counts as not arriving
+
+- **WHEN** the first check-runs page answers `200` without a numeric
+  `total_count`, or a later check-runs page answers `200` with a body that
+  cannot be parsed
+- **THEN** the first case renders `Checks: unavailable` and the second renders
+  the loaded counts plus the `total_count` remainder from the first page
+- **AND** the omission note names check runs with the `parse` category
+
 #### Scenario: Private content without a token is not claimed
 
 - **WHEN** an unauthenticated GitHub API response does not expose a private repository resource
