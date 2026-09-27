@@ -77,23 +77,28 @@ export function classifyFetchFailure(
       return 'too_large';
     case 'unsupported_content_type':
       return 'content_type';
-    case 'network_error':
-    case 'headers_timeout':
-    case 'call_timeout':
-    case 'aborted':
-    case 'invalid_redirect':
-    case 'too_many_redirects':
-      return 'transport';
     default:
       return 'transport';
   }
 }
 
-export function omissionNote(
-  section: string,
-  failure: WebAdapterFailure,
-): string {
-  return `${section} omitted: ${failure}`;
+/**
+ * Only adapter-primary failures in this allowlist may fall through. Call
+ * timeout, abort, redirect-budget exhaustion, and unknown failures end calls.
+ */
+export function isFatalAdapterFailure(failure: WebFetchFailure): boolean {
+  switch (failure.type) {
+    case 'http_status':
+    case 'unsupported_content_type':
+    case 'body_too_large':
+    case 'network_error':
+    case 'headers_timeout':
+    case 'invalid_redirect':
+    case 'permission_denied':
+      return false;
+    default:
+      return true;
+  }
 }
 
 export type WebAdapterDispatch =
@@ -157,38 +162,22 @@ export async function dispatchWebAdapters(
   return { kind: 'fallthrough', notes: fallthroughNotes };
 }
 
-type TruncatedAdapterDocument = {
-  readonly content: string;
-  readonly truncated: boolean;
-};
-
-function truncateAdapterDocument(content: string): TruncatedAdapterDocument {
-  const encoder = new TextEncoder();
-  if (encoder.encode(content).byteLength <= MAX_ADAPTER_DOCUMENT_BYTES) {
+function truncateAdapterDocument(content: string) {
+  const buffer = new Uint8Array(MAX_ADAPTER_DOCUMENT_BYTES);
+  const { read } = new TextEncoder().encodeInto(content, buffer);
+  if (read === content.length) {
     return { content, truncated: false };
   }
-
-  let offset = 0;
-  let bytes = 0;
-  while (offset < content.length) {
-    const newline = content.indexOf('\n', offset);
-    const end = newline === -1 ? content.length : newline + 1;
-    const lineBytes = encoder.encode(content.slice(offset, end)).byteLength;
-    if (bytes + lineBytes > MAX_ADAPTER_DOCUMENT_BYTES) break;
-    bytes += lineBytes;
-    offset = end;
-  }
-  return { content: content.slice(0, offset), truncated: true };
+  const newline = content.lastIndexOf('\n', read - 1);
+  return {
+    content: content.slice(0, newline + 1),
+    truncated: true,
+  };
 }
 
 /** Builds the shipped rewrite-only adapter set while preserving operator order. */
 export function createWebAdapters(
   configs: ReadonlyArray<WebAdapterConfig>,
 ): ReadonlyArray<WebAdapter> {
-  return configs.map((config) => {
-    if (config.use !== 'rewrite') {
-      throw new Error(`Unknown web adapter use "${String(config.use)}".`);
-    }
-    return createRewriteAdapter(config);
-  });
+  return configs.map(createRewriteAdapter);
 }

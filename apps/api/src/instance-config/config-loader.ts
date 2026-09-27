@@ -226,11 +226,6 @@ function resolveWebAdapterEntry(
   seenIds: Set<string>,
 ): WebAdapterConfig {
   const { id } = value;
-  if (id.length === 0) {
-    throw new InstanceConfigError(
-      'tools.webAdapters: each entry must have a non-empty id',
-    );
-  }
   const entryPath = `tools.webAdapters[${id}]`;
   assertAdapterFieldLiteral(id, `${entryPath}.id`);
   if (seenIds.has(id)) {
@@ -238,32 +233,16 @@ function resolveWebAdapterEntry(
   }
   seenIds.add(id);
 
-  const fields = resolveWebAdapterFields(value, entryPath);
-  return {
-    id,
-    use: 'rewrite',
-    ...fields,
-  };
-}
-
-type ResolvedWebAdapterFields = {
-  readonly hosts: Array<string>;
-  readonly pathPattern?: string;
-  readonly target: string;
-};
-
-function resolveWebAdapterFields(
-  value: RawWebAdapterEntry,
-  entryPath: string,
-): ResolvedWebAdapterFields {
   const hosts = resolveWebAdapterHosts(value.hosts, entryPath);
   const pathPattern = resolveWebAdapterPathPattern(
     value.pathPattern,
     `${entryPath}.pathPattern`,
   );
   const target = resolveWebAdapterTarget(value.target, `${entryPath}.target`);
-  if (pathPattern === undefined) return { hosts, target };
-  return { hosts, pathPattern, target };
+  if (pathPattern === undefined) {
+    return { id, use: 'rewrite', hosts, target };
+  }
+  return { id, use: 'rewrite', hosts, pathPattern, target };
 }
 
 function assertAdapterFieldLiteral(value: string, configPath: string): void {
@@ -278,23 +257,16 @@ function resolveWebAdapterHosts(
   value: Array<string>,
   entryPath: string,
 ): Array<string> {
-  if (value.length === 0) {
-    throw new InstanceConfigError(
-      `${entryPath}.hosts: must be a non-empty array of strings`,
-    );
-  }
   for (const [index, host] of value.entries()) {
     const hostPath = `${entryPath}.hosts[${index}]`;
     assertAdapterFieldLiteral(host, hostPath);
-    let canonicalHost: string;
+    let canonicalHost = '';
     try {
       canonicalHost = new URL(`https://${host}`).hostname;
     } catch {
-      throw new InstanceConfigError(
-        `${hostPath}: must be a canonical lowercase hostname without a port`,
-      );
+      // The shared error below names the operator field without echoing parser details.
     }
-    if (canonicalHost !== host) {
+    if (host.endsWith('.') || canonicalHost !== host) {
       throw new InstanceConfigError(
         `${hostPath}: must be a canonical lowercase hostname without a port`,
       );

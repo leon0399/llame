@@ -358,6 +358,8 @@ export class RunNotRunnableError extends Error {
   }
 }
 
+/** Adapter locator decisions have their own cap and cannot crowd out hops or probes. */
+const MAX_ADAPTER_DECISIONS = 16;
 /**
  * AbortSignal.abort(reason) tag for the worker's own in-process wall-clock
  * timeout (design D7 mechanism 1). Both a timeout and a user-requested cancel
@@ -1053,8 +1055,8 @@ export class RunExecutionService {
     // refused address) reaches run execution through the tool context while
     // the executor runs — after `tool.requested` is already durable — so it
     // is collected on the open call and recorded at settlement. A call that
-    // never settles loses its records with its result. Address refusals have
-    // their own bound and cannot displace hop, probe, or adapter decisions.
+    // never settles loses its records with its result. Address and adapter
+    // refusals have their own bounds and cannot displace hop or probe records.
     const recordDerivedDecision = (
       toolCallId: string,
       decision: DerivedDecision,
@@ -1063,11 +1065,23 @@ export class RunExecutionService {
       if (open === undefined) return;
       const decisions = (open.derivedDecisions ??= []);
       const isAddress = decision.kind === 'address';
+      const isAdapter = decision.kind === 'adapter';
       let recordedCount = 0;
       for (const recorded of decisions) {
-        if ((recorded.kind === 'address') === isAddress) recordedCount += 1;
+        const sameAddress = isAddress && recorded.kind === 'address';
+        const sameAdapter = isAdapter && recorded.kind === 'adapter';
+        const sameGeneric =
+          !isAddress &&
+          !isAdapter &&
+          recorded.kind !== 'address' &&
+          recorded.kind !== 'adapter';
+        if (sameAddress || sameAdapter || sameGeneric) recordedCount += 1;
       }
-      const limit = isAddress ? MAX_ADDRESS_DECISIONS : MAX_DERIVED_DECISIONS;
+      const limit = isAddress
+        ? MAX_ADDRESS_DECISIONS
+        : isAdapter
+          ? MAX_ADAPTER_DECISIONS
+          : MAX_DERIVED_DECISIONS;
       if (recordedCount >= limit) return;
       decisions.push({ ...decision.decision, kind: decision.kind });
     };

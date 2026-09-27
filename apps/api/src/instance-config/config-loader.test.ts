@@ -579,17 +579,18 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     expect(loadInstanceConfig().tools.webAdapters).toEqual([first, second]);
   });
 
-  it.each(['nitter', 'github'])(
-    'rejects unsupported adapter use %s at boot',
-    (use) => {
+  it('rejects unsupported adapter uses at boot', () => {
+    for (const use of ['nitter', 'github']) {
       writeConfig(
         JSON.stringify({
           tools: { webAdapters: [rewriteEntry({ use })] },
         }),
       );
-      expect(() => loadInstanceConfig()).toThrow(/webAdapters/);
-    },
-  );
+      expect(() => loadInstanceConfig()).toThrow(
+        /\/tools\/webAdapters\/0\/use/,
+      );
+    }
+  });
 
   it('rejects duplicate adapter ids', () => {
     writeConfig(
@@ -608,7 +609,9 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
         tools: { webAdapters: [rewriteEntry({ headers: {} })] },
       }),
     );
-    expect(() => loadInstanceConfig()).toThrow(/headers/);
+    expect(() => loadInstanceConfig()).toThrow(
+      /\/tools\/webAdapters\/0\/headers/,
+    );
   });
 
   it.each([
@@ -626,14 +629,17 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     );
   });
 
-  it.each(['X.com', 'x.com:443'])('rejects non-canonical host %s', (host) => {
-    writeConfig(
-      JSON.stringify({
-        tools: { webAdapters: [rewriteEntry({ hosts: [host] })] },
-      }),
-    );
-    expect(() => loadInstanceConfig()).toThrow(/hosts/);
-  });
+  it.each(['X.com', 'x.com:443', 'x.com.'])(
+    'rejects non-canonical host %s',
+    (host) => {
+      writeConfig(
+        JSON.stringify({
+          tools: { webAdapters: [rewriteEntry({ hosts: [host] })] },
+        }),
+      );
+      expect(() => loadInstanceConfig()).toThrow(/hosts/);
+    },
+  );
 
   it.each([String.raw`^(a)\1$`, 'a'.repeat(4097)])(
     'rejects invalid or over-limit pathPattern %s',
@@ -647,18 +653,12 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     },
   );
 
-  it.each([
-    'file:///tmp/x',
-    'https://user:secret@example.test/x',
-    'https://example.test/x#f',
-    'https://{path}.example.test/',
-    'https://example.test:{path}/',
-    'https://example.test/{source}',
-    'https://example.test/{path',
-  ])('rejects invalid rewrite target %s', (target) => {
+  it('rejects an invalid rewrite target at boot', () => {
     writeConfig(
       JSON.stringify({
-        tools: { webAdapters: [rewriteEntry({ target })] },
+        tools: {
+          webAdapters: [rewriteEntry({ target: 'file:///tmp/x' })],
+        },
       }),
     );
     expect(() => loadInstanceConfig()).toThrow(

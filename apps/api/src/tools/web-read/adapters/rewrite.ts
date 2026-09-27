@@ -3,6 +3,7 @@ import { compileRegexMatcher } from '../../permissions/matcher';
 import type { WebFetchFailure } from '../http-client';
 import {
   classifyFetchFailure,
+  isFatalAdapterFailure,
   type WebAdapter,
   type WebAdapterIo,
   type WebAdapterOutcome,
@@ -16,11 +17,10 @@ import { renderWebDocument } from '../pipeline';
 
 /** Creates one validated operator rewrite route. */
 export function createRewriteAdapter(config: WebAdapterConfig): WebAdapter {
-  const parsedTarget = parseRewriteTarget(config.target);
-  if ('error' in parsedTarget) {
+  const target = parseRewriteTarget(config.target);
+  if ('error' in target) {
     throw new Error(`Invalid rewrite target for adapter "${config.id}".`);
   }
-  const target: RewriteTarget = parsedTarget;
   const pathMatcher =
     config.pathPattern === undefined
       ? undefined
@@ -83,7 +83,7 @@ function failureOutcome(failure: WebFetchFailure): WebAdapterOutcome {
     kind: 'failed',
     failure: classifyFetchFailure(failure),
   };
-  if (failure.type === 'call_timeout' || failure.type === 'aborted') {
+  if (isFatalAdapterFailure(failure)) {
     return { ...outcome, fatal: failure };
   }
   return outcome;

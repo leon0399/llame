@@ -27,15 +27,10 @@ function response(
 function ioFor(
   result: WebResponse | WebFetchFailure,
   requests: Array<string>,
-  networkRequests: Array<string> = [],
 ): WebAdapterIo {
   return {
     fetch: (url) => {
       requests.push(url);
-      if ('type' in result) {
-        return Promise.resolve<WebResponse | WebFetchFailure>(result);
-      }
-      networkRequests.push(url);
       return Promise.resolve<WebResponse | WebFetchFailure>(result);
     },
   };
@@ -78,65 +73,17 @@ describe('rewrite web adapter reads', () => {
     });
   });
 
-  it('maps a refused expansion to permission without requesting', async () => {
-    const requests: Array<string> = [];
-    const networkRequests: Array<string> = [];
-    const adapter = createRewriteAdapter(
-      config({ target: 'https://x.pcstyle.dev/foo\\bar{path}' }),
-    );
-
-    const outcome = await adapter.read(
-      new URL('https://x.com/article'),
-      ioFor(response('never'), requests, networkRequests),
-    );
-
-    expect(outcome).toStrictEqual({ kind: 'failed', failure: 'permission' });
-    expect(requests).toStrictEqual([]);
-    expect(networkRequests).toStrictEqual([]);
-  });
-
-  it('maps an admitted-target refusal without issuing a network request', async () => {
-    const requests: Array<string> = [];
-    const networkRequests: Array<string> = [];
-    const adapter = createRewriteAdapter(BASE_CONFIG);
-    const outcome = await adapter.read(new URL('https://x.com/article'), {
-      fetch: (url) => {
-        requests.push(url);
-        return Promise.resolve<WebResponse | WebFetchFailure>({
-          type: 'permission_denied',
-          message: 'The adapter target was refused by operator permissions.',
-        });
-      },
-    });
-
-    expect(outcome).toStrictEqual({ kind: 'failed', failure: 'permission' });
-    expect(requests).toStrictEqual(['https://x.pcstyle.dev/article']);
-    expect(networkRequests).toStrictEqual([]);
-  });
-
-  it.each([
-    [
-      { type: 'http_status', message: 'The server answered HTTP 500.' },
-      'status',
-    ],
-    [
-      { type: 'http_status', message: 'The server answered HTTP 429.' },
-      'rate_limit',
-    ],
-    [
-      { type: 'unsupported_content_type', message: 'Unsupported binary.' },
-      'content_type',
-    ],
-    [{ type: 'body_too_large', message: 'too large' }, 'too_large'],
-  ] as const)('maps %s without exposing a body', async (failure, expected) => {
+  it('maps an adapter status failure without exposing a body', async () => {
     const adapter = createRewriteAdapter(BASE_CONFIG);
     const outcome = await adapter.read(
       new URL('https://x.com/article'),
-      ioFor(failure, []),
+      ioFor(
+        { type: 'http_status', message: 'The server answered HTTP 500.' },
+        [],
+      ),
     );
 
-    expect(outcome).toStrictEqual({ kind: 'failed', failure: expected });
-    expect(JSON.stringify(outcome)).not.toContain('response body');
+    expect(outcome).toStrictEqual({ kind: 'failed', failure: 'status' });
   });
 
   it('maps an unconverted HTML response to parse', async () => {

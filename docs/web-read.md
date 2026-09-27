@@ -163,12 +163,14 @@ with its selector stripped — plus `finalUrl` and `notes` only when there is
 something to report; there is no `url`, `contentType`, `markdownTokens`,
 `realPath`, text header, or frontmatter block.
 
-The web adapter stage runs after source admission (including the `read`
-permission and address checks) and before the generic ladder. `:raw` bypasses
-every adapter. `tools.webAdapters` absent means `[]` (no adapter); when
-present, the array is the exact ordered list, with no built-in entries. A URL
-accepted by an adapter's pure match is **claimed**; an unclaimed URL reaches
-the generic ladder with no adapter request and no adapter note.
+The web adapter stage runs after the source locator passes `read` permission
+admission and before the source is fetched: a claimed URL whose adapter renders
+makes no request to the source host. `:raw` bypasses every adapter.
+`tools.webAdapters` absent means `[]` (no adapter); when present, the array is
+the exact ordered list, with no built-in entries. A URL accepted by an
+adapter's pure match is **claimed**; an unclaimed URL reaches the generic
+ladder with no adapter request and no adapter note. When every claiming
+adapter falls through, the source is fetched and the generic ladder runs.
 
 A rewrite entry has the shape `{ id, use: "rewrite", hosts, pathPattern?,
 target }`. `hosts` are exact canonical hostnames. `pathPattern`, when present,

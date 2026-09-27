@@ -26,15 +26,10 @@ function readWindow(first: number, last: number, raw = false): string {
 
 describe('buildWebReadResult', () => {
   it('assembles the native read result with the web envelope', () => {
-    const result = buildWebReadResult(
-      { url: GUIDE_URL },
-      {
-        finalUrl: GUIDE_URL,
-        contentType: 'text/markdown',
-        body: '# Guide',
-      },
-      { method: 'negotiated', content: '# Guide\n\nBody text\n' },
-    );
+    const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
+      method: 'negotiated',
+      content: '# Guide\n\nBody text\n',
+    });
     expect(result).toMatchObject({
       status: 'success',
       kind: 'file',
@@ -57,11 +52,7 @@ describe('buildWebReadResult', () => {
   it('reports the locator as path and the response as finalUrl', () => {
     const result = buildWebReadResult(
       { url: GUIDE_URL },
-      {
-        finalUrl: 'https://cdn.example.test/guide',
-        contentType: 'text/plain',
-        body: 'hello',
-      },
+      'https://cdn.example.test/guide',
       { method: 'text', content: 'hello\n' },
     );
     expect(result).toMatchObject({
@@ -73,15 +64,11 @@ describe('buildWebReadResult', () => {
 
   it('reports a winning probe’s finalUrl instead of the page’s', () => {
     const probeUrl = 'https://cdn.example.test/guide.md';
-    const result = buildWebReadResult(
-      { url: GUIDE_URL },
-      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
-      {
-        method: 'alternate',
-        content: '# Guide\n\nFrom the probe.\n',
-        finalUrl: probeUrl,
-      },
-    );
+    const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
+      method: 'alternate',
+      content: '# Guide\n\nFrom the probe.\n',
+      finalUrl: probeUrl,
+    });
     // `path` stays the locator the model asked for; `finalUrl` is where the
     // content actually came from.
     expect(result).toMatchObject({
@@ -94,7 +81,7 @@ describe('buildWebReadResult', () => {
   it('applies a line selector to the rendered text', () => {
     const result = buildWebReadResult(
       { url: GUIDE_URL, selector: '10-20' },
-      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      GUIDE_URL,
       { method: 'readability', content: renderedLines(30) },
     );
     expect(result).toMatchObject({
@@ -119,7 +106,7 @@ describe('buildWebReadResult', () => {
   it('applies a comma selector to the rendered text', () => {
     const result = buildWebReadResult(
       { url: GUIDE_URL, selector: '4-5,7-8' },
-      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
     );
     expect(result).toMatchObject({
@@ -143,7 +130,7 @@ describe('buildWebReadResult', () => {
   it('merges touching comma ranges into one requested range and block', () => {
     const result = buildWebReadResult(
       { url: GUIDE_URL, selector: '4-5,6-7' },
-      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
     );
     expect(result).toMatchObject({
@@ -157,7 +144,7 @@ describe('buildWebReadResult', () => {
   it('clips a comma selector whose later range starts past EOF', () => {
     const result = buildWebReadResult(
       { url: GUIDE_URL, selector: '2-3,99-100' },
-      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
     );
     expect(result).toMatchObject({
@@ -175,7 +162,7 @@ describe('buildWebReadResult', () => {
   it('rolls a later comma range back when the render exhausts the bound', () => {
     const result = buildWebReadResult(
       { url: GUIDE_URL, selector: '1-200,400-500' },
-      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      GUIDE_URL,
       { method: 'readability', content: renderedLines(600) },
     );
     expect(result).toMatchObject({
@@ -192,7 +179,7 @@ describe('buildWebReadResult', () => {
   it('returns raw comma ranges verbatim', () => {
     const result = buildWebReadResult(
       { url: GUIDE_URL, selector: 'raw:4-5,7-8' },
-      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
+      GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
     );
     expect(result).toMatchObject({
@@ -216,7 +203,7 @@ describe('buildWebReadResult', () => {
   it('returns the raw body untouched for a :raw locator', () => {
     const result = buildWebReadResult(
       { url: GUIDE_URL, selector: 'raw' },
-      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '<p>a</p>' },
+      GUIDE_URL,
       { method: 'raw', content: '<p>a</p>\nmore\n' },
     );
     expect(result).toMatchObject({
@@ -230,11 +217,11 @@ describe('buildWebReadResult', () => {
 
   it('reserves the envelope before the shared bound truncates the render', () => {
     const notes = ['The page could not be converted.'];
-    const result = buildWebReadResult(
-      { url: GUIDE_URL },
-      { finalUrl: GUIDE_URL, contentType: 'text/html', body: '' },
-      { method: 'readability', content: renderedLines(1200), notes },
-    );
+    const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
+      method: 'readability',
+      content: renderedLines(1200),
+      notes,
+    });
     expect(result).toMatchObject({
       path: GUIDE_URL,
       finalUrl: GUIDE_URL,
@@ -253,11 +240,11 @@ describe('buildWebReadResult', () => {
   });
 
   it('omits notes when the render reports none', () => {
-    const result = buildWebReadResult(
-      { url: GUIDE_URL },
-      { finalUrl: GUIDE_URL, contentType: 'application/json', body: '{}' },
-      { method: 'text', content: '{}\n', notes: [] },
-    );
+    const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
+      method: 'text',
+      content: '{}\n',
+      notes: [],
+    });
     expect(result).not.toHaveProperty('notes');
   });
 
@@ -267,7 +254,7 @@ describe('buildWebReadResult', () => {
     // within is the one fact the failure can supply.
     const result = buildWebReadResult(
       { url: GUIDE_URL, selector: '5000-5010' },
-      { finalUrl: GUIDE_URL, contentType: 'text/plain', body: '' },
+      GUIDE_URL,
       { method: 'text', content: 'only one line\n' },
     );
     expect(result).toEqual({
@@ -289,18 +276,14 @@ describe('buildWebReadResult', () => {
       },
     } satisfies WebRender;
     expect(() =>
-      buildWebReadResult(
-        { url: GUIDE_URL },
-        { finalUrl: GUIDE_URL, contentType: 'text/plain', body: '' },
-        failing,
-      ),
+      buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, failing),
     ).toThrow('the render never produced text');
   });
 
   it('names no range when the render has no lines', () => {
     const result = buildWebReadResult(
       { url: GUIDE_URL, selector: '2-3' },
-      { finalUrl: GUIDE_URL, contentType: 'text/plain', body: '' },
+      GUIDE_URL,
       { method: 'text', content: '' },
     );
     expect(result).toEqual({

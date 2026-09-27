@@ -10,7 +10,6 @@ import {
 } from '@workspace/native-file-tools';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
-import { type WebResponse } from './http-client';
 import { type WebLocator } from './locator';
 import { type WebAdapterProvenance } from './adapters/contract';
 import { type WebRender, type WebRenderMethod } from './pipeline';
@@ -36,11 +35,11 @@ type WebResultEnvelope = {
 /** The envelope reports where the content came from: a probe that won names
  *  its own response's URL, and every other render names the call's. */
 function webResultEnvelope(
-  response: WebResponse,
+  finalUrl: string,
   render: WebRender,
 ): WebResultEnvelope {
   const envelope: WebResultEnvelope = {
-    finalUrl: render.finalUrl ?? response.finalUrl,
+    finalUrl: render.finalUrl ?? finalUrl,
     method: render.method,
     ...(render.adapter !== undefined && { adapter: render.adapter }),
   };
@@ -57,10 +56,10 @@ function webResultEnvelope(
  */
 export function buildWebReadResult(
   locator: WebLocator,
-  response: WebResponse,
+  finalUrl: string,
   render: WebRender,
 ): WebReadSuccess | WebReadFailure {
-  const envelope = webResultEnvelope(response, render);
+  const envelope = webResultEnvelope(finalUrl, render);
   try {
     const target: ReadTarget = {
       ...applySelectorSuffix(locator.url, locator.selector),

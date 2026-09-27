@@ -970,6 +970,7 @@ describe('web adapters', () => {
   const CHALLENGE_BODY =
     '<!doctype html><html><body><p>ADAPTER_CHALLENGE_SECRET</p></body></html>';
   const STATUS_BODY = 'ADAPTER_STATUS_SECRET';
+  const SOURCE_FAILURE_BODY = 'SOURCE_403_SECRET';
   const DELIMITER_QUERY = 'value=%2F%3F%23%40';
 
   let fixture: AddressFixture;
@@ -982,11 +983,7 @@ describe('web adapters', () => {
         send(response, 200, 'text/plain; charset=utf-8', SOURCE_RAW_BODY);
         return;
       }
-      if (
-        requestUrl.endsWith('.md') ||
-        requestUrl.includes('/llms.txt') ||
-        requestUrl === '/llms.txt'
-      ) {
+      if (requestUrl.endsWith('.md') || requestUrl.includes('/llms.txt')) {
         send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
         return;
       }
@@ -1112,10 +1109,42 @@ describe('web adapters', () => {
     );
     expect(
       fixture.requests.map(({ address, path }) => ({ address, path })),
-    ).toEqual([
-      { address: '127.0.0.1', path: '/claimed' },
-      { address: '127.0.0.2', path: '/claimed' },
-    ]);
+    ).toEqual([{ address: '127.0.0.2', path: '/claimed' }]);
+  });
+
+  it('uses a claimed rewrite when the source would answer 403', async () => {
+    route = (address, request, response) => {
+      if (address === '127.0.0.1' && request.url === '/source-fails') {
+        send(response, 403, 'text/plain; charset=utf-8', SOURCE_FAILURE_BODY);
+        return;
+      }
+      if (address === '127.0.0.2' && request.url === '/source-fails') {
+        send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+        return;
+      }
+      defaultRoute(address, request, response);
+    };
+
+    const source = sourceUrl('/source-fails');
+    const result = await read(source, [rewrite('reader', '^/source-fails$')]);
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'adapter',
+      adapter: {
+        id: 'reader',
+        route: 'rewrite',
+        origin: rewriteOrigin(),
+      },
+      finalUrl: source,
+    });
+    expect(contentOf(result)).toContain(
+      'Adapter pipelines for agent web reads',
+    );
+    expect(JSON.stringify(result)).not.toContain(SOURCE_FAILURE_BODY);
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([{ address: '127.0.0.2', path: '/source-fails' }]);
   });
 
   it('leaves an unclaimed path identical to a read without adapters', async () => {
@@ -1124,8 +1153,6 @@ describe('web adapters', () => {
     const plain = await read(source);
 
     expect(configured).toStrictEqual(plain);
-    expect(configured).not.toHaveProperty('adapter');
-    expect(configured).not.toHaveProperty('notes');
     expect(
       fixture.requests.map(({ address, path }) => ({ address, path })),
     ).toEqual([
@@ -1162,8 +1189,8 @@ describe('web adapters', () => {
     expect(
       fixture.requests.map(({ address, path }) => ({ address, path })),
     ).toEqual([
-      { address: '127.0.0.1', path: '/status' },
       { address: '127.0.0.2', path: '/status' },
+      { address: '127.0.0.1', path: '/status' },
       { address: '127.0.0.1', path: '/status.md' },
     ]);
   });
@@ -1193,8 +1220,8 @@ describe('web adapters', () => {
     expect(
       fixture.requests.map(({ address, path }) => ({ address, path })),
     ).toEqual([
-      { address: '127.0.0.1', path: '/parse' },
       { address: '127.0.0.2', path: '/parse' },
+      { address: '127.0.0.1', path: '/parse' },
       { address: '127.0.0.1', path: '/parse.md' },
     ]);
   });
@@ -1202,7 +1229,10 @@ describe('web adapters', () => {
   it('records and reports a derived permission refusal without requesting the origin', async () => {
     const decisions: Array<{
       readonly kind: string;
-      readonly decision: { readonly decision: string };
+      readonly decision: {
+        readonly decision: string;
+        readonly reason: string;
+      };
     }> = [];
     const policy = compileToolPermissionMap(
       {
@@ -1210,13 +1240,7 @@ describe('web adapters', () => {
           allow: [
             {
               field: 'path',
-              regex: String.raw`^http://source\.test:${fixture.port}/permission$`,
-            },
-          ],
-          reject: [
-            {
-              field: 'path',
-              regex: String.raw`^http://rewrite\.test:${fixture.port}/permission$`,
+              regex: String.raw`^http://source\.test:${fixture.port}/`,
             },
           ],
         },
@@ -1241,13 +1265,12 @@ describe('web adapters', () => {
     expect(contentOf(result)).toContain(
       'Adapter pipelines for agent web reads',
     );
-    const adapterDecision = decisions.find(
-      ({ kind, decision }) =>
-        kind === 'adapter' && decision.decision === 'reject',
-    );
-    expect(adapterDecision).toBeDefined();
-    expect(adapterDecision?.kind).toBe('adapter');
-    expect(adapterDecision?.decision.decision).toBe('reject');
+    const adapterDecision = decisions.find(({ kind }) => kind === 'adapter');
+    if (adapterDecision === undefined) {
+      throw new Error('The adapter permission decision was not recorded.');
+    }
+    expect(adapterDecision.decision.decision).toBe('reject');
+    expect(adapterDecision.decision.reason).toBe('no_allow');
     expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
     expect(
       fixture.requests.some(({ address }) => address === '127.0.0.2'),
@@ -1257,7 +1280,10 @@ describe('web adapters', () => {
   it('falls through when the rewrite origin address is refused', async () => {
     const decisions: Array<{
       readonly kind: string;
-      readonly decision: { readonly decision: string };
+      readonly decision: {
+        readonly decision: string;
+        readonly reason: string;
+      };
     }> = [];
     const policy = addressRejectPolicy(
       String.raw`^http://127\.0\.0\.2:${fixture.port}/address$`,
@@ -1280,13 +1306,11 @@ describe('web adapters', () => {
     expect(contentOf(result)).toContain(
       'Adapter pipelines for agent web reads',
     );
-    const addressDecision = decisions.find(
-      ({ kind, decision }) =>
-        kind === 'address' && decision.decision === 'reject',
-    );
-    expect(addressDecision).toBeDefined();
-    expect(addressDecision?.kind).toBe('address');
-    expect(addressDecision?.decision.decision).toBe('reject');
+    const addressDecision = decisions.find(({ kind }) => kind === 'address');
+    if (addressDecision === undefined) {
+      throw new Error('The adapter address decision was not recorded.');
+    }
+    expect(addressDecision.decision.decision).toBe('reject');
     expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
     expect(
       fixture.requests.some(({ address }) => address === '127.0.0.2'),
@@ -1326,10 +1350,7 @@ describe('web adapters', () => {
     });
     expect(
       fixture.requests.map(({ address, path }) => ({ address, path })),
-    ).toEqual([
-      { address: '127.0.0.1', path: `/a&admin=1?${DELIMITER_QUERY}` },
-      { address: '127.0.0.2', path: expectedTargetPath },
-    ]);
+    ).toEqual([{ address: '127.0.0.2', path: expectedTargetPath }]);
   });
 });
 

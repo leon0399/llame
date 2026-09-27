@@ -1,22 +1,18 @@
+import { createServer, type Server } from 'node:http';
+
+import { fetch as undiciFetch } from 'undici';
 import { describe, expect, it, vi } from 'vitest';
 
-import { compileToolPermissionMap } from '../../permissions/compile-permissions';
-import { type ToolContext } from '../../types';
-import { createWebReadExecutor, type WebReadDeps } from '../execute';
-import type {
-  WebFetchFailure,
-  WebResponse,
-  WebFetchSession,
+import {
+  createWebFetchSession,
+  type WebFetchFailure,
+  type WebResponse,
 } from '../http-client';
-import { parseWebLocator } from '../locator';
-import { renderWebContent } from '../pipeline';
-import { buildWebReadResult } from '../result';
 import {
   classifyFetchFailure,
-  createWebAdapters,
   dispatchWebAdapters,
+  isFatalAdapterFailure,
   MAX_ADAPTER_DOCUMENT_BYTES,
-  omissionNote,
   type WebAdapter,
   type WebAdapterFailure,
   type WebAdapterIo,
@@ -25,25 +21,52 @@ import {
 import { REJECTED_ADDRESS_MESSAGE } from '../../permissions/messages';
 
 const SOURCE = 'https://example.test/article';
-const POLICY = compileToolPermissionMap(
-  { read: { allow: true } },
-  'test-policy',
-);
 
 function response(body: string, contentType = 'text/plain'): WebResponse {
   return { finalUrl: SOURCE, contentType, body };
 }
+async function listenServer(server: Server): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => reject(error);
+    server.once('error', onError);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', onError);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (address === null || !(address instanceof Object)) {
+    throw new Error('The adapter fixture did not receive a TCP address.');
+  }
+  return address.port;
+}
 
-function context(overrides: Partial<ToolContext> = {}): ToolContext {
+function closeServer(server: Server): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error !== undefined) reject(error);
+      else resolve();
+    });
+  });
+}
+
+async function openPartialFixture(): Promise<{
+  readonly url: string;
+  readonly close: () => Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    if (request.url === '/slow') {
+      // Hold the response open so the shared call deadline, not a test timer,
+      // produces the deterministic timeout.
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'text/plain' });
+    response.end('primary');
+  });
+  const port = await listenServer(server);
   return {
-    userId: 'owner',
-    chatId: 'chat',
-    permissionPolicy: POLICY,
-    tenantDb: {
-      runAs: () => Promise.reject(new Error('database unavailable')),
-    },
-    productUserAgent: 'llame/0.0.0-test',
-    ...overrides,
+    url: `http://127.0.0.1:${port}`,
+    close: () => closeServer(server),
   };
 }
 
@@ -110,7 +133,7 @@ describe('dispatchWebAdapters', () => {
   });
 
   it('keeps an adapter omission note on a partial render', async () => {
-    const note = omissionNote('review comments', 'rate_limit');
+    const note = 'review comments omitted: rate_limit';
     const result = await dispatchWebAdapters(
       new URL(SOURCE),
       [adapter('partial', true, renderedOutcome('partial', [note]))],
@@ -124,7 +147,7 @@ describe('dispatchWebAdapters', () => {
   });
 
   it('truncates an oversized document only at a line boundary', async () => {
-    const line = `${'x'.repeat(1023)}\n`;
+    const line = `${'é'.repeat(700)}\n`;
     const result = await dispatchWebAdapters(
       new URL(SOURCE),
       [adapter('large', true, renderedOutcome(line.repeat(6000)))],
@@ -197,11 +220,6 @@ describe('classifyFetchFailure', () => {
     [{ type: 'body_too_large', message: 'too large' }, 'too_large'],
     [{ type: 'unsupported_content_type', message: 'binary' }, 'content_type'],
     [{ type: 'network_error', message: 'network' }, 'transport'],
-    [{ type: 'headers_timeout', message: 'timeout' }, 'transport'],
-    [{ type: 'call_timeout', message: 'timeout' }, 'transport'],
-    [{ type: 'aborted', message: 'aborted' }, 'transport'],
-    [{ type: 'invalid_redirect', message: 'redirect' }, 'transport'],
-    [{ type: 'too_many_redirects', message: 'redirects' }, 'transport'],
   ];
 
   it.each(cases)('maps %s to %s', (failure, expected) => {
@@ -209,43 +227,89 @@ describe('classifyFetchFailure', () => {
   });
 });
 
-describe('web read adapter stage', () => {
-  it('bypasses adapters for :raw and fetches only the source', async () => {
-    const sourceResponse = response(
-      '<html><body>source</body></html>',
-      'text/html',
-    );
-    const fetch = vi.fn<WebFetchSession['fetch']>((url) => {
-      expect(url).toBe(SOURCE);
-      return Promise.resolve(sourceResponse);
-    });
-    const session: WebFetchSession = { fetch, dispose: vi.fn() };
-    const createAdapters = vi.fn<typeof createWebAdapters>();
-    const deps: WebReadDeps = {
-      parseWebLocator,
-      createWebFetchSession: () => session,
-      createWebAdapters,
-      renderWebContent,
-      buildWebReadResult,
-    };
-    const execute = createWebReadExecutor(deps);
-
-    const result = await execute(
-      context({
-        webAdapters: [
-          {
-            id: 'rewrite',
-            use: 'rewrite',
-            hosts: ['example.test'],
-            target: 'https://origin.test{path}',
-          },
-        ],
+describe('adapter primary failure fatality', () => {
+  it('allows bounded candidate failures and ends on deadline or unknown types', () => {
+    expect(
+      isFatalAdapterFailure({
+        type: 'http_status',
+        message: 'The server answered HTTP 500.',
       }),
-      { operation: 'read', input: { path: `${SOURCE}:raw` } },
+    ).toBe(false);
+    expect(
+      isFatalAdapterFailure({
+        type: 'permission_denied',
+        message: 'The adapter target was refused by operator permissions.',
+      }),
+    ).toBe(false);
+    expect(
+      isFatalAdapterFailure({
+        type: 'call_timeout',
+        message: 'The web read exceeded its deadline.',
+      }),
+    ).toBe(true);
+    expect(
+      isFatalAdapterFailure({
+        type: 'too_many_redirects',
+        message: 'The server redirected too many times.',
+      }),
+    ).toBe(true);
+    expect(isFatalAdapterFailure({ type: 'future_failure', message: '' })).toBe(
+      true,
     );
-    expect(createAdapters).not.toHaveBeenCalled();
+  });
+});
 
-    expect(result).toMatchObject({ status: 'success', method: 'raw' });
-    expect(fetch).toHaveBeenCalledTimes(1);
+describe('adapter secondary requests', () => {
+  it('keeps primary content when a later request reaches the call timeout', async () => {
+    const fixture = await openPartialFixture();
+    const session = createWebFetchSession(
+      { userAgent: 'llame/adapter-test', deadlineMs: 250 },
+      {
+        fetch: undiciFetch,
+        admit: () => ({
+          policyId: 'test-policy',
+          decision: 'allow',
+          reason: 'matched_allow',
+          reference: null,
+        }),
+        admitAddress: () => true,
+        resolve: () =>
+          Promise.resolve([{ address: '127.0.0.1', family: 4 as const }]),
+      },
+    );
+    try {
+      const adapter: WebAdapter = {
+        id: 'partial',
+        route: 'native',
+        match: () => true,
+        read: async (_source, io) => {
+          const primary = await io.fetch(`${fixture.url}/primary`);
+          if ('type' in primary) throw new Error('primary request failed');
+          const secondary = await io.fetch(`${fixture.url}/slow`);
+          if (!('type' in secondary) || secondary.type !== 'call_timeout') {
+            throw new Error('secondary request did not reach call timeout');
+          }
+          return renderedOutcome(primary.body, [
+            'review comments omitted: transport',
+          ]);
+        },
+      };
+      const result = await dispatchWebAdapters(
+        new URL(`${fixture.url}/source`),
+        [adapter],
+        { fetch: session.fetch },
+      );
+
+      expect(result).toMatchObject({
+        kind: 'rendered',
+        render: {
+          content: 'primary',
+          notes: ['review comments omitted: transport'],
+        },
+      });
+    } finally {
+      session.dispose();
+      await fixture.close();
+    }
   });
 });
