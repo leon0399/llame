@@ -72,7 +72,6 @@ async function admitWorkspaceTools(
     allowedToolRules: options.allowedToolRules,
     callTimeoutSeconds: options.callTimeoutSeconds,
     candidates,
-    descriptionRenderer: ({ description }) => description,
   });
   return {
     admitted: new Map(
@@ -82,6 +81,10 @@ async function admitWorkspaceTools(
       catalog.manifest.entries.map((entry) => [entry.id, entry]),
     ),
   };
+}
+
+function isServerToolId(id: string, server: string): boolean {
+  return id.startsWith(`mcp__${server}__`);
 }
 
 function retainedConflict(
@@ -115,15 +118,21 @@ function retainedConflict(
 
 function planTool(
   tool: Tool,
+  server: string,
   admission: Admission,
-  allowedToolRules: ReadonlyArray<string>,
-  boundExecutables: ReadonlyMap<string, AttemptToolBinding>,
+  options: AttemptToolAdditionsOptions,
 ): PlanDecision {
   const id = tool.id;
+  if (!isServerToolId(id, server)) {
+    return {
+      kind: 'refused',
+      refusal: { id, reason: 'wrong_server_namespace' },
+    };
+  }
   if (!isToolId(id)) {
     return { kind: 'refused', refusal: { id, reason: 'invalid_tool_id' } };
   }
-  if (!matchesAllowedToolId(id, allowedToolRules)) {
+  if (!matchesAllowedToolId(id, options.allowedToolRules)) {
     return { kind: 'refused', refusal: { id, reason: 'not_allowlisted' } };
   }
   const entry = admission.availability.get(id);
@@ -134,7 +143,11 @@ function planTool(
   if (admitted === undefined) {
     return { kind: 'refused', refusal: { id, reason: 'declaration_refused' } };
   }
-  const retained = retainedConflict(id, admitted.declaration, boundExecutables);
+  const retained = retainedConflict(
+    id,
+    admitted.declaration,
+    options.boundExecutables,
+  );
   if (retained !== undefined) return retained;
   return {
     kind: 'planned',
@@ -176,19 +189,18 @@ export class AttemptToolAdditions {
     return this.options.boundExecutables.get(id)?.executor;
   }
 
-  private plan(tools: ReadonlyArray<Tool>, admission: Admission): AdditionPlan {
+  private plan(
+    server: string,
+    tools: ReadonlyArray<Tool>,
+    admission: Admission,
+  ): AdditionPlan {
     const plan: AdditionPlan = {
       planned: [],
       availableFromNextRun: [],
       refused: [],
     };
     for (const tool of tools) {
-      const decision = planTool(
-        tool,
-        admission,
-        this.options.allowedToolRules,
-        this.options.boundExecutables,
-      );
+      const decision = planTool(tool, server, admission, this.options);
       switch (decision.kind) {
         case 'available_next_run':
           plan.availableFromNextRun.push(decision.id);
@@ -224,8 +236,13 @@ export class AttemptToolAdditions {
     server: string,
     tools: ReadonlyArray<Tool>,
   ): Promise<AttemptToolAdditionResult> {
-    const admission = await admitWorkspaceTools(this.options, server, tools);
-    const plan = this.plan(tools, admission);
+    const serverTools = tools.filter(({ id }) => isServerToolId(id, server));
+    const admission = await admitWorkspaceTools(
+      this.options,
+      server,
+      serverTools,
+    );
+    const plan = this.plan(server, tools, admission);
     if (plan.planned.length === 0) {
       return {
         added: [],
@@ -248,16 +265,6 @@ export class AttemptToolAdditions {
       };
     }
     return this.commit(server, plan, record);
-  }
-
-  disableServer(server: string): void {
-    for (const [id, binding] of this.options.boundExecutables) {
-      if (binding.server !== server) continue;
-      this.options.boundExecutables.set(id, {
-        ...binding,
-        executor: unavailableExecutor(binding.declaration),
-      });
-    }
   }
 
   disableAll(): void {

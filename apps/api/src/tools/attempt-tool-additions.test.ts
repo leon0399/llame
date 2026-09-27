@@ -41,9 +41,10 @@ function modelTool(declaration: ModelToolDeclaration): ToolSet[string] {
 function setup(
   boundExecutables = new Map<string, AttemptToolBinding>(),
   record: ToolSet = {},
+  allowedToolRules: ReadonlyArray<string> = [`mcp__${SERVER}__*`],
 ) {
   const additions = new AttemptToolAdditions({
-    allowedToolRules: [`mcp__${SERVER}__*`],
+    allowedToolRules,
     callTimeoutSeconds: 15,
     boundExecutables,
     createTool: modelTool,
@@ -67,13 +68,24 @@ describe('AttemptToolAdditions', () => {
     expect(state.boundExecutables.get(TOOL_ID)?.executor).toBe(first);
   });
 
+  it('refuses a tool from a different MCP server namespace', async () => {
+    const state = setup(new Map(), {}, ['mcp__*']);
+    const foreign = makeTool('mcp__other__lookup');
+
+    await expect(state.additions.add(SERVER, [foreign])).resolves.toEqual({
+      added: [],
+      availableFromNextRun: [],
+      refused: [{ id: 'mcp__other__lookup', reason: 'wrong_server_namespace' }],
+    });
+  });
+
   it('rebinds an identical retained declaration after its server is disabled', async () => {
     const first = makeTool();
     const second = makeTool();
     const state = setup();
 
     await state.additions.add(SERVER, [first]);
-    state.additions.disableServer(SERVER);
+    state.additions.disableAll();
     expect(state.boundExecutables.get(TOOL_ID)?.executor).not.toBe(first);
 
     await expect(state.additions.add(SERVER, [second])).resolves.toEqual({
@@ -90,7 +102,7 @@ describe('AttemptToolAdditions', () => {
     const state = setup();
 
     await state.additions.add(SERVER, [first]);
-    state.additions.disableServer(SERVER);
+    state.additions.disableAll();
     const before = state.boundExecutables.get(TOOL_ID);
     const result = await state.additions.add(SERVER, [changed]);
 
@@ -151,7 +163,7 @@ describe('AttemptToolAdditions', () => {
     ]);
     expect(refused.added).toEqual([]);
     expect(refused.refused).toEqual([
-      { id: 'mcp__other__lookup', reason: 'not_allowlisted' },
+      { id: 'mcp__other__lookup', reason: 'wrong_server_namespace' },
       { id: TOOL_ID, reason: 'declaration_refused' },
     ]);
   });

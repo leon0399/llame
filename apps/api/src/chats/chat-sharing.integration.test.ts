@@ -199,17 +199,17 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
 
   it('getSharedChat: public returns a title-stripped DTO; private returns undefined', async () => {
     const pub = await seedChat('public');
-
     const shared = await service.getSharedChat(pub);
     expect(shared).toBeDefined();
     const dto = toSharedChatResponse(shared!.chat, shared!.messages);
-    const serialized = JSON.stringify(dto);
     // Reasoning is stripped; only text parts survive.
+    const serialized = JSON.stringify(dto);
     expect(serialized).not.toContain('PRIVATE_THINKING');
     expect(serialized).toContain('the public answer');
     // No identity fields.
     expect(serialized).not.toContain('senderUserId');
     expect(serialized).not.toContain(owner);
+
     const priv = await seedChat('private');
     expect(await service.getSharedChat(priv)).toBeUndefined();
   });

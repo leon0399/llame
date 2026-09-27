@@ -15,7 +15,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Logger } from '@nestjs/common';
 import { bashTool } from '../tools/bash';
-import { AttemptToolAdditions } from '../tools/attempt-tool-additions';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import {
@@ -1905,7 +1904,6 @@ type WorkspaceDetachCase = {
 };
 
 async function executeWorkspaceDetachCase(input: WorkspaceDetachCase) {
-  const disableAll = vi.spyOn(AttemptToolAdditions.prototype, 'disableAll');
   const repositories = mockNormalExecutionRepositories();
   const detach = vi
     .spyOn(WorkspaceBindingRepository.prototype, 'detach')
@@ -1959,7 +1957,6 @@ async function executeWorkspaceDetachCase(input: WorkspaceDetachCase) {
   );
   expect(snapshots).toHaveLength(input.toldRoot === undefined ? 0 : 1);
   expect(stream).toHaveBeenCalled();
-  expect(disableAll).toHaveBeenCalled();
 }
 
 describe('RunExecutionService executeRun — stream completion', () => {

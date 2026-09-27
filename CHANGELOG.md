@@ -12,9 +12,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Open calls settle from durable results where present, while a Run with no
   native or MCP attempt restarts from its first step
   ([#974](https://github.com/leon0399/llame/issues/974)).
-- Mid-Run Workspace tool additions are attempt-memory only: they become
-  available to the model on the next step and leave no receipt row or persisted
-  Run tool record ([#974](https://github.com/leon0399/llame/issues/974)).
+- Runs can extend their tool set between model steps; tools added during a Run
+  stay in that attempt's memory, and the next Run resolves tools from the live
+  Workspace binding ([#974](https://github.com/leon0399/llame/issues/974)).
 
 - The owner Chat header now shows the bound Workspace root name with the full
   path in a tooltip. It refreshes mid-Run after entry, exit, or stream-start

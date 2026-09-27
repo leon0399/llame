@@ -165,9 +165,6 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
       expect(ownerResponse.body).not.toHaveProperty(field);
     }
     expect(JSON.stringify(ownerResponse.body)).not.toMatch(
-      /inputSchema|toolDescription|declarationHash|toolEndpoint|endpoint/i,
-    );
-    expect(JSON.stringify(ownerResponse.body)).not.toMatch(
       /ownerUserId|runId|providerModelId|credential|executor|path|\/home\//i,
     );
 

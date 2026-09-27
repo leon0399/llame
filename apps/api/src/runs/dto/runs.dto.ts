@@ -93,7 +93,11 @@ export class AttemptReceiptResponse {
   createdAt!: Date;
 }
 
-/** Owner-visible receipt response for one run. */
+/**
+ * System-only receipt response for a run: resolution state plus an ordered
+ * list of per-attempt receipts. No tool declarations, schemas, descriptions,
+ * or availability manifests are exposed.
+ */
 export class ContextReceiptResponse {
   @ApiProperty({
     description: 'Public llame model id selected for this run.',
@@ -138,6 +142,7 @@ export class ContextReceiptResponse {
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
 }
+
 /** Explicit egress allowlist (mirror toPublicUser) — never return the raw row. */
 /**
  * The executed-context record this Run actually sent (D5), or `null` when no

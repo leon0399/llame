@@ -321,7 +321,6 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     const visible = (await search(a, 'zzhumanoriginalgreen')).find(
       (result) => result.id === controlProjectionChat,
     );
-    expect(visible).toBeDefined();
     expect(visible?.snippet).toContain('zzhumanoriginalgreen');
     expect(JSON.stringify(visible)).not.toMatch(
       /zz(prevmodel|currentmodel|reminderprose|removedtool|unavailabletool|availabilityreminder|systemprompt|toolschema|compaction|checkpoint)/,

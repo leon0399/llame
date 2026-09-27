@@ -251,7 +251,6 @@ type WorkspaceWrites = {
 type WorkspacePreparation = {
   readonly root: string | undefined;
   readonly chat: Chat | undefined;
-  readonly detached?: boolean;
 };
 
 type WorkspaceStagedContext = {
@@ -1278,7 +1277,6 @@ export class RunExecutionService {
       createTool: createModelToolDefinition,
     });
     Object.assign(toolContext, { toolAdditions });
-    if (workspacePreparation.detached) toolAdditions.disableAll();
 
     // The attempt-local catalog is the authority for what the model sees.
     const toolSet: ToolSet = Object.fromEntries(
@@ -1808,7 +1806,6 @@ export class RunExecutionService {
                 workspaceGeneration: generation + 1,
                 workspaceDetachReason: reason,
               },
-        detached: true,
       };
     }
 

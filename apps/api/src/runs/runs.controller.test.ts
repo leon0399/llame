@@ -116,6 +116,7 @@ describe('RunsController context receipt', () => {
       /providerModelId|credential|executor|authorization|ownerUserId|runId|path/i,
     );
   });
+
   it('reports a run the owner cannot see as missing by id', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(undefined);
 
