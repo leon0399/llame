@@ -1,7 +1,7 @@
 import { type WebAdapterConfig } from '../../../instance-config/llame-config';
 import { REJECTED_ADDRESS_MESSAGE } from '../../permissions/messages';
 import type { WebFetchFailure, WebResponse } from '../http-client';
-import type { WebRender } from '../pipeline';
+import { CANDIDATE_FAILURES, type WebRender } from '../pipeline';
 import { createRewriteAdapter } from './rewrite';
 
 export type WebAdapterRoute = 'native' | 'rewrite';
@@ -87,18 +87,7 @@ export function classifyFetchFailure(
  * timeout, abort, redirect-budget exhaustion, and unknown failures end calls.
  */
 export function isFatalAdapterFailure(failure: WebFetchFailure): boolean {
-  switch (failure.type) {
-    case 'http_status':
-    case 'unsupported_content_type':
-    case 'body_too_large':
-    case 'network_error':
-    case 'headers_timeout':
-    case 'invalid_redirect':
-    case 'permission_denied':
-      return false;
-    default:
-      return true;
-  }
+  return !Object.hasOwn(CANDIDATE_FAILURES, failure.type);
 }
 
 export type WebAdapterDispatch =
@@ -170,7 +159,8 @@ function truncateAdapterDocument(content: string) {
   }
   const newline = content.lastIndexOf('\n', read - 1);
   return {
-    content: content.slice(0, newline + 1),
+    content:
+      newline === -1 ? content.slice(0, read) : content.slice(0, newline + 1),
     truncated: true,
   };
 }

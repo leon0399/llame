@@ -41,7 +41,6 @@ import {
 } from '@workspace/config-interpolation';
 import { createModelPromptLoader } from './prompt-loader';
 import { compileRegexMatcher } from '../tools/permissions/matcher';
-import { PermissionCompileError } from '../tools/permissions/limits';
 import { parseRewriteTarget } from '../tools/web-read/adapters/rewrite-target';
 import { getRegisteredToolIds } from '../tools/registry';
 import {
@@ -284,10 +283,9 @@ function resolveWebAdapterPathPattern(
   try {
     compileRegexMatcher(value, configPath);
   } catch (error) {
-    if (error instanceof PermissionCompileError) {
-      throw new InstanceConfigError(error.message);
-    }
-    throw error;
+    throw new InstanceConfigError(
+      error instanceof Error ? error.message : String(error),
+    );
   }
   return value;
 }

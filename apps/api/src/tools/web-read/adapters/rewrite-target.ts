@@ -73,7 +73,7 @@ function validatePlaceholderSegment(
   const allowed = allowPath
     ? segment.replaceAll(/\{path\}|\{query\}/gu, '')
     : segment.replaceAll('{query}', '');
-  if (allowed.length === 0 || !/[{}]/u.test(allowed)) return undefined;
+  if (!/[{}]/u.test(allowed)) return undefined;
   const unknown = UNKNOWN_PLACEHOLDER.exec(allowed);
   return unknown === null
     ? invalidTarget('unbalanced placeholder brace')
@@ -128,25 +128,6 @@ function parseTargetOrigin(target: string): ParsedTargetOrigin {
   return { origin, template: target.slice(authorityEnd) };
 }
 
-function validateExpandedTemplate(
-  origin: URL,
-  template: string,
-): RewriteTargetError | undefined {
-  const sampleTemplate = template.replaceAll(
-    /\{path\}|\{query\}/gu,
-    (placeholder) => (placeholder === '{path}' ? '/' : 'query'),
-  );
-  try {
-    const sampleUrl = new URL(`${origin.origin}${sampleTemplate}`);
-    if (sampleUrl.origin !== origin.origin) {
-      return invalidTarget('target template must keep the declared origin');
-    }
-  } catch {
-    return invalidTarget('target template produces an invalid URL');
-  }
-  return undefined;
-}
-
 /**
  * Parse and validate one operator-authored rewrite template. The authority is
  * parsed separately from the path/query template so a placeholder can never be
@@ -158,10 +139,7 @@ export function parseRewriteTarget(
   const parsedOrigin = parseTargetOrigin(target);
   if ('error' in parsedOrigin) return parsedOrigin;
   const queryIndex = parsedOrigin.template.indexOf('?');
-  const pathTemplate =
-    queryIndex === -1
-      ? parsedOrigin.template
-      : parsedOrigin.template.slice(0, queryIndex);
+  const pathTemplate = parsedOrigin.template;
   const queryTemplate =
     queryIndex === -1 ? undefined : parsedOrigin.template.slice(queryIndex + 1);
   const validation = validateTemplate(
@@ -170,11 +148,6 @@ export function parseRewriteTarget(
     parsedOrigin.origin,
   );
   if ('error' in validation) return validation;
-  const expansionError = validateExpandedTemplate(
-    parsedOrigin.origin,
-    parsedOrigin.template,
-  );
-  if (expansionError !== undefined) return expansionError;
   return {
     origin: parsedOrigin.origin.origin,
     pathPrefix: validation.pathPrefix,

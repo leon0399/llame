@@ -50,6 +50,17 @@ describe('rewrite web adapter matching', () => {
       false,
     );
   });
+  it('rejects an invalid target with the adapter id', () => {
+    expect(() => createRewriteAdapter(config({ target: 'not a URL' }))).toThrow(
+      'Invalid rewrite target for adapter "pcstyle".',
+    );
+  });
+
+  it('reports the configured path pattern when regex compilation fails', () => {
+    expect(() => createRewriteAdapter(config({ pathPattern: '(' }))).toThrow(
+      'tools.webAdapters[pcstyle].pathPattern',
+    );
+  });
 });
 
 describe('rewrite web adapter reads', () => {
@@ -84,6 +95,22 @@ describe('rewrite web adapter reads', () => {
     );
 
     expect(outcome).toStrictEqual({ kind: 'failed', failure: 'status' });
+  });
+  it('marks a call-bound adapter failure as fatal', async () => {
+    const failure: WebFetchFailure = {
+      type: 'call_timeout',
+      message: 'The web read exceeded its deadline.',
+    };
+    const outcome = await createRewriteAdapter(BASE_CONFIG).read(
+      new URL('https://x.com/article'),
+      ioFor(failure, []),
+    );
+
+    expect(outcome).toStrictEqual({
+      kind: 'failed',
+      failure: 'transport',
+      fatal: failure,
+    });
   });
 
   it('maps an unconverted HTML response to parse', async () => {

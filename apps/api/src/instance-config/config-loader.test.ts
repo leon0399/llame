@@ -576,7 +576,10 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       target: 'https://reader.example{path}',
     });
     writeConfig(JSON.stringify({ tools: { webAdapters: [first, second] } }));
-    expect(loadInstanceConfig().tools.webAdapters).toEqual([first, second]);
+    expect(loadInstanceConfig().tools.webAdapters).toStrictEqual([
+      first,
+      second,
+    ]);
   });
 
   it('rejects unsupported adapter uses at boot', () => {
@@ -628,8 +631,24 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       /tools\.webAdapters\[x\]\.(hosts|target|pathPattern)/,
     );
   });
+  it('names the exact adapter id field when interpolation is rejected', () => {
+    const id = '{env:ADAPTER_ID}';
+    writeConfig(
+      JSON.stringify({
+        tools: { webAdapters: [rewriteEntry({ id })] },
+      }),
+    );
+    try {
+      loadInstanceConfig();
+      throw new Error('expected adapter id interpolation to fail');
+    } catch (error) {
+      expect(errorMessage(error)).toBe(
+        `tools.webAdapters[${id}].id: interpolation syntax is not allowed`,
+      );
+    }
+  });
 
-  it.each(['X.com', 'x.com:443', 'x.com.'])(
+  it.each(['X.com', 'x.com:443', 'x.com.', 'Stryker was here!'])(
     'rejects non-canonical host %s',
     (host) => {
       writeConfig(
@@ -652,6 +671,16 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       expect(() => loadInstanceConfig()).toThrow(/pathPattern/);
     },
   );
+  it('wraps an invalid pathPattern as an InstanceConfigError', () => {
+    writeConfig(
+      JSON.stringify({
+        tools: {
+          webAdapters: [rewriteEntry({ pathPattern: String.raw`^(a)\1$` })],
+        },
+      }),
+    );
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
 
   it('rejects an invalid rewrite target at boot', () => {
     writeConfig(
@@ -664,6 +693,14 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     expect(() => loadInstanceConfig()).toThrow(
       /tools\.webAdapters\[x\]\.target/,
     );
+  });
+  it('rejects an adapter id longer than the model-visible note bound', () => {
+    writeConfig(
+      JSON.stringify({
+        tools: { webAdapters: [rewriteEntry({ id: 'a'.repeat(57) })] },
+      }),
+    );
+    expect(() => loadInstanceConfig()).toThrow(/\/tools\/webAdapters\/0\/id/u);
   });
 });
 

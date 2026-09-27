@@ -120,7 +120,7 @@ describe('dispatchWebAdapters', () => {
       { fetch: () => Promise.resolve(response('unused')) },
     );
 
-    expect(result).toMatchObject({
+    expect(result).toStrictEqual({
       kind: 'rendered',
       render: {
         method: 'adapter',
@@ -145,6 +145,70 @@ describe('dispatchWebAdapters', () => {
       render: { content: 'partial', notes: [note] },
     });
   });
+  it('omits provenance and notes fields when neither is present', async () => {
+    const result = await dispatchWebAdapters(
+      new URL(SOURCE),
+      [adapter('plain', true, renderedOutcome('plain'))],
+      { fetch: () => Promise.resolve(response('unused')) },
+    );
+
+    expect(result).toStrictEqual({
+      kind: 'rendered',
+      render: {
+        method: 'adapter',
+        content: 'plain',
+        finalUrl: SOURCE,
+        adapter: { id: 'plain', route: 'native' },
+      },
+    });
+  });
+
+  it('reports a rewrite origin only when the rewrite outcome provides one', async () => {
+    const origin = 'https://reader.example.test';
+    const result = await dispatchWebAdapters(
+      new URL(SOURCE),
+      [
+        {
+          ...adapter('rewrite', true, {
+            kind: 'rendered',
+            content: 'rewritten',
+            origin,
+            notes: [],
+          }),
+          route: 'rewrite',
+        },
+      ],
+      { fetch: () => Promise.resolve(response('unused')) },
+    );
+    const native = await dispatchWebAdapters(
+      new URL(SOURCE),
+      [
+        {
+          ...adapter('native', true, {
+            kind: 'rendered',
+            content: 'native',
+            origin,
+            notes: [],
+          }),
+          route: 'native',
+        },
+      ],
+      { fetch: () => Promise.resolve(response('unused')) },
+    );
+
+    expect(result).toMatchObject({
+      kind: 'rendered',
+      render: {
+        adapter: { id: 'rewrite', route: 'rewrite', origin },
+      },
+    });
+    expect(native).toMatchObject({
+      kind: 'rendered',
+      render: { adapter: { id: 'native', route: 'native' } },
+    });
+    if (native.kind !== 'rendered') throw new Error('expected rendered result');
+    expect(native.render.adapter).not.toHaveProperty('origin');
+  });
 
   it('truncates an oversized document only at a line boundary', async () => {
     const line = `${'é'.repeat(700)}\n`;
@@ -160,6 +224,37 @@ describe('dispatchWebAdapters', () => {
     ).toBeLessThanOrEqual(MAX_ADAPTER_DOCUMENT_BYTES);
     expect(result.render.content.endsWith('\n')).toBe(true);
     expect(result.render.notes).toContain('document truncated: too_large');
+  });
+  it('keeps a non-empty UTF-8 prefix when no newline fits the limit', async () => {
+    const content = 'é'.repeat(MAX_ADAPTER_DOCUMENT_BYTES);
+    const result = await dispatchWebAdapters(
+      new URL(SOURCE),
+      [adapter('single-line', true, renderedOutcome(content))],
+      { fetch: () => Promise.resolve(response('unused')) },
+    );
+
+    if (result.kind !== 'rendered') throw new Error('expected rendered result');
+    expect(result.render.content.length).toBeGreaterThan(0);
+    expect(result.render.content).not.toContain('\n');
+    expect(
+      new TextEncoder().encode(result.render.content).byteLength,
+    ).toBeLessThanOrEqual(MAX_ADAPTER_DOCUMENT_BYTES);
+    expect(result.render.notes).toContain('document truncated: too_large');
+  });
+
+  it('does not include a newline beyond the retained byte window', async () => {
+    const content = `${'x'.repeat(MAX_ADAPTER_DOCUMENT_BYTES)}\ntrailing`;
+    const result = await dispatchWebAdapters(
+      new URL(SOURCE),
+      [adapter('boundary', true, renderedOutcome(content))],
+      { fetch: () => Promise.resolve(response('unused')) },
+    );
+
+    if (result.kind !== 'rendered') throw new Error('expected rendered result');
+    expect(result.render.content).toBe('x'.repeat(MAX_ADAPTER_DOCUMENT_BYTES));
+    expect(new TextEncoder().encode(result.render.content).byteLength).toBe(
+      MAX_ADAPTER_DOCUMENT_BYTES,
+    );
   });
 
   it('returns a fatal primary failure without trying later adapters', async () => {
@@ -210,7 +305,11 @@ describe('classifyFetchFailure', () => {
       'address',
     ],
     [
-      { type: 'http_status', message: 'The server answered HTTP 429.' },
+      { type: 'http_status', message: 'The server answered HTTP  429.' },
+      'rate_limit',
+    ],
+    [
+      { type: 'http_status', message: 'The server answered HTTP 429' },
       'rate_limit',
     ],
     [
@@ -256,6 +355,15 @@ describe('adapter primary failure fatality', () => {
     expect(isFatalAdapterFailure({ type: 'future_failure', message: '' })).toBe(
       true,
     );
+  });
+  it.each([
+    'unsupported_content_type',
+    'body_too_large',
+    'network_error',
+    'headers_timeout',
+    'invalid_redirect',
+  ])('allows candidate failure %s to fall through', (type) => {
+    expect(isFatalAdapterFailure({ type, message: '' })).toBe(false);
   });
 });
 

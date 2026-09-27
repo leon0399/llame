@@ -573,6 +573,7 @@
               "id": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 56,
                 "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
               },
               "use": {

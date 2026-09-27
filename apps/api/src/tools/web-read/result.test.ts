@@ -42,11 +42,32 @@ describe('buildWebReadResult', () => {
       shownRange: { startLine: 1, endLine: 3 },
     });
     expect(result).not.toHaveProperty('notes');
+    expect(result).not.toHaveProperty('adapter');
     expect(result).not.toHaveProperty('realPath');
     expect(result).not.toHaveProperty('url');
     expect(result).not.toHaveProperty('contentType');
     expect(result).not.toHaveProperty('markdownTokens');
     expect(JSON.stringify(result)).not.toContain('text/markdown');
+  });
+  it('includes adapter provenance in the web envelope', () => {
+    const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
+      method: 'adapter',
+      content: 'adapter body\n',
+      adapter: {
+        id: 'reader',
+        route: 'rewrite',
+        origin: 'https://reader.example.test',
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      adapter: {
+        id: 'reader',
+        route: 'rewrite',
+        origin: 'https://reader.example.test',
+      },
+    });
   });
 
   it('reports the locator as path and the response as finalUrl', () => {

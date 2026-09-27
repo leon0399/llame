@@ -30,6 +30,38 @@ describe('parseRewriteTarget', () => {
       template: '{path}',
     });
   });
+  it('accepts a path placeholder followed by a path delimiter', () => {
+    expect(parseRewriteTarget('https://x.pcstyle.dev{path}/suffix')).toEqual({
+      origin: 'https://x.pcstyle.dev',
+      pathPrefix: '/',
+      template: '{path}/suffix',
+    });
+  });
+
+  it('accepts adjacent path and query placeholders', () => {
+    expect(parseRewriteTarget('https://x.pcstyle.dev{path}{query}')).toEqual({
+      origin: 'https://x.pcstyle.dev',
+      pathPrefix: '/',
+      template: '{path}{query}',
+    });
+  });
+
+  it('accepts an origin with no path or query template', () => {
+    expect(parseRewriteTarget('https://x.pcstyle.dev')).toEqual({
+      origin: 'https://x.pcstyle.dev',
+      pathPrefix: '/',
+      template: '',
+    });
+  });
+
+  it('retains a literal path prefix when the target has no placeholder', () => {
+    expect(parseRewriteTarget('https://x.pcstyle.dev/prefix')).toEqual({
+      origin: 'https://x.pcstyle.dev',
+      pathPrefix: '/prefix',
+      template: '/prefix',
+    });
+  });
+
   it('normalizes the literal path prefix before expansion', () => {
     const target = parseTarget('https://x.pcstyle.dev/ü{path}');
     expect(expandRewriteTarget(target, new URL('https://x.com/a'))).toBe(
@@ -38,6 +70,9 @@ describe('parseRewriteTarget', () => {
   });
 
   it.each([
+    ['https://{path}', 'scheme, host, or port'],
+    ['https://[invalid', 'invalid URL origin'],
+    ['https://h{path', 'authority placeholder must be {path}'],
     ['file:///tmp/x', 'absolute http or https'],
     ['https://user:secret@example.test/x', 'userinfo'],
     ['https://example.test/x#f', 'fragment'],
