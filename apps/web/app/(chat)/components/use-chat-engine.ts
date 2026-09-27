@@ -385,6 +385,52 @@ function successfulWorkspaceTransitionId(
   return part.toolCallId;
 }
 
+function useWorkspacePreparationRefresh(
+  status: ReturnType<typeof useChat>["status"],
+  refreshChatBinding: () => void,
+): void {
+  const refreshed = useRef(false);
+
+  useEffect(() => {
+    if (status === "streaming") {
+      if (!refreshed.current) {
+        refreshed.current = true;
+        refreshChatBinding();
+      }
+      return;
+    }
+    if (status === "ready" || status === "error") {
+      refreshed.current = false;
+    }
+  }, [refreshChatBinding, status]);
+}
+
+function useWorkspaceTransitionRefresh(
+  messages: Array<UIMessage>,
+  status: ReturnType<typeof useChat>["status"],
+  refreshChatBinding: () => void,
+): void {
+  const handledIdsRef = useRef<Set<string> | undefined>(undefined);
+
+  useEffect(() => {
+    const handledIds = handledIdsRef.current ?? new Set<string>();
+    handledIdsRef.current = handledIds;
+
+    let bindingChanged = false;
+    for (const message of messages) {
+      for (const part of message.parts) {
+        const toolCallId = successfulWorkspaceTransitionId(part);
+        if (toolCallId === null || handledIds.has(toolCallId)) continue;
+        handledIds.add(toolCallId);
+        bindingChanged =
+          status === "streaming" || status === "submitted" || bindingChanged;
+      }
+    }
+
+    if (bindingChanged) refreshChatBinding();
+  }, [messages, refreshChatBinding, status]);
+}
+
 type UseChatPresenceEffectsArgs = {
   status: ReturnType<typeof useChat>["status"];
   messages: Array<UIMessage>;
@@ -404,10 +450,6 @@ export function useChatPresenceEffects({
   markChatSeen,
   refreshChatBinding,
 }: UseChatPresenceEffectsArgs) {
-  const handledWorkspaceTransitionIds = useRef<Set<string> | undefined>(
-    undefined,
-  );
-
   // Register the active run globally so its completion notifies (toast + badge)
   // if the user navigates to another chat before it finishes — the durable
   // worker keeps generating regardless (#50). Label the toast with the first
@@ -419,26 +461,8 @@ export function useChatPresenceEffects({
     trackRun(runId, chatId, notificationLabel(messages));
   }, [status, messages, chatId, trackRun]);
 
-  // Entry and exit commit before a Run finishes; refresh owner caches as soon
-  // as their successful tool result is delivered so the header changes mid-Run.
-  useEffect(() => {
-    const handledIds =
-      handledWorkspaceTransitionIds.current ?? new Set<string>();
-    handledWorkspaceTransitionIds.current = handledIds;
-
-    let bindingChanged = false;
-    for (const message of messages) {
-      for (const part of message.parts) {
-        const toolCallId = successfulWorkspaceTransitionId(part);
-        if (toolCallId === null || handledIds.has(toolCallId)) continue;
-        handledIds.add(toolCallId);
-        bindingChanged =
-          status === "streaming" || status === "submitted" || bindingChanged;
-      }
-    }
-
-    if (bindingChanged) refreshChatBinding();
-  }, [messages, refreshChatBinding, status]);
+  useWorkspacePreparationRefresh(status, refreshChatBinding);
+  useWorkspaceTransitionRefresh(messages, status, refreshChatBinding);
 
   // Opening a chat clears its unseen-completion badge.
   useEffect(() => {

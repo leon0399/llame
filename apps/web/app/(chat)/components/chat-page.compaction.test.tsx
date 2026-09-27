@@ -215,6 +215,20 @@ function renderChatPage(
   };
 }
 
+function seedWorkspaceCaches(queryClient: QueryClient, chatId: string) {
+  const listKey = chatQueryKeys.infinite({ pinned: "exclude" });
+  const detailKey = chatQueryKeys.detail(chatId);
+  queryClient.setQueryData(listKey, {
+    pages: [[{ id: chatId, workspaceRoot: "/home/operator/projects/llame" }]],
+    pageParams: [undefined],
+  });
+  queryClient.setQueryData(detailKey, {
+    id: chatId,
+    workspaceRoot: "/home/operator/projects/llame",
+  });
+  return { listKey, detailKey };
+}
+
 describe("ChatPage — compaction checkpoint render", () => {
   it("renders the checkpoint when the chat history + compaction are both already cached (mirrors a real SSR-hydrated reload)", async () => {
     const chatId = "chat-bbc4f06e";
@@ -423,6 +437,7 @@ describe("ChatPage — compaction checkpoint render", () => {
       messages: [initialMessage],
       compaction: null,
     });
+    const { listKey, detailKey } = seedWorkspaceCaches(queryClient, chatId);
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
     useChatMessages = [
@@ -452,6 +467,37 @@ describe("ChatPage — compaction checkpoint render", () => {
     ];
     useChatStatus = "streaming";
     rerenderChatPage();
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: chatQueryKeys.lists() }),
+      );
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: chatQueryKeys.detail(chatId),
+        exact: true,
+      });
+      expect(queryClient.getQueryState(listKey)?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(detailKey)?.isInvalidated).toBe(true);
+    });
+  });
+
+  it("refreshes binding caches when the live assistant stream starts", async () => {
+    const chatId = "chat-live-workspace-preparation";
+    const { queryClient, rerenderChatPage } = renderChatPage(chatId, {
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          parts: [{ type: "text", text: "continue the project" }],
+          metadata: { seq: 1 },
+        },
+      ],
+      compaction: null,
+    });
+    const { listKey, detailKey } = seedWorkspaceCaches(queryClient, chatId);
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    useChatStatus = "streaming";
+    rerenderChatPage();
 
     await waitFor(() => {
       expect(invalidateSpy).toHaveBeenCalledWith(
@@ -461,6 +507,8 @@ describe("ChatPage — compaction checkpoint render", () => {
         queryKey: chatQueryKeys.detail(chatId),
         exact: true,
       });
+      expect(queryClient.getQueryState(listKey)?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(detailKey)?.isInvalidated).toBe(true);
     });
   });
 });

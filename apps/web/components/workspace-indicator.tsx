@@ -31,10 +31,17 @@ export function WorkspaceIndicator({
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<Badge variant="outline" aria-label={label} tabIndex={0} />}
+        render={
+          <Badge
+            className="max-w-48"
+            variant="outline"
+            aria-label={label}
+            tabIndex={0}
+          />
+        }
       >
         <FolderIcon />
-        {name}
+        <span className="truncate">{name}</span>
       </TooltipTrigger>
       <TooltipContent>{workspaceRoot}</TooltipContent>
     </Tooltip>
