@@ -15,6 +15,7 @@ import { join } from 'node:path';
 
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
+import { SkillCatalog } from '../skills/skill-catalog';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { resolveAdvertisedTools, TOOL_REGISTRY } from './registry';
 import { runTool } from './runner';
@@ -86,6 +87,89 @@ describe('Workspace host tools', () => {
     vi.restoreAllMocks();
     await rm(root, { recursive: true, force: true });
   });
+  it('lists proactively eligible Workspace skills from the selected source', async () => {
+    const operatorSource = join(root, 'operator-skills');
+    const operatorPackage = join(operatorSource, 'shared');
+    const workspacePackage = join(root, '.llame', 'skills', 'shared');
+    const workspaceOnlyPackage = join(
+      root,
+      '.agents',
+      'skills',
+      'workspace-only',
+    );
+    await mkdir(operatorPackage, { recursive: true });
+    await mkdir(workspacePackage, { recursive: true });
+    await mkdir(workspaceOnlyPackage, { recursive: true });
+    await writeFile(
+      join(operatorPackage, 'SKILL.md'),
+      '---\nname: shared\ndescription: Operator description\n---\n',
+    );
+    await writeFile(
+      join(workspacePackage, 'SKILL.md'),
+      '---\nname: shared\ndescription: Workspace description\n---\n',
+    );
+    await writeFile(
+      join(workspaceOnlyPackage, 'SKILL.md'),
+      '---\nname: workspace-only\ndescription: Workspace-only description\n---\n',
+    );
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
+      status: 'bound',
+      previousRoot: null,
+      generation: 1,
+    });
+
+    const result = await enterWorkspaceTool.execute(
+      context({
+        skillCatalog: new SkillCatalog([operatorSource]),
+      }),
+      { path: root },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      skills: [
+        { name: 'shared', description: 'Workspace description' },
+        {
+          name: 'workspace-only',
+          description: 'Workspace-only description',
+        },
+      ],
+      skillsOmitted: 0,
+    });
+  });
+
+  it('bounds the Workspace skill list', async () => {
+    const source = join(root, '.llame', 'skills');
+    for (let index = 0; index < 257; index += 1) {
+      const name = `workspace-${String(index).padStart(3, '0')}`;
+      const packageDirectory = join(source, name);
+      await mkdir(packageDirectory, { recursive: true });
+      await writeFile(
+        join(packageDirectory, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: Workspace skill ${index}\n---\n`,
+      );
+    }
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
+      status: 'bound',
+      previousRoot: null,
+      generation: 1,
+    });
+
+    const result = await enterWorkspaceTool.execute(
+      context({ skillCatalog: new SkillCatalog([]) }),
+      { path: root },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      skillsOmitted: 1,
+    });
+    if (!('skills' in result) || !Array.isArray(result.skills)) {
+      throw new Error('Workspace entry must return its skill list.');
+    }
+    expect(result.skills).toHaveLength(256);
+  });
+
   it('registers and advertises both host-capability tools by exact id', () => {
     expect(TOOL_REGISTRY.get('enter_workspace')).toBe(enterWorkspaceTool);
     expect(TOOL_REGISTRY.get('exit_workspace')).toBe(exitWorkspaceTool);

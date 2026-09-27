@@ -25,12 +25,15 @@ import {
 import {
   baselineMatchesEpoch,
   resolveSkillCatalogBaseline,
+  resolveSkillCatalogBaselineFromSnapshot,
 } from '../skills/skill-prompt-baseline';
 
 export type SkillTurnStateDeps = {
   /** Absent on an instance with no configured skill source. */
   readonly skillCatalog: SkillCatalogPort | undefined;
   readonly skillDirectories: ReadonlyArray<string>;
+  /** Live Workspace sources for the bound Chat, if it has a root. */
+  readonly extraSources?: ReadonlyArray<string>;
   /** Operator-facing reporting for an unreadable catalog; never model-facing. */
   readonly reportUnavailable?: (diagnostics: ReadonlyArray<string>) => void;
 };
@@ -129,20 +132,24 @@ function startSkillEpoch(
   },
 ): SkillTurnState {
   const catalog = deps.skillCatalog;
-  if (catalog === undefined || deps.skillDirectories.length === 0) {
+  const hasExtraSources = (deps.extraSources?.length ?? 0) > 0;
+  if (
+    catalog === undefined ||
+    (deps.skillDirectories.length === 0 && !hasExtraSources)
+  ) {
     return { baseline: undefined, notice: undefined };
   }
 
-  const baseline = resolveSkillCatalogBaseline(catalog);
-  if (baseline === undefined) {
-    // Configured but unreadable, missing, or oversized: discovery could not run.
-    // Freezing an empty advertisement would bind it to the chat for the epoch,
-    // and `toldFromBaseline` would throw on the missing entries — during
-    // accepted-turn preparation, failing the user's turn. Render no section and
-    // let the next turn retry.
-    reportUnavailableCatalog(deps, catalog);
+  const snapshot = catalog.getSnapshot(deps.extraSources);
+  if (
+    !snapshot.available ||
+    (snapshot.directories.length === 0 && snapshot.entries.length === 0)
+  ) {
+    if (!snapshot.available) reportUnavailableCatalog(deps, catalog);
     return { baseline: undefined, notice: undefined };
   }
+
+  const baseline = resolveSkillCatalogBaselineFromSnapshot(snapshot);
   return {
     baseline,
     notice: undefined,
@@ -173,28 +180,8 @@ function deriveCatalogNotice(input: {
 }): SkillCatalogNotice | undefined {
   if (!input.modelReferencesSkills) return undefined;
 
-  const current = input.deps.skillCatalog;
-  let advertised: SkillCatalogBaseline;
-  if (current === undefined) {
-    // No configured source, or no catalog port at all, means the current
-    // advertisement is EMPTY — not that there is nothing to say. A chat whose
-    // baseline predates that change still carries those names in its frozen
-    // prompt, so suppressing the delta would leave it attempting stale reads for
-    // the rest of the epoch. The removals are exactly the point of the notice.
-    advertised = EMPTY_BASELINE;
-  } else {
-    const resolved = resolveSkillCatalogBaseline(current);
-    if (resolved === undefined) {
-      // An unreadable catalog is NOT an empty advertisement: it is a failure to
-      // read the catalog at all, and diffing it would announce removals that
-      // have not happened. Skip, and let the next turn retry — but report it,
-      // because the epoch-start path reports the same failure and the operator
-      // would otherwise get no signal that discovery is failing mid-epoch.
-      reportUnavailableCatalog(input.deps, current);
-      return undefined;
-    }
-    advertised = resolved;
-  }
+  const advertised = resolveCurrentCatalogBaseline(input.deps);
+  if (advertised === undefined) return undefined;
 
   const delta = deriveSkillCatalogDelta({
     advertised: advertised.entries,
@@ -248,6 +235,21 @@ function reportUnavailableCatalog(
       reasons = reasons.replaceAll(source, '<skill source>');
   }
   deps.reportUnavailable([reasons]);
+}
+
+function resolveCurrentCatalogBaseline(
+  deps: SkillTurnStateDeps,
+): SkillCatalogBaseline | undefined {
+  const catalog = deps.skillCatalog;
+  if (catalog === undefined) return EMPTY_BASELINE;
+
+  const baseline = resolveSkillCatalogBaseline(catalog, deps.extraSources);
+  if (baseline !== undefined) return baseline;
+
+  // An unreadable catalog is not an empty advertisement: diffing it would
+  // announce removals that have not happened. Retry on the next turn.
+  reportUnavailableCatalog(deps, catalog);
+  return undefined;
 }
 
 /**

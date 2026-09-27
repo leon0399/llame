@@ -6,6 +6,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   absolute-root binding, lexical relative-path projection, and fail-closed
   re-check detachment. The documented example policy now covers Workspace
   entry/exit and protects Workspace control files ([#974](https://github.com/leon0399/llame/issues/974)).
+- Entered Workspaces now contribute Chat-local `.claude/skills`,
+  `.agents/skills`, and `.llame/skills` sources with bounded entry-result
+  listings, live `skill://` reads, and operator-catalog isolation
+  ([#974](https://github.com/leon0399/llame/issues/974)).
 
 - The owner Chat header now shows the bound Workspace root name with the full
   path in a tooltip. It refreshes mid-Run after entry, exit, or stream-start

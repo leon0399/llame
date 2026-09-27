@@ -56,6 +56,7 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from '../chats/chats-repository';
+import { ActivationPartsRepository } from '../chats/activation-parts.repository';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
 import { isContextItemPart, type ContextItemPart } from '../chats/context-item';
@@ -74,12 +75,13 @@ import type { CompactionCapability } from '../compaction/compaction.service';
 import type { TitleCapability } from '../titles/title.service';
 import type { ChatSearchIndexer } from './run-execution.service';
 import type { ChatEmbedDispatcher } from '../search/search-embed-dispatch.service';
+import type { ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import {
+  SkillCatalog,
   type SkillCatalogEntry,
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
-import type { ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { type MemorySettingsBindingResolver } from '../memory/memory.service';
 import {
   type RecencyDigestResolution,
@@ -960,6 +962,77 @@ describe('RunExecutionService executeRun', () => {
     await executeBoundTool(options, { q: 'second' }, 'workspace-step-2');
 
     expect(seenRoots).toEqual([undefined, '/workspace/new']);
+  });
+
+  it('does not resolve Workspace skills after a stale detach re-check', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-stale-detach-'));
+    const skillDirectory = path.join(
+      root,
+      '.llame',
+      'skills',
+      'workspace-only',
+    );
+    mkdirSync(skillDirectory, { recursive: true });
+    writeFileSync(
+      path.join(skillDirectory, 'SKILL.md'),
+      '---\nname: workspace-only\ndescription: Workspace only\n---\n# Workspace only\n',
+    );
+    try {
+      mockNormalExecutionRepositories();
+      const detach = vi
+        .spyOn(WorkspaceBindingRepository.prototype, 'detach')
+        .mockResolvedValue('stale');
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'host-a',
+        workspaceGeneration: 4,
+        workspaceTold: root,
+        workspaceToldFrom: null,
+        workspaceDetachReason: null,
+      });
+      const setSkillBaseline = vi
+        .spyOn(ChatsRepository.prototype, 'setSkillCatalogBaseline')
+        .mockResolvedValue(undefined);
+      vi.spyOn(
+        ActivationPartsRepository.prototype,
+        'resolvedSkillsForRun',
+      ).mockResolvedValue(new Set());
+      const appendActivation = vi
+        .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
+        .mockResolvedValue({ applied: true });
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-b',
+        {
+          allowed: ['enter_workspace'],
+          skillCatalog: new SkillCatalog([]),
+          skillDirectories: [],
+          model: { ...testModelEntry, referencesSkills: true },
+        },
+      );
+      const input = executionInput(execution.client);
+      const result = await execution.service.executeRun({
+        ...input,
+        userMessage: {
+          ...input.userMessage,
+          parts: [{ type: 'text', text: '$workspace-only' }],
+        },
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+      expect(detach).toHaveBeenCalled();
+      expect(setSkillBaseline).not.toHaveBeenCalled();
+      const activationItems = appendActivation.mock.calls.flatMap(
+        ([call]) => call.items,
+      );
+      expect(
+        activationItems.some((item) => item.data.payload.kind === 'activation'),
+      ).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('recovers a persisted native result into its still-open tool activity', async () => {

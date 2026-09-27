@@ -85,11 +85,12 @@ export async function resolveSkillLocator(
   catalog: SkillCatalogPort,
   rest: string,
   selection: SkillSelection,
+  extraSources?: ReadonlyArray<string>,
 ): Promise<ResolvedSkillTarget | ResolvedSkillCatalog | ToolResult> {
   const parsed = parseSkillLocator(rest);
   if (parsed === undefined) return invalidPathResult();
 
-  const snapshot = catalog.getSnapshot();
+  const snapshot = catalog.getSnapshot(extraSources);
   if (!snapshot.available) return catalogUnavailableResult();
 
   if (parsed.catalog === true) {

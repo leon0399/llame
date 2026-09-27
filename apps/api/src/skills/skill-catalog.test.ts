@@ -284,6 +284,102 @@ describe('SkillCatalog discovery', () => {
     expect(snapshot.entries).toEqual([]);
   });
 
+  it('layers Workspace sources above operators in ordered precedence', () => {
+    const operator = temporaryDirectory('operator');
+    const claude = temporaryDirectory('claude');
+    const agents = temporaryDirectory('agents');
+    const llame = temporaryDirectory('llame');
+    createPackage(operator, 'review', { description: 'Operator review' });
+    createPackage(claude, 'review', { description: 'Claude review' });
+    createPackage(agents, 'review', { description: 'Agents review' });
+    createPackage(llame, 'review', { description: 'Llame review' });
+
+    const snapshot = new SkillCatalog([operator]).getSnapshot([
+      claude,
+      agents,
+      llame,
+    ]);
+
+    expect(snapshot.available).toBe(true);
+    expect(entryNamed(snapshot, 'review')).toMatchObject({
+      description: 'Llame review',
+      sourceDirectory: llame,
+    });
+  });
+
+  it('skips failed Workspace sources while retaining the operator catalog', () => {
+    const operator = temporaryDirectory('operator');
+    const nonDirectory = path.join(operator, 'not-a-source.txt');
+    writeFileSync(nonDirectory, 'not a directory');
+    const missing = path.join(operator, 'missing-source');
+    const oversized = path.join(operator, 'oversized-source');
+    const children: ReadonlyArray<CatalogDirent> = Array.from(
+      { length: MAX_SOURCE_CHILDREN + 1 },
+      (_, index) => ({
+        name: `p${index}`,
+        isDirectory: () => true,
+        isSymbolicLink: () => false,
+      }),
+    );
+    createPackage(operator, 'operator-only');
+
+    const snapshot = new SkillCatalog([operator], {
+      ...NODE_SKILL_FILE_SYSTEM,
+      readDirectory: (directoryPath) => {
+        if (directoryPath === oversized) return children;
+        return NODE_SKILL_FILE_SYSTEM.readDirectory(directoryPath);
+      },
+    }).getSnapshot([missing, nonDirectory, oversized]);
+
+    expect(snapshot).toMatchObject({
+      available: true,
+      entries: [expect.objectContaining({ name: 'operator-only' })],
+      diagnostics: [],
+    });
+  });
+
+  it('does not count Workspace sources against the operator source bound', () => {
+    const operatorSources = Array.from(
+      { length: MAX_SKILL_SOURCES },
+      (_, index) => temporaryDirectory(`operator-${index}`),
+    );
+    const workspace = temporaryDirectory('workspace-extra');
+    createPackage(workspace, 'workspace-only');
+
+    const snapshot = new SkillCatalog(operatorSources).getSnapshot([
+      workspace,
+      path.join(workspace, 'missing'),
+      path.join(workspace, 'also-missing'),
+    ]);
+
+    expect(snapshot.available).toBe(true);
+    expect(entryNamed(snapshot, 'workspace-only').sourceDirectory).toBe(
+      workspace,
+    );
+  });
+
+  it('does not leak extra-source winners between Chat snapshots', () => {
+    const operator = temporaryDirectory('operator');
+    const firstWorkspace = temporaryDirectory('first-workspace');
+    const secondWorkspace = temporaryDirectory('second-workspace');
+    createPackage(operator, 'operator-only');
+    createPackage(firstWorkspace, 'first-only');
+    createPackage(secondWorkspace, 'second-only');
+    const catalog = new SkillCatalog([operator]);
+
+    const first = catalog.getSnapshot([firstWorkspace]);
+    const second = catalog.getSnapshot([secondWorkspace]);
+
+    expect(first.entries.map((entry) => entry.name)).toEqual([
+      'first-only',
+      'operator-only',
+    ]);
+    expect(second.entries.map((entry) => entry.name)).toEqual([
+      'operator-only',
+      'second-only',
+    ]);
+  });
+
   it(
     'stops reading at the child bound and refuses the oversized source',
     { timeout: 20_000 },

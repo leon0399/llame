@@ -44,6 +44,45 @@ Rules:
 - Editing packages inside an already configured source takes effect without a
   restart. Changing the configured list requires the existing restart boundary.
 
+## Workspace sources
+
+After a Chat successfully enters a Workspace, its effective skill catalog adds
+three root-relative collection directories after every configured operator
+source, in this order:
+
+```text
+<root>/.claude/skills
+<root>/.agents/skills
+<root>/.llame/skills
+```
+
+The last source has the highest precedence, so a package in `.llame/skills`
+overrides one with the same name in `.agents/skills`, `.claude/skills`, or any
+operator source. The `enter_workspace` result lists the bounded,
+proactively eligible Workspace packages by name and description. The
+instructions for an available package can then be read in that same Run with
+`skill://<name>`.
+
+Workspace sources are Chat-local. Another Chat, and the operator-only
+`GET /api/v1/skills` catalog, continue to see only configured operator
+sources. A Workspace package with the same name as an operator package is
+selected for the entered Chat only; it does not alter the process-wide
+operator catalog.
+
+Missing, unreadable, non-directory, and over-limit Workspace sources contribute
+no packages. These failures do not make operator discovery unavailable and do
+not consume one of the 32 configured operator-source slots. Discovery and
+reads otherwise follow the same package and ordinary operating-system link
+rules described above.
+
+Successful Workspace entry is the trust decision for these sources: the
+operator's `enter_workspace` permission grants the entered Chat permission to
+read its Workspace skills. Entry selects a working root but is not a
+filesystem-confinement boundary; host operations retain the native executor's
+authority. A failed or later-detached binding contributes no Workspace skill
+activation or `skill://` resolution for that Run, and a later accepted turn
+announces the removal from the Chat's skill catalog.
+
 ## Package format
 
 A package is a directory containing `SKILL.md` with YAML frontmatter:

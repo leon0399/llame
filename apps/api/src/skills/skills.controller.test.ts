@@ -2,6 +2,7 @@ import { AppModule } from '../app.module';
 import {
   SkillCatalog,
   type SkillCatalogEntry,
+  type SkillCatalogPort,
   type SkillCatalogSnapshot,
 } from './skill-catalog';
 import { SkillsController } from './skills.controller';
@@ -45,6 +46,24 @@ describe('SkillsController', () => {
   it('exports the catalog port', () => {
     const exports: unknown = Reflect.getMetadata('exports', SkillsModule);
     expect(exports).toContain(SkillCatalog);
+  });
+  it('keeps the HTTP catalog limited to operator entries', () => {
+    const operator = entry('operator-only');
+    const workspace: SkillCatalogEntry = {
+      ...entry('workspace-only'),
+      sourceDirectory: '/work/project/.llame/skills',
+      skillDirectory: '/work/project/.llame/skills/workspace-only',
+    };
+    const catalog: SkillCatalogPort = {
+      getSnapshot: (extraSources) =>
+        extraSources === undefined
+          ? snapshotOf([operator])
+          : snapshotOf([operator, workspace]),
+    };
+
+    const page = new SkillsController(catalog).listSkills({});
+
+    expect(page.items.map((item) => item.name)).toEqual(['operator-only']);
   });
 
   it('applies the default page limit', () => {

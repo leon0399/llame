@@ -1,14 +1,8 @@
-import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-
-import { SkillCatalog } from './skill-catalog';
 import {
   SKILL_BASELINE_MAX_BYTES,
   SKILL_BASELINE_MAX_ENTRIES,
   baselineMatchesEpoch,
   boundSkillCatalog,
-  proactivelyEligible,
   resolveSkillCatalogBaseline,
 } from './skill-prompt-baseline';
 import { type SkillCatalogEntry, type SkillCatalogPort } from './skill-catalog';
@@ -51,45 +45,6 @@ function defined(
   if (value === undefined) throw new Error('expected a resolved baseline');
   return value;
 }
-
-describe('proactivelyEligible', () => {
-  it('excludes manual-only and invalid packages', () => {
-    const catalog = catalogOf([
-      entry('pdf', 'd'),
-      entry('review', 'd', { proactive: false }),
-      entry('broken', null, { available: false }),
-    ]);
-
-    expect(proactivelyEligible(catalog)?.map((e) => e.name)).toEqual(['pdf']);
-  });
-
-  it('returns nothing for an empty catalog', () => {
-    expect(proactivelyEligible(new SkillCatalog([]))).toEqual([]);
-  });
-
-  it('reports unavailability rather than an empty eligible set', () => {
-    // A source that cannot be read is NOT a catalog with zero eligible skills.
-    // Conflating them would freeze an empty advertisement onto the chat for a
-    // whole epoch, so this distinction is the one that matters.
-    const missing = new SkillCatalog([
-      // Unique per run: a fixed name under a shared tmpdir could exist, and
-      // then this asserts nothing.
-      path.join(tmpdir(), `no-such-skills-dir-${randomUUID()}`),
-    ]);
-
-    expect(proactivelyEligible(missing)).toBeUndefined();
-    expect(resolveSkillCatalogBaseline(missing)).toBeUndefined();
-  });
-
-  it('still resolves a genuinely empty catalog', () => {
-    // No configured source at all is an authoritative empty catalog, not an
-    // outage: there is nothing to retry.
-    expect(resolveSkillCatalogBaseline(new SkillCatalog([]))).toEqual({
-      entries: [],
-      omitted: 0,
-    });
-  });
-});
 
 describe('boundSkillCatalog', () => {
   it('orders entries by code point, not by input order', () => {

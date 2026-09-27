@@ -94,6 +94,11 @@ export type SkillCatalogEntry = {
  */
 export type SkillCatalogSnapshot = {
   readonly available: boolean;
+  /**
+   * Sources represented by the completed read. Optional extra sources that
+   * failed discovery are omitted; an unavailable operator read retains the
+   * configured source list for its diagnostic snapshot.
+   */
   readonly directories: ReadonlyArray<string>;
   readonly entries: ReadonlyArray<SkillCatalogEntry>;
   readonly diagnostics: ReadonlyArray<string>;
@@ -121,9 +126,10 @@ export class SkillCatalog {
     this.fileSystem = fileSystem;
   }
 
-  getSnapshot(): SkillCatalogSnapshot {
-    const directories = this.directories;
-    if (directories.length > MAX_SKILL_SOURCES) {
+  getSnapshot(extraSources: ReadonlyArray<string> = []): SkillCatalogSnapshot {
+    const operatorDirectories = this.directories;
+    const directories = [...operatorDirectories, ...extraSources];
+    if (operatorDirectories.length > MAX_SKILL_SOURCES) {
       return this.unavailable(
         directories,
         `At most ${MAX_SKILL_SOURCES} skill sources are supported; the catalog is unavailable.`,
@@ -134,17 +140,24 @@ export class SkillCatalog {
     }
 
     const winners = new Map<string, SkillCatalogEntry>();
-    for (const directory of directories) {
+    const effectiveDirectories: Array<string> = [];
+    for (const [index, directory] of directories.entries()) {
       const result = this.readSource(directory);
       if (result.status === 'unavailable') {
-        return this.unavailable(directories, result.diagnostic);
+        if (index < operatorDirectories.length) {
+          return this.unavailable(directories, result.diagnostic);
+        }
+        // Workspace sources are live, optional additions. A source that cannot
+        // be read contributes nothing without poisoning the operator catalog.
+        continue;
       }
+      effectiveDirectories.push(directory);
       for (const entry of result.entries) winners.set(entry.name, entry);
     }
 
     return {
       available: true,
-      directories,
+      directories: effectiveDirectories,
       entries: [...winners.values()].sort((left, right) =>
         compareSkillNames(left.name, right.name),
       ),
@@ -175,9 +188,16 @@ export class SkillCatalog {
     }
 
     const entries: Array<SkillCatalogEntry> = [];
-    for (const child of children) {
-      const entry = this.readChild(child, sourceDirectory);
-      if (entry !== undefined) entries.push(entry);
+    try {
+      for (const child of children) {
+        const entry = this.readChild(child, sourceDirectory);
+        if (entry !== undefined) entries.push(entry);
+      }
+    } catch {
+      return {
+        status: 'unavailable',
+        diagnostic: `Skill source ${sourceDirectory} is missing or unreadable; the catalog is unavailable.`,
+      };
     }
     return { status: 'read', entries };
   }
