@@ -67,6 +67,46 @@ describe('AttemptToolAdditions', () => {
     expect(state.boundExecutables.get(TOOL_ID)?.executor).toBe(first);
   });
 
+  it('keeps an operator binding available for an identical Workspace declaration', async () => {
+    const id = 'mcp__web__lookup';
+    const declaration: ModelToolDeclaration = {
+      id,
+      description: 'Look up a value.',
+      inputSchema: { type: 'object', properties: {} },
+    };
+    const execute = vi.fn(() => ({
+      status: 'success' as const,
+      value: 'operator',
+    }));
+    const operator: Tool = {
+      ...declaration,
+      classification: 'unverified',
+      execute,
+    };
+    const state = setup(
+      new Map([[id, { declaration, executor: operator }]]),
+      {},
+      ['mcp__web__*'],
+    );
+
+    await expect(state.additions.add('web', [operator])).resolves.toEqual({
+      added: [],
+      availableFromNextRun: [id],
+      refused: [],
+    });
+    expect(state.additions.executorFor(id)).toBe(operator);
+    state.additions.disableAll();
+    expect(state.additions.executorFor(id)).toBe(operator);
+    const executor = state.additions.executorFor(id);
+    if (executor === undefined) throw new Error('expected operator executor');
+    expect(
+      executor.execute(
+        { userId: 'u', chatId: 'c', tenantDb: { runAs: vi.fn() } },
+        {},
+      ),
+    ).toEqual({ status: 'success', value: 'operator' });
+  });
+
   it('refuses a tool from a different MCP server namespace', async () => {
     const state = setup(new Map(), {}, ['mcp__*']);
     const foreign = makeTool('mcp__other__lookup');
@@ -140,6 +180,27 @@ describe('AttemptToolAdditions', () => {
           reason: 'case-only collision with an existing tool id',
         },
       ],
+    });
+  });
+
+  it('rechecks the allowlist before binding an admitted declaration', async () => {
+    const state = setup(new Map(), {}, []);
+
+    await expect(state.additions.add(SERVER, [makeTool()])).resolves.toEqual({
+      added: [],
+      availableFromNextRun: [],
+      refused: [{ id: TOOL_ID, reason: 'not_allowlisted' }],
+    });
+  });
+
+  it('refuses an invalid id in the server namespace', async () => {
+    const state = setup();
+    const invalid = makeTool('mcp__workspace__invalid.id');
+
+    await expect(state.additions.add(SERVER, [invalid])).resolves.toEqual({
+      added: [],
+      availableFromNextRun: [],
+      refused: [{ id: invalid.id, reason: 'invalid_tool_id' }],
     });
   });
 
