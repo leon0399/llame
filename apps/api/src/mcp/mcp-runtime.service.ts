@@ -469,6 +469,7 @@ export class McpRuntimeService
       if (prior !== undefined) {
         return { disposition: 'none', result: prior };
       }
+      context.onMcpDispatchRecorded?.();
       context.abortSignal?.throwIfAborted();
     }
 

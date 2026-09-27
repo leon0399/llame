@@ -9,7 +9,7 @@ import {
 import { bashTool } from './bash';
 import { nativeReadTool } from './native-files';
 import { runTool } from './runner';
-import { type Tool, type ToolContext } from './types';
+import { type Tool, type ToolContext, type ToolResult } from './types';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
 import { createWorkspaceRootCell } from './workspace-path';
@@ -166,6 +166,92 @@ describe('runTool', () => {
     expect(executionSignal?.aborted).toBe(true);
     expect(result).toMatchObject({ status: 'error', type: 'timeout' });
     expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('classifies an MCP timeout after dispatch as outcome_unknown', async () => {
+    const id = 'mcp__demo__timeout';
+    const tool: Tool = {
+      ...echoTool,
+      id,
+      classification: 'unverified',
+      timeoutSeconds: 0.01,
+      execute: (context) => {
+        context.onMcpDispatchRecorded?.();
+        return new Promise<ToolResult>(() => {});
+      },
+    };
+    const result = await runTool(
+      tool,
+      { value: 'x' },
+      {
+        ...fakeContext(),
+        permissionPolicy: compileTestPermissionPolicy([id]),
+      },
+      15,
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
+  });
+
+  it('keeps an MCP timeout before dispatch as timeout', async () => {
+    const id = 'mcp__demo__pre-dispatch-timeout';
+    const tool: Tool = {
+      ...echoTool,
+      id,
+      classification: 'unverified',
+      timeoutSeconds: 0.01,
+      execute: () => new Promise<ToolResult>(() => {}),
+    };
+    const result = await runTool(
+      tool,
+      { value: 'x' },
+      {
+        ...fakeContext(),
+        permissionPolicy: compileTestPermissionPolicy([id]),
+      },
+      15,
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'timeout' });
+  });
+
+  it('classifies an MCP parent abort after dispatch as outcome_unknown', async () => {
+    const id = 'mcp__demo__abort';
+    const abort = new AbortController();
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const tool: Tool = {
+      ...echoTool,
+      id,
+      classification: 'unverified',
+      execute: (context) => {
+        context.onMcpDispatchRecorded?.();
+        started();
+        return new Promise<ToolResult>(() => {});
+      },
+    };
+    const resultPromise = runTool(
+      tool,
+      { value: 'x' },
+      {
+        ...fakeContext(),
+        abortSignal: abort.signal,
+        permissionPolicy: compileTestPermissionPolicy([id]),
+      },
+      15,
+    );
+    await startedPromise;
+    abort.abort();
+
+    await expect(resultPromise).resolves.toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
   });
 
   it('classifies a parent run abort as cancelled without logging it as an execution failure', async () => {

@@ -107,6 +107,19 @@ function prepareToolExecution(
   };
 }
 
+function contextWithMcpDispatchMarker(
+  context: ToolContext,
+  onRecorded: () => void,
+): ToolContext {
+  return {
+    ...context,
+    onMcpDispatchRecorded: () => {
+      onRecorded();
+      context.onMcpDispatchRecorded?.();
+    },
+  };
+}
+
 /** Structured refusal for a tool the model requested but is unavailable (D3/D6). */
 export function refusalResult(toolName: string): ToolResult {
   return {
@@ -278,10 +291,14 @@ async function executeAdmittedTool(
   callTimeoutSeconds: number,
 ): Promise<ToolResult> {
   const {
-    context: executionContext,
+    context: preparedContext,
     timeoutSignal,
     composedSignal,
   } = prepareToolExecution(tool, context, callTimeoutSeconds);
+  let mcpDispatchRecorded = false;
+  const executionContext = contextWithMcpDispatchMarker(preparedContext, () => {
+    mcpDispatchRecorded = true;
+  });
   try {
     const execution = Promise.resolve(
       tool.execute(executionContext, validArgs),
@@ -291,16 +308,50 @@ async function executeAdmittedTool(
       composedSignal,
       isBashTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
     );
-    if (
-      isHostCapabilityTool(tool) &&
-      result.status === 'error' &&
-      result.type === 'outcome_unknown'
-    )
-      context.onNativeMutationUnknown?.();
+    notifyUnknownOutcome(tool, context, result);
     return truncateOversizedResult(result);
   } catch (error) {
-    return classifyToolExecutionError(error, context, timeoutSignal, tool);
+    return classifyToolExecutionError(
+      error,
+      context,
+      timeoutSignal,
+      tool,
+      mcpDispatchRecorded,
+    );
   }
+}
+
+function unknownMcpExecution(context: ToolContext): ToolResult {
+  context.onNativeMutationUnknown?.();
+  return {
+    status: 'error',
+    type: 'outcome_unknown',
+    message: 'The MCP operation may have executed; it will not be repeated.',
+  };
+}
+
+function notifyUnknownOutcome(
+  tool: Tool,
+  context: ToolContext,
+  result: ToolResult,
+): void {
+  if (
+    (isHostCapabilityTool(tool) || tool.id.startsWith('mcp__')) &&
+    result.status === 'error' &&
+    result.type === 'outcome_unknown'
+  ) {
+    context.onNativeMutationUnknown?.();
+  }
+}
+
+function unknownNativeExecution(context: ToolContext): ToolResult {
+  context.onNativeMutationUnknown?.();
+  return {
+    status: 'error',
+    type: 'outcome_unknown',
+    message:
+      'The host command or mutation did not settle before interruption. Do not repeat it automatically.',
+  };
 }
 
 /** How a caught `tool.execute` failure resolves: the caller's own
@@ -312,15 +363,13 @@ function classifyToolExecutionError(
   context: ToolContext,
   timeoutSignal: AbortSignal,
   tool: Tool,
+  mcpDispatchRecorded: boolean,
 ): ToolResult {
+  if (tool.id.startsWith('mcp__') && mcpDispatchRecorded) {
+    return unknownMcpExecution(context);
+  }
   if (isBashTool(tool) || (isNativeFileTool(tool) && tool.id !== 'read')) {
-    context.onNativeMutationUnknown?.();
-    return {
-      status: 'error',
-      type: 'outcome_unknown',
-      message:
-        'The host command or mutation did not settle before interruption. Do not repeat it automatically.',
-    };
+    return unknownNativeExecution(context);
   }
   const toolId = tool.id;
   if (context.abortSignal?.aborted) {

@@ -261,6 +261,8 @@ describe('McpRuntimeService', () => {
     const tenantDb: TenantRunner = {
       runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
     };
+
+    const recorded = vi.fn();
     const result = await resolution.executor.execute(
       {
         runId: 'run-1',
@@ -269,12 +271,14 @@ describe('McpRuntimeService', () => {
         chatId: 'chat-1',
         tenantDb,
         toolCallId: 'call-1',
+        onMcpDispatchRecorded: recorded,
       },
       {},
     );
 
     expect(result).toEqual({ status: 'success', value: 'done' });
     expect(order).toEqual(['record', 'invoke', 'result']);
+    expect(recorded).toHaveBeenCalledOnce();
     expect(begin).toHaveBeenCalledWith({
       runId: 'run-1',
       userId: 'user-1',

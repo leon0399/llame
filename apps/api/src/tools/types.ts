@@ -61,6 +61,8 @@ export interface ToolContext {
   readonly nativeExecutorId?: string;
   /** The durable run.started event claimed by this worker delivery. */
   readonly nativeDeliverySequence?: number;
+  /** Marks an MCP dispatch once its durable native.attempt is committed. */
+  readonly onMcpDispatchRecorded?: () => void;
   /** Stops this Run when a native mutation cannot be safely settled. */
   readonly onNativeMutationUnknown?: () => void;
   /** Trusted per-call sink for a web read's derived-locator decisions; never model-visible. */
