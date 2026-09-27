@@ -65,7 +65,7 @@ The user message, semantic runtime reminder metadata, Run, and snapshot binding 
 
 The owner SHALL be able to retrieve an immutable context receipt for each new Run. The receipt SHALL contain the public model id, prompt source label, complete effective system prompt contents **including any rendered per-user context exactly as sent to the provider**, every bound tool id/description/input schema each marked as declared or discoverable, the `tool_search` declaration and the strategy label when one was bound, availability manifest version, content hash, availability hash, and snapshot timestamp. For observed v1 availability it SHALL also contain the safe eligible/unavailable entries and closed reason labels. For migrated v0 availability it SHALL instead contain only `state: "unobserved"` and SHALL NOT represent historical non-observation as an empty catalog. It MUST NOT contain the administrator's prompt-file path, MCP URL, configured header names or values, session id, raw remote error, server-only provider model id, provider credentials, executor implementation, or trusted authorization context. Non-owners SHALL receive a not-found response.
 
-Operator skill source/package/file paths intentionally published under `agent-skills` SHALL be permitted in the recorded model-visible skill contributions; this exception SHALL NOT expose prompt-file paths, Knowledge backing paths, credentials, or other private configuration.
+The canonical Workspace root narrated by the `workspace` producer and Workspace skill source/package/file paths SHALL be permitted in owner-only recorded model-visible context; operator skill source/package/file paths intentionally published under `agent-skills` SHALL likewise be permitted in recorded model-visible skill contributions. These host-path exceptions SHALL NOT expose prompt-file paths, Knowledge backing paths, credentials, or other private configuration.
 
 #### Scenario: Owner inspects a run carrying personalization
 
@@ -97,7 +97,7 @@ Operator skill source/package/file paths intentionally published under `agent-sk
 - **WHEN** the chat owner opens the effective-context receipt for a run using a per-model override
 - **THEN** the complete prompt contents and exact bound tool contract are displayed
 - **AND** the source is labeled `Model-specific override`
-- **AND** no host path is present
+- **AND** no private configuration host path is present; intentionally published operator skill paths remain visible
 
 #### Scenario: Owner inspects a default prompt
 
@@ -128,3 +128,9 @@ Operator skill source/package/file paths intentionally published under `agent-sk
 - **WHEN** a retry renders a different system prompt from an earlier failed attempt
 - **THEN** both prepared attempts have separate immutable system-only receipts
 - **AND** only the winning attempt's eligible context may enter committed model history
+
+#### Scenario: Owner inspects Workspace paths in effective context
+
+- **WHEN** the chat owner opens an effective-context receipt for a Run whose `workspace` producer narrated a canonical Workspace root and whose Workspace skill activation published source, package, or file paths
+- **THEN** the owner can see the canonical Workspace root and Workspace skill source/package/file paths in the recorded model-visible context
+- **AND** prompt-file paths, Knowledge backing paths, credentials, and other private configuration remain undisclosed

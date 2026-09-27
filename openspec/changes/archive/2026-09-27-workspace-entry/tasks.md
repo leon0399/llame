@@ -285,12 +285,12 @@ workspace_generation)`. Keep Workspace candidates and executors out of the proce
 
 ## 7. `workspace-entry/finalize`: spec sync and archive
 
-- [ ] 7.1 After every implementation layer is published, verified, and checked, create only the
+- [x] 7.1 After every implementation layer is published, verified, and checked, create only the
       finalize layer with `$gh-stack`, then run `$openspec-sync-specs`. Verify
       `pnpm exec openspec validate --specs --strict` and
       `pnpm exec openspec validate --all --strict`; this layer contains no application fix and no
       shipping record.
-- [ ] 7.2 Inspect `pnpm exec openspec status --change workspace-entry --json` and this task list;
+- [x] 7.2 Inspect `pnpm exec openspec status --change workspace-entry --json` and this task list;
       stop if an artifact or earlier task is incomplete. Complete this task as part of
       `$openspec-archive-change`, preserving checked history, and verify strict specs/all validation,
       Markdown lint, formatting, and `git diff --check` on the archived result.
