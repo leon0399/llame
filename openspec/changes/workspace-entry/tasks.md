@@ -204,12 +204,12 @@ implementation layers.
       allowlist, classification, and schema gates. Retain declaration keys on exit, switch, and
       detach while marking their executors unavailable; later calls receive a non-fatal unavailable
       refusal. Keep declarations and bound executors in active-attempt memory only; do not add a
-      Run-level column or persist a Run tool set. Verify next-step callability, re-entry or
-      root-switch re-adding an id with an identical in-memory declaration rebinds its executor, a
-      changed declaration contributes no executor this Run and reports
-      `available from the next Run`; a removed id is refused as unavailable, the step cap still
-      applies, and the next Run resolves Workspace tools from the live binding at start rather than
-      from prior Run state.
+      Run-level column or persist a Run tool set. Admit only ids in the adding server's
+      `mcp__<server>__` namespace. Verify next-step callability, re-entry or root-switch re-adding
+      an id with an identical in-memory declaration rebinds its executor, a changed declaration
+      contributes no executor this Run and is reported as available from the next Run, a
+      foreign-namespace id is refused, a removed id is refused as unavailable, and the step cap
+      still applies.
 - [ ] 5.3 Modify the `model-system-prompts` contract and carry its MODIFIED delta for trusted
       Workspace additions: carve them out of the fixed admitted-declaration rule for in-memory
       trusted additions only. Persist no addition record, schemas, descriptions, or hashes, and
@@ -257,8 +257,10 @@ Run`, retains operator executors for that Run, and shadows from the next Run aft
       Chat's currently admitted Workspace tools from the start of the next Run so
       `tool-availability` announces them. Verify malformed files and unsupported transports leave
       entry successful, failed servers are unavailable, a Workspace tool is callable in the entering
-      Run when it does not defer to an existing operator declaration, and the next Run starts the
-      generation-matching client set.
+      Run when it does not defer to an existing operator declaration, a changed re-added
+      declaration surfaces `available from the next Run` in the entry result, and the next Run
+      starts the generation-matching client set and resolves Workspace tools from the live binding
+      at its start rather than from prior Run state.
 - [ ] 6.5 Update `SPEC.md:132` to document per-process operator MCP clients plus per-Chat
       Workspace MCP clients. Document Workspace MCP config, interpolation, lifetime, generation
       keying, per-Chat resolver isolation, byte-equal deferred shadowing, case-only collision
