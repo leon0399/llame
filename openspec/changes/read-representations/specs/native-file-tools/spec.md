@@ -5,9 +5,14 @@
 `read` SHALL accept trailing one-based inclusive numeric selectors `:N-M`,
 `:N+K`, and comma-separated numeric selectors under the multi-range
 requirement below. It SHALL accept the two representation members `:raw` and
-`:outline`, each optionally followed by `:<ranges>`; `raw` retains its
-existing verbatim meaning, while `outline` is available only for supported
-Markdown content. A valid selector SHALL be normalized once to internal
+`:outline`. `raw` retains its existing verbatim meaning and its existing
+optional range forms. `outline` is available only for supported Markdown
+content and accepts at most one optional range, `:outline:N`, `:outline:N-M`,
+or `:outline:N+K`; a comma-separated list after `outline` is not a member and
+SHALL fail under each source's shipped precedence (`invalid_selector` for host
+and web, `invalid_path` for `kb://` and `skill://`), so the multi-range
+requirement below does not apply to outline output. A valid selector SHALL be
+normalized once to internal
 zero-based ranges. The tool SHALL recognize a `scheme://` prefix before
 splitting a trailing selector, so a scheme's own colon is never read as a
 selector. For absolute paths, existing literal paths SHALL take precedence
@@ -250,7 +255,7 @@ trailing-selector split (the last colon after the last slash) governs the
 rest, except that `:raw` and `:outline` representation forms are recognized
 before that last-colon fallback. A selector SHALL be split only from a locator
 that has a path and carries no `?` and no `#`, so a colon inside a query is
-part of the URL (`https://example.test/search?at=2026:10`) and the only colon
+part of the URL (`https://example.test/search?at=2026:10` is fetched as written) and the only colon
 of a pathless locator opens its port: `https://example.test:88` is port 88,
 `https://example.test/:88` is line 88 of the site root, and
 `https://example.test:88/:88` is line 88 served from port 88. A literal colon
@@ -258,12 +263,12 @@ in the last path segment of a query-free locator SHALL be written as `%3A`
 (`https://w.example/wiki/Special%3ASearch`), because a trailing colon is
 always read as a selector split and the shipped grammar admits `raw`,
 `raw:N`, `raw:N-M`, `N`, `N-M`, `N+K`, and comma lists of those, plus
-`outline`, `outline:N`, `outline:N-M`, `outline:N+K`, and `outline` followed
-by comma-separated numeric ranges. `Search` is outside it, so
+`outline`, `outline:N`, `outline:N-M`, and `outline:N+K`; a comma list after
+`outline` is outside the grammar. `Search` is outside it, so
 `https://w.example/wiki/Special:Search` fails as `invalid_selector`, while
 `https://w.example/docs/2024:10` selects line 10 and
 `https://w.example/docs/2024:10-20` lines 10 through 20 of
-`https://w.example/docs/2024`. A suffix `:outline:<ranges>` is split as the
+`https://w.example/docs/2024`. A suffix `:outline` or `:outline:<range>` is split as the
 outline representation before the last-colon fallback, so
 `https://h.example/p:outline:5` requests `https://h.example/p` and selects
 outline output line 5. A literal last-segment colon in a path intended to end
@@ -280,7 +285,8 @@ grammar cannot serve (`:12+`) SHALL be answered with the line forms first and
 the literal colon's encoding second; and a selector the render could not
 serve — past its end, or with no line in it — SHALL be answered with the
 number of lines the page rendered, which the model cannot know before reading
-it.
+it; for an `:outline` selector the answer SHALL instead report the number of
+outline output lines and suggest the `:outline:N` forms.
 
 #### Scenario: A web locator is fetched by the API process
 
@@ -458,6 +464,8 @@ heading starts at its text line and includes its underline line. A heading's
 section SHALL begin at that heading block and end at the line immediately
 before the next root heading whose depth is less than or equal to this
 heading's depth (the same or a shallower level), or at the source's last line.
+A section end SHALL NOT precede its start line: when the next boundary heading
+starts on the same native line, the section is that single line.
 A deeper heading SHALL remain inside the nearest preceding shallower section.
 Heading text SHALL be source-derived and untrusted; duplicate heading text
 SHALL remain separate, and no selector SHALL address a heading by name.
@@ -494,8 +502,16 @@ SHALL remain separate, and no selector SHALL address a heading by name.
 
 #### Scenario: Container headings are excluded
 
+- **WHEN** `- # in list` and `> ## in quote` precede `# Real` at line 3 of a three-line Markdown file
+- **THEN** the outline contains only `# Real [3-3]`
+- **AND** no entry is produced for the list-item or blockquote heading
+
+### Requirement: Authored frontmatter is distinct from derived outline structure
+
 Only a YAML block that starts at line 1 with `---` and closes with `---` or
-`...` SHALL be considered frontmatter. Every such closed block SHALL be
+`...` SHALL be considered frontmatter; a delimiter line matches when its content,
+after removing one trailing CR and any trailing spaces or tabs, is exactly
+`---` or `...`, so CRLF files are recognized. Every such closed block SHALL be
 excluded from heading parsing, even when its YAML is malformed or is not a
 mapping. String scalar keys named exactly `title` and `description` SHALL be
 emitted before headings as `[authored title] <value>` and
@@ -538,6 +554,12 @@ horizontal rule SHALL remain ordinary Markdown.
 - **WHEN** the first line is ordinary Markdown and a later line is `---`
 - **THEN** the later rule is parsed under CommonMark and no authored metadata block is created
 - **AND** any valid heading around it keeps its ordinary section boundaries
+
+#### Scenario: CRLF frontmatter is recognized
+
+- **WHEN** a CRLF Markdown file begins `---`, `title: X`, `---`, `# Body`, each line ending in CRLF
+- **THEN** the closed block is excluded from heading parsing and the outline emits `[authored title] X` and `# Body [4-4]`
+- **AND** no derived heading is produced from the YAML lines
 
 ### Requirement: Outline parsing and output obey explicit bounds
 
@@ -590,9 +612,9 @@ Markdown result: `negotiated` counts only when the response Content-Type is
 Markdown; `text`, `raw`, and `negotiated` `text/plain` are not. A future
 adapter result may opt in by labeling its output Markdown. Raw HTML, plain
 text, JSON, XML, and other non-Markdown text SHALL not be reinterpreted by
-appearance. A directory target, skill catalog, unsupported content type,
-invalid representation composition, or unsupported rendered web type SHALL
-return `invalid_selector` naming the requested member's accepted types. A
+appearance. A directory target, skill catalog, unsupported content type, or
+unsupported rendered web type SHALL return `invalid_selector` naming the
+requested member's accepted types. A
 plain read, including the existing directory or catalog listing, SHALL retain
 its result or error contract.
 

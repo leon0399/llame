@@ -10,9 +10,9 @@ framework both issues reject.
 
 ## What Changes
 
-- Add a representation slot whose members are `raw` and `outline`, each
-  optionally followed by the existing numeric range list. `:outline:<ranges>`
-  pages outline output lines exactly; source ranges printed in that output are
+- Add a representation slot whose members are `raw` and `outline`. `raw` keeps
+  its existing range forms; `outline` takes at most one range (`:outline:N`,
+  `:outline:N-M`, `:outline:N+K`), which pages outline output lines exactly; source ranges printed in that output are
   used with a subsequent ordinary read. Host and web splitters recognize the
   outline form before their last-colon fallback, while Knowledge and Skill
   selectors validate it as a member of the shared grammar.

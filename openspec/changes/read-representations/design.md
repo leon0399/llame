@@ -115,8 +115,12 @@ own input contract rather than being forced through decoded text.
 ### D2: Use `outline` as the representation spelling and preserve splitter precedence
 
 **Decision:** The representation slot accepts `:raw`, `:raw:<ranges>`,
-`:outline`, and `:outline:<ranges>`. The outline form is recognized before the
-last-colon numeric fallback, just as the existing raw form is recognized.
+`:outline`, and `:outline:<range>`, where an outline range is one `N`, `N-M`,
+or `N+K` and never a comma list. The outline form is recognized with the same
+suffix shape as the raw form (`/:outline(?::([^:/]*))?$/` beside the shipped
+`/:raw(?::([^:/]*))?$/`), after the raw form and before the last-colon numeric fallback, and its member
+text is then validated, so `:outline:1,3` is an `invalid_selector` rather than a
+path ending in `:outline` plus a multi-range.
 `outline:raw`, `raw:outline`, and other mixed forms are not members; each source
 applies its shipped precedence instead of a new blanket refusal. On host and
 web, `:outline:raw` is therefore the raw read of a path or URL ending in
@@ -126,8 +130,8 @@ and Skill reject either invalid suffix with `invalid_path`.
 `outline` does not match the current numeric grammar
 (`packages/native-file-tools/src/path.ts:216-225`). The host full-locator
 literal probe still runs first, but a non-existent full spelling ending in
-`:outline:<ranges>` or `:outline:raw` is no longer interpreted by the
-last-colon fallback as a different path and numeric selector. A literal colon
+`:outline:<range>` is no longer interpreted by the last-colon fallback as a
+path ending in `:outline` plus a numeric selector. A literal colon
 is written as `%3A` where the source grammar requires it. Knowledge and Skill
 split before decoding path segments (`apps/api/src/knowledge/knowledge-locator.ts:44-65`;
 `apps/api/src/skills/skill-locator.ts:61-80`). Web splits after a path
