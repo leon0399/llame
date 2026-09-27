@@ -16,8 +16,9 @@ normalized once to internal
 zero-based ranges. The tool SHALL recognize a `scheme://` prefix before
 splitting a trailing selector, so a scheme's own colon is never read as a
 selector. For absolute paths, existing literal paths SHALL take precedence
-over selector parsing; after that literal probe, an `:outline` form with an
-optional range list SHALL be recognized before the last-colon numeric fallback.
+over selector parsing; after that literal probe, an `:outline` form with at
+most one optional range SHALL be recognized after the `:raw` form and before
+the last-colon numeric fallback.
 A `kb://` path component SHALL NOT contain `:`, so the split is unambiguous
 without probing; its selector SHALL be validated as one of the two
 representation members or a numeric form. A `skill://` selector SHALL follow

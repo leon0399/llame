@@ -263,7 +263,9 @@ their text, links contribute link text, images contribute alt text, and inline
 HTML is dropped. Whitespace and line breaks collapse to one space and the
 result is trimmed. A heading section ends immediately before the next root
 heading whose depth is less than or equal to its own, or at the source's last
-line. The outline renderer writes each heading as
+line, and never before its own start line: when the next boundary heading
+starts on the same native line (a lone CR), the section is that single line.
+The outline renderer writes each heading as
 `<"#" repeated depth> <text> [<N>-<M>]`, with no generated line prefix or
 context expansion. Authored metadata and notes start with `[` and therefore
 cannot be confused with heading entries.
@@ -312,9 +314,10 @@ result format.
 
 ### D6: Treat closed frontmatter as a bounded authored header
 
-**Decision:** A frontmatter scanner recognizes a line-one YAML opener only
-when line 1 is exactly `---` and finds a later line containing only `---` or
-`...`. Every such closed span is blanked with newline-preserving placeholders
+**Decision:** A frontmatter scanner recognizes a line-one YAML opener and a
+later closer when each delimiter line, after removing one trailing CR and any
+trailing spaces or tabs, is exactly `---` (the closer may also be `...`), so
+CRLF files are recognized. Every such closed span is blanked with newline-preserving placeholders
 before Markdown parsing, regardless of whether YAML later parses it as a
 mapping. The API outline reader uses the installed `yaml` package to classify
 the span: a parse error or non-mapping emits the fixed bounded note, while a
