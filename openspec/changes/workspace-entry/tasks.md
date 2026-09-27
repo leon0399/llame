@@ -200,7 +200,7 @@ implementation layers.
 - [x] 4.4 Run the API checks from 1.9 for this layer and record them in the PR body.
 - [x] 4.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
-- [ ] 4.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 4.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `mid-run-tools` layer.
 
 ## 5. `workspace-entry/mid-run-tools`: SDK handle and in-memory additions
