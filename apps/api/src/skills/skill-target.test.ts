@@ -16,6 +16,7 @@ import {
   isSkillCatalogResult,
   resolveSkillLocator,
 } from './skill-target';
+import { workspaceSkillSources } from './workspace-skill-sources';
 
 let temporaryDirectories: Array<string> = [];
 
@@ -81,6 +82,49 @@ describe('resolveSkillLocator', () => {
       name: 'pdf',
       skillDirectory: path.join(source, 'pdf'),
     });
+  });
+
+  it('resolves a bound Workspace skill over an operator winner', async () => {
+    const operator = temporaryDirectory('operator');
+    const workspace = temporaryDirectory('workspace');
+    const [claude, agents, llame] = workspaceSkillSources(workspace);
+    mkdirSync(claude, { recursive: true });
+    mkdirSync(agents, { recursive: true });
+    mkdirSync(llame, { recursive: true });
+    createPackage(operator, 'review', { description: 'Operator review' });
+    createPackage(claude, 'review', { description: 'Claude review' });
+    createPackage(agents, 'review', { description: 'Agents review' });
+    createPackage(llame, 'review', { description: 'Llame review' });
+
+    const resolved = await resolveSkillLocator(
+      new SkillCatalog([operator]),
+      'review',
+      NO_SKILL_SELECTION,
+      workspaceSkillSources(workspace),
+    );
+
+    expect(resolved).toMatchObject({
+      hostPath: join(llame, 'review', 'SKILL.md'),
+      sourceDirectory: llame,
+      skillDirectory: join(llame, 'review'),
+    });
+  });
+
+  it('keeps a no-root resolver on operator skills only', async () => {
+    const operator = temporaryDirectory('operator-only');
+    const workspace = temporaryDirectory('workspace-only');
+    createPackage(operator, 'operator-only');
+    const [claude] = workspaceSkillSources(workspace);
+    mkdirSync(claude, { recursive: true });
+    createPackage(claude, 'workspace-only');
+
+    const resolved = await resolveSkillLocator(
+      new SkillCatalog([operator]),
+      'workspace-only',
+      NO_SKILL_SELECTION,
+    );
+
+    expect(resolved).toMatchObject({ status: 'error', type: 'not_found' });
   });
 
   it('resolves the trailing-slash form to the package directory', async () => {

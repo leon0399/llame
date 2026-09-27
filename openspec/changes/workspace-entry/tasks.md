@@ -140,12 +140,12 @@ implementation layers.
       the commands in the PR body.
 - [x] 2.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
-- [ ] 2.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 2.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `skills` layer.
 
 ## 3. `workspace-entry/skills`: Workspace skill sources
 
-- [ ] 3.1 Accept ordered extra sources in the skill catalog snapshot and pass the bound Chat's
+- [x] 3.1 Accept ordered extra sources in the skill catalog snapshot and pass the bound Chat's
       `.claude/skills`, `.agents/skills`, and `.llame/skills` sources to `skill://` reads, the turn
       skill state, and explicit activation (design D7). Missing, unreadable, non-directory, and
       over-limit Workspace sources contribute nothing, never make operator discovery unavailable,
@@ -153,13 +153,13 @@ implementation layers.
       `.claude`, a Workspace skill overrides an operator skill by name, another Chat sees only
       operator skills, `GET /api/v1/skills` is unchanged, and the case-folded/precedence catalog is
       isolated per Chat.
-- [ ] 3.2 List Workspace skills in the `enter_workspace` result and make them loadable in the
+- [x] 3.2 List Workspace skills in the `enter_workspace` result and make them loadable in the
       entering Run. Verify with a worker integration test that entry and `skill://<name>` read work
       in the same Run, and that the next accepted turn's catalog delta announces the new skills.
-- [ ] 3.3 Document Workspace skill sources in `docs/skills.md`; update `SPEC.md:196` so skill
+- [x] 3.3 Document Workspace skill sources in `docs/skills.md`; update `SPEC.md:196` so skill
       sources include Workspace sources while entered; add a dated `CHANGELOG.md` entry. Run the API
       checks from 1.9 for this layer and record them in the PR body.
-- [ ] 3.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+- [x] 3.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
 - [ ] 3.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `mcp-authorization` layer.

@@ -206,10 +206,22 @@ Operators publish reusable Agent Skills packages by configuring
 `skills.directories`: ordered collection directories whose immediate child
 directories are packages. Later sources override earlier ones by name, an
 invalid winner masks that name rather than substituting an earlier body, and
-only the configured list is scanned — no personal, workspace, bundled, or
-remote source is discovered implicitly. Invocation controls resolve first-present
-in `agents/llame.yaml`, `SKILL.md` frontmatter, then `agents/openai.yaml` order,
-so a package is either proactively eligible or manual-only.
+the operator catalog scans only that configured list — no personal, bundled,
+or remote source is discovered implicitly. Workspace sources are considered
+only for a Chat while it is entered into a Workspace. Invocation controls
+resolve first-present in `agents/llame.yaml`, `SKILL.md` frontmatter, then
+`agents/openai.yaml` order, so a package is either proactively eligible or
+manual-only.
+
+While a Chat is entered into a Workspace, its effective skill sources append
+`<root>/.claude/skills`, `<root>/.agents/skills`, and `<root>/.llame/skills`
+after the configured operator sources; `.llame/skills` therefore has the
+highest precedence. These sources are scoped to that Chat and are trusted by
+successful `enter_workspace` permission. Missing, unreadable, non-directory,
+and over-limit Workspace sources contribute nothing, do not make operator
+discovery unavailable, and do not count toward the 32-source operator bound.
+The operator catalog endpoint remains operator-only, while the entered Chat's
+`skill://` reads and skill-catalog notices use its effective sources.
 
 The `read` tool accepts read-only `skill://` locators. A successful read
 publishes the package's real absolute directory and the resolved file path,

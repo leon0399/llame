@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -7,6 +8,8 @@ import { parseSkillMentions } from './skill-mention';
 import { SkillCatalog } from './skill-catalog';
 import { nativeReadTool } from '../tools/native-files';
 import { type ToolContext, type ToolResult } from '../tools/types';
+import { createWorkspaceRootCell } from '../tools/workspace-path';
+import { workspaceSkillSources } from './workspace-skill-sources';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import { type PermissionDecision } from '../tools/permissions/types';
@@ -92,7 +95,12 @@ type AuditRecord = {
   readonly result?: ToolResult;
 };
 
-function harness(options: { readonly reject?: boolean } = {}) {
+function harness(
+  options: {
+    readonly reject?: boolean;
+    readonly workspaceRoot?: string;
+  } = {},
+) {
   const audit: Array<AuditRecord> = [];
   const context: ToolContext = {
     userId: 'owner',
@@ -106,6 +114,9 @@ function harness(options: { readonly reject?: boolean } = {}) {
     tenantDb: {
       runAs: () => Promise.reject(new Error('no database in this test')),
     },
+    ...(options.workspaceRoot !== undefined && {
+      workspaceRoot: createWorkspaceRootCell(options.workspaceRoot),
+    }),
   };
   return {
     audit,
@@ -120,8 +131,13 @@ function harness(options: { readonly reject?: boolean } = {}) {
     },
   };
 }
-
-const run = (text: string, overrides: { readonly reject?: boolean } = {}) => {
+const run = (
+  text: string,
+  overrides: {
+    readonly reject?: boolean;
+    readonly workspaceRoot?: string;
+  } = {},
+) => {
   const h = harness(overrides);
   return activateSkills({
     mentions: parseSkillMentions(text),
@@ -175,6 +191,22 @@ describe('activateSkills', () => {
 
     expect(outcome.items).toHaveLength(1);
     expect(texts(outcome.items)).toContain('# Review');
+  });
+
+  it('activates an explicitly named Workspace skill', async () => {
+    const workspace = temporaryDirectory('workspace');
+    const [, , llame] = workspaceSkillSources(workspace);
+    const packageDirectory = path.join(llame, 'review');
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(
+      path.join(packageDirectory, 'SKILL.md'),
+      '---\nname: review\ndescription: Workspace review\n---\n# Workspace review\n',
+    );
+
+    const { outcome } = await run('$review', { workspaceRoot: workspace });
+
+    expect(outcome.items).toHaveLength(1);
+    expect(texts(outcome.items)).toContain('# Workspace review');
   });
 
   it('reports an unknown skill as a bounded not_found failure', async () => {

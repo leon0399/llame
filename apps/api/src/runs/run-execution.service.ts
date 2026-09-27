@@ -203,6 +203,7 @@ import {
   createWorkspaceRootCell,
   type WorkspaceRootCell,
 } from '../tools/workspace-path';
+import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import { evaluatePermission } from '../tools/permissions/evaluator';
 import {
   formatTemporalAnchor,
@@ -722,6 +723,7 @@ export class RunExecutionService {
         input,
         attemptId,
         workspacePreparation.chat,
+        workspacePreparation.root,
       );
       attemptStagedParts = context.stagedParts;
       attemptRecencyDigestTold = context.recencyDigestTold;
@@ -1806,7 +1808,10 @@ export class RunExecutionService {
     nativeDeliverySequence: number,
     workspaceRoot: WorkspaceRootCell,
   ): Promise<ReadonlySet<string>> {
-    if (this.instanceConfig.config.skills.directories.length === 0) {
+    if (
+      this.instanceConfig.config.skills.directories.length === 0 &&
+      workspaceRoot.current() === undefined
+    ) {
       return new Set();
     }
     // `partsToText` keeps only text parts: not context items, tool output,
@@ -2716,6 +2721,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     attemptId: string,
     workspaceChat: Chat | undefined,
+    workspaceRoot: string | undefined,
   ): Promise<PreparedAttemptContext> {
     return this.tenantDb.runAs(input.userId, (tx) =>
       this.prepareAttemptContextInTransaction(
@@ -2723,6 +2729,7 @@ export class RunExecutionService {
         input,
         attemptId,
         workspaceChat,
+        workspaceRoot,
       ),
     );
   }
@@ -2732,6 +2739,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     attemptId: string,
     workspaceChat: Chat | undefined,
+    workspaceRoot: string | undefined,
   ): Promise<PreparedAttemptContext> {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
@@ -2740,6 +2748,7 @@ export class RunExecutionService {
       tx,
       input,
       workspaceChat,
+      workspaceRoot,
     );
     let catalog: AttemptToolCatalog;
     try {
@@ -2810,6 +2819,7 @@ export class RunExecutionService {
     tx: Db,
     input: ExecuteRunInput,
     workspaceChat: Chat | undefined,
+    workspaceRoot: string | undefined,
   ): Promise<AttemptPromptInputs> {
     const chatsRepo = new ChatsRepository(tx);
     const chat = workspaceChat;
@@ -2835,12 +2845,18 @@ export class RunExecutionService {
       compaction?.createdAt ?? chat.createdAt,
       instanceTimezone,
     );
+    const extraSources =
+      workspaceRoot === undefined
+        ? undefined
+        : workspaceSkillSources(workspaceRoot);
     const skillState = resolveTurnSkillState(
       {
         skillCatalog: this.skillCatalog,
         skillDirectories: this.instanceConfig.config.skills.directories,
-        // Operator-only: an unreadable catalog is logged, never shown to the
-        // model.
+        extraSources,
+        // Operator-facing: an unreadable operator catalog is logged, never
+        // shown to the model. Workspace-source failures are intentionally
+        // isolated by SkillCatalog and produce no diagnostic.
         reportUnavailable: (diagnostics) =>
           this.logger.warn(
             `skill_catalog_unavailable: ${diagnostics.join(' ')}`,

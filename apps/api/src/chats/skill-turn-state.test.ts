@@ -281,6 +281,64 @@ describe('the frozen skill-catalog baseline', () => {
     expect(state.told).toBeUndefined();
   });
 
+  it('does not freeze when no operator or Workspace sources are configured', () => {
+    const state = resolve(
+      deps({
+        skillDirectories: [],
+        skillCatalog: {
+          getSnapshot: () =>
+            snapshot({ entries: [entry('unexpected', 'Unexpected')] }),
+        },
+      }),
+      chat(),
+    );
+
+    expect(state.baseline).toBeUndefined();
+    expect(state.freeze).toBeUndefined();
+    expect(state.told).toBeUndefined();
+  });
+
+  it('freezes an available catalog when entries lack directory metadata', () => {
+    const state = resolve(
+      deps({
+        skillDirectories: [],
+        extraSources: ['/work/.llame/skills'],
+        skillCatalog: {
+          getSnapshot: () =>
+            snapshot({
+              directories: [],
+              entries: [entry('workspace-only', 'Workspace skill')],
+            }),
+        },
+      }),
+      chat(),
+    );
+
+    expect(state.baseline).toEqual({
+      entries: [{ name: 'workspace-only', description: 'Workspace skill' }],
+      omitted: 0,
+    });
+    expect(state.freeze).toBeDefined();
+  });
+
+  it('freezes an empty baseline for an effective source with no entries', () => {
+    const reported: Array<ReadonlyArray<string>> = [];
+    const state = resolve(
+      deps({
+        skillCatalog: {
+          getSnapshot: () => snapshot({ directories: [SOURCE], entries: [] }),
+        },
+        skillDirectories: [SOURCE],
+        reportUnavailable: (diagnostics) => reported.push(diagnostics),
+      }),
+      chat(),
+    );
+
+    expect(state.baseline).toEqual({ entries: [], omitted: 0 });
+    expect(state.freeze).toBeDefined();
+    expect(reported).toEqual([]);
+  });
+
   it('resolves the current catalog and freezes it on the chat', () => {
     const state = resolve(
       deps({
@@ -311,6 +369,65 @@ describe('the frozen skill-catalog baseline', () => {
       rebakedFrom: null,
     });
     expect(state.told).toEqual(['pdf']);
+  });
+
+  it('freezes Workspace-only skills for a bound Chat', () => {
+    const requested: Array<ReadonlyArray<string> | undefined> = [];
+    const state = resolve(
+      deps({
+        skillCatalog: {
+          getSnapshot: (extraSources) => {
+            requested.push(extraSources);
+            return snapshot({
+              entries: [entry('workspace-only', 'Workspace skill')],
+            });
+          },
+        },
+        skillDirectories: [],
+        extraSources: [
+          '/work/.claude/skills',
+          '/work/.agents/skills',
+          '/work/.llame/skills',
+        ],
+      }),
+      chat(),
+    );
+
+    expect(state.baseline).toEqual({
+      entries: [{ name: 'workspace-only', description: 'Workspace skill' }],
+      omitted: 0,
+    });
+    expect(requested).toEqual([
+      ['/work/.claude/skills', '/work/.agents/skills', '/work/.llame/skills'],
+    ]);
+  });
+
+  it('does not freeze a baseline when all Workspace sources are missing', () => {
+    const reported: Array<ReadonlyArray<string>> = [];
+    const state = resolve(
+      deps({
+        skillDirectories: [],
+        extraSources: [
+          '/missing/.claude/skills',
+          '/missing/.agents/skills',
+          '/missing/.llame/skills',
+        ],
+        skillCatalog: {
+          getSnapshot: () =>
+            snapshot({
+              directories: [],
+              entries: [],
+            }),
+        },
+        reportUnavailable: (diagnostics) => reported.push(diagnostics),
+      }),
+      chat(),
+    );
+
+    expect(state.baseline).toBeUndefined();
+    expect(state.freeze).toBeUndefined();
+    expect(state.told).toBeUndefined();
+    expect(reported).toEqual([]);
   });
 
   it('passes an empty baseline through when the catalog admits nothing', () => {
@@ -496,6 +613,40 @@ describe('the skill-catalog notice', () => {
     // the completed attempt's transaction, so this unit asserts the value
     // rather than the write.
     expect(state.told).toEqual(['pdf', 'research']);
+  });
+
+  it('announces a newly discovered Workspace skill in a continuing epoch', () => {
+    const state = resolve(
+      deps({
+        extraSources: ['/work/.claude/skills'],
+        skillCatalog: {
+          getSnapshot: (extraSources) => {
+            expect(extraSources).toEqual(['/work/.claude/skills']);
+            return snapshot({
+              entries: [
+                entry('pdf', 'Extract text'),
+                entry('workspace-only', 'Workspace skill'),
+              ],
+            });
+          },
+        },
+      }),
+      chat({
+        skillCatalogBaseline: {
+          entries: [{ name: 'pdf', description: 'Extract text' }],
+          omitted: 0,
+        },
+        skillCatalogRebakedFrom: null,
+        skillCatalogTold: ['pdf'],
+      }),
+    );
+
+    expect(state.notice?.item.data.payload).toMatchObject({
+      kind: 'delta',
+      added: [{ name: 'workspace-only', description: 'Workspace skill' }],
+      removed: [],
+    });
+    expect(state.told).toEqual(['pdf', 'workspace-only']);
   });
 
   it('announces a removal by name only', () => {

@@ -26,6 +26,7 @@ import {
   skillResultEnvelope,
 } from '../skills/skill-results';
 import { SKILL_LOCATOR_SCHEME } from '../skills/skill-locator';
+import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import {
   NO_SKILL_SELECTION,
   isSkillCatalogResult,
@@ -141,7 +142,7 @@ async function executeKnowledge(
  * Skill locators are read-only. The catalog resolves the current winning
  * package on every call, so a removed or newly invalid package fails here
  * rather than serving stale bytes, and no executor identity is needed: the
- * catalog reads the operator's own configured roots.
+ * catalog reads the operator roots plus the bound Chat's live Workspace roots.
  */
 async function executeSkill(
   context: ToolContext,
@@ -152,10 +153,14 @@ async function executeSkill(
   context.abortSignal?.throwIfAborted();
   const catalog = context.skillCatalog;
   if (catalog === undefined) return skillCatalogUnavailableResult();
+  const root = context.workspaceRoot?.current();
+  const extraSources =
+    root === undefined ? undefined : workspaceSkillSources(root);
   const resolved = await resolveSkillLocator(
     catalog,
     rest,
     context.skillSelection ?? NO_SKILL_SELECTION,
+    extraSources,
   );
   if ('status' in resolved) return resolved;
   if (isSkillCatalogResult(resolved)) {

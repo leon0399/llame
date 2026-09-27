@@ -11,6 +11,7 @@ import {
   compareSkillNames,
   type SkillCatalogPort,
   type SkillCatalogEntry,
+  type SkillCatalogSnapshot,
 } from './skill-catalog';
 import {
   type SkillCatalogBaseline,
@@ -27,26 +28,6 @@ export const SKILL_BASELINE_MAX_ENTRIES = 256;
 
 /** Cumulative UTF-8 bytes of admitted names and descriptions. */
 export const SKILL_BASELINE_MAX_BYTES = 16 * 1024;
-
-/**
- * The advertised set: a package is eligible when its invocation control permits
- * proactive use AND it is currently readable. An invalid package has no
- * instructions to advertise, and counting one as eligible-but-omitted would make
- * the `skills.omitted` line claim that unreadable skills are "available".
- *
- * `undefined` means discovery itself could not run — an unreadable, missing, or
- * oversized source. That is NOT the same as an empty catalog, and the caller
- * must not freeze it: freezing would bind an empty advertisement to the chat for
- * the whole compaction epoch and never self-heal, turning a transient `readdir`
- * failure into a silently absent skill section.
- */
-export function proactivelyEligible(
-  catalog: SkillCatalogPort,
-): ReadonlyArray<SkillCatalogEntry> | undefined {
-  const snapshot = catalog.getSnapshot();
-  if (!snapshot.available) return undefined;
-  return snapshot.entries.filter((entry) => entry.proactive && entry.available);
-}
 
 /**
  * Apply the admission bound: admit entries in code-point name order, retaining
@@ -86,9 +67,25 @@ export function boundSkillCatalog(
  */
 export function resolveSkillCatalogBaseline(
   catalog: SkillCatalogPort,
+  extraSources?: ReadonlyArray<string>,
 ): SkillCatalogBaseline | undefined {
-  const eligible = proactivelyEligible(catalog);
-  return eligible === undefined ? undefined : boundSkillCatalog(eligible);
+  const snapshot = catalog.getSnapshot(extraSources);
+  if (!snapshot.available) return undefined;
+  return resolveSkillCatalogBaselineFromSnapshot(snapshot);
+}
+
+/**
+ * Resolve an already-read snapshot without consulting the live catalog again.
+ * Worker preparation uses this after checking whether optional Workspace
+ * sources contributed any readable directories.
+ */
+export function resolveSkillCatalogBaselineFromSnapshot(
+  snapshot: SkillCatalogSnapshot,
+): SkillCatalogBaseline {
+  const eligible = snapshot.entries.filter(
+    (entry) => entry.proactive && entry.available,
+  );
+  return boundSkillCatalog(eligible);
 }
 
 /**

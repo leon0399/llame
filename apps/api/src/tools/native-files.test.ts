@@ -39,6 +39,7 @@ import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
 import { SKILL_PATH_INSTRUCTION } from '../skills/skill-target';
+import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import {
   type KnowledgeToolResolver,
   type ToolContext,
@@ -782,6 +783,7 @@ describe('skill locator resolution', () => {
     overrides: {
       readonly catalog?: SkillCatalogPort;
       readonly selection?: ReadonlySet<string>;
+      readonly workspaceRoot?: string;
     } = {},
   ): ToolContext {
     const base: ToolContext = {
@@ -794,6 +796,9 @@ describe('skill locator resolution', () => {
       tenantDb: {
         runAs: () => Promise.reject(new Error('Database unavailable')),
       },
+      ...(overrides.workspaceRoot !== undefined && {
+        workspaceRoot: createWorkspaceRootCell(overrides.workspaceRoot),
+      }),
     };
     return overrides.selection === undefined
       ? base
@@ -825,6 +830,53 @@ describe('skill locator resolution', () => {
   });
   afterEach(async () => {
     await rm(source, { recursive: true, force: true });
+  });
+
+  it('resolves Workspace skill locators live and isolates Chats without a root', async () => {
+    const workspace = join(source, 'workspace');
+    const [claude, agents, llame] = workspaceSkillSources(workspace);
+    await mkdir(claude, { recursive: true });
+    await mkdir(agents, { recursive: true });
+    await mkdir(llame, { recursive: true });
+    for (const [directory, description] of [
+      [claude, 'Claude pdf'],
+      [agents, 'Agents pdf'],
+      [llame, 'Llame pdf'],
+    ] as const) {
+      await mkdir(join(directory, 'pdf'), { recursive: true });
+      await writeFile(
+        join(directory, 'pdf', 'SKILL.md'),
+        `---\nname: pdf\ndescription: ${description}\n---\n# Workspace pdf\n`,
+      );
+    }
+    await mkdir(join(llame, 'workspace-only'), { recursive: true });
+    await writeFile(
+      join(llame, 'workspace-only', 'SKILL.md'),
+      '---\nname: workspace-only\ndescription: Workspace only\n---\n# Workspace only\n',
+    );
+
+    const workspaceResult = await runTool(
+      nativeReadTool,
+      { path: 'skill://pdf' },
+      skillContext({ workspaceRoot: workspace }),
+      5,
+    );
+    expect(workspaceResult).toMatchObject({
+      status: 'success',
+      skillDirectory: join(llame, 'pdf'),
+      sourceDirectory: llame,
+    });
+
+    const operatorResult = await runTool(
+      nativeReadTool,
+      { path: 'skill://workspace-only' },
+      skillContext(),
+      5,
+    );
+    expect(operatorResult).toMatchObject({
+      status: 'error',
+      type: 'not_found',
+    });
   });
 
   it('reads the package root and publishes the real paths and instruction', async () => {

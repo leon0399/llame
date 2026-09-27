@@ -104,6 +104,7 @@ import { resolveJsonSchema } from '../tools/schema-utils';
 import { KnowledgeSpaceLocalResolver } from '../knowledge/knowledge-space.local-resolver';
 import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
+import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import { turnTelemetryLogger } from './turn-telemetry';
@@ -483,6 +484,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
     maxStepsPerRun?: number;
     allowed?: Array<string>;
     nativeExecutorId?: string;
+    skillCatalog?: SkillCatalogPort;
+    skillDirectories?: ReadonlyArray<string>;
+    modelReferencesSkills?: boolean;
     searchIndex?: ChatSearchIndexer;
     reindexDispatch?: ChatReindexDispatcher;
     knowledgeResolver?: KnowledgeToolResolver;
@@ -505,6 +509,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const instanceConfig: InstanceConfigReader = {
       config: {
         ...BUILT_IN_DEFAULTS,
+        skills: {
+          directories:
+            overrides?.skillDirectories ?? BUILT_IN_DEFAULTS.skills.directories,
+        },
         tools: {
           nativeExecutorId: overrides?.nativeExecutorId,
           allowed: overrides?.allowed ?? ['search_conversations'],
@@ -516,7 +524,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
       },
     };
     const models: ModelSelectionValidator = {
-      validateModelSelection: vi.fn().mockReturnValue(testModelEntry),
+      validateModelSelection: vi.fn().mockReturnValue({
+        ...testModelEntry,
+        referencesSkills: overrides?.modelReferencesSkills ?? false,
+      }),
       resolveEffortSelection: vi.fn().mockReturnValue(undefined),
     };
     return new RunExecutionService(
@@ -527,8 +538,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       overrides?.searchIndex ?? new SearchIndexService(tenantDb),
       overrides?.reindexDispatch ?? noopReindexDispatch(),
       overrides?.knowledgeResolver ?? knowledgeResolver,
-      noopSkillCatalog(),
-
+      overrides?.skillCatalog ?? noopSkillCatalog(),
       overrides?.embedDispatch ?? noopEmbedDispatch(),
       noopQueryEmbedder(),
       compileTestPermissionPolicy([
@@ -756,6 +766,140 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
     } finally {
       await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('loads a Workspace skill in the entering Run and announces it next turn', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-skill-loop-'));
+    const operatorSource = mkdtempSync(
+      path.join(tmpdir(), 'workspace-skill-operator-'),
+    );
+    const skillName = 'workspace-skill';
+    const skillDescription = 'Use the Workspace skill for this task.';
+    const skillDirectory = path.join(root, '.llame', 'skills', skillName);
+    mkdirSync(skillDirectory, { recursive: true });
+    writeFileSync(
+      path.join(skillDirectory, 'SKILL.md'),
+      `---\nname: ${skillName}\ndescription: ${skillDescription}\n---\n\n# Workspace skill\n`,
+    );
+    const seeded = await seedBoundRun(`workspace-skill-${crypto.randomUUID()}`);
+    const service = serviceWithTools({
+      nativeExecutorId: 'workspace-test-host',
+      allowed: ['enter_workspace', 'read'],
+      skillCatalog: new SkillCatalog([operatorSource]),
+      skillDirectories: [operatorSource],
+      modelReferencesSkills: true,
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        if (turn === 1) {
+          return Promise.resolve(
+            jsonToolCallResponse('workspace-skill-enter', 'enter_workspace', {
+              path: root,
+            }),
+          );
+        }
+        if (turn === 2) {
+          return Promise.resolve(
+            jsonToolCallResponse('workspace-skill-read', 'read', {
+              path: `skill://${skillName}`,
+            }),
+          );
+        }
+        return Promise.resolve(textResponse('Workspace skill loaded.'));
+      },
+    });
+
+    try {
+      const execution = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await execution.consumeStream?.();
+
+      const firstEvents = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      expect(
+        firstEvents.find(
+          (event) =>
+            event.eventType === 'tool.completed' &&
+            isRecord(event.payload) &&
+            event.payload.toolCallId === 'workspace-skill-enter',
+        )?.payload,
+      ).toMatchObject({
+        output: {
+          status: 'success',
+          skills: [{ name: skillName, description: skillDescription }],
+        },
+      });
+      expect(
+        firstEvents.find(
+          (event) =>
+            event.eventType === 'tool.completed' &&
+            isRecord(event.payload) &&
+            event.payload.toolCallId === 'workspace-skill-read',
+        )?.payload,
+      ).toMatchObject({
+        output: {
+          status: 'success',
+          content: expect.stringContaining('# Workspace skill'),
+        },
+      });
+
+      const next = await tenantDb.runAs(userId, async (tx) => {
+        const nextMessageId = crypto.randomUUID();
+        const message = await new MessagesRepository(tx).create({
+          id: nextMessageId,
+          chatId: seeded.chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'continue with the Workspace' }],
+        });
+        const run = await new RunsRepository(tx).create({
+          chatId: seeded.chatId,
+          messageId: nextMessageId,
+          userId,
+          modelId: `test:workspace-skill-next-${crypto.randomUUID()}`,
+        });
+        return {
+          userMessage: message,
+          messageId: nextMessageId,
+          run,
+          key: 'workspace-skill-next',
+        };
+      });
+      const nextExecution = await executeSeeded(
+        { chatId: seeded.chatId, ...next },
+        service,
+        createMockModelClient(
+          new MockLanguageModelV3({
+            doStream: () =>
+              Promise.resolve(textResponse('Next turn complete.')),
+          }),
+        ),
+      );
+      await nextExecution.consumeStream?.();
+
+      const nextRun = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(next.run.id, userId),
+      );
+      expect(nextRun?.contextItems).toContainEqual(
+        expect.objectContaining({
+          producer: 'skill-catalog',
+          form: 'notice',
+          text: expect.stringContaining(
+            `\`${skillName}\`: ${skillDescription}`,
+          ),
+        }),
+      );
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(operatorSource, { recursive: true, force: true });
       rmSync(root, { recursive: true, force: true });
     }
   });

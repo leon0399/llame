@@ -4,6 +4,9 @@ import { z } from 'zod';
 
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
+import { boundSkillCatalog } from '../skills/skill-prompt-baseline';
+import { type SkillCatalogPort } from '../skills/skill-catalog';
+import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import { evaluatePermission } from './permissions/evaluator';
 import { permissionDeniedResult } from './permissions/messages';
 import { type PermissionDecision } from './permissions/types';
@@ -116,6 +119,38 @@ function transitionConflict(): ToolResult {
     message: 'Only one Workspace transition may run in a model step.',
   };
 }
+type WorkspaceSkillResult = {
+  readonly skills: ReadonlyArray<{
+    readonly name: string;
+    readonly description: string;
+  }>;
+  readonly skillsOmitted: number;
+};
+
+function workspaceSkillResult(
+  catalog: SkillCatalogPort | undefined,
+  root: string,
+): WorkspaceSkillResult {
+  if (catalog === undefined) return { skills: [], skillsOmitted: 0 };
+
+  const sources = workspaceSkillSources(root);
+  const snapshot = catalog.getSnapshot(sources);
+  if (!snapshot.available) return { skills: [], skillsOmitted: 0 };
+
+  const workspaceEntries = snapshot.entries.filter(
+    (entry) =>
+      entry.available &&
+      entry.proactive &&
+      entry.description !== null &&
+      entry.sourceDirectory !== null &&
+      sources.includes(entry.sourceDirectory),
+  );
+  const bounded = boundSkillCatalog(workspaceEntries);
+  return {
+    skills: bounded.entries,
+    skillsOmitted: bounded.omitted,
+  };
+}
 
 async function isCurrentDelivery(
   context: ToolContext,
@@ -135,6 +170,33 @@ function claimTransition(context: ToolContext): boolean {
     context.workspaceRoot === undefined ||
     context.workspaceRoot.claimTransition()
   );
+}
+
+async function bindCanonicalRoot(
+  context: ToolContext,
+  authority: NativeAuthority,
+  canonical: string,
+): Promise<ToolResult> {
+  const result = await context.tenantDb.runAs(context.userId, (db) =>
+    new WorkspaceBindingRepository(db).enter({
+      chatId: context.chatId,
+      ownerUserId: context.userId,
+      runId: authority.runId,
+      deliverySequence: context.nativeDeliverySequence,
+      executorId: authority.nativeExecutorId,
+      root: canonical,
+    }),
+  );
+  if (result.status === 'fence_lost') return executorUnavailable();
+  if (result.status !== 'unchanged') context.workspaceRoot?.commit(canonical);
+
+  return {
+    status: 'success',
+    root: canonical,
+    state: result.status,
+    authority: WORKSPACE_AUTHORITY,
+    ...workspaceSkillResult(context.skillCatalog, canonical),
+  };
 }
 
 export const enterWorkspaceTool: Tool<EnterWorkspaceInput> = {
@@ -169,25 +231,7 @@ export const enterWorkspaceTool: Tool<EnterWorkspaceInput> = {
     if (canonicalRejection !== undefined) return canonicalRejection;
 
     context.abortSignal?.throwIfAborted();
-    const result = await context.tenantDb.runAs(context.userId, (db) =>
-      new WorkspaceBindingRepository(db).enter({
-        chatId: context.chatId,
-        ownerUserId: context.userId,
-        runId: authority.runId,
-        deliverySequence: context.nativeDeliverySequence,
-        executorId: authority.nativeExecutorId,
-        root: canonical,
-      }),
-    );
-    if (result.status === 'fence_lost') return executorUnavailable();
-    if (result.status !== 'unchanged') context.workspaceRoot?.commit(canonical);
-
-    return {
-      status: 'success',
-      root: canonical,
-      state: result.status,
-      authority: WORKSPACE_AUTHORITY,
-    };
+    return bindCanonicalRoot(context, authority, canonical);
   },
 };
 
