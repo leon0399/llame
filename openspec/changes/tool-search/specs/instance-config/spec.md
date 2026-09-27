@@ -32,10 +32,9 @@ the model id and the key.
 
 #### Scenario: Threshold below any inventory entry cuts every MCP tool
 
-- **WHEN** a model entry sets `toolSearchThresholdTokens` below the inventory estimate of every eligible MCP tool
+- **WHEN** `search_tools` is admitted, the chat has no frozen MCP usage rank, and a model entry sets `toolSearchThresholdTokens` below the inventory estimate of every eligible MCP tool
 - **THEN** every MCP tool is recorded `unavailable` with reason `declaration_budget_exceeded`
-- **AND** no tool is discoverable, so `search_tools` is not declared
-- **AND** the admitted code-owned tools remain declared
+- **AND** no tool is discoverable, while `search_tools` and the other admitted code-owned tools remain declared
 
 #### Scenario: Invalid threshold fails startup
 

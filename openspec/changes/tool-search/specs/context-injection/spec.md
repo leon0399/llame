@@ -12,12 +12,13 @@ authenticated identity and datastore isolation, and SHALL never read another own
 A use SHALL be a stored tool part whose tool id is an MCP id and whose structured outcome is
 `success`; refused, unavailable, hallucinated, failed, and cancelled calls SHALL NOT count. The
 resolution SHALL consider only assistant messages created within the 90 days before resolution
-and at most the 2,000 most recent of them, across all of the owner's chats. Each assistant
-message containing at least one use of a tool SHALL contribute `0.5^(age / 14 days)` to that
+and at most the 2,000 most recent of them, across all of the owner's chats, whatever the terminal
+state of the Run that produced them, because a successful call is a use even when its Run later
+failed or was cancelled. Each assistant message containing at least one use of a tool SHALL contribute `0.5^(age / 14 days)` to that
 tool's score, where `age` is the time from the message's creation to resolution, so repeated uses
 within one message count once and a use loses half its weight every 14 days. The list SHALL
-contain every tool with at least one counted use, ordered by score descending, then by most
-recent use descending, then by id.
+order every tool with at least one counted use by score descending, then by most recent use
+descending, then by id, and SHALL keep the first 256 ids under that order.
 
 Uses SHALL be counted by tool id regardless of whether an operator or a Workspace server served
 them. The rank SHALL be persisted on the chat row under owner isolation together with the

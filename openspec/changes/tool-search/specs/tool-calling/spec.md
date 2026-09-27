@@ -17,7 +17,8 @@ frozen MCP usage rank (`context-injection`), restricted to MCP tools admitted in
 whose declarations fit the budget together with the inventory estimate, and every other admitted
 MCP tool SHALL be discoverable. An MCP tool absent from the rank SHALL NOT be declared while
 deferral is engaged. The inventory estimate SHALL cover the ids and admitted descriptions of the
-discoverable tools under every strategy. When the declared tier plus the inventory still exceed
+tools discoverable at the attempt's start under every strategy; tools added during the Run SHALL
+NOT be charged to it. When the declared tier plus the inventory still exceed
 the budget, discoverable tools SHALL be cut until it fits, unranked tools first in descending id
 order and then ranked tools from the lowest rank up; a cut tool SHALL be recorded unavailable with the closed reason
 `declaration_budget_exceeded` and SHALL NOT be declared, discoverable, searchable, or callable in
@@ -93,8 +94,11 @@ on `_` and `-` and against its neutralized description, ranking an exact id matc
 token match, then a description token match, and breaking ties by the chat's usage rank and then
 by id. `limit` SHALL default to 5 with a maximum of 20 and SHALL bound the total loaded; `select`
 SHALL accept at most 20 ids.
-Only the attempt's discoverable tools SHALL be candidates. The stored result SHALL be
-`{ status: 'success', loaded: [ids], notFound: [ids] }` and SHALL NOT contain declarations.
+Only the attempt's discoverable tools SHALL be candidates. A search SHALL load its matches in
+result order while the estimate of the declarations it loads stays within the model's
+declaration budget, and SHALL list the remaining matches under `notLoaded`, so one search never
+delivers more schema than the budget allows. The stored result SHALL be `{ status: 'success',
+loaded: [ids], notFound: [ids], notLoaded: [ids] }` and SHALL NOT contain declarations.
 
 A discoverable tool SHALL be loaded for a model request if and only if that request's projected
 context carries the result body of a `search_tools` observation that loaded it, or an earlier step
@@ -103,7 +107,8 @@ replacement record, SHALL NOT count as a load. Every tool a request
 declares, whether declared by tier or loaded, SHALL use the current attempt's admitted
 declaration; a loaded id that is no longer admitted SHALL NOT be declared, referenced, or
 callable. llame's execute wrapper SHALL refuse a call to a discoverable tool that is not loaded for
-the current request with the recorded `not_available` outcome before any executor runs.
+the current request with the recorded `not_available` outcome before any executor runs, and the
+refusal SHALL state that the tool loads through `search_tools`.
 
 Every call to a tool that `search_tools` loaded SHALL be evaluated against that tool's own
 permission group. A step whose only calls are `search_tools` SHALL count toward `maxStepsPerRun`.
@@ -129,6 +134,7 @@ permission group. A step whose only calls are `search_tools` SHALL count toward 
 
 - **WHEN** the model calls a discoverable tool that no visible `search_tools` observation loaded
 - **THEN** the call is recorded with the `not_available` outcome and no executor runs
+- **AND** the refusal the model receives names `search_tools` as the way to load it
 
 #### Scenario: A load carries into the next Run
 
@@ -182,6 +188,11 @@ permission group. A step whose only calls are `search_tools` SHALL count toward 
 - **WHEN** the model calls `search_tools` with `select` naming two discoverable ids, a `query` matching five others, and `limit` 4
 - **THEN** the two selected ids and the two best query matches are listed under `loaded`
 
+#### Scenario: One search never delivers more than the budget
+
+- **WHEN** the model selects three discoverable tools whose declarations together exceed the model's declaration budget but whose first two fit
+- **THEN** the first two are listed under `loaded` and the third under `notLoaded`
+
 ### Requirement: In-Run Workspace additions join the tool partition
 
 When a trusted Workspace entry adds MCP declarations to an active attempt, the attempt SHALL add
@@ -191,7 +202,9 @@ be engaged for the rest of the attempt: tools already declared SHALL stay declar
 present in the chat's usage rank SHALL be declared in rank order while they fit the remaining
 budget as a strict prefix, and every other addition SHALL be discoverable. `search_tools` is
 already declared whenever it is admitted, so no declaration other than a Workspace addition SHALL
-be inserted during a Run. Additions SHALL never be cut. A discoverable addition SHALL be added to the attempt's tool record
+be inserted during a Run. Additions SHALL never be cut and SHALL NOT be charged to the inventory
+estimate; an attempt whose declared tools exceed the budget after a mid-Run engagement SHALL keep
+them until its next attempt partitions from scratch. A discoverable addition SHALL be added to the attempt's tool record
 without being offered to the model under `harness`, and with the adapter's deferred-loading
 option under `native`. An addition whose executor becomes unavailable through exit, switch, or
 detach SHALL stop being a `search_tools` candidate. The next attempt SHALL partition the bound
@@ -245,17 +258,20 @@ set SHALL be the declared tier, which includes `search_tools`, plus the loaded t
 once the step cap is reached. A `search_tools` observation SHALL reach the model through the
 ordinary tool observation projection, listing its `loaded` and `notFound` ids.
 
-Under `native` on `anthropic-messages`, every admitted tool SHALL be sent, discoverable tools with
-the adapter's deferred-loading option and every other tool without it. A `search_tools` result
+Under `native` on `anthropic-messages`, every admitted tool that is not cut SHALL be sent,
+discoverable tools with the adapter's deferred-loading option and every other tool without it. A `search_tools` result
 SHALL reach the model, within its Run and on replay, as a tool result whose content is one text
 line summarizing the result followed by one tool reference per loaded id present in that
 request's tools. llame SHALL author no block-level cache marker.
 
-Under `native` on `openai-responses`, discoverable functions SHALL be sent with the adapter's
-deferred-loading option, `search_tools` SHALL be bound as the provider's client-executed tool
+Under `native` on `openai-responses`, discoverable functions that are not cut SHALL be sent with
+the adapter's deferred-loading option, `search_tools` SHALL be bound as the provider's client-executed tool
 search without an id enumeration, and a `search_tools` result SHALL reach the model, within its
 Run and on replay, as the provider's tool-search call and client tool-search output carrying the
-current attempt's declarations of the loaded ids present in that request's tools. The provider's
+current attempt's declarations of the loaded ids present in that request's tools. That output
+SHALL carry only loaded declarations: `notFound` and `notLoaded` stay in the stored record and the
+owner-visible tool part, and a search that loads nothing SHALL project as an output with no
+tools. The provider's
 `{ arguments, call_id }` input SHALL be unwrapped before the call is recorded, so the stored
 input is always the wire-neutral shape.
 
@@ -266,8 +282,11 @@ form, and SHALL carry only the string form when nothing is discoverable at the s
 
 Under `native`, reaching the step cap SHALL keep the request's tools and set the tool choice to
 none instead of removing every tool. Under every strategy, the context-window fit check SHALL
-measure the tools the request actually sends, and post-turn compaction SHALL send the same tools,
-with the same deferred-loading options, as the Run's last model request.
+estimate the tools as the provider renders them into model context: every declaration a request
+sends without deferral counts in full, a deferred tool on `anthropic-messages` counts nothing,
+and a deferred function on `openai-responses` counts only its name and description. Post-turn
+compaction SHALL send the same tools, with the same deferred-loading options, as the Run's last
+model request.
 
 The `native` projections SHALL apply only to `search_tools` pairs projected with their result
 body, and only in a request that carries the attempt's native tool set; every other request,
@@ -314,6 +333,11 @@ model whose admitted catalog does not change, loading a tool SHALL NOT change th
 
 - **WHEN** deferral is engaged under `harness` and the admitted MCP catalog alone would exceed the context window
 - **THEN** the fit check counts only the declared tier, `search_tools`, and loaded tools, and the request proceeds
+
+#### Scenario: The native fit check discounts deferred schemas
+
+- **WHEN** a `native` `anthropic-messages` model sends an admitted MCP catalog whose full schemas alone would exceed the context window, all but the declared tier deferred
+- **THEN** the fit check counts no deferred schema, and the request proceeds
 
 #### Scenario: OpenAI native replays a load as provider items
 

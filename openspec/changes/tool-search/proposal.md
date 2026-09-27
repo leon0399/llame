@@ -58,7 +58,8 @@ critical path.
   compaction, queue retry, and model switches without a new Run column.
 - Make **how loaded schemas reach the model** a per-model strategy, `models[].toolSearch`:
   `harness` (default, every wire) adds loaded tools to the declared set on later steps; `native`
-  keeps the `tools` array constant for the chat epoch and loads through the provider's own
+  keeps the `tools` array constant while the admitted catalog is unchanged, so loading a tool
+  never edits it, and loads through the provider's own
   append-only mechanism: deferred tools plus `tool_reference` results on `anthropic-messages`,
   and deferred functions plus `search_tools` bound as the provider's client-executed
   `tool_search` on `openai-responses`.

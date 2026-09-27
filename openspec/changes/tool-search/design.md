@@ -8,12 +8,12 @@ See `proposal.md` for motivation. Facts that shape the design, verified on 2026-
 
 - **Per-attempt catalogs.** The worker composes each attempt's admitted catalog in memory
   (`run-execution.service.ts:2825-2859`, `effective-context-resolver.ts:43-75`) and persists only a
-  system-prompt receipt (`db/schema/system-prompt-receipts.ts:11-13`). No declaration hash,
+  system-prompt receipt (`db/schema/system-prompt-receipts.ts:17-34`). No declaration hash,
   content hash, or availability manifest is stored; `runs.turn_tool_availability` keeps sorted
   `{id,state}` entries for the next turn's reminder diff and is written only on success
   (`run-execution.service.ts:387-393`, `2066-2069`). Workers execute only an exact
   declaration-hash match against the attempt's admitted catalog.
-- **One tool loop for every wire.** `applyToolCallingOptions` (`openai-model-client.ts:91-143`)
+- **One tool loop for every wire.** `applyToolCallingOptions` (`openai-model-client.ts:91-147`)
   is shared by the Responses, Chat Completions, and Messages clients; Codex and OpenCode Go
   compose over the first two. Its `prepareStep` returns `{ activeTools: [] }` once the step cap
   is reached, and `experimental_repairToolCall` turns a call to an inactive tool into llame's
@@ -35,7 +35,9 @@ type: 'tool-reference', toolName } } }` into a `tool_reference` block (`index.js
   ([tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool),
   [tool use with caching](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-use-with-prompt-caching)).
   Support is per model: the tool-search table lists Haiku 4.5, Sonnet 4.5/4.6 and the current
-  Opus, Fable and Mythos models; Sonnet 5 is absent. The adapter also emits mid-conversation
+  Opus, Fable and Mythos models; Sonnet 5 is absent. The adapter's own `docs/05-anthropic.mdx` lists a different set,
+  including `claude-sonnet-5`; the two disagree, so support stays the operator's per-model
+  declaration and spike 3.0 checks the operator's model. The adapter also emits mid-conversation
   `tool_addition`/`tool_removal` blocks from a `role: "system"` message's `toolChanges` option,
   under the reference-only `mid-conversation-tool-changes-2026-07-01` beta (`index.js:876-918`,
   `2291-2368`); that is the server-authored counterpart of a model search.
@@ -57,7 +59,8 @@ type: 'tool-reference', toolName } } }` into a `tool_reference` block (`index.js
 - **Frozen chat baselines.** The skill catalog and recency digest are resolved once per epoch,
   stored on the `chats` row with the compaction identity they were resolved under, reused while
   that identity matches the chat's latest compaction, and copied by owner forks
-  (`skill-turn-state.ts:86-90`, `chats-repository.ts:393-397`, `fork-copy.ts:89-93`).
+  (`skill-turn-state.ts:86-95`, `chats-repository.ts:305-320` and `393-397`,
+  `fork-copy.ts:89-93`).
 - **Where calls are recorded.** A settled assistant tool part is
   `{ type: 'tool-<id>', toolCallId, state, input, output?, errorText?, outcome }` inside
   `messages.parts` (`assistant-transcript.ts:307-348`), committed only with the winning
@@ -176,11 +179,12 @@ parts under owner RLS:
   refusals, hallucinated names, errors, and cancellations are not use;
 - the horizon is assistant messages created in `[T − 90 days, T)`, at most the 2,000 most
   recent, so resolution latency is bounded by a constant regardless of history size;
-- each assistant message (one per completed Run) containing at least one use of a tool adds
+- each committed assistant message (one per Run, whatever its terminal state, because a
+  successful call is a use even if its Run later failed) containing at least one use of a tool adds
   `0.5^(age / 14 days)` to that tool's score, so a Run that loops a tool thirty times counts
   once and a use loses half its weight every 14 days;
-- order is score descending, then most recent use descending, then id; the stored rank keeps at
-  most 256 ids.
+- order is score descending, then most recent use descending, then id; the stored rank keeps the first
+  256 ids under that order.
 
 Decay rather than a hard window keeps old habits from falling off a cliff at a rank refresh while
 this week's work still outranks last quarter's. At 90 days a use weighs about 1%, which is where
@@ -285,10 +289,13 @@ description, ranking exact id, then id token, then description token, ties by us
 id. `limit` defaults to 5, maximum 20, and bounds the total of both. Only discoverable ids of the current attempt are
 candidates; admitted-but-declared, cut, unavailable, and unadmitted ids never appear.
 
-The stored result is wire-neutral and small: `{ status: 'success', loaded: [ids], notFound: [...]
-}`. It holds ids, not schemas; schemas are delivered by the wire (D9) from the current catalog.
-That removes the previous revision's result-size accounting and its "loaded means delivered"
-truncation rule, because the recorded result is bounded by 20 ids.
+The stored result is wire-neutral and small: `{ status: 'success', loaded: [ids], notFound: [...],
+notLoaded: [...] }`. It holds ids, not schemas; schemas are delivered by the wire (D9) from the
+current catalog. Twenty ids are small to store but not to deliver, since an admitted MCP
+declaration may be up to 256 KiB, so a search loads its matches in order only while the estimate
+of the declarations it loads stays within the model's declaration budget, and lists the rest
+under `notLoaded`. One search therefore never delivers more schema than the budget that
+triggered deferral.
 
 `search_tools` is an ordinary code-owned tool, classified `read_only`, needing no tenant database
 access. Like every code-owned tool it needs its own exact `tools.allowed` entry and its own
@@ -343,7 +350,7 @@ under every strategy.
   with the cap in `prepareStep` (cap reached → `[]`). The `search_tools` observation replays through the ordinary text
   projection, listing the loaded ids. Loading a tool edits `tools` and costs one prefix miss on
   that wire; later steps and later Runs of the epoch see the same sorted set and hit again.
-- **`native` on `anthropic-messages`.** Every admitted tool is sent. Discoverable MCP tools carry
+- **`native` on `anthropic-messages`.** Every admitted tool that is not cut is sent. Discoverable MCP tools carry
   `deferLoading: true`; `search_tools` and every declared tool do not, which also satisfies
   Anthropic's requirement that at least one tool stays non-deferred. A `search_tools` observation
   projects as a tool result whose content is a short text line plus one `tool_reference` per
@@ -354,7 +361,10 @@ under every strategy.
 - **`native` on `openai-responses`.** Discoverable functions carry `deferLoading: true`;
   `search_tools` is bound as `openai.tools.toolSearch({ execution: 'client', parameters })`. The
   observation projects as a `search_tools` call with `{ call_id, arguments }` and a `json` output
-  `{ tools }` holding the current catalog's definitions of the loaded ids, which the adapter
+  `{ tools }` holding the current catalog's definitions of the loaded ids (only those: this
+  wire's loading form has no text, so `notFound` and `notLoaded` stay in the stored record and
+  the owner's tool part, and a search that loads nothing projects an empty `tools`), which the
+  adapter
   emits as `tool_search_call` and client `tool_search_output`. The SDK hands the tool
   `{ arguments, call_id }`; llame unwraps it before the call is recorded, so the stored input is
   always D7's shape and the projection rebuilds `{ call_id: toolCallId, arguments }`.
@@ -382,10 +392,12 @@ Three request paths must carry the tools the model actually got, not the admitte
   holds references. Under `native` the cap instead keeps `tools` and sets `toolChoice: 'none'`,
   which forbids calls; on Anthropic that invalidates the message cache once, at the cap only.
   `harness` keeps `activeTools: []`.
-- **The context-fit check** (`ensureRequestFitsContextWindow`) measures the delivered set:
-  declared tools plus `search_tools` under `harness`, and every sent tool with its deferral flag
-  under `native`, instead of every admitted declaration. Otherwise the over-budget catalog this
-  change exists for would still trip it.
+- **The context-fit check** (`ensureRequestFitsContextWindow`) estimates tools as the provider
+  renders them, not as llame sends them: a declaration sent without deferral counts in full, a
+  deferred tool on `anthropic-messages` counts nothing (it is excluded from the rendered
+  prefix), and a deferred function on `openai-responses` counts only its name and description.
+  Counting the sent set in full would make `native` trip on exactly the over-budget catalog this
+  change exists for.
 - **Post-turn compaction** sends the same tools as the Run's last request, with the same deferral
   flags, so its prefix matches and its replayed references resolve.
 
@@ -401,7 +413,10 @@ request with the recorded `not_available` outcome before any executor runs. Unde
 SDK refuses earlier through `activeTools`; under `native` the deferred declaration is in the
 request, so the wrapper is the only gate. llame cannot author the SDK's refusal text for
 inactive tools (`Model tried to call unavailable tool '<id>'. Available tools: …`); because
-`search_tools` is active whenever it is admitted, that text already points the model at it. The
+`search_tools` is active whenever it is admitted, that text already points the model at it under
+`harness`. Under `native` the wrapper's refusal is the model's only signal, so for a
+discoverable tool it states that the tool loads through `search_tools` instead of the generic
+`Tool "<id>" is not available.` The
 loading guidance lives in the `search_tools` description, so the packaged system prompt and its
 receipt hash are unchanged for every Run.
 
@@ -553,3 +568,9 @@ admitted tool, as today; no stored state is misread. Rollback leaves unused colu
   post-turn compaction use the delivered tools; cut order puts unranked tools first; `select`
   plus `query` semantics; availability disclosure treats discoverable tools as callable; spec
   deltas modify the contradicting main requirements instead of adding beside them.
+- v5 (2026-09-27): PR feedback: a search loads only within the declaration budget and reports
+  `notLoaded`; the context-fit check estimates tools as the provider renders them; native wires
+  send admitted non-cut tools; the native refusal names `search_tools`; the OpenAI loading form
+  carries loaded declarations only; the rank counts uses from Runs of any terminal state and keeps
+  its first 256 ids; tools added mid-Run are not charged to the inventory; citation ranges
+  corrected.
