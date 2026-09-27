@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-27
 
+- Git hooks now check only what changed. `pre-push` used to run
+  `format:check`, the full `lint` chain and `typecheck` on every push, so a
+  Markdown-only push took more than two minutes. Now prettier and
+  markdownlint check only the pushed files. oxlint with Turbo lint, knip,
+  jscpd, the complexity gate and typecheck still run over the whole graph, but
+  only when code or its config changed. A docs-only push measured 3.8 s.
+  `pre-commit` markdown lint also checks only the staged files. When `@{push}`
+  does not resolve, Lefthook diffs against `origin/master`, so a new branch
+  checks every file it adds relative to `master`. CI still runs every check
+  over the whole repository.
+
 - **BREAKING:** MCP tools are now classified `unverified`: an exact
   `tools.allowed` entry or namespace wildcard selects eligibility, and each
   call requires an applicable `tools.permissions` group. Operators must ensure
