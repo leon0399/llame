@@ -1,3 +1,5 @@
+import { tool, type ToolSet } from 'ai';
+import { z } from 'zod';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 
@@ -19,6 +21,7 @@ import { SkillCatalog } from '../skills/skill-catalog';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { resolveAdvertisedTools, TOOL_REGISTRY } from './registry';
 import { runTool } from './runner';
+import { AttemptToolAdditions } from './attempt-tool-additions';
 import type { ToolContext } from './types';
 import {
   enterWorkspaceTool,
@@ -57,6 +60,65 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
     permissionPolicy: permissivePolicy(),
     ...overrides,
   };
+}
+
+function seededAdditions() {
+  const id = 'mcp__workspace__added';
+  const executor = {
+    id,
+    description: 'Added tool.',
+    classification: 'unverified' as const,
+    inputSchema: z.strictObject({}),
+    execute: () => ({ status: 'success' as const }),
+  };
+  const record: ToolSet = {};
+  const additions = new AttemptToolAdditions({
+    allowedToolRules: ['mcp__workspace__*'],
+    callTimeoutSeconds: 15,
+    boundExecutables: new Map([
+      [
+        id,
+        {
+          declaration: {
+            id,
+            description: executor.description,
+            inputSchema: { type: 'object', properties: {} },
+          },
+          executor,
+          server: 'workspace',
+        },
+      ],
+    ]),
+    createTool: (declaration) =>
+      tool({
+        description: declaration.description,
+        inputSchema: z.strictObject({}),
+        execute: () => ({ status: 'success' as const }),
+      }),
+    persist: () => Promise.resolve(true),
+  });
+  additions.bindToolRecord(record);
+  record[id] = tool({
+    description: executor.description,
+    inputSchema: z.strictObject({}),
+    execute: () => ({ status: 'success' as const }),
+  });
+  return { additions, id, record };
+}
+function expectUnavailableAddition(
+  additions: AttemptToolAdditions,
+  record: ToolSet,
+  id: string,
+  toolContext: ToolContext,
+): void {
+  expect(record[id]).toBeDefined();
+  const executor = additions.executorFor(id);
+  if (executor === undefined) throw new Error('Missing retained executor.');
+  const result = executor.execute(toolContext, {});
+  expect(result).toMatchObject({
+    status: 'error',
+    type: 'not_available',
+  });
 }
 
 type Deferred<T> = {
@@ -862,5 +924,50 @@ describe('Workspace host tools', () => {
     });
     expect(cell.commit).toHaveBeenCalledTimes(1);
     expect(cell.commit).toHaveBeenCalledWith(undefined);
+  });
+  it('disables retained additions after exit and root switch', async () => {
+    const exitFixture = seededAdditions();
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'exit').mockResolvedValue({
+      status: 'cleared',
+      previousRoot: root,
+      generation: 2,
+    });
+    const exitContext = context({
+      workspaceRoot: createWorkspaceRootCell(root),
+      toolAdditions: exitFixture.additions,
+    });
+    await expect(
+      exitWorkspaceTool.execute(exitContext, {}),
+    ).resolves.toMatchObject({
+      state: 'exited',
+    });
+    expectUnavailableAddition(
+      exitFixture.additions,
+      exitFixture.record,
+      exitFixture.id,
+      exitContext,
+    );
+
+    const switchFixture = seededAdditions();
+    const nextRoot = join(root, 'next');
+    await mkdir(nextRoot);
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
+      status: 'switched',
+      previousRoot: root,
+      generation: 2,
+    });
+    const switchContext = context({
+      workspaceRoot: createWorkspaceRootCell(root),
+      toolAdditions: switchFixture.additions,
+    });
+    await expect(
+      enterWorkspaceTool.execute(switchContext, { path: nextRoot }),
+    ).resolves.toMatchObject({ state: 'switched' });
+    expectUnavailableAddition(
+      switchFixture.additions,
+      switchFixture.record,
+      switchFixture.id,
+      switchContext,
+    );
   });
 });

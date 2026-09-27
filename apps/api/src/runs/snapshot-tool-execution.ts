@@ -62,7 +62,7 @@ function invalidDeclaration(message: string): never {
   );
 }
 
-function unavailableExecutor(declaration: ModelToolDeclaration): Tool {
+export function unavailableExecutor(declaration: ModelToolDeclaration): Tool {
   return {
     id: declaration.id,
     description: declaration.description,

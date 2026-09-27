@@ -11,6 +11,7 @@ import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { type CompiledPolicy } from './permissions/types';
 import { type WorkspaceRootCell } from './workspace-path';
+import { type AttemptToolAdditions } from './attempt-tool-additions';
 import { type DerivedDecision } from './web-read/admission';
 
 /**
@@ -103,6 +104,10 @@ export interface ToolContext {
   readonly permissionPolicy?: CompiledPolicy;
   /** Attempt-scoped Workspace root; changes become visible at the next model step. */
   readonly workspaceRoot?: WorkspaceRootCell;
+  /** Trusted one-based model step for in-Run Workspace additions. */
+  readonly toolStep?: number;
+  /** Trusted handle for adding Workspace declarations during this attempt. */
+  readonly toolAdditions?: AttemptToolAdditions;
 }
 
 /** SPEC §13.5 classification. Code-owned non-read-only execution requires an

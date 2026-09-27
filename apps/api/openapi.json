@@ -3562,6 +3562,29 @@
           "createdAt"
         ]
       },
+      "AddedToolResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Exact admitted tool id."
+          },
+          "source": {
+            "type": "string",
+            "enum": ["workspace-mcp"],
+            "description": "Declaration source."
+          },
+          "server": {
+            "type": "string",
+            "description": "Workspace MCP server name."
+          },
+          "step": {
+            "type": "integer",
+            "description": "Model step in which the declaration was added."
+          }
+        },
+        "required": ["id", "source", "server", "step"]
+      },
       "ContextReceiptResponse": {
         "type": "object",
         "properties": {
@@ -3593,12 +3616,19 @@
               "$ref": "#/components/schemas/AttemptReceiptResponse"
             }
           },
+          "addedTools": {
+            "description": "Workspace tool declarations added during this Run. Only ids and minimal source/server/step provenance are disclosed.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddedToolResponse"
+            }
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
           }
         },
-        "required": ["modelId", "state", "receipts", "createdAt"]
+        "required": ["modelId", "state", "receipts", "addedTools", "createdAt"]
       },
       "UpdateRunDto": {
         "type": "object",

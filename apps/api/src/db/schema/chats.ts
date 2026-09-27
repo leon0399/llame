@@ -357,6 +357,13 @@ export type RunContextItem = {
   readonly residency: 'prefix' | 'rail';
   readonly text: string;
 };
+/** Minimal owner-only record for a Workspace declaration added mid-Run. */
+export type AddedToolDeclaration = {
+  readonly id: string;
+  readonly source: 'workspace-mcp';
+  readonly server: string;
+  readonly step: number;
+};
 
 export const runs = pgTable(
   'runs',
@@ -433,6 +440,13 @@ export const runs = pgTable(
     turnToolAvailability: jsonb('turn_tool_availability').$type<
       Array<TurnToolAvailabilityEntry>
     >(),
+    // Workspace declarations added during this Run, in occurrence order.
+    // The owner receipt exposes only this shape; schemas/descriptions/hashes
+    // are intentionally never persisted.
+    addedToolDeclarations: jsonb('added_tool_declarations')
+      .$type<Array<AddedToolDeclaration>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
   },
   (t) => [
     index('runs_chat_created_idx').on(t.chatId, t.createdAt),

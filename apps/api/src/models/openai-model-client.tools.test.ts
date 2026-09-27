@@ -271,6 +271,95 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
       ]),
     );
   });
+  it('re-reads the mutable SDK tool record on the next step', async () => {
+    const model = scriptedModel([
+      toolResponse([{ toolName: 'add_tool', input: '{}' }]),
+      toolResponse([{ toolName: 'added_tool', input: '{}' }]),
+      textResponse(),
+    ]);
+    let assignedTools: ToolSet | undefined;
+    let addedToolExecuted = false;
+    const mutableTools: ToolSet = {
+      add_tool: tool({
+        inputSchema: z.object({}),
+        execute: () => {
+          if (assignedTools === undefined) {
+            throw new Error('SDK tool record was not assigned.');
+          }
+          assignedTools.added_tool = tool({
+            inputSchema: z.object({}),
+            execute: () => {
+              addedToolExecuted = true;
+              return 'added';
+            },
+          });
+          return 'added to the next step';
+        },
+      }),
+    };
+    const client = buildClient(model);
+
+    await expect(
+      client.streamText({
+        chat: CHAT,
+        messages,
+        tools: mutableTools,
+        maxSteps: 3,
+        onToolSet: (record) => {
+          assignedTools = record;
+        },
+      }).text,
+    ).resolves.toBe('done');
+
+    expect(addedToolExecuted).toBe(true);
+    expect(model.doStreamCalls[1]?.tools).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'added_tool' })]),
+    );
+  });
+  it('keeps additions behind the one-step cap', async () => {
+    const model = scriptedModel([
+      toolResponse([{ toolName: 'add_tool', input: '{}' }]),
+      textResponse(),
+    ]);
+    let assignedTools: ToolSet | undefined;
+    let addedToolExecuted = false;
+    const mutableTools: ToolSet = {
+      add_tool: tool({
+        inputSchema: z.object({}),
+        execute: () => {
+          if (assignedTools === undefined) {
+            throw new Error('SDK tool record was not assigned.');
+          }
+          assignedTools.added_tool = tool({
+            inputSchema: z.object({}),
+            execute: () => {
+              addedToolExecuted = true;
+              return 'added';
+            },
+          });
+          return 'added to the next step';
+        },
+      }),
+    };
+    const onCapReached = vi.fn();
+
+    await expect(
+      buildClient(model).streamText({
+        chat: CHAT,
+        messages,
+        tools: mutableTools,
+        maxSteps: 1,
+        onCapReached,
+        onToolSet: (record) => {
+          assignedTools = record;
+        },
+      }).text,
+    ).resolves.toBe('done');
+
+    expect(onCapReached).toHaveBeenCalledTimes(1);
+    expect(addedToolExecuted).toBe(false);
+    expect(model.doStreamCalls[1]?.tools ?? []).toHaveLength(0);
+  });
 
   it('preserves provider-defined tools', async () => {
     const model = scriptedModel([textResponse()]);

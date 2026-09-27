@@ -25,6 +25,7 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { RunsRepository } from '../runs/runs-repository';
 import { toSharedChatResponse } from './dto/chats.dto';
 import { isTextPart } from './context-builder';
 
@@ -199,17 +200,55 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
 
   it('getSharedChat: public returns a title-stripped DTO; private returns undefined', async () => {
     const pub = await seedChat('public');
+    const [userMessage] = await tenantDb.runAs(owner, (tx) =>
+      new MessagesRepository(tx).findByChatId(pub, owner),
+    );
+    if (!userMessage) throw new Error('Expected seeded user message');
+    const run = await tenantDb.runAs(owner, (tx) =>
+      new RunsRepository(tx).create({
+        chatId: pub,
+        messageId: userMessage.id,
+        userId: owner,
+        modelId: 'system:test',
+      }),
+    );
+    const started = await tenantDb.runAs(owner, (tx) =>
+      new RunsRepository(tx).markStarted(run.id, owner),
+    );
+    const attemptId = started?.activeAttemptId;
+    if (!attemptId) throw new Error('Expected run attempt');
+    await expect(
+      tenantDb.runAs(owner, (tx) =>
+        new RunsRepository(tx).appendAddedToolDeclarations(
+          run.id,
+          owner,
+          attemptId,
+          [
+            {
+              id: 'PRIVATE_ADDED_TOOL',
+              source: 'workspace-mcp',
+              server: 'private',
+              step: 2,
+            },
+          ],
+        ),
+      ),
+    ).resolves.toBe(true);
+
     const shared = await service.getSharedChat(pub);
     expect(shared).toBeDefined();
     const dto = toSharedChatResponse(shared!.chat, shared!.messages);
-    // Reasoning is stripped; only text parts survive.
     const serialized = JSON.stringify(dto);
+    // Added-tool receipts are owner-only run metadata, never part of a public
+    // chat projection.
+    expect(serialized).not.toContain('addedTools');
+    expect(serialized).not.toContain('PRIVATE_ADDED_TOOL');
+    // Reasoning is stripped; only text parts survive.
     expect(serialized).not.toContain('PRIVATE_THINKING');
     expect(serialized).toContain('the public answer');
     // No identity fields.
     expect(serialized).not.toContain('senderUserId');
     expect(serialized).not.toContain(owner);
-
     const priv = await seedChat('private');
     expect(await service.getSharedChat(priv)).toBeUndefined();
   });

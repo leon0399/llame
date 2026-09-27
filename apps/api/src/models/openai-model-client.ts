@@ -97,6 +97,7 @@ export function applyToolCallingOptions(
   // Always set strict: false — Responses may rewrite omitted strict into
   // required-nullable optionals; Chat Completions ignores the flag.
   streamOptions.tools = disableStrictToolSchemas(input.tools);
+  input.onToolSet?.(streamOptions.tools);
   if (input.toolChoice !== undefined) {
     streamOptions.toolChoice = input.toolChoice;
   }

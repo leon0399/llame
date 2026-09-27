@@ -102,6 +102,21 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
     if (!isString(firstAttemptId) || !isString(secondAttemptId)) {
       throw new Error('Expected worker attempts to be assigned');
     }
+    await tenantDb.runAs(ownerId, (tx) =>
+      new RunsRepository(tx).appendAddedToolDeclarations(
+        run.id,
+        ownerId,
+        secondAttemptId,
+        [
+          {
+            id: 'mcp__workspace__search',
+            source: 'workspace-mcp',
+            server: 'workspace',
+            step: 3,
+          },
+        ],
+      ),
+    );
 
     await tenantDb.runAs(ownerId, (tx) =>
       tx.insert(systemPromptReceipts).values([
@@ -155,6 +170,14 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
           promptHash: 'second-prompt-hash',
         },
       ],
+      addedTools: [
+        {
+          id: 'mcp__workspace__search',
+          source: 'workspace-mcp',
+          server: 'workspace',
+          step: 3,
+        },
+      ],
     });
     for (const field of [
       'tools',
@@ -164,6 +187,9 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
     ]) {
       expect(ownerResponse.body).not.toHaveProperty(field);
     }
+    expect(JSON.stringify(ownerResponse.body)).not.toMatch(
+      /inputSchema|toolDescription|declarationHash|toolEndpoint|endpoint/i,
+    );
     expect(JSON.stringify(ownerResponse.body)).not.toMatch(
       /ownerUserId|runId|providerModelId|credential|executor|path|\/home\//i,
     );

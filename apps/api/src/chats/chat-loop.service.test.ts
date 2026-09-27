@@ -88,6 +88,7 @@ const run: Run = {
   activeAttemptId: null,
   completedAttemptId: null,
   turnToolAvailability: null,
+  addedToolDeclarations: [],
   cancelRequestedAt: null,
   error: null,
   contextItems: null,

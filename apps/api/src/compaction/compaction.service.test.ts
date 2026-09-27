@@ -98,6 +98,7 @@ const sourceRun: Run = {
   activeAttemptId: null,
   completedAttemptId: sourceAttemptId,
   turnToolAvailability: [],
+  addedToolDeclarations: [],
   status: 'completed',
   workerId: null,
   cancelRequestedAt: null,

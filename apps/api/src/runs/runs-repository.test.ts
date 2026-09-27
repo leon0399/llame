@@ -1,7 +1,12 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
-import { type Run, type RunContextItem, type RunEvent } from '../db/schema';
+import {
+  type AddedToolDeclaration,
+  type Run,
+  type RunContextItem,
+  type RunEvent,
+} from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import {
   failRunTransactionally,
@@ -116,6 +121,7 @@ const run: Run = {
   activeAttemptId: null,
   completedAttemptId: null,
   turnToolAvailability: null,
+  addedToolDeclarations: [],
   status: 'queued',
   workerId: null,
   cancelRequestedAt: null,
@@ -333,6 +339,49 @@ describe('RunsRepository', () => {
     expect(queries).toHaveLength(1);
     expect(queries[0]?.sql).toContain('"runs"."active_attempt_id" = $');
     expect(queries[0]?.params).toContain('attempt-1');
+  });
+  it('appends added declarations while fencing the active attempt', async () => {
+    const entries: ReadonlyArray<AddedToolDeclaration> = [
+      {
+        id: 'mcp__workspace__lookup',
+        source: 'workspace-mcp',
+        server: 'workspace',
+        step: 2,
+      },
+    ];
+    const { db, calls } = makeDb({ update: [[run]] });
+
+    await expect(
+      new RunsRepository(db).appendAddedToolDeclarations(
+        run.id,
+        run.userId,
+        'attempt-1',
+        entries,
+      ),
+    ).resolves.toBe(true);
+
+    const set = calls.find(({ method }) => method === 'set')?.args[0];
+    expect(set).toHaveProperty('addedToolDeclarations');
+  });
+
+  it('refuses added declarations after the attempt is reclaimed', async () => {
+    const { db } = makeDb({ update: [[]] });
+
+    await expect(
+      new RunsRepository(db).appendAddedToolDeclarations(
+        run.id,
+        run.userId,
+        'stale-attempt',
+        [
+          {
+            id: 'mcp__workspace__lookup',
+            source: 'workspace-mcp',
+            server: 'workspace',
+            step: 2,
+          },
+        ],
+      ),
+    ).resolves.toBe(false);
   });
 });
 

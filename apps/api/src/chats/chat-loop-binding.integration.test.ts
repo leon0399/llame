@@ -144,6 +144,7 @@ function previousRun(overrides: Partial<Run> = {}): Run {
     startedAt: new Date('2026-08-11T08:00:01.000Z'),
     finishedAt: new Date('2026-08-11T08:00:02.000Z'),
     ...overrides,
+    addedToolDeclarations: overrides.addedToolDeclarations ?? [],
   };
 }
 
@@ -362,6 +363,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         activeAttemptId: 'attempt-id',
         completedAttemptId: null,
         turnToolAvailability: null,
+        addedToolDeclarations: [],
         cancelRequestedAt: null,
         error: null,
         contextItems: null,
@@ -442,6 +444,7 @@ describe('ChatLoopService accept/worker context binding', () => {
           activeAttemptId: null,
           completedAttemptId: null,
           turnToolAvailability: null,
+          addedToolDeclarations: [],
           cancelRequestedAt: null,
           error: null,
           contextItems: null,

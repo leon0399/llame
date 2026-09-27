@@ -8,6 +8,8 @@
 
 export * from "./activeRunResponse";
 export * from "./activeRunResponseStatus";
+export * from "./addedToolResponse";
+export * from "./addedToolResponseSource";
 export * from "./attemptReceiptResponse";
 export * from "./attemptReceiptResponsePromptSource";
 export * from "./authTokenResponse";
