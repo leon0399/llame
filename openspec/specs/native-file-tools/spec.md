@@ -11,60 +11,88 @@ reads, and future source/type extensions behind one result shape.
 ### Requirement: Native tools operate on absolute local regular files
 
 The native `read`, `edit`, and `write` tools SHALL accept absolute local paths
-and execute them with the trusted host process's OS authority in this alpha
-capability, and SHALL accept `kb://` locators under the Knowledge locator
-requirement. When a Workspace is entered, `read`, `edit`, and `write` SHALL
-also accept relative local paths and resolve them from the Workspace root using
-lexical path resolution like POSIX `path.posix.resolve`, preserving a trailing
-separator; the executor SHALL receive exactly the projected absolute string,
-including that trailing separator. Projection SHALL NOT perform realpath
-resolution; symlinks inside the projected path SHALL be followed by the OS as
-for any absolute path. For this requirement, "relative" means a path not
-starting with `/` and without a `scheme:` prefix recognized by the shared
-locator parser (case-insensitive `scheme://`). An unknown scheme SHALL remain
-`invalid_path` rather than being treated as a local path. `..` MAY resolve
-outside that root. Without an entered Workspace, a relative local path SHALL be
-refused with the existing `invalid_path` error. Locator-scheme routing SHALL
-happen before local path resolution, so `kb://`, `skill://`, `http://`, and
-`https://` locators remain under their scheme-specific authority and are not
-projected from the Workspace root. A selector SHALL remain associated with the
-path part and apply to the target resolved from that path. Results for
-Workspace-projected local paths SHALL identify the projected absolute path
-actually used. `read` SHALL additionally accept read-only skill locators under
-the Skill locator requirement and read-only web locators under the Web locator
-requirements. The scheme of the `path` argument SHALL select the authority; no
-other argument or persisted declaration field SHALL. A web locator SHALL be
-fetched by the API process's own outbound HTTP and SHALL NOT require or bind a
-native executor identity. `edit` and `write` SHALL operate only on regular
-files, and both SHALL reject an `http://` or `https://` locator with
-`invalid_path` before any request.
-`read` SHALL operate on regular files and directories, and a web locator SHALL
-be governed by the Web locator requirements instead of by entry kind; every
-other entry kind SHALL fail. A `read` that misses a regular file SHALL offer
-bounded sibling-name suggestions from its existing parent directory on every
-scheme that resolves a local directory, names only, with one bounded directory
-read and bounded scoring work on the error path and none on success; an
-absolute or Workspace-projected local-path miss SHALL follow a symbolic-link
-parent exactly as the read itself follows links. A web locator SHALL NOT
-produce sibling suggestions, because a failed web read has no directory to
-list. A trailing path separator SHALL be accepted on a directory path and
-SHALL fail as `not_found` on any other target; in a web locator a trailing
-separator SHALL remain part of the URL and SHALL NOT be read as a directory
-request. A model argument SHALL NOT select a different executor, owner, tenant,
-permission mode, or remote authority. `edit` and `write` SHALL be advertised
-when the process has accepted native host authority or has a configured
-Knowledge root. `read` SHALL be eligible for advertisement whenever
-`tools.allowed` names it, because skill and web locators need no host
-authority; that eligibility SHALL NOT admit local host-path access, and an
-absolute local path on a process without accepted native authority SHALL fail
-closed with `executor_unavailable` rather than resolving through a hosted,
-Knowledge, or Sandbox path.
-A Run SHALL bind to the trusted native executor identity on its first
-absolute local-path operation or Workspace-relative local-path operation
-after projection, and SHALL remain bound to it; a `kb://` or web operation
-SHALL NOT bind or require an executor identity; a later reattachment to
-another executor SHALL fail closed rather than resolving the physical path
-there.
+and equivalent `file://` aliases and execute them with the trusted host
+process's OS authority in this alpha capability, and SHALL accept `kb://`
+locators under the Knowledge locator requirement. When a Workspace is entered,
+`read`, `edit`, and `write` SHALL also accept relative local paths and resolve
+them from the Workspace root using lexical path resolution like POSIX
+`path.posix.resolve`, preserving a trailing separator; the executor SHALL
+receive exactly the projected absolute string, including that trailing
+separator. Projection SHALL NOT perform realpath resolution; symlinks inside
+the projected path SHALL be followed by the OS as for any absolute path. For
+this requirement, "relative" means a path not starting with `/` and without a
+`scheme:` prefix recognized by the shared locator parser or the file-alias
+classifier (case-insensitive `scheme://` and `file:` forms). An unknown scheme
+SHALL remain `invalid_path` rather than being treated as a local path. `..` MAY
+resolve outside that root. Without an entered Workspace, a relative local path
+SHALL be refused with the existing `invalid_path` error. The file-alias
+classifier SHALL run before Workspace-relative projection in native dispatch,
+so every valid `file:` alias is absolute and is never resolved from the
+Workspace root. Locator-scheme routing SHALL happen before local path
+resolution, so `file:`, `kb://`, `skill://`, `http://`, and `https://` locators
+remain under their scheme-specific authority and are not projected from the
+Workspace root. A selector SHALL remain associated with the path part and
+apply to the target resolved from that path. Results for Workspace-projected
+local paths SHALL identify the projected absolute path actually used.
+`read` SHALL additionally accept read-only skill locators under the Skill
+locator requirement and read-only web locators under the Web locator
+requirements. A file alias SHALL accept `file://<authority><absolute-path>` and
+the RFC 8089 minimal form `file:<absolute-path>`; in these requirements a
+`file://` alias means either form. One pure classifier SHALL recognize a
+leading `file:` before any other scheme parsing, and both native dispatch and
+permission projection SHALL use it. A locator beginning `file://` SHALL always
+be the authority form, and the minimal form's path SHALL begin with exactly one
+`/`. `file` and `localhost` SHALL be matched ASCII case-insensitively against
+the raw, undecoded text. In the `//` form, the authority is the text between
+`//` and the next `/`; it SHALL be empty or `localhost`, authority validation
+SHALL precede the alias's other locator refusals, and a missing path after the
+authority SHALL fail with `invalid_path`. An invalid alias SHALL fail with
+`invalid_path` at dispatch, before the native executor check, and SHALL NOT
+bind the Run; a valid alias then follows the absolute-path executor rules
+below. The alias SHALL decode each percent escape once to bytes and strictly
+decode the complete path as UTF-8, without lexical `.` or `..` normalization,
+before native operation. A literal query, fragment, backslash, C0 control
+character, or DEL, a malformed or non-UTF-8 escape, a percent-encoded `/`, or a
+NUL SHALL fail with `invalid_path` before filesystem access. A literal space,
+including a trailing space, SHALL remain part of the POSIX path. A trailing
+selector after a valid file URL SHALL have the same meaning as it has after
+the decoded host path. `%3A` SHALL decode to `:` and then follow host selector
+rules after the literal-path probe; there is no escaped literal-colon form.
+`file:///C:/x` SHALL denote `/C:/x`, and `file:///C|/x` SHALL denote
+`/C|/x`, without drive handling; `file://C:/x` and `file://C|/x` SHALL be
+refused as remote authorities. `file:///` SHALL denote the POSIX root. The
+scheme of the `path` argument SHALL select the authority; no other argument or
+persisted declaration field SHALL. A web locator SHALL be fetched by the API
+process's own outbound HTTP and SHALL NOT require or bind a native executor
+identity. `edit` and `write` SHALL operate only on regular files, and both
+SHALL reject an `http://` or `https://` locator with `invalid_path` before any
+request. `read` SHALL operate on regular files and directories, and a web
+locator SHALL be governed by the Web locator requirements instead of by entry
+kind; every other entry kind SHALL fail. A `read` that misses a regular file
+SHALL offer bounded sibling-name suggestions from its existing parent directory
+on every scheme that resolves a local directory, names only, with one bounded
+directory read and bounded scoring work on the error path and none on success;
+an absolute or Workspace-projected local-path miss SHALL follow a symbolic-link
+parent exactly as the read itself follows links. A web locator SHALL NOT produce
+sibling suggestions, because a failed web read has no directory to list. A
+trailing path separator SHALL be accepted on a directory path and SHALL fail as
+`not_found` on any other target; in a web locator a trailing separator SHALL
+remain part of the URL and SHALL NOT be read as a directory request. A model
+argument SHALL NOT select a different executor, owner, tenant, permission mode,
+or remote authority. `edit` and `write` SHALL be advertised when the process
+has accepted native host authority or has a configured Knowledge root. `read`
+SHALL be eligible for advertisement whenever `tools.allowed` names it, because
+skill and web locators need no host authority; that eligibility SHALL NOT admit
+local host-path access, and an absolute local path or valid `file:` alias on a
+process without accepted native authority SHALL fail closed with
+`executor_unavailable` rather than resolving through a hosted, Knowledge, or
+Sandbox path. A Run SHALL bind to the trusted native executor identity on its
+first absolute local-path operation or Workspace-relative local-path operation
+after projection, including a valid file alias, and SHALL remain bound to it;
+a `kb://` or web operation SHALL NOT bind or require an executor identity; a
+later reattachment to another executor SHALL fail closed rather than resolving
+the physical path there. A successful `file://` result SHALL report the
+decoded host path in `path`, not the submitted URL.
 
 #### Scenario: Coding file is read by absolute path
 
@@ -132,6 +160,71 @@ there.
 - **THEN** the error names the status and lists no sibling names
 - **AND** no directory is read to produce suggestions
 
+#### Scenario: A file URL reads the host file
+
+- **WHEN** the model calls `read` with `file:///tmp/guide.md` and the equivalent `/tmp/guide.md` is an existing regular file
+- **THEN** both calls use the trusted host executor and return the same file content and native read metadata
+- **AND** the file URL result's `path` is `/tmp/guide.md`
+
+#### Scenario: Localhost file authority is accepted
+
+- **WHEN** the model calls `read` with `file://LOCALHOST/tmp/guide.md`
+- **THEN** the locator is treated as the local host alias and reads `/tmp/guide.md`
+- **AND** no remote authority is contacted
+
+#### Scenario: A file URL selector follows host selector rules
+
+- **WHEN** the model calls `read` with `file:///tmp/guide.md:10-12`
+- **THEN** the file URL is decoded to `/tmp/guide.md` before native selector handling
+- **AND** the result selects lines 10 through 12 with the same context, bounds, and range metadata as `/tmp/guide.md:10-12`
+
+#### Scenario: A file URL mutation uses the host operation
+
+- **WHEN** `edit` or `write` targets a valid `file:///tmp/guide.md` alias with accepted native host authority
+- **THEN** the corresponding host mutation executes with the same fencing, serialization, validation, and result semantics as the absolute path
+- **AND** the result identifies `/tmp/guide.md` rather than the submitted URL
+
+#### Scenario: A remote file authority is refused before access
+
+- **WHEN** `read`, `edit`, or `write` targets `file://other.example/tmp/guide.md`, `file://C:/x`, or `file://C|/x`
+- **THEN** the tool returns `invalid_path` with `A file:// URL with a host other than localhost names another machine. Only this host's files are readable; write the absolute path instead.`
+- **AND** it performs no filesystem probe, mutation, or network request
+
+#### Scenario: Query or fragment on a file URL is refused
+
+- **WHEN** `read`, `edit`, or `write` targets `file:///tmp/guide.md?version=1`, `file:///tmp/guide.md#section`, `file:///tmp/guide.md?`, or `file:///tmp/guide.md#`
+- **THEN** the tool returns `invalid_path` before decoding or filesystem access
+- **AND** it does not silently discard the query or fragment
+
+#### Scenario: Encoded separator, NUL, or invalid UTF-8 is refused
+
+- **WHEN** `read`, `edit`, or `write` targets a file URL containing a percent-encoded `/`, NUL, or non-UTF-8 escape, such as `file:///tmp/a%2Fb`, `file:///tmp/a%00b`, or `file:///tmp/%FF`
+- **THEN** the tool returns `invalid_path` before filesystem access
+- **AND** it does not decode the spelling into a different host path
+
+#### Scenario: Unsafe literal file URL characters are refused
+
+- **WHEN** a file URL contains a literal backslash, tab, line feed, carriage return, DEL, or another C0 control character
+- **THEN** the tool returns `invalid_path` before decoding or filesystem access
+- **AND** a literal trailing space remains accepted as part of the POSIX filename
+
+#### Scenario: A file URL with no authority path is refused
+
+- **WHEN** `read` targets `file://` or `file://localhost`
+- **THEN** the tool returns `invalid_path`
+- **AND** it does not read the root directory
+
+#### Scenario: The file URL root is a directory
+
+- **WHEN** `read` targets `file:///`
+- **THEN** the native host returns the ordinary root directory listing under its existing directory bounds
+- **AND** the result identifies `/`
+
+#### Scenario: The minimal file URL form equals its host path
+
+- **WHEN** the model calls `read` with `file:/tmp/guide.md`
+- **THEN** it reads the same file and returns the same native metadata as `/tmp/guide.md`
+
 #### Scenario: Workspace-relative local read resolves from the Workspace root
 
 - **WHEN** the model reads `src/app.ts:2-4` with a Workspace entered at `/work/project`
@@ -161,6 +254,36 @@ there.
 - **WHEN** no Workspace is entered and `read`, `edit`, or `write` receives a relative local path
 - **THEN** the tool returns the existing `invalid_path` error
 - **AND** it does not read, create, or modify a local entry
+
+#### Scenario: A file alias ignores the entered Workspace root
+
+- **WHEN** the model calls `read` with `file:///etc/passwd` while a Workspace is entered at `/work/project`
+- **THEN** the host resolves `/etc/passwd` as an absolute alias target
+- **AND** it does not read `/work/project/etc/passwd`
+
+#### Scenario: An invalid alias fails before executor availability
+
+- **WHEN** a process without `tools.nativeExecutorId` calls `read` with `file://other.example/x` or `file:///a?`
+- **THEN** the tool returns `invalid_path`
+- **AND** it binds no Run executor and does not return `executor_unavailable`
+
+#### Scenario: A file URL without an absolute path is invalid
+
+- **WHEN** the model calls `read` with `file:x`
+- **THEN** the tool returns `invalid_path`
+- **AND** it does not treat `x` as a relative or host filename
+
+#### Scenario: POSIX drive syntax is an ordinary path
+
+- **WHEN** the model calls `read` with `file:///C:/x` or `file:///C|/x` on the POSIX host
+- **THEN** the native target is `/C:/x` or `/C|/x` respectively
+- **AND** no Windows drive-letter interpretation is applied
+
+#### Scenario: A decoded colon follows host selector rules
+
+- **WHEN** the model calls `read` with `file:///tmp/notes%3A10-12`
+- **THEN** `%3A` decodes to `:` and the host literal-path probe runs before selector interpretation
+- **AND** there is no escaped literal-colon spelling distinct from `/tmp/notes:10-12`
 
 ### Requirement: Skill locators provide live read-only package access
 
@@ -576,15 +699,16 @@ fail with a selector error.
 
 `edit` SHALL accept an absolute local path or, while a Workspace is entered, a
 relative local path resolved from the Workspace root under the local path rules
-above, together with non-empty `oldText` and `newText`. It SHALL read the
-current file at execution time and require exactly one exact occurrence of
-`oldText`. A missing or ambiguous occurrence SHALL fail without mutation.
-Unrelated changes elsewhere in the file SHALL NOT block a correct unique
-replacement. Calls targeting the same path SHALL execute sequentially in the
-host runtime. The operation SHALL preserve bytes outside the replacement and
-return a bounded diff plus post-edit content with one adjacent live line on each
-side when available. No prior read, snapshot tag, read hash, or permission rule
-is required in this iteration.
+above, together with a valid `file://` alias, non-empty `oldText`, and
+`newText`. A file alias is always absolute and is decoded before native
+operation. It SHALL read the current file at execution time and require exactly
+one exact occurrence of `oldText`. A missing or ambiguous occurrence SHALL fail
+without mutation. Unrelated changes elsewhere in the file SHALL NOT block a
+correct unique replacement. Calls targeting the same path SHALL execute
+sequentially in the host runtime. The operation SHALL preserve bytes outside
+the replacement and return a bounded diff plus post-edit content with one
+adjacent live line on each side when available. No prior read, snapshot tag,
+read hash, or permission rule is required in this iteration.
 
 #### Scenario: Unrelated change does not block edit
 
@@ -609,6 +733,12 @@ is required in this iteration.
 - **THEN** the first call applies
 - **AND** the second call observes the changed bytes and fails without overwriting the first result
 
+#### Scenario: File URL edit uses the decoded host target
+
+- **WHEN** `edit` targets `file:///tmp/guide.md` with one matching `oldText`
+- **THEN** it applies the exact unique replacement to `/tmp/guide.md`
+- **AND** it reports the same bounded diff and decoded result identity as an edit naming `/tmp/guide.md`
+
 #### Scenario: Workspace-relative edit uses the resolved local path
 
 - **WHEN** the model edits `src/app.ts` while a Workspace is entered at `/work/project`
@@ -620,38 +750,40 @@ is required in this iteration.
 `write` SHALL accept `path`, `content`, and a boolean `replace` argument;
 absent or `false` SHALL select create-only, `true` SHALL select replace mode,
 and every other type SHALL be rejected by the input schema before dispatch and
-in production before any mutation. In create mode it SHALL create a new regular
-file when the target is absent, creating missing intermediate directories
-beneath the resolved authority root on every scheme. It SHALL fail with
-`file_exists` when the target already exists, regardless of the provided
-content, and with `not_regular_file` when an intermediate path component
-exists and is not a directory. Create mode SHALL otherwise behave exactly as
-before this change.
+in production before any mutation. A valid `file://` alias is accepted
+wherever an absolute local path is accepted, is always absolute rather than
+Workspace-relative, and is decoded under the native file locator requirement.
+In create mode it SHALL create a new regular file when the target is absent,
+creating missing intermediate directories beneath the resolved authority root
+on every scheme. It SHALL fail with `file_exists` when the target already
+exists, regardless of the provided content, and with `not_regular_file` when an
+intermediate path component exists and is not a directory. Create mode SHALL
+otherwise behave exactly as before this change.
 
 In replace mode (`replace: true`) `write` SHALL require the target to exist as
 a regular file at validation time and SHALL replace its entire contents
 atomically. A target that is absent, or that is deleted by an uncoordinated
 external process after validation and before publication, SHALL fail with
-`not_found` under the host-ordering guarantee and SHALL create no file under
-it; no guarantee beyond that boundary is made, and a widening race is the
-specified behavior, identical in kind to `edit` today. A replace target that
-is a directory SHALL fail with `not_regular_file` and change nothing. On an
-absolute or Workspace-projected local path, a symbolic link at the target
-SHALL resolve to and replace its target entry exactly as `edit` does, and a
-dangling symbolic link SHALL fail with `not_found`; on a `kb://` locator, the
-target SHALL resolve with the leaf required to exist, and a symbolic-link
-component SHALL fail as it does today. A successful replace SHALL preserve the
-target's existing permission bits and SHALL be marked `replaced`, distinct
-from the `created` marker of a create-mode success.
+`not_found` under the host-ordering guarantee and SHALL create no file under it;
+no guarantee beyond that boundary is made, and a widening race is the specified
+behavior, identical in kind to `edit` today. A replace target that is a
+directory SHALL fail with `not_regular_file` and change nothing. On an absolute
+or Workspace-projected local path, or a decoded `file://` alias, a symbolic
+link at the target SHALL resolve to and replace its target entry exactly as
+`edit` does, and a dangling symbolic link SHALL fail with `not_found`; on a
+`kb://` locator, the target SHALL resolve with the leaf required to exist, and
+a symbolic-link component SHALL fail as it does today. A successful replace
+SHALL preserve the target's existing permission bits and SHALL be marked
+`replaced`, distinct from the `created` marker of a create-mode success.
 
-Both modes SHALL validate UTF-8 content and enforce shared output limits
-before any byte changes, and SHALL leave the target unchanged on every
-failure. Non-boolean `replace` values SHALL fail schema validation before
-dispatch. Native file size SHALL NOT be restricted by the legacy Knowledge
-byte limit. Every result SHALL identify the target as the caller named it:
-the submitted absolute path for an absolute path, the projected absolute path
-for a Workspace-relative path, or the locator for a `kb://` write, never the
-resolved host path. The create-mode
+Both modes SHALL validate UTF-8 content and enforce shared output limits before
+any byte changes, and SHALL leave the target unchanged on every failure.
+Non-boolean `replace` values SHALL fail schema validation before dispatch.
+Native file size SHALL NOT be restricted by the legacy Knowledge byte limit.
+Every result SHALL identify the target as the caller named it: the submitted
+absolute path for an absolute path, the projected absolute path for a
+Workspace-relative path, the decoded host path for a `file://` alias, or the
+locator for a `kb://` write, never the resolved host path. The create-mode
 `file_exists` message SHALL name `replace` as the explicit path for replacing
 the file's contents, and the replace-mode `not_found` message SHALL state that
 `replace` requires an existing target and that omitting it creates a new file.
@@ -738,6 +870,12 @@ Write SHALL NOT produce sibling-name suggestions on either failure.
 - **WHEN** the model creates `notes/draft.md` with `write` while a Workspace is entered at `/work/project`
 - **THEN** the host creates `/work/project/notes/draft.md`
 - **AND** the result identifies `/work/project/notes/draft.md` as the path used
+
+#### Scenario: File URL write uses the decoded host target
+
+- **WHEN** write with `replace: true` targets `file:///tmp/guide.md` and the target is an existing regular file
+- **THEN** it replaces `/tmp/guide.md` atomically under host mutation ordering
+- **AND** the result identifies `/tmp/guide.md` rather than the submitted URL
 
 ### Requirement: Native mutations have a durable pre-effect fence
 
