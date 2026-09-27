@@ -150,6 +150,16 @@ describe('chat schema metadata', () => {
     ]);
   });
 
+  it('keeps the Workspace detach reason check named and closed', () => {
+    const check = getTableConfig(chats).checks.find(
+      ({ name }) => name === 'chats_workspace_detach_reason_check',
+    );
+    if (check === undefined) throw new Error('Workspace detach check missing');
+    expect(new PgDialect().sqlToQuery(check.value).sql).toBe(
+      `"chats"."workspace_detach_reason" IS NULL OR "chats"."workspace_detach_reason" IN ('executor_mismatch', 'executor_absent', 'root_missing', 'root_moved', 'permission_rejected', 'tool_not_allowed')`,
+    );
+  });
+
   it('keeps compaction and run event ownership constraints named', () => {
     expect(indexNames(compactions)).toEqual([
       'compactions_chat_upto_seq_idx',

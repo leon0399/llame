@@ -584,11 +584,26 @@ describe('workspace producer', () => {
     expect(item.data.text).not.toContain('working root');
   });
 
-  it('rejects malformed Workspace payloads', () => {
+  it('rejects malformed Workspace payloads and constructor inputs', () => {
     expect(isWorkspaceSnapshotPayload({ root: 'relative/path' })).toBe(false);
     expect(isWorkspaceSnapshotPayload({ root: '/tmp', extra: true })).toBe(
       false,
     );
+    expect(
+      isWorkspaceDetachPayload({ reason: 'root_missing', extra: true }),
+    ).toBe(false);
     expect(isWorkspaceDetachPayload({ reason: 'unknown' })).toBe(false);
+
+    expect(() =>
+      createWorkspaceSnapshotItem({
+        runId: RUN_ID,
+        root: 'relative/path',
+      }),
+    ).toThrow('Invalid server-authored Workspace snapshot metadata');
+
+    expect(() => {
+      // @ts-expect-error Testing runtime validation with malformed input.
+      createWorkspaceDetachNoticeItem({ runId: RUN_ID, reason: 'unknown' });
+    }).toThrow('Invalid server-authored Workspace detach metadata');
   });
 });

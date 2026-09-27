@@ -213,8 +213,50 @@ describe('bash durable admission', () => {
         },
         5,
       ),
-    ).resolves.toMatchObject({ status: 'error', type: 'invalid_path' });
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'The working directory must be a local path.',
+    });
     expect(begin).not.toHaveBeenCalled();
+  });
+
+  it('leaves a non-local cwd literal alone when no Workspace root is entered', async () => {
+    await expect(
+      runTool(
+        bashTool,
+        { command: 'printf never', cwd: 'vault://notes' },
+        testContext(),
+        5,
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'unavailable',
+      message:
+        'Working directory argument "vault://notes" is not usable. The command did not run; the argument was taken literally with no ~ or variable expansion. List its parent or create the directory.',
+    });
+  });
+
+  it('preserves the submitted spelling of an absolute cwd', async () => {
+    await expect(
+      runTool(
+        bashTool,
+        {
+          command: 'printf never',
+          cwd: '/tmp/../definitely-no-such-dir',
+        },
+        {
+          ...testContext(),
+          workspaceRoot: createWorkspaceRootCell('/tmp'),
+        },
+        5,
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'unavailable',
+      message:
+        'Working directory argument "/tmp/../definitely-no-such-dir" is not usable. The command did not run; the argument was taken literally with no ~ or variable expansion. List its parent or create the directory.',
+    });
   });
 
   it('hands the executor a projected trailing cwd string', async () => {

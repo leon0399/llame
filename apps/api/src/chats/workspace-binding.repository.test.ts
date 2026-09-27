@@ -1,15 +1,33 @@
 import { type SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { isWorkspaceDetachReason } from './workspace-binding';
 import { WorkspaceBindingRepository } from './workspace-binding.repository';
 
 type QueryValue = string | number | null | SQL;
 type QueryRow = Readonly<Record<string, QueryValue>>;
-type QueryUpdate = Readonly<Record<string, QueryValue | undefined>>;
-type QueryCall = { method: string; value?: QueryUpdate };
+type QueryUpdate = Readonly<{
+  workerId?: string;
+  workspaceRoot?: string | null;
+  workspaceExecutorId?: string | null;
+  workspaceGeneration?: SQL;
+  workspaceDetachReason?: string | null;
+  workspaceTold?: string | null;
+  workspaceToldFrom?: string | null;
+}>;
+type QueryProjection = Readonly<{
+  id?: typeof schema.chats.id;
+  workspaceGeneration?: typeof schema.chats.workspaceGeneration;
+}>;
+type QueryCall = {
+  method: string;
+  value?: QueryUpdate;
+  projection?: QueryProjection;
+};
 type QueryRows = ReadonlyArray<QueryRow>;
 
 function queryResult(value: QueryRows, calls: Array<QueryCall>) {
@@ -21,12 +39,15 @@ function queryResult(value: QueryRows, calls: Array<QueryCall>) {
   };
   return Object.assign(terminal, {
     from: chain,
+    set,
     where: chain,
     for: chain,
     limit: chain,
     orderBy: chain,
-    set,
-    returning: () => terminal,
+    returning: (projection: QueryProjection) => {
+      calls.push({ method: 'returning', projection });
+      return terminal;
+    },
   });
 }
 
@@ -94,7 +115,10 @@ describe('WorkspaceBindingRepository', () => {
   });
 
   it('returns fence_lost before a stale delivery can update the Run or Chat', async () => {
-    const { db } = makeDb({ select: [run, [{ sequence: 6 }]] });
+    const { db, calls } = makeDb({
+      select: [run, [{ sequence: 6 }], [current]],
+      update: [[{ id: 'run-1' }], [{ workspaceGeneration: 5 }]],
+    });
 
     await expect(
       new WorkspaceBindingRepository(db).enter({
@@ -106,6 +130,7 @@ describe('WorkspaceBindingRepository', () => {
         root: '/work/new',
       }),
     ).resolves.toEqual({ status: 'fence_lost' });
+    expect(calls.filter(({ method }) => method === 'set')).toHaveLength(0);
   });
   it('checks the current owner delivery without writing', async () => {
     const current = makeDb({ select: [run, started] });
@@ -180,6 +205,32 @@ describe('WorkspaceBindingRepository', () => {
       workspaceExecutorId: 'worker-a',
       workspaceDetachReason: null,
     });
+    const bindGeneration = sets[1]?.workspaceGeneration;
+    if (bindGeneration === undefined) {
+      throw new Error('expected a bind generation SQL expression');
+    }
+    expect(new PgDialect().sqlToQuery(bindGeneration).sql).toContain(
+      'workspace_generation',
+    );
+    expect(new PgDialect().sqlToQuery(bindGeneration).sql).toContain('+');
+
+    const executorChanged = makeDb({
+      select: fenceSelect(),
+      update: [[{ id: 'run-1' }], [{ workspaceGeneration: 5 }]],
+    });
+    await expect(
+      new WorkspaceBindingRepository(executorChanged.db).enter({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+        executorId: 'worker-b',
+        root: '/work/old',
+      }),
+    ).resolves.toMatchObject({
+      status: 'switched',
+      previousRoot: '/work/old',
+    });
   });
 
   it('increments the generation when an unbound Chat is first entered', async () => {
@@ -225,6 +276,23 @@ describe('WorkspaceBindingRepository', () => {
       status: 'cleared',
       previousRoot: '/work/old',
     });
+    const exitSets = exiting.calls
+      .filter(({ method, value }) => method === 'set' && value !== undefined)
+      .map(({ value }) => value);
+    expect(exitSets[0]).toMatchObject({ workerId: 'worker-a' });
+    expect(exitSets[1]).toMatchObject({
+      workspaceRoot: null,
+      workspaceExecutorId: null,
+      workspaceDetachReason: null,
+    });
+    const exitGeneration = exitSets[1]?.workspaceGeneration;
+    if (exitGeneration === undefined) {
+      throw new Error('expected an exit generation SQL expression');
+    }
+    expect(new PgDialect().sqlToQuery(exitGeneration).sql).toContain(
+      'workspace_generation',
+    );
+    expect(new PgDialect().sqlToQuery(exitGeneration).sql).toContain('+');
 
     const stale = makeDb({
       select: fenceSelect(),
@@ -237,6 +305,43 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         expectedGeneration: 3,
+        reason: 'root_missing',
+      }),
+    ).resolves.toBe('stale');
+    const unbound = {
+      workspaceRoot: null,
+      workspaceExecutorId: null,
+      workspaceGeneration: 4,
+    };
+    const unboundDetach = makeDb({
+      select: fenceSelect(unbound),
+      update: [[{ id: 'chat-a' }]],
+    });
+    await expect(
+      new WorkspaceBindingRepository(unboundDetach.db).detach({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+        expectedGeneration: 4,
+        reason: 'root_missing',
+      }),
+    ).resolves.toBe('stale');
+    expect(
+      unboundDetach.calls.filter(({ method }) => method === 'set'),
+    ).toHaveLength(0);
+
+    const noRow = makeDb({
+      select: fenceSelect(),
+      update: [[]],
+    });
+    await expect(
+      new WorkspaceBindingRepository(noRow.db).detach({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+        expectedGeneration: 4,
         reason: 'root_missing',
       }),
     ).resolves.toBe('stale');
@@ -269,5 +374,33 @@ describe('WorkspaceBindingRepository', () => {
       workspaceExecutorId: null,
       workspaceDetachReason: 'permission_rejected',
     });
+    const detachGeneration = sets[0]?.workspaceGeneration;
+    if (detachGeneration === undefined) {
+      throw new Error('expected a detach generation SQL expression');
+    }
+    expect(new PgDialect().sqlToQuery(detachGeneration).sql).toContain(
+      'workspace_generation',
+    );
+    expect(new PgDialect().sqlToQuery(detachGeneration).sql).toContain('+');
+    expect(calls).toContainEqual({
+      method: 'returning',
+      projection: { id: schema.chats.id },
+    });
+  });
+});
+
+describe('Workspace detach reason validation', () => {
+  it('accepts every shipped reason and rejects unknown values', () => {
+    for (const reason of [
+      'executor_mismatch',
+      'executor_absent',
+      'root_missing',
+      'root_moved',
+      'permission_rejected',
+      'tool_not_allowed',
+    ]) {
+      expect(isWorkspaceDetachReason(reason)).toBe(true);
+    }
+    expect(isWorkspaceDetachReason('unknown')).toBe(false);
   });
 });

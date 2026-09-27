@@ -292,4 +292,9 @@ describe('native file permission projection', () => {
       }),
     ).toMatchObject({ decision: 'allow' });
   });
+  it('leaves non-path native permission fields unchanged', () => {
+    expect(nativeFileProjection('read')('other', 'kb://Space/notes/%61')).toBe(
+      'kb://Space/notes/%61',
+    );
+  });
 });

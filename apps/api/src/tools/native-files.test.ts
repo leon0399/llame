@@ -26,6 +26,7 @@ import { resolveAdvertisedTools } from './registry';
 import { composeTurnToolCatalog } from './turn-tool-catalog';
 import { resolveBoundExecutableTools } from '../runs/snapshot-tool-execution';
 import { NativeFilesRepository } from '../runs/native-files-repository';
+import { RunEventsRepository } from '../runs/runs-repository';
 import { type Db } from '../db/tenant-db.service';
 import { runTool } from './runner';
 import {
@@ -45,6 +46,19 @@ import {
 } from './types';
 import { createWorkspaceRootCell } from './workspace-path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+
+type Deferred<T> = {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+};
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 describe('native tool admission', () => {
   const context: ToolContext = {
@@ -271,6 +285,114 @@ describe('Workspace-relative native paths', () => {
       expect(projected).toMatchObject({ status: 'error', type: 'not_found' });
       expect(absolute).toMatchObject({ status: 'error', type: 'not_found' });
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  it('serializes native mutations until the first result is appended', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workspace-native-serialize-'));
+    const file = join(root, 'file.txt');
+    await writeFile(file, 'one');
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValue(undefined);
+    let appendCount = 0;
+    const { promise: firstAppend, resolve: markFirstAppend } = deferred<void>();
+    const { promise: appendGate, resolve: release } = deferred<void>();
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation(async () => {
+        appendCount += 1;
+        if (appendCount === 1) {
+          markFirstAppend();
+          await appendGate;
+        }
+        return {
+          runId: 'run',
+          sequence: appendCount,
+          eventType: 'native.result',
+          payload: null,
+          createdAt: new Date(),
+        };
+      });
+
+    try {
+      const base = trustedContext();
+      const first = runTool(
+        nativeEditTool,
+        { path: file, oldText: 'one', newText: 'two' },
+        { ...base, toolCallId: 'first' },
+        5,
+      );
+      await firstAppend;
+
+      const second = runTool(
+        nativeEditTool,
+        { path: file, oldText: 'two', newText: 'three' },
+        { ...base, toolCallId: 'second' },
+        5,
+      );
+      expect(begin).toHaveBeenCalledTimes(1);
+      expect(append).toHaveBeenCalledTimes(1);
+
+      release();
+      await expect(first).resolves.toMatchObject({ status: 'success' });
+      await expect(second).resolves.toMatchObject({ status: 'success' });
+      expect(await readFile(file, 'utf8')).toBe('three');
+      expect(append).toHaveBeenCalledTimes(2);
+      expect(begin).toHaveBeenCalledTimes(2);
+    } finally {
+      release();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('lets a native read proceed while a mutation result is still appending', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workspace-native-read-'));
+    const file = join(root, 'file.txt');
+    await writeFile(file, 'one');
+    const { promise: firstAppend, resolve: markFirstAppend } = deferred<void>();
+    const { promise: appendGate, resolve: releaseReadMutation } =
+      deferred<void>();
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+      async () => {
+        markFirstAppend();
+        await appendGate;
+        return {
+          runId: 'run',
+          sequence: 1,
+          eventType: 'native.result',
+          payload: null,
+          createdAt: new Date(),
+        };
+      },
+    );
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValue(undefined);
+
+    try {
+      const base = trustedContext();
+      const mutation = runTool(
+        nativeEditTool,
+        { path: file, oldText: 'one', newText: 'two' },
+        { ...base, toolCallId: 'mutation' },
+        5,
+      );
+      await firstAppend;
+
+      const read = runTool(
+        nativeReadTool,
+        { path: file },
+        { ...base, toolCallId: 'read' },
+        5,
+      );
+      expect(begin).toHaveBeenCalledTimes(2);
+
+      releaseReadMutation();
+      await expect(read).resolves.toMatchObject({ status: 'success' });
+      await expect(mutation).resolves.toMatchObject({ status: 'success' });
+    } finally {
+      releaseReadMutation();
       await rm(root, { recursive: true, force: true });
     }
   });

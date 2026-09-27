@@ -48,4 +48,9 @@ describe('workspace path projection', () => {
     expect(cell.current()).toBeUndefined();
     expect(cell.claimTransition()).toBe(true);
   });
+
+  it('does not add a second separator when the resolved root is filesystem root', () => {
+    expect(resolveWorkspacePath('/', '/')).toBe('/');
+    expect(resolveWorkspacePath('/', 'child/')).toBe('/child/');
+  });
 });

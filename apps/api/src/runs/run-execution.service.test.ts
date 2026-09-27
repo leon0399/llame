@@ -637,11 +637,148 @@ describe('RunExecutionService executeRun', () => {
     }
   });
 
+  it('does not execute the model when Workspace detachment loses its fence', async () => {
+    mockNormalExecutionRepositories();
+    const detach = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'detach')
+      .mockResolvedValue('fence_lost');
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: path.join(
+        tmpdir(),
+        'workspace-entry-fence-lost-does-not-exist',
+      ),
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+    });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      'host-a',
+      { allowed: ['enter_workspace'] },
+    );
+    const stream = vi.spyOn(execution.client, 'streamText');
+
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+    expect(detach).toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
+  });
+
+  it('does not reuse a root after a concurrent Workspace transition wins', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const detach = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'detach')
+      .mockResolvedValue('stale');
+    const setTold = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
+      .mockResolvedValue(undefined);
+    const root = path.join(
+      tmpdir(),
+      'workspace-entry-stale-transition-does-not-exist',
+    );
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: root,
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+      workspaceTold: null,
+      workspaceToldFrom: null,
+      workspaceDetachReason: null,
+    });
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      'host-a',
+      { allowed: ['enter_workspace'] },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+    expect(detach).toHaveBeenCalled();
+    const workspaceItems = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'workspace',
+    );
+    expect(workspaceItems).toHaveLength(1);
+    expect(workspaceItems[0]?.data.form).toBe('snapshot');
+    expect(workspaceItems[0]?.data.payload).toEqual({ root });
+    expect(setTold).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      told: root,
+      toldFrom: null,
+      clearDetachReason: false,
+    });
+  });
+
+  it('keeps and clears a valid Workspace binding under its exact entry policy', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const detach = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'detach')
+      .mockResolvedValue('detached');
+    const setTold = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
+      .mockResolvedValue(undefined);
+    const root = mkdtempSync(
+      path.join(tmpdir(), 'workspace-entry-policy-allow-'),
+    );
+    try {
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'host-a',
+        workspaceGeneration: 4,
+        workspaceTold: null,
+        workspaceToldFrom: null,
+        workspaceDetachReason: 'root_missing',
+      });
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        {
+          allowed: ['enter_workspace'],
+          permissionPolicy: compileToolPermissionMap(
+            { enter_workspace: { allow: true } },
+            'test-policy',
+          ),
+        },
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      expect(detach).not.toHaveBeenCalled();
+      const workspaceItems = stagedItemsOf(
+        repositories.updateUserMessageParts,
+        'workspace',
+      );
+      expect(workspaceItems.map((item) => item.data.form)).toEqual([
+        'snapshot',
+        'notice',
+      ]);
+      expect(setTold).toHaveBeenCalledWith({
+        chatId,
+        ownerUserId: userId,
+        told: root,
+        toldFrom: null,
+        clearDetachReason: true,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('does not rebind a detached Chat when its executor returns for a retry', async () => {
     const repositories = mockNormalExecutionRepositories();
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
+    const setTold = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
+      .mockResolvedValue(undefined);
     const detachedChat: Chat = {
       ...chat,
       workspaceRoot: null,
@@ -677,6 +814,13 @@ describe('RunExecutionService executeRun', () => {
     expect(workspaceItems.some((item) => item.data.form === 'snapshot')).toBe(
       false,
     );
+    expect(setTold).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      told: null,
+      toldFrom: null,
+      clearDetachReason: true,
+    });
   });
   it('keeps the detaching attempt root cell unbound', async () => {
     mockNormalExecutionRepositories();
@@ -735,6 +879,50 @@ describe('RunExecutionService executeRun', () => {
 
     expect(observedContexts).toHaveLength(1);
     expect(observedContexts[0]?.workspaceRoot?.current()).toBeUndefined();
+  });
+
+  it('applies a Workspace root committed in one step at the next step', async () => {
+    mockNormalExecutionRepositories();
+    const seenRoots: Array<string | undefined> = [];
+    const changingTool: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'read_only',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: (context) => {
+        if (context.workspaceRoot === undefined) {
+          throw new Error('Workspace root cell was not provided');
+        }
+        seenRoots.push(context.workspaceRoot.current());
+        context.workspaceRoot.commit('/workspace/new');
+        return { status: 'success' as const };
+      },
+    };
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(changingTool),
+      undefined,
+      {
+        allowed: [toolDeclaration.id],
+        permissionPolicy: compileTestPermissionPolicy([toolDeclaration.id]),
+        dynamicCandidates: [
+          {
+            source: { type: 'mcp', serverId: 'demo' },
+            state: 'available',
+            tool: changingTool,
+          },
+        ],
+      },
+    );
+
+    await execution.service.executeRun(executionInput(execution.client));
+    const options = capturing.streamOptions();
+    await executeBoundTool(options, { q: 'first' }, 'workspace-step-1');
+    options.onStepStart?.();
+    await executeBoundTool(options, { q: 'second' }, 'workspace-step-2');
+
+    expect(seenRoots).toEqual([undefined, '/workspace/new']);
   });
 
   it('recovers a persisted native result into its still-open tool activity', async () => {
