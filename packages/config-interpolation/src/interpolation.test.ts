@@ -463,6 +463,56 @@ describe("interpolateWorkspaceString", () => {
       substitutions: [],
     });
   });
+  it("covers incomplete, invalid, empty, and fallback Workspace tokens", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+    writeFileSync(path.join(root, "token.txt"), "file-secret");
+
+    await expect(
+      interpolateWorkspaceString("prefix ${SET", root, { SET: "value" }),
+    ).resolves.toEqual({ value: "prefix ${SET", substitutions: [] });
+    await expect(
+      interpolateWorkspaceString("pre{path:token.txt}tail", root, {}),
+    ).resolves.toEqual({
+      value: "prefile-secrettail",
+      substitutions: [{ value: "file-secret", fallback: false }],
+    });
+    await expect(
+      interpolateWorkspaceString("{env:bad-name}", root, {}),
+    ).resolves.toEqual({ value: "{env:bad-name}", substitutions: [] });
+
+    const result = await interpolateWorkspaceString(
+      "${SET:-fallback}|${EMPTY:-fallback}|${PLAIN}",
+      root,
+      { SET: "value", EMPTY: "", PLAIN: "" },
+    );
+    expect(result).toEqual({
+      value: "value|fallback|",
+      substitutions: [
+        { value: "value", fallback: false },
+        { value: "fallback", fallback: true },
+      ],
+    });
+  });
+
+  it("reports interpolation source diagnostics without resolved values", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+    await expect(
+      interpolateWorkspaceString("${MISSING}", root, {}),
+    ).rejects.toThrow("required environment variable MISSING is not set");
+    await expect(
+      interpolateWorkspaceString("{path:}", root, {}),
+    ).rejects.toMatchObject({
+      source: { kind: "path", location: "" },
+      message: "required file location is empty",
+    });
+    await expect(
+      interpolateWorkspaceString("{path:missing/token}", root, {}),
+    ).rejects.toThrow("required file missing/token could not be read");
+  });
 });
 
 describe("InstanceConfigError", () => {
