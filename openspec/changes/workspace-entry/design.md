@@ -20,8 +20,8 @@ See proposal.md for motivation. The facts below were read at `1bab08dc` and shap
   `chats/skill-turn-state.ts:81-178`).
 - One process-wide SkillCatalog reads its configured sources live on every snapshot
   (`skills/skill-catalog.ts:107-150`); `skill://` resolves through it per read.
-- `McpRuntimeService` is one process-wide provider that starts every configured server at boot
-  and labels each executor `classification: 'read_only'` (`mcp/mcp-runtime.service.ts:449`).
+- `McpRuntimeService` is one process-wide provider that starts every operator-configured server at
+  boot and labels each executor `classification: 'read_only'` (`mcp/mcp-runtime.service.ts:449`).
   `groupEligibleTurnToolCandidates` admits a candidate only if allowlisted and either
   `read_only` or a host-capability tool (`tools/turn-tool-catalog.ts:369-402`).
 - The attempt catalog is composed once per attempt (`effective-context-resolver.ts:25-91`); the
@@ -50,10 +50,10 @@ Add nullable `workspace_root` (canonical absolute path) and `workspace_executor_
 `workspace_generation`, nullable `workspace_told` (the root last narrated to the model, or null),
 and nullable `workspace_detach_reason` (one of `executor_mismatch`, `executor_absent`,
 `root_missing`, `root_moved`, `permission_rejected`, or `tool_not_allowed`) to `chats`, beside
-the existing baseline columns and under the same owner RLS. `workspace_generation` increments on
-every binding change (enter, switch, exit of a bound Chat, detach); a same-root re-entry leaves it
-unchanged. A Chat has at most one binding, so a separate table would
-add a join and a lifecycle for no gain.
+the existing baseline columns and under the same owner RLS. `workspace_generation` increments only
+when an enter establishes or switches a binding, an exit clears a bound Chat, or a detach clears
+one; same-root re-entry and exit on an unbound Chat leave it unchanged. A Chat has at most one
+binding, so a separate table would add a join and a lifecycle for no gain.
 
 Owner forks copy the canonical root, executor id, and generation as an explicit exception to the
 general fork rule copying no worker or native-effect state. They do not copy `workspace_told` or
@@ -85,8 +85,8 @@ re-runs to the same final state. An authorized exit on an unbound Chat is a harm
 4. evaluate the same permission group on the canonical path; this decision must independently
    obtain an allow and must not match a reject, and its policy provenance is recorded like a
    derived-locator decision;
-5. if the canonical root equals the current binding, return the current state as a no-op
-   success without restarting clients or re-reading configuration;
+5. if the canonical root equals the current binding, return the current state as a no-op success
+   without incrementing `workspace_generation`, restarting clients, or re-reading configuration;
 6. otherwise perform a fenced compare-and-set switch or initial bind in one owner-scoped
    transaction, checking the current delivery before any effect; stop old clients only after the
    new binding commits;
@@ -98,7 +98,8 @@ re-runs to the same final state. An authorized exit on an unbound Chat is a harm
 The binding is written before skills and MCP start, so a server that fails to start never leaves
 the Chat half-entered. `exit_workspace` clears the binding and stops clients. A denied call has
 no effect; the operator can lock exit out with its own permission group, while preparation still
-detaches on the causes in D4. The recommended entry group retains F1-F3 protected-path rejects.
+detaches on the causes in D4. The recommended entry group uses a field allow plus F1-F3 and the
+E1-E3 protected-path rejects; the other eight groups retain whole-tool allows.
 
 ### D3. One lexical projection function for execution and permission evaluation
 
@@ -194,28 +195,35 @@ already shows its absolute directory, which reveals the source.
 ### D8. Workspace MCP clients are owned per Chat in the executing process
 
 A `WorkspaceMcpClients` provider keeps process-local clients keyed by
-`(chatId, canonical root, workspace_generation)`. On entry, or when an attempt starts for a
-bound Chat whose matching key is not running in this process, it reads `.llame/mcp.json` merged
-over `.mcp.json` by server name. At every attempt start it stops any clients held for that Chat
-whose key does not match the current binding, then starts the matching key. Exit, switch, and
-detach stop clients in the executing process; other processes discard stale clients at their
-next attempt for that Chat or at the 30-minute idle timeout.
+`(chatId, canonical root, workspace_generation)`. Workspace candidates and executors never enter
+the process-wide operator MCP runtime. On entry, or when an attempt starts for a bound Chat whose
+matching key is not running in this process, it reads `.llame/mcp.json` merged over `.mcp.json` by
+server name. At every attempt start it stops any clients held for that Chat whose key does not
+match the current binding, then starts the matching key. Exit, switch, and detach stop clients in
+the executing process; other processes discard stale clients at their next attempt for that Chat
+or at the 30-minute idle timeout.
 
+Attempt composition takes Workspace candidates from the per-Chat registry for the current
+`(chatId, canonical root, workspace_generation)` key, applies shadowing per Chat, and passes bound
+executable resolution an attempt-scoped resolver: the Workspace resolver for that key layered over
+the operator resolver. A Workspace client is never registered in the process-wide operator map.
 Entries use the portable shape: a missing `type` with `command` means `stdio`, and `http` or
 `streamable-http` means remote. `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` resolve
 from the executing process's environment and filesystem, including llame's own process
-environment. A relative `{path:LOCATION}` resolves from the Workspace root. An unresolvable
-token (an unset variable without a default or an unreadable file) makes that server unavailable
-with a diagnostic naming the variable or file location, never its value. Resolved values are not
-re-scanned, and commands and arguments are never shell-interpreted.
+environment. A stdio child receives only the values declared by that Workspace entry, merged over
+the MCP client library's fixed base-environment allowlist; an ambient llame process variable not
+referenced by the entry is absent. A relative `{path:LOCATION}` resolves from the Workspace root.
+An unresolvable token (an unset variable without a default or an unreadable file) makes that
+server unavailable with a diagnostic naming the variable or file location, never its value.
+Resolved values are not re-scanned, and commands and arguments are never shell-interpreted.
 
-Resolved interpolation values, except `:-default` literals, and literal values in `env` and
-`headers` entries are added to that server's protected-value set. Redaction is guaranteed for
-that server's traffic, diagnostics, entry result, and receipts; another tool that independently
-reads the same source is outside this guarantee. A stdio child defaults its `cwd` to the root
-and resolves a relative `cwd` from it. Clients reuse the existing client, discovery, admission,
-and bounds code. A malformed file, invalid server name, or unsupported transport leaves entry
-successful and reports that server as unavailable.
+For a Workspace server, only resolved interpolation values, except `:-default` literals, are
+added to that server's protected-value set; literal values in `env` and `headers` entries are not
+protected. Redaction is guaranteed for that server's traffic, diagnostics, entry result, and
+receipts; another tool that independently reads the same source is outside this guarantee. A
+stdio child defaults its `cwd` to the root and resolves a relative `cwd` from it. Clients reuse
+the existing client, discovery, admission, and bounds code. A malformed file, invalid server
+name, or unsupported transport leaves entry successful and reports that server as unavailable.
 
 Alternative rejected: one shared client per root and server. Servers such as Playwright keep
 per-session state, which would then leak between Chats.
@@ -239,13 +247,22 @@ refused as unavailable. This matches the canonical rule that a dynamic tool whic
 executor retains its declaration with an unavailable executor.
 
 Shadowing is deferred for declarations already present in a running attempt. If an entering
-Workspace server's id ASCII-case-folds to an operator server whose tools are already declared,
-the Workspace server contributes no tools in this Run and the entry result says it \"shadows from
-the next Run\"; operator tools retain their executors for the rest of the Run. From the next Run,
-the successfully started Workspace server shadows the operator server under the same ids and
-permission groups. A Workspace server that failed to start does not shadow. A Workspace id that
-case-fold-collides with an operator id shadows it; it never causes a collision refusal of the
-operator tools.
+Workspace server's id is byte-equal to an operator server whose tools are already declared, the
+Workspace server contributes no tools in this Run and the entry result says it "shadows from the
+next Run"; operator tools retain their executors for the rest of the Run. From the next Run, the
+successfully started Workspace server shadows the operator server under the same tool ids and
+exact-id permission groups. A Workspace server id that differs from an operator server id only by
+ASCII case is reported unavailable with reason `case-only collision with an operator server` and
+contributes no tools; operator tools are unaffected. A Workspace server that failed to start does
+not shadow.
+
+If an id already present in the running attempt is re-added after exit and re-entry, or after a
+switch between roots defining that server, the newly admitted declaration binds an executor only
+when it is identical in memory to the retained declaration; nothing is persisted for this
+comparison. Otherwise that id contributes no executor in this Run and the entry result reports it
+"available from the next Run". Declarations are never replaced or removed as keys: on exit,
+switch, or detach their executors become unavailable while the attempt-local declarations remain,
+and later calls to those ids are refused as unavailable.
 
 Each addition appends an owner-scoped `runs.added_tool_declarations` entry
 `{ id, source: 'workspace-mcp', server, step }` in an owner-scoped transaction fenced by the
@@ -286,14 +303,17 @@ servers as the only operator-permitted external-tool path; neither source bypass
   breaks it fails CI.
 - [Repository-supplied `{path:…}` and `${VAR}` can exfiltrate host secrets] → accepted under
   the audited-repository assumption, including llame's own process environment as an
-  interpolation source. Permitting `enter_workspace` on a directory the model can write (via
-  bash or unrestricted `write`/`edit`) is equivalent to `execute_code` and host-file
-  exfiltration: Workspace MCP config is re-read on entry and at each new client start, and
-  servers start without a separate permission check. The recommended W1/W2 rejects protect
-  `.mcp.json` and `.llame|.agents|.claude` paths, while F1-F3 remain on the
-  `enter_workspace` group. Resolved values are redacted only within the owning server's
-  traffic, diagnostics, entry result, and receipts; other tools that independently read the
-  same source are outside that guarantee.
+  interpolation source. Permitting `enter_workspace` on a directory that any allowlisted tool can
+  write — `bash`, native `write`/`edit` without W1/W2, or write-capable operator or Workspace MCP
+  tools — is equivalent to `execute_code` and host-secret exfiltration: Workspace MCP config is
+  re-read on entry and at each new client start, and servers start without a separate permission
+  check. W1/W2 are case-insensitive text rejects for `.mcp.json` and
+  `.llame|.agents|.claude` paths; in-repo aliases such as symlinks can bypass those rejects, and
+  there is no executor-level guard. F1-F3 remain on the `enter_workspace` group. For Workspace
+  entries, only resolved interpolation values except `:-default` literals are protected; literal
+  `env`/`headers` values are not. Values are redacted only within the owning server's traffic,
+  diagnostics, entry result, and receipts; other tools that independently read the same source
+  are outside that guarantee.
 - [Retiring the attestation makes existing operator allowlists write-capable] → **BREAKING**
   changelog entry and a `docs/mcp-tools.md` migration note telling operators to add permission
   rejects for mutating MCP tools.
@@ -334,6 +354,13 @@ owner's RLS scope.
 - v2 (this revision) — Made attempt root timing, snapshot/notice narration, skill-source
   failure isolation, and owner/visitor fork behavior explicit.
 - v2 (this revision) — Keyed Workspace MCP clients by generation, documented host interpolation
-  and redaction scope, deferred case-folded shadowing, and retained unavailable declarations.
+  and redaction scope, deferred shadowing, and retained unavailable declarations.
 - v2 (this revision) — Replaced declaration hashes with fenced addition-time owner records,
   enumerated every MCP read-only gate, and split implementation layers and their checks.
+- v3 (this revision) — Q1 byte-equal shadowing; Q2 in-memory declaration re-add identity; Q3
+  Workspace protected-value scope; Q4 binding-generation semantics; Q5 detach notice/snapshot
+  condition; Q6 field-scoped entry policy; Q7 case-insensitive W1/W2 text rejects and alias
+  bypass; Q8 broad trust-input boundary; Q9 owner-only Workspace host-path context exception;
+  Q10 binding authority boundary; Q11 stdio environment isolation; Q12 per-Chat MCP resolver
+  isolation; Q13 complete mcp-authorization SPEC.md ownership and egress-task split; Q14 proposal
+  layer review-budget exception.

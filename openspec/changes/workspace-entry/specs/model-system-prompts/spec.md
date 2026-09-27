@@ -76,8 +76,6 @@ using its predecessor's receipt, catalog, or model context.
 ### Requirement: Owners can inspect the exact effective context without seeing host paths
 
 The owner SHALL be able to inspect immutable system-prompt-only receipts for
-
-Operator skill source/package/file paths intentionally published under `agent-skills` SHALL be permitted in the recorded model-visible skill contributions; this exception SHALL NOT expose prompt-file paths, Knowledge backing paths, credentials, or other private configuration. Non-owners SHALL receive a not-found response.
 every execution attempt that completed prompt preparation. Each receipt SHALL
 contain the Run/attempt identity, public model id and effort, prompt source
 label, exact rendered system prompt including projected owner values, prompt
@@ -100,11 +98,22 @@ an empty list and its actual unresolved/not-produced state. The UI SHALL expose
 each prepared attempt and fetch this response on demand.
 
 Receipts SHALL contain no tool catalog, schemas, descriptions, availability
-manifest, declaration hashes, or combined prompt/tool content hash. An owner receipt MAY list the exact tool ids added during that Run by trusted Workspace actions, but it SHALL contain no schemas, descriptions, declaration hashes, endpoints, or other declaration content for those tools. Private
-prompt-file paths, MCP connection information, raw source errors, provider
-credentials, and executor context SHALL remain undisclosed. Historical system
-prompt receipts SHALL survive catalog-column removal; historical tool receipt
-fields SHALL be removed rather than rebuilt from current configuration.
+manifest, declaration hashes, or combined prompt/tool content hash. An owner
+receipt MAY list the exact tool ids added during that Run by trusted Workspace
+actions, but it SHALL contain no schemas, descriptions, declaration hashes,
+endpoints, or other declaration content for those tools. Except for the
+owner-only host-path exceptions below, private prompt-file paths, MCP connection
+information, raw source errors, provider credentials, and executor context SHALL
+remain undisclosed. The canonical Workspace root narrated by the `workspace`
+producer and Workspace skill source/package/file paths SHALL be permitted in the
+owner-only recorded model-visible context; operator skill source/package/file
+paths intentionally published under `agent-skills` SHALL likewise be permitted
+in recorded model-visible skill contributions. These host-path exceptions SHALL
+NOT expose prompt-file paths, Knowledge backing paths, credentials, or other
+private configuration. Non-owners SHALL receive a not-found response.
+Historical system prompt receipts SHALL survive catalog-column removal;
+historical tool receipt fields SHALL be removed rather than rebuilt from current
+configuration.
 
 #### Scenario: Owner inspects a run carrying personalization
 
@@ -166,3 +175,9 @@ fields SHALL be removed rather than rebuilt from current configuration.
 - **WHEN** the chat owner opens the receipt for a Run in which a trusted Workspace action added tool declarations
 - **THEN** the receipt lists the exact ids added during that Run
 - **AND** it contains no schemas, descriptions, declaration hashes, endpoints, or other declaration content
+
+#### Scenario: Owner inspects Workspace paths in effective context
+
+- **WHEN** the chat owner opens an effective-context receipt for a Run whose `workspace` producer narrated a canonical Workspace root and whose Workspace skill activation published source, package, or file paths
+- **THEN** the owner can see the canonical Workspace root and Workspace skill source/package/file paths in the recorded model-visible context
+- **AND** prompt-file paths, Knowledge backing paths, credentials, and other private configuration remain undisclosed

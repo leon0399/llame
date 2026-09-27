@@ -1,4 +1,4 @@
-Track [#974](https://github.com/leon0399/llame/issues/974) and its PRs through the delivery Project under [CONTRIBUTING.md](../../../CONTRIBUTING.md). Local drafting or commits do not change Project status. [#975](https://github.com/leon0399/llame/issues/975), [#976](https://github.com/leon0399/llame/issues/976), [#977](https://github.com/leon0399/llame/issues/977), and [#758](https://github.com/leon0399/llame/issues/758) are separate work, not native blockers. [#978](https://github.com/leon0399/llame/pull/978) removes the superseded `tool-search` change independently.
+Track [#974](https://github.com/leon0399/llame/issues/974) and its PRs through the delivery Project under [CONTRIBUTING.md](../../../CONTRIBUTING.md). Local drafting or commits do not change Project status. [#975](https://github.com/leon0399/llame/issues/975), [#976](https://github.com/leon0399/llame/issues/976), [#977](https://github.com/leon0399/llame/issues/977), and [#758](https://github.com/leon0399/llame/issues/758) are separate work, not native blockers. [#978](https://github.com/leon0399/llame/pull/978) (tool-search redesign) is separate work; this change owns only the in-Run tool additions made by Workspace entry.
 
 Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation. Create the next layer only after the approved proposal revision is carried forward and the previous layer passed its gates. Publication and merge each require separate permission.
 
@@ -32,15 +32,22 @@ Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation.
 - `finalize` owns only spec sync, checked task records, and archive movement.
 
 Re-estimate authored size at each layer boundary and before publication; split a growing concern or request a named exception before publishing an oversized layer. Do not put live delivery status in this file. UI presentation details live here and in design.md, not in the specs.
+The proposal layer is a named review-budget exception at approximately 3,100 authored lines:
+MODIFIED blocks must copy whole canonical requirements across 12 capabilities, and the
+**BREAKING** MCP contract is atomic with the feature. Evidence is
+`git diff --shortstat master...workspace-entry/proposal`. Re-estimate all later layers against
+their immediate parent; this exception does not relax the approximately 2,000-line budget for
+implementation layers.
 
 ## 1. `workspace-entry/core`: binding, tools, projection, and narration
 
 - [ ] 1.1 Add nullable `workspace_root`, `workspace_executor_id`, `workspace_told`, and
       `workspace_detach_reason`, plus integer `workspace_generation`, to `chats` with a generated
-      Drizzle migration (design D1). Use the closed detach-reason codes and generation updates from
-      every enter, switch, exit, and detach. Verify `pnpm db:generate` reproduces it, the migration
-      applies to a populated database, and an integration test shows user A cannot read or write
-      user B's binding columns under RLS.
+      Drizzle migration (design D1). Use the closed detach-reason codes and increment generation
+      only when an enter establishes or switches a binding, an exit clears a bound Chat, or a
+      detach clears one; same-root re-entry and exit on an unbound Chat leave it unchanged.
+      Verify `pnpm db:generate` reproduces it, the migration applies to a populated database, and
+      an integration test shows user A cannot read or write user B's binding columns under RLS.
 - [ ] 1.2 Add the pure lexical `resolveWorkspacePath` projection and feed it to `read`, `edit`,
       `write` path handling and bash `cwd` through the attempt-scoped root cell (design D3, D5).
       Preserve a trailing separator, do not call `realpath`, follow symlinks only through the OS, and
@@ -62,7 +69,8 @@ Re-estimate authored size at each layer boundary and before publication; split a
       `native.attempt`, make queue retries idempotent, and make authorized exit on an unbound Chat
       harmless. Verify non-absolute and non-directory paths, symlink rejection, submitted-path
       rejection, canonical-path `no_allow` with no binding or MCP start, same-root no-op without
-      restart, switch, missing `nativeExecutorId`, and a superseded attempt with no side effect.
+      restart or generation change, switch, missing `nativeExecutorId`, and a superseded attempt
+      with no side effect.
 - [ ] 1.5 Re-check the binding during accepted-turn preparation before Workspace skills,
       `$skill`, MCP clients/catalog, or the Workspace producer. Detach immediately in its own
       owner-scoped transaction fenced by the Run's current delivery; clear the binding, increment
@@ -81,14 +89,22 @@ Re-estimate authored size at each layer boundary and before publication; split a
       detach reason. Verify an owner fork keeps the binding, its first accepted turn narrates it, its
       first Run re-checks it, and a visitor fork of a public bound Chat is unbound and discloses no
       root; a fork of a detached Chat stays unbound.
-- [ ] 1.8 Document the nine-group recommended policy in `llame.config.json.example`, retaining
-      F1-F3 and adding W1 on `edit.path` and `write.path` with regex
-      `(^|[/\\])\.mcp\.json$` and W2 with regex
-      `(^|[/\\])\.(llame|agents|claude)[/\\]`, plus Workspace entry and its host-authority
-      boundary in `docs/native-files.md`. Update `SPEC.md:35` so Workspace is a current runtime
-      object on the native executor, add the local-node research paragraph recording the absolute-
-      path exception to §5.4, and add a dated `CHANGELOG.md` entry. Verify the example-policy
-      scenarios, including the canonical `no_allow` case and preservation of F1-F3.
+- [ ] 1.8 Document the nine-group recommended policy in `llame.config.json.example`: add
+      `enter_workspace` and `exit_workspace`; the `enter_workspace` group uses an operator-edited
+      field allow such as
+      `{ "field": "path", "regex": "^/home/operator/projects/[^/]+/?$" }`, plus F1-F3 and
+      E1 `(^|[/\\])node_modules([/\\]|$)`, E2 `^/(tmp|var/tmp)(/|$)`, and E3
+      `(^|[/\\])Downloads([/\\]|$)` rejects on `enter_workspace.path`. Every directory this group
+      allows is trusted to run code and read host secrets through its Workspace MCP configuration;
+      the other eight groups keep whole-tool allows. Add W1 on `edit.path` and `write.path` with
+      case-insensitive text-reject regex `(?i)(^|[/\\])\.mcp\.json$` and W2 with
+      `(?i)(^|[/\\])\.(llame|agents|claude)[/\\]`; document that in-repo aliases such as symlinks
+      can bypass these rejects and there is no executor-level guard. Add Workspace entry and its
+      host-authority boundary in `docs/native-files.md`. Update `SPEC.md:35` so Workspace is a
+      current runtime object on the native executor, add the local-node research paragraph
+      recording the absolute-path exception to §5.4, and add a dated `CHANGELOG.md` entry. Verify
+      the example-policy scenarios, including the canonical `no_allow` case and preservation of
+      F1-F3.
 - [ ] 1.9 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused API
       integration files touched above, `pnpm format:check`, `git diff --check`, and
       `pnpm exec openspec validate workspace-entry --strict`; record the commands in the PR body.
@@ -151,13 +167,15 @@ Re-estimate authored size at each layer boundary and before publication; split a
       the grammar and 64-character bound. Verify with config-loader tests that
       `mcp__unconfigured__*` boots, a malformed MCP entry still fails startup naming the path, and
       the canonical `no_allow` path remains a permission decision rather than a fabricated tool.
-- [ ] 4.3 Update `SPEC.md` §13.5 to include `unverified`; update the canonical `mcp-tools` Purpose
-      from explicitly enabled read-only tools to allowlisted tools authorized by permissions; update
-      the `tool-calling` egress scenarios ("No external network egress from tools" and the explicit
-      external-tool exception) to name Workspace MCP servers as an operator-permitted path; remove
-      the read-only attestation and write-capable MCP deferral from `VISION.md` and
-      `docs/mcp-tools.md`, adding the operator migration note and a dated **BREAKING**
-      `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+- [ ] 4.3 Update `SPEC.md:130` (the MCP attestation/prohibition sentence), `SPEC.md:134` (queue
+      retries of read-only Runs), and `SPEC.md:138` (§13.5 runtime execution of `read_only` tools)
+      to reflect `unverified`; update the canonical `mcp-tools` Purpose from explicitly enabled
+      read-only tools to allowlisted tools authorized by permissions. Remove the read-only
+      attestation and write-capable MCP deferral from `VISION.md` and `docs/mcp-tools.md`, adding
+      an operator migration note that permitting `enter_workspace` on a directory that any
+      allowlisted tool can write — `bash`, native `write`/`edit` without W1/W2, or write-capable
+      operator or Workspace MCP tools — is equivalent to `execute_code` and host-secret
+      exfiltration. Add a dated **BREAKING** `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
 - [ ] 4.4 Run the API checks from 1.9 for this layer and record them in the PR body.
 - [ ] 4.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
@@ -176,9 +194,11 @@ Re-estimate authored size at each layer boundary and before publication; split a
       refusal. Record each addition immediately in a new owner-scoped
       `runs.added_tool_declarations` column with a generated migration, fenced by the attempt, as
       `{ id, source: 'workspace-mcp', server, step }` and with no declaration hash (design D9).
-      Verify next-step callability, a removed id refused as unavailable, the step cap still applying,
-      addition-time persistence rather than terminal-only persistence, and a non-owner unable to
-      read the record.
+      Verify next-step callability, re-entry or root-switch re-adding an id with an identical
+      in-memory declaration rebinds its executor, a changed declaration contributes no executor
+      this Run and reports `available from the next Run`, a removed id is refused as unavailable,
+      the step cap still applies, addition-time persistence is not terminal-only, and a non-owner
+      cannot read the record.
 - [ ] 5.3 Modify the `model-system-prompts` contract and carry its MODIFIED delta for trusted
       Workspace additions: carve them out of the fixed admitted-declaration rule while persisting no
       schemas, descriptions, or hashes. Expose an owner-only receipt/API view listing added ids,
@@ -197,33 +217,41 @@ Re-estimate authored size at each layer boundary and before publication; split a
 ## 6. `workspace-entry/workspace-mcp`: clients, config, and lifecycle
 
 - [ ] 6.1 Add the per-Chat Workspace MCP client provider keyed by `(chatId, canonical root,
-workspace_generation)`. Implement `.llame/mcp.json` over `.mcp.json` merge, portable entry
-      shapes, start on entry or attempt start, stop on exit/switch/detach/shutdown, stale-key
-      cleanup at attempt start, and 30-minute idle cleanup. Verify Chat A's clients and tools never
-      reach Chat B or another owner, and that another process discards stale clients before using a
-      current binding.
+workspace_generation)`. Keep Workspace candidates and executors out of the process-wide
+      operator MCP runtime; compose each attempt from the current Chat key with its resolver
+      layered over the operator resolver. Implement `.llame/mcp.json` over `.mcp.json` merge,
+      portable entry shapes, start on entry or attempt start, stop on exit/switch/detach/shutdown,
+      stale-key cleanup at attempt start, and 30-minute idle cleanup. Verify Chat A's clients and
+      tools never reach Chat B or another owner; in one process, bind two Chats to Workspaces that
+      define the same server id and verify each Chat calls only its own server; and verify another
+      process discards stale clients before using a current binding.
 - [ ] 6.2 Implement `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` interpolation from
-      the executing process's environment and filesystem, including llame's own environment; resolve
-      relative `{path:…}` from the Workspace root; make unresolved values unavailable with a safe
-      diagnostic; never re-scan resolved values or shell-interpret commands/args. Protect resolved
-      values except `:-default` literals and literal `env`/`headers` values for that server's
-      traffic, diagnostics, entry result, and receipts. Verify merge precedence, defaults,
-      redaction, relative paths, unreadable files, and the accepted audited-repository boundary.
-- [ ] 6.3 Implement deferred shadowing: compare Workspace and operator server ids under ASCII
-      case-folding; when operator tools are already declared in the running attempt, report
-      `shadows from the next Run`, retain operator executors for that Run, and shadow from the next
-      Run after a successful Workspace start. A case-fold collision shadows rather than refusing the
-      operator tools, while a failed Workspace server does not shadow. Verify the case-fold shadowing
-      scenario and next-Run transition.
+      the executing process's environment and filesystem, including llame's own environment;
+      resolve relative `{path:…}` from the Workspace root; make unresolved values unavailable
+      with a safe diagnostic; never re-scan resolved values or shell-interpret commands/args.
+      Protect only resolved interpolation values except `:-default` literals; literal `env` and
+      `headers` values are not protected for Workspace entries. Verify merge precedence, defaults,
+      redaction, relative paths, unreadable files, the accepted audited-repository boundary, and
+      that an ambient llame process variable not referenced by Workspace config is absent from its
+      stdio child's environment.
+- [ ] 6.3 Implement deferred shadowing: a byte-equal Workspace/operator server id defers when
+      operator tools are already declared in the running attempt, reports `shadows from the next
+Run`, retains operator executors for that Run, and shadows from the next Run after a
+      successful Workspace start under the same tool ids and exact-id permission groups. A
+      Workspace id differing from an operator id only by ASCII case is unavailable with reason
+      `case-only collision with an operator server` and contributes no tools; operator tools are
+      unaffected, and a failed Workspace server does not shadow. Verify byte-equal deferred
+      shadowing, the case-only collision scenario, and the next-Run transition.
 - [ ] 6.4 Report every Workspace server's state in the `enter_workspace` result and compose the
       Chat's currently admitted Workspace tools from the start of the next Run so
       `tool-availability` announces them. Verify malformed files and unsupported transports leave
       entry successful, failed servers are unavailable, a Workspace tool is callable in the entering
       Run when it does not defer to an existing operator declaration, and the next Run starts the
       generation-matching client set.
-- [ ] 6.5 Update `SPEC.md:132` to document per-process MCP clients plus per-Chat Workspace MCP
-      clients. Document Workspace MCP config, interpolation, lifetime, generation keying, deferred
-      case-fold shadowing, and the audited-repository assumption in `docs/mcp-tools.md`; add a dated
+- [ ] 6.5 Update `SPEC.md:132` to document per-process operator MCP clients plus per-Chat
+      Workspace MCP clients. Document Workspace MCP config, interpolation, lifetime, generation
+      keying, per-Chat resolver isolation, byte-equal deferred shadowing, case-only collision
+      unavailability, and the audited-repository assumption in `docs/mcp-tools.md`; add a dated
       `CHANGELOG.md` entry. Run the API checks from 1.9 and web checks from 2.3 for this layer and
       record them in the PR body, which uses `Closes #974`.
 - [ ] 6.6 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun

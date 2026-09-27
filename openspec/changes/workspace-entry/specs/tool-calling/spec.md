@@ -196,7 +196,11 @@ MCP tools MAY perform reads or other operations on external systems only through
 
 Only a trusted harness action entering a Workspace SHALL add tool declarations to the active Run; model output or an untrusted tool source SHALL NOT add declarations directly. Each addition SHALL pass the same source admission, `tools.allowed`, safety-classification, and schema-admission checks as declarations composed at attempt start, and each invocation SHALL independently pass the executing process's `tools.permissions` policy. An admitted addition SHALL become callable beginning with the next model step in that Run. The active attempt's model-facing declaration map and executable binding SHALL be updated in place. The declaration key SHALL never be removed from that attempt during the Run. A Workspace exit, switch, or detach SHALL make the corresponding executor unavailable while retaining its declaration; a later request for that id SHALL be refused as unavailable, recorded as a non-fatal tool refusal, and SHALL NOT execute or substitute a changed contract. Adding tools SHALL NOT reset, increase, or bypass the configured tool-step cap.
 
-If an entering Workspace server's id case-fold-collides under ASCII rules with an operator server whose tools are already declared in the active Run, the Workspace server SHALL contribute no tools to that Run. The entry result SHALL identify those tools as "shadows from the next Run"; the operator declarations SHALL retain their executors for the rest of the Run. From the next Run, the started Workspace server SHALL shadow the operator server under the same tool ids. Such a case-fold collision SHALL shadow the operator tools rather than trigger collision refusal.
+If an entering Workspace server's id is byte-equal to an operator server id whose tools are already declared in the active Run, the Workspace server SHALL contribute no tools to that Run. The entry result SHALL identify those tools as "shadows from the next Run"; the operator declarations SHALL retain their executors for the rest of the Run. From the next Run, the started Workspace server SHALL shadow the operator server under the same tool ids and exact-id permission groups.
+
+If a Workspace server's id differs from an operator server id only by ASCII case, the Workspace server SHALL be reported unavailable with reason "case-only collision with an operator server", SHALL contribute no tools, and SHALL leave the operator tools unaffected.
+
+When a trusted Workspace action re-adds an id already present in the active attempt, including after exit then re-entry or a switch between roots defining that id, the new executor SHALL be bound only when the newly admitted declaration is identical to the retained declaration as compared in memory; nothing SHALL be persisted for that comparison. If the declarations differ, that id SHALL have no executor in this Run and the entry result SHALL report it as "available from the next Run". Declarations SHALL never be replaced or removed within the attempt.
 
 The Run SHALL durably record each added declaration with exactly its `id`, `source: 'workspace-mcp'`, `server`, and the `step` at which it was added; it SHALL NOT record a declaration hash. The entry SHALL be written when the addition happens in an owner-scoped transaction fenced by the current attempt, rather than only in a terminal transaction. The record SHALL be available only to the Run owner; it SHALL NOT be exposed through non-owner access, search, public shares, or exports. A subsequent Run for a Chat that remains entered SHALL compose currently admitted Workspace declarations at the start of its first attempt, independent of the prior Run's addition record.
 
@@ -232,6 +236,18 @@ The Run SHALL durably record each added declaration with exactly its `id`, `sour
 
 #### Scenario: Mid-Run Workspace shadowing is deferred
 
-- **WHEN** an entering Workspace server's id case-fold-collides under ASCII rules with an operator server whose tools are already declared in the active Run
+- **WHEN** an entering Workspace server's id is byte-equal to an operator server id whose tools are already declared in the active Run
 - **THEN** the Workspace server contributes no tools in that Run, the entry result reports "shadows from the next Run", and the operator tools keep their executors
-- **AND** the next Run uses the started Workspace server under the same tool ids without collision-refusing the operator tools
+- **AND** the next Run uses the started Workspace server under the same tool ids and exact-id permission groups without collision-refusing the operator tools
+
+#### Scenario: ASCII-case-only Workspace server collision is unavailable
+
+- **WHEN** an entering Workspace server's id differs from an operator server id only by ASCII case
+- **THEN** the Workspace server is reported unavailable with reason "case-only collision with an operator server", contributes no tools, and leaves the operator tools unaffected
+
+#### Scenario: Re-adding a retained declaration requires an identical declaration
+
+- **WHEN** a trusted Workspace action exits and re-enters, or switches between roots, and the new source admits an id already present in the active attempt
+- **THEN** the new executor is bound only when the newly admitted declaration is identical to the retained declaration as compared in memory
+- **AND** if the declaration differs, that id has no executor in this Run and the entry result reports it as "available from the next Run"
+- **AND** the retained declaration key is neither replaced nor removed

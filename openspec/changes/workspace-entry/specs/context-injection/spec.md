@@ -191,8 +191,8 @@ At each accepted user turn, a `workspace` producer SHALL compare the Chat's curr
 #### Scenario: Changed binding is narrated on the rail
 
 - **WHEN** an accepted turn observes a Workspace binding different from the last state narrated to the Chat
-- **THEN** a rail-resident `workspace` snapshot names the canonical root or states that no Workspace is entered and states that host authority is not confined
-- **AND** if preparation detached the binding, a separate rail-resident `workspace` notice consumes the persisted detach reason and the Workspace state is not added to the system prompt
+- **THEN** a rail-resident `workspace` snapshot names the canonical root and states that host authority is not confined when the turn has a bound root, or states that no Workspace is entered only when a previously narrated root has been detached
+- **AND** if preparation detached the binding, a separate rail-resident `workspace` notice consumes the persisted detach reason in every case; when `workspace_told` named no root, no snapshot is emitted, and the Workspace state is not added to the system prompt
 
 #### Scenario: Unchanged binding is not repeated
 
@@ -227,4 +227,4 @@ At each accepted user turn, a `workspace` producer SHALL compare the Chat's curr
 
 - **WHEN** attempt preparation detaches a binding before the accepted turn resolves Workspace sources or tools
 - **THEN** the turn contributes no Workspace skills or MCP tools
-- **AND** it still emits the root `snapshot` and the separate detach `notice`
+- **AND** it always emits the separate detach `notice`, while the snapshot stating that no Workspace is entered is emitted only when `workspace_told` names a root
