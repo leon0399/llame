@@ -1,3 +1,8 @@
+import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
+import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
+import { streamText } from 'ai';
+import type { OpenAICompatibleProvider } from '@ai-sdk/openai-compatible';
+import { z } from 'zod';
 import type { MockInstance } from 'vitest';
 import {
   mkdirSync,
@@ -94,7 +99,11 @@ import {
 } from './run-execution.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
-import { TOOL_REGISTRY } from '../tools/registry';
+import {
+  TOOL_REGISTRY,
+  registerTestOnlyTool,
+  unregisterTestOnlyTool,
+} from '../tools/registry';
 
 /**
  * classifyAbortedRun unit tests (durable-run-workers D7): the in-process
@@ -3164,10 +3173,178 @@ async function executeBoundBash(
   }
   return settled;
 }
+const TEST_PROVIDER_USAGE = {
+  inputTokens: { total: 0, noCache: 0, cacheRead: 0, cacheWrite: 0 },
+  outputTokens: { total: 0, text: 0, reasoning: 0 },
+};
+
+function providerResponse(
+  parts: ReadonlyArray<LanguageModelV3StreamPart>,
+  finishReason: 'tool-calls' | 'stop',
+) {
+  return {
+    stream: simulateReadableStream<LanguageModelV3StreamPart>({
+      chunks: [
+        { type: 'stream-start', warnings: [] },
+        ...parts,
+        {
+          type: 'finish',
+          finishReason: { unified: finishReason, raw: undefined },
+          usage: TEST_PROVIDER_USAGE,
+        },
+      ],
+    }),
+  };
+}
+
+function providerToolCall(toolName: string, toolCallId: string) {
+  return providerResponse(
+    [{ type: 'tool-call', toolCallId, toolName, input: '{}' }],
+    'tool-calls',
+  );
+}
+
+function providerText(text: string) {
+  return providerResponse(
+    [
+      { type: 'text-start', id: 'answer' },
+      { type: 'text-delta', id: 'answer', delta: text },
+      { type: 'text-end', id: 'answer' },
+    ],
+    'stop',
+  );
+}
+function createToolLoopClient(
+  responses: ReadonlyArray<ReturnType<typeof providerResponse>>,
+) {
+  let responseIndex = 0;
+  const model = new MockLanguageModelV3({
+    provider: 'openai-compatible.test',
+    modelId: 'test-model',
+    doStream: () => {
+      const response = responses[responseIndex++];
+      if (response === undefined) throw new Error('Missing scripted response.');
+      return Promise.resolve(response);
+    },
+  });
+  const provider = vi.fn<OpenAICompatibleProvider>();
+  provider.mockReturnValue(model);
+  Object.assign(provider, { chatModel: vi.fn(() => model) });
+  const client = createOpenAICompletionsModelClient(
+    {
+      credential: 'test-key',
+      providerModelId: 'test-model',
+      modelId: 'fake-model',
+      contextWindowTokens: 128_000,
+      userAgent: 'llame/test',
+      baseUrl: 'https://example.test/v1',
+    },
+    {
+      createOpenAICompatible: () => provider,
+      streamText,
+    },
+  );
+  return { client, model };
+}
+const MID_RUN_ADDER_ID = 'mid_run_add_workspace_tool';
+const MID_RUN_ADDED_ID = 'mcp__workspace__added';
+const MID_RUN_ADDED_SECOND_ID = 'mcp__workspace__second';
+
+function createMidRunAdditionTools() {
+  const executeAdded = vi.fn(() =>
+    Promise.resolve({ status: 'success' as const }),
+  );
+  const executeAddedSecond = vi.fn(() =>
+    Promise.resolve({ status: 'success' as const }),
+  );
+  const addedTool: Tool = {
+    id: MID_RUN_ADDED_ID,
+    description: 'Added Workspace tool.',
+    classification: 'unverified',
+    inputSchema: z.strictObject({}),
+    execute: executeAdded,
+  };
+  const secondAddedTool: Tool = {
+    id: MID_RUN_ADDED_SECOND_ID,
+    description: 'Second added Workspace tool.',
+    classification: 'unverified',
+    inputSchema: z.strictObject({}),
+    execute: executeAddedSecond,
+  };
+  const adder: Tool = {
+    id: MID_RUN_ADDER_ID,
+    description: 'Adds Workspace tools.',
+    classification: 'read_only',
+    inputSchema: z.strictObject({}),
+    execute: async (context) => {
+      const additions = context.toolAdditions;
+      if (additions === undefined) throw new Error('Missing additions handle.');
+      const result = await additions.add('workspace', [
+        addedTool,
+        secondAddedTool,
+      ]);
+      return { status: 'success', ...result };
+    },
+  };
+  return { adder, executeAdded, executeAddedSecond };
+}
 
 describe('RunExecutionService executeRun — tool loop', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+  it('executes an in-Run addition on the next model step', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const { adder, executeAdded, executeAddedSecond } =
+      createMidRunAdditionTools();
+    registerTestOnlyTool(adder);
+    try {
+      const { client, model } = createToolLoopClient([
+        providerToolCall(MID_RUN_ADDER_ID, 'add-call'),
+        providerToolCall(MID_RUN_ADDED_ID, 'added-call'),
+        providerToolCall(MID_RUN_ADDED_SECOND_ID, 'second-added-call'),
+        providerText('done'),
+      ]);
+      const execution = makeExecutionService(client, undefined, undefined, {
+        allowed: [MID_RUN_ADDER_ID, MID_RUN_ADDED_ID, MID_RUN_ADDED_SECOND_ID],
+        permissionPolicy: compileTestPermissionPolicy([
+          MID_RUN_ADDER_ID,
+          MID_RUN_ADDED_ID,
+          MID_RUN_ADDED_SECOND_ID,
+        ]),
+      });
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('done');
+
+      expect(model.doStreamCalls[1]?.tools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: MID_RUN_ADDED_ID }),
+          expect.objectContaining({ name: MID_RUN_ADDED_SECOND_ID }),
+        ]),
+      );
+      expect(executeAdded).toHaveBeenCalledTimes(1);
+      expect(executeAddedSecond).toHaveBeenCalledTimes(1);
+
+      await vi.waitFor(() => {
+        const compactInput = execution.maybeCompact.mock.calls.at(-1)?.[0];
+        expect(compactInput).toBeDefined();
+        expect(
+          compactInput?.toolDeclarations.map(({ id }) => id).slice(-2),
+        ).toEqual([MID_RUN_ADDED_ID, MID_RUN_ADDED_SECOND_ID]);
+      });
+      const addedEvents = appended.filter((entry) => {
+        const payload = entry.payload;
+        return isRecord(payload) && payload.toolName === MID_RUN_ADDED_ID;
+      });
+      expect(addedEvents.map(({ type }) => type)).toEqual([
+        'tool.requested',
+        'tool.started',
+        'tool.completed',
+      ]);
+    } finally {
+      unregisterTestOnlyTool(MID_RUN_ADDER_ID);
+    }
   });
 
   it('waits for durable progress before executing a bash call', async () => {

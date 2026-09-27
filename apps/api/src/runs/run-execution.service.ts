@@ -100,6 +100,10 @@ import {
   runTool,
 } from '../tools/runner';
 import { toFlexibleSchema } from '../tools/schema-utils';
+import {
+  AttemptToolAdditions,
+  type AttemptToolBinding,
+} from '../tools/attempt-tool-additions';
 import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
 import {
   type CompiledPolicy,
@@ -119,6 +123,7 @@ import { ActivationPartsRepository } from '../chats/activation-parts.repository'
 import { nativeReadTool } from '../tools/native-files';
 import {
   type KnowledgeToolResolver,
+  type Tool,
   type ToolContext,
   type ToolResult,
 } from '../tools/types';
@@ -803,6 +808,12 @@ export class RunExecutionService {
       throw error;
     }
     const { system, messages, untitled, tools: executableTools } = prepared;
+    const boundExecutables = new Map<string, AttemptToolBinding>(
+      executableTools.map(({ declaration, executor }) => [
+        declaration.id,
+        { declaration, executor },
+      ]),
+    );
 
     if (input.abortSignal?.aborted) {
       await this.settleAbortedRun(input, attemptId);
@@ -1136,102 +1147,142 @@ export class RunExecutionService {
     // surfaced to the stream/worker instead of becoming a detached rejection.
     let parentAbortSettlement: Promise<void> | undefined;
 
-    // The attempt-local catalog is the authority for what the model sees. The
-    // registry supplied compatible executor functions above. Native calls also
-    // recheck trusted host authority; the mutable allowlist is not re-applied.
-    const toolSet: ToolSet = Object.fromEntries(
-      executableTools.map(({ declaration, executor }) => [
-        declaration.id,
-        tool({
-          description: declaration.description,
-          inputSchema: toFlexibleSchema(declaration.inputSchema)!,
-          execute: async (
-            // eslint-disable-next-line anti-slop/no-unknown-parameters -- mirrors the AI SDK's own `tool({ execute })` callback signature; `args` is validated against `declaration.inputSchema` (`toFlexibleSchema` above) by the SDK itself before this executor is invoked -- the boundary parse already happened one frame up, inside the SDK.
-            args: unknown,
-            { toolCallId }: { toolCallId: string },
-          ) => {
-            // Flush any buffered model.delta of THIS step FIRST, so partial
-            // text is enqueued before the tool events (stream-order).
-            persistDelta(deltas.flush());
-            // toolCallId correlates requested/started/completed into one UI
-            // tool part (tool-loop UI visibility).
-            reserveToolRequest(toolCallId, declaration.id, args);
-            const result = await runTool(
-              executor,
-              args,
-              {
-                ...toolContext,
-                toolCallId,
-                // This call's own derived-locator sink: what the executor
-                // decides lands on the call it belongs to, and only there.
-                onDerivedDecision: (decision) =>
-                  recordDerivedDecision(toolCallId, decision),
-              },
-              callTimeoutSeconds,
-              async (decision) => {
-                const permission = decision;
-                const open = openToolCalls.get(toolCallId);
-                if (open !== undefined) open.permission = permission;
-                // Enqueue the decision-bearing request, and — only for an
-                // allowed call — `tool.started`, synchronously so a parent
-                // abort cannot settle the call between them. The serialized
-                // write chain keeps requested durably before started; dispatch
-                // waits for both to flush.
-                emitToolRequested(toolCallId, declaration.id, args, permission);
-                if (decision.decision === 'allow') {
-                  enqueueEvent('tool.started', {
-                    toolCallId,
-                    toolName: declaration.id,
-                  });
-                }
-                await deltaWrites;
-                if (progressWriteFailed)
-                  throw new Error('Tool activity could not be recorded.');
-              },
-            );
-            if (input.abortSignal?.aborted) {
-              // Bash gets a bounded chance to report its own proven result
-              // after cancellation. A persisted unknown MCP result is already
-              // the durable settlement and must not be replaced by cancellation.
-              if (
-                isBashTool(executor) &&
-                !(
-                  result.status === 'error' && result.type === 'outcome_unknown'
-                )
-              ) {
-                recordToolCompleted(toolCallId, declaration.id, args, result);
-              } else {
-                await parentAbortSettlement;
-              }
-            } else {
-              // The observation records the tool's exact output; only what the
-              // model reads is neutralized.
-              recordToolCompleted(toolCallId, declaration.id, args, result);
-            }
-            if (
-              (isHostCapabilityTool(executor) ||
-                executor.id.startsWith('mcp__')) &&
-              result.status === 'error' &&
-              result.type === 'outcome_unknown'
-            ) {
-              await deltaWrites;
-              throw new Error(
-                isHostCapabilityTool(executor)
-                  ? 'Host command or mutation outcome is unknown; the Run cannot continue.'
-                  : 'MCP operation outcome is unknown; the Run cannot continue.',
-              );
-            }
-            return isNativeFileTool(executor)
-              ? result
-              : neutralizeToolResult(result);
-          },
-          ...(isNativeFileTool(executor) && {
-            toModelOutput: ({ output }) => ({
+    let toolAdditions: AttemptToolAdditions;
+    const executeBoundTool = async (
+      declaration: ModelToolDeclaration,
+      // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK validates tool arguments against the declaration schema before this trusted wrapper runs.
+      args: unknown,
+      toolCallId: string,
+    ) => {
+      persistDelta(deltas.flush());
+      reserveToolRequest(toolCallId, declaration.id, args);
+      const executor = toolAdditions.executorFor(declaration.id);
+      if (executor === undefined) {
+        throw new Error(`Tool "${declaration.id}" has no executor.`);
+      }
+      const result = await runTool(
+        executor,
+        args,
+        {
+          ...toolContext,
+          toolCallId,
+          onDerivedDecision: (decision) =>
+            recordDerivedDecision(toolCallId, decision),
+        },
+        callTimeoutSeconds,
+        async (decision) => {
+          const open = openToolCalls.get(toolCallId);
+          if (open !== undefined) open.permission = decision;
+          emitToolRequested(toolCallId, declaration.id, args, decision);
+          if (decision.decision === 'allow') {
+            enqueueEvent('tool.started', {
+              toolCallId,
+              toolName: declaration.id,
+            });
+          }
+          await deltaWrites;
+          if (progressWriteFailed)
+            throw new Error('Tool activity could not be recorded.');
+        },
+      );
+      return { executor, result };
+    };
+
+    const settleBoundTool = async (
+      declaration: ModelToolDeclaration,
+      // eslint-disable-next-line anti-slop/no-unknown-parameters -- this value is the already schema-validated tool observation forwarded to settlement.
+      args: unknown,
+      toolCallId: string,
+      executor: Tool,
+      result: ToolResult,
+    ) => {
+      if (input.abortSignal?.aborted) {
+        // Bash gets a bounded chance to report its own proven result after
+        // cancellation. Other tools are settled synchronously by the
+        // parent-abort listener. An unknown bash result remains owned by
+        // that listener's synthetic settlement.
+        const settledAfterAbort =
+          isBashTool(executor) &&
+          !(result.status === 'error' && result.type === 'outcome_unknown');
+        if (settledAfterAbort) {
+          recordToolCompleted(toolCallId, declaration.id, args, result);
+        } else {
+          await parentAbortSettlement;
+        }
+      } else {
+        recordToolCompleted(toolCallId, declaration.id, args, result);
+      }
+      if (
+        (isHostCapabilityTool(executor) || executor.id.startsWith('mcp__')) &&
+        result.status === 'error' &&
+        result.type === 'outcome_unknown'
+      ) {
+        await deltaWrites;
+        throw new Error(
+          isHostCapabilityTool(executor)
+            ? 'Host command or mutation outcome is unknown; the Run cannot continue.'
+            : 'MCP operation outcome is unknown; the Run cannot continue.',
+        );
+      }
+      return isNativeFileTool(executor) ? result : neutralizeToolResult(result);
+    };
+
+    const createModelToolDefinition = (
+      declaration: ModelToolDeclaration,
+    ): ToolSet[string] => {
+      const initialExecutor = boundExecutables.get(declaration.id)?.executor;
+      if (initialExecutor === undefined) {
+        throw new Error(`Tool "${declaration.id}" has no executor.`);
+      }
+      const nativeOutput = isNativeFileTool(initialExecutor)
+        ? {
+            toModelOutput: ({ output }: { output: unknown }) => ({
               type: 'text' as const,
               value: serializeNativeModelOutput(output),
             }),
-          }),
-        }),
+          }
+        : {};
+      const definition = tool({
+        description: declaration.description,
+        inputSchema: toFlexibleSchema(declaration.inputSchema)!,
+        execute: async (
+          // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK validates this input against the declaration schema before this callback runs.
+          args: unknown,
+          { toolCallId }: { toolCallId: string },
+        ) => {
+          const { executor, result } = await executeBoundTool(
+            declaration,
+            args,
+            toolCallId,
+          );
+          return settleBoundTool(
+            declaration,
+            args,
+            toolCallId,
+            executor,
+            result,
+          );
+        },
+        ...nativeOutput,
+      });
+      return definition.type === 'provider'
+        ? definition
+        : { ...definition, strict: false };
+    };
+
+    toolAdditions = new AttemptToolAdditions({
+      allowedToolRules: this.instanceConfig.config.tools.allowed,
+      callTimeoutSeconds,
+      boundExecutables,
+      createTool: createModelToolDefinition,
+    });
+    Object.assign(toolContext, { toolAdditions });
+
+    // The attempt-local catalog is the authority for what the model sees.
+    const toolSet: ToolSet = Object.fromEntries(
+      executableTools.map(({ declaration }) => [
+        declaration.id,
+        createModelToolDefinition(declaration),
       ]),
     );
     const hasTools = Object.keys(toolSet).length > 0;
@@ -1320,6 +1371,7 @@ export class RunExecutionService {
         // generation path (today's pre-tool-loop behavior).
         ...(hasTools && {
           tools: toolSet,
+          onToolSet: (record) => toolAdditions.bindToolRecord(record),
           maxSteps: maxStepsPerRun,
           onStepStart: () => {
             workspaceRoot.beginStep();
@@ -1639,7 +1691,10 @@ export class RunExecutionService {
               chatId: input.chatId,
               userId: input.userId,
               system,
-              toolDeclarations: prepared.toolDeclarations,
+              toolDeclarations: [
+                ...prepared.toolDeclarations,
+                ...toolAdditions.addedDeclarations,
+              ],
               ...(effort !== undefined && { effort }),
               untitled,
               userMessage: input.userMessage,

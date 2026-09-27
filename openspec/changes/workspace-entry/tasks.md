@@ -200,16 +200,16 @@ implementation layers.
 - [x] 4.4 Run the API checks from 1.9 for this layer and record them in the PR body.
 - [x] 4.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
-- [ ] 4.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 4.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `mid-run-tools` layer.
 
 ## 5. `workspace-entry/mid-run-tools`: SDK handle and in-memory additions
 
-- [ ] 5.1 Pin the installed `ai` behavior with a regression test: the exact key added to the
+- [x] 5.1 Pin the installed `ai` behavior with a regression test: the exact key added to the
       mutable object assigned to `streamOptions.tools` during a step is declared on the next step
       and executable there, together with the bound-executable map used at execution (design D9).
       Verify the test fails when the addition is removed or when the SDK stops re-reading the record.
-- [ ] 5.2 Admit and insert Workspace declarations during a Run through the same source,
+- [x] 5.2 Admit and insert Workspace declarations during a Run through the same source,
       allowlist, classification, and schema gates. Retain declaration keys on exit, switch, and
       detach while marking their executors unavailable; later calls receive a non-fatal unavailable
       refusal. Keep declarations and bound executors in active-attempt memory only; do not add a
@@ -219,17 +219,17 @@ implementation layers.
       contributes no executor in this attempt and is reported as available from the next Run, a
       foreign-namespace id is refused, a removed id is refused as unavailable, and the step cap
       still applies.
-- [ ] 5.3 Modify the `model-system-prompts` contract and carry its MODIFIED delta for trusted
+- [x] 5.3 Modify the `model-system-prompts` contract and carry its MODIFIED delta for trusted
       Workspace additions: carve them out of the fixed admitted-declaration rule for in-memory
       trusted additions only. Persist no addition record, schemas, descriptions, or hashes, and
       provide no receipt view for them. Verify the receipt remains prompt-only and exposes no
       model-facing tool definition for the additions.
-- [ ] 5.4 Add a dated `CHANGELOG.md` entry. Run the API checks from 1.9 and the web checks from
+- [x] 5.4 Add a dated `CHANGELOG.md` entry. Run the API checks from 1.9 and the web checks from
       2.3 for this layer, plus the focused SDK and owner-isolation tests, and record the commands in
       the PR body.
-- [ ] 5.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+- [x] 5.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
-- [ ] 5.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 5.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `workspace-mcp` layer.
 
 ## 6. `workspace-entry/workspace-mcp`: clients, config, and lifecycle

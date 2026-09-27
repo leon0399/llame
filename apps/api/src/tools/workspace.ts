@@ -188,6 +188,7 @@ async function bindCanonicalRoot(
     }),
   );
   if (result.status === 'fence_lost') return executorUnavailable();
+  if (result.status === 'switched') context.toolAdditions?.disableAll();
   if (result.status !== 'unchanged') context.workspaceRoot?.commit(canonical);
 
   return {
@@ -264,6 +265,7 @@ export const exitWorkspaceTool: Tool<ExitWorkspaceInput> = {
     if (result.status === 'fence_lost') return executorUnavailable();
     if (result.status === 'cleared') {
       context.workspaceRoot?.commit(undefined);
+      context.toolAdditions?.disableAll();
       return {
         status: 'success',
         root: null,

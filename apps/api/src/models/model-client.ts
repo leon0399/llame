@@ -82,6 +82,11 @@ export interface ModelStreamInput {
    */
   maxSteps?: number;
   /**
+   * Receives the exact mutable tool record assigned to the SDK request.
+   * Trusted in-Run Workspace additions mutate this record between steps.
+   */
+  onToolSet?: (tools: ToolSet) => void;
+  /**
    * Fired at the beginning of every model step in a tool-calling stream.
    * Provider clients single-source this callback through `prepareStep`.
    */
