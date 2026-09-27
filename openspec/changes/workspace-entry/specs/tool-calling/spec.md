@@ -77,7 +77,9 @@ recorded tool activity without executing the mutation or MCP operation again. A 
 carrying any recorded `native.attempt` SHALL fail as `outcome_unknown` without replaying its loop;
 this recovery rule has no native-executor or `workerId` precondition. Before terminal settlement,
 each open call with a matching durable `native.result` SHALL be settled from that result regardless
-of tool source; an open call without a matching result SHALL settle as `outcome_unknown`.
+of tool source. An open native mutation or MCP call whose `native.attempt` is recorded without a
+matching result SHALL settle as `outcome_unknown`; every other open call settles as the
+termination settlement rules require.
 A future durable effect-dedupe capability may replace this terminal behavior; it is outside this
 change.
 
