@@ -4,7 +4,10 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import { type ModelToolDeclaration } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
-import { resolveBoundExecutableTools } from '../runs/snapshot-tool-execution';
+import {
+  constrainDynamicToolResolver,
+  resolveBoundExecutableTools,
+} from '../runs/snapshot-tool-execution';
 import { type McpDiscoveryResult } from './mcp-server-client';
 import {
   McpRuntimeService,
@@ -325,6 +328,38 @@ describe('WorkspaceMcpClients', () => {
     await provider.onModuleDestroy();
     await runtime.stop();
   });
+
+  it('keeps composed Workspace source when readiness changes before binding', async () => {
+    const { runtime } = operatorRuntime('web');
+    await runtime.start();
+    const { provider } = workspaceProvider(runtime, () => [
+      config('web', 'workspace'),
+    ]);
+    const current = key('chat-1', '/workspace');
+    await provider.startForChat(current);
+    const id = 'mcp__web__search';
+    const workspaceSource = new Map([
+      [id, { type: 'mcp' as const, serverId: 'web', workspace: true as const }],
+    ]);
+    const workspaceResolver = constrainDynamicToolResolver(
+      provider.resolverFor(current, runtime),
+      workspaceSource,
+    );
+    await provider.stopForChat(current.chatId);
+    expect(workspaceResolver?.resolveDynamicTool(id).state).toBe('unavailable');
+
+    await provider.startForChat(current);
+    const operatorSource = new Map([
+      [id, { type: 'mcp' as const, serverId: 'web' }],
+    ]);
+    const operatorResolver = constrainDynamicToolResolver(
+      provider.resolverFor(current, runtime),
+      operatorSource,
+    );
+    expect(operatorResolver?.resolveDynamicTool(id).state).toBe('unavailable');
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
   it('reports changed retained Workspace declarations as next-Run additions', async () => {
     const { runtime } = operatorRuntime();
     const { provider } = workspaceProvider(runtime, () => [
@@ -380,6 +415,33 @@ describe('WorkspaceMcpClients', () => {
     await runtime.stop();
   });
 
+  it('ends a transferred hold on the current Workspace key', async () => {
+    let now = 1e3;
+    const { runtime } = operatorRuntime();
+    const { provider, clients } = workspaceProvider(
+      runtime,
+      () => [config('web', 'workspace')],
+      () => now,
+    );
+    const oldKey = key('chat-1', '/old', 1);
+    const newKey = key('chat-1', '/new', 2);
+    await provider.startForChat(oldKey);
+    provider.beginAttempt(oldKey);
+    await provider.startForChat(newKey);
+    provider.transferAttempt('chat-1', newKey);
+    now += 30 * 60 * 1e3;
+    provider.cleanupIdle();
+    await Promise.resolve();
+    expect(clients[1]?.close).not.toHaveBeenCalled();
+    provider.endAttempt('chat-1');
+    now += 30 * 60 * 1e3;
+    provider.cleanupIdle();
+    await Promise.resolve();
+    expect(clients[1]?.close).toHaveBeenCalledOnce();
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
   it('keeps active Run clients through idle cleanup, then stops them', async () => {
     let now = 1e3;
     const { runtime } = operatorRuntime();
@@ -397,7 +459,7 @@ describe('WorkspaceMcpClients', () => {
     expect(clients[0].close).not.toHaveBeenCalled();
     expect(provider.stateForKey(current)).toBeDefined();
 
-    provider.endAttempt(current);
+    provider.endAttempt(current.chatId);
     now += 30 * 60 * 1e3;
     provider.cleanupIdle();
     await Promise.resolve();

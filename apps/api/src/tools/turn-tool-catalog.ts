@@ -53,7 +53,12 @@ export const TOOL_UNAVAILABLE_REASON_LABELS = {
 
 export type TurnToolSource =
   | { readonly type: 'code_owned' }
-  | { readonly type: 'mcp'; readonly serverId: string };
+  | {
+      readonly type: 'mcp';
+      readonly serverId: string;
+      /** True only for a Workspace-owned MCP candidate. */
+      readonly workspace?: true;
+    };
 
 export type TurnToolCandidate =
   | {

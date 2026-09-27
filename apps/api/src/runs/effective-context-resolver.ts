@@ -7,6 +7,7 @@ import {
   type ToolAvailabilityManifestV1,
   type ToolDescriptionRenderer,
   type TurnToolCandidate,
+  type TurnToolSource,
 } from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
 
@@ -23,10 +24,11 @@ function defaultCodeOwnedCandidates(
   }));
 }
 
-/** The admitted attempt catalog, shared by both prompt surfaces. */
 export type AttemptToolCatalog = {
   availabilityManifest: ToolAvailabilityManifestV1;
   declarations: Array<ModelToolDeclaration>;
+  /** Source identity captured with the composed declaration. */
+  sourceById?: ReadonlyMap<string, TurnToolSource>;
   /** Admitted ids, sorted — the membership set `tools.<id>` predicates test. */
   admittedIds: Array<string>;
 };
@@ -67,9 +69,13 @@ export async function composeAttemptToolCatalog(
   const declarations = catalog.admitted
     .map(({ declaration }) => declaration)
     .sort((left, right) => compareCodePoints(left.id, right.id));
+  const sourceById = new Map(
+    catalog.admitted.map(({ declaration, source }) => [declaration.id, source]),
+  );
   return {
     availabilityManifest: catalog.manifest,
     declarations,
+    sourceById,
     admittedIds: declarations.map(({ id }) => id),
   };
 }

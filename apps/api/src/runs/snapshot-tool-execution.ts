@@ -3,7 +3,10 @@ import { type ModelToolDeclaration } from '../db/schema';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { TOOL_REGISTRY } from '../tools/registry';
 import { resolveJsonSchema, toFlexibleSchema } from '../tools/schema-utils';
-import { hashToolDeclaration } from '../tools/turn-tool-catalog';
+import {
+  hashToolDeclaration,
+  type TurnToolSource,
+} from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
 import { canonicalJson } from '../canonical-json';
 
@@ -54,6 +57,35 @@ export type DynamicToolResolution =
  */
 export interface DynamicToolExecutorResolver {
   resolveDynamicTool(id: string): DynamicToolResolution;
+}
+
+export function constrainDynamicToolResolver(
+  resolver: DynamicToolExecutorResolver | undefined,
+  sourceById: ReadonlyMap<string, TurnToolSource>,
+): DynamicToolExecutorResolver | undefined {
+  if (resolver === undefined) return undefined;
+  return {
+    resolveDynamicTool: (id) => {
+      const resolution = resolver.resolveDynamicTool(id);
+      const source = sourceById.get(id);
+      if (source?.type !== 'mcp' || resolution.state !== 'available') {
+        return resolution;
+      }
+      if (
+        source.workspace === true &&
+        resolution.workspaceServer !== source.serverId
+      ) {
+        return { state: 'unavailable' };
+      }
+      if (
+        source.workspace !== true &&
+        resolution.workspaceServer !== undefined
+      ) {
+        return { state: 'unavailable' };
+      }
+      return resolution;
+    },
+  };
 }
 
 export const DYNAMIC_TOOL_EXECUTOR_RESOLVER = Symbol(

@@ -192,10 +192,12 @@ async function workspaceMcpServers(
   const state = start
     ? await clients.startForChat(key)
     : clients.stateForKey(key);
+  if (start) clients.transferAttempt(context.chatId, key);
   if (state === undefined) return [];
   if (!start) {
     return state.servers.map((server) =>
-      context.toolAdditions?.hasWorkspaceDeclaration(server.id)
+      context.toolAdditions?.hasWorkspaceDeclaration(server.id) &&
+      !context.toolAdditions.hasAvailableWorkspaceDeclaration(server.id)
         ? { ...server, reason: 'shadows from the next Run' }
         : server,
     );

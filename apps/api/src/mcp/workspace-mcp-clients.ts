@@ -150,6 +150,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   private readonly records = new Map<string, ClientSet>();
   private readonly starts = new Map<string, Promise<ClientSet>>();
   private readonly stopEpochs = new Map<string, number>();
+  private readonly activeHolds = new Map<string, string>();
   private readonly operator: OperatorRuntime;
   private readonly clientFactory: McpRuntimeClientFactory | undefined;
   private readonly now: () => number;
@@ -200,14 +201,29 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   }
 
   beginAttempt(key: WorkspaceMcpKey): void {
-    const record = this.records.get(keyString(key));
+    const id = keyString(key);
+    const previous = this.activeHolds.get(key.chatId);
+    if (previous === id) return;
+    if (previous !== undefined) this.releaseHold(previous);
+    const record = this.records.get(id);
     if (record === undefined) return;
     record.activeAttempts += 1;
     record.lastUsed = this.now();
+    this.activeHolds.set(key.chatId, id);
   }
 
-  endAttempt(key: WorkspaceMcpKey): void {
-    const record = this.records.get(keyString(key));
+  endAttempt(chatId: string): void {
+    const id = this.activeHolds.get(chatId);
+    if (id === undefined) return;
+    this.releaseHold(id);
+    this.activeHolds.delete(chatId);
+  }
+
+  transferAttempt(chatId: string, key: WorkspaceMcpKey): void {
+    this.beginAttempt({ ...key, chatId });
+  }
+  private releaseHold(id: string): void {
+    const record = this.records.get(id);
     if (record === undefined) return;
     record.activeAttempts = Math.max(0, record.activeAttempts - 1);
     record.lastUsed = this.now();
@@ -249,7 +265,11 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
           candidate.state === 'available' && candidate.source.type === 'mcp'
             ? activeServers.has(candidate.source.serverId)
             : false,
-        ),
+        )
+        .map((candidate) => ({
+          ...candidate,
+          source: { ...candidate.source, workspace: true as const },
+        })),
     ];
   }
 

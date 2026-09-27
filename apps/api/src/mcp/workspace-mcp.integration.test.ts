@@ -447,6 +447,15 @@ describe('Workspace MCP production integration', () => {
         {},
       );
       expect(JSON.stringify(callResult)).toContain('workspace-entering-run');
+      context.workspaceRoot?.beginStep();
+      const sameRoot = await enterWorkspaceTool.execute(
+        { ...context, toolCallId: 'same-root-entry' },
+        { path: root },
+      );
+      expect(sameRoot).toMatchObject({
+        status: 'success',
+        mcpServers: [{ id: 'web', state: 'available' }],
+      });
       const chat = await tenantDb.runAs(userId, (tx) =>
         new ChatsRepository(tx).findById(chatId, userId),
       );

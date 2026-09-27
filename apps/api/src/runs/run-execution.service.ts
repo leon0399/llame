@@ -153,6 +153,7 @@ import {
   type BoundExecutableTool,
   type DynamicToolExecutorResolver,
   ModelContextExecutionError,
+  constrainDynamicToolResolver,
   resolveBoundExecutableTools,
 } from './snapshot-tool-execution';
 import {
@@ -761,7 +762,10 @@ export class RunExecutionService {
         tools: await resolveBoundExecutableTools(
           context.toolCatalog.declarations,
           undefined,
-          attemptDynamicResolver,
+          constrainDynamicToolResolver(
+            attemptDynamicResolver,
+            context.toolCatalog.sourceById ?? new Map(),
+          ),
         ),
       };
 
@@ -818,7 +822,11 @@ export class RunExecutionService {
     const boundExecutables = new Map<string, AttemptToolBinding>(
       executableTools.map(({ declaration, executor, server }) => [
         declaration.id,
-        { declaration, executor, ...(server !== undefined && { server }) },
+        {
+          declaration,
+          executor,
+          ...(server !== undefined && { server, available: true }),
+        },
       ]),
     );
 
@@ -955,6 +963,7 @@ export class RunExecutionService {
       userId: input.userId,
       chatId: input.chatId,
       workspaceRoot,
+      workspaceMcp: this.workspaceMcp,
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
@@ -1361,7 +1370,10 @@ export class RunExecutionService {
       });
     }
 
-    const endWorkspaceAttempt = this.beginWorkspaceAttempt(workspaceMcpKey);
+    const endWorkspaceAttempt = this.beginWorkspaceAttempt(
+      input.chatId,
+      workspaceMcpKey,
+    );
     try {
       return client.streamText({
         onRequestUsage: (usage) => {
@@ -1775,14 +1787,17 @@ export class RunExecutionService {
     });
   }
 
-  private beginWorkspaceAttempt(key: WorkspaceMcpKey | undefined): () => void {
+  private beginWorkspaceAttempt(
+    chatId: string,
+    key: WorkspaceMcpKey | undefined,
+  ): () => void {
     if (key === undefined || this.workspaceMcp === undefined) return () => {};
     this.workspaceMcp.beginAttempt(key);
     let ended = false;
     return () => {
       if (ended) return;
       ended = true;
-      this.workspaceMcp?.endAttempt(key);
+      this.workspaceMcp?.endAttempt(chatId);
     };
   }
 

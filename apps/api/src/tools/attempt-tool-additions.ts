@@ -17,6 +17,7 @@ export type AttemptToolBinding = {
   readonly declaration: ModelToolDeclaration;
   readonly executor: Tool;
   readonly server?: string;
+  readonly available?: boolean;
 };
 
 export type AttemptToolRefusal = {
@@ -174,6 +175,7 @@ function bindAddition(
     declaration: retained?.declaration ?? addition.declaration,
     executor: addition.tool,
     server,
+    available: true,
   });
   if (!(addition.id in record)) {
     record[addition.id] = options.createTool(addition.declaration);
@@ -200,6 +202,13 @@ export class AttemptToolAdditions {
 
   executorFor(id: string): Tool | undefined {
     return this.options.boundExecutables.get(id)?.executor;
+  }
+
+  hasAvailableWorkspaceDeclaration(server: string): boolean {
+    for (const binding of this.options.boundExecutables.values()) {
+      if (binding.server === server && binding.available !== false) return true;
+    }
+    return false;
   }
 
   get addedDeclarations(): ReadonlyArray<ModelToolDeclaration> {
@@ -299,13 +308,13 @@ export class AttemptToolAdditions {
     }
     return this.commit(server, plan, record);
   }
-
   disableAll(): void {
     for (const [id, binding] of this.options.boundExecutables) {
       if (binding.server === undefined) continue;
       this.options.boundExecutables.set(id, {
         ...binding,
         executor: unavailableExecutor(binding.declaration),
+        available: false,
       });
     }
   }

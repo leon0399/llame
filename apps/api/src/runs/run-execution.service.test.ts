@@ -50,6 +50,8 @@ import type { ModelSelectionValidator } from '../models/models.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
 import { createOpenAICompletionsModelClient } from '../models/openai-completions-model-client';
+import { McpRuntimeService } from '../mcp/mcp-runtime.service';
+import { WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
 import type {
   KnowledgeToolResolver,
   Tool,
@@ -286,7 +288,6 @@ const skillCatalogOf = (
     diagnostics: [],
   }),
 });
-
 type ExecutionServiceOptions = {
   permissionPolicy?: CompiledPolicy;
   allowed?: ReadonlyArray<string>;
@@ -298,6 +299,7 @@ type ExecutionServiceOptions = {
   model?: SystemModelCatalogEntry;
   configPath?: string;
   toolPromptFiles?: Readonly<Record<string, string | null>>;
+  workspaceMcp?: WorkspaceMcpClients;
 };
 
 function makeExecutionService(
@@ -393,6 +395,7 @@ function makeExecutionService(
     memory,
     recencyDigest,
     dynamicToolResolver,
+    options.workspaceMcp,
   );
   return {
     service,
@@ -544,7 +547,7 @@ describe('RunExecutionService executeRun', () => {
         ]),
         dynamicCandidates: [
           {
-            source: { type: 'mcp', serverId: 'demo' },
+            source: { type: 'mcp', serverId: 'demo', workspace: true },
             state: 'available',
             tool: workspaceTool,
           },
@@ -606,6 +609,74 @@ describe('RunExecutionService executeRun', () => {
       executionInput(execution.client),
     );
     await expect(result.text).resolves.toBe('answer');
+  });
+  it('passes WorkspaceMcpClients through the production ToolContext', async () => {
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
+      undefined,
+    );
+    mockNormalExecutionRepositories();
+    const root = mkdtempSync(
+      path.join(tmpdir(), 'workspace-context-provider-'),
+    );
+    const operator = new McpRuntimeService({});
+    const workspaceMcp = new WorkspaceMcpClients(operator, {
+      readConfig: () => Promise.resolve([]),
+    });
+    const observedContexts: Array<ToolContext> = [];
+    const workspaceTool: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'unverified',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: (context) => {
+        observedContexts.push(context);
+        return { status: 'success' as const };
+      },
+    };
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: root,
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+    });
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(workspaceTool, 'demo'),
+      'host-a',
+      {
+        allowed: ['enter_workspace', toolDeclaration.id],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          toolDeclaration.id,
+        ]),
+        workspaceMcp,
+        dynamicCandidates: [
+          {
+            source: { type: 'mcp', serverId: 'demo', workspace: true },
+            state: 'available',
+            tool: workspaceTool,
+          },
+        ],
+      },
+    );
+    try {
+      await execution.service.executeRun(executionInput(capturing.client));
+      const options = capturing.streamOptions();
+      await executeBoundTool(options, { q: 'context' }, 'workspace-context');
+      expect(observedContexts).toHaveLength(1);
+      expect(observedContexts[0]?.workspaceMcp).toBe(workspaceMcp);
+      await options.onFinish?.({
+        text: 'answer',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 1,
+      });
+    } finally {
+      await workspaceMcp.onModuleDestroy();
+      await operator.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
   it('detaches when the executing worker has no native executor', async () => {
     await executeWorkspaceDetachCase({
