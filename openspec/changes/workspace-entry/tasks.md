@@ -229,7 +229,7 @@ implementation layers.
       the PR body.
 - [x] 5.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
-- [ ] 5.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 5.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `workspace-mcp` layer.
 
 ## 6. `workspace-entry/workspace-mcp`: clients, config, and lifecycle
