@@ -1,0 +1,229 @@
+## MODIFIED Requirements
+
+### Requirement: Tool registry with mandatory safety classification
+
+Every registered tool SHALL declare a safety classification from the SPEC §13.5 set (`read_only`, `write_low_risk`, `write_high_risk`, `execute_code`, `external_send`, `financial_or_sensitive`, `admin`, `unverified`). The loop SHALL execute allowlisted `read_only` tools and exact code-owned tools registered by an approved alpha-native capability only when the executing process's `tools.permissions` policy also allows the invocation. MCP tools SHALL declare `unverified`; their eligibility SHALL be determined by an admitted MCP declaration whose exact id matches either an exact `tools.allowed` entry or a validated namespace rule, not by a `read_only` classification. An MCP invocation SHALL execute only when its source is allowlisted and the executing process's `tools.permissions` policy allows that invocation. The initial native set is `read` classified `read_only`, plus `edit` and `write` classified `write_low_risk`; later native capabilities such as Knowledge submit or bash must declare their own exact tools and retry policy. Classification alone SHALL NOT admit any other write or execution tool. Alpha-native tools carry explicit host authority for absolute paths and owner-scoped Knowledge authority for `kb://` locators; they are not a general permission engine, and their host authority SHALL NOT grant authority to MCP tools. The candidate resolver SHALL admit `edit` and `write` when the process has accepted native host authority or has a configured Knowledge root, and SHALL leave them unavailable when it has neither. It SHALL admit `read` whenever `tools.allowed` names it, because skill and web locators need no host authority; an absolute path on a process without accepted native authority still fails closed with `executor_unavailable`. A configured Knowledge root admits only `read`, `edit`, and `write`; `bash`, `enter_workspace`, `exit_workspace`, and every other host-capability tool remain admitted solely by accepted native host authority. The exact host-capability set SHALL include `enter_workspace` and `exit_workspace`; each SHALL require its own exact `tools.allowed` entry and its own applicable `tools.permissions` group.
+
+The `mcp__` tool-id prefix SHALL be reserved for ids produced by the MCP capability. A code-owned or other non-MCP registry entry beginning with that prefix SHALL fail registration, so ID-only namespace permission matching cannot grant authority across source kinds.
+
+#### Scenario: Read-only tool executes
+
+- **WHEN** an allowlisted tool classified `read_only` is called and its invocation passes the execution permission policy
+- **THEN** it executes
+
+#### Scenario: Alpha native file tool executes only in its host capability
+
+- **WHEN** an exact code-owned native host tool, including `enter_workspace` or `exit_workspace`, is allowlisted, its trusted host capability is present, and the invocation passes execution permission checks
+- **THEN** it executes with the host authority declared by that capability
+- **AND** it is not substituted with a hosted path or remote MCP operation
+
+#### Scenario: Native tools are admitted by Knowledge root alone
+
+- **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `read`, `edit`, and `write`
+- **THEN** the three tools are advertised for `kb://` locators
+- **AND** each call executes only when its `tools.permissions` policy allows it; without a matching allow the call receives `permission_denied`
+- **AND** an absolute path fails closed with `executor_unavailable`
+
+#### Scenario: Read is admitted by the allowlist alone
+
+- **WHEN** a process has no `tools.nativeExecutorId` and no configured Knowledge root, and allowlists `read`, `edit`, and `write`
+- **THEN** `read` is advertised and serves web locators under its permission policy
+- **AND** `edit` and `write` are neither advertised nor executable, and an absolute-path `read` fails closed with `executor_unavailable`
+
+#### Scenario: Knowledge root does not admit bash
+
+- **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`, and allowlists `bash`
+- **THEN** `bash` is neither advertised nor executable
+- **AND** the Run manifest records it unavailable exactly as before this change
+
+#### Scenario: Non-read-only tool is refused even when allowlisted
+
+- **WHEN** a non-MCP tool outside the exact approved host-capability set is classified other than `read_only`, registered and allowlisted, and the model requests it
+- **THEN** it is not advertised or executed
+- **AND** a direct request receives a recorded non-fatal refusal
+
+#### Scenario: Write-capable MCP tool executes under both gates
+
+- **WHEN** an MCP source supplies an admitted write-capable declaration whose exact id matches `tools.allowed`, and the invocation passes the executing process's `tools.permissions` policy
+- **THEN** the tool executes despite its `unverified` classification
+
+#### Scenario: Unclassified tool cannot register
+
+- **WHEN** a tool without a classification is registered
+- **THEN** registration fails at startup
+
+#### Scenario: Duplicate tool id cannot register
+
+- **WHEN** two tools register the same id
+- **THEN** registration fails at startup naming the id
+
+#### Scenario: Code-owned tool cannot occupy the MCP namespace
+
+- **WHEN** a code-owned registry entry has an id beginning with `mcp__`
+- **THEN** registration fails at startup naming the reserved prefix
+
+## REMOVED Requirements
+
+### Requirement: Each execution attempt applies the fail-closed operator availability gate
+
+**Reason**: Its text and scenarios stated that MCP tools are limited to operator-attested read-only operations; this change retires that attestation, so the scenarios that named it cannot be retained.
+
+**Migration**: Replaced by "Each execution attempt applies the operator availability gate and per-call permission", which keeps every other rule and scenario and makes `tools.permissions` the authorization gate for MCP invocations.
+
+### Requirement: First tool is internal, read-only, own-data
+
+**Reason**: Its text and scenarios stated that MCP tools are limited to operator-attested read-only operations; this change retires that attestation, so the scenarios that named it cannot be retained.
+
+**Migration**: Replaced by "Code-owned tools stay internal and own-data while MCP is the only external-tool path", which keeps every other rule and scenario and makes `tools.permissions` the authorization gate for MCP invocations.
+
+## ADDED Requirements
+
+### Requirement: Each execution attempt applies the operator availability gate and per-call permission
+
+Tool eligibility SHALL be governed by the operator allowlist in `llame.config.json` (`tools.allowed`). The default SHALL be an empty allowlist — an instance with no tools configured runs exactly as before this change (no tools advertised, none executable). The system SHALL first construct its source-owned inventory from registered code-owned tools and the safely admitted current or remembered-unavailable MCP inventory, then apply `tools.allowed` strictly as a boolean permission predicate over each candidate's canonical `tool.id`. Code-owned ids SHALL require exact entries. A canonical MCP id SHALL match either the same exact entry or a validated namespace rule `mcp__<server>__*` whose terminal `*` is removed for literal ID-prefix comparison. Matching SHALL be case-sensitive. The validated trailing separator SHALL prevent one server prefix from matching a longer server id, and the reserved `mcp__` namespace SHALL prevent matching code-owned tools. Permission rules SHALL NOT create, copy, expand, or deduplicate candidates. A tool that matches no rule SHALL be neither advertised to the model nor executed if requested.
+
+Exact and namespace MCP entries SHALL grant eligibility only to exact identities learned from safely admitted declarations for that source. A valid MCP id or namespace rule SHALL NOT require a configured server to exist when the allowlist is validated. When a live process loses the server transport, the last completely admitted identity set SHALL remain source inventory in an unavailable state; when complete discovery succeeds, its newly admitted identity set SHALL replace the prior set authoritatively. Neither permission form SHALL fabricate identities before first successful discovery or expose refused declarations. An eligible dynamic tool SHALL become advertisable only while the source supplies a currently admitted declaration for that exact id matching the allowlist. Its invocation SHALL execute only when the executing process's `tools.permissions` policy allows it; MCP classification, including `unverified`, SHALL neither replace nor bypass either gate.
+
+The executing worker's restart-applied allowlist SHALL filter exact ids and declarations into attempt-local memory when each execution attempt is prepared; wildcard patterns SHALL NOT enter provider requests, manifests, receipts, persistence, or execution binding. After a worker restart, changed exact or namespace rules SHALL apply to its next attempt, including a retry of an already scheduled Run. Declarations SHALL remain fixed within that attempt except that a trusted in-Run Workspace entry action SHALL add each Workspace declaration that passes the same source, allowlist, classification, and schema checks as attempt composition; a Workspace exit or switch SHALL remove those declarations. The executing process SHALL additionally apply its startup-loaded `tools.permissions` policy to each new invocation, including calls from older Runs. Hot policy reload remains outside this capability; operator changes require a restart. Remote MCP tools SHALL be executable only for a currently admitted declaration selected by the allowlist and only when `tools.permissions` allows the invocation. No `read_only` attestation or idempotence claim SHALL substitute for either gate.
+
+#### Scenario: Default is no tools
+
+- **WHEN** the operator config does not set `tools.allowed`
+- **THEN** runs never advertise or execute any tool
+
+#### Scenario: Unlisted tool is not advertised
+
+- **WHEN** a registered code-owned tool or discovered dynamic tool matches neither an exact entry nor an MCP namespace wildcard
+- **THEN** it does not appear in the toolset offered to the model
+
+#### Scenario: Unlisted tool is refused
+
+- **WHEN** the model requests a tool that matches neither an exact entry nor an MCP namespace wildcard in the current attempt's validated allowlist
+- **THEN** the call is refused with a recorded, non-fatal tool error and the run continues
+
+#### Scenario: Unknown tool id in the allowlist fails boot
+
+- **WHEN** `tools.allowed` names an id that is neither registered in code nor a grammar-valid MCP exact id or namespace wildcard
+- **THEN** startup fails naming the offending config path and id
+- **AND** a grammar-valid MCP id or namespace wildcard does not need to name a configured server
+
+#### Scenario: Eligible dynamic tool can remain unavailable
+
+- **WHEN** a previously admitted MCP identity still matches an exact or namespace permission but its live process loses the server transport
+- **THEN** unrelated Runs remain usable and the filtered identity is recorded as unavailable
+- **AND** that tool is not advertised or executable for newly prepared attempts
+
+#### Scenario: Permission does not create a fresh-offline identity
+
+- **WHEN** a fresh process has no admitted or remembered MCP inventory and `tools.allowed` names an exact id or namespace from that source
+- **THEN** the permission produces no runtime candidate or availability-state entry
+
+#### Scenario: Complete discovery removes omitted identities
+
+- **WHEN** successful complete discovery omits or refuses a previously admitted exact identity
+- **THEN** the new source inventory no longer contains that identity
+- **AND** the next execution attempt treats it as absent even when an exact or namespace permission would match it
+
+#### Scenario: Namespace wildcard admits future exact ids
+
+- **WHEN** an MCP source later supplies a safely admitted canonical tool id within its allowlisted namespace
+- **THEN** the next execution attempt may bind and advertise that exact id without an instance-config change
+- **AND** no wildcard pattern appears in the database or provider request
+
+#### Scenario: Overlapping rules filter one inventory candidate once
+
+- **WHEN** one exact MCP id is selected by both its exact entry and its server namespace wildcard
+- **THEN** filtering retains the original inventory candidate once without creating another candidate
+
+#### Scenario: Permission filtering does not hide source collisions
+
+- **WHEN** distinct source candidates collide and both match one or more permission rules
+- **THEN** both candidates reach the existing collision refusal unchanged rather than being deduplicated by permission matching
+
+#### Scenario: Later allowlist removal applies to the next execution attempt
+
+- **WHEN** an exact entry or namespace rule is removed from a worker's restart-applied configuration after a Run was scheduled
+- **THEN** its next attempt, including a retry, omits tools no longer admitted
+- **AND** the earlier attempt's catalog is never recovered from the database
+
+#### Scenario: Queue retry may repeat an admitted MCP operation
+
+- **WHEN** a queue retry restarts a Run before a prior admitted MCP call result was durably settled
+- **THEN** the restarted attempt may invoke that MCP operation again only if its declaration remains admitted by the current source and allowlist and its invocation passes the current `tools.permissions` policy
+- **AND** no exactly-once external side-effect guarantee follows from MCP classification or allowlisting
+
+#### Scenario: Permission reject does not hide a tool
+
+- **WHEN** a tool remains admitted by `tools.allowed` and its execution permission group rejects every call
+- **THEN** permission evaluation does not remove it from the attempt-local catalog or availability state
+- **AND** attempted calls receive a non-fatal `permission_denied` observation
+
+#### Scenario: Missing permission does not hide an allowlisted MCP tool
+
+- **WHEN** an MCP tool remains admitted by `tools.allowed` but no applicable `tools.permissions` group allows its invocation
+- **THEN** permission evaluation does not remove it from the attempt-local catalog or availability state
+- **AND** an attempted call receives a non-fatal `permission_denied` observation and does not execute
+
+### Requirement: Code-owned tools stay internal and own-data while MCP is the only external-tool path
+
+The first code-owned tool SHALL remain conversation search over the requesting user's own chats, implemented against the **same server-side search service the web chat search uses**. Code-owned tools SHALL take authorization identity only from trusted Run context and SHALL remain tenant-scoped by datastore enforcement.
+
+MCP tools MAY perform reads or other operations on external systems only through the `mcp-tools` capability, on either transport: a remote Streamable HTTP endpoint, or a local server llame runs as a child process. The operator SHALL explicitly configure the source, or permit entry into a Workspace whose MCP configuration supplies it, and SHALL allowlist each executable namespaced tool exactly or allowlist that server's namespace. An exact entry or namespace wildcard SHALL determine eligibility for matching, safely admitted MCP declarations; neither SHALL attest that an operation is read-only. The executing process's `tools.permissions` policy SHALL authorize each invocation. MCP execution SHALL receive no llame tenant authorization context, and no credential beyond what the operator configured for that server — request headers for a remote server, declared environment values and arguments for a local one. A local server additionally executes with the host privileges of the llame process itself, which the operator accepts by configuring it; llame bounds the protocol it speaks, not what the program does. The operator MAY allowlist write, send, delete, execute, financial, or administrative MCP operations, but each such invocation still requires an applicable `tools.permissions` allow; llame does not infer or verify semantic effects from MCP metadata.
+
+#### Scenario: Conversation search over own chats
+
+- **WHEN** the model invokes the conversation-search tool with a query
+- **THEN** it returns matches only from chats owned by the run's owner
+
+#### Scenario: Tool and UI search share one implementation
+
+- **WHEN** the conversation-search tool and the web chat search execute the same query for the same user
+- **THEN** both are served by the same underlying search service
+
+#### Scenario: No external network egress from tools
+
+- **WHEN** the shipped code-owned toolset is enumerated
+- **THEN** none performs outbound network requests
+- **AND** the only external-tool exception is an explicitly configured MCP tool selected by an exact entry or matching namespace wildcard and authorized by `tools.permissions`
+
+#### Scenario: Explicit MCP tools are the only external-tool exception
+
+- **WHEN** the shipped toolset is enumerated
+- **THEN** external network tools are limited to explicitly configured MCP ids matching the operator's exact or namespace allowlist and authorized by `tools.permissions`
+- **AND** no remote tool receives llame's trusted tenant datastore context
+
+### Requirement: Trusted in-Run tool additions are admitted, recorded, and removed with Workspace state
+
+Only a trusted harness action entering a Workspace SHALL add tool declarations to the active Run; model output or an untrusted tool source SHALL NOT add declarations directly. Each addition SHALL pass the same source admission, `tools.allowed`, safety-classification, and schema-admission checks as declarations composed at attempt start, and each invocation SHALL independently pass the executing process's `tools.permissions` policy. An admitted addition SHALL become callable beginning with the next model step in that Run. Adding tools SHALL NOT reset, increase, or bypass the configured tool-step cap. A Workspace exit or switch SHALL remove the corresponding declarations from the active tool set; a later request for a removed id SHALL be refused as unavailable, recorded as a non-fatal tool refusal, and SHALL NOT execute.
+
+The Run SHALL durably record each added declaration with its `id`, `source`, `server`, the `step` at which it was added, and a `declarationHash` covering that declaration. The record SHALL be owner-scoped and available only to the Run owner; it SHALL NOT be exposed to non-owners, public shares, or exports. A subsequent Run for a Chat that remains entered SHALL compose currently admitted Workspace declarations at the start of its first attempt, independent of the prior Run's addition record.
+
+#### Scenario: Workspace entry makes an admitted tool callable on the next step
+
+- **WHEN** a trusted harness action enters a Workspace during a Run and its MCP source supplies a declaration that passes the same admission checks used at attempt composition
+- **THEN** the declaration is added to the active tool set and can be called beginning with the next model step
+- **AND** calls remain subject to the executing process's `tools.permissions` policy
+- **AND** the addition does not reset, increase, or bypass the configured tool-step cap
+
+#### Scenario: Workspace exit or switch removes an added tool
+
+- **WHEN** a Workspace exit or switch removes an MCP declaration that was added during the active Run and the model later requests that id
+- **THEN** the call is refused as unavailable without executing the tool
+- **AND** the refusal is recorded and non-fatal to the Run
+
+#### Scenario: Added declaration is durably recorded for its owner
+
+- **WHEN** an MCP declaration is added during a Run
+- **THEN** the Run's durable record contains its `id`, `source`, `server`, addition `step`, and `declarationHash`
+- **AND** the Run owner can read that record
+
+#### Scenario: Non-owner cannot see added declaration records
+
+- **WHEN** a non-owner requests a Run record containing added tool declarations, or the Run is included in a public share or export
+- **THEN** the non-owner, share, or export receives none of the added-declaration record
+
+#### Scenario: Later Run composes active Workspace tools from its start
+
+- **WHEN** a new Run starts for a Chat that remains entered and a Workspace MCP declaration is currently admitted
+- **THEN** the declaration is in the attempt's tool set before the first model step
+- **AND** the Run does not depend on the prior Run's added-declaration record
