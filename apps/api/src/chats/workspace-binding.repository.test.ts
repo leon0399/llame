@@ -209,10 +209,9 @@ describe('WorkspaceBindingRepository', () => {
     if (bindGeneration === undefined) {
       throw new Error('expected a bind generation SQL expression');
     }
-    expect(new PgDialect().sqlToQuery(bindGeneration).sql).toContain(
-      'workspace_generation',
+    expect(new PgDialect().sqlToQuery(bindGeneration).sql).toBe(
+      '"chats"."workspace_generation" + 1',
     );
-    expect(new PgDialect().sqlToQuery(bindGeneration).sql).toContain('+');
 
     const executorChanged = makeDb({
       select: fenceSelect(),
@@ -289,11 +288,9 @@ describe('WorkspaceBindingRepository', () => {
     if (exitGeneration === undefined) {
       throw new Error('expected an exit generation SQL expression');
     }
-    expect(new PgDialect().sqlToQuery(exitGeneration).sql).toContain(
-      'workspace_generation',
+    expect(new PgDialect().sqlToQuery(exitGeneration).sql).toBe(
+      '"chats"."workspace_generation" + 1',
     );
-    expect(new PgDialect().sqlToQuery(exitGeneration).sql).toContain('+');
-
     const stale = makeDb({
       select: fenceSelect(),
       update: [[{ id: 'run-1' }]],
@@ -378,10 +375,9 @@ describe('WorkspaceBindingRepository', () => {
     if (detachGeneration === undefined) {
       throw new Error('expected a detach generation SQL expression');
     }
-    expect(new PgDialect().sqlToQuery(detachGeneration).sql).toContain(
-      'workspace_generation',
+    expect(new PgDialect().sqlToQuery(detachGeneration).sql).toBe(
+      '"chats"."workspace_generation" + 1',
     );
-    expect(new PgDialect().sqlToQuery(detachGeneration).sql).toContain('+');
     expect(calls).toContainEqual({
       method: 'returning',
       projection: { id: schema.chats.id },

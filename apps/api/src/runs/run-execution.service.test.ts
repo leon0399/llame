@@ -687,18 +687,55 @@ describe('RunExecutionService executeRun', () => {
       workspaceToldFrom: null,
       workspaceDetachReason: null,
     });
+    const observedContexts: Array<ToolContext> = [];
+    const toolId = toolDeclaration.id;
+    const observedTool: Tool = {
+      id: toolId,
+      description: toolDeclaration.description,
+      classification: 'read_only',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: (context) => {
+        observedContexts.push(context);
+        return { status: 'success' as const };
+      },
+    };
+    const capturing = makeCapturingClient();
     const execution = makeExecutionService(
-      createFakeModelClient(['answer']),
+      capturing.client,
+      makeDynamicResolver(observedTool),
       undefined,
-      'host-a',
-      { allowed: ['enter_workspace'] },
+      {
+        allowed: ['enter_workspace', toolId],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          toolId,
+        ]),
+        dynamicCandidates: [
+          {
+            source: { type: 'mcp', serverId: 'demo' },
+            state: 'available',
+            tool: observedTool,
+          },
+        ],
+      },
     );
 
-    const result = await execution.service.executeRun(
-      executionInput(execution.client),
+    await execution.service.executeRun(executionInput(execution.client));
+    const options = capturing.streamOptions();
+    await executeBoundTool(
+      options,
+      { q: 'query' },
+      'stale-workspace-tool-call',
     );
-    await expect(result.text).resolves.toBe('answer');
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
     expect(detach).toHaveBeenCalled();
+    expect(observedContexts).toHaveLength(1);
+    expect(observedContexts[0]?.workspaceRoot?.current()).toBeUndefined();
     const workspaceItems = stagedItemsOf(
       repositories.updateUserMessageParts,
       'workspace',
