@@ -141,8 +141,13 @@ describe('Workspace MCP production integration', () => {
       await writeConfig(secondRoot, {
         web: { type: 'streamable-http', url: secondFixture.url },
       });
-      // The other owner's Chat is a different Chat and holds nothing until it
-      // starts its own clients: the first owner's client set is never inherited.
+      // The other owner's Chat cannot inherit Chat A's clients while it has
+      // not started its own generation-matching client set.
+      await clients.startForChat({
+        chatId: firstChat,
+        root: firstRoot,
+        generation: 1,
+      });
       expect(
         clients.snapshotCandidates({
           chatId: secondChat,
@@ -150,11 +155,6 @@ describe('Workspace MCP production integration', () => {
           generation: 1,
         }),
       ).toEqual([]);
-      await clients.startForChat({
-        chatId: firstChat,
-        root: firstRoot,
-        generation: 1,
-      });
       await clients.startForChat({
         chatId: secondChat,
         root: secondRoot,
@@ -187,20 +187,6 @@ describe('Workspace MCP production integration', () => {
       expect(JSON.stringify(firstResult)).not.toContain('workspace-second');
       expect(JSON.stringify(secondResult)).toContain('workspace-second');
       expect(JSON.stringify(secondResult)).not.toContain('workspace-first');
-      await tenantDb.runAs(userId, async (tx) => {
-        await new ChatsRepository(tx).createIfAbsent({
-          id: firstChat,
-          ownerUserId: userId,
-          title: 'Workspace first',
-        });
-      });
-      await tenantDb.runAs(secondOwnerId, async (tx) => {
-        await new ChatsRepository(tx).createIfAbsent({
-          id: secondChat,
-          ownerUserId: secondOwnerId,
-          title: 'Workspace second',
-        });
-      });
     } finally {
       await clients.onModuleDestroy();
       await operator.stop();

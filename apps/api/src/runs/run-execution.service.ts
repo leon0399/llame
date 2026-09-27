@@ -1791,13 +1791,14 @@ export class RunExecutionService {
     chatId: string,
     key: WorkspaceMcpKey | undefined,
   ): () => void {
-    if (key === undefined || this.workspaceMcp === undefined) return () => {};
-    this.workspaceMcp.beginAttempt(key);
+    const clients = this.workspaceMcp;
+    if (clients === undefined) return () => {};
+    if (key !== undefined) clients.beginAttempt(key);
     let ended = false;
     return () => {
       if (ended) return;
       ended = true;
-      this.workspaceMcp?.endAttempt(chatId);
+      clients.endAttempt(chatId);
     };
   }
 

@@ -678,6 +678,100 @@ describe('RunExecutionService executeRun', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+  it('releases clients from an unbound executeRun after enter_workspace', async () => {
+    mockNormalExecutionRepositories();
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-unbound-hold-'));
+    let clock = 1e3;
+    const operator = new McpRuntimeService({});
+    const close = vi.fn<() => Promise<void>>(() => Promise.resolve());
+    const workspaceMcp = new WorkspaceMcpClients(operator, {
+      now: () => clock,
+      readConfig: () =>
+        Promise.resolve([
+          {
+            id: 'web',
+            state: 'configured' as const,
+            definition: { url: 'https://workspace.example.test/mcp' },
+            protectedValues: [],
+          },
+        ]),
+      clientFactory: () =>
+        Promise.resolve({
+          discover: () =>
+            Promise.resolve({
+              tools: [
+                {
+                  definition: {
+                    id: 'mcp__web__search',
+                    remoteName: 'search',
+                    description: 'Workspace search.',
+                    inputSchema: { type: 'object', properties: {} },
+                  },
+                  execute: () =>
+                    Promise.resolve({
+                      disposition: 'none' as const,
+                      result: {
+                        status: 'success' as const,
+                        output: 'workspace',
+                      },
+                    }),
+                },
+              ],
+              refused: [],
+            }),
+          close,
+        }),
+    });
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(
+      WorkspaceBindingRepository.prototype,
+      'isCurrentDelivery',
+    ).mockResolvedValue(true);
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
+      status: 'bound',
+      previousRoot: null,
+      generation: 1,
+    });
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+      {
+        allowed: ['enter_workspace', 'mcp__web__search'],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          'mcp__web__search',
+        ]),
+        workspaceMcp,
+      },
+    );
+    try {
+      await execution.service.executeRun(executionInput(capturing.client));
+      const options = capturing.streamOptions();
+      const enter = options.tools?.enter_workspace;
+      if (enter?.execute === undefined)
+        throw new Error('enter_workspace unavailable');
+      await enter.execute(
+        { path: root },
+        { toolCallId: 'enter-unbound', messages: [] },
+      );
+      await options.onFinish?.({
+        text: 'answer',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 1,
+      });
+      clock += 30 * 60 * 1e3;
+      workspaceMcp.cleanupIdle();
+      await Promise.resolve();
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      await workspaceMcp.onModuleDestroy();
+      await operator.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it('detaches when the executing worker has no native executor', async () => {
     await executeWorkspaceDetachCase({
       reason: 'executor_absent',

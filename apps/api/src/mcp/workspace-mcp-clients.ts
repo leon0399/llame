@@ -53,7 +53,7 @@ export type WorkspaceMcpClientsOptions = Readonly<{
   readConfig?: typeof readWorkspaceMcpConfig;
 }>;
 
-type OperatorRuntime = Pick<
+export type OperatorRuntime = Pick<
   McpRuntimeService,
   'snapshotCandidates' | 'resolveDynamicTool' | 'snapshotServerIds'
 >;
@@ -159,8 +159,10 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   private stopping = false;
 
   constructor(
-    @Inject(McpRuntimeService) operator: OperatorRuntime,
-    @Optional() options: WorkspaceMcpClientsOptions = {},
+    @Inject(McpRuntimeService)
+    operator: OperatorRuntime,
+    @Optional()
+    options: WorkspaceMcpClientsOptions = {},
   ) {
     this.operator = operator;
     this.clientFactory = options.clientFactory;
