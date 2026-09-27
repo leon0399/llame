@@ -161,7 +161,7 @@ implementation layers.
       checks from 1.9 for this layer and record them in the PR body.
 - [x] 3.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
-- [ ] 3.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 3.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `mcp-authorization` layer.
 
 ## 4. `workspace-entry/mcp-authorization`: retire the read-only attestation
@@ -198,7 +198,7 @@ implementation layers.
       equivalent to `execute_code` and host-secret exfiltration. Add a dated **BREAKING**
       `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
 - [x] 4.4 Run the API checks from 1.9 for this layer and record them in the PR body.
-- [ ] 4.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+- [x] 4.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
 - [ ] 4.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `mid-run-tools` layer.
