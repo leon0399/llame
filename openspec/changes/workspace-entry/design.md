@@ -47,7 +47,9 @@ sharing MCP clients between Chats.
 ### D1. The binding lives on the Chat row
 
 Add nullable `workspace_root` (canonical absolute path) and `workspace_executor_id`, integer
-`workspace_generation`, nullable `workspace_told` (the root last narrated to the model, or null),
+`workspace_generation`, nullable `workspace_told` (the root last narrated to the model, or null)
+with nullable `workspace_told_from` (the compaction the narration belongs to, like
+`skill_catalog_rebaked_from`),
 and nullable `workspace_detach_reason` (one of `executor_mismatch`, `executor_absent`,
 `root_missing`, `root_moved`, `permission_rejected`, or `tool_not_allowed`) to `chats`, beside
 the existing baseline columns and under the same owner RLS. `workspace_generation` increments only
@@ -180,8 +182,10 @@ baseline in the prefix.
 
 When preparation detached the binding, the detach reason is a separate `notice` in the same
 turn, consumed from `workspace_detach_reason`; it is not folded into the root snapshot. The
-reason is cleared when that narration's Run completes. A newly active compaction resets
-`workspace_told` to null, so the next turn re-establishes a bound Chat's Workspace. A Chat with
+reason is cleared when that narration's Run completes. A newly active compaction invalidates
+`workspace_told`: accepted-turn preparation treats it as null when `workspace_told_from` differs
+from the latest compaction, so the next turn re-establishes a bound Chat's Workspace without the
+compaction path writing Chat state. A Chat with
 no root and no pending detach reason that has never narrated a Workspace gets no item. Inside a
 Run, enter and exit tool results carry the immediate state narration. The system prompt is never
 involved.
