@@ -227,7 +227,7 @@ implementation layers.
 - [x] 5.4 Add a dated `CHANGELOG.md` entry. Run the API checks from 1.9 and the web checks from
       2.3 for this layer, plus the focused SDK and owner-isolation tests, and record the commands in
       the PR body.
-- [ ] 5.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+- [x] 5.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
 - [ ] 5.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `workspace-mcp` layer.
