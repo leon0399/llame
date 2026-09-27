@@ -59,6 +59,10 @@ pre-push:
       glob: *format-glob
       run: pnpm exec prettier --check --cache --cache-strategy content --no-error-on-unmatched-pattern {push_files}
 
+    - name: format config
+      glob: "{.prettierrc*,**/.prettierrc*,.prettierignore,prettier.config.*,**/prettier.config.*}"
+      run: pnpm format:check
+
     - name: markdown lint
       glob: *markdown-glob
       run: pnpm exec markdownlint-cli2 --no-globs {push_files}
@@ -68,13 +72,25 @@ pre-push:
       run: pnpm lint:markdown
 
     - name: code lint
-      glob: *code-glob
-      run: pnpm lint:code && pnpm lint:dead-code && pnpm lint:duplicates && pnpm lint:complexity
+      glob: [*code-glob, "{pnpm-workspace.yaml,**/turbo.json}"]
+      run: pnpm lint:code
+
+    - name: dead-code lint
+      glob: [*code-glob, "{knip.json,pnpm-workspace.yaml}"]
+      run: pnpm lint:dead-code
+
+    - name: duplication lint
+      glob: [*code-glob, ".jscpd.json"]
+      run: pnpm lint:duplicates
+
+    - name: complexity lint
+      glob: [*code-glob, "scripts/quality-metrics.mjs"]
+      run: pnpm lint:complexity
 
     - name: OpenAPI lint
       glob: *openapi-glob
       run: pnpm lint:openapi
 
     - name: typecheck
-      glob: *code-glob
+      glob: [*code-glob, "{pnpm-workspace.yaml,**/turbo.json}"]
       run: pnpm typecheck
