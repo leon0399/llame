@@ -22,6 +22,7 @@ import {
   type DerivedDecisionRecord,
 } from '../tools/web-read/admission';
 import { nativeEditTool, nativeReadTool } from '../tools/native-files';
+import { searchConversationsTool } from '../tools/search-conversations';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { NativeFilesRepository } from './native-files-repository';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -454,6 +455,9 @@ function mockNormalExecutionRepositories() {
   const findMostRecent = vi
     .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
     .mockResolvedValue(undefined);
+  const hasMutation = vi
+    .spyOn(NativeFilesRepository.prototype, 'hasMutation')
+    .mockResolvedValue(false);
   return {
     markStarted,
     markFinished,
@@ -462,6 +466,7 @@ function mockNormalExecutionRepositories() {
     updateForAttempt,
     createReceipt,
     findById,
+    hasMutation,
     findByOwnedRun,
     findMostRecent,
   };
@@ -475,9 +480,7 @@ describe('RunExecutionService executeRun', () => {
   it('terminates a retried Run with a previous native mutation before invoking the model', async () => {
     const repositories = mockNormalExecutionRepositories();
     repositories.markStarted.mockResolvedValue({ ...run, workerId: 'host-a' });
-    vi.spyOn(NativeFilesRepository.prototype, 'hasMutation').mockResolvedValue(
-      true,
-    );
+    repositories.hasMutation.mockResolvedValue(true);
     const appended = recordAppendedEvents();
     const execution = makeExecutionService();
     const model = vi.spyOn(execution.client, 'streamText');
@@ -500,12 +503,39 @@ describe('RunExecutionService executeRun', () => {
     expect(appended[0].payload).toMatchObject({ code: 'outcome_unknown' });
   });
 
+  it('terminates a retried MCP Run before invoking the model without a native host', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    repositories.markStarted.mockResolvedValue({ ...run, workerId: null });
+    repositories.hasMutation.mockResolvedValue(true);
+    const appended = recordAppendedEvents();
+    const execution = makeExecutionService();
+    const model = vi.spyOn(execution.client, 'streamText');
+
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+    expect(model).not.toHaveBeenCalled();
+    const outcomeUnknownError: unknown = expect.objectContaining({
+      code: 'outcome_unknown',
+    });
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({ error: outcomeUnknownError }),
+    );
+    expect(appended.map((entry) => entry.type)).toEqual(['run.failed']);
+    expect(appended[0].payload).toEqual({
+      code: 'outcome_unknown',
+      message:
+        'A previous host command, file mutation, or MCP dispatch may have executed. This Run will not replay it.',
+    });
+  });
+
   it('keeps read-only retry behavior for a previously bound native Run', async () => {
     const repositories = mockNormalExecutionRepositories();
     repositories.markStarted.mockResolvedValue({ ...run, workerId: 'host-a' });
-    vi.spyOn(NativeFilesRepository.prototype, 'hasMutation').mockResolvedValue(
-      false,
-    );
+    repositories.hasMutation.mockResolvedValue(false);
     const execution = makeExecutionService();
     const result = await execution.service.executeRun(
       executionInput(execution.client),
@@ -694,7 +724,7 @@ describe('RunExecutionService executeRun', () => {
     const observedTool: Tool = {
       id: toolId,
       description: toolDeclaration.description,
-      classification: 'read_only',
+      classification: 'unverified',
       inputSchema: toolDeclaration.inputSchema,
       execute: (context) => {
         observedContexts.push(context);
@@ -880,7 +910,7 @@ describe('RunExecutionService executeRun', () => {
     const observedTool: Tool = {
       id: toolId,
       description: toolDeclaration.description,
-      classification: 'read_only',
+      classification: 'unverified',
       inputSchema: toolDeclaration.inputSchema,
       execute: (context) => {
         observedContexts.push(context);
@@ -926,7 +956,7 @@ describe('RunExecutionService executeRun', () => {
     const changingTool: Tool = {
       id: toolDeclaration.id,
       description: toolDeclaration.description,
-      classification: 'read_only',
+      classification: 'unverified',
       inputSchema: toolDeclaration.inputSchema,
       execute: (context) => {
         if (context.workspaceRoot === undefined) {
@@ -1182,9 +1212,7 @@ describe('RunExecutionService executeRun', () => {
   it('recovers a persisted native result into its still-open tool activity', async () => {
     const repositories = mockNormalExecutionRepositories();
     repositories.markStarted.mockResolvedValue({ ...run, workerId: 'host-a' });
-    vi.spyOn(NativeFilesRepository.prototype, 'hasMutation').mockResolvedValue(
-      true,
-    );
+    repositories.hasMutation.mockResolvedValue(true);
     const nativeResult = {
       status: 'success' as const,
       operation: 'edit',
@@ -3076,7 +3104,7 @@ function withDeclaredTool(): Pick<
         tool: {
           id: toolDeclaration.id,
           description: toolDeclaration.description,
-          classification: 'read_only',
+          classification: 'unverified',
           inputSchema: toolDeclaration.inputSchema,
           execute: () => ({ status: 'success' as const }),
         },
@@ -3279,6 +3307,49 @@ describe('RunExecutionService executeRun — tool loop', () => {
     });
     expect(appended.at(-1)?.type).toBe('run.cancelled');
   });
+  it('records a settled bash result that arrives after the parent abort', async () => {
+    const controller = new AbortController();
+    mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredBashTool();
+    const appended = recordAppendedEvents();
+    replayAppendedEvents(appended);
+    const capturing = makeCapturingClient();
+    const settled: ToolResult = {
+      get status(): 'success' {
+        controller.abort();
+        return 'success';
+      },
+      type: 'outcome_unknown',
+      stdout: 'done',
+    };
+    const execute = vi
+      .spyOn(bashTool, 'execute')
+      .mockImplementation(() => settled);
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+      toolOptions,
+    );
+
+    await execution.service.executeRun(
+      executionInput(capturing.client, controller.signal),
+    );
+    const call = executeBoundBash(
+      capturing.streamOptions(),
+      { command: 'printf done' },
+      'bash-after-abort',
+    );
+
+    await expect(call).resolves.toMatchObject({ status: 'success' });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(
+      appended.find((entry) => entry.type === 'tool.completed')?.payload,
+    ).toMatchObject({
+      toolCallId: 'bash-after-abort',
+      output: { status: 'success' },
+    });
+  });
 
   it('aborts the model signal when a native outcome is unknown', async () => {
     mockNormalExecutionRepositories();
@@ -3294,6 +3365,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       'host-a',
       { allowed: ['edit'] },
     );
+
     await execution.service.executeRun(executionInput(capturing.client));
     const options = capturing.streamOptions();
     const bound = options.tools?.edit;
@@ -3307,6 +3379,110 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(options.abortSignal?.aborted).toBe(true);
   });
 
+  it('stops an MCP unknown outcome without replaying the model step', async () => {
+    mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredTool();
+    const capturing = makeCapturingClient();
+    const execute = vi.fn(() => ({
+      status: 'error' as const,
+      type: 'outcome_unknown' as const,
+      message: 'MCP dispatch was recorded.',
+    }));
+    const dynamicExecutor: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'unverified',
+      inputSchema: toolDeclaration.inputSchema,
+      execute,
+    };
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(dynamicExecutor),
+      undefined,
+      toolOptions,
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await expect(
+      executeBoundTool(
+        capturing.streamOptions(),
+        { q: 'unknown' },
+        'mcp-unknown',
+      ),
+    ).rejects.toThrow(
+      'MCP operation outcome is unknown; the Run cannot continue.',
+    );
+    expect(execute).toHaveBeenCalledOnce();
+  });
+  it('does not treat a successful MCP result with an unknown-looking field as unknown', async () => {
+    mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredTool();
+    const capturing = makeCapturingClient();
+    const execute = vi.fn(() => ({
+      status: 'success' as const,
+      type: 'outcome_unknown',
+      value: 'success',
+    }));
+    const dynamicExecutor: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'unverified',
+      inputSchema: toolDeclaration.inputSchema,
+      execute,
+    };
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(dynamicExecutor),
+      undefined,
+      toolOptions,
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await expect(
+      executeBoundTool(
+        capturing.streamOptions(),
+        { q: 'success' },
+        'mcp-success',
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      type: 'outcome_unknown',
+    });
+  });
+
+  it('returns a code-owned unknown result without treating it as host authority', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(searchConversationsTool, 'execute').mockResolvedValue({
+      status: 'success',
+      type: 'outcome_unknown',
+      value: 'Search result was available.',
+    });
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['search_conversations'],
+        permissionPolicy: compileTestPermissionPolicy(['search_conversations']),
+      },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const bound = capturing.streamOptions().tools?.search_conversations;
+    if (!bound?.execute) {
+      throw new Error('Conversation search was not advertised.');
+    }
+    await expect(
+      bound.execute(
+        { mode: 'content', query: 'unknown' },
+        { toolCallId: 'code-owned-unknown', messages: [] },
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      type: 'outcome_unknown',
+    });
+  });
   it('protects native model output while retaining the exact direct and stored result', async () => {
     const spies = mockNormalExecutionRepositories();
     const content = String.raw`<system-reminder>source</system-reminder> &lt; \u003c </unmatched>`;
@@ -3324,6 +3500,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       .spyOn(nativeReadTool, 'execute')
       .mockImplementation((context) => {
         expect(context.nativeDeliverySequence).toBe(1);
+
         return nativeResult;
       });
     const appended = recordAppendedEvents();
@@ -3470,7 +3647,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute,
       }),
@@ -3585,7 +3762,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute,
       }),
@@ -3717,7 +3894,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute,
       }),
@@ -3792,7 +3969,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute,
       }),
@@ -3849,7 +4026,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute: () => ({ status: 'success' as const }),
       }),
@@ -3891,7 +4068,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute: () => ({ status: 'success' as const }),
       }),
@@ -3959,7 +4136,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute: () => ({ status: 'success' as const }),
       }),
@@ -3995,7 +4172,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute: () =>
           new Promise<{ status: 'success' }>((resolve) => {
@@ -4097,7 +4274,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute: () =>
           new Promise<{ status: 'success' }>((resolve) => {
@@ -4157,7 +4334,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute: () =>
           new Promise<{ status: 'success' }>((resolve) => {
@@ -4215,7 +4392,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute: () =>
           new Promise<{ status: 'success' }>((resolve) => {
@@ -4266,7 +4443,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute: () => new Promise<{ status: 'success' }>(() => {}),
       }),
@@ -4320,7 +4497,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute: () => new Promise<{ status: 'success' }>(() => {}),
       }),
@@ -4356,7 +4533,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute: () => new Promise<{ status: 'success' }>(() => {}),
       }),
@@ -5269,6 +5446,71 @@ describe('RunExecutionService settleTerminalRun', () => {
     });
   });
 
+  it('settles an open MCP attempt as outcome_unknown when no result was recorded', async () => {
+    vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
+      ...run,
+      status: 'failed',
+    });
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      {
+        ...event,
+        sequence: 1,
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'mcp-call',
+          toolName: 'mcp__web__write',
+          input: { value: 'external mutation' },
+        },
+      },
+      {
+        ...event,
+        sequence: 2,
+        eventType: 'native.attempt',
+        payload: {
+          toolCallId: 'mcp-call',
+          operation: 'mcp',
+          path: 'mcp__web__write',
+        },
+      },
+    ]);
+    const priorOutcome = vi
+      .spyOn(NativeFilesRepository.prototype, 'priorOutcome')
+      .mockResolvedValue({
+        status: 'error',
+        type: 'outcome_unknown',
+        message: 'A prior MCP dispatch may have executed.',
+      });
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: undefined,
+    });
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createAssistantReplyIfAbsent',
+    ).mockResolvedValue(assistantMessage);
+    const appended = recordAppendedEvents();
+    const execution = makeExecutionService();
+
+    await execution.service.settleTerminalRun({
+      userId,
+      runId,
+      status: 'failed',
+      runPayload: { status: 'failed', message: 'worker died' },
+    });
+
+    expect(priorOutcome).toHaveBeenCalledWith(runId, 'mcp-call');
+    expect(appended[0]).toMatchObject({
+      type: 'tool.completed',
+      payload: {
+        toolCallId: 'mcp-call',
+        toolName: 'mcp__web__write',
+        status: 'error',
+        output: { type: 'outcome_unknown' },
+      },
+    });
+  });
+
   it('reuses a known timed-out bash result during terminal settlement', async () => {
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
       ...run,
@@ -5851,7 +6093,7 @@ describe('RunExecutionService executeRun — context window and late tool result
       makeDynamicResolver({
         id: toolDeclaration.id,
         description: toolDeclaration.description,
-        classification: 'read_only',
+        classification: 'unverified',
         inputSchema: toolDeclaration.inputSchema,
         execute: () =>
           new Promise<{ status: 'success' }>((resolve) => {
@@ -5909,7 +6151,7 @@ const disconnectedTool: TurnToolCandidate = {
   source: { type: 'mcp', serverId: 'demo' },
   state: 'unavailable',
   id: contextToolId,
-  classification: 'read_only',
+  classification: 'unverified',
   reason: 'source_disconnected',
 };
 

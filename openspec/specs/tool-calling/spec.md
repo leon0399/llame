@@ -2,13 +2,13 @@
 
 ## Purpose
 
-The durable tool loop interleaves model output with operator-allowlisted read-only
-tools and the exact configured native file capability. Datastore operations stay
+The durable tool loop interleaves model output with operator-allowlisted tools
+and the exact configured native file capability. Datastore operations stay
 owner-scoped under RLS; native file operations use explicitly accepted host OS
 authority. Tool activity persists for replay. Native mutations have durable
 pre-effect fencing and an unknown outcome stops the Run. A startup-loaded
-operator allow/reject permission policy gates each invocation; an interactive
-approval workflow and write-capable MCP tools remain separate work.
+operator allow/reject permission policy gates each invocation, including
+unverified MCP tools; an interactive approval workflow remains separate work.
 
 ## Requirements
 

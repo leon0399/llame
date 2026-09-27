@@ -35,7 +35,7 @@ function asTool(admitted: AdmittedMcpToolDefinition): Tool {
     id: admitted.id,
     description: admitted.description,
     inputSchema: admitted.inputSchema,
-    classification: 'read_only',
+    classification: 'unverified',
     execute: () => ({ status: 'success' }),
   };
 }

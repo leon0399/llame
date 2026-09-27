@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines how operator-configured MCP servers — remote Streamable HTTP endpoints and local stdio child processes — contribute explicitly enabled read-only tools to llame without making unrelated chats depend on a server's health or exposing its credentials.
+Defines how operator-configured MCP servers — remote Streamable HTTP endpoints and local stdio child processes — contribute allowlisted tools authorized by operator permissions to llame without making unrelated chats depend on a server's health or exposing its credentials.
 
 ## Requirements
 

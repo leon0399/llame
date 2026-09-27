@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { bashTool } from './bash';
 import { type Tool } from './types';
 import { conversationReadTool } from './conversation-read';
 import {
@@ -206,7 +207,7 @@ describe('composeTurnToolCatalog', () => {
     );
   });
 
-  it('uses the exact allowlist plus read-only classification as the execution gate', async () => {
+  it('admits write-capable MCP tools through the allowlist source gate', async () => {
     const catalog = await composeTurnToolCatalog({
       allowedToolRules: [
         'mcp__web__allowlisted_read',
@@ -226,10 +227,23 @@ describe('composeTurnToolCatalog', () => {
 
     expect(catalog.admitted.map(({ declaration }) => declaration.id)).toEqual([
       'mcp__web__allowlisted_read',
-    ]);
-    expect(JSON.stringify(catalog)).not.toContain(
       'mcp__web__allowlisted_write',
-    );
+    ]);
+    expect(catalog.manifest.entries).toHaveLength(2);
+  });
+  it('keeps code-owned non-read-only tools behind the host capability gate', async () => {
+    const catalog = await composeTurnToolCatalog({
+      allowedToolRules: ['bash', 'not_host'],
+      callTimeoutSeconds: 15,
+      candidates: [
+        available(bashTool),
+        available(tool('not_host', { classification: 'execute_code' })),
+      ],
+    });
+
+    expect(catalog.admitted.map(({ declaration }) => declaration.id)).toEqual([
+      'bash',
+    ]);
   });
 
   it('isolates an unavailable MCP source from healthy sibling sources', async () => {
@@ -247,7 +261,7 @@ describe('composeTurnToolCatalog', () => {
           source: { type: 'mcp', serverId: 'web' },
           state: 'unavailable',
           id: 'mcp__web__search',
-          classification: 'read_only',
+          classification: 'unverified',
           reason: 'source_disconnected',
         },
       ],
@@ -275,7 +289,7 @@ describe('composeTurnToolCatalog', () => {
             source: { type: 'mcp', serverId: 'web' },
             state: 'unavailable',
             id: 'mcp__web__search',
-            classification: 'read_only',
+            classification: 'unverified',
             reason,
           },
         ],

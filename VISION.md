@@ -254,8 +254,9 @@ and the
 
 ### Shipped foundation: external tool connectivity
 
-Instance-managed MCP tools already reach the durable tool loop. They remain the
-research and verification substrate for the next product cut rather than an
+Instance-managed MCP tools already reach the durable tool loop, where source
+allowlisting and per-call permissions govern external operations. They remain
+the research and verification substrate for the next product cut rather than an
 independent platform objective.
 
 ### Immediate cut: file-native personal intelligence
@@ -335,7 +336,6 @@ The current release sequence does not include:
 - user-managed provider credentials or managed OAuth connector onboarding;
 - automatic knowledge routing across projects or shared knowledge domains;
 - semantic fact extraction, automatic memory injection, or a knowledge graph;
-- arbitrary write-capable MCP tools, on either transport;
 - model-directed shell execution or a production sandbox fabric;
 - bundled, downloaded, or llame-managed local inference runtimes;
 - a first-party CLI, standalone personal Nodes, Personal Realm synchronization,

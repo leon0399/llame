@@ -61,6 +61,8 @@ export interface ToolContext {
   readonly nativeExecutorId?: string;
   /** The durable run.started event claimed by this worker delivery. */
   readonly nativeDeliverySequence?: number;
+  /** Marks an MCP dispatch once its durable native.attempt is committed. */
+  readonly onMcpDispatchRecorded?: () => void;
   /** Stops this Run when a native mutation cannot be safely settled. */
   readonly onNativeMutationUnknown?: () => void;
   /** Trusted per-call sink for a web read's derived-locator decisions; never model-visible. */
@@ -103,8 +105,9 @@ export interface ToolContext {
   readonly workspaceRoot?: WorkspaceRootCell;
 }
 
-/** SPEC §13.5 classification. Non-read-only execution requires an exact,
- * code-owned capability; classification alone never grants write authority. */
+/** SPEC §13.5 classification. Code-owned non-read-only execution requires an
+ * exact host capability; MCP executors use `unverified` because llame makes no
+ * claim about their effects. */
 export type ToolClassification =
   | 'read_only'
   | 'write_low_risk'
@@ -112,7 +115,8 @@ export type ToolClassification =
   | 'execute_code'
   | 'external_send'
   | 'financial_or_sensitive'
-  | 'admin';
+  | 'admin'
+  | 'unverified';
 
 /**
  * Structured tool observation — never a raw blob; small and typed. The

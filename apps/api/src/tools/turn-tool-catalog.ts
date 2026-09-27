@@ -370,9 +370,10 @@ async function admitTurnToolCandidate(
   };
 }
 
-/** The candidates worth naming an id for at all — allowlisted, read-only,
- * well-formed ids — grouped by case-folded id so a same-folded-id collision
- * is detectable before any of them is admitted. */
+/** The candidates worth naming an id for at all — allowlisted, source-admitted,
+ * well-formed ids — grouped by case-folded id so a same-folded-id collision is
+ * detectable before any of them is admitted. MCP candidates are source-gated;
+ * code-owned candidates retain the read-only or host-capability gate. */
 function groupEligibleTurnToolCandidates(
   candidates: ReadonlyArray<TurnToolCandidate>,
   allowedToolRules: ReadonlyArray<string>,
@@ -380,15 +381,13 @@ function groupEligibleTurnToolCandidates(
   const byFoldedId = new Map<string, Array<TurnToolCandidate>>();
   for (const candidate of candidates) {
     const id = candidateId(candidate);
+    const codeOwnedEligible =
+      candidateClassification(candidate) === 'read_only' ||
+      (candidate.state === 'available' && isHostCapabilityTool(candidate.tool));
     if (
       !isToolId(id) ||
       !candidateIsAllowlisted(candidate, id, allowedToolRules) ||
-      (candidateClassification(candidate) !== 'read_only' &&
-        !(
-          candidate.source.type === 'code_owned' &&
-          candidate.state === 'available' &&
-          isHostCapabilityTool(candidate.tool)
-        ))
+      (candidate.source.type !== 'mcp' && !codeOwnedEligible)
     ) {
       continue;
     }

@@ -964,6 +964,15 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
     }`);
     expect(loadInstanceConfig().tools.allowed).toEqual(['mcp__web__*']);
   });
+  it('accepts valid MCP ids without a configured server', () => {
+    writeConfig(
+      '{ "tools": { "allowed": ["mcp__unconfigured__x", "mcp__future__*"] } }',
+    );
+    expect(loadInstanceConfig().tools.allowed).toEqual([
+      'mcp__unconfigured__x',
+      'mcp__future__*',
+    ]);
+  });
 
   it.each([
     '*',
@@ -974,8 +983,7 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
     'mcp__*__*',
     'mcp_web__*',
     'mcp__bad.server__*',
-    'mcp__missing__*',
-  ])('rejects a malformed or undeclared MCP namespace wildcard %s', (id) => {
+  ])('rejects a malformed MCP namespace wildcard %s', (id) => {
     writeConfig(`{
       "mcpServers": {
         "web": { "type": "http", "url": "https://offline.test/mcp" }
@@ -991,7 +999,6 @@ describe('loadInstanceConfig â€” mcpServers (add-streamable-http-mcp-tools 4.1â€
     ['malformed', 'mcp__web'],
     ['noncanonical', 'mcp__web__Find Docs'],
     ['overlength', `mcp__web__${'a'.repeat(55)}`],
-    ['undeclared server', 'mcp__missing__search'],
   ])('rejects a %s MCP allowlist id', (_case, id) => {
     writeConfig(`{
       "mcpServers": {
@@ -3413,10 +3420,9 @@ describe('loadInstanceConfig â€” tools.allowed entry validation', () => {
     );
   });
 
-  it('refuses a wildcard whose server is not declared', () => {
-    expect(allowlistFailure(['mcp__absent__*'])).toBe(
-      'tools.allowed: MCP namespace wildcard "mcp__absent__*" references an undeclared mcpServers entry',
-    );
+  it('accepts a wildcard whose server is not declared', () => {
+    writeConfig('{ "tools": { "allowed": ["mcp__absent__*"] } }');
+    expect(loadInstanceConfig().tools.allowed).toEqual(['mcp__absent__*']);
   });
 
   it('refuses a malformed exact MCP tool id', () => {
@@ -3425,10 +3431,9 @@ describe('loadInstanceConfig â€” tools.allowed entry validation', () => {
     );
   });
 
-  it('refuses an exact MCP tool id whose server is not declared', () => {
-    expect(allowlistFailure(['mcp__absent__docs'])).toBe(
-      'tools.allowed: MCP tool id "mcp__absent__docs" references an undeclared mcpServers entry',
-    );
+  it('accepts an exact MCP tool id whose server is not declared', () => {
+    writeConfig('{ "tools": { "allowed": ["mcp__absent__docs"] } }');
+    expect(loadInstanceConfig().tools.allowed).toEqual(['mcp__absent__docs']);
   });
 
   it('refuses a code-owned id that is not registered', () => {

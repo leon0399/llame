@@ -39,7 +39,7 @@ export class NativeFilesRepository {
     fence: NativeFenceMode;
     deliverySequence: number | undefined;
     toolCallId: string;
-    operation: 'read' | 'edit' | 'write' | 'bash';
+    operation: 'read' | 'edit' | 'write' | 'bash' | 'mcp';
     path: string;
   }): Promise<ToolResult | undefined> {
     if (
@@ -171,7 +171,7 @@ export class NativeFilesRepository {
       status: 'error',
       type: 'outcome_unknown',
       message:
-        'A previous host command or mutation may have executed; it will not be repeated.',
+        'A previous host command, mutation, or MCP operation may have executed; it will not be repeated.',
     };
   }
 }

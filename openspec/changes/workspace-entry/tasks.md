@@ -161,12 +161,12 @@ implementation layers.
       checks from 1.9 for this layer and record them in the PR body.
 - [x] 3.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
-- [ ] 3.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 3.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `mcp-authorization` layer.
 
 ## 4. `workspace-entry/mcp-authorization`: retire the read-only attestation
 
-- [ ] 4.1 Add `unverified` to the safety classification set, label MCP executors with it, and
+- [x] 4.1 Add `unverified` to the safety classification set, label MCP executors with it, and
       admit MCP candidates by allowlisted source rather than `read_only` (design D10). Update every
       read-only gate: `groupEligibleTurnToolCandidates` in `tools/turn-tool-catalog.ts`,
       `resolveDynamicToolBinding` in `runs/snapshot-tool-execution.ts:164`, the
@@ -180,11 +180,11 @@ implementation layers.
       precondition, and that every open call with a matching durable `native.result` is settled
       from that result regardless of tool source; a queue retry after a dispatched MCP call makes
       no second call.
-- [ ] 4.2 Drop the configured-server lookup from `tools.allowed` MCP validation while keeping
+- [x] 4.2 Drop the configured-server lookup from `tools.allowed` MCP validation while keeping
       the grammar and 64-character bound. Verify with config-loader tests that
       `mcp__unconfigured__*` boots, a malformed MCP entry still fails startup naming the path, and
       the canonical `no_allow` path remains a permission decision rather than a fabricated tool.
-- [ ] 4.3 Update `SPEC.md:130` (the MCP attestation/prohibition sentence), `SPEC.md:134` (queue
+- [x] 4.3 Update `SPEC.md:130` (the MCP attestation/prohibition sentence), `SPEC.md:134` (queue
       retries of read-only Runs), and `SPEC.md:138` (§13.5 runtime execution of `read_only` tools)
       to reflect `unverified`; update the canonical `mcp-tools` Purpose from explicitly enabled
       read-only tools to allowlisted tools authorized by permissions, and update the canonical
@@ -197,8 +197,8 @@ implementation layers.
       `write`/`edit` without W1/W2, or write-capable operator or Workspace MCP tools — is
       equivalent to `execute_code` and host-secret exfiltration. Add a dated **BREAKING**
       `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 4.4 Run the API checks from 1.9 for this layer and record them in the PR body.
-- [ ] 4.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+- [x] 4.4 Run the API checks from 1.9 for this layer and record them in the PR body.
+- [x] 4.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
 - [ ] 4.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `mid-run-tools` layer.
