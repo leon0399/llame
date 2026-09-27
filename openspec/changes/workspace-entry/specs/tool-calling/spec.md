@@ -194,17 +194,45 @@ MCP tools MAY perform reads or other operations on external systems only through
 - **THEN** external network tools are limited to explicitly configured operator MCP ids or MCP ids supplied by a successfully entered Workspace, matching the operator's exact or namespace allowlist and authorized by `tools.permissions`
 - **AND** no remote tool receives llame's trusted tenant datastore context
 
-### Requirement: Trusted in-Run tool additions are admitted, recorded, and made unavailable with Workspace state
+### Requirement: Trusted in-Run tool additions are admitted and made unavailable with Workspace state
 
-Only a trusted harness action entering a Workspace SHALL add tool declarations to the active Run; model output or an untrusted tool source SHALL NOT add declarations directly. Each addition SHALL pass the same source admission, `tools.allowed`, safety-classification, and schema-admission checks as declarations composed at attempt start, and each invocation SHALL independently pass the executing process's `tools.permissions` policy. An admitted addition SHALL become callable beginning with the next model step in that Run. The active attempt's model-facing declaration map and executable binding SHALL be updated in place. The declaration key SHALL never be removed from that attempt during the Run. A Workspace exit, switch, or detach SHALL make the corresponding executor unavailable while retaining its declaration; a later request for that id SHALL be refused as unavailable, recorded as a non-fatal tool refusal, and SHALL NOT execute or substitute a changed contract. Adding tools SHALL NOT reset, increase, or bypass the configured tool-step cap.
+Only a trusted harness action entering a Workspace SHALL add tool declarations to the active Run;
+model output or an untrusted tool source SHALL NOT add declarations directly. Each addition SHALL
+pass the same source admission, `tools.allowed`, safety-classification, and schema-admission checks
+as declarations composed at attempt start, and each invocation SHALL independently pass the
+executing process's `tools.permissions` policy. An admitted addition SHALL become callable
+beginning with the next model step in that Run. The active attempt's model-facing declaration map
+and executable binding SHALL be updated in place. The declaration key SHALL never be removed from
+that attempt during the Run. A Workspace exit, switch, or detach SHALL make the corresponding
+executor unavailable while retaining its declaration; a later request for that id SHALL be refused
+as unavailable, recorded as a non-fatal tool refusal, and SHALL NOT execute or substitute a changed
+contract. Adding tools SHALL NOT reset, increase, or bypass the configured tool-step cap.
 
-If an entering Workspace server's id is byte-equal to an operator server id whose tools are already declared in the active Run, the Workspace server SHALL contribute no tools to that Run. The entry result SHALL identify those tools as "shadows from the next Run"; the operator declarations SHALL retain their executors for the rest of the Run. From the next Run, the started Workspace server SHALL shadow the operator server under the same tool ids and exact-id permission groups.
+If an entering Workspace server's id is byte-equal to an operator server id whose tools are already
+declared in the active Run, the Workspace server SHALL contribute no tools to that Run. The entry
+result SHALL identify those tools as "shadows from the next Run"; the operator declarations SHALL
+retain their executors for the rest of the Run. From the next Run, the started Workspace server
+SHALL shadow the operator server under the same tool ids and exact-id permission groups.
 
-If a Workspace server's id differs from an operator server id only by ASCII case, the Workspace server SHALL be reported unavailable with reason "case-only collision with an operator server", SHALL contribute no tools, and SHALL leave the operator tools unaffected.
+If a Workspace server's id differs from an operator server id only by ASCII case, the Workspace
+server SHALL be reported unavailable with reason "case-only collision with an operator server",
+SHALL contribute no tools, and SHALL leave the operator tools unaffected.
 
-When a trusted Workspace action re-adds an id already present in the active attempt, including after exit then re-entry or a switch between roots defining that id, the new executor SHALL be bound only when the newly admitted declaration is identical to the retained declaration as compared in memory; nothing SHALL be persisted for that comparison. If the declarations differ, that id SHALL have no executor in this Run and the entry result SHALL report it as "available from the next Run". Declarations SHALL never be replaced or removed within the attempt.
+When a trusted Workspace action re-adds an id already present in the active attempt, including after
+exit then re-entry or a switch between roots defining that id, the new executor SHALL be bound only
+when the newly admitted declaration is identical to the retained declaration as compared in memory;
+nothing SHALL be persisted for that comparison. If the declarations differ, that id SHALL have no
+executor in this Run and the entry result SHALL report it as "available from the next Run".
+Declarations SHALL never be replaced or removed within the attempt.
 
-The Run SHALL durably record each added declaration with exactly its `id`, `source: 'workspace-mcp'`, `server`, and the `step` at which it was added; it SHALL NOT record a declaration hash. The entry SHALL be written when the addition happens in an owner-scoped transaction fenced by the current attempt, rather than only in a terminal transaction. The record SHALL be available only to the Run owner; it SHALL NOT be exposed through non-owner access, search, public shares, or exports. A subsequent Run for a Chat that remains entered SHALL compose currently admitted Workspace declarations at the start of its first attempt, independent of the prior Run's addition record.
+Tool availability SHALL be resolved at runtime rather than declared as a scheduling-time
+restriction. At the start of each attempt, the Run SHALL compose current Workspace tools from the
+live binding, and each active step SHALL use its current in-memory declarations. Per-call snapshots
+MAY carry reminders or availability-delta notices only; they SHALL NOT restrict callable tools or
+declare a stored Run tool set. Added declarations SHALL exist only in the active attempt's memory;
+nothing about them SHALL be persisted as a Run record. A subsequent Run for a Chat that remains
+entered SHALL resolve current Workspace declarations from the live binding at the start of its first
+attempt, independent of prior Run state.
 
 #### Scenario: Workspace entry makes an admitted tool callable on the next step
 
@@ -219,22 +247,12 @@ The Run SHALL durably record each added declaration with exactly its `id`, `sour
 - **THEN** the declaration remains in the attempt-local tool set with an unavailable executor, and the call is refused as unavailable without executing or substituting a changed contract
 - **AND** the refusal is recorded and non-fatal to the Run
 
-#### Scenario: Added declaration is durably recorded for its owner
-
-- **WHEN** an MCP declaration is added during a Run
-- **THEN** the Run's durable record immediately contains exactly its `id`, `source: 'workspace-mcp'`, `server`, and addition `step`, contains no declaration hash, and is fenced to the still-current attempt
-- **AND** the Run owner can read that record
-
-#### Scenario: Non-owner cannot see added declaration records
-
-- **WHEN** a non-owner requests a Run record containing added tool declarations, searches for that record, or the Run is included in a public share or export
-- **THEN** the non-owner, search, share, or export receives none of the added-declaration record
-
 #### Scenario: Later Run composes active Workspace tools from its start
 
-- **WHEN** a new Run starts for a Chat that remains entered and a Workspace MCP declaration is currently admitted
+- **WHEN** a new Run starts for a Chat that remains entered and a Workspace MCP declaration is
+  currently admitted
 - **THEN** the declaration is in the attempt's tool set before the first model step
-- **AND** the Run does not depend on the prior Run's added-declaration record
+- **AND** the Run resolves it from the live Workspace binding rather than from prior Run state
 
 #### Scenario: Mid-Run Workspace shadowing is deferred
 

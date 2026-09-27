@@ -98,11 +98,11 @@ call.
   (after exit and re-entry or a root switch) binds the new executor only when the newly admitted
   declaration is identical in memory to the retained declaration; nothing is persisted for this
   comparison. Otherwise that id contributes no executor this Run and the entry result reports it
-  “available from the next Run”. Each addition is recorded at addition time in a fenced,
-  owner-scoped transaction as `{ id, source: 'workspace-mcp', server, step }`, with no declaration
-  hash. The owner receipt lists ids only; schemas, descriptions, hashes, shares, exports, and
-  search do not expose the record. `model-system-prompts` explicitly carves out these trusted
-  additions from the fixed-declaration rule.
+  “available from the next Run”. These additions remain only in active-attempt memory, and the
+  next Run resolves Workspace tools from the live binding at its start. The
+  `model-system-prompts` contract explicitly carves out these trusted additions from the
+  fixed-declaration rule; per-call snapshots, if any, are reminders or availability-delta notices
+  only and never restrictions.
 - The shipped example permission policy documents nine groups, adding `enter_workspace` and
   `exit_workspace`; the `enter_workspace` group uses an operator-edited field allow such as
   `{ "field": "path", "regex": "^/home/operator/projects/[^/]+/?$" }`, plus F1-F3 and new
@@ -157,8 +157,8 @@ remain in force. This is an accepted audited-repository risk, not filesystem con
   entry evaluates submitted and canonical paths in order, and the recommended policy documents
   nine groups plus W1/W2.
 - `tool-calling`: MCP tools are admitted by allowlist and permission rather than a `read_only`
-  class; Workspace declarations can be added mid-Run, retained as unavailable after detach,
-  and recorded without declaration hashes.
+  class; Workspace declarations can be added mid-Run, retained as unavailable after detach, and
+  resolved from the live binding at the next Run's start rather than a persisted Run tool set.
 - `mcp-tools`: the read-only attestation is removed; Workspace servers, per-Chat generation-keyed
   lifecycle, interpolation, byte-equal deferred shadowing, case-only collision unavailability,
   and trust boundary are defined.
@@ -167,9 +167,8 @@ remain in force. This is an accepted audited-repository risk, not filesystem con
 - `context-injection`: the Workspace producer uses rail-only snapshots and separate detach
   notices; compaction re-establishes the current state and the skill catalog includes Workspace
   sources while entered.
-- `model-system-prompts`: trusted Workspace additions are an explicit exception to fixed
-  attempt-local declarations; owner receipts may list added ids but not schemas, descriptions,
-  or hashes.
+- `model-system-prompts`: trusted Workspace additions are an explicit in-memory exception to
+  fixed attempt-local declarations; no tool data is persisted in prompt context.
 - `owner-chat-forks`: owner forks explicitly copy the Workspace root, executor id, and generation
   as an exception to the general rule copying no worker or native-effect state, but not told
   state or detach reason; visitor/public forks stay unbound and the binding is excluded from
@@ -180,15 +179,14 @@ remain in force. This is an accepted audited-repository risk, not filesystem con
 - `apps/api/src/tools`: two new code-owned native tools; lexical relative-path projection shared
   by bash and native file tools and by permission evaluation.
 - `apps/api/src/runs`: Run-start re-check and immediate detach; the Chat binding in tool context;
-  mid-Run declaration additions and their Run record.
-- `apps/api/src/db`: five Chat binding columns; a Run-level record of added declarations; one
-  migration each, with RLS unchanged in shape.
+  in-memory declaration additions and unavailable-executor state.
+- `apps/api/src/db`: five Chat binding columns and their migration; the Run has no persisted
+  tool-set record, with RLS unchanged in shape.
 - `apps/api/src/skills`, `apps/api/src/mcp`: per-Chat Workspace sources and generation-keyed
   clients; MCP classification and deferred shadowing.
 - `apps/api/src/instance-config` and `llame.config.json.example`: allowlist validation and the
   nine-group policy with W1/W2.
-- `apps/web`: the owner's current binding field in the Chat API and a chat-header indicator;
-  a receipt row for added tools.
+- `apps/web`: the owner's current binding field in the Chat API and a chat-header indicator.
 - Docs: `docs/native-files.md`, `docs/mcp-tools.md`, `docs/skills.md`, SPEC.md's MCP,
   native-host, skill-source, client-lifecycle, and classification lines, VISION.md's
   write-capable MCP deferral, one paragraph in the local-node research note recording the

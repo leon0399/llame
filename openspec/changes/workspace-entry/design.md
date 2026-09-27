@@ -36,8 +36,8 @@ See proposal.md for motivation. The facts below were read at `1bab08dc` and shap
 
 **Goals:** one binding model shared by every native tool, with every relative path turned into
 an absolute path before permission evaluation; per-Chat Workspace skills and MCP clients
-without touching process-wide operator state; tools added during a Run that are both callable
-and recorded.
+without touching process-wide operator state; tools added during a Run become callable from
+the next model step and remain in the attempt's in-memory catalog.
 
 **Non-Goals:** filesystem confinement, a Workspace registry, Run routing between hosts, and
 sharing MCP clients between Chats.
@@ -250,7 +250,7 @@ successful and reports that server as unavailable.
 Alternative rejected: one shared client per root and server. Servers such as Playwright keep
 per-session state, which would then leak between Chats.
 
-### D9. Tools added mid-Run extend the bound tool record in place
+### D9. In-Run additions extend the bound in-memory tool record in place
 
 The mutable handle is the exact tool object assigned to `streamOptions.tools` by the wire client
 (each wire copies `input.tools` through `disableStrictToolSchemas`), together with the
@@ -286,13 +286,14 @@ comparison. Otherwise that id contributes no executor in this Run and the entry 
 switch, or detach their executors become unavailable while the attempt-local declarations remain,
 and later calls to those ids are refused as unavailable.
 
-Each addition appends an owner-scoped `runs.added_tool_declarations` entry
-`{ id, source: 'workspace-mcp', server, step }` in an owner-scoped transaction fenced by the
-attempt at the moment the addition happens, not only in the terminal transaction. There is no
-declaration hash: `model-system-prompts` forbids persisting hashes. The owner receipt may list
-added tool ids, but never schemas, descriptions, or hashes; shares, exports, and search do not
-expose the record. Its model-system-prompts rule therefore carves out trusted Workspace
-additions from the otherwise fixed admitted-declaration set for that attempt.
+Tool availability is resolved at runtime: the next Run resolves Workspace tools from the live
+binding at its start, and each active step uses the current in-memory declarations. Nothing
+records a Run's tool set as a restriction; per-call snapshots MAY carry reminders or
+availability-delta notices only, never restrictions on callable tools.
+
+These additions exist only in the attempt's memory; no Run record or owner-facing view stores
+them. The `model-system-prompts` rule therefore carves out trusted Workspace additions from the
+otherwise fixed admitted-declaration set for that attempt.
 
 The next Run's catalog includes currently admitted Workspace declarations from its start, so
 the existing `tool-availability` producer announces them normally. Alternative rejected:
@@ -360,16 +361,15 @@ terminally), and a queue retry does not invoke that MCP operation again.
 
 The core layer adds five Chat columns: `workspace_root`, `workspace_executor_id`,
 `workspace_generation`, `workspace_told`, and `workspace_detach_reason`. The mid-run-tools layer
-adds the owner-scoped `runs.added_tool_declarations` JSONB array. The binding columns are
-nullable, with generation defaulting to zero and the detach reason nullable; the additions
-column defaults to an empty array. Each migration is additive, transactional, deterministic, and
+adds no Run columns: declarations and bound executors exist only in the active attempt's
+in-memory handle and map. The binding columns are nullable, with generation defaulting to zero
+and the detach reason nullable. Each migration is additive, transactional, deterministic, and
 must be applied and tested against a populated database with owner RLS unchanged in shape.
 
 The mcp-authorization layer is a contract change with no data migration; the workspace-mcp
 client map is process-local and needs no schema migration. Rollback drops the new columns and
-restores the read-only MCP gate, losing only unshipped binding/addition records. No migration
-may expose binding roots or added declarations through shares, exports, search, or another
-owner's RLS scope.
+restores the read-only MCP gate, losing only unshipped binding records. No migration may expose
+binding roots through shares, exports, search, or another owner's RLS scope.
 
 ## Revision history
 
@@ -384,8 +384,8 @@ owner's RLS scope.
   failure isolation, and owner/visitor fork behavior explicit.
 - v2 (this revision) — Keyed Workspace MCP clients by generation, documented host interpolation
   and redaction scope, deferred shadowing, and retained unavailable declarations.
-- v2 (this revision) — Replaced declaration hashes with fenced addition-time owner records,
-  enumerated every MCP read-only gate, and split implementation layers and their checks.
+- v2 (this revision) — Made Workspace additions in-memory and enumerated every MCP read-only
+  gate, then split implementation layers and their checks.
 - v3 (this revision) — Q1 byte-equal shadowing; Q2 in-memory declaration re-add identity; Q3
   Workspace protected-value scope; Q4 binding-generation semantics; Q5 detach notice/snapshot
   condition; Q6 field-scoped entry policy; Q7 case-insensitive W1/W2 text rejects and alias
@@ -401,3 +401,5 @@ owner's RLS scope.
   skill-catalog baseline in a detaching attempt but no activation, `skill://` resolution, or
   tools; F7 carries the revised MCP authorization contract through the canonical Purpose and
   operator documentation.
+- v5 (this revision) — Made trusted Workspace additions in-memory only; runtime tool resolution
+  is authoritative, with per-call snapshots limited to reminders and availability notices.

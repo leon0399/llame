@@ -24,8 +24,8 @@ Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation.
 - `mcp-authorization` (parent `skills`, estimated 750 authored lines): retire the MCP read-only
   attestation for all servers and update every eligibility gate. References #974.
 - `mid-run-tools` (parent `mcp-authorization`, estimated 1,200 authored lines): SDK pin,
-  mid-Run declaration additions, their owner-scoped Run record, model-system-prompts exception,
-  receipt API, and receipt row UI. References #974.
+  mid-Run declaration additions in active-attempt memory, the model-system-prompts exception,
+  and runtime next-Run resolution. References #974.
 - `workspace-mcp` (parent `mid-run-tools`, estimated 1,500 authored lines): per-Chat clients,
   config, interpolation, lifecycle, generation keying, and shadowing. Its merge completes
   #974's acceptance, so its PR uses `Closes #974`.
@@ -194,7 +194,7 @@ implementation layers.
 - [ ] 4.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `mid-run-tools` layer.
 
-## 5. `workspace-entry/mid-run-tools`: SDK handle, records, and receipts
+## 5. `workspace-entry/mid-run-tools`: SDK handle and in-memory additions
 
 - [ ] 5.1 Pin the installed `ai` behavior with a regression test: the exact key added to the
       mutable object assigned to `streamOptions.tools` during a step is declared on the next step
@@ -203,27 +203,24 @@ implementation layers.
 - [ ] 5.2 Admit and insert Workspace declarations during a Run through the same source,
       allowlist, classification, and schema gates. Retain declaration keys on exit, switch, and
       detach while marking their executors unavailable; later calls receive a non-fatal unavailable
-      refusal. Record each addition immediately in a new owner-scoped
-      `runs.added_tool_declarations` column with a generated migration, fenced by the attempt, as
-      `{ id, source: 'workspace-mcp', server, step }` and with no declaration hash (design D9).
-      Verify next-step callability, re-entry or root-switch re-adding an id with an identical
-      in-memory declaration rebinds its executor, a changed declaration contributes no executor
-      this Run and reports `available from the next Run`, a removed id is refused as unavailable,
-      the step cap still applies, addition-time persistence is not terminal-only, and a non-owner
-      cannot read the record.
+      refusal. Keep declarations and bound executors in active-attempt memory only; do not add a
+      Run-level column or persist a Run tool set. Verify next-step callability, re-entry or
+      root-switch re-adding an id with an identical in-memory declaration rebinds its executor, a
+      changed declaration contributes no executor this Run and reports
+      `available from the next Run`; a removed id is refused as unavailable, the step cap still
+      applies, and the next Run resolves Workspace tools from the live binding at start rather than
+      from prior Run state.
 - [ ] 5.3 Modify the `model-system-prompts` contract and carry its MODIFIED delta for trusted
-      Workspace additions: carve them out of the fixed admitted-declaration rule while persisting no
-      schemas, descriptions, or hashes. Expose an owner-only receipt/API view listing added ids,
-      source/server, and step; exclude the record from shares, exports, and search. Verify the
-      receipt contains no declaration hash and no model-facing tool definition.
-- [ ] 5.4 Show tools added during a Run as a row in the owner's receipt view. Verify with a
-      component test and a story; run the Storybook story tests and return preview URLs.
-- [ ] 5.5 Add a dated `CHANGELOG.md` entry. Run the API checks from 1.9 and the web checks from
+      Workspace additions: carve them out of the fixed admitted-declaration rule for in-memory
+      trusted additions only. Persist no addition record, schemas, descriptions, or hashes, and
+      provide no receipt view for them. Verify the receipt remains prompt-only and exposes no
+      model-facing tool definition for the additions.
+- [ ] 5.4 Add a dated `CHANGELOG.md` entry. Run the API checks from 1.9 and the web checks from
       2.3 for this layer, plus the focused SDK and owner-isolation tests, and record the commands in
       the PR body.
-- [ ] 5.6 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+- [ ] 5.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
-- [ ] 5.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [ ] 5.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `workspace-mcp` layer.
 
 ## 6. `workspace-entry/workspace-mcp`: clients, config, and lifecycle

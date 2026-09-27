@@ -98,10 +98,7 @@ an empty list and its actual unresolved/not-produced state. The UI SHALL expose
 each prepared attempt and fetch this response on demand.
 
 Receipts SHALL contain no tool catalog, schemas, descriptions, availability
-manifest, declaration hashes, or combined prompt/tool content hash. An owner
-receipt MAY list the exact tool ids added during that Run by trusted Workspace
-actions, but it SHALL contain no schemas, descriptions, declaration hashes,
-endpoints, or other declaration content for those tools. Except for the
+manifest, declaration hashes, or combined prompt/tool content hash. Except for the
 owner-only host-path exceptions below, private prompt-file paths, MCP connection
 information, raw source errors, provider credentials, and executor context SHALL
 remain undisclosed. The canonical Workspace root narrated by the `workspace`
@@ -169,12 +166,6 @@ configuration.
 - **WHEN** a retry renders a different system prompt from an earlier failed attempt
 - **THEN** both prepared attempts have separate immutable system-only receipts
 - **AND** only the winning attempt's staged context items may enter committed model history
-
-#### Scenario: Owner inspects added Workspace tool ids
-
-- **WHEN** the chat owner opens the receipt for a Run in which a trusted Workspace action added tool declarations
-- **THEN** the receipt lists the exact ids added during that Run
-- **AND** it contains no schemas, descriptions, declaration hashes, endpoints, or other declaration content
 
 #### Scenario: Owner inspects Workspace paths in effective context
 
