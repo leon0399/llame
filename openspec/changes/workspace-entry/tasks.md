@@ -122,7 +122,7 @@ implementation layers.
       `pnpm exec openspec validate workspace-entry --strict`; record the commands in the PR body.
 - [x] 1.10 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix accepted
       findings, and rerun affected checks before marking ready.
-- [ ] 1.11 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 1.11 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `web` layer.
 
 ## 2. `workspace-entry/web`: owner binding API and indicator
@@ -138,7 +138,7 @@ implementation layers.
 - [x] 2.3 Add a dated `CHANGELOG.md` entry. Run `pnpm --filter web lint`, `typecheck`, and
       `test:coverage`, plus `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record
       the commands in the PR body.
-- [ ] 2.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+- [x] 2.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
 - [ ] 2.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `skills` layer.
