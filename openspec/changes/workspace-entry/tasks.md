@@ -140,7 +140,7 @@ implementation layers.
       the commands in the PR body.
 - [x] 2.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
-- [ ] 2.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 2.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `skills` layer.
 
 ## 3. `workspace-entry/skills`: Workspace skill sources
@@ -159,7 +159,7 @@ implementation layers.
 - [x] 3.3 Document Workspace skill sources in `docs/skills.md`; update `SPEC.md:196` so skill
       sources include Workspace sources while entered; add a dated `CHANGELOG.md` entry. Run the API
       checks from 1.9 for this layer and record them in the PR body.
-- [ ] 3.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+- [x] 3.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
 - [ ] 3.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `mcp-authorization` layer.
