@@ -278,7 +278,7 @@ workspace_generation)`. Keep Workspace candidates and executors out of the proce
       unavailability, and the audited-repository assumption in `docs/mcp-tools.md`; add a dated
       `CHANGELOG.md` entry. Run the API checks from 1.9 and web checks from 2.3 for this layer and
       record them in the PR body, which uses `Closes #974`.
-- [ ] 6.6 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+- [x] 6.6 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
 - [ ] 6.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before creating `finalize`.
