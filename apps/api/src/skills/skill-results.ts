@@ -3,8 +3,9 @@
  * adds, in one place so the catalog listing and the resource reader cannot
  * drift apart on what the model is told.
  *
- * Operator skill packages are intentionally published: unlike Knowledge, the
- * package and file paths, as discovered beneath the configured source, are
+ * Skill packages from effective sources (operator sources, plus an entered
+ * Chat's Workspace sources) are intentionally published: unlike Knowledge, the
+ * package and file paths, as discovered beneath their source, are
  * part of the model-facing contract, with the real package directory beside
  * them, because a skill's script and reference instructions are only usable
  * once the agent can construct absolute paths from them.

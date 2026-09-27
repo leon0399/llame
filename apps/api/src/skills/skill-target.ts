@@ -149,9 +149,10 @@ async function resolveWithinPackage(
     }
   }
 
-  // No containment step follows: a configured source is trusted by being
-  // configured, so the validated segments join the discovered package
-  // directory as it stands and a link is followed wherever it leads.
+  // No containment step follows: an operator source is trusted by being
+  // configured and a Workspace source by the Chat's successful entry, so the
+  // validated segments join the discovered package directory as it stands and
+  // a link is followed wherever it leads.
   const realSkillDirectory = await realPackageDirectory(skillDirectory);
   const target: ResolvedSkillTarget = {
     // The separator rides along so the reader's own open applies the native

@@ -141,6 +141,10 @@ function startSkillEpoch(
   }
 
   const snapshot = catalog.getSnapshot(deps.extraSources);
+  // Unreadable, missing, or oversized sources are not an empty advertisement:
+  // freezing one would bind it to the chat for the whole epoch without
+  // self-healing, and `toldFromBaseline` would throw on the missing entries
+  // during accepted-turn preparation. Render no section; the next turn retries.
   if (
     !snapshot.available ||
     (snapshot.directories.length === 0 && snapshot.entries.length === 0)
@@ -241,6 +245,9 @@ function resolveCurrentCatalogBaseline(
   deps: SkillTurnStateDeps,
 ): SkillCatalogBaseline | undefined {
   const catalog = deps.skillCatalog;
+  // No catalog port means the advertisement is EMPTY, not that there is
+  // nothing to say: a chat whose frozen baseline still lists names needs the
+  // removals, or it keeps attempting stale reads for the rest of the epoch.
   if (catalog === undefined) return EMPTY_BASELINE;
 
   const baseline = resolveSkillCatalogBaseline(catalog, deps.extraSources);

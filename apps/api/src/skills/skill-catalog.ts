@@ -77,7 +77,8 @@ export type SkillCatalogEntry = {
   readonly description: string | null;
   /** Whether the package may be selected proactively rather than explicitly. */
   readonly proactive: boolean;
-  /** The configured source this package was selected from. */
+  /** The effective source this package was selected from: an operator source,
+   *  or a Workspace source of the entered Chat. */
   readonly sourceDirectory: string | null;
   /** The package directory as discovered beneath its configured source; null
    *  when it could not be resolved. A symbolic-link child is published at its
