@@ -237,8 +237,8 @@ For templates with tool predicates, boot SHALL validate syntax and structure wit
 API acceptance SHALL persist the user message, selected public model/effort, and
 Run identity without resolving or persisting an effective prompt/tool catalog.
 Remove the old `modelContextSnapshotId` Run FK and required create input after
-historical system receipts have been migrated; no placeholder snapshot SHALL
-be created for acceptance. Source-context lookup SHALL follow the successful
+historical system receipts have been migrated; no placeholder snapshot SHALL be
+created for acceptance. Source-context lookup SHALL follow the successful
 Run's system-only receipt.
 Each queue-authorized attempt SHALL resolve those fixed model choices through
 its executing worker's configuration, reread the owner's safe variable
@@ -248,7 +248,7 @@ that one context. Existing digest and temporal lifecycles SHALL retain their
 meaning. A missing selected model SHALL fail explicitly without fallback.
 
 The system prompt and admitted declarations SHALL stay fixed in memory for
-that attempt's target-model loop after transition preparation and final rendering. The trusted executors and source declarations SHALL stay bound
+that attempt's target-model loop after transition preparation and final rendering. A trusted Workspace action admitted under `tool-calling` MAY extend the in-memory declarations without replacing existing declarations; each such addition SHALL take effect from the next model step, and Workspace exit, switch, or detach SHALL leave its declaration in the attempt-local catalog with an unavailable executor. The trusted executors and source declarations SHALL stay bound
 together in that memory; current invocation permissions, tenant/resource
 authority, and native recovery fences SHALL still apply. Source loss or drift
 during an MCP attempt SHALL use the existing unavailable-call behavior without
@@ -298,6 +298,12 @@ using its predecessor's receipt, catalog, or model context.
 - **WHEN** an earlier worker tries to write a receipt, model context, or completion after a newer attempt owns the Run
 - **THEN** the stale write is refused under trusted attempt fencing
 - **AND** it cannot replace the winning attempt or advance availability state
+
+#### Scenario: Trusted Workspace addition extends the attempt catalog
+
+- **WHEN** a trusted Workspace action adds an admitted declaration during a Run
+- **THEN** that declaration joins the attempt-local model-facing catalog from the next model step without replacing an existing declaration
+- **AND** a later Workspace exit, switch, or detach leaves the declaration present with an unavailable executor, as specified by `tool-calling`
 
 ### Requirement: A model switch replaces the top-level prompt and preserves portable history
 
@@ -681,8 +687,6 @@ compared with a shared constant.
 ### Requirement: Owners can inspect the exact effective context without seeing host paths
 
 The owner SHALL be able to inspect immutable system-prompt-only receipts for
-
-Operator skill source/package/file paths intentionally published under `agent-skills` SHALL be permitted in the recorded model-visible skill contributions; this exception SHALL NOT expose prompt-file paths, Knowledge backing paths, credentials, or other private configuration. Non-owners SHALL receive a not-found response.
 every execution attempt that completed prompt preparation. Each receipt SHALL
 contain the Run/attempt identity, public model id and effort, prompt source
 label, exact rendered system prompt including projected owner values, prompt
@@ -705,11 +709,19 @@ an empty list and its actual unresolved/not-produced state. The UI SHALL expose
 each prepared attempt and fetch this response on demand.
 
 Receipts SHALL contain no tool catalog, schemas, descriptions, availability
-manifest, declaration hashes, or combined prompt/tool content hash. Private
-prompt-file paths, MCP connection information, raw source errors, provider
-credentials, and executor context SHALL remain undisclosed. Historical system
-prompt receipts SHALL survive catalog-column removal; historical tool receipt
-fields SHALL be removed rather than rebuilt from current configuration.
+manifest, declaration hashes, or combined prompt/tool content hash. Except for the
+owner-only host-path exceptions below, private prompt-file paths, MCP connection
+information, raw source errors, provider credentials, and executor context SHALL
+remain undisclosed. The canonical Workspace root narrated by the `workspace`
+producer and Workspace skill source/package/file paths SHALL be permitted in the
+owner-only recorded model-visible context; operator skill source/package/file
+paths intentionally published under `agent-skills` SHALL likewise be permitted
+in recorded model-visible skill contributions. These host-path exceptions SHALL
+NOT expose prompt-file paths, Knowledge backing paths, credentials, or other
+private configuration. Non-owners SHALL receive a not-found response.
+Historical system prompt receipts SHALL survive catalog-column removal;
+historical tool receipt fields SHALL be removed rather than rebuilt from current
+configuration.
 
 #### Scenario: Owner inspects a run carrying personalization
 
@@ -765,6 +777,12 @@ fields SHALL be removed rather than rebuilt from current configuration.
 - **WHEN** a retry renders a different system prompt from an earlier failed attempt
 - **THEN** both prepared attempts have separate immutable system-only receipts
 - **AND** only the winning attempt's staged context items may enter committed model history
+
+#### Scenario: Owner inspects Workspace paths in effective context
+
+- **WHEN** the chat owner opens an effective-context receipt for a Run whose `workspace` producer narrated a canonical Workspace root and whose Workspace skill activation published source, package, or file paths
+- **THEN** the owner can see the canonical Workspace root and Workspace skill source/package/file paths in the recorded model-visible context
+- **AND** prompt-file paths, Knowledge backing paths, credentials, and other private configuration remain undisclosed
 
 ### Requirement: Model context is surfaced as progressive disclosure
 

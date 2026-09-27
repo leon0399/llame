@@ -16,14 +16,31 @@ When `tools.nativeExecutorId` is configured and `bash` is present in
 `tools.allowed`, the model-facing `bash` tool SHALL be available on that native
 host. The model supplies shell text, an optional working directory, and
 optional additional environment variables; the host invokes `bash -c` as the
-host OS user. Each call SHALL start a fresh process: no working directory,
-variable, or shell state persists between calls, and the tool description
-SHALL state so. The model SHALL NOT select an executor, network mode, or
-permission mode, and SHALL NOT replace a base environment variable. Bounded
-output, input, duration, and process limits SHALL still apply. This alpha path
-is explicit host authority, not multi-tenant isolation. A later managed Sandbox
-and a separate permission proposal MAY strengthen isolation and approval
-without changing the command/result contract.
+host OS user. When a Workspace is entered, an omitted `cwd` SHALL use the
+Workspace root, and a relative `cwd` SHALL resolve from that root using lexical
+path resolution like POSIX `path.posix.resolve` while preserving a trailing
+separator; the executor SHALL receive exactly the projected absolute string,
+including that trailing separator. Projection SHALL NOT perform realpath
+resolution; symlinks inside the projected path SHALL be followed by the OS as
+for any absolute path. For this requirement, "relative" means a value not
+starting with `/` and without a `scheme:` prefix recognized by the shared
+locator parser (case-insensitive `scheme://`). An unknown scheme SHALL remain
+`invalid_path` rather than being treated as a relative directory. `..` MAY
+resolve outside the root. An absolute `cwd` SHALL remain absolute. Without an
+entered Workspace, the existing host working-directory behavior SHALL remain
+unchanged. Each call SHALL start a fresh process: no per-call working-directory
+override, variable, or shell state persists between calls. The tool description
+SHALL state this and SHALL state that an omitted `cwd` uses the Workspace root
+while entered and the host's default directory otherwise, and that a relative
+`cwd` is resolved from the Workspace root without confinement. Workspace path
+resolution SHALL NOT perform shell expansion on the submitted `cwd`.
+The model SHALL NOT select an
+executor, network mode, or permission mode, and SHALL NOT replace a base
+environment variable. Bounded output, input, duration, and process limits
+SHALL still apply. This alpha path is explicit host authority, not
+multi-tenant isolation. A later managed Sandbox and a separate permission
+proposal MAY strengthen isolation and approval without changing the
+command/result contract.
 
 #### Scenario: Missing native executor fails closed
 
@@ -57,16 +74,15 @@ without changing the command/result contract.
 
 #### Scenario: Working directory is per call
 
-- **WHEN** the model supplies a `cwd` that resolves to an existing directory
+- **WHEN** no Workspace is entered and the model supplies a `cwd` that resolves to an existing directory
 - **THEN** that command runs with that directory as its working directory
 - **AND** the next call without `cwd` runs in the host's default directory
 
 #### Scenario: Unusable working directory does not run the command
 
-- **WHEN** the supplied `cwd` is not an enterable directory
+- **WHEN** the supplied `cwd` does not resolve to an enterable directory
 - **THEN** no process starts and no attempt is recorded
-- **AND** the result states that the literal argument was not usable, that no
-  shell expansion was applied to it, and how to list or create it
+- **AND** the result identifies the unusable working-directory value and states that the submitted `cwd` was not shell-expanded (Workspace-relative projection, when applicable, is path resolution only), and how to list or create it
 
 #### Scenario: Spawn failure after the attempt is recorded
 
@@ -84,6 +100,29 @@ without changing the command/result contract.
   is inherited into that initial environment
 - **AND** Bash, its launcher, or the runtime can add variables such as `PWD`,
   `SHLVL`, and `_` before the command prints its environment
+
+#### Scenario: Omitted working directory uses the Workspace root
+
+- **WHEN** a Workspace with root `/work/project` is entered and the model calls `bash` without `cwd`
+- **THEN** the command runs with `/work/project` as its working directory
+
+#### Scenario: Relative working directory resolves from the Workspace root
+
+- **WHEN** a Workspace with root `/work/project` is entered and the model calls `bash` first with `cwd: "packages/api"` and then with `cwd: "../shared"`
+- **THEN** the first command runs with `/work/project/packages/api` as its working directory
+- **AND** the second command runs with `/work/shared` as its working directory, outside the Workspace root
+
+#### Scenario: Workspace working directory preserves a trailing separator
+
+- **WHEN** a Workspace with root `/work/project` is entered and the model calls `bash` with `cwd: "packages/api/"`
+- **THEN** the executor receives `/work/project/packages/api/` exactly, including the trailing separator
+- **AND** the command runs with that directory as its working directory
+
+#### Scenario: Unknown working-directory scheme is invalid
+
+- **WHEN** a Workspace is entered and the model calls `bash` with `cwd: "vault://notes"`
+- **THEN** the tool returns `invalid_path`
+- **AND** no process starts or filesystem probe treats the value as a relative directory
 
 ### Requirement: Command results are bounded and explicit
 

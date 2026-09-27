@@ -86,6 +86,11 @@ grant authority across source kinds.
 - **WHEN** a code-owned registry entry begins with `mcp__`
 - **THEN** registration fails at startup naming the reserved prefix
 
+#### Scenario: Write-capable MCP tool executes under both gates
+
+- **WHEN** an MCP source supplies an admitted write-capable declaration whose exact id matches `tools.allowed`, and the invocation passes the executing process's `tools.permissions` policy
+- **THEN** the tool executes despite its `unverified` classification
+
 ### Requirement: No mid-run tool-state checkpointing (read-only slice; write-tool landmine)
 
 The existing read-only loop MAY retry a claimable Run from its first step. A Run

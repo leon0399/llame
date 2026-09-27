@@ -128,3 +128,9 @@ Operator skill source/package/file paths intentionally published under `agent-sk
 - **WHEN** a retry renders a different system prompt from an earlier failed attempt
 - **THEN** both prepared attempts have separate immutable system-only receipts
 - **AND** only the winning attempt's eligible context may enter committed model history
+
+#### Scenario: Owner inspects Workspace paths in effective context
+
+- **WHEN** the chat owner opens an effective-context receipt for a Run whose `workspace` producer narrated a canonical Workspace root and whose Workspace skill activation published source, package, or file paths
+- **THEN** the owner can see the canonical Workspace root and Workspace skill source/package/file paths in the recorded model-visible context
+- **AND** prompt-file paths, Knowledge backing paths, credentials, and other private configuration remain undisclosed
