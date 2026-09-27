@@ -4,32 +4,36 @@ See [proposal.md](proposal.md) for the problem and issue scope. This design
 keeps the existing native authority and permission boundaries while adding one
 local spelling.
 
-On current `master`, `executeNative` lower-cases the parsed `scheme://` prefix,
-branches to Knowledge, Skill, or web execution, and sends an unimplemented
-scheme to the fixed `invalid_path` result. A path without a scheme reaches the
-host executor (`apps/api/src/tools/native-files.ts:59-87`). The shared parser
-intentionally rejects a scheme-looking value before any selector split or
-filesystem probe (`packages/native-file-tools/src/path.ts:66-84,182-212`).
-Unknown schemes return `invalid_path` with `This path scheme is not available.`
-(`apps/api/src/tools/native-files.ts:385-390`).
+On current `master`, `executeNative` parses `scheme://` at
+`apps/api/src/tools/native-files.ts:68-93`, then projects scheme-less calls
+from the active Workspace at `:94-101`. The shared file parser still rejects a
+scheme-looking value before selector split or filesystem probing
+(`packages/native-file-tools/src/path.ts:66-84,182-212`). Unknown schemes return
+`invalid_path` with `This path scheme is not available.`
+(`apps/api/src/tools/native-files.ts:403-409`).
 
-Permission projection currently has a separate fixed set for Knowledge, Skill,
-and HTTP(S), and passes direct host values through unchanged
-(`apps/api/src/tools/permissions/locator-projection.ts:15-51`). The evaluator
-checks submitted values before projected values; this change preserves that
-order and only adds the file alias projection. The native result and mutation
-paths already carry the host display path separately from the resolved path.
+Permission projection now resolves a Workspace-relative value before it calls
+`parsePathScheme`: `projectNativeFilePath` uses `isWorkspaceRelative` and
+`resolveWorkspacePath` at `apps/api/src/tools/permissions/locator-projection.ts:36-45`,
+where `isWorkspaceRelative` recognizes only `scheme://`
+(`apps/api/src/tools/workspace-path.ts:34-41`). The evaluator checks submitted
+values before projected values; this change must classify `file:` before that
+Workspace step. Web derived-locator admission reuses `nativeFileProjection`
+(`apps/api/src/tools/web-read/admission.ts:78-123,145-155`).
 
 The host selector parser probes the complete path before interpreting a colon
 as a selector, then uses the last colon after the last slash
-(`packages/native-file-tools/src/path.ts:182-212,266-288`). Normalizing a file
-URL to a host string before invoking that parser preserves literal filename
-precedence, `:raw`, ranges, multi-ranges, directory behavior, sibling
-suggestions, `realPath`, and the common result bound.
+(`packages/native-file-tools/src/path.ts:182-212,266-288`). Decoding a file
+alias before invoking that parser preserves literal filename precedence,
+`:raw`, ranges, multi-ranges, directory behavior, sibling suggestions,
+`realPath`, and the common result bound.
 
-The packaged prompt currently lists absolute paths, conditional `kb://`,
-`skill://`, and HTTP(S), and says other logical schemes are separate
-capabilities (`apps/api/src/prompts/tools/read.md:1-16`; `docs/native-files.md:97-115,219-227`). The native architecture paragraph in `SPEC.md` currently names only host and `kb://` authority (`SPEC.md:165-188`).
+The packaged prompts now describe absolute and Workspace-relative local paths
+(`apps/api/src/prompts/tools/read.md:1-16`;
+`apps/api/src/prompts/tools/edit.md:1-7`;
+`apps/api/src/prompts/tools/write.md:1-7`). The native architecture paragraph
+is §13.7 at `SPEC.md:182-218`; it states that Workspace projection selects a
+working root without confining host authority.
 
 ## Prior art
 
@@ -100,12 +104,17 @@ refactor source dispatch into a table: that refactor is deferred to `ssh://`
 **Decision.** Add one pure module beside
 `apps/api/src/tools/permissions/locator-projection.ts` that exports the
 ASCII-case-insensitive `file:` classifier and the strict decoder. Both
-`executeNative` and `projectNativeFilePath` call it before `parsePathScheme`:
-dispatch sends a valid alias to the existing host branch with the decoded path,
-and projection returns the decoded path. The existing `kb`, `skill`, and web
-branches in both switches stay as they are. The module imports no executor, so
-`native-files.ts` may import it without closing the cycle through
-`web-read/execute.ts` and `web-read/admission.ts`.
+`executeNative` and `projectNativeFilePath` call it before `parsePathScheme`
+and before any Workspace-relative classification: native dispatch checks it
+before `projectNativeCall` (`apps/api/src/tools/native-files.ts:68-101`), and
+permission projection checks it before `isWorkspaceRelative` and
+`resolveWorkspacePath` (`apps/api/src/tools/permissions/locator-projection.ts:36-45`).
+Dispatch sends a valid alias to the existing host branch with the decoded path,
+and projection returns the decoded path. A `file:` alias is always absolute and
+never Workspace-relative, so an entered Workspace cannot rewrite its path.
+The existing `kb`, `skill`, and web branches in both switches stay as they are.
+The module imports no executor, so `native-files.ts` may import it without
+closing the cycle through `web-read/execute.ts` and `web-read/admission.ts`.
 
 **Alternatives rejected.** Replace both switches with a pure scheme table and an
 exhaustive `Record<SchemeId, Executor>`. It keeps dispatch and projection from
@@ -113,9 +122,11 @@ drifting for every future scheme, but its justification is future sources; one
 alias does not need it, and it would turn this change into a rewiring of every
 scheme with the existing `kb`, `skill`, and web tests as its regression
 evidence. `ssh://` (#936) adds the next real source and pays for the refactor
-then. Classify `file:` only in dispatch. The projection's early return for
-scheme-less text (`locator-projection.ts:33-35`) would then leave
-`file:/home/u/%2Essh/id_rsa` unprojected, and it would miss a host-path reject.
+then. Classify `file:` only in dispatch. The projection's Workspace-relative
+check currently runs at `locator-projection.ts:40-44` before its
+`parsePathScheme` call at `:45`; a classifier added after that check would
+project `file:/home/u/%2Essh/id_rsa` under the Workspace root and miss a
+host-path reject.
 
 **Consequence.** The change touches two call sites and one new pure module.
 Dispatch and projection share the alias grammar by construction; the other
@@ -160,12 +171,13 @@ after the authority is invalid, so `file://` and `file://localhost` fail while
 `file:///` denotes the POSIX root. The minimal `file:/absolute/path` form is
 accepted; `file:x` is invalid.
 One pure classifier recognizes a leading ASCII-case-insensitive `file:` before
-`parsePathScheme`, which recognizes only `://`. Both `executeNative` and
-`projectNativeFilePath` call it, so the minimal form is dispatched to the host
-executor and projected to its host path; without the shared classifier the
-projection's early return for scheme-less text (`locator-projection.ts:33-35`)
-would leave `file:/home/u/%2Essh/id_rsa` unprojected and let it miss a
-host-path reject.
+`parsePathScheme`, which recognizes only `://`. It runs before
+Workspace-relative classification in both call sites: `executeNative` checks
+it before `projectNativeCall`, while `projectNativeFilePath` checks it before
+`isWorkspaceRelative`. Both therefore dispatch and project `file:/` as an
+absolute alias even when a Workspace is entered; without this order,
+`file:/home/u/%2Essh/id_rsa` would be projected under the Workspace root and
+could miss a host-path reject.
 
 The parser refuses any literal `?`, `#`, `\\`, C0 control character including
 tab, carriage return, and line feed, or DEL. A literal space, including a
@@ -255,14 +267,17 @@ mutation seams rather than duplicating a new selector grammar.
 
 ### D5: Refuse unsafe submitted text before decoding
 
-**Decision.** Before filesystem resolution, refuse a non-empty authority other
-than case-insensitive `localhost`, a missing path after an authority, any
-literal query or fragment marker, a backslash, a C0 control character, DEL,
-malformed or non-UTF-8 percent escapes, percent-encoded `/`, or NUL. The
-authority refusal uses this exact message: `A file:// URL with a host other
-than localhost names another machine. Only this host's files are readable;
-write the absolute path instead.` Other invalid file URL cases use the
-existing `invalid_path` error family without returning a host path.
+**Decision.** The file classifier runs before Workspace-relative projection,
+`parsePathScheme`, and the native executor-availability check. An invalid alias
+therefore returns `invalid_path` and binds no Run even when no
+`tools.nativeExecutorId` is configured. Before filesystem resolution, refuse a
+non-empty authority other than case-insensitive `localhost`, a missing path
+after an authority, any literal query or fragment marker, a backslash, a C0
+control character, DEL, malformed or non-UTF-8 percent escapes, percent-encoded
+`/`, or NUL. The authority refusal uses this exact message: `A file:// URL with
+a host other than localhost names another machine. Only this host's files are
+readable; write the absolute path instead.` Other invalid file URL cases use
+the existing `invalid_path` error family without returning a host path.
 
 **Alternatives rejected.** Let Node normalize and silently drop query,
 fragment, controls, backslashes, or spaces. That makes text which was part of
@@ -272,21 +287,26 @@ an explicit remote target into a possibly unrelated local path. Decode
 non-UTF-8 or NUL bytes and let the host resolver decide. That can produce
 unsafe strings before policy and filesystem checks.
 
-**Consequence.** Refusals happen before a filesystem probe, network request, or
-mutation. `file:///` is the local root; `file://` and `file://localhost` have
-no path and are invalid. A URL naming another machine is not a request to
-fetch that machine, and no remote fallback is attempted.
+**Consequence.** Refusals happen before a filesystem probe, network request,
+Workspace projection, executor-availability check, or mutation.
+`file:///` is the local root; `file://` and `file://localhost` have no path and
+are invalid. A URL naming another machine is not a request to fetch that
+machine, and no remote fallback is attempted.
 
 ### D6: Project the decoded host path while retaining submitted-text admission
 
-**Decision.** The shared projection for a valid file alias returns the
-decoded absolute host path plus any trailing selector. It preserves `.` and
-`..` segments exactly as submitted after one percent-decoding pass. The
-permission runner continues to evaluate the submitted string first and the
-projection second. A reject matching either spelling vetoes the call; an allow
-matches the projected host path. Invalid aliases are returned unchanged by the
-pure projection and then fail native validation. The projection performs no
-filesystem probe, realpath, URL fetch, authority lookup, or argument rewrite.
+**Decision.** The shared projection classifies a `file:` alias before
+Workspace-relative resolution and, for a valid alias, returns the decoded
+absolute host path plus any trailing selector. A `file:` alias is always
+absolute and is never resolved from the Workspace root; its decoded path is
+matched as an absolute host path whether or not a Workspace is entered. It
+preserves `.` and `..` segments exactly as submitted after one percent-decoding
+pass. The permission runner continues to evaluate the submitted string first
+and the projection second. A reject matching either spelling vetoes the call;
+an allow matches the projected host path. Invalid aliases are returned
+unchanged by the pure projection and then fail native validation. The
+projection performs no filesystem probe, realpath, URL fetch, authority lookup,
+or argument rewrite.
 
 **Alternatives rejected.** Match only the submitted URL. A host-path reject
 could be bypassed with a percent-encoded or URL spelling. Match only the
@@ -297,14 +317,16 @@ would make symlink behavior part of permission matching.
 
 **Consequence.** A reject such as `^/etc/` catches
 `file:///etc/%70asswd` after projection. An allow such as `^/srv/docs/` admits
-`file:///srv/docs/guide.md`. An allow written as `^file:///srv/docs/` does not
-admit a valid alias because the projected text has no scheme. A reject such as
-`(?i)^file:` can still refuse every submitted alias spelling, including the
+`file:///srv/docs/guide.md`. The same host-path rules apply while a Workspace
+is entered: `file:/etc/%70asswd` projects to `/etc/passwd`, not
+`/work/project/file:/etc/passwd`. An allow written as `^file:///srv/docs/` does
+not admit a valid alias because the projected text has no scheme. A reject such
+as `(?i)^file:` can still refuse every submitted alias spelling, including the
 minimal form; a case-sensitive `^file://` misses both `FILE://` and `file:/`.
-The same projection applies when an all-fields reject
-visits the native `path` field. An invalid alias remains unchanged in
-projection: under a host-path-only allow it is rejected as `no_allow` before
-native validation; under a whole-tool allow it reaches native `invalid_path`.
+The same projection applies when an all-fields reject visits the native
+`path` field. An invalid alias remains unchanged in projection: under a
+host-path-only allow it is rejected as `no_allow` before native validation;
+under a whole-tool allow it reaches native `invalid_path`.
 
 ### D7: Preserve host fencing, operation semantics, and result identity
 
@@ -380,6 +402,11 @@ and preserves the alias classifier and its `SPEC.md` sentence.
   host path are both evaluated. A host-path reject catches `%70` spellings,
   and a submitted `(?i)^file:` reject still works. Projection does not probe or
   resolve the filesystem.
+- **Workspace authority confusion.** With a Workspace entered at
+  `/work/project`, the classifier runs before relative projection, so
+  `file:/etc/%70asswd` is matched as `/etc/passwd`, never
+  `/work/project/file:/etc/passwd`. A `^/etc/` reject therefore still refuses
+  it, and a `^/work/project/` allow does not admit it.
 - **Query and fragment confusion.** Literal `?` and `#`, including empty
   components such as `file:///a?` and `file:///a#`, are refused before
   decoding, so no submitted text disappears before execution.
@@ -424,11 +451,11 @@ Implementation-layer questions that do not change the contract are:
 1. Which existing native error helper should carry the fixed remote-authority
    message, provided the result remains `invalid_path` and does not expose the
    submitted authority beyond that bounded diagnostic.
-2. The file name of the pure scheme module inside `apps/api/src/tools/permissions/`
-   beside `locator-projection.ts`. It cannot live in `packages/native-file-tools`,
-   because its projections call app-owned Knowledge, Skill, and web parsers.
-   `native-files.ts` may import it but must never own it; owning it there
-   recreates the cycle through `web-read/execute.ts` and `web-read/admission.ts`.
+2. The file name of the leaf file-alias classifier module beside
+   `locator-projection.ts`. It has no Knowledge, Skill, web, or executor
+   dependency, so its placement is a local implementation choice; it must remain
+   independent of `native-files.ts` to avoid recreating the import cycle through
+   `web-read/execute.ts` and `web-read/admission.ts`.
 3. Which current native test fixture is least coupled to executor setup for
    alias equivalence. The candidate seams are
    `apps/api/src/tools/native-files.test.ts` and
