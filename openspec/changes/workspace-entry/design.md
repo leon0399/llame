@@ -409,3 +409,7 @@ binding roots through shares, exports, search, or another owner's RLS scope.
   attempt-keyed, including same-Run retries; made MCP recovery deterministically stop with
   `outcome_unknown` and added the MODIFIED tool-calling checkpoint block; and left literal stdio
   `command`, `args`, and `env` text unprotected unless interpolated.
+- v7 — Split terminal settlement of open calls: an open `bash`, native mutation, or MCP call
+  whose `native.attempt` is recorded without a result settles as `outcome_unknown`; every other
+  open call follows the termination settlement rules, which keep cancellation distinct from a tool
+  failure.
