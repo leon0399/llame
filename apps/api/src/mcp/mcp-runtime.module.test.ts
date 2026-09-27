@@ -11,7 +11,7 @@ import {
   McpRuntimeModule,
 } from './mcp-runtime.module';
 import { McpRuntimeService } from './mcp-runtime.service';
-
+import { WorkspaceMcpClients } from './workspace-mcp-clients';
 describe('McpRuntimeModule', () => {
   it('keeps the default production runtime inert over the frozen empty definition map', async () => {
     const moduleRef = await Test.createTestingModule({
@@ -27,6 +27,9 @@ describe('McpRuntimeModule', () => {
       typeof EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS
     >(MCP_RUNTIME_SERVER_DEFINITIONS);
     const runtime = moduleRef.get(McpRuntimeService);
+    expect(moduleRef.get(WorkspaceMcpClients)).toBeInstanceOf(
+      WorkspaceMcpClients,
+    );
 
     expect(definitions).toBe(EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS);
     expect(Object.isFrozen(definitions)).toBe(true);

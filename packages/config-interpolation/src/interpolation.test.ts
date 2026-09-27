@@ -15,6 +15,7 @@ import {
   InterpolationError,
   interpolateString,
   interpolateStringWithSubstitutions,
+  interpolateWorkspaceString,
 } from "./interpolation";
 import { InstanceConfigError } from "./instance-config-error";
 
@@ -387,6 +388,80 @@ describe("interpolateString — escaping", () => {
 
   it("a lone { that starts no recognized token passes through unchanged", () => {
     expect(interpolateString("just a { brace")).toBe("just a { brace");
+  });
+});
+describe("interpolateWorkspaceString", () => {
+  it("resolves workspace env/path tokens and labels fallback substitutions", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+    writeFileSync(path.join(root, "token.txt"), " file-secret \n");
+
+    const result = await interpolateWorkspaceString(
+      "${SET}|${MISSING:-fallback}|{env:SET}|{path:token.txt}",
+      root,
+      { SET: "env-secret" },
+    );
+
+    expect(result).toEqual({
+      value: "env-secret|fallback|env-secret|file-secret",
+      substitutions: [
+        { value: "env-secret", fallback: false },
+        { value: "fallback", fallback: true },
+        { value: "env-secret", fallback: false },
+        { value: "file-secret", fallback: false },
+      ],
+    });
+  });
+
+  it("is non-recursive and ignores inherited environment properties", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+    const environment: NodeJS.ProcessEnv = { OUTER: "${INNER}" };
+    Object.setPrototypeOf(environment, { INHERITED: "not-an-env-value" });
+
+    const result = await interpolateWorkspaceString(
+      "${OUTER}|${INHERITED:-fallback}",
+      root,
+      environment,
+    );
+
+    expect(result).toEqual({
+      value: "${INNER}|fallback",
+      substitutions: [
+        { value: "${INNER}", fallback: false },
+        { value: "fallback", fallback: true },
+      ],
+    });
+  });
+
+  it("names missing workspace interpolation sources without values", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+
+    await expect(
+      interpolateWorkspaceString("${MISSING}", root, {}),
+    ).rejects.toMatchObject({
+      source: { kind: "env", name: "MISSING" },
+    });
+    await expect(
+      interpolateWorkspaceString("{path:missing/token}", root, {}),
+    ).rejects.toMatchObject({
+      source: { kind: "path", location: "missing/token" },
+    });
+  });
+  it("does not unescape doubled braces in portable Workspace config", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+    await expect(
+      interpolateWorkspaceString("--template={{name}}", root, {}),
+    ).resolves.toEqual({
+      value: "--template={{name}}",
+      substitutions: [],
+    });
   });
 });
 

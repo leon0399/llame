@@ -511,6 +511,62 @@ describe('RunExecutionService executeRun', () => {
     expect(appended.map((entry) => entry.type)).toEqual(['run.failed']);
     expect(appended[0].payload).toMatchObject({ code: 'outcome_unknown' });
   });
+  it('advertises and executes a bound Workspace MCP tool in the first step', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
+      undefined,
+    );
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-bound-tool-'));
+    const observed = vi.fn(() => ({ status: 'success' as const }));
+    const workspaceTool: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'unverified',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: observed,
+    };
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: root,
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+    });
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(workspaceTool, 'demo'),
+      'host-a',
+      {
+        allowed: ['enter_workspace', toolDeclaration.id],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          toolDeclaration.id,
+        ]),
+        dynamicCandidates: [
+          {
+            source: { type: 'mcp', serverId: 'demo' },
+            state: 'available',
+            tool: workspaceTool,
+          },
+        ],
+      },
+    );
+    try {
+      await execution.service.executeRun(executionInput(capturing.client));
+      const options = capturing.streamOptions();
+      expect(options.tools?.[toolDeclaration.id]).toBeDefined();
+      await executeBoundTool(options, { q: 'workspace' }, 'workspace-call');
+      expect(observed).toHaveBeenCalledOnce();
+      await options.onFinish?.({
+        text: 'answer',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 1,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it('terminates a retried MCP Run before invoking the model without a native host', async () => {
     const repositories = mockNormalExecutionRepositories();
@@ -3086,7 +3142,10 @@ function allowDecision(toolId: string) {
 }
 
 /** Binds `toolDeclaration` to `executor` through the dynamic-resolver seam. */
-function makeDynamicResolver(executor: Tool): DynamicToolExecutorResolver {
+function makeDynamicResolver(
+  executor: Tool,
+  workspaceServer?: string,
+): DynamicToolExecutorResolver {
   return {
     resolveDynamicTool: (id) =>
       id === toolDeclaration.id
@@ -3094,6 +3153,7 @@ function makeDynamicResolver(executor: Tool): DynamicToolExecutorResolver {
             state: 'available',
             declarationHash: hashToolDeclaration(toolDeclaration),
             executor,
+            ...(workspaceServer !== undefined && { workspaceServer }),
           }
         : { state: 'not_dynamic' },
   };

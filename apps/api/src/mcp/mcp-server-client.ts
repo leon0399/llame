@@ -135,6 +135,12 @@ export type McpServerClientConfig = {
   readonly serverId: string;
   readonly url: string;
   readonly headers?: Readonly<Record<string, string>>;
+  /**
+   * Workspace interpolation values, including URL/header substitutions and
+   * complete configured header values, that must be redacted at the client
+   * boundary.
+   */
+  readonly protectedValues?: ReadonlyArray<string>;
   readonly fetch?: typeof globalThis.fetch;
   readonly onDisconnect?: () => void;
   readonly signal?: AbortSignal;
@@ -843,6 +849,7 @@ function resolveTransportHeaders(config: McpServerClientConfig) {
         ? undefined
         : Object.fromEntries(new Headers(config.headers));
     const configuredProtectedValues = normalizeProtectedValues([
+      ...(config.protectedValues ?? []),
       ...Object.values(config.headers ?? {}),
       ...Object.values(transportHeaders ?? {}),
     ]);

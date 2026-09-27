@@ -86,6 +86,9 @@ its Workspace MCP configuration. W1 and W2 reject case-insensitive text paths to
 `write`. These are text-only policy rejects: an in-repository alias such as a
 symlink can bypass them, and there is no executor-level guard.
 
+See [Workspace MCP](mcp-tools.md#workspace-mcp) for configuration
+precedence, interpolation, client lifetime, and redaction limits.
+
 ## `kb://` locators
 
 `read`, `edit`, and `write` accept `kb://<knowledgeSpaceId>/<path>[:selector]`;

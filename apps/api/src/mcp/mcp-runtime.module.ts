@@ -9,6 +9,7 @@ import {
   McpRuntimeService,
   type McpRuntimeServerDefinition,
 } from './mcp-runtime.service';
+import { WorkspaceMcpClients } from './workspace-mcp-clients';
 import { type MutableStdioDefinition } from './mcp-runtime-definition';
 
 export const MCP_RUNTIME_SERVER_DEFINITIONS = Symbol(
@@ -83,7 +84,17 @@ function runtimeServerDefinitions(
       ) => new McpRuntimeService(servers),
       inject: [MCP_RUNTIME_SERVER_DEFINITIONS],
     },
+    {
+      provide: WorkspaceMcpClients,
+      useFactory: (runtime: McpRuntimeService) =>
+        new WorkspaceMcpClients(runtime),
+      inject: [McpRuntimeService],
+    },
   ],
-  exports: [MCP_RUNTIME_SERVER_DEFINITIONS, McpRuntimeService],
+  exports: [
+    MCP_RUNTIME_SERVER_DEFINITIONS,
+    McpRuntimeService,
+    WorkspaceMcpClients,
+  ],
 })
 export class McpRuntimeModule {}

@@ -64,6 +64,12 @@ export const STDIO_STABLE_AFTER_MS = 60_000;
 
 export type McpRuntimeClient = Pick<McpServerClient, 'discover' | 'close'>;
 
+export type McpRuntimeServerState = Readonly<{
+  serverId: string;
+  state: 'available' | 'unavailable';
+  reason?: ToolUnavailableReason;
+}>;
+
 export type McpRuntimeClientFactory = (
   config: McpServerClientConfig | McpStdioServerClientConfig,
 ) => Promise<McpRuntimeClient>;
@@ -142,7 +148,7 @@ export class McpRuntimeService
   private readonly inFlightOperations = new Set<Promise<void>>();
   private readonly logger = new Logger(McpRuntimeService.name);
 
-  private started = false;
+  private startPromise: Promise<void> | undefined;
   private shuttingDown = false;
   private shutdownPromise: Promise<void> | undefined;
 
@@ -169,13 +175,47 @@ export class McpRuntimeService
       rememberedIds: new Set(),
     }));
   }
-
   onModuleInit(): void {
-    if (this.started || this.shuttingDown) return;
-    this.started = true;
-    for (const record of this.records) {
-      this.beginConnect(record);
-    }
+    void this.start();
+  }
+
+  async start(): Promise<void> {
+    if (this.startPromise !== undefined) return this.startPromise;
+    if (this.shuttingDown) return;
+    const operations = this.records.flatMap((record) => {
+      const operation = this.beginConnect(record);
+      return operation === undefined ? [] : [operation];
+    });
+    this.startPromise = Promise.allSettled(operations).then(() => undefined);
+    await this.startPromise;
+  }
+
+  snapshotServerStates(): ReadonlyArray<McpRuntimeServerState> {
+    return Object.freeze(
+      this.records.map((record) =>
+        record.state === 'ready'
+          ? { serverId: record.serverId, state: 'available' as const }
+          : {
+              serverId: record.serverId,
+              state: 'unavailable' as const,
+              reason: record.unavailableReason,
+            },
+      ),
+    );
+  }
+
+  snapshotServerIds(): ReadonlyArray<string> {
+    return this.records.map(({ serverId }) => serverId);
+  }
+
+  snapshotCandidatesForServer(
+    serverId: string,
+  ): ReadonlyArray<TurnToolCandidate> {
+    return this.snapshotCandidates().filter(
+      (candidate) =>
+        candidate.source.type === 'mcp' &&
+        candidate.source.serverId === serverId,
+    );
   }
 
   snapshotCandidates(): ReadonlyArray<TurnToolCandidate> {
@@ -233,9 +273,13 @@ export class McpRuntimeService
         };
   }
 
-  onModuleDestroy(): Promise<void> {
+  stop(): Promise<void> {
     this.shutdownPromise ??= this.shutdown();
     return this.shutdownPromise;
+  }
+
+  onModuleDestroy(): Promise<void> {
+    return this.stop();
   }
 
   private recordForToolId(id: string): ServerRecord | undefined {
@@ -247,8 +291,8 @@ export class McpRuntimeService
     return parsed.success && parsed.serverId === record.serverId;
   }
 
-  private beginConnect(record: ServerRecord): void {
-    if (this.shuttingDown || record.operation !== undefined) return;
+  private beginConnect(record: ServerRecord): Promise<void> | undefined {
+    if (this.shuttingDown || record.operation !== undefined) return undefined;
     if (record.timer !== undefined) {
       clearTimeout(record.timer);
       record.timer = undefined;
@@ -260,7 +304,9 @@ export class McpRuntimeService
       controller: new AbortController(),
     };
     record.operation = operation;
-    this.trackOperation(this.connectAndDiscover(record, operation));
+    const connection = this.connectAndDiscover(record, operation);
+    this.trackOperation(connection);
+    return connection;
   }
 
   /**
@@ -698,7 +744,7 @@ export class McpRuntimeService
       ) {
         return;
       }
-      this.beginConnect(record);
+      void this.beginConnect(record);
     }, delay);
     record.timer = timer;
   }

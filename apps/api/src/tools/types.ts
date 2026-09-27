@@ -9,11 +9,11 @@ import {
 } from '../knowledge/knowledge-filesystem';
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
+import { type WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
 import { type CompiledPolicy } from './permissions/types';
 import { type WorkspaceRootCell } from './workspace-path';
 import { type AttemptToolAdditions } from './attempt-tool-additions';
 import { type DerivedDecision } from './web-read/admission';
-
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
  * external sources (D2: "accepted as the source ships it"). Distinct from
@@ -106,6 +106,8 @@ export interface ToolContext {
   readonly workspaceRoot?: WorkspaceRootCell;
   /** Trusted handle for adding Workspace declarations during this attempt. */
   readonly toolAdditions?: AttemptToolAdditions;
+  /** Process-local Workspace MCP clients for this Chat's current binding. */
+  readonly workspaceMcp?: WorkspaceMcpClients;
 }
 
 /** SPEC §13.5 classification. Code-owned non-read-only execution requires an

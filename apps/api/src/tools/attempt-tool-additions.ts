@@ -8,8 +8,9 @@ import {
   type ToolAvailabilityEntry,
   type TurnToolCandidate,
 } from './turn-tool-catalog';
-import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
 import { unavailableExecutor } from '../runs/snapshot-tool-execution';
+import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
+import { parseMcpToolId } from '../mcp/tool-id';
 import { type Tool } from './types';
 
 export type AttemptToolBinding = {
@@ -203,6 +204,21 @@ export class AttemptToolAdditions {
 
   get addedDeclarations(): ReadonlyArray<ModelToolDeclaration> {
     return [...this.addedDeclarationsById.values()];
+  }
+
+  hasOperatorDeclaration(server: string): boolean {
+    for (const [id, binding] of this.options.boundExecutables) {
+      if (binding.server !== undefined) continue;
+      const parsed = parseMcpToolId(id);
+      if (parsed.success && parsed.serverId === server) return true;
+    }
+    return false;
+  }
+  hasWorkspaceDeclaration(server: string): boolean {
+    for (const binding of this.options.boundExecutables.values()) {
+      if (binding.server === server) return true;
+    }
+    return false;
   }
 
   private plan(

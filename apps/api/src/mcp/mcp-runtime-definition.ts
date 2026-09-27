@@ -9,6 +9,7 @@ export type McpRuntimeRemoteDefinition = Readonly<{
   transport?: 'http';
   url: string;
   headers?: Readonly<Record<string, string>>;
+  protectedValues?: ReadonlyArray<string>;
   fetch?: typeof globalThis.fetch;
 }>;
 
@@ -39,10 +40,10 @@ export type MutableStdioDefinition = {
   cwd?: string;
   protectedValues?: ReadonlyArray<string>;
 };
-
 type MutableRemoteDefinition = {
   url: string;
   headers?: Readonly<Record<string, string>>;
+  protectedValues?: ReadonlyArray<string>;
   fetch?: typeof globalThis.fetch;
 };
 
@@ -72,6 +73,9 @@ export function frozenRuntimeDefinition(
   };
   if (definition.headers !== undefined) {
     remote.headers = Object.freeze({ ...definition.headers });
+  }
+  if (definition.protectedValues !== undefined) {
+    remote.protectedValues = Object.freeze([...definition.protectedValues]);
   }
   if (definition.fetch !== undefined) remote.fetch = definition.fetch;
   return Object.freeze(remote);

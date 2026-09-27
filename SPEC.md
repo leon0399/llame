@@ -129,7 +129,24 @@ The current Run loop interleaves model output with tool calls within an operator
 
 Remote ids are stable `mcp__<server>__<tool>` names. Only exact ids in `tools.allowed`, or exact ids matched by a validated MCP namespace wildcard, may be advertised or executed. An MCP allowlist entry selects eligibility; it is not an attestation about an operation's effects. MCP tools are classified `unverified`, and every call also requires an applicable `tools.permissions` group. Write, send, delete, execute, financial, and administrative MCP operations are permitted only when both gates accept them. Two transports ship: remote Streamable HTTP, and local stdio servers llame runs as child processes. Supported protocol revisions are the session-capable `2025-03-26`, `2025-06-18`, and `2025-11-25` on both; sessionless MCP `2026-07-28` and deprecated HTTP+SSE do not ship. A stdio child receives only its declared `env` over the MCP SDK's base allowlist — llame's own environment is not passed through — and executes unsandboxed as the llame user.
 
-Each API or worker process eagerly owns independent per-server clients and sessions. Disconnect and discovery failures withdraw only that server; turns never wait for remote discovery or reconnect, and workers execute only an exact declaration-hash match against the attempt's admitted catalog. Configured endpoints are operator-approved outbound data boundaries. Redirects are disabled, while private endpoints are intentionally allowed for self-hosted services. See [`mcp-tools`](openspec/specs/mcp-tools/spec.md) and [docs/mcp-tools.md](docs/mcp-tools.md).
+Each API or worker process eagerly owns independent clients and sessions for
+each operator-configured server. Workspace MCP clients are separate per-Chat
+clients keyed by `(chatId, canonical root, workspace generation)`; they never
+enter the process-wide operator runtime. A bound Chat starts its matching
+Workspace clients on entry or attempt start, stops stale generations at attempt
+start, and stops them on exit, switch, detach, or shutdown; idle clients expire
+after 30 minutes. Attempt composition layers the current Chat's Workspace
+resolver over the operator resolver, so declarations, executors, call state,
+and results remain Chat- and owner-isolated. Operator disconnect and discovery
+failures withdraw only that server; operator turns never wait for remote
+discovery or reconnect. `enter_workspace` and a bound Chat's attempt start
+await initial Workspace server connect/discovery within the existing MCP
+bounds before composing tools. Workers execute only an exact
+declaration-hash match against the attempt's admitted catalog. Configured
+endpoints are operator-approved outbound data boundaries. Redirects are
+disabled, while private endpoints are intentionally allowed for self-hosted
+services. See [`mcp-tools`](openspec/specs/mcp-tools/spec.md) and
+[docs/mcp-tools.md](docs/mcp-tools.md).
 
 The worker records each native or MCP dispatch attempt before invoking it. On queue redelivery, a Run with any recorded native attempt or MCP dispatch fails as `outcome_unknown` instead of re-running its model loop; open calls settle from durable results where present, and no recorded operation is invoked again. A Run with no native or MCP attempt may restart its tool loop from the first step. The existing owner-scoped event log records native attempts before file changes and settles known results before continuation; client replay executes no filesystem operation.
 
