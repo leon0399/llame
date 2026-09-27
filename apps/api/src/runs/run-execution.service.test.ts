@@ -525,6 +525,11 @@ describe('RunExecutionService executeRun', () => {
       expect.objectContaining({ error: outcomeUnknownError }),
     );
     expect(appended.map((entry) => entry.type)).toEqual(['run.failed']);
+    expect(appended[0].payload).toEqual({
+      code: 'outcome_unknown',
+      message:
+        'A previous host command, file mutation, or MCP dispatch may have executed. This Run will not replay it.',
+    });
   });
 
   it('keeps read-only retry behavior for a previously bound native Run', async () => {

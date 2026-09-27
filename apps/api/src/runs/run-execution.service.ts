@@ -661,7 +661,7 @@ export class RunExecutionService {
     }
     if ('nativeRecovery' in claim) {
       const message =
-        'A previous host command or mutation may have executed. This Run will not replay it.';
+        'A previous host command, file mutation, or MCP dispatch may have executed. This Run will not replay it.';
       await this.settleTerminalRun({
         userId: input.userId,
         runId: input.runId,
