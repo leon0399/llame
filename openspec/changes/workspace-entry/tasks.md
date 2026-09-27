@@ -41,13 +41,16 @@ implementation layers.
 
 ## 1. `workspace-entry/core`: binding, tools, projection, and narration
 
-- [ ] 1.1 Add nullable `workspace_root`, `workspace_executor_id`, `workspace_told`, and
-      `workspace_detach_reason`, plus integer `workspace_generation`, to `chats` with a generated
-      Drizzle migration (design D1). Use the closed detach-reason codes and increment generation
-      only when an enter establishes or switches a binding, an exit clears a bound Chat, or a
-      detach clears one; same-root re-entry and exit on an unbound Chat leave it unchanged.
-      Verify `pnpm db:generate` reproduces it, the migration applies to a populated database, and
-      an integration test shows user A cannot read or write user B's binding columns under RLS.
+- [ ] 1.1 Add nullable `workspace_root`, `workspace_executor_id`, `workspace_told`,
+      `workspace_told_from`, and `workspace_detach_reason`, plus integer
+      `workspace_generation`, to `chats` with a generated Drizzle migration (design D1). Use the
+      closed detach-reason codes and increment generation only when an enter establishes or
+      switches a binding, an exit clears a bound Chat, or a detach clears one; same-root re-entry
+      and exit on an unbound Chat leave it unchanged. Stage `workspace_told` and
+      `workspace_told_from` together during accepted-turn preparation and write both in the same
+      successful accepted-turn transaction; the compaction path never writes Chat state. Verify
+      `pnpm db:generate` reproduces it, the migration applies to a populated database, and an
+      integration test shows user A cannot read or write user B's binding columns under RLS.
 - [ ] 1.2 Add the pure lexical `resolveWorkspacePath` projection and feed it to `read`, `edit`,
       `write` path handling and bash `cwd` through the attempt-scoped root cell (design D3, D5).
       Preserve a trailing separator, do not call `realpath`, follow symlinks only through the OS, and
@@ -75,26 +78,29 @@ implementation layers.
       restart or generation change, switch, missing `nativeExecutorId`, both same-step transition
       conflicts (`enter_workspace(A)` then `exit_workspace()` and `enter_workspace(A)` then
       `enter_workspace(B)`), and a superseded attempt with no side effect.
-- [ ] 1.5 Re-check the binding during accepted-turn preparation before Workspace skills,
+- [ ] 1.5 Re-check the binding during attempt preparation on the worker before Workspace skills,
       `$skill`, MCP clients/catalog, or the Workspace producer. Detach immediately in its own
       owner-scoped transaction fenced by the Run's current delivery; clear the binding, increment
       generation, store the closed reason, and expose no Workspace skill activation,
       `skill://` resolution, or tools to the detaching attempt (design D4). An already-frozen
-      skill-catalog baseline may still list Workspace skills, and the next accepted turn's
-      catalog notice removes them. Verify executor mismatch and absence, root missing/non-directory,
-      root moved, permission rejection requiring an allow and no reject, and `tool_not_allowed`.
-      Include the detach-then-fail retry scenario: a retry whose checks would pass still finds the
-      Chat unbound, and an executor returning later does not restore it.
-- [ ] 1.6 Add the `workspace` context-item producer with its packaged template and told-state
-      comparison, rail-only `snapshot` current-state item, separate detach `notice`, and reset by a
-      newly active compaction (design D6). Verify entry and exit narration, detach reason in a
-      separate notice, unchanged binding silence, compaction re-establishment, no notice for a
-      never-bound Chat, and the rendered system prompt remaining byte-identical before and after
-      entry.
-- [ ] 1.7 Copy the binding root, executor id, and generation in owner forks but not told state or
-      detach reason. Verify an owner fork keeps the binding, its first accepted turn narrates it, its
-      first Run re-checks it, and a visitor fork of a public bound Chat is unbound and discloses no
-      root; a fork of a detached Chat stays unbound.
+      skill-catalog baseline may still list Workspace skills, and the next accepted turn's catalog
+      notice removes them. Verify executor mismatch and absence, root missing/non-directory, root
+      moved, permission rejection requiring an allow and no reject, and `tool_not_allowed`. Include
+      the detach-then-fail retry scenario: a retry whose checks would pass still finds the Chat
+      unbound, and an executor returning later does not restore it.
+- [ ] 1.6 Add the `workspace` context-item producer with its packaged template and comparison
+      rule: treat the told state as null whenever `workspace_told_from` differs from the Chat's
+      latest compaction identity. Emit a rail-only `snapshot` current-state item, a separate
+      detach `notice`, and stage `workspace_told` with `workspace_told_from` for the same
+      accepted-turn transaction; the compaction path does not write Chat state (design D6).
+      Verify entry and exit narration, detach reason in a separate notice, unchanged binding
+      silence, compaction re-establishment, no notice for a never-bound Chat, and the rendered
+      system prompt remaining byte-identical before and after entry.
+- [ ] 1.7 Copy the binding root, executor id, and generation in owner forks but not
+      `workspace_told`, `workspace_told_from`, or detach reason. Verify an owner fork keeps the
+      binding, its first accepted turn narrates it, its first Run re-checks it, and a visitor fork
+      of a public bound Chat is unbound and discloses no root; a fork of a detached Chat stays
+      unbound.
 - [ ] 1.8 Document the nine-group recommended policy in `llame.config.json.example`: add
       `enter_workspace` and `exit_workspace`; the `enter_workspace` group uses an operator-edited
       field allow such as
@@ -207,7 +213,7 @@ implementation layers.
       Run-level column or persist a Run tool set. Admit only ids in the adding server's
       `mcp__<server>__` namespace. Verify next-step callability, re-entry or root-switch re-adding
       an id with an identical in-memory declaration rebinds its executor, a changed declaration
-      contributes no executor this Run and is reported as available from the next Run, a
+      contributes no executor in this attempt and is reported as available from the next Run, a
       foreign-namespace id is refused, a removed id is refused as unavailable, and the step cap
       still applies.
 - [ ] 5.3 Modify the `model-system-prompts` contract and carry its MODIFIED delta for trusted
@@ -240,27 +246,28 @@ workspace_generation)`. Keep Workspace candidates and executors out of the proce
       with a safe diagnostic; never re-scan resolved values or shell-interpret commands/args.
       Protect every non-empty Workspace remote `headers` value, literal or interpolated; protect
       resolved interpolation values in stdio `command`, `args`, and `env` except `:-default`
-      fallback literals, while leaving only literal stdio `env` values unprotected solely because
-      they are literal. Verify merge precedence, defaults, redaction, relative paths, unreadable
-      files, the accepted audited-repository boundary, a literal `Authorization` header echoed by
-      a Workspace server being redacted, and that an ambient llame process variable not referenced
-      by Workspace config is absent from its stdio child's environment.
+      fallback literals, while leaving literal stdio `command`, `args`, and `env` text unprotected
+      solely because it is literal. Verify merge precedence, defaults, redaction, relative paths,
+      unreadable files, the accepted audited-repository boundary, a literal `Authorization` header
+      echoed by a Workspace server being redacted, and that an ambient llame process variable not
+      referenced by Workspace config is absent from its stdio child's environment.
 - [ ] 6.3 Implement deferred shadowing: a byte-equal Workspace/operator server id defers when
       operator tools are already declared in the running attempt, reports `shadows from the next
-Run`, retains operator executors for that Run, and shadows from the next Run after a
-      successful Workspace start under the same tool ids and exact-id permission groups. A
+    Run`, retains operator executors for that attempt, and attempt-start composition shadows from
+      the next attempt that composes the live binding, including a retry attempt of the same Run,
+      after a successful Workspace start under the same tool ids and exact-id permission groups. A
       Workspace id differing from an operator id only by ASCII case is unavailable with reason
       `case-only collision with an operator server` and contributes no tools; operator tools are
-      unaffected, and a failed Workspace server does not shadow. Verify byte-equal deferred
-      shadowing, the case-only collision scenario, and the next-Run transition.
+      unaffected. A failed Workspace server does not shadow. Verify deferred shadowing, the
+      case-only collision scenario, and the next-attempt transition.
 - [ ] 6.4 Report every Workspace server's state in the `enter_workspace` result and compose the
-      Chat's currently admitted Workspace tools from the start of the next Run so
+      Chat's currently admitted Workspace tools from the start of the next attempt so
       `tool-availability` announces them. Verify malformed files and unsupported transports leave
-      entry successful, failed servers are unavailable, a Workspace tool is callable in the entering
-      Run when it does not defer to an existing operator declaration, a changed re-added
-      declaration surfaces `available from the next Run` in the entry result, and the next Run
-      starts the generation-matching client set and resolves Workspace tools from the live binding
-      at its start rather than from prior Run state.
+      entry successful, failed servers are unavailable, a Workspace tool is callable in the
+      entering attempt when it does not defer to an existing operator declaration, a changed
+      re-added declaration surfaces `available from the next Run` in the entry result, and the
+      next attempt starts the generation-matching client set and resolves Workspace tools from the
+      live binding at its start rather than from prior attempt state.
 - [ ] 6.5 Update `SPEC.md:132` to document per-process operator MCP clients plus per-Chat
       Workspace MCP clients. Document Workspace MCP config, interpolation, lifetime, generation
       keying, per-Chat resolver isolation, byte-equal deferred shadowing, case-only collision

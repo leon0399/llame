@@ -57,7 +57,7 @@ A bound Workspace SHALL load its MCP server entries from `<root>/.mcp.json`, wit
 
 Workspace server string values SHALL support `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` interpolation. These tokens SHALL resolve from the executing process's environment and filesystem, including llame's own process environment. A relative `{path:LOCATION}` SHALL resolve from the Workspace root; an absolute location SHALL resolve as written. `${VAR:-default}` SHALL use the literal default when `VAR` is unset or empty. Interpolation SHALL be single-pass and non-recursive: a resolved value SHALL NOT be scanned again for tokens. An unset variable without a default or an unreadable file SHALL make the affected server unavailable, with a diagnostic naming the variable or file location but never the resolved value. Command and argument fields SHALL be passed as literal text and SHALL NOT be shell-interpreted. Reading llame's ambient environment through these tokens, and passing a selected value to a Workspace server, is an accepted risk of permitting entry into an audited Workspace.
 
-Every non-empty resolved interpolation value SHALL be added to that Workspace server's protected-value set, except a literal supplied solely as the `:-default` fallback in a stdio `command`, `args`, or `env` field. Every non-empty value supplied in a Workspace remote `headers` entry SHALL also be added to the protected-value set, whether literal or interpolated, including a non-empty `:-default` fallback. A literal value supplied directly in a stdio `env` entry SHALL NOT be added to the protected-value set solely because it is literal. Protected values SHALL be redacted before they can appear in that server's declarations, call arguments or results, diagnostics, entry result, receipts, persisted errors, or model-facing content. This protection guarantee is scoped to that server's traffic and server-derived output; another tool that independently reads the same source is outside this guarantee.
+Every non-empty resolved interpolation value SHALL be added to that Workspace server's protected-value set, except a literal supplied solely as the `:-default` fallback in a stdio `command`, `args`, or `env` field. Every non-empty value supplied in a Workspace remote `headers` entry SHALL also be added to the protected-value set, whether literal or interpolated, including a non-empty `:-default` fallback. Literal stdio `command`, `args`, and `env` text SHALL NOT be added to the protected-value set solely because it is literal. Protected values SHALL be redacted before they can appear in that server's declarations, call arguments or results, diagnostics, entry result, receipts, persisted errors, or model-facing content. This protection guarantee is scoped to that server's traffic and server-derived output; another tool that independently reads the same source is outside this guarantee.
 
 A malformed Workspace MCP file, invalid server name or entry, unsupported transport, or unresolvable interpolation SHALL NOT fail Workspace entry. Each affected Workspace MCP server SHALL instead be reported as unavailable and SHALL contribute no callable tools.
 
@@ -117,11 +117,11 @@ A malformed Workspace MCP file, invalid server name or entry, unsupported transp
 - **WHEN** `${MISSING:-literal-default}` supplies a fallback in a Workspace stdio `command`, `args`, or `env` field
 - **THEN** `literal-default` is not added to the protected-value set solely because it was a fallback
 
-#### Scenario: Literal stdio environment values are not protected
+#### Scenario: Literal stdio configuration text is not protected
 
-- **WHEN** a Workspace stdio `env` entry contains a non-empty literal value
-- **THEN** that value is not added to the protected-value set solely because it is literal
-- **AND** traffic and results containing that value are neither refused nor redacted solely because of that literal
+- **WHEN** a Workspace stdio `command`, `args`, or `env` field contains non-empty literal text
+- **THEN** that text is not added to the protected-value set solely because it is literal
+- **AND** traffic and results containing that text are neither refused nor redacted solely because of that literal
 
 #### Scenario: Literal Workspace Authorization header is redacted
 
@@ -228,16 +228,17 @@ Starting a Workspace MCP server SHALL NOT require a separate per-server permissi
 
 Workspace MCP servers SHALL use the same supported protocol revisions, tool-id composition, declaration admission and neutralization, discovery and per-operation bounds, protected-value handling, result handling, per-call timeout, transport-specific availability and retry behavior as operator MCP servers, except that Workspace entries follow the Workspace interpolation protection and unresolvable-token behavior specified by `Workspace MCP configuration is portable and protects interpolated values` and `Secret interpolation marks a stdio value as protected`. MCP tool calls SHALL NOT be automatically retried on any transport. Workspace tools SHALL pass the same `tools.allowed` eligibility and `tools.permissions` authorization gates as operator tools; Workspace configuration, transport type, annotations, descriptions, and server claims SHALL grant no additional execution authority.
 
-For a Chat, a started Workspace server SHALL shadow an operator-configured server only when their server ids are byte-equal. If the Workspace server starts while an operator server's tools are already declared in the running attempt, the Workspace server SHALL contribute no tools in that Run, the operator tools SHALL retain their executors for the rest of that Run, and the entry result SHALL report `shadows from the next Run`. From the next Run, the started Workspace server SHALL provide its admitted tools under the applicable namespaced ids and exact-id permission groups. A Workspace server whose id differs from an operator server id only by ASCII letter case SHALL be reported unavailable with reason `case-only collision with an operator server` and SHALL contribute no tools; the operator tools SHALL remain unaffected. A Workspace server that has failed to start or is otherwise unavailable SHALL NOT shadow the operator server, whose tools remain available under the usual gates.
+For a Chat, a started Workspace server SHALL shadow an operator-configured server only when their server ids are byte-equal. If the Workspace server starts while an operator server's tools are already declared in the running attempt, the Workspace server SHALL contribute no tools in that attempt, the operator tools SHALL retain their executors for the rest of that attempt, and the entry result SHALL report `shadows from the next Run`. From the next attempt that composes the live binding, including a retry attempt of the same Run, the started Workspace server SHALL provide its admitted tools under the applicable namespaced ids and exact-id permission groups. A Workspace server whose id differs from an operator server id only by ASCII letter case SHALL be reported unavailable with reason `case-only collision with an operator server` and SHALL contribute no tools; the operator tools SHALL remain unaffected. A Workspace server that has failed to start or is otherwise unavailable SHALL NOT shadow the operator server, whose tools remain available under the usual gates.
 
-When an id is already present in the running attempt and is re-added after a Chat exits and re-enters or switches between roots defining the same server, the trusted in-Run tool-addition behavior in the `tool-calling` capability SHALL apply. The new executor SHALL be bound only when the newly admitted declaration is byte-for-byte identical to the retained in-memory declaration; otherwise that id SHALL contribute no executor in this Run and the entry result SHALL report `available from the next Run`. Declarations SHALL never be replaced or removed within the attempt, and the declaration comparison SHALL remain in memory rather than being persisted.
+When an id is already present in the running attempt and is re-added after a Chat exits and re-enters or switches between roots defining the same server, the trusted in-Run tool-addition behavior in the `tool-calling` capability SHALL apply. The new executor SHALL be bound only when the newly admitted declaration is byte-for-byte identical to the retained in-memory declaration; otherwise that id SHALL contribute no executor in this attempt and the entry result SHALL report `available from the next Run`. Declarations SHALL never be replaced or removed within the attempt, and the declaration comparison SHALL remain in memory rather than being persisted.
 
 #### Scenario: Mid-Run Workspace shadowing is deferred
 
-- **WHEN** a Workspace server starts during a Run, its id is byte-equal to an operator server id, and the operator server's tools are already declared
-- **THEN** the Workspace server contributes no tools to that Run
-- **AND** the operator tools retain their executors for the rest of the Run
+- **WHEN** a Workspace server starts during an attempt, its id is byte-equal to an operator server id, and the operator server's tools are already declared
+- **THEN** the Workspace server contributes no tools to that attempt
+- **AND** the operator tools retain their executors for the rest of that attempt
 - **AND** the entry result reports `shadows from the next Run`
+- **AND** the next attempt, including a retry of the same Run, composes the started Workspace server from the live binding
 
 #### Scenario: Case-only Workspace server collision is unavailable
 
@@ -245,10 +246,10 @@ When an id is already present in the running attempt and is re-added after a Cha
 - **THEN** the Workspace server is reported unavailable with reason `case-only collision with an operator server`
 - **AND** it contributes no tools and leaves the operator server's tools unaffected
 
-#### Scenario: Started Workspace server shadows operator server on the next Run
+#### Scenario: Started Workspace server shadows operator server on the next attempt
 
-- **WHEN** a Workspace MCP server is started before a Run and has a byte-equal server id to an operator MCP server
-- **THEN** that Chat's next Run uses the Workspace server's admitted tools under the applicable namespaced ids
+- **WHEN** a Workspace MCP server is started before an attempt and has a byte-equal server id to an operator MCP server
+- **THEN** that Chat's next attempt uses the Workspace server's admitted tools under the applicable namespaced ids
 - **AND** the same exact-id permission groups apply
 
 #### Scenario: Failed Workspace server does not shadow operator server
@@ -259,14 +260,14 @@ When an id is already present in the running attempt and is re-added after a Cha
 
 #### Scenario: Re-adding an identical declaration restores its executor
 
-- **WHEN** a Chat exits and re-enters, or switches between Workspaces, during a Run and the newly admitted declaration has an id already retained in the attempt with a byte-for-byte identical in-memory declaration
+- **WHEN** a Chat exits and re-enters, or switches between Workspaces, during an attempt and the newly admitted declaration has an id already retained in the attempt with a byte-for-byte identical in-memory declaration
 - **THEN** the new Workspace executor is bound to the retained declaration
 - **AND** the declaration is not replaced or persisted for comparison
 
-#### Scenario: Re-adding a changed declaration waits for the next Run
+#### Scenario: Re-adding a changed declaration waits for the next attempt
 
-- **WHEN** a Chat exits and re-enters, or switches between Workspaces, during a Run and the newly admitted declaration has an id already retained in the attempt with a different in-memory declaration
-- **THEN** that id contributes no executor in the current Run
+- **WHEN** a Chat exits and re-enters, or switches between Workspaces, during an attempt and the newly admitted declaration has an id already retained in the attempt with a different in-memory declaration
+- **THEN** that id contributes no executor in the current attempt
 - **AND** the entry result reports `available from the next Run`
 - **AND** the retained declaration remains unchanged
 

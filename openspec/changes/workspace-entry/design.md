@@ -58,13 +58,13 @@ one; same-root re-entry and exit on an unbound Chat leave it unchanged. A Chat h
 binding, so a separate table would add a join and a lifecycle for no gain.
 
 Owner forks copy the canonical root, executor id, and generation as an explicit exception to the
-general fork rule copying no worker or native-effect state. They do not copy `workspace_told` or
-`workspace_detach_reason`: a fork anchored before entry has no narration in its copied prefix, and
-a detach reason belongs only to the attempt that observed it. The fork's first turn therefore
-narrates a copied binding, while a detached source remains unbound. Visitor forks and public
-share projections copy no Workspace binding and disclose no root; the binding is explicitly part
-of the shared-path exclusion list. The owner's Chat API exposes the canonical root or null, while
-a non-owner receives 404.
+general fork rule copying no worker or native-effect state. They do not copy `workspace_told`,
+`workspace_told_from`, or `workspace_detach_reason`: a fork anchored before entry has no narration
+in its copied prefix, and a detach reason belongs only to the attempt that observed it. The fork's
+first turn therefore narrates a copied binding, while a detached source remains unbound. Visitor
+forks and public share projections copy no Workspace binding and disclose no root; the binding is
+explicitly part of the shared-path exclusion list. The owner's Chat API exposes the canonical root
+or null, while a non-owner receives 404.
 Alternative rejected: a binding keyed per branch. llame has no branch objects; a fork already is
 the branch.
 
@@ -133,7 +133,7 @@ would then block every relative escape, including targets the policy allows.
 
 ### D4. Re-check at each attempt's preparation
 
-Accepted-turn preparation re-checks the binding before resolving effective Workspace skill
+Attempt preparation on the worker re-checks the binding before resolving effective Workspace skill
 sources, `$skill` activation, Workspace MCP clients or catalog entries, or the `workspace`
 producer. When a check fails, it immediately detaches in its own owner-scoped transaction,
 fenced by the Run's current delivery, rather than waiting for the completed-only terminal
@@ -173,22 +173,22 @@ The cell is initialized only from the binding that passed D4.
 
 ### D6. Narration uses snapshot and notice rail items
 
-A new `workspace` context-item producer compares the current binding with `workspace_told` at
-each accepted turn. A small complete current-state statement is rail-only: when the root differs
-it emits a `snapshot` naming the canonical root, or stating that none is entered, together with
-the host-authority statement, and stages `workspace_told` for update. This current-state
-snapshot may be re-emitted after compaction because its repetition is cheaper than putting the
-baseline in the prefix.
+A new `workspace` context-item producer compares the current binding with the told state at each
+accepted turn. For that comparison, accepted-turn preparation treats the stored `workspace_told`
+as null whenever `workspace_told_from` differs from the Chat's latest compaction identity; when
+they match, it uses the stored told root. A small complete current-state statement is rail-only:
+when the root differs it emits a `snapshot` naming the canonical root, or stating that none is
+entered, together with the host-authority statement, and stages `workspace_told` together with
+`workspace_told_from` (the latest compaction identity) for update. The same accepted-turn
+transaction that commits the successful turn writes both values and clears any consumed detach
+reason; the compaction path never writes Chat state. This current-state snapshot may be re-emitted
+after compaction because its repetition is cheaper than putting the baseline in the prefix.
 
 When preparation detached the binding, the detach reason is a separate `notice` in the same
 turn, consumed from `workspace_detach_reason`; it is not folded into the root snapshot. The
-reason is cleared when that narration's Run completes. A newly active compaction invalidates
-`workspace_told`: accepted-turn preparation treats it as null when `workspace_told_from` differs
-from the latest compaction, so the next turn re-establishes a bound Chat's Workspace without the
-compaction path writing Chat state. A Chat with
-no root and no pending detach reason that has never narrated a Workspace gets no item. Inside a
-Run, enter and exit tool results carry the immediate state narration. The system prompt is never
-involved.
+reason is cleared when that narration's Run completes. A Chat with no root and no pending detach
+reason that has never narrated a Workspace gets no item. Inside a Run, enter and exit tool results
+carry the immediate state narration. The system prompt is never involved.
 
 ### D7. Workspace skills are extra sources for one Chat
 
@@ -239,13 +239,13 @@ Resolved values are not re-scanned, and commands and arguments are never shell-i
 
 For a Workspace server, every non-empty remote `headers` value, literal or interpolated, is added
 to that server's protected-value set. Resolved interpolation values in stdio `command`, `args`, or
-`env` fields are also protected except a literal supplied solely as a `:-default` fallback, while
-a literal stdio `env` value is not protected solely because it is literal. Redaction is guaranteed
-for that server's traffic, diagnostics, entry result, and receipts; another tool that independently
-reads the same source is outside this guarantee. A stdio child defaults its `cwd` to the root and
-resolves a relative `cwd` from it. Clients reuse the existing client, discovery, admission, and
-bounds code. A malformed file, invalid server name, or unsupported transport leaves entry
-successful and reports that server as unavailable.
+`env` fields are also protected except a literal supplied solely as a `:-default` fallback. Literal
+stdio `command`, `args`, and `env` text is not protected solely because it is literal. Redaction is
+guaranteed for that server's traffic, diagnostics, entry result, and receipts; another tool that
+independently reads the same source is outside this guarantee. A stdio child defaults its `cwd` to
+the root and resolves a relative `cwd` from it. Clients reuse the existing client, discovery,
+admission, and bounds code. A malformed file, invalid server name, or unsupported transport leaves
+entry successful and reports that server as unavailable.
 
 Alternative rejected: one shared client per root and server. Servers such as Playwright keep
 per-session state, which would then leak between Chats.
@@ -270,35 +270,36 @@ executor retains its declaration with an unavailable executor.
 
 Shadowing is deferred for declarations already present in a running attempt. If an entering
 Workspace server's id is byte-equal to an operator server whose tools are already declared, the
-Workspace server contributes no tools in this Run and the entry result says it "shadows from the
-next Run"; operator tools retain their executors for the rest of the Run. From the next Run, the
-successfully started Workspace server shadows the operator server under the same tool ids and
-exact-id permission groups. A Workspace server id that differs from an operator server id only by
-ASCII case is reported unavailable with reason `case-only collision with an operator server` and
-contributes no tools; operator tools are unaffected. A Workspace server that failed to start does
-not shadow.
+Workspace server contributes no tools in that attempt and the entry result says it "shadows from
+the next Run"; operator tools retain their executors for the rest of that attempt. Attempt-start
+composition always resolves the live binding, so the successfully started Workspace server
+shadows the operator server from the next attempt that composes this binding, whether that is a
+retry attempt of the same Run or a later Run, under the same tool ids and exact-id permission
+groups. A Workspace server id that differs from an operator server id only by ASCII case is
+reported unavailable with reason `case-only collision with an operator server` and contributes no
+tools; operator tools are unaffected. A Workspace server that failed to start does not shadow.
 
 If an id already present in the running attempt is re-added after exit and re-entry, or after a
 switch between roots defining that server, the newly admitted declaration binds an executor only
 when it is identical in memory to the retained declaration; nothing is persisted for this
-comparison. Otherwise that id contributes no executor in this Run and the entry result reports it
-"available from the next Run". Declarations are never replaced or removed as keys: on exit,
-switch, or detach their executors become unavailable while the attempt-local declarations remain,
-and later calls to those ids are refused as unavailable.
+comparison. Otherwise that id contributes no executor in this attempt and the entry result reports
+it "available from the next Run". A subsequent attempt re-composes from the live binding rather
+than recovering the earlier attempt's catalog. Declarations are never replaced or removed as keys:
+on exit, switch, or detach their executors become unavailable while the attempt-local declarations
+remain, and later calls to those ids are refused as unavailable.
 
-Tool availability is resolved at runtime: the next Run resolves Workspace tools from the live
-binding at its start, and each active step uses the current in-memory declarations. Nothing
-records a Run's tool set as a restriction; per-call snapshots MAY carry reminders or
-availability-delta notices only, never restrictions on callable tools.
+Tool availability is resolved at runtime: each attempt resolves Workspace tools from the live
+binding at its start, and each active step uses the current in-memory declarations. Nothing records
+a Run's tool set as a restriction.
 
-These additions exist only in the attempt's memory; no Run record or owner-facing view stores
-them. The `model-system-prompts` rule therefore carves out trusted Workspace additions from the
-otherwise fixed admitted-declaration set for that attempt.
+These additions exist only in the attempt's memory; no Run record or owner-facing view stores them.
+The `model-system-prompts` rule therefore carves out trusted Workspace additions from the otherwise
+fixed admitted-declaration set for that attempt.
 
-The next Run's catalog includes currently admitted Workspace declarations from its start, so
-the existing `tool-availability` producer announces them normally. Alternative rejected:
-ending the stream after entry and starting a continuation with a new tool set, which reopens
-usage aggregation, step counting, and the step cap.
+A subsequent attempt's catalog includes currently admitted Workspace declarations from its start,
+so the existing `tool-availability` producer announces them normally. Alternative rejected: ending
+the stream after entry and starting a continuation with a new tool set, which reopens usage
+aggregation, step counting, and the step cap.
 
 ### D10. MCP classification and eligibility
 
@@ -340,8 +341,8 @@ terminally), and a queue retry does not invoke that MCP operation again.
   there is no executor-level guard. F1-F3 remain on the `enter_workspace` group. For Workspace
   entries, every non-empty remote `headers` value is protected whether literal or interpolated;
   resolved interpolation values in stdio `command`, `args`, and `env` are protected except
-  `:-default` fallback literals, while only literal stdio `env` values remain unprotected solely
-  because they are literal. Values are redacted only within the owning server's traffic,
+  `:-default` fallback literals, while literal stdio `command`, `args`, and `env` values remain
+  unprotected solely because they are literal. Values are redacted only within the owning server's
   diagnostics, entry result, and receipts; other tools that independently read the same source
   are outside that guarantee.
 - [Retiring the attestation makes existing operator allowlists write-capable] → **BREAKING**
@@ -359,12 +360,12 @@ terminally), and a queue retry does not invoke that MCP operation again.
 
 ## Migration Plan
 
-The core layer adds five Chat columns: `workspace_root`, `workspace_executor_id`,
-`workspace_generation`, `workspace_told`, and `workspace_detach_reason`. The mid-run-tools layer
-adds no Run columns: declarations and bound executors exist only in the active attempt's
-in-memory handle and map. The binding columns are nullable, with generation defaulting to zero
-and the detach reason nullable. Each migration is additive, transactional, deterministic, and
-must be applied and tested against a populated database with owner RLS unchanged in shape.
+The core layer adds six Chat columns: `workspace_root`, `workspace_executor_id`,
+`workspace_generation`, `workspace_told`, `workspace_told_from`, and `workspace_detach_reason`. The
+mid-run-tools layer adds no Run columns: declarations and bound executors exist only in the active
+attempt's in-memory handle and map. The binding columns are nullable, with generation defaulting to
+zero and the detach reason nullable. Each migration is additive, transactional, deterministic,
+and must be applied and tested against a populated database with owner RLS unchanged in shape.
 
 The mcp-authorization layer is a contract change with no data migration; the workspace-mcp
 client map is process-local and needs no schema migration. Rollback drops the new columns and
@@ -393,13 +394,13 @@ binding roots through shares, exports, search, or another owner's RLS scope.
   Q10 binding authority boundary; Q11 stdio environment isolation; Q12 per-Chat MCP resolver
   isolation; Q13 complete mcp-authorization SPEC.md ownership and egress-task split; Q14 proposal
   layer review-budget exception.
-- v4 (PR #979 review) — F1 protects every non-empty Workspace remote header while leaving only
-  literal stdio `env` values unprotected; F2 records MCP dispatch attempts before invocation and
-  recovers uncertain retries as `outcome_unknown`; F3 permits at most one Workspace transition
-  per model step; F4 re-checks `enter_workspace` against the stored canonical root; F5 orders
-  the delivery-fence check before filesystem probing; F6 permits an already-frozen Workspace
-  skill-catalog baseline in a detaching attempt but no activation, `skill://` resolution, or
-  tools; F7 carries the revised MCP authorization contract through the canonical Purpose and
-  operator documentation.
-- v5 (this revision) — Made trusted Workspace additions in-memory only; runtime tool resolution
-  is authoritative, with per-call snapshots limited to reminders and availability notices.
+- v4 (PR #979 review) — F1 protects every non-empty Workspace remote header while leaving literal
+  stdio `command`, `args`, and `env` values unprotected unless interpolated; F2 records MCP dispatch
+  attempts before invocation and recovers uncertain retries as `outcome_unknown`; F3 permits at
+  most one Workspace transition per model step; F4 re-checks `enter_workspace` against the stored
+  canonical root; F5 orders the delivery-fence check before filesystem probing; F6 permits an
+  already-frozen Workspace skill-catalog baseline in a detaching attempt but no activation,
+  `skill://` resolution, or tools; F7 carries the revised MCP authorization contract through the
+  canonical Purpose and operator documentation.
+- v5 (this revision) — Made trusted Workspace additions in-memory only; runtime tool resolution is
+  authoritative, and no Run record stores the tool set.

@@ -52,9 +52,9 @@ call.
 - Entry, exit, switch, and detach are narrated without changing the system prompt. The
   Workspace producer emits a rail-only current-state `snapshot` on change and after compaction;
   a detach reason is a separate `notice` in the same turn. Owner forks copy root, executor id,
-  and generation but not told state or detach reason. Visitor forks of a public Chat are
-  unbound and disclose no root. The owner Chat API exposes the canonical root or null; a
-  non-owner receives 404, and shares and shared forks never expose it.
+  and generation but not `workspace_told`, `workspace_told_from`, or detach reason. Visitor forks
+  of a public Chat are unbound and disclose no root. The owner Chat API exposes the canonical root
+  or null; a non-owner receives 404, and shares and shared forks never expose it.
 - Workspace skills from `.llame/skills`, `.agents/skills`, and `.claude/skills` (highest
   precedence first) join the Chat's skill sources while entered, override operator skills of the
   same name, are listed in the entry result, and are loadable through `skill://` in the entering
@@ -81,28 +81,30 @@ call.
   location but never its value. Commands and arguments are never shell-interpreted. Every
   non-empty Workspace remote `headers` value is protected, literal or interpolated; resolved
   interpolation values in stdio `command`, `args`, and `env` are protected except `:-default`
-  fallback literals, while only literal stdio `env` values remain unprotected solely because they
-  are literal. Values are redacted for that server's traffic, diagnostics, entry result, and
-  receipts; other tools reading the same source are outside this guarantee.
+  fallback literals, while literal stdio `command`, `args`, and `env` values remain unprotected
+  solely because they are literal. Values are redacted for that server's traffic, diagnostics,
+  entry result, and receipts; other tools reading the same source are outside this guarantee.
 - Workspace MCP clients stop on exit, switch, detach, shutdown, or idle timeout. A Workspace
   server whose id is byte-equal to an operator server defers shadowing when the operator's tools
-  are already declared in the running attempt: it contributes no tools in that Run and reports
-  “shadows from the next Run”; the started Workspace server shadows from the next Run under the
-  same tool ids and exact-id permission groups. A Workspace id that differs from an operator id
-  only by ASCII case is unavailable with reason `case-only collision with an operator server` and
-  contributes no tools; operator tools are unaffected. A failed Workspace server does not shadow.
+  are already declared in the running attempt: it contributes no tools in that attempt and reports
+  “shadows from the next Run”; attempt-start composition then lets the started Workspace server
+  shadow from the next attempt that composes the live binding, including a retry attempt of the
+  same Run, under the same tool ids and exact-id permission groups. A Workspace id that differs
+  from an operator id only by ASCII case is unavailable with reason `case-only collision with an
+operator server` and contributes no tools; operator tools are unaffected. A failed Workspace
+  server does not shadow.
 - Trusted Workspace entry adds admitted declarations through the exact mutable tool handle and
   bound-executable map used for execution. Additions are callable from the next model step; on
   exit, switch, or detach their declarations remain as keys with unavailable executors and later
   calls are refused as unavailable. Re-adding an id already retained in the running attempt
   (after exit and re-entry or a root switch) binds the new executor only when the newly admitted
   declaration is identical in memory to the retained declaration; nothing is persisted for this
-  comparison. Otherwise that id contributes no executor this Run and the entry result reports it
-  “available from the next Run”. These additions remain only in active-attempt memory, and the
-  next Run resolves Workspace tools from the live binding at its start. The
+  comparison. Otherwise that id contributes no executor in this attempt and the entry result
+  reports it “available from the next Run”. These additions remain only in active-attempt memory;
+  no Run record stores the tool set. Each subsequent attempt resolves Workspace tools from the
+  live binding at its start rather than from prior attempt state. The
   `model-system-prompts` contract explicitly carves out these trusted additions from the
-  fixed-declaration rule; per-call snapshots, if any, are reminders or availability-delta notices
-  only and never restrictions.
+  fixed-declaration rule.
 - The shipped example permission policy documents nine groups, adding `enter_workspace` and
   `exit_workspace`; the `enter_workspace` group uses an operator-edited field allow such as
   `{ "field": "path", "regex": "^/home/operator/projects/[^/]+/?$" }`, plus F1-F3 and new
@@ -158,7 +160,8 @@ remain in force. This is an accepted audited-repository risk, not filesystem con
   nine groups plus W1/W2.
 - `tool-calling`: MCP tools are admitted by allowlist and permission rather than a `read_only`
   class; Workspace declarations can be added mid-Run, retained as unavailable after detach, and
-  resolved from the live binding at the next Run's start rather than a persisted Run tool set.
+  resolved from the live binding at the next attempt's start (including a retry of the same Run)
+  rather than a persisted Run tool set.
 - `mcp-tools`: the read-only attestation is removed; Workspace servers, per-Chat generation-keyed
   lifecycle, interpolation, byte-equal deferred shadowing, case-only collision unavailability,
   and trust boundary are defined.

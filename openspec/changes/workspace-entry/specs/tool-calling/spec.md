@@ -62,6 +62,64 @@ The `mcp__` tool-id prefix SHALL be reserved for ids produced by the MCP capabil
 - **WHEN** a code-owned registry entry has an id beginning with `mcp__`
 - **THEN** registration fails at startup naming the reserved prefix
 
+### Requirement: No mid-run tool-state checkpointing (read-only slice; write-tool landmine)
+
+The existing read-only loop may retry a claimable Run from its first step with freshly resolved
+worker context only when that Run has no recorded native attempt or MCP dispatch. A retry SHALL
+re-resolve its own prompt and its own attempt-local catalog rather than reuse the failed attempt's
+preparation, and SHALL compare availability against the same previous committed turn. The failed
+attempt's persisted output remains part of the committed record that later turns load. A Run that
+has executed an alpha native `edit` or `write` SHALL NOT automatically replay that mutation after a
+worker failure, timeout, or unknown settlement. A Run that has dispatched an MCP operation SHALL
+likewise not automatically replay that operation. The host SHALL stop the affected Run with
+`outcome_unknown` and require a new explicit user/model attempt. Client reconnect SHALL replay
+recorded tool activity without executing the mutation or MCP operation again. A redelivered Run with
+any recorded native attempt or MCP dispatch SHALL fail as `outcome_unknown` without replaying its
+loop; before terminal settlement, any open call SHALL be settled from its matching durable result
+when one exists.
+A future durable effect-dedupe capability may replace this terminal behavior; it is outside this
+change.
+
+#### Scenario: Known native mutation result is replayed without execution
+
+- **WHEN** a native edit or write settled before a client reconnect
+- **THEN** replay returns the recorded tool result
+- **AND** the filesystem mutation is not executed again
+
+#### Scenario: Worker death mid-loop does not resume tool state
+
+- **WHEN** the worker dies after several completed tool steps and the run is expired by the deadman
+- **THEN** the run terminates per existing semantics
+- **AND** no partial tool-loop state is resumed on a new run
+
+#### Scenario: Refresh does not re-execute tools
+
+- **WHEN** a client reconnects to a live run after tool steps have completed
+- **THEN** replay reconstructs those steps from durable events without executing a native mutation again
+
+#### Scenario: Worker failure does not replay a native mutation
+
+- **WHEN** a worker fails after a native mutation or MCP dispatch may have started but before its result is known
+- **THEN** the effect is settled as `outcome_unknown` and the Run stops
+- **AND** a queue retry does not invoke that mutation or MCP operation again
+
+#### Scenario: A queue retry re-executes the loop from the start
+
+- **WHEN** a read-only Run's job is retried by the queue, the Run is still claimable, and no native attempt or MCP dispatch is recorded
+- **THEN** its tool loop executes from the first step again
+- **AND** it may re-invoke read-only tools already invoked in the previous attempt
+
+#### Scenario: A terminal run is never reopened by a retry
+
+- **WHEN** a job is retried for a Run that has already reached a terminal state
+- **THEN** the Run is not reopened, no tool executes, and its terminal state stands
+
+#### Scenario: Read-only retry remains unchanged
+
+- **WHEN** a claimable Run contains only read-only tools, has no native attempt or MCP dispatch, and its job retries
+- **THEN** the existing read-only retry behavior remains available
+- **AND** no native mutation is inferred from the read-only result
+
 ## REMOVED Requirements
 
 ### Requirement: Each execution attempt applies the fail-closed operator availability gate
@@ -86,7 +144,13 @@ Exact and namespace MCP entries SHALL grant eligibility only to exact identities
 
 The executing worker's restart-applied allowlist SHALL filter exact ids and declarations into attempt-local memory when each execution attempt is prepared; wildcard patterns SHALL NOT enter provider requests, manifests, receipts, persistence, or execution binding. After a worker restart, changed exact or namespace rules SHALL apply to its next attempt, including a retry of an already scheduled Run. Declarations SHALL remain fixed within that attempt except that a trusted in-Run Workspace entry action SHALL add each Workspace declaration that passes the same source, allowlist, classification, and schema checks as attempt composition; a Workspace exit, switch, or detach SHALL retain those declarations in the attempt-local catalog while making their executors unavailable, as required by the dynamic-tool failure behavior. The executing process SHALL additionally apply its startup-loaded `tools.permissions` policy to each new invocation, including calls from older Runs. Hot policy reload remains outside this capability; operator changes require a restart. Remote MCP tools SHALL be executable only for a currently admitted declaration selected by the allowlist and only when `tools.permissions` allows the invocation. No `read_only` attestation or idempotence claim SHALL substitute for either gate.
 
-Before invoking an MCP operation, the executing worker SHALL durably record its dispatch attempt through the same owner-scoped recovery path used for native mutation attempts. If a worker failure leaves that dispatch outcome unknown, the Run SHALL recover the call as `outcome_unknown` or fail the attempt terminally, and a queue retry SHALL NOT invoke that MCP operation again.
+Before invoking an MCP operation, the executing worker SHALL durably append a `native.attempt`
+event through the same owner-scoped recovery path used for native mutation attempts, with
+`operation: "mcp"` and the MCP tool id in its path field. If the worker is interrupted after that
+record and before a durable `native.result`, the dispatch outcome SHALL be `outcome_unknown` and
+the Run SHALL stop rather than continue its loop. A redelivered Run containing that record SHALL
+fail as `outcome_unknown` without replaying the loop or invoking the MCP operation again; open
+calls are settled from matching durable results when present.
 
 #### Scenario: Default is no tools
 
@@ -150,8 +214,9 @@ Before invoking an MCP operation, the executing worker SHALL durably record its 
 
 #### Scenario: Queue retry does not replay a dispatched MCP operation
 
-- **WHEN** a worker fails after the MCP dispatch attempt was durably recorded before invocation and the operation's result is unknown
-- **THEN** the Run recovers that call as `outcome_unknown` or the MCP attempt fails terminally, as in `Worker failure does not replay a native mutation`
+- **WHEN** a worker fails after the MCP dispatch attempt was durably recorded before invocation and
+  the operation's result is unknown
+- **THEN** the Run stops with `outcome_unknown` and does not replay its tool loop
 - **AND** a queue retry does not invoke that MCP operation again
 
 #### Scenario: Permission reject does not hide a tool
@@ -196,23 +261,25 @@ MCP tools MAY perform reads or other operations on external systems only through
 
 ### Requirement: Trusted in-Run tool additions are admitted and made unavailable with Workspace state
 
-Only a trusted harness action entering a Workspace SHALL add tool declarations to the active Run;
-model output or an untrusted tool source SHALL NOT add declarations directly. Each addition SHALL
-pass the same source admission, `tools.allowed`, safety-classification, and schema-admission checks
-as declarations composed at attempt start, and each invocation SHALL independently pass the
-executing process's `tools.permissions` policy. An admitted addition SHALL become callable
-beginning with the next model step in that Run. The active attempt's model-facing declaration map
-and executable binding SHALL be updated in place. The declaration key SHALL never be removed from
-that attempt during the Run. A Workspace exit, switch, or detach SHALL make the corresponding
-executor unavailable while retaining its declaration; a later request for that id SHALL be refused
-as unavailable, recorded as a non-fatal tool refusal, and SHALL NOT execute or substitute a changed
-contract. Adding tools SHALL NOT reset, increase, or bypass the configured tool-step cap.
+Only a trusted harness action entering a Workspace SHALL add tool declarations to the active
+attempt; model output or an untrusted tool source SHALL NOT add declarations directly. Each
+addition SHALL pass the same source admission, `tools.allowed`, safety-classification, and
+schema-admission checks as declarations composed at attempt start, and each invocation SHALL
+independently pass the executing process's `tools.permissions` policy. An admitted addition SHALL
+become callable beginning with the next model step in that Run. The active attempt's model-facing
+declaration map and executable binding SHALL be updated in place. The declaration key SHALL never
+be removed from that attempt during the Run. A Workspace exit, switch, or detach SHALL make the
+corresponding executor unavailable while retaining its declaration; a later request for that id
+SHALL be refused as unavailable, recorded as a non-fatal tool refusal, and SHALL NOT execute or
+substitute a changed contract. Adding tools SHALL NOT reset, increase, or bypass the configured
+tool-step cap.
 
 If an entering Workspace server's id is byte-equal to an operator server id whose tools are already
-declared in the active Run, the Workspace server SHALL contribute no tools to that Run. The entry
-result SHALL identify those tools as "shadows from the next Run"; the operator declarations SHALL
-retain their executors for the rest of the Run. From the next Run, the started Workspace server
-SHALL shadow the operator server under the same tool ids and exact-id permission groups.
+declared in the active attempt, the Workspace server SHALL contribute no tools to that attempt. The
+entry result SHALL identify those tools as "shadows from the next Run"; the operator declarations
+SHALL retain their executors for the rest of that attempt. From the next attempt that composes the
+live binding, including a retry attempt of the same Run, the started Workspace server SHALL shadow
+the operator server under the same tool ids and exact-id permission groups.
 
 If a Workspace server's id differs from an operator server id only by ASCII case, the Workspace
 server SHALL be reported unavailable with reason "case-only collision with an operator server",
@@ -222,17 +289,16 @@ When a trusted Workspace action re-adds an id already present in the active atte
 exit then re-entry or a switch between roots defining that id, the new executor SHALL be bound only
 when the newly admitted declaration is identical to the retained declaration as compared in memory;
 nothing SHALL be persisted for that comparison. If the declarations differ, that id SHALL have no
-executor in this Run and the entry result SHALL report it as "available from the next Run".
+executor in this attempt and the entry result SHALL report it as "available from the next Run".
 Declarations SHALL never be replaced or removed within the attempt.
 
 Tool availability SHALL be resolved at runtime rather than declared as a scheduling-time
 restriction. At the start of each attempt, the Run SHALL compose current Workspace tools from the
-live binding, and each active step SHALL use its current in-memory declarations. Per-call snapshots
-MAY carry reminders or availability-delta notices only; they SHALL NOT restrict callable tools or
-declare a stored Run tool set. Added declarations SHALL exist only in the active attempt's memory;
-nothing about them SHALL be persisted as a Run record. A subsequent Run for a Chat that remains
-entered SHALL resolve current Workspace declarations from the live binding at the start of its first
-attempt, independent of prior Run state.
+live binding, and each active step SHALL use its current in-memory declarations. Added declarations
+SHALL exist only in the active attempt's memory; nothing about them SHALL be persisted as a Run
+record. A subsequent attempt for a Chat that remains entered, including a retry of the same Run,
+SHALL resolve current Workspace declarations from the live binding at its start, independent of
+prior attempt or Run state.
 
 #### Scenario: Workspace entry makes an admitted tool callable on the next step
 
@@ -247,18 +313,18 @@ attempt, independent of prior Run state.
 - **THEN** the declaration remains in the attempt-local tool set with an unavailable executor, and the call is refused as unavailable without executing or substituting a changed contract
 - **AND** the refusal is recorded and non-fatal to the Run
 
-#### Scenario: Later Run composes active Workspace tools from its start
+#### Scenario: Subsequent attempt composes active Workspace tools from its start
 
-- **WHEN** a new Run starts for a Chat that remains entered and a Workspace MCP declaration is
-  currently admitted
+- **WHEN** a subsequent attempt starts for a Chat that remains entered, including a retry of the same
+  Run, and a Workspace MCP declaration is currently admitted
 - **THEN** the declaration is in the attempt's tool set before the first model step
-- **AND** the Run resolves it from the live Workspace binding rather than from prior Run state
+- **AND** the attempt resolves it from the live Workspace binding rather than from prior Run state
 
 #### Scenario: Mid-Run Workspace shadowing is deferred
 
-- **WHEN** an entering Workspace server's id is byte-equal to an operator server id whose tools are already declared in the active Run
-- **THEN** the Workspace server contributes no tools in that Run, the entry result reports "shadows from the next Run", and the operator tools keep their executors
-- **AND** the next Run uses the started Workspace server under the same tool ids and exact-id permission groups without collision-refusing the operator tools
+- **WHEN** an entering Workspace server's id is byte-equal to an operator server id whose tools are already declared in the active attempt
+- **THEN** the Workspace server contributes no tools in that attempt, the entry result reports "shadows from the next Run", and the operator tools keep their executors
+- **AND** the next attempt, including a retry of the same Run, uses the started Workspace server under the same tool ids and exact-id permission groups without collision-refusing the operator tools
 
 #### Scenario: ASCII-case-only Workspace server collision is unavailable
 
@@ -269,5 +335,5 @@ attempt, independent of prior Run state.
 
 - **WHEN** a trusted Workspace action exits and re-enters, or switches between roots, and the new source admits an id already present in the active attempt
 - **THEN** the new executor is bound only when the newly admitted declaration is identical to the retained declaration as compared in memory
-- **AND** if the declaration differs, that id has no executor in this Run and the entry result reports it as "available from the next Run"
+- **AND** if the declaration differs, that id has no executor in this attempt and the entry result reports it as "available from the next Run"
 - **AND** the retained declaration key is neither replaced nor removed

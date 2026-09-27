@@ -186,7 +186,24 @@ When worker preparation adds attempt-owned items beside already persisted messag
 
 Before resolving effective skill sources, explicit `$skill` activation, Workspace MCP clients or catalog, or the `workspace` producer's items, attempt preparation SHALL finish the Workspace binding re-check and any detach. A detaching attempt SHALL contribute no Workspace skill activation, `skill://` resolution, or Workspace tools and SHALL still narrate the detach. Skill-catalog baseline content already frozen at acceptance in the accepted-turn transaction before worker preparation MAY still list Workspace skills for that attempt; the next accepted turn's skill-catalog notice SHALL remove them.
 
-At each accepted user turn, a `workspace` producer SHALL compare the Chat's current Workspace root, or its absence, with the root last narrated to the Chat, or the absence of any narration. When they differ, the producer SHALL emit a rail-resident item with form `snapshot`: it SHALL name the canonical root and state that the Workspace selects a working root but does not confine host authority, or, when a previously narrated root is no longer bound, it SHALL state that no Workspace is entered. A detach reason persisted during attempt preparation SHALL be consumed from the Chat's persisted state, not inferred from the current unbound state, by emitting a separate rail-resident item with form `notice` in the same turn. The notice SHALL name that reason, and the persisted reason SHALL be cleared only when the Run that narrates it completes. The producer SHALL then record the narrated root, or its absence, as the Chat's told state. A Chat that has never been bound and has no narrated root SHALL receive no notice. A newly active compaction SHALL clear the told state, so the next accepted user turn re-establishes a bound Chat's current root as a `snapshot`, while an unbound Chat receives no snapshot. Workspace state SHALL NOT be placed in the system prompt. Each successful Run that sends a Workspace snapshot or notice SHALL include each exact item text, producer, form, and rail residency in its owner-scoped Run context-item record under the existing recording rules.
+At each accepted user turn, accepted-turn preparation SHALL compare the Chat's current Workspace
+root, or its absence, with the root last narrated to the Chat, or the absence of any narration. For
+that comparison, the stored `workspace_told` SHALL be treated as null whenever its
+`workspace_told_from` differs from the Chat's latest compaction identity; when those identities
+match, the stored told root is used. When the current and comparison roots differ, the `workspace`
+producer SHALL emit a rail-resident item with form `snapshot`: it SHALL name the canonical root
+and state that the Workspace selects a working root but does not confine host authority, or, when a
+previously narrated root is no longer bound, it SHALL state that no Workspace is entered. A detach
+reason persisted during attempt preparation SHALL be consumed from the Chat's persisted state, not
+inferred from the current unbound state, by emitting a separate rail-resident item with form
+`notice` in the same turn. The notice SHALL name that reason, and the persisted reason SHALL be
+cleared only when the Run that narrates it completes. The producer SHALL stage the narrated root,
+or its absence, and the latest compaction identity as `workspace_told` and `workspace_told_from`;
+the same accepted-turn transaction SHALL write both values, and the compaction path SHALL NOT
+write Chat state. A Chat that has never been bound and has no narrated root SHALL receive no notice.
+Workspace state SHALL NOT be placed in the system prompt. Each successful Run that sends a
+Workspace snapshot or notice SHALL include each exact item text, producer, form, and rail residency
+in its owner-scoped Run context-item record under the existing recording rules.
 
 #### Scenario: Changed binding is narrated on the rail
 
@@ -202,8 +219,10 @@ At each accepted user turn, a `workspace` producer SHALL compare the Chat's curr
 
 #### Scenario: Compaction re-establishes Workspace state
 
-- **WHEN** a newly active compaction clears the Workspace told state of a Chat that is still bound
-- **THEN** the next accepted turn emits a snapshot re-establishing the current root
+- **WHEN** a compaction becomes active for a Chat that is still bound and its stored
+  `workspace_told_from` names an earlier compaction or is null
+- **THEN** the next accepted turn treats the told state as null for comparison and emits a
+  snapshot re-establishing the current root
 - **AND** the snapshot remains rail-resident rather than changing the system prompt
 
 #### Scenario: A never-bound Chat receives no Workspace notice
