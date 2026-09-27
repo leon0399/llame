@@ -15,19 +15,19 @@ resource. The evaluator itself normalizes nothing: the projection is the read
 tool's own parser, so the text matched and the text requested cannot drift.
 Each derived locator a web read issues, meaning a
 redirect hop, an announced alternate, a suffix candidate, an `llms.txt`
-candidate, or an adapter request, SHALL be evaluated against the `read` group
-as if the model had submitted it — a hop is a different resource, so it earns
-its own allow rather than inheriting one. A hop locator is the `Location` value
-resolved against the redirecting request's URL by the WHATWG URL parser and
-serialized as its `href`, so it is canonical in the same way (lowercase host,
+candidate, or an adapter request, SHALL be evaluated against the `read` group as if the model had
+submitted it — a hop is a different resource, so it earns its own allow
+rather than inheriting one. A hop locator is the `Location` value resolved
+against the redirecting request's URL by the WHATWG URL parser and serialized
+as its `href`, so it is canonical in the same way (lowercase host,
 internationalized host as punycode, default port dropped, empty path as `/`,
 path and query percent-escapes normalized to a fixed point with unreserved
 characters decoded, fragment dropped so the matched text is the
-URL the next request uses). An adapter locator SHALL be the canonical target
-actually requested by the adapter, never an operator secret or an unbounded
-raw template. A derived locator is decided through the same evaluator and the
-same projection, with no trusted context and no relaxation carried over from
-the admitted call or from an earlier derived locator.
+URL the next request uses). An adapter locator SHALL be the canonical target actually requested by the
+adapter, never an operator secret or an unbounded raw template. A derived
+locator is decided through the same evaluator and the same projection, with no
+trusted context and no relaxation carried over from the admitted call or from
+an earlier derived locator.
 
 Each address a web request would connect to SHALL additionally be evaluated
 against the `read` group as an address locator: the requested locator with its
@@ -137,12 +137,10 @@ derived-locator decision of kind `address` carrying its static reason and,
 when one matched, its clause reference; an adapter request SHALL use kind
 `adapter` and carry no target secret, resolved address, or credential value.
 The address and its address locator SHALL NOT be recorded, and an admitted
-address SHALL NOT produce a record. One record SHALL be kept per distinct
-refused address and decision per call, and at most 16 `address` records per
-call, the first 16 in order, under a bound of their own, so address records
-never displace the records of hops and probe candidates. Adapter records
-SHALL be bounded by the eight-request adapter budget and SHALL never displace
-the submitted call decision.
+address SHALL NOT produce a record. One record SHALL be kept per distinct refused address and decision per call, and at
+most 16 `address` records per call, the first 16 in order, under a bound of
+their own, so address records never displace the records of hops and probe
+candidates.
 
 A rejected otherwise valid call SHALL return `status: "error"`, `type: "permission_denied"`, and the code-owned message selected by the static decision reason below. It SHALL produce no tool effect or native attempt, no automatic retry, no approval request, and no permission-caused Run termination. A redirect hop rejected after the call
 was admitted SHALL end that call before the hop's body is read, returning
@@ -150,30 +148,20 @@ was admitted SHALL end that call before the hop's body is read, returning
 below and a `rejectedUrl` result field carrying the hop locator's origin and
 path (query and fragment removed) bounded to 2,048 characters with control
 characters removed, and SHALL produce no
-further request, no automatic retry, no approval request, and no permission-
-caused Run termination. A request whose every address is refused, whether
-resolved or given as an IP literal, SHALL NOT be issued; on the call's own
-request chain it SHALL end the call with `status: "error"` and `type:
-"permission_denied"` with the fixed refused-address message below, a refused
-hop carrying `rejectedUrl` as a hop rejection does, and no result field or
-message SHALL carry an address the host resolved to. A refused adapter
-request SHALL not produce a model-visible error body: its decision is stored,
-its bounded failure note is attached to adapter fallthrough, and the next
-adapter or ladder candidate may run. The model SHALL observe the
-error and continue subject to existing Run limits. The decision SHALL be
-durably recorded on `tool.requested` before any `tool.started` event or
-executor dispatch, and carried through completion, abort settlement, and
-durable transcript reconstruction into stored tool-part metadata. Required
-decision persistence failure SHALL prevent execution and follow the existing
-infrastructure-failure path.
+further request, no automatic retry, no approval request, and no
+permission-caused Run termination. A request whose every address is refused,
+whether resolved or given as an IP literal, SHALL NOT be issued; on the call's own request chain it SHALL end the
+call with `status: "error"` and `type: "permission_denied"` with the fixed
+refused-address message below, a refused hop carrying `rejectedUrl` as a hop
+rejection does, and no result field or message SHALL carry an address the
+host resolved to. A refused adapter request SHALL not produce a model-visible
+error body: its decision is stored, its bounded failure note is attached to
+adapter fallthrough, and the next adapter or ladder candidate may run. The model SHALL observe the
+error and continue subject to existing Run limits. The decision SHALL be durably recorded on `tool.requested` before any `tool.started` event or executor dispatch, and carried through completion, abort settlement, and durable transcript reconstruction into stored tool-part metadata. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.
 
 The model-visible message SHALL use one of these fixed templates. It SHALL NOT interpolate rule text, matching fragments, field names, private paths, operator-authored explanations, clause references, policy IDs, or secret
 values; the rejected hop locator travels in the separate `rejectedUrl` field,
-never inside the message. The static reason explanation is deliberately model-
-visible; the separate diagnostic metadata remains excluded from model context.
-These instructions guide model behavior and SHALL NOT be represented as an
-enforced sandbox or an equivalence detector. Every later submitted call still
-receives its own admission decision.
+never inside the message. The static reason explanation is deliberately model-visible; the separate diagnostic metadata remains excluded from model context. These instructions guide model behavior and SHALL NOT be represented as an enforced sandbox or an equivalence detector. Every later submitted call still receives its own admission decision.
 
 #### Message for `explicit_reject`
 

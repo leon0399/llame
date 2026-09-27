@@ -56,7 +56,7 @@ A 2026-09-27 live spike supplied the protocol evidence. Fetching
 `Tue Mar 21 20:50:14 +0000 2006`, text `just setting up my twttr`, and no
 reply or media object. Fetching
 `https://x.pcstyle.dev/jack/status/20` returned Markdown with the source URL
-and a bounded reply thread. The rewrite therefore uses the generic ladder,
+and a bounded reply thread. The rewrite therefore uses only local negotiated/text or Readability stages,
 while FxEmbed maps only the fields the protocol actually supplies.
 
 ## Goals / Non-Goals
@@ -90,8 +90,9 @@ while FxEmbed maps only the fields the protocol actually supplies.
 shipped. If the selector is `:raw`, fetch and return the response without
 running adapters. Otherwise run the ordered built-in/configured adapter list,
 then the existing negotiated/alternate/suffix/Readability/`llms.txt`/raw
-ladder. A rewrite hands its response back to that ladder but remains the
-selected adapter for provenance.
+ladder. A rewrite fetches its target once, applies only negotiated Markdown/text or the
+local Readability stage with its quality gate, and remains the selected adapter
+for provenance; it does not run alternate, suffix, or `llms.txt` probes.
 
 **Alternative rejected:** Put each adapter inside one generic ladder slot, or
 let adapters replace the source executor. The former makes source-specific
@@ -110,7 +111,9 @@ site protocol details.
 kind, declared origins, bounded request/render, and an explicit outcome. Route
 `native` fixes first-party origins in code; `service` fixes a code-owned
 protocol while taking only its base origin and secret headers from config;
-`rewrite` takes a validated operator target and uses the generic renderer.
+`rewrite` takes a validated literal-origin operator target and uses the local
+negotiated/text or Readability renderer. New service protocols are code-owned
+`use` values with operator-declared origins, not operator-supplied parsers.
 Failure categories are `permission`, `address`, `status`, `rate_limit`,
 `transport`, `parse`, `empty`, and `budget`. Transport notes use only the
 bounded named classes `dns`, `tls`, `connect`, `reset`, or `other` when the
@@ -160,8 +163,9 @@ kind; address decisions remain `address` and never expose resolved addresses.
 `api.github.com` origin. FxEmbed/rewrite secret headers are allowed only on
 their configured origin. The request wrapper compares origin before attaching
 headers and removes adapter credentials whenever a response redirects to a
-different origin. Generic source and ladder requests send no adapter
-credentials.
+different origin. Submitted source and generic ladder requests send no adapter credentials.
+An adapter credential may be sent only to its declared origin and a same-origin
+hop; it is stripped before any cross-origin hop.
 
 **Alternative rejected:** Attach headers to every request in one call, or
 allow the runtime's automatic redirect to carry them. That leaks an operator
@@ -219,40 +223,44 @@ body text.
 
 **Decision:** Extend the existing per-call session instead of creating a
 session per adapter. Every request consumes the shared 10-second header,
-30-second call, 5 MiB body, and redirect budget. The implementation makes the
-existing 27-request envelope explicit: submitted request plus at most one
-alternate, one suffix, four `llms.txt` probes, and 20 redirects. Adapter
-requests consume that same envelope and have a maximum of eight requests per
-call, including GitHub pagination. When the shared bound is spent, the call
-ends as shipped; no adapter resets it. An adapter-local request failure that
-does not spend the shared bound falls through.
+30-second call, 5 MiB body, and redirect budget. The adapter phase has its own
+cap of eight requests per call, including redirects of those requests; those
+redirects also consume the shared 20-hop budget. Exhausting the adapter cap is
+a `budget` adapter failure that falls through, not a new call-ending error.
+The generic ladder keeps its existing one-alternate, one-suffix, and four-
+`llms.txt` quotas.
 
-**Alternative rejected:** Give every adapter a fresh 27-request session, or
-let a GitHub comment walk consume an unbounded number of calls. Fresh sessions
-make the total bound false and permit a hostile source to multiply work;
-unbounded pagination violates the existing bounded read contract.
+**Alternative rejected:** Give every adapter a fresh session or let a GitHub
+comment walk consume an unbounded number of calls. Fresh sessions permit a
+hostile source to multiply work; unbounded pagination violates the bounded
+read contract.
 
-**Consequence:** A service or rewrite may leave fewer generic probes available
-because all requests share one cap. GitHub can render bounded comments and
-review data predictably, and fixture tests can count every request.
+**Consequence:** An adapter can spend eight bounded requests without changing
+the generic ladder quotas. Redirects still share the global 20-hop and 30-second
+limits, and fixture tests can count every adapter request.
 
 ### D8: Use fixed GitHub REST paths and one token-gated GraphQL field
 
-**Decision:** Match only the five source shapes in the contract. Use
-`GET /repos/{o}/{r}/readme` with a raw media type for repo roots,
-`GET /repos/{o}/{r}/contents/{path}?ref={ref}` with raw media for blobs,
-`GET /repos/{o}/{r}/commits/{sha}` for commits,
-`GET /repos/{o}/{r}/issues/{N}` plus bounded
-`/repos/{o}/{r}/issues/{N}/comments` pages for issues, and
-`GET /repos/{o}/{r}/pulls/{N}` plus bounded issue/review comment pages and
-`/repos/{o}/{r}/commits/{sha}/check-runs` for PRs. GraphQL is used only with a
-token and only for `reviewThreads` resolution state. Blob content is rendered without a heading so `:N-M` remains a source
-line selector. Missing pagination is stated in notes.
+**Decision:** Match only the five source shapes in the contract with the stated
+owner/repo/number/sha/ref/path grammars and encode each API path segment after
+parsing. Use `GET /repos/{o}/{r}/readme` and
+`GET /repos/{o}/{r}/contents/{path}?ref={ref}` with
+`Accept: application/vnd.github+json`; decode the JSON contents object and
+refuse binary, invalid UTF-8, `encoding: none`, empty large-file content, and
+oversize. Use `GET /repos/{o}/{r}/commits/{sha}` for commits,
+`GET /repos/{o}/{r}/issues/{N}` plus bounded comment pages for issues, and
+`GET /repos/{o}/{r}/pulls/{N}` plus bounded issue/review comments and
+`/repos/{o}/{r}/commits/{sha}/check-runs` for PRs. With a token, a fixed
+GraphQL POST carries owner/repo/number variables and is admitted under both the
+literal graphql endpoint and the REST pull locator; it does not follow 303.
+Blob content is rendered without a heading so `:N-M` remains a source line
+selector. Missing pagination is stated in notes.
 
 **Alternative rejected:** Fetch GitHub HTML/raw.githubusercontent.com, call
 `gh`, or add the entire GitHub API surface. HTML loses review structure, a
 second raw origin complicates token scoping, and `gh` introduces process and
-credential behavior outside the read HTTP contract.
+credential behavior outside the read HTTP contract. Raw media also fails the
+shipped text gate and can mislabel binary bytes.
 
 **Consequence:** The first native adapter is deterministic and only contacts
 `api.github.com`. Public reads work without a token; a token adds instance-
@@ -261,12 +269,15 @@ hosts and unsupported paths fall through.
 
 ### D9: Parse Telegram's first-party embed with the installed DOM dependency
 
-**Decision:** For one public numeric post, derive
-`t.me/<channel>/<id>?embed=1&mode=tme`, parse server-rendered widget selectors
+**Decision:** Pure-match `t.me` or `telegram.me` with a channel matching
+`^[A-Za-z][A-Za-z0-9_]{3,31}$` outside the reserved set and a post id matching
+`^[1-9][0-9]{0,9}$`; permit no query or only `single`, never `comment` or
+`thread`. Derive `?embed=1&mode=tme`, parse server-rendered widget selectors
 with `linkedom`, and render author/date/text, quoted origin, and media type
-notes. Do not request media or comments. The proposal-time spike observed
-`.tgme_widget_message_author`, the `time` datetime, `.tgme_widget_message_text`,
-and ten media nodes on `durov/300`.
+notes. A matched error widget or missing author/text is a claimed `empty`
+failure; an out-of-grammar shape is unclaimed. Do not request media or
+comments. The proposal-time spike observed `.tgme_widget_message_author`, the
+`time` datetime, `.tgme_widget_message_text`, and ten media nodes on `durov/300`.
 
 **Alternative rejected:** Bot API and MTProto. They require different
 credentials and privilege models and cannot read arbitrary public channels in
@@ -277,22 +288,25 @@ ordering and paging semantics that are not single-post read semantics.
 an incorrect claim. `t.me/c/...`, feeds, comments, search, and channel roots
 remain unclaimed and never receive credentials.
 
-### D10: Treat FxEmbed as a protocol and rewrite as a generic route
+### D10: Treat FxEmbed as a protocol and rewrite as a bounded local route
 
-**Decision:** FxEmbed has one operator base origin and one source-shape
-mapping. It parses the bounded JSON tweet object and states when no reply
-thread exists. Rewrite templates use only `{host}`, `{path}`, `{query}`, and
-`{url}`. The canonical host is host-safe, the path preserves `/` separators
-while encoding other bytes, the query is one encoded value without `?`, and
-the whole URL is one encoded value. A target is validated at boot using
-sentinels and must produce absolute HTTP(S) without userinfo. After its
-derived target is admitted, the rewrite uses the existing generic
-ladder, while provenance still reports route `rewrite` and the source URL.
+**Decision:** FxEmbed has one operator base origin and matches x.com,
+twitter.com, www/mobile variants, and `/user/status/id`, `/i/status/id`, or
+`/i/web/status/id` shapes. It requests `{baseUrl}/status/{id}` and maps only
+the bounded JSON fields supplied. Rewrite templates have a literal http(s)
+origin with no placeholders in scheme/host/port/query/fragment; placeholders
+are limited to path/query. `{path}` is the canonical source path verbatim,
+while `{query}` and `{url}` use `encodeURIComponent` of canonical values. Each
+target is revalidated per call for the declared origin and literal path prefix,
+admitted, and address-pinned. It is fetched once using only negotiated/text or
+Readability stages, without probes; raw/challenge/failed renders fall through.
+Provenance reports route `rewrite` and the source URL.
 
-**Alternative rejected:** Let operators supply arbitrary host-to-host maps or
-let rewrite targets select arbitrary code-owned parsers. That recreates the
-open redirect/leak surface #708 rejected and makes the operator responsible
-for undocumented response formats.
+**Alternative rejected:** Let operators supply executable code, dynamic
+parsers, or unvalidated target origins. Operator-declared fixed-origin maps are
+accepted: opt-in, per-target admission/address pinning, credential scoping, and
+provenance answer the open-redirect concern without making configuration a
+plugin loader.
 
 **Consequence:** x.com has no third-party default. An operator can choose
 FxEmbed or `x.pcstyle.dev`, sees the leak in the runbook and result notes, and
@@ -301,9 +315,10 @@ chosen egress input, so the source and target both require admission.
 
 ### D11: Make config absence safe and presence an exact replacement
 
-**Decision:** `tools.webAdapters` is an optional closed array. Absent means
-exactly `[github, telegram]`; present means exactly the listed entries,
-including `[]`. `github.token` and service/rewrite headers use the existing
+**Decision:** `tools.webAdapters` is an optional closed array. Intermediate
+stack layers intentionally use absent defaults `[]`, then `[github]`; the final
+Telegram layer makes absent exactly `[github, telegram]`. Present always means
+exactly the listed entries, including `[]`. `github.token` and service/rewrite headers use the existing
 interpolation resolver. Non-secret fields (hosts, regexes, base URL shape,
 target templates) are validated as authored and do not silently interpolate.
 Unknown ids, uses, duplicate ids, origins, placeholders, and target forms fail
@@ -322,7 +337,8 @@ state that every owner on the instance can address its private visibility.
 ### D12: Keep the implementation static rather than runtime-loadable
 
 **Decision:** The list is a code-owned TypeScript array/record with interfaces;
-configuration selects known entries and data, never modules or code. This
+configuration selects known `use` values and data, never modules or code.
+Operator-declared rewrite maps and service origins are supported as data. This
 satisfies the approved three-plane architecture and the repository standard
 against registries over a fixed set while providing four real route families
 at introduction.
@@ -389,9 +405,9 @@ not an implementation workaround.
 - [Service markup or JSON changes] -> parser failures are bounded and fall
   through; Telegram uses a fixture-server parser test and the live spike is
   recorded as evidence, not a test dependency.
-- [Adapters compete with generic probes for the 27-request envelope] -> the
-  adapter sub-budget is eight, GitHub pagination is bounded, and all requests
-  share one session/deadline/redirect counter.
+- [Adapters compete with generic probes for the call deadline] -> the adapter
+  sub-budget is eight, GitHub pagination is bounded, adapter redirects consume
+  the shared 20-hop limit, and generic ladder quotas remain unchanged.
 - [A rate-limit body could contain attacker-controlled text] -> classification
   uses status and bounded headers only; the existing no-status-body rule stays
   intact and the model receives a short category note.
