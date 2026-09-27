@@ -47,6 +47,129 @@ import {
   TOOL_RECOVERY_REASON_LABELS,
   TOOL_RECOVERY_REASONS,
 } from './tool-availability-context-item';
+import {
+  WORKSPACE_DETACH_REASONS,
+  type WorkspaceDetachReason,
+} from './workspace-binding';
+
+/* ------------------------------------------------------------------ *
+ * workspace
+ * ------------------------------------------------------------------ */
+
+export interface WorkspaceSnapshotPayload extends UnknownRecord {
+  readonly root: string | null;
+}
+
+export interface WorkspaceDetachPayload extends UnknownRecord {
+  readonly reason: WorkspaceDetachReason;
+}
+
+function isWorkspaceRoot(value: unknown): value is string {
+  return (
+    isString(value) &&
+    value.length > 0 &&
+    value.startsWith('/') &&
+    !value.includes('\0')
+  );
+}
+
+export function isWorkspaceSnapshotPayload(
+  value: WorkspaceSnapshotPayload,
+): value is WorkspaceSnapshotPayload;
+export function isWorkspaceSnapshotPayload(
+  value: unknown,
+): value is WorkspaceSnapshotPayload;
+export function isWorkspaceSnapshotPayload(
+  value: unknown,
+): value is WorkspaceSnapshotPayload {
+  if (!isExactRecord(value, ['root'])) return false;
+  return value['root'] === null || isWorkspaceRoot(value['root']);
+}
+
+export function isWorkspaceDetachPayload(
+  value: WorkspaceDetachPayload,
+): value is WorkspaceDetachPayload;
+export function isWorkspaceDetachPayload(
+  value: unknown,
+): value is WorkspaceDetachPayload;
+export function isWorkspaceDetachPayload(
+  value: unknown,
+): value is WorkspaceDetachPayload {
+  if (!isExactRecord(value, ['reason'])) return false;
+  return WORKSPACE_DETACH_REASONS.some((reason) => reason === value['reason']);
+}
+
+const renderWorkspaceSnapshotTemplate = loadPackagedTemplate<{
+  readonly hasWorkspace: boolean;
+  readonly root?: string;
+}>(__dirname, 'workspace-snapshot');
+
+const renderWorkspaceDetachTemplate = loadPackagedTemplate<{
+  readonly reason: WorkspaceDetachReason;
+}>(__dirname, 'workspace-detach');
+
+function renderWorkspaceSnapshot(root: string | null): string {
+  return renderWorkspaceSnapshotTemplate({
+    hasWorkspace: root !== null,
+    ...(root !== null && { root }),
+  });
+}
+
+export function createWorkspaceSnapshotItem(input: {
+  readonly runId: string;
+  readonly root: string | null;
+}): AuthoredContextItemPart {
+  const payload: WorkspaceSnapshotPayload = { root: input.root };
+  if (!isWorkspaceSnapshotPayload(payload)) {
+    throw new TypeError('Invalid server-authored Workspace snapshot metadata');
+  }
+  return createRenderedContextItem({
+    producer: 'workspace',
+    form: 'snapshot',
+    runId: input.runId,
+    payload,
+    body: renderWorkspaceSnapshot(input.root),
+  });
+}
+
+export function createWorkspaceDetachNoticeItem(input: {
+  readonly runId: string;
+  readonly reason: WorkspaceDetachReason;
+}): AuthoredContextItemPart {
+  const payload: WorkspaceDetachPayload = { reason: input.reason };
+  if (!isWorkspaceDetachPayload(payload)) {
+    throw new TypeError('Invalid server-authored Workspace detach metadata');
+  }
+  return createRenderedContextItem({
+    producer: 'workspace',
+    form: 'notice',
+    runId: input.runId,
+    payload,
+    body: renderWorkspaceDetachTemplate({ reason: input.reason }),
+  });
+}
+
+export function isWorkspaceSnapshotItem(
+  value: unknown,
+): value is ContextItemPart {
+  return (
+    isContextItemPart(value) &&
+    value.data.producer === 'workspace' &&
+    value.data.form === 'snapshot' &&
+    isWorkspaceSnapshotPayload(value.data.payload)
+  );
+}
+
+export function isWorkspaceDetachNoticeItem(
+  value: unknown,
+): value is ContextItemPart {
+  return (
+    isContextItemPart(value) &&
+    value.data.producer === 'workspace' &&
+    value.data.form === 'notice' &&
+    isWorkspaceDetachPayload(value.data.payload)
+  );
+}
 
 // Re-exported: this producer used to live inline here; every existing
 // importer of it still resolves through this module.

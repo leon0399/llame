@@ -4,7 +4,7 @@ import {
   type PermissionGroup,
 } from '../tools/permissions/types';
 
-/** The seven current code-owned tools, permissively allowed for fixtures. */
+/** The nine current code-owned tools, permissively allowed for fixtures. */
 const PERMISSIVE_TOOL_IDS = [
   'bash',
   'read',
@@ -13,6 +13,8 @@ const PERMISSIVE_TOOL_IDS = [
   'knowledge_search',
   'search_conversations',
   'conversation_read',
+  'enter_workspace',
+  'exit_workspace',
 ] as const;
 
 /**

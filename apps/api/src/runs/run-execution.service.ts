@@ -1,3 +1,5 @@
+import { realpath, stat } from 'node:fs/promises';
+
 import { isBashTool, isHostCapabilityTool } from '../tools/bash';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
@@ -61,6 +63,8 @@ import {
 } from '../search/search-reindex-dispatch.service';
 import {
   isModelChangeItem,
+  createWorkspaceDetachNoticeItem,
+  createWorkspaceSnapshotItem,
   createModelChangeItem,
   createRecencyDigestDeltaItem,
   createRecencyDigestSupersessionItem,
@@ -190,6 +194,16 @@ import {
   resolveTurnSkillState,
   type SkillTurnState,
 } from '../chats/skill-turn-state';
+import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
+import {
+  isWorkspaceDetachReason,
+  type WorkspaceDetachReason,
+} from '../chats/workspace-binding';
+import {
+  createWorkspaceRootCell,
+  type WorkspaceRootCell,
+} from '../tools/workspace-path';
+import { evaluatePermission } from '../tools/permissions/evaluator';
 import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
@@ -223,6 +237,20 @@ type SkillCatalogWrites = {
   readonly freeze?: SkillCatalogFreeze;
   readonly told?: NonNullable<Chat['skillCatalogTold']>;
 };
+type WorkspaceWrites = {
+  readonly told: Chat['workspaceTold'];
+  readonly toldFrom: Chat['workspaceToldFrom'];
+  readonly clearDetachReason: boolean;
+};
+type WorkspacePreparation = {
+  readonly root: string | undefined;
+  readonly chat: Chat | undefined;
+};
+
+type WorkspaceStagedContext = {
+  readonly parts: Array<MessagePart>;
+  readonly writes?: WorkspaceWrites;
+};
 
 /** Context resolved inside the worker transaction before the model request. */
 type PreparedAttemptContext = BuiltContext & {
@@ -235,6 +263,7 @@ type PreparedAttemptContext = BuiltContext & {
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
   /** The skill-catalog writes this turn establishes; see `SkillCatalogWrites`. */
   skillCatalogWrites: SkillCatalogWrites;
+  workspaceWrites?: WorkspaceWrites;
   untitled: boolean;
 };
 type AttemptDigestContext = {
@@ -263,6 +292,7 @@ type AttemptStagedContext = {
   stagedParts: Array<MessagePart>;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
   skillCatalogTold?: NonNullable<Chat['skillCatalogTold']>;
+  workspaceWrites?: WorkspaceWrites;
 };
 
 type FinishRunInput = {
@@ -283,6 +313,7 @@ type FinishRunInput = {
   recencyDigestInitialization?: RecencyDigestInitialization;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
   skillCatalogWrites?: SkillCatalogWrites;
+  workspaceWrites?: WorkspaceWrites;
   turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
 };
 
@@ -648,6 +679,19 @@ export class RunExecutionService {
       await this.settleAbortedRun(input, attemptId);
     }
 
+    // Workspace validation is the first accepted-turn preparation step. Load
+    // the owner-scoped Chat row once here and derive the binding from it; pass
+    // that same row into prompt preparation instead of issuing another read.
+    const workspaceChat = await this.tenantDb.runAs(input.userId, (tx) =>
+      new ChatsRepository(tx).findById(input.chatId, input.userId),
+    );
+    const workspacePreparation = await this.prepareWorkspace(
+      input,
+      claim.nativeDeliverySequence,
+      workspaceChat,
+    );
+    const workspaceRoot = createWorkspaceRootCell(workspacePreparation.root);
+
     // Explicit `$skill` activation runs BEFORE context assembly, because the
     // instructions it loads are part of the request the model receives on its
     // first step — not a tool result it reacts to afterwards. It persists its
@@ -656,6 +700,7 @@ export class RunExecutionService {
     const skillSelection = await this.activateMentionedSkills(
       input,
       claim.nativeDeliverySequence,
+      workspaceRoot,
     );
 
     // Prompt/catalog resolution: the worker resolves both prompt surfaces
@@ -670,13 +715,19 @@ export class RunExecutionService {
       | RecencyDigestInitialization
       | undefined;
     let attemptSkillCatalogWrites: SkillCatalogWrites | undefined;
+    let attemptWorkspaceWrites: WorkspaceWrites | undefined;
     let attemptToolAvailability: Array<TurnToolAvailabilityEntry> = [];
     try {
-      const context = await this.prepareAttemptContext(input, attemptId);
+      const context = await this.prepareAttemptContext(
+        input,
+        attemptId,
+        workspacePreparation.chat,
+      );
       attemptStagedParts = context.stagedParts;
       attemptRecencyDigestTold = context.recencyDigestTold;
       attemptRecencyDigestInitialization = context.recencyDigestInitialization;
       attemptSkillCatalogWrites = context.skillCatalogWrites;
+      attemptWorkspaceWrites = context.workspaceWrites;
       attemptToolAvailability = toTurnToolAvailability(
         context.toolCatalog.availabilityManifest,
       );
@@ -886,6 +937,7 @@ export class RunExecutionService {
       productUserAgent: this.instanceConfig.productUserAgent,
       userId: input.userId,
       chatId: input.chatId,
+      workspaceRoot,
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
@@ -1268,6 +1320,9 @@ export class RunExecutionService {
         ...(hasTools && {
           tools: toolSet,
           maxSteps: maxStepsPerRun,
+          onStepStart: () => {
+            workspaceRoot.beginStep();
+          },
           // Fires once, the moment the model client disables tools for
           // the next step because maxStepsPerRun tool-requesting steps
           // already ran (D6) — record it as a distinct run event; the
@@ -1545,6 +1600,9 @@ export class RunExecutionService {
               ...(attemptSkillCatalogWrites !== undefined && {
                 skillCatalogWrites: attemptSkillCatalogWrites,
               }),
+              ...(attemptWorkspaceWrites !== undefined && {
+                workspaceWrites: attemptWorkspaceWrites,
+              }),
               turnToolAvailability: attemptToolAvailability,
             }),
           });
@@ -1651,6 +1709,84 @@ export class RunExecutionService {
     });
   }
 
+  private async prepareWorkspace(
+    input: ExecuteRunInput,
+    nativeDeliverySequence: number,
+    chat: Chat | undefined,
+  ): Promise<WorkspacePreparation> {
+    const root = chat?.workspaceRoot;
+    const executorId = chat?.workspaceExecutorId;
+    const generation = chat?.workspaceGeneration;
+    if (root === undefined || root === null || executorId === undefined) {
+      return { root: undefined, chat };
+    }
+    if (executorId === null || generation === undefined) {
+      return { root: undefined, chat };
+    }
+
+    const reason = await this.workspaceDetachReason(root, executorId);
+    if (reason === undefined) return { root, chat };
+
+    const detached = await this.tenantDb.runAs(input.userId, (tx) =>
+      new WorkspaceBindingRepository(tx).detach({
+        chatId: input.chatId,
+        ownerUserId: input.userId,
+        runId: input.runId,
+        deliverySequence: nativeDeliverySequence,
+        expectedGeneration: generation,
+        reason,
+      }),
+    );
+    if (detached === 'fence_lost') {
+      throw new RunNotRunnableError(input.runId);
+    }
+    if (detached === 'detached') {
+      return {
+        root: undefined,
+        chat:
+          chat === undefined
+            ? undefined
+            : {
+                ...chat,
+                workspaceRoot: null,
+                workspaceExecutorId: null,
+                workspaceGeneration: generation + 1,
+                workspaceDetachReason: reason,
+              },
+      };
+    }
+
+    // A concurrent enter/exit won the generation compare-and-set. Do not
+    // reuse the root that failed this attempt's checks.
+    return { root: undefined, chat };
+  }
+
+  private async workspaceDetachReason(
+    root: string,
+    executorId: string,
+  ): Promise<WorkspaceDetachReason | undefined> {
+    const currentExecutorId = this.instanceConfig.config.tools.nativeExecutorId;
+    if (currentExecutorId === undefined) return 'executor_absent';
+    if (currentExecutorId !== executorId) return 'executor_mismatch';
+
+    try {
+      const entry = await stat(root);
+      if (!entry.isDirectory()) return 'root_missing';
+      if ((await realpath(root)) !== root) return 'root_moved';
+    } catch {
+      return 'root_missing';
+    }
+
+    if (!this.instanceConfig.config.tools.allowed.includes('enter_workspace')) {
+      return 'tool_not_allowed';
+    }
+    const decision = evaluatePermission(this.permissionPolicy, {
+      toolId: 'enter_workspace',
+      args: { path: root },
+    });
+    return decision.decision === 'allow' ? undefined : 'permission_rejected';
+  }
+
   /**
    * Load the skills this Run's triggering user message named explicitly.
    *
@@ -1668,6 +1804,7 @@ export class RunExecutionService {
   private async activateMentionedSkills(
     input: ExecuteRunInput,
     nativeDeliverySequence: number,
+    workspaceRoot: WorkspaceRootCell,
   ): Promise<ReadonlySet<string>> {
     if (this.instanceConfig.config.skills.directories.length === 0) {
       return new Set();
@@ -1681,6 +1818,7 @@ export class RunExecutionService {
     const baseContext = this.buildSkillReadContext(
       input,
       nativeDeliverySequence,
+      workspaceRoot,
     );
     // What a prior attempt of this Run already resolved. Reading it first is
     // what makes recovery replay stored observations rather than re-reading a
@@ -1728,6 +1866,7 @@ export class RunExecutionService {
   private buildSkillReadContext(
     input: ExecuteRunInput,
     nativeDeliverySequence: number,
+    workspaceRoot: WorkspaceRootCell,
   ): ToolContext {
     return {
       runId: input.runId,
@@ -1736,6 +1875,7 @@ export class RunExecutionService {
       productUserAgent: this.instanceConfig.productUserAgent,
       userId: input.userId,
       chatId: input.chatId,
+      workspaceRoot,
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       timeoutMs: this.instanceConfig.config.runs.timeoutSeconds * 1000,
@@ -2305,6 +2445,15 @@ export class RunExecutionService {
         );
       }
     }
+    if (input.status === 'completed' && input.workspaceWrites !== undefined) {
+      await new WorkspaceBindingRepository(tx).setTold({
+        chatId: finished.chatId,
+        ownerUserId: input.userId,
+        told: input.workspaceWrites.told,
+        toldFrom: input.workspaceWrites.toldFrom,
+        clearDetachReason: input.workspaceWrites.clearDetachReason,
+      });
+    }
   }
 
   private buildAssistantTurnForFinish(
@@ -2566,9 +2715,15 @@ export class RunExecutionService {
   private async prepareAttemptContext(
     input: ExecuteRunInput,
     attemptId: string,
+    workspaceChat: Chat | undefined,
   ): Promise<PreparedAttemptContext> {
     return this.tenantDb.runAs(input.userId, (tx) =>
-      this.prepareAttemptContextInTransaction(tx, input, attemptId),
+      this.prepareAttemptContextInTransaction(
+        tx,
+        input,
+        attemptId,
+        workspaceChat,
+      ),
     );
   }
   /** Resolve and persist the receipt for the complete attempt context. */
@@ -2576,11 +2731,16 @@ export class RunExecutionService {
     tx: Db,
     input: ExecuteRunInput,
     attemptId: string,
+    workspaceChat: Chat | undefined,
   ): Promise<PreparedAttemptContext> {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
     // before either surface is rendered.
-    const promptInputs = await this.resolveAttemptPrompt(tx, input);
+    const promptInputs = await this.resolveAttemptPrompt(
+      tx,
+      input,
+      workspaceChat,
+    );
     let catalog: AttemptToolCatalog;
     try {
       catalog = await this.composeAttemptCatalog(tx, input, promptInputs);
@@ -2639,6 +2799,9 @@ export class RunExecutionService {
           told: staged.skillCatalogTold,
         }),
       },
+      ...(staged.workspaceWrites !== undefined && {
+        workspaceWrites: staged.workspaceWrites,
+      }),
       untitled: prompt.chat.title === null,
     };
   }
@@ -2646,9 +2809,10 @@ export class RunExecutionService {
   private async resolveAttemptPrompt(
     tx: Db,
     input: ExecuteRunInput,
+    workspaceChat: Chat | undefined,
   ): Promise<AttemptPromptInputs> {
     const chatsRepo = new ChatsRepository(tx);
-    const chat = await chatsRepo.findById(input.chatId, input.userId);
+    const chat = workspaceChat;
     if (!chat) {
       throw new ModelContextExecutionError(
         `Chat ${input.chatId} was deleted before context preparation.`,
@@ -2990,8 +3154,15 @@ export class RunExecutionService {
         }),
       );
     }
-    // Between tool availability and the digest disclosures, which is where the
-    // rail's producer precedence places the catalog notice.
+    const workspaceContext = this.deriveWorkspaceContext({
+      runId: input.input.runId,
+      chat: input.prompt.chat,
+      latestCompactionId: input.prompt.compaction?.id ?? null,
+    });
+    stagedParts.push(...workspaceContext.parts);
+    const workspaceWrites = workspaceContext.writes;
+    // Workspace items are rail-only and precede the skill catalog notice.
+    // Their text never enters the system prompt.
     const skillNotice = input.prompt.skillState.notice;
     if (skillNotice !== undefined) {
       stagedParts.push(skillNotice.item);
@@ -3026,6 +3197,7 @@ export class RunExecutionService {
     return {
       stagedParts,
       recencyDigestTold: input.prompt.digestDelta?.told,
+      ...(workspaceWrites !== undefined && { workspaceWrites }),
       ...(input.prompt.skillState.told !== undefined && {
         // The decision hands back a readonly list; the column holds a mutable
         // array, so the value is copied rather than shared.
@@ -3033,6 +3205,57 @@ export class RunExecutionService {
       }),
     };
   }
+  private deriveWorkspaceContext(input: {
+    runId: string;
+    chat: Chat;
+    latestCompactionId: string | null;
+  }): WorkspaceStagedContext {
+    const currentRoot = input.chat.workspaceRoot;
+    const latestCompactionId = input.latestCompactionId;
+    const toldRoot =
+      input.chat.workspaceToldFrom === latestCompactionId
+        ? input.chat.workspaceTold
+        : null;
+    const rawDetachReason = input.chat.workspaceDetachReason;
+    const detachReason =
+      rawDetachReason !== null && isWorkspaceDetachReason(rawDetachReason)
+        ? rawDetachReason
+        : null;
+    const parts: Array<MessagePart> = [];
+    let writes: WorkspaceWrites | undefined;
+
+    if (
+      currentRoot !== toldRoot &&
+      (currentRoot !== null || toldRoot !== null)
+    ) {
+      parts.push(
+        createWorkspaceSnapshotItem({
+          runId: input.runId,
+          root: currentRoot,
+        }),
+      );
+      writes = {
+        told: currentRoot,
+        toldFrom: latestCompactionId,
+        clearDetachReason: detachReason !== null,
+      };
+    }
+    if (detachReason !== null) {
+      parts.push(
+        createWorkspaceDetachNoticeItem({
+          runId: input.runId,
+          reason: detachReason,
+        }),
+      );
+      writes ??= {
+        told: currentRoot,
+        toldFrom: latestCompactionId,
+        clearDetachReason: true,
+      };
+    }
+    return { parts, ...(writes !== undefined && { writes }) };
+  }
+
   /**
    * Prepend staged context-item text to the triggering user message in the
    * model request. Extracts `data.text` from each `AuthoredContextItemPart`

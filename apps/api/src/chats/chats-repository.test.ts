@@ -181,6 +181,12 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
           skillCatalogBaseline: null;
           skillCatalogRebakedFrom: null;
           skillCatalogTold: null;
+          workspaceRoot: string | null;
+          workspaceExecutorId: string | null;
+          workspaceGeneration: number;
+          workspaceTold: string | null;
+          workspaceToldFrom: string | null;
+          workspaceDetachReason: string | null;
         }
       | undefined
     >,
@@ -208,6 +214,12 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
+        workspaceRoot: null,
+        workspaceExecutorId: null,
+        workspaceGeneration: 0,
+        workspaceTold: null,
+        workspaceToldFrom: null,
+        workspaceDetachReason: null,
       }),
     );
     await new ChatsRepository(db)
@@ -236,6 +248,12 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
+        workspaceRoot: null,
+        workspaceExecutorId: null,
+        workspaceGeneration: 0,
+        workspaceTold: null,
+        workspaceToldFrom: null,
+        workspaceDetachReason: null,
       }),
     );
     await new ChatsRepository(db)
@@ -264,6 +282,12 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
+        workspaceRoot: null,
+        workspaceExecutorId: null,
+        workspaceGeneration: 0,
+        workspaceTold: null,
+        workspaceToldFrom: null,
+        workspaceDetachReason: null,
       }),
     );
     await new ChatsRepository(db)
@@ -296,6 +320,12 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
+        workspaceRoot: null,
+        workspaceExecutorId: null,
+        workspaceGeneration: 0,
+        workspaceTold: null,
+        workspaceToldFrom: null,
+        workspaceDetachReason: null,
       }),
     );
     await new ChatsRepository(db)
@@ -323,6 +353,12 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
+        workspaceRoot: null,
+        workspaceExecutorId: null,
+        workspaceGeneration: 0,
+        workspaceTold: null,
+        workspaceToldFrom: null,
+        workspaceDetachReason: null,
       }),
     );
     await expect(
@@ -348,6 +384,12 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
+        workspaceRoot: null,
+        workspaceExecutorId: null,
+        workspaceGeneration: 0,
+        workspaceTold: null,
+        workspaceToldFrom: null,
+        workspaceDetachReason: null,
       }),
     );
     await new ChatsRepository(db)
@@ -375,6 +417,12 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
+        workspaceRoot: null,
+        workspaceExecutorId: null,
+        workspaceGeneration: 0,
+        workspaceTold: null,
+        workspaceToldFrom: null,
+        workspaceDetachReason: null,
       }),
     );
     await new ChatsRepository(db)
@@ -667,6 +715,12 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       skillCatalogBaseline: null,
       skillCatalogRebakedFrom: null,
       skillCatalogTold: null,
+      workspaceRoot: null,
+      workspaceExecutorId: null,
+      workspaceGeneration: 0,
+      workspaceTold: null,
+      workspaceToldFrom: null,
+      workspaceDetachReason: null,
     };
     const { db, queries } = makeMockDb();
     stubFindById(() => Promise.resolve(archived));
@@ -701,6 +755,12 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
+        workspaceRoot: null,
+        workspaceExecutorId: null,
+        workspaceGeneration: 0,
+        workspaceTold: null,
+        workspaceToldFrom: null,
+        workspaceDetachReason: null,
       }),
     );
     await new ChatsRepository(db)

@@ -5,10 +5,16 @@ import {
   createRecencyDigestDeltaItem,
   createRecencyDigestSupersessionItem,
   createTemporalItem,
+  createWorkspaceDetachNoticeItem,
+  createWorkspaceSnapshotItem,
   isModelChangeItem,
   isModelChangePayload,
   isRecencyDigestDeltaPayload,
   isRecencyDigestItem,
+  isWorkspaceDetachPayload,
+  isWorkspaceDetachNoticeItem,
+  isWorkspaceSnapshotItem,
+  isWorkspaceSnapshotPayload,
   renderCompactionCheckpoint,
 } from './context-item-producers';
 import { type ContextItemPart } from './context-item';
@@ -542,5 +548,62 @@ describe('temporal and checkpoint wording', () => {
         'Earlier we discussed migrations.',
       ].join('\n'),
     );
+  });
+});
+describe('workspace producer', () => {
+  it('renders and validates a bound-root snapshot', () => {
+    const item = createWorkspaceSnapshotItem({
+      runId: RUN_ID,
+      root: '/home/operator/projects/app',
+    });
+
+    expect(isWorkspaceSnapshotPayload(item.data.payload)).toBe(true);
+    expect(isWorkspaceSnapshotItem(item)).toBe(true);
+    expect(item.data.form).toBe('snapshot');
+    expect(item.data.text).toContain(
+      'The active Workspace working root is `/home/operator/projects/app`.',
+    );
+    expect(item.data.text).toContain('does not confine host authority');
+  });
+
+  it('renders a no-Workspace snapshot without a root', () => {
+    const item = createWorkspaceSnapshotItem({ runId: RUN_ID, root: null });
+
+    expect(item.data.payload).toEqual({ root: null });
+    expect(item.data.text).toContain('No Workspace is entered.');
+    expect(item.data.text).not.toContain('working root is `');
+  });
+
+  it('keeps detach notices separate from snapshots', () => {
+    const item = createWorkspaceDetachNoticeItem({
+      runId: RUN_ID,
+      reason: 'permission_rejected',
+    });
+
+    expect(isWorkspaceDetachPayload(item.data.payload)).toBe(true);
+    expect(isWorkspaceDetachNoticeItem(item)).toBe(true);
+    expect(item.data.form).toBe('notice');
+    expect(item.data.payload).toEqual({ reason: 'permission_rejected' });
+    expect(item.data.text).toContain('permission_rejected');
+    expect(item.data.text).not.toContain('working root');
+    expect(isWorkspaceSnapshotItem(item)).toBe(false);
+  });
+
+  it('rejects malformed Workspace payloads and impostor items', () => {
+    expect(isWorkspaceSnapshotPayload({ root: 'relative/path' })).toBe(false);
+    expect(isWorkspaceSnapshotPayload({ root: '/tmp', extra: true })).toBe(
+      false,
+    );
+    expect(isWorkspaceDetachPayload({ reason: 'unknown' })).toBe(false);
+
+    const snapshot = createWorkspaceSnapshotItem({
+      runId: RUN_ID,
+      root: '/tmp/project',
+    });
+    const impostor: ContextItemPart = {
+      ...snapshot,
+      data: { ...snapshot.data, producer: 'temporal' },
+    };
+    expect(isWorkspaceSnapshotItem(impostor)).toBe(false);
   });
 });

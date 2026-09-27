@@ -32,9 +32,9 @@ Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap
 
 ### 1.1 Distributed direction is not current architecture
 
-The future Surface, Node, Personal Realm, Workspace, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. No first-party CLI or Android Node, standalone personal store, Node enrollment, Personal Realm mirroring, remote Workspace registry, cross-node execution placement or handoff, or foreign-authority mount ships.
+The future Surface, Node, Personal Realm, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. An entered Workspace is the current-runtime exception: it is an owner-scoped binding on the configured native executor only, represented by a canonical absolute root, executor identity, and generation. No Workspace registry, remote Workspace routing, cross-node execution placement or handoff, or foreign-authority mount ships.
 
-The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. The hosted Knowledge Space ID is a portable logical identity, while its owner row and configured filesystem child remain installation-local bindings. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.
+No first-party CLI or Android Node, standalone personal store, Node enrollment, Personal Realm mirroring, or foreign-authority mount ships. The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. The hosted Knowledge Space ID is a portable logical identity, while its owner row and configured filesystem child remain installation-local bindings. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.
 
 ## 2. Conversation continuity
 
@@ -177,6 +177,19 @@ never through `tools.nativeExecutorId`. The three tools are advertised when
 the process has accepted native host authority or has a configured
 `knowledge.root`, and an absolute path on a process without accepted native
 authority fails closed with `executor_unavailable`.
+
+The native host also exposes `enter_workspace({ path })` and
+`exit_workspace({})` when both tools are allowlisted with their own permission
+groups. Entry accepts an absolute path, evaluates the submitted spelling
+before any filesystem probe, canonicalizes it, and independently evaluates the
+canonical path; both must obtain an allow and avoid rejects. A successful entry
+binds the Chat to that canonical root and native executor across Runs until
+exit, switch, or a failed preparation re-check. Preparation detaches on
+executor absence or mismatch, a missing/non-directory or moved root, current
+permission rejection, or removal of `enter_workspace` from the allowlist.
+Relative native paths and Bash `cwd` values project lexically from the root,
+preserving trailing separators; `..` may leave it, and an omitted Bash `cwd`
+defaults to the root. This is host-user authority, not filesystem confinement.
 
 The first absolute-path native call binds the Run's existing `worker_id` to
 that stable host identity; a `kb://` call never binds or requires one. Native

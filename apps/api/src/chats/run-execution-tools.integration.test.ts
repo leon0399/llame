@@ -173,6 +173,7 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
           tools,
           stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
           prepareStep: ({ steps }: { steps: Array<StepResult<ToolSet>> }) => {
+            input.onStepStart?.();
             const priorToolSteps = steps.filter(
               (step) => step.toolCalls.length > 0,
             ).length;
@@ -389,6 +390,30 @@ function jsonToolCallResponse(
   return { stream: simulateReadableStream({ chunks }) };
 }
 
+function jsonToolCallsResponse(
+  calls: ReadonlyArray<{
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+  }>,
+): LanguageModelV3StreamResult {
+  const chunks: Array<LanguageModelV3StreamPart> = [
+    { type: 'stream-start', warnings: [] },
+    ...calls.map((call) => ({
+      type: 'tool-call' as const,
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      input: JSON.stringify(call.input),
+    })),
+    {
+      type: 'finish',
+      finishReason: TOOL_CALLS_FINISH_REASON,
+      usage: FAKE_USAGE,
+    },
+  ];
+  return { stream: simulateReadableStream({ chunks }) };
+}
+
 /** A step that ALWAYS requests the tool again (never answers) — drives the
  * loop to the step cap. */
 function alwaysToolCallResponse(
@@ -457,6 +482,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
   function serviceWithTools(overrides?: {
     maxStepsPerRun?: number;
     allowed?: Array<string>;
+    nativeExecutorId?: string;
     searchIndex?: ChatSearchIndexer;
     reindexDispatch?: ChatReindexDispatcher;
     knowledgeResolver?: KnowledgeToolResolver;
@@ -480,6 +506,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       config: {
         ...BUILT_IN_DEFAULTS,
         tools: {
+          nativeExecutorId: overrides?.nativeExecutorId,
           allowed: overrides?.allowed ?? ['search_conversations'],
           permissions: BUILT_IN_DEFAULTS.tools.permissions,
           maxStepsPerRun:
@@ -660,6 +687,144 @@ describeIfDb('executeRun tool-loop persistence', () => {
       client,
     });
   }
+
+  it('enters a Workspace and reads a relative file on the next model step', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-loop-'));
+    writeFileSync(path.join(root, 'file.txt'), 'workspace-content\n');
+    const seeded = await seedBoundRun(
+      `workspace-next-step-${crypto.randomUUID()}`,
+    );
+    const service = serviceWithTools({
+      nativeExecutorId: 'workspace-test-host',
+      allowed: ['enter_workspace', 'read'],
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        if (turn === 1) {
+          return Promise.resolve(
+            jsonToolCallResponse('workspace-enter', 'enter_workspace', {
+              path: root,
+            }),
+          );
+        }
+        if (turn === 2) {
+          return Promise.resolve(
+            jsonToolCallResponse('workspace-read', 'read', {
+              path: 'file.txt',
+            }),
+          );
+        }
+        return Promise.resolve(textResponse('Workspace read complete.'));
+      },
+    });
+
+    try {
+      const execution = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await execution.consumeStream?.();
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      expect(
+        events.find(
+          (event) =>
+            event.eventType === 'tool.completed' &&
+            isRecord(event.payload) &&
+            event.payload.toolCallId === 'workspace-read',
+        )?.payload,
+      ).toMatchObject({
+        toolCallId: 'workspace-read',
+        output: expect.objectContaining({
+          status: 'success',
+          content: expect.stringContaining('workspace-content'),
+        }),
+      });
+
+      const chat = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(seeded.chatId, userId),
+      );
+      expect(chat).toMatchObject({
+        workspaceRoot: root,
+        workspaceExecutorId: 'workspace-test-host',
+        workspaceGeneration: 1,
+      });
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the pre-step root for a same-step read beside entry', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-same-step-'));
+    writeFileSync(path.join(root, 'file.txt'), 'workspace-content\n');
+    const seeded = await seedBoundRun(
+      `workspace-same-step-${crypto.randomUUID()}`,
+    );
+    const service = serviceWithTools({
+      nativeExecutorId: 'workspace-test-host',
+      allowed: ['enter_workspace', 'read'],
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        if (turn === 1) {
+          return Promise.resolve(
+            jsonToolCallsResponse([
+              {
+                toolCallId: 'same-step-enter',
+                toolName: 'enter_workspace',
+                input: { path: root },
+              },
+              {
+                toolCallId: 'same-step-read',
+                toolName: 'read',
+                input: { path: 'file.txt' },
+              },
+            ]),
+          );
+        }
+        return Promise.resolve(textResponse('Same-step transition checked.'));
+      },
+    });
+
+    try {
+      const execution = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await execution.consumeStream?.();
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      expect(
+        events.find(
+          (event) =>
+            event.eventType === 'tool.completed' &&
+            isRecord(event.payload) &&
+            event.payload.toolCallId === 'same-step-read',
+        )?.payload,
+      ).toMatchObject({
+        toolCallId: 'same-step-read',
+        output: { status: 'error', type: 'invalid_path' },
+      });
+      const chat = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(seeded.chatId, userId),
+      );
+      expect(chat?.workspaceRoot).toBe(root);
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it('retry-exhaustion finalization settles durable open calls before run.expired and persists them in request order', async () => {
     const reindexChat = vi.fn().mockResolvedValue(undefined);

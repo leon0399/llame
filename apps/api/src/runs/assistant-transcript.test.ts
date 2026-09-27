@@ -597,6 +597,10 @@ describe('reconstructDurableAssistant', () => {
         reason: 'no_allow' as const,
         reference: { groupId: 'read', list: 'allow' as const, clauseIndex: 0 },
       },
+      {
+        ...permission,
+        kind: 'canonical' as const,
+      },
     ];
     const result = reconstructDurableAssistant([
       event('tool.requested', {

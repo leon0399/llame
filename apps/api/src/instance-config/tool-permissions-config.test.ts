@@ -208,10 +208,17 @@ describe('shipped example configuration', () => {
       ],
       ['bash', { command: 'echo "git reset --hard"' }, EXPLICIT_REJECT],
       ['read', { path: '/home/operator/.ssh/id_ed25519' }, EXPLICIT_REJECT],
+      ['enter_workspace', { path: '/home/operator/projects/app' }, ALLOW],
+      ['enter_workspace', { path: '/project' }, NO_ALLOW],
+      ['exit_workspace', {}, ALLOW],
       ['read', { path: 'kb://SPACE/.env.production:raw' }, EXPLICIT_REJECT],
       ['read', { path: 'kb://SPACE/.env.example' }, ALLOW],
       ['read', { path: '/project/docker-compose.yml' }, ALLOW],
       ['read', { path: '/project/certificate.pem' }, ALLOW],
+      ['edit', { path: '/project/.mcp.json' }, EXPLICIT_REJECT],
+      ['edit', { path: '/project/.llame/skills/x/SKILL.md' }, EXPLICIT_REJECT],
+      ['write', { path: '/project/.mcp.json' }, EXPLICIT_REJECT],
+      ['write', { path: '/project/.llame/skills/x/SKILL.md' }, EXPLICIT_REJECT],
       ['read', { path: 'http://example.test/page' }, ALLOW],
       ['read', { path: 'http://93.184.216.34/page' }, EXPLICIT_REJECT],
       ['read', { path: 'http://127.0.0.1:3000/' }, ALLOW],
@@ -259,6 +266,27 @@ describe('shipped example configuration', () => {
         expected,
       );
     }
+  });
+
+  it('rejects a protected canonical Workspace entry path', async () => {
+    const policy = await buildToolPermissionPolicy({
+      ...PORTABLE_TOOL_PERMISSIONS,
+      enter_workspace: {
+        allow: [
+          {
+            field: 'path',
+            regex: String.raw`^/home/operator(?:/.*)?$`,
+          },
+        ],
+        reject: PORTABLE_TOOL_PERMISSIONS.enter_workspace.reject,
+      },
+    });
+    const decision = evaluatePermission(policy, {
+      toolId: 'enter_workspace',
+      args: { path: '/home/operator/.ssh' },
+      projectFieldValue: nativeFileProjection('enter_workspace'),
+    });
+    expect(decision).toMatchObject(EXPLICIT_REJECT);
   });
 
   it('admits only the allowed authority when a read group has a domain allow', async () => {

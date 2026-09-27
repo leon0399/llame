@@ -4,6 +4,7 @@ import {
   nativeEditTool,
   nativeWriteTool,
 } from '../tools/native-files';
+import { enterWorkspaceTool, exitWorkspaceTool } from '../tools/workspace';
 
 import * as schema from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -142,6 +143,16 @@ describe('KnowledgeToolCandidateResolver', () => {
         source: { type: 'code_owned' },
         state: 'available',
         tool: nativeReadTool,
+      },
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: enterWorkspaceTool,
+      },
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: exitWorkspaceTool,
       },
       {
         source: { type: 'code_owned' },

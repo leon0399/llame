@@ -8,6 +8,8 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import * as schema from '../db/schema';
 import { join } from 'node:path';
 import {
   MAX_RESULT_CODE_UNITS,
@@ -23,6 +25,8 @@ import {
 import { resolveAdvertisedTools } from './registry';
 import { composeTurnToolCatalog } from './turn-tool-catalog';
 import { resolveBoundExecutableTools } from '../runs/snapshot-tool-execution';
+import { NativeFilesRepository } from '../runs/native-files-repository';
+import { type Db } from '../db/tenant-db.service';
 import { runTool } from './runner';
 import {
   RESULT_TRUNCATE_CHARS,
@@ -39,6 +43,7 @@ import {
   type ToolContext,
   type ToolResult,
 } from './types';
+import { createWorkspaceRootCell } from './workspace-path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 describe('native tool admission', () => {
@@ -147,6 +152,129 @@ describe('native tool admission', () => {
   });
 });
 
+describe('Workspace-relative native paths', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function trustedContext(root?: string): ToolContext {
+    const db: Db = drizzle.mock({ schema });
+    return {
+      userId: 'owner',
+      chatId: 'chat',
+      runId: 'run',
+      nativeExecutorId: 'host',
+      nativeDeliverySequence: 1,
+      toolCallId: 'call',
+      permissionPolicy: compileTestPermissionPolicy(),
+      tenantDb: {
+        runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+          callback(db),
+      },
+      ...(root !== undefined && {
+        workspaceRoot: createWorkspaceRootCell(root),
+      }),
+    };
+  }
+
+  it('reads a relative path from the entered root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workspace-native-'));
+    const file = join(root, 'src', 'app.ts');
+    await mkdir(join(root, 'src'));
+    await writeFile(file, 'export const app = true;');
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValue(undefined);
+
+    try {
+      const result = await runTool(
+        nativeReadTool,
+        { path: 'src/app.ts' },
+        trustedContext(root),
+        5,
+      );
+      expect(result).toMatchObject({ status: 'success', path: file });
+      expect(begin).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: 'read', path: file }),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('allows a relative path to resolve outside the entered root', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'workspace-native-parent-'));
+    const root = join(base, 'project');
+    const shared = join(base, 'shared');
+    const file = join(shared, 'data.json');
+    await mkdir(root);
+    await mkdir(shared);
+    await writeFile(file, '{"shared":true}');
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      const result = await runTool(
+        nativeReadTool,
+        { path: '../shared/data.json' },
+        trustedContext(root),
+        5,
+      );
+      expect(result).toMatchObject({ status: 'success', path: file });
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps relative paths invalid without an entered Workspace', async () => {
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    await expect(
+      runTool(nativeReadTool, { path: 'src/app.ts' }, trustedContext(), 5),
+    ).resolves.toMatchObject({ status: 'error', type: 'invalid_path' });
+  });
+
+  it('rejects unknown schemes instead of projecting them as local paths', async () => {
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: 'vault://notes/a.md' },
+        trustedContext('/tmp'),
+        5,
+      ),
+    ).resolves.toMatchObject({ status: 'error', type: 'invalid_path' });
+  });
+
+  it('preserves trailing separators and absolute read failures', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workspace-native-trailing-'));
+    const file = join(root, 'app.ts');
+    await writeFile(file, 'const app = true;');
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      const projected = await runTool(
+        nativeReadTool,
+        { path: 'app.ts/' },
+        trustedContext(root),
+        5,
+      );
+      const absolute = await runTool(
+        nativeReadTool,
+        { path: `${file}/` },
+        trustedContext(root),
+        5,
+      );
+      expect(projected).toMatchObject({ status: 'error', type: 'not_found' });
+      expect(absolute).toMatchObject({ status: 'error', type: 'not_found' });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
 describe('knowledge locator resolution', () => {
   const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
   const OTHER = '11111111-2222-4333-8444-555555555555';

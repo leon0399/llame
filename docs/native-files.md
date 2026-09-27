@@ -40,6 +40,52 @@ needs a distinct, stable `nativeExecutorId`. Co-located API and worker processes
 that use the same native filesystem should use the same identity. Without it,
 absolute-path native access and `bash` are unavailable even when allowlisted.
 
+## Workspace entry
+
+`enter_workspace({ path })` and `exit_workspace({})` are native host
+capability tools. Both require `tools.nativeExecutorId`, their own
+`tools.allowed` entry, and their own `tools.permissions` group. Entry accepts
+only an absolute path. It evaluates the submitted spelling against the
+`enter_workspace` group before probing the filesystem, then canonicalizes it
+with `realpath` and requires an existing directory. The canonical path is
+evaluated independently by the same group; both decisions need an allow and
+must avoid every reject. A reject or missing allow on either spelling vetoes
+entry, and the stored binding is always the canonical absolute path.
+
+The binding belongs to the owner's Chat and is sticky across Runs on the same
+native executor. It remains until `exit_workspace`, a successful switch, or a
+failed Run-preparation re-check. Re-entry at the same canonical root is a
+no-op. Preparation detaches a binding when the executor is absent or differs,
+the root is missing or no longer a directory, its `realpath` moved, the
+current entry permission no longer allows it without a reject, or
+`enter_workspace` is no longer allowlisted. A detached binding is not restored
+automatically; a later successful entry is required.
+
+While entered, a relative local `read`, `edit`, or `write` path, and a
+relative Bash `cwd`, is resolved lexically from the canonical root like
+POSIX `path.resolve`. `..` may leave the root: Workspace entry selects a
+working root but is not filesystem confinement. A submitted trailing
+separator is preserved in the projected absolute string, and projection
+does not call `realpath`; symlinks are followed by the host OS as for any
+absolute path. Absolute paths and recognized `kb://`, `skill://`, `http://`,
+and `https://` locators keep their existing authority. Without a binding,
+relative native-file paths remain invalid.
+
+An omitted Bash `cwd` uses the canonical Workspace root while entered and the
+host/API default otherwise. Each Bash call remains a fresh process. The
+native executor runs under its host OS user, so an entered root does not
+confine Bash, file tools, symlink traversal, or other host operations.
+
+The recommended policy in `llame.config.json.example` uses an
+operator-edited `enter_workspace.path` field allow such as
+`^/home/operator/projects/[^/]+/?$`, plus F1-F3 credential rejects and E1-E3
+rejects for `node_modules`, temporary roots, and `Downloads`. Every directory
+that this group admits is trusted to run code and read host secrets through
+its Workspace MCP configuration. W1 and W2 reject case-insensitive text paths to
+`.mcp.json` and `.llame`, `.agents`, or `.claude` trees for both `edit` and
+`write`. These are text-only policy rejects: an in-repository alias such as a
+symlink can bypass them, and there is no executor-level guard.
+
 ## `kb://` locators
 
 `read`, `edit`, and `write` accept `kb://<knowledgeSpaceId>/<path>[:selector]`;

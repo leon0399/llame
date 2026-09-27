@@ -13,6 +13,7 @@ import {
 } from './model-client';
 import { applyRequestUsageCallback } from './request-usage';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
+import { applyToolCallingOptions } from './openai-model-client';
 
 /** Default for `resolveCompletion`/`rejectCompletion` before the completion Promise executor below replaces them. */
 function noop(): void {}
@@ -55,23 +56,6 @@ function fakeResponseChunks(
     },
   );
   return chunks;
-}
-
-/** Forwards only the tool options the caller actually supplied. */
-function resolveToolOptions(
-  input: ModelStreamInput,
-): Pick<Parameters<typeof streamText>[0], 'tools' | 'toolChoice'> {
-  const toolOptions: Pick<
-    Parameters<typeof streamText>[0],
-    'tools' | 'toolChoice'
-  > = {};
-  if (input.tools) {
-    toolOptions.tools = input.tools;
-    if (input.toolChoice !== undefined) {
-      toolOptions.toolChoice = input.toolChoice;
-    }
-  }
-  return toolOptions;
 }
 
 interface FakeStreamOutcome {
@@ -139,9 +123,9 @@ function streamFakeResponse(response: string, input: ModelStreamInput) {
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
-    ...resolveToolOptions(input),
     ...handlers,
   };
+  applyToolCallingOptions(streamOptions, input);
   applyRequestUsageCallback(streamOptions, input);
   const result = streamText(streamOptions);
   return wrapStreamTextResult(result, {

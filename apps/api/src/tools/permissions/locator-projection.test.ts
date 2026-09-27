@@ -14,11 +14,12 @@ function decideNative(
   map: ToolPermissionMap,
   toolId: string,
   args: UnknownRecord,
+  workspaceRoot?: string,
 ) {
   return evaluatePermission(compileToolPermissionMap(map, 'p'), {
     toolId,
     args,
-    projectFieldValue: nativeFileProjection(toolId),
+    projectFieldValue: nativeFileProjection(toolId, workspaceRoot),
   });
 }
 
@@ -103,9 +104,57 @@ describe('projectNativeFilePath', () => {
   it('leaves an invalid locator unchanged', () => {
     expect(projectNativeFilePath('kb://Space/%2F')).toBe('kb://Space/%2F');
   });
+
+  it('projects relative host paths from the Workspace root', () => {
+    expect(projectNativeFilePath('src/app.ts', '/work/project')).toBe(
+      '/work/project/src/app.ts',
+    );
+    expect(projectNativeFilePath('../shared/data.json', '/work/project')).toBe(
+      '/work/shared/data.json',
+    );
+    expect(projectNativeFilePath('app.ts/', '/work/project')).toBe(
+      '/work/project/app.ts/',
+    );
+  });
+
+  it('leaves non-filesystem schemes unchanged during Workspace projection', () => {
+    expect(projectNativeFilePath('kb://Space/notes/a', '/work/project')).toBe(
+      'kb://Space/notes/a',
+    );
+    expect(projectNativeFilePath('skill://pdf/SKILL.md', '/work/project')).toBe(
+      'skill://pdf/SKILL.md',
+    );
+    expect(
+      projectNativeFilePath('https://example.test/guide', '/work/project'),
+    ).toBe('https://example.test/guide');
+    expect(projectNativeFilePath('vault://notes/a.md', '/work/project')).toBe(
+      'vault://notes/a.md',
+    );
+  });
 });
 
 describe('native file permission projection', () => {
+  it('matches projected relative paths rather than their submitted spelling', () => {
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [
+          {
+            field: 'path',
+            regex: '^/home/operator/\\.ssh(?:/|$)',
+          },
+        ],
+      },
+    };
+    expect(
+      decideNative(
+        map,
+        'read',
+        { path: '../../.ssh/id_ed25519' },
+        '/home/operator/project/subdirectory',
+      ),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  });
   it('does not resolve a selector-like host filename against an anchored allow', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^/tmp/file$' }] },

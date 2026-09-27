@@ -32,6 +32,7 @@ import {
   resolveSkillLocator,
 } from '../skills/skill-target';
 import { type Tool, type ToolContext, type ToolResult } from './types';
+import { isWorkspaceRelative, resolveWorkspacePath } from './workspace-path';
 import { executeWebRead } from './web-read/execute';
 
 type NativeCall =
@@ -83,8 +84,20 @@ function executeNative(
     }
     return Promise.resolve(unknownSchemeResult());
   }
-  if (call.operation === 'read') return executeNativeBound(context, call);
-  return serializeMutation(() => executeNativeBound(context, call));
+  const projectedCall = projectNativeCall(context, call);
+  if (projectedCall.operation === 'read')
+    return executeNativeBound(context, projectedCall);
+  return serializeMutation(() => executeNativeBound(context, projectedCall));
+}
+
+function projectNativeCall(context: ToolContext, call: NativeCall): NativeCall {
+  const root = context.workspaceRoot?.current();
+  if (root === undefined || !isWorkspaceRelative(call.input.path)) return call;
+  const path = resolveWorkspacePath(root, call.input.path);
+  if (call.operation === 'read') return { operation: 'read', input: { path } };
+  if (call.operation === 'edit')
+    return { operation: 'edit', input: { ...call.input, path } };
+  return { operation: 'write', input: { ...call.input, path } };
 }
 
 /** One host mutation at a time, whatever scheme resolved the target. */

@@ -51,6 +51,12 @@ const chat: Chat = {
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,
+  workspaceRoot: null,
+  workspaceExecutorId: null,
+  workspaceGeneration: 0,
+  workspaceTold: null,
+  workspaceToldFrom: null,
+  workspaceDetachReason: null,
 };
 
 function message(seq: number, role: Message['role'] = 'user'): Message {

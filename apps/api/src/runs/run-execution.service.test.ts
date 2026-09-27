@@ -1,5 +1,11 @@
 import type { MockInstance } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Logger } from '@nestjs/common';
@@ -50,6 +56,8 @@ import {
   CompactionsRepository,
   MessagesRepository,
 } from '../chats/chats-repository';
+import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
+import type { WorkspaceDetachReason } from '../chats/workspace-binding';
 import { isContextItemPart, type ContextItemPart } from '../chats/context-item';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { createModelChangeItem } from '../chats/context-item-producers';
@@ -145,6 +153,12 @@ const chat: Chat = {
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,
+  workspaceRoot: null,
+  workspaceExecutorId: null,
+  workspaceGeneration: 0,
+  workspaceTold: null,
+  workspaceToldFrom: null,
+  workspaceDetachReason: null,
 };
 
 const userMessage: Message = {
@@ -412,6 +426,9 @@ function mockNormalExecutionRepositories() {
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
   vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+  const workspaceRead = vi
+    .spyOn(WorkspaceBindingRepository.prototype, 'read')
+    .mockResolvedValue(undefined);
   vi.spyOn(
     CompactionsRepository.prototype,
     'findLatestByChatId',
@@ -448,6 +465,7 @@ function mockNormalExecutionRepositories() {
     findById,
     findByOwnedRun,
     findMostRecent,
+    workspaceRead,
   };
 }
 
@@ -495,6 +513,173 @@ describe('RunExecutionService executeRun', () => {
       executionInput(execution.client),
     );
     await expect(result.text).resolves.toBe('answer');
+  });
+  it('detaches when the executing worker has no native executor', async () => {
+    await executeWorkspaceDetachCase({
+      reason: 'executor_absent',
+      root: '/workspace/project',
+      boundExecutorId: 'host-a',
+      allowed: ['enter_workspace'],
+    });
+  });
+
+  it('detaches when the executing worker does not match the binding', async () => {
+    await executeWorkspaceDetachCase({
+      reason: 'executor_mismatch',
+      root: '/workspace/project',
+      boundExecutorId: 'host-a',
+      nativeExecutorId: 'host-b',
+      allowed: ['enter_workspace'],
+    });
+  });
+
+  it('detaches when the bound root is missing', async () => {
+    await executeWorkspaceDetachCase({
+      reason: 'root_missing',
+      root: path.join(tmpdir(), 'workspace-entry-root-does-not-exist'),
+      boundExecutorId: 'host-a',
+      nativeExecutorId: 'host-a',
+      allowed: ['enter_workspace'],
+    });
+  });
+  it('detaches when the bound root is no longer a directory', async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), 'workspace-entry-file-'));
+    const root = path.join(parent, 'root');
+    writeFileSync(root, 'not a directory');
+    try {
+      await executeWorkspaceDetachCase({
+        reason: 'root_missing',
+        root,
+        boundExecutorId: 'host-a',
+        nativeExecutorId: 'host-a',
+        allowed: ['enter_workspace'],
+      });
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it('detaches when the bound root was replaced by another symlink target', async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), 'workspace-entry-moved-'));
+    const root = path.join(parent, 'root');
+    const replacement = path.join(parent, 'replacement');
+    mkdirSync(root);
+    mkdirSync(replacement);
+    rmSync(root, { recursive: true, force: true });
+    symlinkSync(replacement, root);
+
+    try {
+      await executeWorkspaceDetachCase({
+        reason: 'root_moved',
+        root,
+        boundExecutorId: 'host-a',
+        nativeExecutorId: 'host-a',
+        allowed: ['enter_workspace'],
+      });
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it('detaches when the current entry policy no longer allows the root', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-entry-policy-'));
+    try {
+      await executeWorkspaceDetachCase({
+        reason: 'permission_rejected',
+        root,
+        boundExecutorId: 'host-a',
+        nativeExecutorId: 'host-a',
+        allowed: ['enter_workspace'],
+        permissionPolicy: compileToolPermissionMap(
+          { read: { allow: true } },
+          'test-policy',
+        ),
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('detaches when enter_workspace is removed from the allowlist', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-entry-allowlist-'));
+    try {
+      await executeWorkspaceDetachCase({
+        reason: 'tool_not_allowed',
+        root,
+        boundExecutorId: 'host-a',
+        nativeExecutorId: 'host-a',
+        allowed: [],
+        permissionPolicy: compileTestPermissionPolicy(['enter_workspace']),
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('keeps the detaching attempt root cell unbound', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    repositories.workspaceRead.mockResolvedValue({
+      root: '/workspace/project',
+      executorId: 'host-a',
+      generation: 4,
+      told: '/workspace/project',
+      toldFrom: null,
+      detachReason: null,
+    });
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'detach').mockResolvedValue(
+      'detached',
+    );
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: '/workspace/project',
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 4,
+      workspaceTold: '/workspace/project',
+      workspaceToldFrom: null,
+      workspaceDetachReason: null,
+    });
+    const observedContexts: Array<ToolContext> = [];
+    const toolId = toolDeclaration.id;
+    const observedTool: Tool = {
+      id: toolId,
+      description: toolDeclaration.description,
+      classification: 'read_only',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: (context) => {
+        observedContexts.push(context);
+        return { status: 'success' as const };
+      },
+    };
+    const capturing = makeCapturingClient();
+    const modelExecution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(observedTool),
+      undefined,
+      {
+        allowed: ['enter_workspace', toolId],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          toolId,
+        ]),
+        dynamicCandidates: [
+          {
+            source: { type: 'mcp', serverId: 'demo' },
+            state: 'available',
+            tool: observedTool,
+          },
+        ],
+      },
+    );
+    await modelExecution.service.executeRun(
+      executionInput(modelExecution.client),
+    );
+    await executeBoundTool(
+      capturing.streamOptions(),
+      { q: 'query' },
+      'detaching-tool-call',
+    );
+
+    expect(observedContexts).toHaveLength(1);
+    expect(observedContexts[0]?.workspaceRoot?.current()).toBeUndefined();
   });
 
   it('recovers a persisted native result into its still-open tool activity', async () => {
@@ -1172,6 +1357,80 @@ function executionInput(client: ModelClient, abortSignal?: AbortSignal) {
     client,
     ...(abortSignal && { abortSignal }),
   };
+}
+type WorkspaceDetachCase = {
+  readonly reason: WorkspaceDetachReason;
+  readonly root: string;
+  readonly boundExecutorId: string;
+  readonly nativeExecutorId?: string;
+  readonly allowed: ReadonlyArray<string>;
+  readonly permissionPolicy?: CompiledPolicy;
+};
+
+async function executeWorkspaceDetachCase(input: WorkspaceDetachCase) {
+  const repositories = mockNormalExecutionRepositories();
+  repositories.workspaceRead.mockResolvedValue({
+    root: input.root,
+    executorId: input.boundExecutorId,
+    generation: 4,
+    told: input.root,
+    toldFrom: null,
+    detachReason: null,
+  });
+  const detach = vi
+    .spyOn(WorkspaceBindingRepository.prototype, 'detach')
+    .mockResolvedValue('detached');
+  vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
+    undefined,
+  );
+  let preparationChat = true;
+  vi.spyOn(ChatsRepository.prototype, 'findById').mockImplementation(() => {
+    if (preparationChat) {
+      preparationChat = false;
+      return Promise.resolve({
+        ...chat,
+        workspaceRoot: input.root,
+        workspaceExecutorId: input.boundExecutorId,
+        workspaceGeneration: 4,
+        workspaceTold: input.root,
+        workspaceToldFrom: null,
+        workspaceDetachReason: null,
+      });
+    }
+    return Promise.resolve({
+      ...chat,
+      workspaceRoot: null,
+      workspaceExecutorId: null,
+      workspaceGeneration: 5,
+      workspaceTold: input.root,
+      workspaceToldFrom: null,
+      workspaceDetachReason: input.reason,
+    });
+  });
+  const execution = makeExecutionService(
+    createFakeModelClient(['answer']),
+    undefined,
+    input.nativeExecutorId,
+    {
+      allowed: input.allowed,
+      permissionPolicy: input.permissionPolicy ?? compileTestPermissionPolicy(),
+    },
+  );
+  const stream = vi.spyOn(execution.client, 'streamText');
+
+  await execution.service.executeRun(executionInput(execution.client));
+
+  expect(detach).toHaveBeenCalledWith(
+    expect.objectContaining({
+      chatId,
+      ownerUserId: userId,
+      runId,
+      deliverySequence: 1,
+      expectedGeneration: 4,
+      reason: input.reason,
+    }),
+  );
+  expect(stream).toHaveBeenCalled();
 }
 
 describe('RunExecutionService executeRun — stream completion', () => {
@@ -5597,6 +5856,47 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     });
 
     expect(execution.compaction.compactForTransition).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-narrates a Workspace snapshot on the first turn after compaction', async () => {
+    const compactionId = '77777777-7777-4777-8777-777777777777';
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: '/workspace/project',
+      workspaceTold: '/workspace/project',
+      workspaceToldFrom: '66666666-6666-4666-8666-666666666666',
+    });
+    vi.spyOn(
+      CompactionsRepository.prototype,
+      'findLatestByChatId',
+    ).mockResolvedValue(activeCompaction(now, compactionId));
+    const setTold = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
+      .mockResolvedValue(undefined);
+    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    const workspaceItems = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'workspace',
+    );
+    expect(workspaceItems).toHaveLength(1);
+    expect(workspaceItems[0]?.data.form).toBe('snapshot');
+    expect(workspaceItems[0]?.data.payload).toEqual({
+      root: '/workspace/project',
+    });
+    expect(setTold).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      told: '/workspace/project',
+      toldFrom: compactionId,
+      clearDetachReason: false,
+    });
   });
 
   it('stages the rebake marker on the first turn of a re-baked epoch', async () => {
