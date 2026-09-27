@@ -18,14 +18,14 @@ list (`pipeline.ts:10-22`), short-circuits `:raw` before probes
 30-second deadline and redirect counter across probes
 (`http-client.ts:72-90`, `436-452`). Derived admission currently enumerates
 hops, alternates, suffixes, `llms.txt`, and addresses and decides each before
-I/O (`admission.ts:7-17`, `143-156`). The result builder reserves the native
+I/O (`admission.ts:12-18`, `145-159`). The result builder reserves the native
 result envelope before applying selectors and bounds (`result.ts:26-73`).
 
 The config loader resolves `tools` as one typed object
 (`apps/api/src/instance-config/config-loader.ts:177-203`), uses single-pass
-interpolation with value-free errors (`config-loader.ts:589-627`), and already
+interpolation with value-free errors (`config-loader.ts:588-627`), and already
 has a private interpolated-header resolver for MCP origins
-(`config-loader.ts:976-1007`, `1041-1057`). `tools` currently has no web
+(`config-loader.ts:962-1007`, `1032-1057`). `tools` currently has no web
 adapter field (`apps/api/src/instance-config/llame-config.ts:427-446`), so
 this change adds the consumer-owned field and schema entry rather than a
 second configuration source. `linkedom` is already an API dependency at

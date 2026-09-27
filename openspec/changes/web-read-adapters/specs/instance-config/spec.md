@@ -2,10 +2,7 @@
 
 ### Requirement: First-slice setting surface
 
-The schema SHALL cover the shape-stable operator settings and SHALL be extended by consumer changes, each adding its own keys (add-when-consumed). The settings include: `defaults.modelId`, `defaults.titleGenerationModelId` (instance-level model _pointers_ — not the catalog itself, which lives in the top-level `models` array), `runs.maxOutputTokens`, `runs.heartbeatSeconds`, `runs.timeoutSeconds`, `http.trustProxy`, the `tools` namespace (`tools.allowed`, default empty = no tools, fail closed; `tools.permissions`, default explicit portable code-owned policy without affecting availability; `tools.maxStepsPerRun`, default 100; `tools.callTimeoutSeconds`, default 120;
-`tools.webAdapters`, whose absent value SHALL select exactly `[github, telegram]`
-in that order and whose present array is an explicit replacement, including `[]`
-to disable adapters), the top-level `mcpServers` named object (default empty = no MCP servers of any transport; entries are `type`-discriminated and may be remote Streamable HTTP or local stdio), the optional `knowledge.root` absolute path (default absent = no local Knowledge capability), the `providers` array (provider connections), and the `models` array (the executable catalog). `tools.allowed` SHALL accept registered code-owned ids, exact canonical configured-MCP ids, and the single configured-MCP namespace wildcard form `mcp__<server>__*`. Provider connection settings (formerly the `OPENAI_BASE_URL` / `OPENAI_API_KEY` environment variables) SHALL be expressed as `providers[]` entries; those environment variables remain valid **interpolation inputs** (`{env:OPENAI_API_KEY:-}`) but are no longer read directly. No `compaction.*` or context-window-fallback setting SHALL exist at the instance level: compaction is driven by the model — every model declares its `contextWindowTokens`, and its trigger threshold resolves per-model via the optional `models[].compactionThresholdTokens`, never by an instance knob.
+The schema SHALL cover the shape-stable operator settings and SHALL be extended by consumer changes, each adding its own keys (add-when-consumed). The settings include: `defaults.modelId`, `defaults.titleGenerationModelId` (instance-level model _pointers_ — not the catalog itself, which lives in the top-level `models` array), `runs.maxOutputTokens`, `runs.heartbeatSeconds`, `runs.timeoutSeconds`, `http.trustProxy`, the `tools` namespace (`tools.allowed`, default empty = no tools, fail closed; `tools.permissions`, default explicit portable code-owned policy without affecting availability; `tools.maxStepsPerRun`, default 100; `tools.callTimeoutSeconds`, default 120; `tools.webAdapters`, absent SHALL select exactly `[github, telegram]` in that order, and present is an explicit replacement including `[]` to disable adapters), the top-level `mcpServers` named object (default empty = no MCP servers of any transport; entries are `type`-discriminated and may be remote Streamable HTTP or local stdio), the optional `knowledge.root` absolute path (default absent = no local Knowledge capability), the `providers` array (provider connections), and the `models` array (the executable catalog). `tools.allowed` SHALL accept registered code-owned ids, exact canonical MCP ids, and the namespace wildcard form `mcp__<server>__*` for any grammar-valid MCP server id, whether or not a server with that id is currently configured. Provider connection settings (formerly the `OPENAI_BASE_URL` / `OPENAI_API_KEY` environment variables) SHALL be expressed as `providers[]` entries; those environment variables remain valid **interpolation inputs** (`{env:OPENAI_API_KEY:-}`) but are no longer read directly. No `compaction.*` or context-window-fallback setting SHALL exist at the instance level: compaction is driven by the model — every model declares its `contextWindowTokens`, and its trigger threshold resolves per-model via the optional `models[].compactionThresholdTokens`, never by an instance knob.
 
 #### Scenario: Migrated settings resolve from the file
 
@@ -25,8 +22,9 @@ to disable adapters), the top-level `mcpServers` named object (default empty = n
 
 #### Scenario: Tools allowlist resolves from the file
 
-- **WHEN** the file sets `tools.allowed` to registered code-owned ids, exact configured-MCP ids, or configured-MCP namespace wildcards
-- **THEN** exactly those eligible tools may become available to Runs under the `tool-calling` capability's gate semantics
+- **WHEN** the file sets `tools.allowed` to registered code-owned ids, exact canonical MCP ids, or namespace wildcards for grammar-valid server ids
+- **THEN** exactly matching admitted tools may become eligible for Runs under the `tool-calling` capability's gates
+- **AND** each MCP call still requires authorization by `tools.permissions`
 
 #### Scenario: MCP servers resolve from the file
 
@@ -49,7 +47,7 @@ to disable adapters), the top-level `mcpServers` named object (default empty = n
 - **WHEN** the file configures `mcpServers` but omits `tools.allowed`
 - **THEN** the servers may connect or launch but no discovered tool is advertised or executable
 
-#### Scenario: Absent web adapter setting selects the current default list
+#### Scenario: Absent web adapter setting selects the final built-in list
 
 - **WHEN** the file omits `tools.webAdapters` while `tools` is otherwise configured
 - **THEN** the effective adapter list is exactly `[github, telegram]` in that order

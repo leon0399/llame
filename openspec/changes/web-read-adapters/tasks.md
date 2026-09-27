@@ -34,9 +34,9 @@ reconciliation before spec sync.
 
 Branch `web-read-adapters/proposal`, parent `master`. Owns `proposal.md`,
 `design.md`, the three delta spec files, and this task ledger. Estimated about
-2,040 authored lines after round two (2,042 including generated metadata); measure
+2,084 authored lines after master reconciliation (2,086 including generated metadata); measure
 the actual parent-relative diff before publication. This exceeds the
-approximately 2,000-line target by about 40 authored lines because each MODIFIED block reproduces canonical requirement text and all
+approximately 2,000-line target by about 84 authored lines because each MODIFIED block reproduces canonical requirement text and all
 scenarios. Record that named budget exception in task 1.3 and request Leo's explicit approval of the exception before publication. It closes no issue.
 
 - [ ] 1.1 [proposal] Complete two independent adversarial review rounds over the proposal, design, and all three delta specs. Verify the adapter order, `:raw` bypass, full derived-locator admission, address pinning, credential stripping, rate-limit classification, the 8-adapter/shared-redirect budget, config replacement semantics, GitHub endpoints, Telegram scope, rewrite encoding, and every negative permission/secret scenario against repository code, canonical specs, the live spikes, and `agent://OmpReadPrior/report`; commit each review round separately rather than amending.

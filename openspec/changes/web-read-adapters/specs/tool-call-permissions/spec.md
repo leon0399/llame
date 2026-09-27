@@ -2,7 +2,11 @@
 
 ### Requirement: Match submitted string values without serialization artifacts
 
-After validating the call schema, the evaluator SHALL match originally submitted parsed argument values. It SHALL NOT match trusted context, inserted defaults, object keys, JSON serialization syntax, or stringified non-string values. The SDK validation adapter SHALL preserve untransformed submitted values for admission while the executor receives separately validated/defaulted arguments. A selected field SHALL match only an own top-level string property; an omitted or non-string field SHALL not match. All-fields rejection SHALL independently traverse every submitted string value in nested objects and arrays without concatenation.
+After validating the call schema, the evaluator SHALL match originally submitted parsed argument values, except for the native Workspace path projections defined below. It SHALL NOT match trusted context, inserted defaults, object keys, JSON serialization syntax, or stringified non-string values. The SDK validation adapter SHALL preserve untransformed submitted values for admission while the executor receives separately validated/defaulted arguments. A selected field SHALL match only an own top-level string property; an omitted or non-string field SHALL not match, except for an omitted `bash.cwd` while a Workspace is entered as specified below. All-fields rejection SHALL independently traverse every submitted string value in nested objects and arrays without concatenation; for a native relative `read.path`, `edit.path`, `write.path`, or `bash.cwd` field while a Workspace is entered, it SHALL inspect the projected absolute value rather than the submitted relative text.
+
+While a Workspace is entered, for native `read`, `edit`, and `write` calls with a relative string `path`, and `bash` calls with a relative string `cwd`, the value evaluated by permissions SHALL be the absolute path obtained by resolving the relative path from the canonical Workspace root; resolution SHALL be lexical like POSIX `path.posix.resolve`, preserving a trailing separator, and `..` SHALL be allowed to leave the root. The executor SHALL receive exactly the projected absolute string, including that trailing separator. Projection SHALL NOT perform realpath resolution; symlinks inside the projected path SHALL be followed by the OS as for any absolute path. For this requirement, "relative" means a value not starting with `/` and without a `scheme:` prefix recognized by the shared locator parser (case-insensitive `scheme://`); an unknown scheme SHALL remain `invalid_path` rather than being treated as a relative local path. The submitted relative text SHALL NOT be matched. A `bash` call that omits `cwd` SHALL be evaluated as if the canonical Workspace root had been submitted as `cwd`; this is an explicit exception to the rule that inserted defaults are not matched. This exception SHALL apply only to omitted `bash.cwd` while a Workspace is entered. Absolute paths SHALL remain unchanged. `kb://`, `skill://`, and web locators SHALL remain unchanged by Workspace path projection. The `bash.command` value SHALL continue to be matched only as submitted text. For tool calls issued in the same model step as an `enter_workspace` or `exit_workspace` call, projection SHALL use the Workspace root committed before that step began; a binding change SHALL take effect from the next model step. With no Workspace entered, relative native file paths SHALL remain invalid and an omitted `bash.cwd` SHALL retain its existing process-default behavior without being matched as a submitted field.
+
+The per-attempt Workspace binding re-check is a third named exception: it evaluates the `enter_workspace` group with the stored canonical Workspace root as the `path` field value rather than a model-submitted value. That synthetic evaluation SHALL obtain an allow and SHALL match no reject for the binding to remain valid.
 
 A `read` call whose `path` is an `http://` or `https://` locator SHALL be
 decided over two texts: the locator as submitted, and the locator the shared
@@ -64,7 +68,7 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 
 #### Scenario: A missing optional field does not match
 
-- **WHEN** a valid tool call omits a schema-declared optional string field targeted by a rule
+- **WHEN** a valid tool call omits a schema-declared optional string field targeted by a rule outside an entered Workspace
 - **THEN** that rule does not match, even if schema parsing supplies a default
 
 #### Scenario: Dynamic schema does not contain a configured field
@@ -100,6 +104,47 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 - **AND** `docs.example.com` resolves to `93.184.216.34`
 - **THEN** the read is admitted although no allow matches `https://93.184.216.34/guide`
 - **AND** when `docs.example.com` resolves to `10.0.0.5` instead, that address is refused and no connection is opened
+
+#### Scenario: Workspace-relative read path is matched after projection
+
+- **WHEN** the entered Workspace root is `/home/operator/project/subdirectory`, the `read` group allows the call but rejects `path` matching `(^|[/\\])\.ssh([/\\]|$|:)`, and read submits the relative path `../../.ssh/id_ed25519`
+- **THEN** the permission value is `/home/operator/.ssh/id_ed25519` and the call is rejected before reading the file
+- **AND** the submitted relative spelling is not matched
+
+#### Scenario: Omitted bash cwd is matched as the Workspace root
+
+- **WHEN** the entered Workspace root is `/home/operator/project`, Bash has a whole-tool allow with a reject for `cwd` matching `^/home/operator/project$`, and Bash submits `git status` without a `cwd`
+- **THEN** the permission value for `cwd` is `/home/operator/project` and the call is rejected before execution
+
+#### Scenario: Workspace projection does not change bash command matching
+
+- **WHEN** a Workspace is entered, Bash has a whole-tool allow with a reject for `command` matching `^git push$`, and Bash submits `git push` with a relative `cwd`
+- **THEN** the `command` reject matches the submitted command text and the call is rejected
+- **AND** only `cwd`, not `command`, is projected from the Workspace root
+
+#### Scenario: Workspace projection preserves a trailing separator
+
+- **WHEN** a Workspace with root `/work/project` is entered and `read` submits `app.ts/`
+- **THEN** the permission value and executor argument are exactly `/work/project/app.ts/`
+- **AND** the call follows absolute-path semantics and returns `not_found` for a regular-file target
+
+#### Scenario: Unknown Workspace path scheme remains invalid
+
+- **WHEN** a Workspace is entered and `read` submits `vault://notes/a.md`
+- **THEN** the call returns `invalid_path`
+- **AND** it is not projected as a relative path or sent to the executor
+
+#### Scenario: Same-step calls use the root committed before the step
+
+- **WHEN** `/work/old` is committed before a model step that calls `enter_workspace` for `/work/new` and `read` for `f`
+- **THEN** the same-step `read` permission value and executor argument use `/work/old/f`
+- **AND** the `/work/new` binding applies to projections beginning with the next model step
+
+#### Scenario: Workspace re-check matches the stored canonical root
+
+- **WHEN** an attempt re-checks a bound Workspace before resolving its sources
+- **THEN** the `enter_workspace` permission group evaluates the stored canonical root as the `path` field value
+- **AND** the synthetic value must obtain an allow and match no reject for the binding to remain
 
 #### Scenario: An adapter request earns independent admission
 
