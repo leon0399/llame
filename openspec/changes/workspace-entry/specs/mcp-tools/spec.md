@@ -53,11 +53,13 @@ MCP annotations, descriptions, and server claims SHALL NOT grant execution autho
 
 ### Requirement: Workspace MCP configuration is portable and protects interpolated values
 
-A bound Workspace SHALL load its MCP server entries from `<root>/.mcp.json`, with `<root>/.llame/mcp.json` taking precedence by server name: an entry in the latter SHALL replace an entry with the same name in the former. Workspace entries SHALL use the portable named-server shape: an entry with `command` and no `type` SHALL be interpreted as stdio; `type: "http"` or `type: "streamable-http"` SHALL select the remote Streamable HTTP transport. A stdio entry MAY supply ordered `args`, `env`, and `cwd`; a remote entry SHALL supply its URL and MAY supply headers. A stdio entry with no `cwd` SHALL use the Workspace root, and a relative `cwd` SHALL resolve from that root. A Workspace stdio child's environment SHALL be built exactly as for an operator stdio server: the entry's declared `env` values merged over the MCP client library's base environment allowlist, and nothing else from llame's process environment.
+A bound Workspace SHALL load its MCP server entries from `<root>/.mcp.json`, with `<root>/.llame/mcp.json` taking precedence by server name: an entry in the latter SHALL replace an entry with the same name in the former. Workspace entries SHALL use the portable named-server shape: an entry with `command` and no `type` SHALL be interpreted as stdio; `type: "http"` or `type: "streamable-http"` SHALL select the remote Streamable HTTP transport. A stdio entry MAY supply ordered `args`, `env`, and `cwd`; a remote entry SHALL supply its URL and MAY supply headers. A stdio entry with no `cwd` SHALL use the Workspace root, and a relative `cwd` SHALL resolve from that root. A Workspace stdio child's environment SHALL be built as for an operator stdio server: the entry's declared `env` values, after interpolation, merged over the fixed MCP base environment allowlist, and nothing else from llame's ambient environment inherited wholesale.
 
-Workspace server string values SHALL support `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` interpolation using the executing host's environment and filesystem. Every non-empty resolved interpolation value SHALL be added to the protected-value set and redacted before it can appear in declarations, call arguments or results, logs, diagnostics, receipts, persisted errors, or model-facing content.
+Workspace server string values SHALL support `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` interpolation. These tokens SHALL resolve from the executing process's environment and filesystem, including llame's own process environment. A relative `{path:LOCATION}` SHALL resolve from the Workspace root; an absolute location SHALL resolve as written. `${VAR:-default}` SHALL use the literal default when `VAR` is unset or empty. Interpolation SHALL be single-pass and non-recursive: a resolved value SHALL NOT be scanned again for tokens. An unset variable without a default or an unreadable file SHALL make the affected server unavailable, with a diagnostic naming the variable or file location but never the resolved value. Command and argument fields SHALL be passed as literal text and SHALL NOT be shell-interpreted. Reading llame's ambient environment through these tokens, and passing a selected value to a Workspace server, is an accepted risk of permitting entry into an audited Workspace.
 
-A malformed Workspace MCP file, invalid server name or entry, or unsupported transport SHALL NOT fail Workspace entry. Each affected Workspace MCP server SHALL instead be reported as unavailable and SHALL contribute no callable tools.
+Every non-empty resolved interpolation value SHALL be added to that Workspace server's protected-value set, except a literal supplied solely as the `:-default` fallback. Every non-empty literal value of an `env` or `headers` entry SHALL also be protected. Protected values SHALL be redacted before they can appear in that server's declarations, call arguments or results, diagnostics, entry result, receipts, persisted errors, or model-facing content. This protection guarantee is scoped to that server's traffic and server-derived output; another tool that independently reads the same source is outside this guarantee.
+
+A malformed Workspace MCP file, invalid server name or entry, unsupported transport, or unresolvable interpolation SHALL NOT fail Workspace entry. Each affected Workspace MCP server SHALL instead be reported as unavailable and SHALL contribute no callable tools.
 
 #### Scenario: Workspace-local config overrides the portable config
 
@@ -76,11 +78,51 @@ A malformed Workspace MCP file, invalid server name or entry, or unsupported tra
 - **WHEN** a Workspace stdio entry declares a relative `cwd`
 - **THEN** the child process uses that path resolved from the Workspace root
 
+#### Scenario: Relative {path:} interpolation resolves from the Workspace root
+
+- **WHEN** a Workspace MCP field contains `{path:secrets/token}` and `<root>/secrets/token` exists
+- **THEN** the token reads that file relative to the Workspace root
+
+#### Scenario: Workspace interpolation can read llame's process environment
+
+- **WHEN** a Workspace MCP field contains `${LLAME_ONLY}` or `{env:LLAME_ONLY}` and the executing llame process defines that variable
+- **THEN** its value is used for that field
+
 #### Scenario: Interpolated values are protected and redacted
 
-- **WHEN** a Workspace MCP field resolves a value using `${VAR}`, `${VAR:-default}`, `{env:…}`, or `{path:…}`
+- **WHEN** a Workspace MCP field resolves a non-empty value using `${VAR}`, `${VAR:-default}` from a set variable, `{env:…}`, or `{path:…}`
 - **THEN** the resolved value is protected for that Workspace server
-- **AND** no protected value reaches model-facing, persisted, diagnostic, or receipt output
+- **AND** no protected value reaches that server's declarations, traffic, diagnostics, entry result, receipts, or model-facing content
+
+#### Scenario: Unresolvable Workspace interpolation leaves the server unavailable
+
+- **WHEN** a server field contains an unset `${MISSING}` or `{env:MISSING}` without a default, or a `{path:LOCATION}` whose file cannot be read
+- **THEN** Workspace entry succeeds
+- **AND** the affected server is reported unavailable with no callable tools
+- **AND** the diagnostic names `MISSING` or `LOCATION` without printing the resolved value
+
+#### Scenario: Workspace interpolation is single-pass
+
+- **WHEN** `OUTER` resolves to the literal text `${INNER}` and a field contains `${OUTER}`
+- **THEN** the field contains the literal `${INNER}`
+- **AND** that value is not interpolated again
+
+#### Scenario: Fallback literal is not protected solely by interpolation
+
+- **WHEN** `${MISSING:-literal-default}` supplies its fallback
+- **THEN** `literal-default` is not added to the protected-value set solely because it was a fallback
+
+#### Scenario: Literal environment and header values are protected
+
+- **WHEN** a Workspace `env` or `headers` entry contains a non-empty literal value
+- **THEN** that value is added to the server's protected-value set
+- **AND** it is redacted from that server's diagnostics, entry result, receipts, and traffic
+
+#### Scenario: Workspace commands and arguments are not shell-interpreted
+
+- **WHEN** a Workspace command or argument contains shell metacharacters
+- **THEN** the child process receives the literal text
+- **AND** no shell evaluates it
 
 #### Scenario: Unsupported Workspace transport leaves entry successful
 
@@ -94,39 +136,61 @@ A malformed Workspace MCP file, invalid server name or entry, or unsupported tra
 - **THEN** Workspace entry succeeds
 - **AND** each affected server is reported unavailable rather than partially admitted
 
-### Requirement: Workspace MCP clients are isolated and lifecycle-managed per Chat
+### Requirement: Workspace MCP clients are isolated, generation-keyed, and lifecycle-managed per Chat
 
-Workspace MCP clients SHALL be owned by one Chat in the process executing that Chat's Run. A Workspace client set SHALL start when the Chat enters the Workspace or, if it is not running in the current process, at the start of a Run for a bound Chat. One Chat's Workspace clients, discovered declarations, call state, and results SHALL never be used to serve another Chat or another owner.
+Workspace MCP clients SHALL be owned by one Chat in the process executing that Chat's Run and SHALL be keyed by the tuple of Chat, canonical Workspace root, and integer binding generation. The binding generation SHALL increment on every enter that establishes a binding, switch, exit that clears a binding, or detach; a same-root re-entry and an exit on an unbound Chat leave it unchanged. One Chat's Workspace clients, discovered declarations, call state, and results SHALL never be used to serve another Chat or another owner.
 
-Workspace clients SHALL stop on Workspace exit, switch, detach, process shutdown, or after 30 minutes with no Run for that Chat in the executing process. A subsequent Run for a still-bound Chat SHALL start its Workspace clients again before composing the Run's available tools. Failure to start or discover a Workspace server SHALL leave the Workspace binding intact and report that server as unavailable; it SHALL NOT fail Workspace entry or prevent unrelated tools from operating.
+A Workspace client set SHALL start when the Chat enters the Workspace or, if it is not running in the current process, at the start of a Run for a bound Chat. At every attempt start, the executing process SHALL compare every client it holds for that Chat with the current binding, stop and discard each client whose Chat, canonical root, or generation does not match, and start clients keyed to the current binding before composing the Run's available tools. A process other than the one executing the binding change SHALL discard stale clients at its next attempt for that Chat or at the 30-minute idle timeout.
 
-Starting a Workspace MCP server SHALL NOT require a separate per-server permission check. Successful Workspace entry, subject to its own permission decision, SHALL be the trust decision for reading and starting that Workspace's MCP configuration. This SHALL NOT waive the `tools.allowed` eligibility gate or `tools.permissions` authorization for any MCP tool call.
+Each new Workspace client start SHALL re-read the current Workspace MCP configuration and reapply interpolation. A same-root re-entry is a no-op success returning the current state; it SHALL neither restart clients nor re-read Workspace configuration. Exit, switch, and detach SHALL stop the old clients in the executing process after the new binding or clear commits; other processes SHALL discard them through the generation check. A subsequent Run for a still-bound Chat SHALL start its matching clients again before composing the Run's available tools. Failure to start or discover a Workspace server SHALL leave the Workspace binding intact and report that server as unavailable; it SHALL NOT fail Workspace entry or prevent unrelated tools from operating.
+
+Starting a Workspace MCP server SHALL NOT require a separate per-server permission check. Permission to enter the Workspace SHALL be the trust decision for reading and starting that Workspace's MCP configuration, including each later client start. This SHALL NOT waive the `tools.allowed` eligibility gate or `tools.permissions` authorization for any MCP tool call.
 
 #### Scenario: Entry starts clients for its Chat
 
 - **WHEN** a Chat successfully enters a Workspace containing a valid MCP server
-- **THEN** the executing process starts a Workspace MCP client owned by that Chat
+- **THEN** the executing process starts a Workspace MCP client keyed to that Chat, canonical root, and binding generation
 - **AND** the entry result reports that server's state
 
-#### Scenario: Bound Chat starts clients in a new process
+#### Scenario: Bound Chat starts matching clients in a new process
 
-- **WHEN** a Run starts for a bound Chat whose Workspace clients are not running in that process
-- **THEN** that process starts the Chat's Workspace MCP clients before composing available tools
+- **WHEN** a Run starts for a bound Chat whose matching Workspace clients are not running in that process
+- **THEN** that process discards any stale clients for the Chat
+- **AND** it starts clients keyed to the current binding before composing available tools
+
+#### Scenario: Generation mismatch discards stale clients in another process
+
+- **WHEN** another process holds Workspace clients for a Chat at an older root or binding generation and a later attempt observes a different current binding
+- **THEN** that process stops and discards the stale clients and their declarations
+- **AND** it starts only clients keyed to the current binding, if the Chat remains bound
 
 #### Scenario: Idle clients stop and restart on the next Run
 
 - **WHEN** a Chat has no Run in the executing process for 30 minutes and later runs again while still bound
 - **THEN** its idle Workspace clients have been stopped
-- **AND** its next Run starts a fresh client set before composing available tools
+- **AND** its next Run re-reads Workspace configuration and starts a fresh matching client set before composing available tools
 
-#### Scenario: Exit, switch, detach, and shutdown stop clients
+#### Scenario: Exit, switch, and detach stop current clients
 
-- **WHEN** the Chat exits or switches Workspace, detaches, or its executing process shuts down
-- **THEN** that Chat's Workspace MCP clients are stopped and their tools are withdrawn
+- **WHEN** the Chat exits or switches Workspace, or detaches, and the new binding or clear commits with a new generation
+- **THEN** the executing process stops the clients for the previous binding and withdraws their tools
+- **AND** other processes discard those stale clients at their next attempt for the Chat or at the 30-minute idle timeout
+
+#### Scenario: Same-root re-entry preserves clients and configuration
+
+- **WHEN** a Chat is already bound to canonical root `/workspace` and enters `/workspace` again
+- **THEN** the operation succeeds with the current Workspace state
+- **AND** it does not restart clients or re-read Workspace configuration
+
+#### Scenario: A new client start re-reads Workspace configuration
+
+- **WHEN** a bound Chat needs a new client set after a process change, idle stop, or stale-generation discard
+- **THEN** the executing process reads the current Workspace MCP files before starting those clients
+- **AND** it does not reuse a prior process's configuration or declarations
 
 #### Scenario: Server start uses Workspace entry as the trust decision
 
-- **WHEN** Workspace entry is permitted but no `tools.permissions` group authorizes a tool from a configured Workspace server
+- **WHEN** `enter_workspace` permission is granted but no `tools.permissions` group authorizes a tool from a configured Workspace server
 - **THEN** the server may start and be reported as available
 - **AND** a call to its tool is rejected without an accepting permission
 
@@ -141,16 +205,29 @@ Starting a Workspace MCP server SHALL NOT require a separate per-server permissi
 - **WHEN** two different owners have Chats running in the same process
 - **THEN** neither owner's Workspace clients or tool state are available to the other owner's Chat
 
-### Requirement: Workspace MCP servers share MCP bounds and shadow only when started
+### Requirement: Workspace MCP servers share MCP bounds and defer mid-Run shadowing
 
 Workspace MCP servers SHALL use the same supported protocol revisions, tool-id composition, declaration admission and neutralization, discovery and per-operation bounds, protected-value handling, result handling, per-call timeout, transport-specific availability and retry behavior as operator MCP servers. MCP tool calls SHALL NOT be automatically retried on any transport. Workspace tools SHALL pass the same `tools.allowed` eligibility and `tools.permissions` authorization gates as operator tools; Workspace configuration, transport type, annotations, descriptions, and server claims SHALL grant no additional execution authority.
 
-For a Chat, a running Workspace server SHALL shadow an operator-configured server with the same server id. Its admitted declarations SHALL use the same namespaced tool ids and exact-id permission groups. A Workspace server that has failed to start or is otherwise unavailable SHALL NOT shadow the operator server, whose tools remain available under the usual gates.
+For a Chat, a started Workspace server SHALL shadow an operator-configured server when their server ids are equal under ASCII case-folding. If the Workspace server starts while an operator server's tools are already declared in the running attempt, the Workspace server SHALL contribute no tools in that Run, the operator tools SHALL retain their executors for the rest of that Run, and the entry result SHALL report `shadows from the next Run`. From the next Run, the started Workspace server SHALL provide its admitted tools under the applicable namespaced ids and exact-id permission groups. A case-folded server-id match SHALL be shadowing, not a collision refusal of the operator tools. A Workspace server that has failed to start or is otherwise unavailable SHALL NOT shadow the operator server, whose tools remain available under the usual gates.
 
-#### Scenario: Started Workspace server shadows operator server
+#### Scenario: Mid-Run Workspace shadowing is deferred
 
-- **WHEN** a Workspace MCP server is running for a Chat and has the same server id as an operator MCP server
-- **THEN** that Chat uses the Workspace server's admitted tools under the existing namespaced ids
+- **WHEN** a Workspace server starts during a Run, its id matches an operator server under ASCII case-folding, and the operator server's tools are already declared
+- **THEN** the Workspace server contributes no tools to that Run
+- **AND** the operator tools retain their executors for the rest of the Run
+- **AND** the entry result reports `shadows from the next Run`
+
+#### Scenario: Case-folded Workspace server shadows without collision refusal
+
+- **WHEN** an operator server is named `web` and a started Workspace server is named `WEB`
+- **THEN** the Workspace server shadows the operator server beginning with the next Run
+- **AND** the case-folded match does not collision-refuse the operator server's already admitted tools
+
+#### Scenario: Started Workspace server shadows operator server on the next Run
+
+- **WHEN** a Workspace MCP server is started before a Run and has the same server id as an operator MCP server
+- **THEN** that Chat's next Run uses the Workspace server's admitted tools under the applicable namespaced ids
 - **AND** the same exact-id permission groups apply
 
 #### Scenario: Failed Workspace server does not shadow operator server

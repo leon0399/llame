@@ -1,5 +1,46 @@
 ## MODIFIED Requirements
 
+### Requirement: Residency determines whether a change re-renders the prompt or appends an item
+
+Every context contribution SHALL be classified by **residency**:
+
+- **prefix-resident** — re-supplied in full on every request as part of the system prompt. Updating it means re-rendering the prompt. It is cheap to read on every turn and expensive to change, because a change invalidates the cached prefix for the whole conversation.
+- **rail-resident** — appended once as a context item and never re-sent. Updating it means appending another item. It is cheap to add and paid for in every later turn until compaction.
+- **rail-only** — a small complete statement of current state whose re-statement after each compaction is cheaper than a prefix baseline. It MAY be kept only on the rail: a `snapshot` is emitted when the state changes and re-emitted after compaction, rather than adding it to the system prompt. The Workspace producer uses this class.
+
+A new context surface SHALL be classified by this procedure:
+
+1. A contribution that is an **account of something that happened** SHALL be rail-resident.
+2. A contribution that is a **complete statement of current state** which changes **less often than compaction** SHALL be prefix-resident.
+3. A complete statement of current state which changes **more often than compaction** SHALL be a frozen prefix-resident baseline plus rail-resident deltas, re-baked at compaction, unless it qualifies as rail-only under step 4. A frequently-changing complete statement SHALL NOT be placed in the prefix, because that forfeits prefix caching for the whole conversation on every change.
+4. A small complete statement of current state whose re-statement after each compaction is cheaper than a prefix baseline MAY be rail-only, emitted as a `snapshot` on change and re-emitted after compaction.
+
+Residency SHALL be recorded for every contribution in the per-run record required below, so that a later audit reads one list regardless of where a contribution lived.
+
+#### Scenario: A new surface reports an event
+
+- **WHEN** a new context surface reports that something occurred
+- **THEN** it is rail-resident
+- **AND** it is not added to the system prompt
+
+#### Scenario: A new surface states rarely-changing state
+
+- **WHEN** a new context surface states current state that changes less often than the chat is compacted
+- **THEN** it is prefix-resident
+- **AND** a change to it re-renders the prompt rather than appending an item
+
+#### Scenario: A new surface states frequently-changing state
+
+- **WHEN** a new context surface states current state that changes more often than the chat is compacted
+- **THEN** it is a frozen prefix baseline with rail-resident deltas
+- **AND** the baseline is re-resolved at compaction rather than on every change
+
+#### Scenario: A new surface states compact current state
+
+- **WHEN** a new context surface states a small complete statement of current state whose re-statement after each compaction is cheaper than a prefix baseline
+- **THEN** it MAY be rail-only, with a `snapshot` emitted when the state changes
+- **AND** the snapshot is re-emitted after compaction rather than changing the system prompt
+
 ### Requirement: The skill catalog is a frozen prefix baseline stored on the chat
 
 The proactively eligible skill catalog for a Chat SHALL be computed from that Chat's effective skill sources, as defined by `agent-skills`, and SHALL be classified as a frozen prefix-resident baseline with rail-resident deltas. The baseline SHALL be the `skills` prompt projection defined by `model-system-prompts`: admitted entries in code-point name order, each with name and description, plus the count of proactively eligible entries omitted. Admission SHALL retain whole entries while the admitted count stays within 256 and the cumulative UTF-8 length of name and description stays within 16 KiB, so that template-owned per-entry markup cannot multiply the bound; omission SHALL be disclosed through that count whenever the baseline admits at least one entry, and the proactively eligible set SHALL remain inspectable through `read("skill://")` regardless.
@@ -143,33 +184,47 @@ When worker preparation adds attempt-owned items beside already persisted messag
 
 ### Requirement: Workspace binding changes are rail-resident context items
 
-At each accepted user turn, a `workspace` producer SHALL compare the Chat's current Workspace root, or its absence, with the root last narrated to the Chat, or the absence of any narration. When they differ, the producer SHALL emit a rail-resident item with form `notice`: it SHALL name the canonical root and state that the Workspace selects a working root but does not confine host authority, or, when a previously narrated root is no longer bound, it SHALL state that no Workspace is entered. A notice for a binding detached during attempt preparation SHALL include the detach reason. The producer SHALL then record the narrated root, or its absence, as the Chat's told state. A Chat that has never been bound and has no narrated root SHALL receive no notice. A newly active compaction SHALL clear the told state, so the next accepted user turn re-establishes a bound Chat's current root, while an unbound Chat receives no notice. Workspace state SHALL NOT be placed in the system prompt. Each successful Run that sends a Workspace item SHALL include the exact item text, producer, form, and rail residency in its owner-scoped Run context-item record under the existing recording rules.
+Before resolving effective skill sources, explicit `$skill` activation, Workspace MCP clients or catalog, or the `workspace` producer's items, attempt preparation SHALL finish the Workspace binding re-check and any detach. A detaching attempt SHALL contribute no Workspace skills or tools and SHALL still narrate the detach.
+
+At each accepted user turn, a `workspace` producer SHALL compare the Chat's current Workspace root, or its absence, with the root last narrated to the Chat, or the absence of any narration. When they differ, the producer SHALL emit a rail-resident item with form `snapshot`: it SHALL name the canonical root and state that the Workspace selects a working root but does not confine host authority, or, when a previously narrated root is no longer bound, it SHALL state that no Workspace is entered. A detach reason persisted during attempt preparation SHALL be consumed from the Chat's persisted state, not inferred from the current unbound state, by emitting a separate rail-resident item with form `notice` in the same turn. The notice SHALL name that reason, and the persisted reason SHALL be cleared only when the Run that narrates it completes. The producer SHALL then record the narrated root, or its absence, as the Chat's told state. A Chat that has never been bound and has no narrated root SHALL receive no notice. A newly active compaction SHALL clear the told state, so the next accepted user turn re-establishes a bound Chat's current root as a `snapshot`, while an unbound Chat receives no snapshot. Workspace state SHALL NOT be placed in the system prompt. Each successful Run that sends a Workspace snapshot or notice SHALL include each exact item text, producer, form, and rail residency in its owner-scoped Run context-item record under the existing recording rules.
 
 #### Scenario: Changed binding is narrated on the rail
 
 - **WHEN** an accepted turn observes a Workspace binding different from the last state narrated to the Chat
-- **THEN** a rail-resident `workspace` notice names the canonical root or states that no Workspace is entered and states that host authority is not confined
-- **AND** if preparation detached the binding, the notice includes the detach reason and the Workspace state is not added to the system prompt
+- **THEN** a rail-resident `workspace` snapshot names the canonical root or states that no Workspace is entered and states that host authority is not confined
+- **AND** if preparation detached the binding, a separate rail-resident `workspace` notice consumes the persisted detach reason and the Workspace state is not added to the system prompt
 
 #### Scenario: Unchanged binding is not repeated
 
 - **WHEN** an accepted turn observes the same Workspace state already narrated in the active context epoch
-- **THEN** the producer emits no duplicate state-change notice
+- **THEN** the producer emits no duplicate state-change snapshot
 - **AND** the already-narrated state remains the comparison state
 
 #### Scenario: Compaction re-establishes Workspace state
 
 - **WHEN** a newly active compaction clears the Workspace told state of a Chat that is still bound
-- **THEN** the next accepted turn emits a notice re-establishing the current root
-- **AND** the notice remains rail-resident rather than changing the system prompt
+- **THEN** the next accepted turn emits a snapshot re-establishing the current root
+- **AND** the snapshot remains rail-resident rather than changing the system prompt
 
 #### Scenario: A never-bound Chat receives no Workspace notice
 
 - **WHEN** a Chat that has never been bound to a Workspace accepts a turn, including the first turn after a compaction
-- **THEN** no `workspace` notice is emitted
+- **THEN** no `workspace` snapshot or notice is emitted
 
 #### Scenario: Run context record includes the Workspace notice
 
-- **WHEN** a successful Run sends a Workspace notice in its final request
-- **THEN** the Run's owner-scoped context-item record contains that exact text with producer `workspace`, form `notice`, and rail residency
+- **WHEN** a successful Run sends a Workspace snapshot or detach notice in its final request
+- **THEN** the Run's owner-scoped context-item record contains each exact text with producer `workspace`, its form, and rail residency
 - **AND** the record remains subject to the ordinary owner-isolation rules
+
+#### Scenario: Detach reason waits for a completed narration
+
+- **WHEN** attempt preparation persists a detach reason and that attempt fails before the Run narrating it completes
+- **THEN** a retry consumes the reason from persisted Chat state and emits it as a separate `workspace` notice
+- **AND** the reason remains persisted until the narration Run completes, while the Chat remains unbound
+
+#### Scenario: Detach is ordered before Workspace contributions
+
+- **WHEN** attempt preparation detaches a binding before the accepted turn resolves Workspace sources or tools
+- **THEN** the turn contributes no Workspace skills or MCP tools
+- **AND** it still emits the root `snapshot` and the separate detach `notice`

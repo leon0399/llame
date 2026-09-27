@@ -8,73 +8,239 @@ Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation.
          <- workspace-entry/web
          <- workspace-entry/skills
          <- workspace-entry/mcp-authorization
+         <- workspace-entry/mid-run-tools
          <- workspace-entry/workspace-mcp
          <- workspace-entry/finalize
 ```
 
 - `proposal` owns only proposal, design, the delta specs, and this task list.
-- `core` (parent `proposal`, estimated 1,700 authored lines): the binding, both tools, relative-path projection for execution and permissions, re-check and detach, narration, and forks. Its PR references #974.
-- `web` (parent `core`, estimated 300 authored lines): the chat API binding field and the chat-header indicator. References #974.
-- `skills` (parent `web`, estimated 600 authored lines): Workspace skill sources. References #974.
-- `mcp-authorization` (parent `skills`, estimated 700 authored lines): retire the MCP read-only attestation for all servers. References #974.
-- `workspace-mcp` (parent `mcp-authorization`, estimated 1,900 authored lines): mid-Run tool additions, their Run record and receipt row, and Workspace MCP clients. Its merge completes #974's acceptance, so its PR uses `Closes #974`.
+- `core` (parent `proposal`, estimated 1,850 authored lines): the binding columns and generation,
+  both tools, relative-path projection for execution and permissions, re-check and immediate
+  detach, narration, and fork isolation. Its PR references #974.
+- `web` (parent `core`, estimated 350 authored lines): the owner chat API binding field and the
+  chat-header indicator. References #974.
+- `skills` (parent `web`, estimated 650 authored lines): Workspace skill sources and failure
+  isolation. References #974.
+- `mcp-authorization` (parent `skills`, estimated 750 authored lines): retire the MCP read-only
+  attestation for all servers and update every eligibility gate. References #974.
+- `mid-run-tools` (parent `mcp-authorization`, estimated 1,200 authored lines): SDK pin,
+  mid-Run declaration additions, their owner-scoped Run record, model-system-prompts exception,
+  receipt API, and receipt row UI. References #974.
+- `workspace-mcp` (parent `mid-run-tools`, estimated 1,500 authored lines): per-Chat clients,
+  config, interpolation, lifecycle, generation keying, and shadowing. Its merge completes
+  #974's acceptance, so its PR uses `Closes #974`.
 - `finalize` owns only spec sync, checked task records, and archive movement.
 
 Re-estimate authored size at each layer boundary and before publication; split a growing concern or request a named exception before publishing an oversized layer. Do not put live delivery status in this file. UI presentation details live here and in design.md, not in the specs.
 
 ## 1. `workspace-entry/core`: binding, tools, projection, and narration
 
-- [ ] 1.1 Add nullable `workspace_root`, `workspace_executor_id`, and `workspace_told` to `chats` with a generated Drizzle migration (design D1). Verify `pnpm db:generate` reproduces it, the migration applies to a populated database, and an integration test shows user A cannot read or write user B's binding columns under RLS.
-- [ ] 1.2 Add the pure `resolveWorkspacePath` projection and feed it to `read`, `edit`, `write` path handling and bash `cwd` through `ToolContext.workspaceRoot` (design D3, D5). Verify with unit tests for each native-file-tools and bash-execution scenario in this change: entered relative read, `..` leaving the root, unentered relative refusal, omitted bash `cwd` defaulting to the root, relative bash `cwd`, and locator schemes unaffected.
-- [ ] 1.3 Evaluate projected values in `evaluateToolPermission`, including the implied bash `cwd` (design D3). Verify with permission tests for every tool-call-permissions scenario in this change, including `read("../../.ssh/id_ed25519")` rejected by an absolute `.ssh` reject and an omitted bash `cwd` rejected by a `cwd` reject on the root.
-- [ ] 1.4 Register `enter_workspace` and `exit_workspace` as host-capability tools with packaged description prompts and schemas; implement canonicalization, dual-path permission evaluation, switching, the fenced binding write, and the result shape without skills or MCP (design D2). Verify with tests for the workspace-entry tool scenarios: non-absolute path, non-directory, symlink whose canonical target is rejected, switch, exit, missing `nativeExecutorId`, and a superseded attempt that cannot write the binding.
-- [ ] 1.5 Re-check the binding during accepted-turn preparation and detach on executor mismatch, missing root, or a permission reject, staging the clear with the other chat-row state (design D4). Verify with integration tests for each detach cause, that a retried attempt does not reattach, and that a detached binding stays cleared after the executor returns.
-- [ ] 1.6 Add the `workspace` context-item producer with its packaged template and told-state comparison, reset by a newly active compaction (design D6). Verify with tests that entry is narrated on the next accepted turn, detach carries its reason, an unchanged binding emits nothing, compaction re-establishes the current root, and the rendered system prompt is byte-identical before and after entry.
-- [ ] 1.7 Copy the binding, but not its told-state, in owner forks. Verify with a fork integration test that the fork keeps the binding, its first accepted turn narrates it, its first Run re-checks it, and a fork of an unbound Chat stays unbound.
-- [ ] 1.8 Document the nine-group recommended policy in `llame.config.json.example`, Workspace entry and its host-authority boundary in `docs/native-files.md`, the native-host line in `SPEC.md`, and one paragraph in `docs/research/product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md` recording the absolute-path exception to §5.4; add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 1.9 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused API integration files touched above, `pnpm format:check`, `git diff --check`, and `pnpm exec openspec validate workspace-entry --strict`; record the commands in the PR body.
-- [ ] 1.10 Self-review (SR) the parent-relative draft diff against REVIEW_GUIDE.md, fix accepted findings, and rerun affected checks before marking ready.
-- [ ] 1.11 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before adding the `web` layer.
+- [ ] 1.1 Add nullable `workspace_root`, `workspace_executor_id`, `workspace_told`, and
+      `workspace_detach_reason`, plus integer `workspace_generation`, to `chats` with a generated
+      Drizzle migration (design D1). Use the closed detach-reason codes and generation updates from
+      every enter, switch, exit, and detach. Verify `pnpm db:generate` reproduces it, the migration
+      applies to a populated database, and an integration test shows user A cannot read or write
+      user B's binding columns under RLS.
+- [ ] 1.2 Add the pure lexical `resolveWorkspacePath` projection and feed it to `read`, `edit`,
+      `write` path handling and bash `cwd` through the attempt-scoped root cell (design D3, D5).
+      Preserve a trailing separator, do not call `realpath`, follow symlinks only through the OS, and
+      define relative as no leading `/` and no recognized case-insensitive `scheme://` prefix.
+      Verify entered relative read, `..` leaving the root, unentered relative refusal, omitted bash
+      `cwd` defaulting to the root, relative bash `cwd`, locator schemes unaffected, a trailing
+      separator staying in the projected string and producing the same `not_found`/invalid behavior
+      as its absolute form, and a same-step `read("f")` using the root committed before entry.
+- [ ] 1.3 Evaluate projected values in `evaluateToolPermission`, including the implied bash
+      `cwd`, without matching submitted relative text (design D3). Verify every projection permission
+      scenario, including `read("../../.ssh/id_ed25519")` rejected by an absolute `.ssh` reject and
+      omitted bash `cwd` rejected by a `cwd` reject on the root; keep command-text matching unchanged.
+- [ ] 1.4 Register `enter_workspace` and `exit_workspace` as host-capability tools with packaged
+      descriptions and schemas. Implement submitted-path permission evaluation before filesystem
+      probing, canonicalization, independent canonical-path allow/reject evaluation with provenance,
+      same-root no-op, fenced compare-and-set switching, post-commit client stop, and the result
+      shape without skills or MCP (design D2). Classify entry as `execute_code` and exit as
+      `write_low_risk`, bind `runs.worker_id` through native execution, record neither as
+      `native.attempt`, make queue retries idempotent, and make authorized exit on an unbound Chat
+      harmless. Verify non-absolute and non-directory paths, symlink rejection, submitted-path
+      rejection, canonical-path `no_allow` with no binding or MCP start, same-root no-op without
+      restart, switch, missing `nativeExecutorId`, and a superseded attempt with no side effect.
+- [ ] 1.5 Re-check the binding during accepted-turn preparation before Workspace skills,
+      `$skill`, MCP clients/catalog, or the Workspace producer. Detach immediately in its own
+      owner-scoped transaction fenced by the Run's current delivery; clear the binding, increment
+      generation, store the closed reason, and expose no Workspace skills or tools to the detaching
+      attempt (design D4). Verify executor mismatch and absence, root missing/non-directory, root
+      moved, permission rejection requiring an allow and no reject, and `tool_not_allowed`. Include
+      the detach-then-fail retry scenario: a retry whose checks would pass still finds the Chat
+      unbound, and an executor returning later does not restore it.
+- [ ] 1.6 Add the `workspace` context-item producer with its packaged template and told-state
+      comparison, rail-only `snapshot` current-state item, separate detach `notice`, and reset by a
+      newly active compaction (design D6). Verify entry and exit narration, detach reason in a
+      separate notice, unchanged binding silence, compaction re-establishment, no notice for a
+      never-bound Chat, and the rendered system prompt remaining byte-identical before and after
+      entry.
+- [ ] 1.7 Copy the binding root, executor id, and generation in owner forks but not told state or
+      detach reason. Verify an owner fork keeps the binding, its first accepted turn narrates it, its
+      first Run re-checks it, and a visitor fork of a public bound Chat is unbound and discloses no
+      root; a fork of a detached Chat stays unbound.
+- [ ] 1.8 Document the nine-group recommended policy in `llame.config.json.example`, retaining
+      F1-F3 and adding W1 on `edit.path` and `write.path` with regex
+      `(^|[/\\])\.mcp\.json$` and W2 with regex
+      `(^|[/\\])\.(llame|agents|claude)[/\\]`, plus Workspace entry and its host-authority
+      boundary in `docs/native-files.md`. Update `SPEC.md:35` so Workspace is a current runtime
+      object on the native executor, add the local-node research paragraph recording the absolute-
+      path exception to §5.4, and add a dated `CHANGELOG.md` entry. Verify the example-policy
+      scenarios, including the canonical `no_allow` case and preservation of F1-F3.
+- [ ] 1.9 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused API
+      integration files touched above, `pnpm format:check`, `git diff --check`, and
+      `pnpm exec openspec validate workspace-entry --strict`; record the commands in the PR body.
+- [ ] 1.10 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix accepted
+      findings, and rerun affected checks before marking ready.
+- [ ] 1.11 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+      and zero actionable unresolved feedback before adding the `web` layer.
 
-## 2. `workspace-entry/web`: binding indicator
+## 2. `workspace-entry/web`: owner binding API and indicator
 
-- [ ] 2.1 Expose the current binding root on the owner's chat API response and regenerate the OpenAPI client. Verify with an API test that the owner sees the root, another owner receives 404 for the Chat, and a second generation produces no diff.
-- [ ] 2.2 Show the bound root in the chat header, updating after entry, exit, and detach, using existing design-system components and tokens per DESIGN.md. Verify with component tests and a story; run the Storybook story tests and return preview URLs.
-- [ ] 2.3 Add a dated `CHANGELOG.md` entry. Run `pnpm --filter web lint`, `typecheck`, and `test:coverage`, plus `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record the commands in the PR body.
-- [ ] 2.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun affected checks before marking ready.
-- [ ] 2.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before adding the `skills` layer.
+- [ ] 2.1 Expose the current canonical binding root or null on the owner's Chat API response and
+      regenerate the OpenAPI client. Verify the owner sees the root, another owner receives 404 for
+      the Chat, the RLS path cannot read or write another owner's columns, and public share
+      projections and shared/visitor forks never expose the root; a second generation produces no
+      diff.
+- [ ] 2.2 Show the bound root in the chat header, updating after entry, exit, and detach, using
+      existing design-system components and tokens per DESIGN.md. Verify with component tests and a
+      story; run the Storybook story tests and return preview URLs.
+- [ ] 2.3 Add a dated `CHANGELOG.md` entry. Run `pnpm --filter web lint`, `typecheck`, and
+      `test:coverage`, plus `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; record
+      the commands in the PR body.
+- [ ] 2.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+      affected checks before marking ready.
+- [ ] 2.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+      and zero actionable unresolved feedback before adding the `skills` layer.
 
 ## 3. `workspace-entry/skills`: Workspace skill sources
 
-- [ ] 3.1 Accept ordered extra sources in the skill catalog snapshot and pass the bound Chat's `.claude/skills`, `.agents/skills`, `.llame/skills` sources to `skill://` reads, the turn skill state, and explicit activation (design D7). Verify with tests for each agent-skills scenario in this change: `.llame` overrides `.agents` and `.claude`, a Workspace skill overrides an operator skill by name, another Chat sees only operator skills, and `GET /api/v1/skills` is unchanged.
-- [ ] 3.2 List Workspace skills in the `enter_workspace` result and make them loadable in the entering Run. Verify with a worker integration test that enters and reads `skill://<name>` in the same Run, and that the next accepted turn's catalog delta announces the new skills.
-- [ ] 3.3 Document Workspace skill sources in `docs/skills.md`; add a dated `CHANGELOG.md` entry. Run the API checks from 1.9 for this layer and record them in the PR body.
-- [ ] 3.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun affected checks before marking ready.
-- [ ] 3.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before adding the `mcp-authorization` layer.
+- [ ] 3.1 Accept ordered extra sources in the skill catalog snapshot and pass the bound Chat's
+      `.claude/skills`, `.agents/skills`, and `.llame/skills` sources to `skill://` reads, the turn
+      skill state, and explicit activation (design D7). Missing, unreadable, non-directory, and
+      over-limit Workspace sources contribute nothing, never make operator discovery unavailable,
+      and do not count toward the operator 32-source bound. Verify `.llame` overrides `.agents` and
+      `.claude`, a Workspace skill overrides an operator skill by name, another Chat sees only
+      operator skills, `GET /api/v1/skills` is unchanged, and the case-folded/precedence catalog is
+      isolated per Chat.
+- [ ] 3.2 List Workspace skills in the `enter_workspace` result and make them loadable in the
+      entering Run. Verify with a worker integration test that entry and `skill://<name>` read work
+      in the same Run, and that the next accepted turn's catalog delta announces the new skills.
+- [ ] 3.3 Document Workspace skill sources in `docs/skills.md`; update `SPEC.md:196` so skill
+      sources include Workspace sources while entered; add a dated `CHANGELOG.md` entry. Run the API
+      checks from 1.9 for this layer and record them in the PR body.
+- [ ] 3.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+      affected checks before marking ready.
+- [ ] 3.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+      and zero actionable unresolved feedback before adding the `mcp-authorization` layer.
 
 ## 4. `workspace-entry/mcp-authorization`: retire the read-only attestation
 
-- [ ] 4.1 Add `unverified` to the safety classification set, label MCP executors with it, and admit MCP candidates by allowlisted source rather than `read_only` (design D10). Verify with tests for the tool-calling scenarios in this change: an allowlisted write-capable MCP tool with an allowing permission group executes, one without a permission group is rejected, and code-owned tools keep today's gate.
-- [ ] 4.2 Drop the configured-server lookup from `tools.allowed` MCP validation while keeping the grammar and 64-character bound. Verify with config-loader tests that `mcp__unconfigured__*` boots and a malformed MCP entry still fails startup naming the path.
-- [ ] 4.3 Remove the read-only attestation from `SPEC.md`, the write-capable MCP deferral in `VISION.md`, and `docs/mcp-tools.md`, adding a migration note that operators must add permission rejects for mutating MCP tools; add a dated **BREAKING** `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+- [ ] 4.1 Add `unverified` to the safety classification set, label MCP executors with it, and
+      admit MCP candidates by allowlisted source rather than `read_only` (design D10). Update every
+      read-only gate: `groupEligibleTurnToolCandidates` in `tools/turn-tool-catalog.ts`,
+      `resolveDynamicToolBinding` in `runs/snapshot-tool-execution.ts:164`, the
+      `isClassifiedTool`/`resolveAdvertisedTools` closed list in `tools/registry.ts:36-44,125`,
+      and unavailable MCP entries in `mcp-runtime.service.ts:199`. Verify an allowlisted
+      write-capable MCP tool with an allowing permission group executes, one without a permission
+      group is rejected, unavailable entries retain no stale executor, and code-owned tools keep
+      today's host-capability gate.
+- [ ] 4.2 Drop the configured-server lookup from `tools.allowed` MCP validation while keeping
+      the grammar and 64-character bound. Verify with config-loader tests that
+      `mcp__unconfigured__*` boots, a malformed MCP entry still fails startup naming the path, and
+      the canonical `no_allow` path remains a permission decision rather than a fabricated tool.
+- [ ] 4.3 Update `SPEC.md` §13.5 to include `unverified`; update the canonical `mcp-tools` Purpose
+      from explicitly enabled read-only tools to allowlisted tools authorized by permissions; update
+      the `tool-calling` egress scenarios ("No external network egress from tools" and the explicit
+      external-tool exception) to name Workspace MCP servers as an operator-permitted path; remove
+      the read-only attestation and write-capable MCP deferral from `VISION.md` and
+      `docs/mcp-tools.md`, adding the operator migration note and a dated **BREAKING**
+      `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
 - [ ] 4.4 Run the API checks from 1.9 for this layer and record them in the PR body.
-- [ ] 4.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun affected checks before marking ready.
-- [ ] 4.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before adding the `workspace-mcp` layer.
+- [ ] 4.5 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+      affected checks before marking ready.
+- [ ] 4.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+      and zero actionable unresolved feedback before adding the `mid-run-tools` layer.
 
-## 5. `workspace-entry/workspace-mcp`: mid-Run tools and Workspace MCP
+## 5. `workspace-entry/mid-run-tools`: SDK handle, records, and receipts
 
-- [ ] 5.1 Pin the installed `ai` behavior with a regression test: a key added to the bound tool record during a step is declared on the next step and executable (design D9). Verify it fails when the addition is removed.
-- [ ] 5.2 Admit and insert tool declarations during a Run, remove them on exit or switch, and record each addition in a new owner-scoped `runs.added_tool_declarations` column with a generated migration (design D9). Verify with tests for the tool-calling mid-Run scenarios: callable on the next step, a removed id refused as unavailable, the step cap still applying, the record written in the terminal transaction, and a non-owner unable to read it.
-- [ ] 5.3 Add the per-Chat `WorkspaceMcpClients` provider: config merge, portable entry shape, interpolation with protected values, root `cwd` defaults, start on entry or attempt start, stop on exit, switch, detach, shutdown, and 30-minute idle, and shadowing only after a successful start (design D8). Verify against the stdio fixture for each mcp-tools Workspace scenario: merge precedence, `${VAR:-default}`, redaction of a resolved value, an unsupported transport reported without failing entry, a failed server not shadowing, and Chat B never receiving Chat A's tools.
-- [ ] 5.4 Report each Workspace server's state in the `enter_workspace` result and include the Chat's Workspace tools in the next Run's catalog so `tool-availability` announces them. Verify with a worker integration test that enters, calls a Workspace MCP tool in the same Run, and sees it available from the start of the next Run.
-- [ ] 5.5 Show tools added during a Run as a row in the owner's receipt view. Verify with a component test and a story; run the Storybook story tests and return preview URLs.
-- [ ] 5.6 Document Workspace MCP config, interpolation, lifetime, shadowing, and the audited-repository assumption in `docs/mcp-tools.md`; add a dated `CHANGELOG.md` entry. Run the API checks from 1.9 and the web checks from 2.3 for this layer and record them in the PR body, which uses `Closes #974`.
-- [ ] 5.7 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun affected checks before marking ready.
-- [ ] 5.8 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI and zero actionable unresolved feedback before creating `finalize`.
+- [ ] 5.1 Pin the installed `ai` behavior with a regression test: the exact key added to the
+      mutable object assigned to `streamOptions.tools` during a step is declared on the next step
+      and executable there, together with the bound-executable map used at execution (design D9).
+      Verify the test fails when the addition is removed or when the SDK stops re-reading the record.
+- [ ] 5.2 Admit and insert Workspace declarations during a Run through the same source,
+      allowlist, classification, and schema gates. Retain declaration keys on exit, switch, and
+      detach while marking their executors unavailable; later calls receive a non-fatal unavailable
+      refusal. Record each addition immediately in a new owner-scoped
+      `runs.added_tool_declarations` column with a generated migration, fenced by the attempt, as
+      `{ id, source: 'workspace-mcp', server, step }` and with no declaration hash (design D9).
+      Verify next-step callability, a removed id refused as unavailable, the step cap still applying,
+      addition-time persistence rather than terminal-only persistence, and a non-owner unable to
+      read the record.
+- [ ] 5.3 Modify the `model-system-prompts` contract and carry its MODIFIED delta for trusted
+      Workspace additions: carve them out of the fixed admitted-declaration rule while persisting no
+      schemas, descriptions, or hashes. Expose an owner-only receipt/API view listing added ids,
+      source/server, and step; exclude the record from shares, exports, and search. Verify the
+      receipt contains no declaration hash and no model-facing tool definition.
+- [ ] 5.4 Show tools added during a Run as a row in the owner's receipt view. Verify with a
+      component test and a story; run the Storybook story tests and return preview URLs.
+- [ ] 5.5 Add a dated `CHANGELOG.md` entry. Run the API checks from 1.9 and the web checks from
+      2.3 for this layer, plus the focused SDK and owner-isolation tests, and record the commands in
+      the PR body.
+- [ ] 5.6 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+      affected checks before marking ready.
+- [ ] 5.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+      and zero actionable unresolved feedback before adding the `workspace-mcp` layer.
 
-## 6. `workspace-entry/finalize`: spec sync and archive
+## 6. `workspace-entry/workspace-mcp`: clients, config, and lifecycle
 
-- [ ] 6.1 After every implementation layer is published, verified, and checked, create only the finalize layer with `$gh-stack`, then run `$openspec-sync-specs`. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; this layer contains no application fix and no shipping record.
-- [ ] 6.2 Inspect `pnpm exec openspec status --change workspace-entry --json` and this task list; stop if an artifact or earlier task is incomplete. Complete this task as part of `$openspec-archive-change`, preserving checked history, and verify strict specs/all validation, Markdown lint, formatting, and `git diff --check` on the archived result.
+- [ ] 6.1 Add the per-Chat Workspace MCP client provider keyed by `(chatId, canonical root,
+workspace_generation)`. Implement `.llame/mcp.json` over `.mcp.json` merge, portable entry
+      shapes, start on entry or attempt start, stop on exit/switch/detach/shutdown, stale-key
+      cleanup at attempt start, and 30-minute idle cleanup. Verify Chat A's clients and tools never
+      reach Chat B or another owner, and that another process discards stale clients before using a
+      current binding.
+- [ ] 6.2 Implement `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` interpolation from
+      the executing process's environment and filesystem, including llame's own environment; resolve
+      relative `{path:…}` from the Workspace root; make unresolved values unavailable with a safe
+      diagnostic; never re-scan resolved values or shell-interpret commands/args. Protect resolved
+      values except `:-default` literals and literal `env`/`headers` values for that server's
+      traffic, diagnostics, entry result, and receipts. Verify merge precedence, defaults,
+      redaction, relative paths, unreadable files, and the accepted audited-repository boundary.
+- [ ] 6.3 Implement deferred shadowing: compare Workspace and operator server ids under ASCII
+      case-folding; when operator tools are already declared in the running attempt, report
+      `shadows from the next Run`, retain operator executors for that Run, and shadow from the next
+      Run after a successful Workspace start. A case-fold collision shadows rather than refusing the
+      operator tools, while a failed Workspace server does not shadow. Verify the case-fold shadowing
+      scenario and next-Run transition.
+- [ ] 6.4 Report every Workspace server's state in the `enter_workspace` result and compose the
+      Chat's currently admitted Workspace tools from the start of the next Run so
+      `tool-availability` announces them. Verify malformed files and unsupported transports leave
+      entry successful, failed servers are unavailable, a Workspace tool is callable in the entering
+      Run when it does not defer to an existing operator declaration, and the next Run starts the
+      generation-matching client set.
+- [ ] 6.5 Update `SPEC.md:132` to document per-process MCP clients plus per-Chat Workspace MCP
+      clients. Document Workspace MCP config, interpolation, lifetime, generation keying, deferred
+      case-fold shadowing, and the audited-repository assumption in `docs/mcp-tools.md`; add a dated
+      `CHANGELOG.md` entry. Run the API checks from 1.9 and web checks from 2.3 for this layer and
+      record them in the PR body, which uses `Closes #974`.
+- [ ] 6.6 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+      affected checks before marking ready.
+- [ ] 6.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+      and zero actionable unresolved feedback before creating `finalize`.
+
+## 7. `workspace-entry/finalize`: spec sync and archive
+
+- [ ] 7.1 After every implementation layer is published, verified, and checked, create only the
+      finalize layer with `$gh-stack`, then run `$openspec-sync-specs`. Verify
+      `pnpm exec openspec validate --specs --strict` and
+      `pnpm exec openspec validate --all --strict`; this layer contains no application fix and no
+      shipping record.
+- [ ] 7.2 Inspect `pnpm exec openspec status --change workspace-entry --json` and this task list;
+      stop if an artifact or earlier task is incomplete. Complete this task as part of
+      `$openspec-archive-change`, preserving checked history, and verify strict specs/all validation,
+      Markdown lint, formatting, and `git diff --check` on the archived result.
 
 After archive movement, the finalize PR's self-review and GitHub review loop run as post-archive gates; they are not checklist prerequisites of the archive.

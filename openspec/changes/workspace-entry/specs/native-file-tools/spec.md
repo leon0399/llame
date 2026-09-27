@@ -7,22 +7,29 @@ and execute them with the trusted host process's OS authority in this alpha
 capability, and SHALL accept `kb://` locators under the Knowledge locator
 requirement. When a Workspace is entered, `read`, `edit`, and `write` SHALL
 also accept relative local paths and resolve them from the Workspace root using
-normal path-resolution semantics; `..` MAY resolve outside that root. Without
-an entered Workspace, a relative local path SHALL be refused with the existing
-`invalid_path` error. Locator-scheme routing SHALL happen before local path
-resolution, so `kb://`, `skill://`, `http://`, and `https://` locators remain
-under their scheme-specific authority and are not projected from the Workspace
-root. A
-selector SHALL remain associated with the path part and apply to the target
-resolved from that path. Results for Workspace-projected local paths SHALL
-identify the projected absolute path actually used. `read` SHALL additionally
-accept read-only skill locators under the Skill locator requirement and
-read-only web locators under the Web locator requirements. The scheme of the
-`path` argument SHALL select the authority; no other argument or persisted
-declaration field SHALL. A web locator SHALL be fetched by the API process's
-own outbound HTTP and SHALL NOT require or bind a native executor identity.
-`edit` and `write` SHALL operate only on regular files, and both SHALL reject
-an `http://` or `https://` locator with `invalid_path` before any request.
+lexical path resolution like POSIX `path.posix.resolve`, preserving a trailing
+separator; the executor SHALL receive exactly the projected absolute string,
+including that trailing separator. Projection SHALL NOT perform realpath
+resolution; symlinks inside the projected path SHALL be followed by the OS as
+for any absolute path. For this requirement, "relative" means a path not
+starting with `/` and without a `scheme:` prefix recognized by the shared
+locator parser (case-insensitive `scheme://`). An unknown scheme SHALL remain
+`invalid_path` rather than being treated as a local path. `..` MAY resolve
+outside that root. Without an entered Workspace, a relative local path SHALL be
+refused with the existing `invalid_path` error. Locator-scheme routing SHALL
+happen before local path resolution, so `kb://`, `skill://`, `http://`, and
+`https://` locators remain under their scheme-specific authority and are not
+projected from the Workspace root. A selector SHALL remain associated with the
+path part and apply to the target resolved from that path. Results for
+Workspace-projected local paths SHALL identify the projected absolute path
+actually used. `read` SHALL additionally accept read-only skill locators under
+the Skill locator requirement and read-only web locators under the Web locator
+requirements. The scheme of the `path` argument SHALL select the authority; no
+other argument or persisted declaration field SHALL. A web locator SHALL be
+fetched by the API process's own outbound HTTP and SHALL NOT require or bind a
+native executor identity. `edit` and `write` SHALL operate only on regular
+files, and both SHALL reject an `http://` or `https://` locator with
+`invalid_path` before any request.
 `read` SHALL operate on regular files and directories, and a web locator SHALL
 be governed by the Web locator requirements instead of by entry kind; every
 other entry kind SHALL fail. A `read` that misses a regular file SHALL offer
@@ -129,11 +136,72 @@ there.
 - **THEN** the host reads `/work/shared/data.json`
 - **AND** the result identifies `/work/shared/data.json` as the path used without treating the Workspace root as a confinement boundary
 
+#### Scenario: Workspace projection preserves a trailing separator
+
+- **WHEN** the model reads `app.ts/` with a Workspace entered at `/work/project`
+- **THEN** lexical projection passes `/work/project/app.ts/` exactly to the host
+- **AND** the regular-file target returns `not_found` without being read
+
+#### Scenario: Unknown scheme is invalid
+
+- **WHEN** the model calls `read` with `vault://notes/a.md` while a Workspace is entered
+- **THEN** the tool returns `invalid_path`
+- **AND** it does not treat the unknown-scheme value as a relative local path or probe a file
+
 #### Scenario: Relative local paths are refused without a Workspace
 
 - **WHEN** no Workspace is entered and `read`, `edit`, or `write` receives a relative local path
 - **THEN** the tool returns the existing `invalid_path` error
 - **AND** it does not read, create, or modify a local entry
+
+### Requirement: Skill locators provide live read-only package access
+
+`read` SHALL accept `skill://<name>[:selector]` for a package's `SKILL.md`, `skill://<name>/<path>[:selector]` for supporting files, `skill://<name>/` for its directory, and `skill://` for the current bounded catalog. The catalog form SHALL support pagination through native directory range selectors. Skill names SHALL follow the Agent Skills name grammar. Resource segments SHALL follow the Knowledge locator's once-only decoding, selector separation, size/depth, and traversal validation rules. Native directory/read/range/raw/truncation behavior SHALL apply except for the explicit catalog representation. `edit` and `write` SHALL reject skill locators as unsupported operations without effects.
+
+The resolver SHALL re-evaluate the current winning package on each call through the catalog port. It SHALL take the current turn's explicit selection set as a parameter: a manual-only package's body or resource read SHALL return a bounded structured refusal naming explicit selection unless that set contains the package, and the catalog listing SHALL omit manual-only packages not in that set. The Run supplies the set derived from its triggering user message to every skill read it performs, model-initiated reads included; a caller with no turn context supplies an empty set. Symbolic links beneath a source or inside a package follow ordinary operating-system semantics as `agent-skills` specifies; the resolver SHALL NOT resolve, verify, or contain them for access. Missing/invalid packages, unsupported operations, and invalid resource paths SHALL return bounded structured errors. The resolver SHALL NOT read special files.
+
+When a Workspace is entered, the resolver SHALL include live skill sources discovered beneath `<root>/.llame/skills`, `<root>/.agents/skills`, and `<root>/.claude/skills`. A missing, unreadable, non-directory, or over-limit Workspace skill directory SHALL contribute nothing and SHALL NOT make the operator catalog or discovery unavailable; Workspace sources SHALL NOT count toward the operator 32-source bound.
+
+Results SHALL carry the logical locator, selected source, absolute `resolvedPath`, and absolute `skillDirectory`, both as discovered beneath the configured source rather than resolved real paths. These paths and an instruction to resolve package-relative references/script paths into absolute paths using `skillDirectory` SHALL be present in model-facing output as well as owner metadata. That instruction SHALL distinguish task-relative inputs and explicit `cwd` from package-relative paths; the tool SHALL NOT rewrite commands. The result bound SHALL reserve space for this envelope before truncating resource content; if the envelope cannot fit, the read SHALL fail with a bounded error. This publication exception SHALL apply to operator and Workspace skill paths, not Knowledge paths. For Workspace sources, publication of `skillDirectory` and `resolvedPath` SHALL use the absolute paths discovered beneath `<root>/.llame/skills`, `<root>/.agents/skills`, or `<root>/.claude/skills`, rather than resolved real paths. Ordinary permission admission SHALL match a pure canonical projection of the submitted skill locator before any resource open: decode resource segments once, validate and re-encode through the shared locator grammar, and omit read selectors. It SHALL never substitute a physical path. Existing configured/default read rules SHALL apply to that projection, including credential-path rejects; no skill-specific permission bypass or duplicate deny list SHALL be introduced.
+
+#### Scenario: Skill resource exposes the execution base
+
+- **WHEN** the model reads `skill://pdf/scripts/extract.py`
+- **THEN** the result includes the current script content and model-visible file and package paths as discovered beneath the configured source, plus the real package directory
+- **AND** no script executes during the read
+
+#### Scenario: Skill root and directory differ
+
+- **WHEN** the model reads `skill://pdf` and then `skill://pdf/`
+- **THEN** the first reads `SKILL.md` and the second lists the package directory
+
+#### Scenario: Raw root read returns the instructions verbatim
+
+- **WHEN** the model reads `skill://pdf:raw`
+- **THEN** the result carries the current `SKILL.md` bytes without line-number prefixes
+- **AND** the skill result envelope with `skillDirectory` and `resolvedPath` is still present
+
+#### Scenario: Manual-only package is not selected this turn
+
+- **WHEN** a read targets `skill://review` and `review` is manual-only and absent from the turn's selection set
+- **THEN** the read returns a bounded refusal naming explicit selection without opening the file
+- **AND** `skill://` does not list `review`
+
+#### Scenario: Special-file resource link fails
+
+- **WHEN** a resource symlink resolves to a special file rather than a regular file or directory
+- **THEN** the read fails `not_regular_file` without opening the target, because the followed target's kind is checked before any open
+
+#### Scenario: Mutation is unsupported
+
+- **WHEN** an edit or write targets `skill://pdf/SKILL.md`
+- **THEN** it returns an unsupported-operation error without a mutation attempt or filesystem effect
+
+#### Scenario: Workspace skill source publishes discovered paths
+
+- **WHEN** the model reads `skill://pdf/scripts/extract.py` from a package discovered under `/work/project/.llame/skills/pdf` with a Workspace entered at `/work/project`
+- **THEN** the result includes the script content and model-visible `resolvedPath` and `skillDirectory` as absolute paths discovered beneath the Workspace source, plus the real package directory
+- **AND** no script executes during the read
 
 ### Requirement: Exact edit replaces one current unique match
 

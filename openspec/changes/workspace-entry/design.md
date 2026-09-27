@@ -46,162 +46,294 @@ sharing MCP clients between Chats.
 
 ### D1. The binding lives on the Chat row
 
-Add nullable `workspace_root` (canonical absolute path), `workspace_executor_id`, and
-`workspace_told` (the root last narrated to the model, or null) to `chats`, beside the existing
-baseline columns and under the same owner RLS. A Chat has at most one binding, so a separate
-table would add a join and a lifecycle for no gain. Forks copy the root and executor id but not
-`workspace_told`: a fork anchored before the entry has no narration in its copied prefix, so its
-first turn narrates the current Workspace. Alternative rejected: a binding keyed per branch. llame has no branch
-objects; a fork already is the branch.
+Add nullable `workspace_root` (canonical absolute path) and `workspace_executor_id`, integer
+`workspace_generation`, nullable `workspace_told` (the root last narrated to the model, or null),
+and nullable `workspace_detach_reason` (one of `executor_mismatch`, `executor_absent`,
+`root_missing`, `root_moved`, `permission_rejected`, or `tool_not_allowed`) to `chats`, beside
+the existing baseline columns and under the same owner RLS. `workspace_generation` increments on
+every binding change (enter, switch, exit of a bound Chat, detach); a same-root re-entry leaves it
+unchanged. A Chat has at most one binding, so a separate table would
+add a join and a lifecycle for no gain.
+
+Owner forks copy the canonical root, executor id, and generation as an explicit exception to the
+general fork rule copying no worker or native-effect state. They do not copy `workspace_told` or
+`workspace_detach_reason`: a fork anchored before entry has no narration in its copied prefix, and
+a detach reason belongs only to the attempt that observed it. The fork's first turn therefore
+narrates a copied binding, while a detached source remains unbound. Visitor forks and public
+share projections copy no Workspace binding and disclose no root; the binding is explicitly part
+of the shared-path exclusion list. The owner's Chat API exposes the canonical root or null, while
+a non-owner receives 404.
+Alternative rejected: a binding keyed per branch. llame has no branch objects; a fork already is
+the branch.
 
 ### D2. Entry and exit are code-owned host-capability tools
 
 `enter_workspace` and `exit_workspace` join the native file tools and `bash` in
 `isHostCapabilityTool`, require `tools.nativeExecutorId`, their own `tools.allowed` entries, and
-their own `tools.permissions` groups. `enter_workspace` accepts `{ path }` (absolute) and:
+their own `tools.permissions` groups. `enter_workspace` is classified `execute_code` because it
+can start host processes; `exit_workspace` is `write_low_risk`. Neither records
+`native.attempt`. Both bind `runs.worker_id` through the existing native-executor binding used by
+other host tools and are idempotent over Chat state, so a queue retry after a committed binding
+re-runs to the same final state. An authorized exit on an unbound Chat is a harmless success.
 
-1. rejects a non-absolute or NUL-containing path as `invalid_path`;
-2. resolves `realpath` and requires a directory;
-3. evaluates permissions over both the submitted and the canonical path; any reject vetoes;
-4. if already entered, performs the exit steps for the old binding (D7, D8);
-5. writes the binding in its own owner-scoped transaction fenced by `nativeDeliverySequence`,
-   the fence native mutations already use, so a superseded attempt cannot write it;
-6. discovers Workspace skills and starts Workspace MCP clients, adding their declarations to the
-   running attempt (D9);
-7. returns the canonical root, a host-authority statement, the Workspace skill list, and each
+`enter_workspace` accepts `{ path }` (absolute) and follows this order:
+
+1. reject a non-absolute or NUL-containing path as `invalid_path`;
+2. evaluate the `enter_workspace` permission group on the submitted absolute path, before any
+   filesystem probe; this decision must obtain an allow and must not match a reject;
+3. canonicalize with `realpath` and require an existing directory;
+4. evaluate the same permission group on the canonical path; this decision must independently
+   obtain an allow and must not match a reject, and its policy provenance is recorded like a
+   derived-locator decision;
+5. if the canonical root equals the current binding, return the current state as a no-op
+   success without restarting clients or re-reading configuration;
+6. otherwise perform a fenced compare-and-set switch or initial bind in one owner-scoped
+   transaction, checking the current delivery before any effect; stop old clients only after the
+   new binding commits;
+7. discover Workspace skills and start Workspace MCP clients, adding admitted declarations to
+   the running attempt (D7-D9);
+8. return the canonical root, a host-authority statement, the Workspace skill list, and each
    Workspace server's state.
 
-The binding is written before skills and MCP start, so a server that fails to start never
-leaves the Chat half-entered. `exit_workspace` clears the binding and stops the clients. It
-evaluates its own permission group like any call; the operator can therefore lock exit out,
-which Leo accepted.
+The binding is written before skills and MCP start, so a server that fails to start never leaves
+the Chat half-entered. `exit_workspace` clears the binding and stops clients. A denied call has
+no effect; the operator can lock exit out with its own permission group, while preparation still
+detaches on the causes in D4. The recommended entry group retains F1-F3 protected-path rejects.
 
-### D3. One projection function for execution and permission evaluation
+### D3. One lexical projection function for execution and permission evaluation
 
-A pure `resolveWorkspacePath(root, value)` turns a relative value into
-`path.resolve(root, value)`; `..` may leave the root. It feeds both the executor arguments and
-`evaluateToolPermission`. For `read`, `edit`, `write` `path` and `bash` `cwd`, the value
-evaluated is the projected absolute path; the submitted relative text is not matched. A `bash`
-call without `cwd` is evaluated as if `cwd: <root>` had been submitted. Absolute values and
-`kb://`, `skill://`, and web locators pass through unchanged. With no binding, a relative
-`path` stays `invalid_path`, and bash without `cwd` keeps its process default. The shell
-`command` text is still matched only as text, as today.
+A pure `resolveWorkspacePath(root, value)` resolves a relative value lexically like POSIX
+`path.posix.resolve`, while preserving a submitted trailing separator. It never calls `realpath`.
+The executor receives exactly the projected absolute string; symlinks inside that string are
+followed by the operating system as for any absolute path. `..` may leave the root.
 
-Alternative rejected: evaluating both the submitted and the projected text. A reject literal
-`..` would then block every relative escape, including targets the policy allows.
+For this rule, "relative" means a value that does not start with `/` and does not have a
+`scheme:` prefix recognized by the shared locator parser (the `scheme://` comparison is
+case-insensitive). Recognized locator schemes pass through unchanged, while an unknown scheme
+remains `invalid_path`; a value such as `app.ts/` projects to an absolute path that still ends
+in `/`. The same projection feeds `read`, `edit`, `write` `path` values and `bash` `cwd` values
+into both execution and `evaluateToolPermission`. A `bash` call without `cwd` is evaluated as if
+the Workspace root had been submitted. The submitted relative text is not matched.
+
+Absolute values and `kb://`, `skill://`, and web locators pass through unchanged. With no
+binding, a relative native-file path stays `invalid_path`, and bash without `cwd` keeps its
+process default. The shell `command` text is still matched only as text, as today.
+
+Alternative rejected: evaluating both the submitted and projected text. A reject literal `..`
+would then block every relative escape, including targets the policy allows.
 
 ### D4. Re-check at each attempt's preparation
 
-Accepted-turn preparation reads the binding and detaches when any of these holds: this worker
-has no `nativeExecutorId`, or its id differs from `workspace_executor_id`; the root is no longer
-an existing directory; or `enter_workspace` permission now rejects the stored root. Detach
-clears the binding in the same staged terminal transaction as the other chat-row state and stages
-a `workspace` notice (D6) on the triggering user message. A detached binding is never restored.
-A retried attempt repeats the check against current state.
+Accepted-turn preparation re-checks the binding before resolving effective Workspace skill
+sources, `$skill` activation, Workspace MCP clients or catalog entries, or the `workspace`
+producer. When a check fails, it immediately detaches in its own owner-scoped transaction,
+fenced by the Run's current delivery, rather than waiting for the completed-only terminal
+transaction. The transaction clears the binding, increments `workspace_generation`, and stores
+the closed `workspace_detach_reason`; the attempt carries no Workspace skills or tools and
+narrates the detach.
 
-### D5. Tool context carries the root, not the binding
+The causes are exhaustive and never restore the binding:
 
-`ToolContext` gains `workspaceRoot?: string`, set from the re-checked binding at Run start and
-updated in memory by `enter_workspace` / `exit_workspace` for later steps of the same attempt.
-Tools read it only through D3.
+- the executing worker has no native executor (`executor_absent`) or a different executor id
+  (`executor_mismatch`);
+- `realpath(workspace_root)` no longer equals the stored canonical root
+  (`root_moved`), or the root is missing or not a directory (`root_missing`);
+- the current `enter_workspace` permission group does not both allow the stored root and avoid
+  every reject (`permission_rejected`);
+- `enter_workspace` is no longer in `tools.allowed` (`tool_not_allowed`).
 
-### D6. Narration uses a told-state producer
+The `workspace` producer consumes the stored reason for its detach notice and clears the reason
+when the narration's Run completes. A retry after an attempt detached and then failed therefore
+still finds the Chat unbound even if executor, directory, and permission checks would now pass;
+only a new successful `enter_workspace` can bind it again.
 
-A new `workspace` context-item producer compares the binding with `workspace_told` at each
-accepted turn. When they differ it emits a `notice` naming the current root, or that none is
-entered, together with the host-authority statement, and stages `workspace_told` for update.
-This is rule-3 residency from `context-injection`: current state that can change more often
-than compaction, narrated as a rail item. A newly active compaction resets `workspace_told` to
-null, so the next turn re-establishes a bound Chat's Workspace; a Chat with no root and nothing
-narrated gets no notice. Detach adds its reason to the same item. Inside a Run, the enter and
-exit tool results carry the narration. The system prompt is never involved.
+### D5. Tool context carries the root through an attempt-scoped cell
+
+The working root lives in an attempt-scoped mutable cell read by the runner and permission
+evaluator at dispatch. `ToolContext` is spread-copied for each call, so mutating a field on one
+copy does not propagate. `enter_workspace` and `exit_workspace` update the cell only for later
+model steps: a binding change made by a tool call takes effect from the next model step.
+Tool calls issued in the same step as an `enter_workspace` or `exit_workspace` call are
+projected from the root committed before that step began, including a same-step `read("f")`.
+The cell is initialized only from the binding that passed D4.
+
+### D6. Narration uses snapshot and notice rail items
+
+A new `workspace` context-item producer compares the current binding with `workspace_told` at
+each accepted turn. A small complete current-state statement is rail-only: when the root differs
+it emits a `snapshot` naming the canonical root, or stating that none is entered, together with
+the host-authority statement, and stages `workspace_told` for update. This current-state
+snapshot may be re-emitted after compaction because its repetition is cheaper than putting the
+baseline in the prefix.
+
+When preparation detached the binding, the detach reason is a separate `notice` in the same
+turn, consumed from `workspace_detach_reason`; it is not folded into the root snapshot. The
+reason is cleared when that narration's Run completes. A newly active compaction resets
+`workspace_told` to null, so the next turn re-establishes a bound Chat's Workspace. A Chat with
+no root and no pending detach reason that has never narrated a Workspace gets no item. Inside a
+Run, enter and exit tool results carry the immediate state narration. The system prompt is never
+involved.
 
 ### D7. Workspace skills are extra sources for one Chat
 
 `SkillCatalog.getSnapshot(extraSources?)` accepts ordered extra sources, ranked last so they
-override configured sources by name. For a bound Chat those are
-`<root>/.claude/skills`, `<root>/.agents/skills`, `<root>/.llame/skills`, lowest first, so
-`.llame` wins. `skill://` resolution, the turn skill state, and explicit `$skill` activation pass
-the Chat's extra sources. Because discovery is already live, no cache is invalidated. The told
-set is keyed by name, so a Workspace skill that shadows an operator skill of the same name is
-not announced as new; the activation output already shows the absolute directory, which reveals
-the source.
+override configured sources by name. For a bound Chat these are
+`<root>/.claude/skills`, `<root>/.agents/skills`, and `<root>/.llame/skills`, lowest first, so
+`.llame` wins. The Chat's effective skill sources feed `skill://` resolution, the turn skill
+state, and explicit `$skill` activation.
+
+A missing, unreadable, non-directory, or over-limit Workspace skill directory contributes
+nothing and never makes the operator catalog or discovery unavailable. Workspace sources do not
+count toward the operator 32-source bound. Native-file-tools skill locators continue to provide
+live read-only package access and publish resolved Workspace skill directories discovered beneath
+those three root-relative locations.
+Because discovery is live, no process-wide cache is invalidated. The told set is keyed by name,
+so a Workspace skill that shadows an operator skill is not announced as new; activation output
+already shows its absolute directory, which reveals the source.
 
 ### D8. Workspace MCP clients are owned per Chat in the executing process
 
-A new `WorkspaceMcpClients` provider keeps a map `chatId -> clients` in the worker process that
-executes the Run. On entry, or when an attempt starts for a bound Chat whose clients are not
-running in this process, it reads `.llame/mcp.json` merged over `.mcp.json` by server name.
-Entries use the portable shape: a missing `type` with `command` means `stdio`, and
-`http`/`streamable-http` mean remote. It interpolates `${VAR}`, `${VAR:-default}`, `{env:…}`,
-and `{path:…}`, with every resolved value added to the protected-value set. A stdio child
-defaults its `cwd` to the root and resolves a relative `cwd` from it. Clients reuse the existing
-client, discovery, admission, and bounds code. Clients stop on exit, switch, detach, process
-shutdown, and after 30 minutes with no Run on the Chat in this process; the next Run starts them
-again. A malformed file, an invalid server name, or an unsupported transport leaves entry
-successful and is reported as that server's unavailable state.
+A `WorkspaceMcpClients` provider keeps process-local clients keyed by
+`(chatId, canonical root, workspace_generation)`. On entry, or when an attempt starts for a
+bound Chat whose matching key is not running in this process, it reads `.llame/mcp.json` merged
+over `.mcp.json` by server name. At every attempt start it stops any clients held for that Chat
+whose key does not match the current binding, then starts the matching key. Exit, switch, and
+detach stop clients in the executing process; other processes discard stale clients at their
+next attempt for that Chat or at the 30-minute idle timeout.
 
-Shadowing: when a Workspace server has started and its id equals an operator server id, the
-Chat's candidates drop the operator server's tools and use the Workspace server's under the same
-`mcp__<server>__<tool>` ids and the same exact-id permission groups. A Workspace server that
-failed to start does not shadow.
+Entries use the portable shape: a missing `type` with `command` means `stdio`, and `http` or
+`streamable-http` means remote. `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` resolve
+from the executing process's environment and filesystem, including llame's own process
+environment. A relative `{path:LOCATION}` resolves from the Workspace root. An unresolvable
+token (an unset variable without a default or an unreadable file) makes that server unavailable
+with a diagnostic naming the variable or file location, never its value. Resolved values are not
+re-scanned, and commands and arguments are never shell-interpreted.
+
+Resolved interpolation values, except `:-default` literals, and literal values in `env` and
+`headers` entries are added to that server's protected-value set. Redaction is guaranteed for
+that server's traffic, diagnostics, entry result, and receipts; another tool that independently
+reads the same source is outside this guarantee. A stdio child defaults its `cwd` to the root
+and resolves a relative `cwd` from it. Clients reuse the existing client, discovery, admission,
+and bounds code. A malformed file, invalid server name, or unsupported transport leaves entry
+successful and reports that server as unavailable.
 
 Alternative rejected: one shared client per root and server. Servers such as Playwright keep
 per-session state, which would then leak between Chats.
 
 ### D9. Tools added mid-Run extend the bound tool record in place
 
-A bounded spike against installed `ai@6.0.256` with `MockLanguageModelV3` showed that adding a
-key to the tool record passed to `streamText` from inside a tool's `execute` makes the tool
-declared on the next step and executable on it. `prepareStep` cannot return new tools, but
-`streamText` re-reads the record for each step. Entry therefore admits Workspace declarations
-through the same allowlist, classification, and schema admission as attempt composition and
-inserts them into the attempt's record. A pinned regression test guards the SDK behavior. A
-`prepareStep` `activeTools` restriction, such as the step cap, still applies. Exit and switch
-remove their keys, and a call to a removed id is refused as unavailable.
+The mutable handle is the exact tool object assigned to `streamOptions.tools` by the wire client
+(each wire copies `input.tools` through `disableStrictToolSchemas`), together with the
+bound-executable map used at execution (`resolveBoundExecutableTools` /
+`snapshot-tool-execution.ts`). A bounded spike against installed `ai@6.0.256` showed that adding
+a key from inside a tool's `execute` makes the declaration visible on the next step and
+executable there; `prepareStep` cannot return new tools but `streamText` re-reads the record for
+each step. A pinned regression test guards this behavior, while `prepareStep` restrictions such
+as the step cap still apply.
 
-Each addition is appended to a new owner-scoped `runs.added_tool_declarations` JSONB array:
-`{ id, source: 'workspace-mcp', server, step, declarationHash }`, written in the Run's terminal
-transaction. The owner receipt view lists them as tools added during the Run. The next Run's
-catalog includes the Chat's Workspace tools from its start, so the existing `tool-availability`
-producer announces them normally.
+Entry admits Workspace declarations through the same source, allowlist, classification, and
+schema checks as attempt composition and inserts them into that handle and executable map.
+Declarations are never removed as keys: on exit, switch, or detach their executors become
+unavailable while the attempt-local declarations remain, and later calls to those ids are
+refused as unavailable. This matches the canonical rule that a dynamic tool which loses its
+executor retains its declaration with an unavailable executor.
 
-Alternative rejected: ending the stream after entry and starting a continuation with a new tool
-set. That reopens usage aggregation, step counting, and the step cap.
+Shadowing is deferred for declarations already present in a running attempt. If an entering
+Workspace server's id ASCII-case-folds to an operator server whose tools are already declared,
+the Workspace server contributes no tools in this Run and the entry result says it \"shadows from
+the next Run\"; operator tools retain their executors for the rest of the Run. From the next Run,
+the successfully started Workspace server shadows the operator server under the same ids and
+permission groups. A Workspace server that failed to start does not shadow. A Workspace id that
+case-fold-collides with an operator id shadows it; it never causes a collision refusal of the
+operator tools.
+
+Each addition appends an owner-scoped `runs.added_tool_declarations` entry
+`{ id, source: 'workspace-mcp', server, step }` in an owner-scoped transaction fenced by the
+attempt at the moment the addition happens, not only in the terminal transaction. There is no
+declaration hash: `model-system-prompts` forbids persisting hashes. The owner receipt may list
+added tool ids, but never schemas, descriptions, or hashes; shares, exports, and search do not
+expose the record. Its model-system-prompts rule therefore carves out trusted Workspace
+additions from the otherwise fixed admitted-declaration set for that attempt.
+
+The next Run's catalog includes currently admitted Workspace declarations from its start, so
+the existing `tool-availability` producer announces them normally. Alternative rejected:
+ending the stream after entry and starting a continuation with a new tool set, which reopens
+usage aggregation, step counting, and the step cap.
 
 ### D10. MCP classification and eligibility
 
-MCP executors carry a new SPEC §13.5 member, `unverified`: llame makes no claim about their
-effects. `groupEligibleTurnToolCandidates` admits MCP candidates by source (allowlisted MCP id),
-no longer by `read_only`. Code-owned tools keep today's gate. `tools.allowed` validation keeps
-the `mcp-tool-id-v1` grammar and the 64-character bound but drops the configured-server lookup,
-so `mcp__playwright__*` is valid before any Playwright server exists. A typo is no longer caught
-at startup; it is visible in the availability disclosure.
+MCP executors carry `unverified` in SPEC §13.5: llame makes no claim about their effects.
+`groupEligibleTurnToolCandidates` in `tools/turn-tool-catalog.ts` admits MCP candidates by
+source (an allowlisted MCP id), not by `read_only`. The same source-based gate is applied by
+`resolveDynamicToolBinding` in `runs/snapshot-tool-execution.ts:164`, by the
+`isClassifiedTool`/`resolveAdvertisedTools` closed list in `tools/registry.ts:36-44,125`, and
+when unavailable MCP entries are built in `mcp-runtime.service.ts:199`; none may retain a
+`read_only` requirement for MCP.
+
+Code-owned tools keep today's host-capability gate. `tools.allowed` validation keeps the
+`mcp-tool-id-v1` grammar and 64-character bound but drops the configured-server lookup, so
+`mcp__playwright__*` is valid before any Playwright server exists. A typo is no longer caught at
+startup; it is visible in availability disclosure. Every admitted MCP call still needs an
+applicable `tools.permissions` group.
+The tool-calling egress scenarios name Workspace MCP servers alongside operator-configured MCP
+servers as the only operator-permitted external-tool path; neither source bypasses
+`tools.permissions` or receives llame tenant authority.
 
 ## Risks / Trade-offs
 
 - [Mutating the SDK tool record relies on undocumented per-step reads] → pin a test at the
   installed version that asserts declaration on the next step and execution; an SDK upgrade that
   breaks it fails CI.
-- [Repository-supplied `{path:…}` and `${VAR}` can exfiltrate host secrets] → accepted by
-  assumption: permitted Workspaces are audited. #976 owns a trust model. Resolved values are
-  still redacted from results and diagnostics.
+- [Repository-supplied `{path:…}` and `${VAR}` can exfiltrate host secrets] → accepted under
+  the audited-repository assumption, including llame's own process environment as an
+  interpolation source. Permitting `enter_workspace` on a directory the model can write (via
+  bash or unrestricted `write`/`edit`) is equivalent to `execute_code` and host-file
+  exfiltration: Workspace MCP config is re-read on entry and at each new client start, and
+  servers start without a separate permission check. The recommended W1/W2 rejects protect
+  `.mcp.json` and `.llame|.agents|.claude` paths, while F1-F3 remain on the
+  `enter_workspace` group. Resolved values are redacted only within the owning server's
+  traffic, diagnostics, entry result, and receipts; other tools that independently read the
+  same source are outside that guarantee.
 - [Retiring the attestation makes existing operator allowlists write-capable] → **BREAKING**
   changelog entry and a `docs/mcp-tools.md` migration note telling operators to add permission
   rejects for mutating MCP tools.
-- [Exact-id permission groups make large Workspace servers tedious] → accepted; every call to
-  an unlisted tool is rejected, so the failure mode is safe.
+- [Exact-id permission groups make large Workspace servers tedious] → accepted; every call to an
+  unlisted tool is rejected, so the failure mode is safe.
 - [Two Chats bound to one checkout can overwrite each other] → accepted, as with absolute paths
   today.
 - [A permission rejecting `exit_workspace` traps the model in a Workspace] → accepted; D4 still
-  detaches on executor, directory, or permission change.
+  detaches on executor, directory, allow, or permission change.
 - [Workspace MCP children outlive a crashed worker] → the stdio shutdown path already escalates
   to a forced kill on process shutdown; a hard crash leaves orphans, as operator stdio servers
   would today.
 
 ## Migration Plan
 
-Two additive migrations: the Chat binding columns (L1) and `runs.added_tool_declarations`
-(L4). Both are nullable or default-empty, so rollback drops columns with no data loss beyond
-bindings. L3 is a contract change with no data migration; its rollback restores the
-`read_only` gate.
+The core layer adds five Chat columns: `workspace_root`, `workspace_executor_id`,
+`workspace_generation`, `workspace_told`, and `workspace_detach_reason`. The mid-run-tools layer
+adds the owner-scoped `runs.added_tool_declarations` JSONB array. The binding columns are
+nullable, with generation defaulting to zero and the detach reason nullable; the additions
+column defaults to an empty array. Each migration is additive, transactional, deterministic, and
+must be applied and tested against a populated database with owner RLS unchanged in shape.
+
+The mcp-authorization layer is a contract change with no data migration; the workspace-mcp
+client map is process-local and needs no schema migration. Rollback drops the new columns and
+restores the read-only MCP gate, losing only unshipped binding/addition records. No migration
+may expose binding roots or added declarations through shares, exports, search, or another
+owner's RLS scope.
+
+## Revision history
+
+- v1 (initial) — Initial workspace-entry design and staged implementation plan.
+- v2 (this revision) — Added generation and detach-reason binding columns, immediate fenced
+  detach, ordered re-check causes, and retry semantics.
+- v2 (this revision) — Tightened entry authorization order, same-root no-op/CAS switching,
+  idempotent classifications, and owner-visible authority boundaries.
+- v2 (this revision) — Defined lexical projection, relative-locator rules, and trailing
+  separator preservation.
+- v2 (this revision) — Made attempt root timing, snapshot/notice narration, skill-source
+  failure isolation, and owner/visitor fork behavior explicit.
+- v2 (this revision) — Keyed Workspace MCP clients by generation, documented host interpolation
+  and redaction scope, deferred case-folded shadowing, and retained unavailable declarations.
+- v2 (this revision) — Replaced declaration hashes with fenced addition-time owner records,
+  enumerated every MCP read-only gate, and split implementation layers and their checks.

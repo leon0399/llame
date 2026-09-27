@@ -6,7 +6,7 @@ Defines the owner-scoped Workspace binding for a Chat on its native host, includ
 
 ### Requirement: Workspace tools require native authority, allowlisting, and their own permission gates
 
-`enter_workspace` and `exit_workspace` SHALL be available only when `tools.nativeExecutorId` is configured and each tool's own id is present in `tools.allowed`. Every invocation SHALL be evaluated by that tool's own `tools.permissions` group; allowlisting or the other tool's permission group SHALL NOT authorize it. A denied invocation SHALL have no effect on the binding.
+`enter_workspace` and `exit_workspace` SHALL be available only when `tools.nativeExecutorId` is configured and each tool's own id is present in `tools.allowed`. Every invocation SHALL be evaluated by that tool's own `tools.permissions` group; allowlisting or the other tool's permission group SHALL NOT authorize it. `enter_workspace` SHALL be treated as `execute_code` because it can start host processes, and `exit_workspace` SHALL be treated as `write_low_risk`. A successful invocation SHALL use the trusted native executor identity from its owning Chat's Run context. A denied invocation SHALL have no effect on the binding.
 
 #### Scenario: Missing native executor fails closed
 
@@ -34,7 +34,7 @@ Defines the owner-scoped Workspace binding for a Chat on its native host, includ
 
 ### Requirement: Workspace entry validates and authorizes both submitted and canonical paths
 
-`enter_workspace` SHALL accept only an absolute path and SHALL reject a non-absolute or NUL-containing path as `invalid_path`. It SHALL canonicalize the path and require the canonical target to be an existing directory. Permission evaluation SHALL consider both the submitted path and the canonical path, and a rejection of either SHALL veto entry. A successful entry result SHALL include the canonical root, a statement that Workspace selects a working root but does not confine host authority, the Workspace skill list, and the state of each Workspace MCP server.
+`enter_workspace` SHALL accept only an absolute path and SHALL reject a non-absolute or NUL-containing path as `invalid_path`. Before any filesystem probe, it SHALL evaluate the submitted absolute path against the `enter_workspace` permission group; that submitted path SHALL independently obtain an allow and SHALL NOT match a reject. Only after that decision allows the submitted path SHALL it canonicalize the path and require the canonical target to be an existing directory. It SHALL then evaluate the canonical path, which SHALL independently obtain an allow and SHALL NOT match a reject. A rejection or missing allow for either value SHALL veto entry. The canonical-path decision SHALL be recorded with policy provenance like a derived-locator decision. A successful entry result SHALL include the canonical root, a statement that Workspace selects a working root but does not confine host authority, the Workspace skill list, and the state of each Workspace MCP server.
 
 #### Scenario: Relative path is rejected
 
@@ -66,21 +66,39 @@ Defines the owner-scoped Workspace binding for a Chat on its native host, includ
 - **THEN** entry is refused
 - **AND** the canonical target is not established as the Workspace root
 
+#### Scenario: Submitted path is evaluated before any filesystem probe
+
+- **WHEN** the `enter_workspace` permission group rejects the submitted absolute path
+- **THEN** the rejection is returned before canonicalization or any filesystem existence check
+- **AND** the result does not disclose whether the submitted path exists
+
+#### Scenario: Canonical path with no allow does not bind
+
+- **WHEN** the submitted absolute path obtains an allow with no reject, its canonical target is an existing directory, and the canonical path matches no allow
+- **THEN** entry returns `no_allow`
+- **AND** no Workspace binding is established and no Workspace MCP server is started
+
 ### Requirement: Entry switches one binding and exit clears it
 
-A successful `enter_workspace` on a bound Chat SHALL exit the old binding before establishing the new canonical root. Switching SHALL stop the old Workspace MCP clients and remove the old Workspace tool declarations from the running attempt before the new binding takes effect. An authorized `exit_workspace` SHALL clear the Chat binding, stop its Workspace MCP clients, and remove its Workspace tool declarations from the running attempt. A permission-denied switch or exit SHALL NOT perform those effects.
+A successful `enter_workspace` on a bound Chat SHALL compare the canonical root with the current binding. If it differs, the switch SHALL replace the binding in one fenced compare-and-set transaction, with the fence checked before any effect. Old Workspace MCP clients SHALL be stopped only after that transaction commits, and old Workspace tool declarations SHALL follow the in-Run addition rules defined by `tool-calling` before subsequent steps use the new binding. If the canonical root is already current, re-entry SHALL be a no-op success that returns the current state without restarting Workspace MCP clients or rereading Workspace configuration. An authorized `exit_workspace` SHALL clear the Chat binding, stop its Workspace MCP clients, and make its Workspace tool declarations unavailable according to `tool-calling`. A permission-denied switch or exit SHALL NOT perform those effects. `workspace_generation` SHALL be an integer that increases for each enter, switch, exit, or detach. Workspace MCP clients SHALL be keyed by Chat, canonical root, and generation. At every attempt start, the executing process SHALL stop clients it holds for that Chat whose key does not match the current binding and start clients for the matching key; exit, switch, and detach SHALL stop clients in that process, while another process SHALL discard stale clients at its next attempt or at the 30-minute idle timeout.
 
 #### Scenario: Successful entry switches the current Workspace
 
 - **WHEN** a bound Chat successfully enters a different authorized directory
-- **THEN** the previous binding is exited before the new canonical root becomes current
-- **AND** the previous Workspace clients and declarations are stopped or removed before subsequent steps use the new binding
+- **THEN** one fenced commit replaces the previous binding before old Workspace clients are stopped
+- **AND** subsequent steps use the new canonical root rather than the old clients or declarations
+
+#### Scenario: Same-root re-entry is a no-op
+
+- **WHEN** a bound Chat enters a path whose canonical root equals its current Workspace root
+- **THEN** the call succeeds and returns the current Workspace state
+- **AND** it does not restart Workspace MCP clients or reread Workspace configuration
 
 #### Scenario: Exit clears the current binding
 
 - **WHEN** an authorized `exit_workspace` call runs on a bound Chat
 - **THEN** the Chat has no Workspace binding for subsequent steps or Runs
-- **AND** its Workspace MCP clients are stopped and its Workspace declarations are removed from the running attempt
+- **AND** its Workspace MCP clients are stopped and its Workspace declarations are unavailable to subsequent calls in the attempt
 
 #### Scenario: Exit on an unbound Chat is harmless
 
@@ -90,7 +108,7 @@ A successful `enter_workspace` on a bound Chat SHALL exit the old binding before
 
 ### Requirement: The Workspace binding is Chat-scoped and persists across Runs
 
-A successful entry SHALL bind one Chat to the canonical root and the native executor identity supplied by its trusted Run context. The binding SHALL persist across Runs until an authorized exit, a successful switch, or a detach. A binding change SHALL take effect only for the Run's current attempt; a superseded attempt SHALL NOT change it. Only the owning user's Run context for that Chat SHALL supply the authority to read or change its binding. Model input to `enter_workspace` SHALL contain only `path`, and `exit_workspace` SHALL accept no model-supplied arguments; model input SHALL NOT select an owner, Chat, executor, or permission mode.
+A successful entry SHALL bind one Chat to the canonical root and the native executor identity supplied by its trusted Run context. The binding SHALL persist across Runs until an authorized exit, a successful switch, or a detach. A binding change SHALL take effect only for the Run's current attempt; a superseded attempt SHALL NOT change it, and its fence SHALL be checked before any filesystem probe, client stop, client start, declaration change, or other side effect. Only the owning user's Run context for that Chat SHALL supply the authority to read or change its binding. The owning user's Chat API response SHALL expose the current canonical `workspace_root`, or `null` when unbound. A non-owner SHALL receive `404` for that Chat, and public share projections and visitor forks SHALL omit the binding. Owner-scoped data access SHALL prevent one owner from reading or changing another owner's binding. Model input to `enter_workspace` SHALL contain only `path`, and `exit_workspace` SHALL accept no model-supplied arguments; model input SHALL NOT select an owner, Chat, executor, or permission mode.
 
 #### Scenario: Binding persists into a later Run
 
@@ -98,17 +116,41 @@ A successful entry SHALL bind one Chat to the canonical root and the native exec
 - **THEN** the Chat's Workspace root remains bound across the Run boundary
 - **AND** the later Run re-checks that binding before using it
 
-#### Scenario: A superseded attempt cannot change the binding
+#### Scenario: A superseded attempt has no side effect
 
 - **WHEN** an attempt that has been superseded by a newer delivery of the same Run calls `enter_workspace` or `exit_workspace`
-- **THEN** the call does not establish, change, or clear the Chat's binding
+- **THEN** the fence rejects the call before it probes the path, changes the binding, changes the generation, or changes Workspace clients or declarations
 - **AND** the binding reflects only the current attempt's effects
 
-#### Scenario: Another owner cannot read or change the binding
+#### Scenario: Retry after a committed binding reaches the same state
 
-- **WHEN** a Run belonging to a different owner attempts to inspect, enter, or exit the first owner's Chat binding
-- **THEN** it cannot read or change that binding
-- **AND** its result does not disclose the other owner's Workspace root
+- **WHEN** a queue retry repeats an `enter_workspace` call after the binding commit for that canonical root has already succeeded
+- **THEN** the retry succeeds idempotently and leaves the same canonical root, executor identity, and effective Workspace state
+- **AND** it does not create a second binding or duplicate Workspace clients
+
+#### Scenario: Owner API exposes the canonical root or null
+
+- **WHEN** the owner requests the Chat API response for a bound Chat and then for an unbound Chat
+- **THEN** the `workspace_root` field contains the canonical absolute root for the bound Chat and `null` for the unbound Chat
+- **AND** no submitted alias replaces the canonical value
+
+#### Scenario: Non-owner API access returns not found
+
+- **WHEN** another owner requests the Chat API response for a Chat they do not own
+- **THEN** the response is `404`
+- **AND** it does not disclose the Chat's Workspace root or binding state
+
+#### Scenario: Owner-scoped binding access rejects cross-owner reads and writes
+
+- **WHEN** an owner-scoped data access attempts to read or update another owner's Chat binding
+- **THEN** it observes no binding and cannot change the other owner's binding
+- **AND** the other owner's current binding remains unchanged
+
+#### Scenario: Shared projections omit the Workspace binding
+
+- **WHEN** a public share projection or visitor fork is produced from a Chat with a Workspace binding
+- **THEN** the projection and fork expose neither `workspace_root` nor the binding state
+- **AND** sharing does not grant access to the owner's binding
 
 #### Scenario: Model input cannot select binding authority
 
@@ -118,40 +160,64 @@ A successful entry SHALL bind one Chat to the canonical root and the native exec
 
 ### Requirement: Each Run attempt re-checks the binding and detaches invalid state
 
-Before a Run attempt uses a binding, it SHALL verify that the current native executor identity is present and matches the bound executor, that the canonical root still exists as a directory, and that the current `enter_workspace` permission group still allows the root. Failure of any check SHALL detach the binding completely, stop its Workspace MCP clients, remove its Workspace tool declarations, and stage a notice with the detach reason on the triggering user message. A detached binding SHALL NOT be restored automatically; a new binding requires an explicit successful `enter_workspace` call.
+Before a Run attempt resolves effective skill sources, `$skill` activation, Workspace MCP clients or catalog entries, or the `workspace` item from `context-injection`, it SHALL verify that the current native executor identity is present and matches the bound executor, that the stored root still resolves to the stored canonical root and is an existing directory, that the current `enter_workspace` permission group independently allows the root and has no matching reject, and that `enter_workspace` remains in `tools.allowed`. A failed check SHALL detach the binding immediately in its own owner-scoped transaction fenced by the Run's current delivery, rather than waiting for the completed-only terminal transaction. The transaction SHALL clear the binding, increment `workspace_generation`, and set nullable `workspace_detach_reason` to exactly one of `executor_mismatch`, `executor_absent`, `root_missing`, `root_moved`, `permission_rejected`, or `tool_not_allowed`. Detach SHALL stop Workspace MCP clients in the executing process, make Workspace tool declarations unavailable according to `tool-calling`, and stage a notice with the reason on the triggering user message. The detaching attempt SHALL resolve no Workspace skills or tools and SHALL narrate the detach through the `workspace` producer from `context-injection`. That producer SHALL consume the reason and clear `workspace_detach_reason` only when the narration's Run completes. A detached binding SHALL NOT be restored automatically; a new binding requires an explicit successful `enter_workspace` call.
 
 #### Scenario: Executor mismatch or absence detaches the binding
 
 - **WHEN** a Run attempt starts with no native executor identity or with an identity different from the one bound to the Chat
 - **THEN** the attempt detaches the Workspace before using it
-- **AND** the triggering user message receives a notice that names the executor-mismatch or missing-executor reason
+- **AND** the triggering user message receives a notice naming `executor_absent` or `executor_mismatch` as appropriate
 
 #### Scenario: Missing or non-directory root detaches the binding
 
 - **WHEN** a Run attempt starts and the bound root no longer exists as a directory
 - **THEN** the attempt detaches the Workspace before using it
-- **AND** the triggering user message receives a notice that names the missing-root reason
+- **AND** the triggering user message receives a notice that names `root_missing`
+
+#### Scenario: Root moved via symlink replacement detaches the binding
+
+- **WHEN** the bound root path is replaced with a symlink to a different directory before a Run attempt starts, so its `realpath` no longer equals the stored canonical root
+- **THEN** the attempt detaches the Workspace before using it
+- **AND** the triggering user message receives a notice that names `root_moved`
 
 #### Scenario: Current permission rejection detaches the binding
 
-- **WHEN** a Run attempt starts and the current `enter_workspace` permission group rejects the bound root
+- **WHEN** the current `enter_workspace` permission group either matches a reject for the bound root or has no allow for it
 - **THEN** the attempt detaches the Workspace before using it
-- **AND** the triggering user message receives a notice that names the permission-rejection reason
+- **AND** the triggering user message receives a notice that names `permission_rejected`
 
-#### Scenario: Retry does not restore a detached binding
+#### Scenario: Entry tool removal detaches the binding
 
-- **WHEN** an attempt detaches a binding and a later retry or Run finds that the executor, directory, and permission checks would now pass
+- **WHEN** a Run attempt starts while a binding exists but `enter_workspace` is no longer in `tools.allowed`
+- **THEN** the attempt detaches the Workspace before using it
+- **AND** the triggering user message receives a notice that names `tool_not_allowed`
+
+#### Scenario: Detach completes before Workspace sources and tools are resolved
+
+- **WHEN** a binding fails any re-check during attempt preparation
+- **THEN** the owner-scoped detach commit completes before effective skills, `$skill` activation, Workspace MCP clients or catalog entries, or the `workspace` item are resolved
+- **AND** the attempt has no Workspace skills or tools and narrates the detach reason
+
+#### Scenario: Detach-then-fail retry stays unbound
+
+- **WHEN** an attempt detaches a binding and then fails, and a retry finds that the executor, directory, and permission checks would now pass
 - **THEN** the Chat remains unbound
 - **AND** only a new successful `enter_workspace` call can establish a binding again
 
+#### Scenario: Detach reason clears after completed narration
+
+- **WHEN** the `workspace` producer narrates a staged detach reason and that narration's Run completes
+- **THEN** `workspace_detach_reason` is cleared
+- **AND** the detach reason remains available until that completed narration
+
 ### Requirement: Relative filesystem paths share one Workspace projection rule
 
-While a Chat is bound, a supported relative filesystem path SHALL resolve from the canonical Workspace root by resolving the submitted relative path against that root and normalizing its path segments; `..` MAY resolve outside the root, because Workspace is not a confinement boundary. The resulting absolute path SHALL be used for both execution and permission evaluation, and permission evaluation SHALL NOT match the submitted relative spelling. An omitted bash working directory SHALL use the root as its effective directory for execution and permission evaluation. Absolute paths and non-filesystem locators, including `kb://`, `skill://`, and web locators, SHALL retain their existing interpretation. Without a binding, relative native-file paths SHALL remain `invalid_path` and bash SHALL retain its existing default working directory. The bash command text SHALL retain its existing text-only permission matching and SHALL NOT be rewritten as a filesystem path. The `bash-execution` and `native-file-tools` requirements define the tool-specific argument and result behavior.
+While a Chat is bound, a relative filesystem path SHALL mean a value that does not start with `/` and does not have a `scheme:` prefix recognized by the shared locator parser, with recognized `scheme://` prefixes compared case-insensitively. Such a path SHALL resolve lexically from the canonical Workspace root like POSIX `path.posix.resolve`, preserving a submitted trailing separator. Projection SHALL not perform `realpath`; the executor SHALL receive exactly the resulting projected absolute string, and symlinks inside that projected path SHALL be followed by the operating system as for any absolute path. `..` MAY resolve outside the root, because Workspace is not a confinement boundary. The resulting absolute path SHALL be used for both execution and permission evaluation, and permission evaluation SHALL NOT match the submitted relative spelling. During an attempt, the working root SHALL live in one mutable attempt-scoped cell read by the runner and permission evaluator at dispatch; per-call copies of tool context SHALL NOT become independent sources of truth. An omitted bash working directory SHALL use the root as its effective directory for execution and permission evaluation. Absolute paths and recognized non-filesystem locators, including `kb://`, `skill://`, and web locators, SHALL retain their existing interpretation. Unknown schemes SHALL remain `invalid_path`. Without a binding, relative native-file paths SHALL remain `invalid_path` and bash SHALL retain its existing default working directory. The bash command text SHALL retain its existing text-only permission matching and SHALL NOT be rewritten as a filesystem path. The `bash-execution` and `native-file-tools` requirements define the tool-specific argument and result behavior.
 
 #### Scenario: Relative native path projects from the Workspace root
 
 - **WHEN** a bound Chat calls a native file tool with a relative filesystem path
-- **THEN** the path is resolved from the canonical Workspace root and the resulting absolute path is used for execution and permission evaluation
+- **THEN** the path is resolved lexically from the canonical Workspace root and the resulting absolute path is used for execution and permission evaluation
 - **AND** permission evaluation does not match the submitted relative spelling
 
 #### Scenario: Parent segments are not confined
@@ -177,6 +243,24 @@ While a Chat is bound, a supported relative filesystem path SHALL resolve from t
 - **WHEN** a bound Chat uses an absolute path or a `kb://`, `skill://`, or web locator
 - **THEN** Workspace projection does not reinterpret the locator
 - **AND** its existing locator-specific behavior remains in effect
+
+#### Scenario: Unknown schemes remain invalid paths
+
+- **WHEN** a bound Chat supplies a locator with an unknown `scheme://` prefix to a native file tool
+- **THEN** Workspace projection does not treat it as a relative filesystem path
+- **AND** the tool returns `invalid_path`
+
+#### Scenario: Trailing separator is preserved
+
+- **WHEN** a bound Chat calls `read("app.ts/")` for a file under the Workspace root
+- **THEN** the projected absolute path retains the trailing separator and the executor receives that exact string
+- **AND** the result is `not_found` or invalid in the same way as the equivalent absolute path with a trailing separator
+
+#### Scenario: Same-step read uses the prior root
+
+- **WHEN** one model step issues `enter_workspace` or `exit_workspace` together with `read("f")`
+- **THEN** the read is projected from the root committed before that step began
+- **AND** a binding change takes effect for projection only from the next model step
 
 ### Requirement: In-Run Workspace transitions are narrated by tool results
 
