@@ -421,9 +421,10 @@ announced. A rejected hop inside an adapter chain SHALL disqualify that
 adapter instead. When the
 redirect budget is exhausted the call SHALL fail with `too_many_redirects`
 and SHALL issue no further request. The result SHALL name the URL of the response that produced the content as
-`finalUrl` and SHALL NOT enumerate the hop chain, except that an adapter result
-reports its source URL under the result requirement: when a publisher-Markdown probe won, that is the probe's own
-final URL, including any redirect it followed, rather than the page's.
+`finalUrl` and SHALL NOT enumerate the hop chain: when a publisher-Markdown probe won, that is the probe's own
+final URL, including any redirect it followed, rather than the page's. An
+adapter result instead reports its source URL as `finalUrl` under the result
+requirement.
 The `read` tool description SHALL state that redirects are
 followed and that `finalUrl` reports where the content came from, so the
 model does not re-fetch a page to learn its location. A hop admitted on its text
@@ -880,7 +881,7 @@ operator Telegram credential SHALL be introduced by this adapter.
 
 #### Scenario: A missing public post is a claimed empty failure
 
-- **WHEN** a matched post URL returns a Telegram widget with `tgme_widget_message_error` or no author/text
+- **WHEN** a matched post URL returns a Telegram widget with `tgme_widget_message_error`, no author, or neither text nor any media node
 - **THEN** the adapter records an `empty` note and returns no body
 - **AND** the source may continue through another adapter or the generic ladder
 
