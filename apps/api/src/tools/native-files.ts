@@ -35,6 +35,7 @@ import {
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { isWorkspaceRelative, resolveWorkspacePath } from './workspace-path';
 import { executeWebRead } from './web-read/execute';
+import { isFileAlias, decodeFileAlias } from './permissions/file-alias';
 
 type NativeCall =
   | { operation: 'read'; input: { path: string } }
@@ -69,6 +70,19 @@ function executeNative(
   context: ToolContext,
   call: NativeCall,
 ): Promise<ToolResult> {
+  if (isFileAlias(call.input.path)) {
+    const alias = decodeFileAlias(call.input.path);
+    if (!alias.ok)
+      return Promise.resolve({
+        status: 'error' as const,
+        type: 'invalid_path' as const,
+        message: alias.message,
+      });
+    const hostCall = rewritePath(call, alias.hostPath);
+    if (hostCall.operation === 'read')
+      return executeNativeBound(context, hostCall);
+    return serializeMutation(() => executeNativeBound(context, hostCall));
+  }
   const scheme = parsePathScheme(call.input.path);
   if (scheme !== undefined) {
     if (scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME) {
@@ -94,7 +108,10 @@ function executeNative(
 function projectNativeCall(context: ToolContext, call: NativeCall): NativeCall {
   const root = context.workspaceRoot?.current();
   if (root === undefined || !isWorkspaceRelative(call.input.path)) return call;
-  const path = resolveWorkspacePath(root, call.input.path);
+  return rewritePath(call, resolveWorkspacePath(root, call.input.path));
+}
+
+function rewritePath(call: NativeCall, path: string): NativeCall {
   if (call.operation === 'read') return { operation: 'read', input: { path } };
   if (call.operation === 'edit')
     return { operation: 'edit', input: { ...call.input, path } };

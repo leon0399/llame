@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-27
 
+- Native `read`, `edit`, and `write` accept `file://` and RFC 8089 minimal
+  `file:` URLs as local-path aliases. The URL is decoded to its absolute host
+  path before dispatch; the decoded path is the identity for permissions,
+  executor binding, and result reporting. A non-local authority is refused
+  before filesystem access
+  ([#929](https://github.com/leon0399/llame/issues/929)).
+
 - Git hooks now check only what changed. `pre-push` used to run
   `format:check`, the full `lint` chain and `typecheck` on every push, so a
   Markdown-only push took more than two minutes. Now prettier and

@@ -24,6 +24,52 @@ function decideNative(
 }
 
 describe('projectNativeFilePath', () => {
+  it('projects a valid file alias to its decoded host path', () => {
+    expect(projectNativeFilePath('file:///srv/docs/guide.md')).toBe(
+      '/srv/docs/guide.md',
+    );
+  });
+
+  it('projects a file alias with percent-encoded characters', () => {
+    expect(projectNativeFilePath('file:///etc/%70asswd')).toBe('/etc/passwd');
+  });
+
+  it('preserves selector suffix in file alias projection', () => {
+    expect(projectNativeFilePath('file:///srv/docs/guide.md:10-20')).toBe(
+      '/srv/docs/guide.md:10-20',
+    );
+  });
+
+  it('preserves dot segments in file alias projection', () => {
+    expect(projectNativeFilePath('file:///tmp/%2e%2e/secret')).toBe(
+      '/tmp/../secret',
+    );
+  });
+
+  it('leaves an invalid file alias unchanged', () => {
+    expect(projectNativeFilePath('file:///srv/docs/guide.md?')).toBe(
+      'file:///srv/docs/guide.md?',
+    );
+  });
+
+  it('leaves a remote file authority unchanged', () => {
+    expect(
+      projectNativeFilePath('file://other.example/srv/docs/guide.md'),
+    ).toBe('file://other.example/srv/docs/guide.md');
+  });
+
+  it('projects a minimal-form alias before Workspace resolution', () => {
+    expect(projectNativeFilePath('file:/etc/%70asswd', '/work/project')).toBe(
+      '/etc/passwd',
+    );
+  });
+
+  it('does not project a file alias from the Workspace root', () => {
+    expect(projectNativeFilePath('file:///etc/passwd', '/work/project')).toBe(
+      '/etc/passwd',
+    );
+  });
+
   it('excludes Knowledge read selectors from the resource identity', () => {
     expect(projectNativeFilePath('kb://Space/notes/a:10-20')).toBe(
       'kb://Space/notes/a',
@@ -134,6 +180,121 @@ describe('projectNativeFilePath', () => {
 });
 
 describe('native file permission projection', () => {
+  it('catches a percent-encoded file alias with a host-path reject', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: true, reject: [{ field: 'path', regex: '^/etc/' }] },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'file:///etc/%70asswd' }),
+    ).toMatchObject({
+      decision: 'reject',
+      reason: 'explicit_reject',
+    });
+  });
+
+  it('refuses a minimal-form alias with a host-path reject in a Workspace', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: true, reject: [{ field: 'path', regex: '^/etc/' }] },
+    };
+    expect(
+      decideNative(
+        map,
+        'read',
+        { path: 'file:/etc/%70asswd' },
+        '/work/project',
+      ),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  });
+
+  it('admits a file alias through a host-path allow', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^/srv/docs(?:/|$)' }] },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'file:///srv/docs/guide.md' }),
+    ).toMatchObject({ decision: 'allow' });
+  });
+
+  it('rejects a file-form allow as inert against a valid alias', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^file:///srv/docs/' }] },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'file:///srv/docs/guide.md' }),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+
+  it('does not reject a valid alias on the projected path when the clause targets the URL scheme', () => {
+    // A reject for ^file:// only catches the submitted text, which the
+    // runner's two-pass evaluateToolPermission handles. The projection-level
+    // evaluator sees the decoded host path, so the clause does not match here.
+    const map: ToolPermissionMap = {
+      read: { allow: true, reject: [{ field: 'path', regex: '^file://' }] },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'file:///srv/docs/guide.md' }),
+    ).toMatchObject({ decision: 'allow' });
+    // The equivalent absolute path also does not match
+    expect(
+      decideNative(map, 'read', { path: '/srv/docs/guide.md' }),
+    ).toMatchObject({ decision: 'allow' });
+  });
+
+  it('gives no_allow for an invalid alias, not invalid_path', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^/srv/docs/' }] },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'file:///srv/docs/guide.md?' }),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+
+  it('preserves file alias selector in projection for permission matching', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^/srv/docs/' }] },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'file:///srv/docs/guide.md:10-20' }),
+    ).toMatchObject({ decision: 'allow' });
+  });
+
+  it('does not project MCP values through the file alias classifier', () => {
+    const map: ToolPermissionMap = {
+      mcp__docs__fetch: { allow: [{ field: 'url', regex: '^/srv/' }] },
+    };
+    expect(
+      decideNative(map, 'mcp__docs__fetch', {
+        url: 'file:///srv/docs/guide.md',
+      }),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+
+  it('admits a remote file authority through an allow that matches its text', () => {
+    // Policy allow matches the submitted text, but native validation still catches it
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^file://' }] },
+    };
+    expect(
+      decideNative(map, 'read', {
+        path: 'file://other.example/srv/docs/guide.md',
+      }),
+    ).toMatchObject({ decision: 'allow' });
+    // The projection returned the invalid alias unchanged, submitted text matched
+  });
+
+  it('Workspace allow does not admit a file alias', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^/work/project/' }] },
+    };
+    expect(
+      decideNative(
+        map,
+        'read',
+        { path: 'file:/etc/%70asswd' },
+        '/work/project',
+      ),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
   it('matches projected relative paths rather than their submitted spelling', () => {
     const map: ToolPermissionMap = {
       read: {

@@ -60,6 +60,25 @@ function deferred<T>(): Deferred<T> {
   });
   return { promise, resolve };
 }
+function trustedContext(root?: string): ToolContext {
+  const db: Db = drizzle.mock({ schema });
+  return {
+    userId: 'owner',
+    chatId: 'chat',
+    runId: 'run',
+    nativeExecutorId: 'host',
+    nativeDeliverySequence: 1,
+    toolCallId: 'call',
+    permissionPolicy: compileTestPermissionPolicy(),
+    tenantDb: {
+      runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+        callback(db),
+    },
+    ...(root !== undefined && {
+      workspaceRoot: createWorkspaceRootCell(root),
+    }),
+  };
+}
 
 describe('native tool admission', () => {
   const context: ToolContext = {
@@ -171,26 +190,6 @@ describe('Workspace-relative native paths', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
-
-  function trustedContext(root?: string): ToolContext {
-    const db: Db = drizzle.mock({ schema });
-    return {
-      userId: 'owner',
-      chatId: 'chat',
-      runId: 'run',
-      nativeExecutorId: 'host',
-      nativeDeliverySequence: 1,
-      toolCallId: 'call',
-      permissionPolicy: compileTestPermissionPolicy(),
-      tenantDb: {
-        runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-          callback(db),
-      },
-      ...(root !== undefined && {
-        workspaceRoot: createWorkspaceRootCell(root),
-      }),
-    };
-  }
 
   it('reads a relative path from the entered root', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workspace-native-'));
@@ -398,6 +397,209 @@ describe('Workspace-relative native paths', () => {
     }
   });
 });
+
+describe('file: alias dispatch', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reads a file URL as the same file as its absolute host path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'file-alias-read-'));
+    const file = join(root, 'guide.md');
+    await writeFile(file, '# Guide\n');
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      const absolute = await runTool(
+        nativeReadTool,
+        { path: file },
+        trustedContext(),
+        5,
+      );
+      const alias = await runTool(
+        nativeReadTool,
+        { path: `file://${file}` },
+        trustedContext(),
+        5,
+      );
+      expect(absolute).toMatchObject({ status: 'success' });
+      expect(alias).toMatchObject({ status: 'success' });
+      if (absolute.status !== 'success' || alias.status !== 'success')
+        throw new Error('Expected both native reads to succeed.');
+      expect(alias.content).toBe(absolute.content);
+      expect(alias.path).toBe(absolute.path);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reads a file URL with localhost authority as the same file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'file-alias-localhost-'));
+    const file = join(root, 'note.md');
+    await writeFile(file, 'localhost alias');
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      const absolute = await runTool(
+        nativeReadTool,
+        { path: file },
+        trustedContext(),
+        5,
+      );
+      const alias = await runTool(
+        nativeReadTool,
+        { path: `file://localhost${file}` },
+        trustedContext(),
+        5,
+      );
+      expect(absolute).toMatchObject({ status: 'success' });
+      expect(alias).toMatchObject({ status: 'success' });
+      if (absolute.status !== 'success' || alias.status !== 'success')
+        throw new Error('Expected both native reads to succeed.');
+      expect(alias.content).toBe(absolute.content);
+      expect(alias.path).toBe(absolute.path);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an invalid file alias before binding a native executor', async () => {
+    const { nativeExecutorId: _nativeExecutorId, ...withoutExecutor } =
+      trustedContext();
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+
+    await expect(
+      runTool(nativeReadTool, { path: 'file:///a?' }, withoutExecutor, 5),
+    ).resolves.toMatchObject({ status: 'error', type: 'invalid_path' });
+    expect(begin).not.toHaveBeenCalled();
+  });
+
+  it('rejects a file URL naming a remote authority', async () => {
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: 'file://other.example/x' },
+        trustedContext(),
+        5,
+      ),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'A file:// URL with a host other than localhost names another machine. ' +
+        "Only this host's files are readable; write the absolute path instead.",
+    });
+  });
+
+  it('does not project a file alias relative to an entered workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'file-alias-workspace-'));
+    const file = join(root, 'src', 'app.ts');
+    await mkdir(join(root, 'src'));
+    await writeFile(file, 'export const app = true;');
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      const absolute = await runTool(
+        nativeReadTool,
+        { path: file },
+        trustedContext(root),
+        5,
+      );
+      const alias = await runTool(
+        nativeReadTool,
+        { path: `file://${file}` },
+        trustedContext(root),
+        5,
+      );
+      expect(absolute).toMatchObject({ status: 'success' });
+      expect(alias).toMatchObject({ status: 'success' });
+      if (absolute.status !== 'success' || alias.status !== 'success')
+        throw new Error('Expected both native reads to succeed.');
+      expect(alias.content).toBe(absolute.content);
+      expect(alias.path).toBe(absolute.path);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps unknown-scheme failures unchanged', async () => {
+    await expect(
+      runTool(nativeReadTool, { path: 'vault://x' }, trustedContext(), 5),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'This path scheme is not available.',
+    });
+  });
+
+  it('edits a file through a file URL alias', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'file-alias-edit-'));
+    const file = join(root, 'note.md');
+    await writeFile(file, 'Hello world');
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(() =>
+      Promise.resolve({
+        runId: 'run',
+        sequence: 1,
+        eventType: 'native.result' as const,
+        payload: null,
+        createdAt: new Date(),
+      }),
+    );
+
+    try {
+      const result = await runTool(
+        nativeEditTool,
+        { path: `file://${file}`, oldText: 'Hello', newText: 'Goodbye' },
+        trustedContext(),
+        5,
+      );
+      expect(result).toMatchObject({ status: 'success' });
+      expect(await readFile(file, 'utf8')).toBe('Goodbye world');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('creates a file through a file URL alias', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'file-alias-write-'));
+    const file = join(root, 'new.md');
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(() =>
+      Promise.resolve({
+        runId: 'run',
+        sequence: 1,
+        eventType: 'native.result' as const,
+        payload: null,
+        createdAt: new Date(),
+      }),
+    );
+
+    try {
+      const result = await runTool(
+        nativeWriteTool,
+        { path: `file://${file}`, content: 'created' },
+        trustedContext(),
+        5,
+      );
+      expect(result).toMatchObject({ status: 'success' });
+      expect(await readFile(file, 'utf8')).toBe('created');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('knowledge locator resolution', () => {
   const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
   const OTHER = '11111111-2222-4333-8444-555555555555';

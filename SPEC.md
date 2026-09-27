@@ -187,7 +187,7 @@ absolute paths: reads stream bounded source windows, edits replace one exact
 unique current match, and writes create a new file or, when the caller sets
 `replace: true`, replace an existing one's entire contents. Host process
 mutations are serialized, including symlink aliases; other processes and
-external editors are outside that guarantee. A
+external editors are outside that guarantee. A `file://` or minimal `file:` URL is decoded to its absolute host path before native dispatch; the decoded path is the canonical identity for permissions, executor binding, and result `path`. A
 `kb://<space-id>/<path>[:selector]` locator instead resolves through the
 trusted Run owner's current Knowledge Space access on every call, under RLS,
 never through `tools.nativeExecutorId`. The three tools are advertised when
