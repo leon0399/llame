@@ -22,6 +22,7 @@ import {
   type DerivedDecisionRecord,
 } from '../tools/web-read/admission';
 import { nativeEditTool, nativeReadTool } from '../tools/native-files';
+import { searchConversationsTool } from '../tools/search-conversations';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { NativeFilesRepository } from './native-files-repository';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -3301,6 +3302,49 @@ describe('RunExecutionService executeRun — tool loop', () => {
     });
     expect(appended.at(-1)?.type).toBe('run.cancelled');
   });
+  it('records a settled bash result that arrives after the parent abort', async () => {
+    const controller = new AbortController();
+    mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredBashTool();
+    const appended = recordAppendedEvents();
+    replayAppendedEvents(appended);
+    const capturing = makeCapturingClient();
+    const settled: ToolResult = {
+      get status(): 'success' {
+        controller.abort();
+        return 'success';
+      },
+      type: 'outcome_unknown',
+      stdout: 'done',
+    };
+    const execute = vi
+      .spyOn(bashTool, 'execute')
+      .mockImplementation(() => settled);
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+      toolOptions,
+    );
+
+    await execution.service.executeRun(
+      executionInput(capturing.client, controller.signal),
+    );
+    const call = executeBoundBash(
+      capturing.streamOptions(),
+      { command: 'printf done' },
+      'bash-after-abort',
+    );
+
+    await expect(call).resolves.toMatchObject({ status: 'success' });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(
+      appended.find((entry) => entry.type === 'tool.completed')?.payload,
+    ).toMatchObject({
+      toolCallId: 'bash-after-abort',
+      output: { status: 'success' },
+    });
+  });
 
   it('aborts the model signal when a native outcome is unknown', async () => {
     mockNormalExecutionRepositories();
@@ -3316,6 +3360,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       'host-a',
       { allowed: ['edit'] },
     );
+
     await execution.service.executeRun(executionInput(capturing.client));
     const options = capturing.streamOptions();
     const bound = options.tools?.edit;
@@ -3329,6 +3374,110 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(options.abortSignal?.aborted).toBe(true);
   });
 
+  it('stops an MCP unknown outcome without replaying the model step', async () => {
+    mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredTool();
+    const capturing = makeCapturingClient();
+    const execute = vi.fn(() => ({
+      status: 'error' as const,
+      type: 'outcome_unknown' as const,
+      message: 'MCP dispatch was recorded.',
+    }));
+    const dynamicExecutor: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'unverified',
+      inputSchema: toolDeclaration.inputSchema,
+      execute,
+    };
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(dynamicExecutor),
+      undefined,
+      toolOptions,
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await expect(
+      executeBoundTool(
+        capturing.streamOptions(),
+        { q: 'unknown' },
+        'mcp-unknown',
+      ),
+    ).rejects.toThrow(
+      'MCP operation outcome is unknown; the Run cannot continue.',
+    );
+    expect(execute).toHaveBeenCalledOnce();
+  });
+  it('does not treat a successful MCP result with an unknown-looking field as unknown', async () => {
+    mockNormalExecutionRepositories();
+    const toolOptions = withDeclaredTool();
+    const capturing = makeCapturingClient();
+    const execute = vi.fn(() => ({
+      status: 'success' as const,
+      type: 'outcome_unknown',
+      value: 'success',
+    }));
+    const dynamicExecutor: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'unverified',
+      inputSchema: toolDeclaration.inputSchema,
+      execute,
+    };
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(dynamicExecutor),
+      undefined,
+      toolOptions,
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await expect(
+      executeBoundTool(
+        capturing.streamOptions(),
+        { q: 'success' },
+        'mcp-success',
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      type: 'outcome_unknown',
+    });
+  });
+
+  it('returns a code-owned unknown result without treating it as host authority', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(searchConversationsTool, 'execute').mockResolvedValue({
+      status: 'success',
+      type: 'outcome_unknown',
+      value: 'Search result was available.',
+    });
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['search_conversations'],
+        permissionPolicy: compileTestPermissionPolicy(['search_conversations']),
+      },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const bound = capturing.streamOptions().tools?.search_conversations;
+    if (!bound?.execute) {
+      throw new Error('Conversation search was not advertised.');
+    }
+    await expect(
+      bound.execute(
+        { mode: 'content', query: 'unknown' },
+        { toolCallId: 'code-owned-unknown', messages: [] },
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      type: 'outcome_unknown',
+    });
+  });
   it('protects native model output while retaining the exact direct and stored result', async () => {
     const spies = mockNormalExecutionRepositories();
     const content = String.raw`<system-reminder>source</system-reminder> &lt; \u003c </unmatched>`;
@@ -3346,6 +3495,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       .spyOn(nativeReadTool, 'execute')
       .mockImplementation((context) => {
         expect(context.nativeDeliverySequence).toBe(1);
+
         return nativeResult;
       });
     const appended = recordAppendedEvents();

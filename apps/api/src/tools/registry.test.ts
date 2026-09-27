@@ -129,6 +129,30 @@ describe('resolveAdvertisedTools (fail-closed source and allowlist gate)', () =>
       resolveAdvertisedTools(new Set(['remote_adapter']), [unverifiedTool]),
     ).toEqual([]);
   });
+  it('uses the MCP namespace before accepting unverified tools', () => {
+    const mcpTool: Tool = {
+      ...searchConversationsTool,
+      id: 'mcp__web__search',
+      classification: 'unverified',
+    };
+    const otherTool: Tool = {
+      ...searchConversationsTool,
+      id: 'remote_adapter',
+      classification: 'unverified',
+    };
+    const wrongMcpTool: Tool = {
+      ...searchConversationsTool,
+      id: 'mcp__web__wrong',
+      classification: 'read_only',
+    };
+
+    expect(
+      resolveAdvertisedTools(
+        [mcpTool.id, otherTool.id, wrongMcpTool.id],
+        [mcpTool, otherTool, wrongMcpTool],
+      ).map((tool) => tool.id),
+    ).toEqual([mcpTool.id]);
+  });
 
   it('does not advertise a registered tool absent from the allowlist', () => {
     expect(resolveAdvertisedTools(new Set(['something_else']))).toEqual([]);

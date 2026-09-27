@@ -1194,14 +1194,10 @@ export class RunExecutionService {
               // after cancellation. A persisted unknown MCP result is already
               // the durable settlement and must not be replaced by cancellation.
               if (
-                (isBashTool(executor) &&
-                  !(
-                    result.status === 'error' &&
-                    result.type === 'outcome_unknown'
-                  )) ||
-                (executor.id.startsWith('mcp__') &&
-                  result.status === 'error' &&
-                  result.type === 'outcome_unknown')
+                isBashTool(executor) &&
+                !(
+                  result.status === 'error' && result.type === 'outcome_unknown'
+                )
               ) {
                 recordToolCompleted(toolCallId, declaration.id, args, result);
               } else {
