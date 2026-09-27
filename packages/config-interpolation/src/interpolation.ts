@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 /**
  * Value interpolation (D4 / spec "Environment-variable interpolation" +
@@ -356,5 +358,121 @@ function selectJsonPointer(document: JsonValue, pointer: string): JsonValue {
     }
     throw new Error("cannot traverse value");
   }
+
   return current;
+}
+/** Workspace interpolation is single-pass and does not unescape doubled braces. */
+export type WorkspaceInterpolationSubstitution = Readonly<{
+  value: string;
+  fallback: boolean;
+}>;
+
+export type WorkspaceInterpolationResult = Readonly<{
+  value: string;
+  substitutions: ReadonlyArray<WorkspaceInterpolationSubstitution>;
+}>;
+
+type WorkspaceToken = {
+  value: string;
+  length: number;
+  substitution?: WorkspaceInterpolationSubstitution;
+};
+
+const WORKSPACE_ENV_NAME = /^[A-Za-z0-9_]+$/u;
+
+export async function interpolateWorkspaceString(
+  input: string,
+  root: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<WorkspaceInterpolationResult> {
+  let value = "";
+  const substitutions: Array<WorkspaceInterpolationSubstitution> = [];
+  let index = 0;
+  while (index < input.length) {
+    const token = await workspaceToken(input, index, root, env);
+    if (token === undefined) {
+      value += input[index];
+      index += 1;
+      continue;
+    }
+    value += token.value;
+    if (token.substitution !== undefined)
+      substitutions.push(token.substitution);
+    index += token.length;
+  }
+  return { value, substitutions };
+}
+
+async function workspaceToken(
+  input: string,
+  index: number,
+  root: string,
+  env: NodeJS.ProcessEnv,
+): Promise<WorkspaceToken | undefined> {
+  const dollar = input.startsWith("${", index);
+  const envPrefix = input.startsWith("{env:", index);
+  const pathPrefix = input.startsWith("{path:", index);
+  if (!dollar && !envPrefix && !pathPrefix) return undefined;
+  const prefixLength = dollar ? 2 : pathPrefix ? 6 : 5;
+  const close = input.indexOf("}", index + prefixLength);
+  if (close === -1) return undefined;
+  const body = input.slice(index + prefixLength, close);
+  if (pathPrefix) {
+    const value = await workspacePath(body, root);
+    return workspaceTokenResult(value, close - index + 1, false);
+  }
+  const parsed = workspaceEnvBody(body);
+  if (parsed === undefined) return undefined;
+  const value = Object.hasOwn(env, parsed.name) ? env[parsed.name] : undefined;
+  const useFallback =
+    value === undefined || (value === "" && parsed.fallback !== undefined);
+  if (useFallback && parsed.fallback === undefined) {
+    throw new InterpolationError(
+      `required environment variable ${parsed.name} is not set`,
+      { kind: "env", name: parsed.name },
+    );
+  }
+  const resolved = useFallback ? (parsed.fallback ?? "") : (value ?? "");
+  return workspaceTokenResult(resolved, close - index + 1, useFallback);
+}
+
+function workspaceTokenResult(
+  value: string,
+  length: number,
+  fallback: boolean,
+): WorkspaceToken {
+  const result: WorkspaceToken = { value, length };
+  if (value.length > 0) result.substitution = { value, fallback };
+  return result;
+}
+
+type WorkspaceEnvBody = { name: string; fallback?: string };
+
+function workspaceEnvBody(body: string): WorkspaceEnvBody | undefined {
+  const separator = body.indexOf(":-");
+  const name = separator === -1 ? body : body.slice(0, separator);
+  if (!WORKSPACE_ENV_NAME.test(name)) return undefined;
+  const result: WorkspaceEnvBody = { name };
+  if (separator !== -1) result.fallback = body.slice(separator + 2);
+  return result;
+}
+
+async function workspacePath(location: string, root: string): Promise<string> {
+  if (location.length === 0) {
+    throw new InterpolationError("required file location is empty", {
+      kind: "path",
+      location,
+    });
+  }
+  const file = path.isAbsolute(location)
+    ? location
+    : path.resolve(root, location);
+  try {
+    return (await readFile(file, "utf8")).trim();
+  } catch {
+    throw new InterpolationError(
+      `required file ${location} could not be read`,
+      { kind: "path", location },
+    );
+  }
 }

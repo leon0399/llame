@@ -156,7 +156,10 @@ async function startRuntimeGraph(
     .useValue({ config })
     .compile();
   await moduleRef.init();
-  return { moduleRef, runtime: moduleRef.get(McpRuntimeService) };
+  return {
+    moduleRef,
+    runtime: moduleRef.get(McpRuntimeService, { strict: false }),
+  };
 }
 
 async function turnCatalog(

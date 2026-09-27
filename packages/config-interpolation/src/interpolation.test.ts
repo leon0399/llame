@@ -15,6 +15,7 @@ import {
   InterpolationError,
   interpolateString,
   interpolateStringWithSubstitutions,
+  interpolateWorkspaceString,
 } from "./interpolation";
 import { InstanceConfigError } from "./instance-config-error";
 
@@ -387,6 +388,130 @@ describe("interpolateString — escaping", () => {
 
   it("a lone { that starts no recognized token passes through unchanged", () => {
     expect(interpolateString("just a { brace")).toBe("just a { brace");
+  });
+});
+describe("interpolateWorkspaceString", () => {
+  it("resolves workspace env/path tokens and labels fallback substitutions", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+    writeFileSync(path.join(root, "token.txt"), " file-secret \n");
+
+    const result = await interpolateWorkspaceString(
+      "${SET}|${MISSING:-fallback}|{env:SET}|{path:token.txt}",
+      root,
+      { SET: "env-secret" },
+    );
+
+    expect(result).toEqual({
+      value: "env-secret|fallback|env-secret|file-secret",
+      substitutions: [
+        { value: "env-secret", fallback: false },
+        { value: "fallback", fallback: true },
+        { value: "env-secret", fallback: false },
+        { value: "file-secret", fallback: false },
+      ],
+    });
+  });
+
+  it("is non-recursive and ignores inherited environment properties", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+    const environment: NodeJS.ProcessEnv = { OUTER: "${INNER}" };
+    Object.setPrototypeOf(environment, { INHERITED: "not-an-env-value" });
+
+    const result = await interpolateWorkspaceString(
+      "${OUTER}|${INHERITED:-fallback}",
+      root,
+      environment,
+    );
+
+    expect(result).toEqual({
+      value: "${INNER}|fallback",
+      substitutions: [
+        { value: "${INNER}", fallback: false },
+        { value: "fallback", fallback: true },
+      ],
+    });
+  });
+
+  it("names missing workspace interpolation sources without values", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+
+    await expect(
+      interpolateWorkspaceString("${MISSING}", root, {}),
+    ).rejects.toMatchObject({
+      source: { kind: "env", name: "MISSING" },
+    });
+    await expect(
+      interpolateWorkspaceString("{path:missing/token}", root, {}),
+    ).rejects.toMatchObject({
+      source: { kind: "path", location: "missing/token" },
+    });
+  });
+  it("does not unescape doubled braces in portable Workspace config", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+    await expect(
+      interpolateWorkspaceString("--template={{name}}", root, {}),
+    ).resolves.toEqual({
+      value: "--template={{name}}",
+      substitutions: [],
+    });
+  });
+  it("covers incomplete, invalid, empty, and fallback Workspace tokens", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+    writeFileSync(path.join(root, "token.txt"), "file-secret");
+
+    await expect(
+      interpolateWorkspaceString("prefix ${SET", root, { SET: "value" }),
+    ).resolves.toEqual({ value: "prefix ${SET", substitutions: [] });
+    await expect(
+      interpolateWorkspaceString("pre{path:token.txt}tail", root, {}),
+    ).resolves.toEqual({
+      value: "prefile-secrettail",
+      substitutions: [{ value: "file-secret", fallback: false }],
+    });
+    await expect(
+      interpolateWorkspaceString("{env:bad-name}", root, {}),
+    ).resolves.toEqual({ value: "{env:bad-name}", substitutions: [] });
+
+    const result = await interpolateWorkspaceString(
+      "${SET:-fallback}|${EMPTY:-fallback}|${PLAIN}",
+      root,
+      { SET: "value", EMPTY: "", PLAIN: "" },
+    );
+    expect(result).toEqual({
+      value: "value|fallback|",
+      substitutions: [
+        { value: "value", fallback: false },
+        { value: "fallback", fallback: true },
+      ],
+    });
+  });
+
+  it("reports interpolation source diagnostics without resolved values", async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), "llame-workspace-interpolation-"),
+    );
+    await expect(
+      interpolateWorkspaceString("${MISSING}", root, {}),
+    ).rejects.toThrow("required environment variable MISSING is not set");
+    await expect(
+      interpolateWorkspaceString("{path:}", root, {}),
+    ).rejects.toMatchObject({
+      source: { kind: "path", location: "" },
+      message: "required file location is empty",
+    });
+    await expect(
+      interpolateWorkspaceString("{path:missing/token}", root, {}),
+    ).rejects.toThrow("required file missing/token could not be read");
   });
 });
 

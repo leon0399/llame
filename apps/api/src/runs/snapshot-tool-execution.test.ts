@@ -207,6 +207,7 @@ describe('resolveBoundExecutableTools — dynamic tools', () => {
     );
 
     expect(result).toEqual([{ declaration, executor: tool }]);
+    expect(result[0]).not.toHaveProperty('server');
     expect(resolver.resolveDynamicTool).toHaveBeenCalledOnce();
     expect(resolver.resolveDynamicTool).toHaveBeenCalledWith(tool.id);
   });

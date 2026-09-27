@@ -18,6 +18,11 @@ import { join } from 'node:path';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { SkillCatalog } from '../skills/skill-catalog';
+import { McpRuntimeService } from '../mcp/mcp-runtime.service';
+import {
+  WorkspaceMcpClients,
+  type WorkspaceMcpEntryState,
+} from '../mcp/workspace-mcp-clients';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { resolveAdvertisedTools, TOOL_REGISTRY } from './registry';
 import { runTool } from './runner';
@@ -131,6 +136,28 @@ function deferred<T>(): Deferred<T> {
     resolve = resolvePromise;
   });
   return { promise, resolve };
+}
+function fakeWorkspaceMcp(state: WorkspaceMcpEntryState) {
+  const operator = new McpRuntimeService({});
+  const clients = new WorkspaceMcpClients(operator, {
+    readConfig: () => Promise.resolve([]),
+  });
+  const startForChat = vi
+    .spyOn(clients, 'startForChat')
+    .mockResolvedValue(state);
+  const stateForKey = vi.spyOn(clients, 'stateForKey').mockReturnValue(state);
+  const transferAttempt = vi.spyOn(clients, 'transferAttempt');
+  const addToAttempt = vi
+    .spyOn(clients, 'addToAttempt')
+    .mockResolvedValue(state);
+  return {
+    clients,
+    operator,
+    startForChat,
+    stateForKey,
+    transferAttempt,
+    addToAttempt,
+  };
 }
 
 describe('Workspace host tools', () => {
@@ -779,6 +806,99 @@ describe('Workspace host tools', () => {
     expect(cell.commit).toHaveBeenCalledTimes(2);
     expect(cell.commit).toHaveBeenNthCalledWith(1, root);
     expect(cell.commit).toHaveBeenNthCalledWith(2, nextRoot);
+  });
+  it('keeps Workspace MCP state and transfers only a started attempt', async () => {
+    const { additions } = seededAdditions();
+    additions.disableAll();
+    const state: WorkspaceMcpEntryState = {
+      key: { chatId: 'chat-1', root, generation: 1 },
+      servers: [
+        { id: 'workspace', state: 'available' },
+        { id: 'other', state: 'available' },
+      ],
+    };
+    const mcp = fakeWorkspaceMcp(state);
+    const cell = {
+      current: vi.fn(() => undefined),
+      commit: vi.fn(),
+      claimTransition: vi.fn(() => true),
+    };
+    const enter = vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+    enter
+      .mockResolvedValueOnce({
+        status: 'bound',
+        previousRoot: null,
+        generation: 1,
+      })
+      .mockResolvedValueOnce({
+        status: 'unchanged',
+        previousRoot: root,
+        generation: 1,
+      });
+
+    const first = await enterWorkspaceTool.execute(
+      context({
+        workspaceRoot: cell,
+        workspaceMcp: mcp.clients,
+        toolAdditions: additions,
+      }),
+      { path: root },
+    );
+    const same = await enterWorkspaceTool.execute(
+      context({
+        workspaceRoot: cell,
+        workspaceMcp: mcp.clients,
+        toolAdditions: additions,
+      }),
+      { path: root },
+    );
+
+    expect(first).toMatchObject({
+      status: 'success',
+      state: 'bound',
+      mcpServers: state.servers,
+    });
+    expect(same).toMatchObject({
+      status: 'success',
+      state: 'unchanged',
+      mcpServers: [
+        {
+          id: 'workspace',
+          state: 'available',
+          reason: 'shadows from the next Run',
+        },
+        { id: 'other', state: 'available' },
+      ],
+    });
+    expect(mcp.startForChat).toHaveBeenCalledOnce();
+    expect(mcp.stateForKey).toHaveBeenCalledOnce();
+    expect(mcp.addToAttempt).toHaveBeenCalledOnce();
+    expect(mcp.transferAttempt).toHaveBeenCalledOnce();
+    await mcp.clients.onModuleDestroy();
+    await mcp.operator.stop();
+  });
+
+  it('does not disable retained Workspace tools on an initial bind', async () => {
+    const { additions, id } = seededAdditions();
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
+      status: 'bound',
+      previousRoot: null,
+      generation: 1,
+    });
+
+    await enterWorkspaceTool.execute(
+      context({
+        workspaceRoot: createWorkspaceRootCell(undefined),
+        toolAdditions: additions,
+      }),
+      { path: root },
+    );
+
+    const executor = additions.executorFor(id);
+    if (executor === undefined) throw new Error('expected retained executor');
+    expect(executor.execute(context(), {})).toEqual({
+      status: 'success',
+    });
   });
 
   it('returns executor_unavailable when the native identity is missing', async () => {

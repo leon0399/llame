@@ -4,3 +4,8 @@ export function bashWorkingDirectory(): string {
   if (fromEnv) return fromEnv;
   return process.cwd();
 }
+
+/** Process environment injection boundary for host-config readers. */
+export function processEnvironment(): NodeJS.ProcessEnv {
+  return process.env;
+}

@@ -2019,6 +2019,52 @@ describe('McpServerClient', () => {
       await cleanup({ client, fixture });
     }
   });
+  it('redacts Workspace URL and header substitutions echoed as bare values', async () => {
+    const bearer = 'workspace-bearer-secret';
+    const urlKey = 'workspace-url-key';
+    const fixture = await createMcpTestFixture({
+      $get: [{ kind: 'raw', status: 405, body: '' }],
+      initialize: [mcpStreamableHttpInitialize()],
+      'notifications/initialized': [{ kind: 'raw', status: 204, body: '' }],
+      'tools/list': [jsonRpcResult(1, { tools: [tool('lookup')] })],
+      'tools/call': [
+        jsonRpcResult(2, {
+          content: [{ type: 'text', text: `${bearer} ${urlKey}` }],
+        }),
+      ],
+      $delete: [{ kind: 'raw', status: 204, body: '' }],
+    });
+    const client = await McpServerClient.connect({
+      serverId: 'workspace',
+      url: `${fixture.url}?key=${urlKey}`,
+      headers: { authorization: `Bearer ${bearer}` },
+      protectedValues: [bearer, urlKey],
+    });
+
+    try {
+      const catalog = await client.discover();
+      const outcome = await byId(
+        catalog.tools,
+        'mcp__workspace__lookup',
+      ).execute(
+        {},
+        { toolCallId: 'call', messages: [], abortSignal: undefined },
+      );
+      expect(outcome).toMatchObject({
+        result: {
+          status: 'success',
+          output: {
+            content: [{ type: 'text', text: '[REDACTED] [REDACTED]' }],
+          },
+        },
+      });
+      expect(JSON.stringify(outcome)).not.toMatch(
+        /workspace-bearer-secret|workspace-url-key/u,
+      );
+    } finally {
+      await cleanup({ client, fixture });
+    }
+  });
 
   it('keeps invalid header failures behind the safe initialization boundary', async () => {
     const invalidHeader = 'AUTH-SENTINEL\r\nx-leak: yes';

@@ -28,6 +28,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `.agents/skills`, and `.llame/skills` sources with bounded entry-result
   listings, live `skill://` reads, and operator-catalog isolation
   ([#974](https://github.com/leon0399/llame/issues/974)).
+- Entered Workspaces now load portable MCP configuration from `.mcp.json`,
+  with `.llame/mcp.json` taking precedence by server name. Workspace MCP
+  clients are isolated per Chat and binding generation, follow entry/attempt
+  start and exit/switch/detach/shutdown/idle-stop lifetimes, and apply
+  interpolation redaction plus deferred shadowing and case-only collision
+  handling ([#974](https://github.com/leon0399/llame/issues/974)).
 
 # 2026-09-26
 

@@ -3,7 +3,10 @@ import { type ModelToolDeclaration } from '../db/schema';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { TOOL_REGISTRY } from '../tools/registry';
 import { resolveJsonSchema, toFlexibleSchema } from '../tools/schema-utils';
-import { hashToolDeclaration } from '../tools/turn-tool-catalog';
+import {
+  hashToolDeclaration,
+  type TurnToolSource,
+} from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
 import { canonicalJson } from '../canonical-json';
 
@@ -31,6 +34,8 @@ export class ContextIncompatibleError extends ModelContextExecutionError {
 export type BoundExecutableTool = {
   declaration: ModelToolDeclaration;
   executor: Tool;
+  /** Workspace MCP server id; absent for operator MCP and code-owned tools. */
+  server?: string;
 };
 
 export type DynamicToolResolution =
@@ -40,6 +45,8 @@ export type DynamicToolResolution =
       readonly state: 'available';
       readonly declarationHash: string;
       readonly executor: Tool;
+      /** Set only when this executor belongs to a Workspace MCP client set. */
+      readonly workspaceServer?: string;
     };
 
 /**
@@ -50,6 +57,35 @@ export type DynamicToolResolution =
  */
 export interface DynamicToolExecutorResolver {
   resolveDynamicTool(id: string): DynamicToolResolution;
+}
+
+export function constrainDynamicToolResolver(
+  resolver: DynamicToolExecutorResolver | undefined,
+  sourceById: ReadonlyMap<string, TurnToolSource>,
+): DynamicToolExecutorResolver | undefined {
+  if (resolver === undefined) return undefined;
+  return {
+    resolveDynamicTool: (id) => {
+      const resolution = resolver.resolveDynamicTool(id);
+      const source = sourceById.get(id);
+      if (source?.type !== 'mcp' || resolution.state !== 'available') {
+        return resolution;
+      }
+      if (
+        source.workspace === true &&
+        resolution.workspaceServer !== source.serverId
+      ) {
+        return { state: 'unavailable' };
+      }
+      if (
+        source.workspace !== true &&
+        resolution.workspaceServer !== undefined
+      ) {
+        return { state: 'unavailable' };
+      }
+      return resolution;
+    },
+  };
 }
 
 export const DYNAMIC_TOOL_EXECUTOR_RESOLVER = Symbol(
@@ -141,7 +177,7 @@ async function resolveCodeOwnedTool(
 /**
  * Binds a dynamic-resolver-supplied executor, or `undefined` when the id
  * isn't dynamic at all (the caller then treats it as unresolvable). A
- * registry entry always wins and follows the strict code-owned path above,
+ * registry entry always wins and follows the strict code-owned path below,
  * even when its id resembles a dynamic namespace. Only the runtime resolver
  * can confirm that a registry-missing id belongs to a currently configured
  * dynamic source.
@@ -163,7 +199,13 @@ function resolveDynamicToolBinding(
     dynamicResolution.executor.id === declaration.id &&
     dynamicResolution.executor.classification === 'unverified'
   ) {
-    return { declaration, executor: dynamicResolution.executor };
+    return {
+      declaration,
+      executor: dynamicResolution.executor,
+      ...(dynamicResolution.workspaceServer !== undefined && {
+        server: dynamicResolution.workspaceServer,
+      }),
+    };
   }
   return { declaration, executor: unavailableExecutor(declaration) };
 }

@@ -10,6 +10,10 @@ import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import { evaluatePermission } from './permissions/evaluator';
 import { permissionDeniedResult } from './permissions/messages';
 import { type PermissionDecision } from './permissions/types';
+import {
+  type WorkspaceMcpEntryState,
+  type WorkspaceMcpKey,
+} from '../mcp/workspace-mcp-clients';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 
 /** Workspace chooses a working root; it is not an isolation boundary. */
@@ -172,6 +176,37 @@ function claimTransition(context: ToolContext): boolean {
   );
 }
 
+async function workspaceMcpServers(
+  context: ToolContext,
+  root: string,
+  generation: number,
+  start: boolean,
+): Promise<WorkspaceMcpEntryState['servers']> {
+  const clients = context.workspaceMcp;
+  if (clients === undefined) return [];
+  const key: WorkspaceMcpKey = {
+    chatId: context.chatId,
+    root,
+    generation,
+  };
+  const state = start
+    ? await clients.startForChat(key)
+    : clients.stateForKey(key);
+  if (start) clients.transferAttempt(context.chatId, key);
+  if (state === undefined) return [];
+  if (!start) {
+    return state.servers.map((server) =>
+      context.toolAdditions?.hasWorkspaceDeclaration(server.id) &&
+      !context.toolAdditions.hasAvailableWorkspaceDeclaration(server.id)
+        ? { ...server, reason: 'shadows from the next Run' }
+        : server,
+    );
+  }
+  if (context.toolAdditions === undefined) return state.servers;
+  const added = await clients.addToAttempt(key, context.toolAdditions);
+  return added.servers;
+}
+
 async function bindCanonicalRoot(
   context: ToolContext,
   authority: NativeAuthority,
@@ -188,8 +223,19 @@ async function bindCanonicalRoot(
     }),
   );
   if (result.status === 'fence_lost') return executorUnavailable();
-  if (result.status === 'switched') context.toolAdditions?.disableAll();
-  if (result.status !== 'unchanged') context.workspaceRoot?.commit(canonical);
+  if (result.status === 'switched') {
+    context.toolAdditions?.disableAll();
+    await context.workspaceMcp?.stopForChat(context.chatId);
+  }
+  if (result.status !== 'unchanged') {
+    context.workspaceRoot?.commit(canonical);
+  }
+  const mcpServers = await workspaceMcpServers(
+    context,
+    canonical,
+    result.generation,
+    result.status !== 'unchanged',
+  );
 
   return {
     status: 'success',
@@ -197,6 +243,7 @@ async function bindCanonicalRoot(
     state: result.status,
     authority: WORKSPACE_AUTHORITY,
     ...workspaceSkillResult(context.skillCatalog, canonical),
+    mcpServers,
   };
 }
 
@@ -266,6 +313,7 @@ export const exitWorkspaceTool: Tool<ExitWorkspaceInput> = {
     if (result.status === 'cleared') {
       context.workspaceRoot?.commit(undefined);
       context.toolAdditions?.disableAll();
+      await context.workspaceMcp?.stopForChat(context.chatId);
       return {
         status: 'success',
         root: null,
@@ -273,6 +321,7 @@ export const exitWorkspaceTool: Tool<ExitWorkspaceInput> = {
         previousRoot: result.previousRoot,
       };
     }
+    await context.workspaceMcp?.stopForChat(context.chatId);
     return { status: 'success', root: null, state: 'unbound' };
   },
 };

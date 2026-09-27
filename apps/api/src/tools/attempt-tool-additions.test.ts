@@ -76,6 +76,57 @@ function operatorFixture() {
     ]),
   };
 }
+it('distinguishes available and retained Workspace declarations', () => {
+  const declaration: ModelToolDeclaration = {
+    id: TOOL_ID,
+    description: 'Look up a value.',
+    inputSchema: { type: 'object', properties: {} },
+  };
+  const binding: AttemptToolBinding = {
+    declaration,
+    executor: makeTool(),
+    server: SERVER,
+  };
+  const available = setup(new Map([[TOOL_ID, binding]]));
+  expect(available.additions.hasAvailableWorkspaceDeclaration(SERVER)).toBe(
+    true,
+  );
+  expect(available.additions.hasAvailableWorkspaceDeclaration('other')).toBe(
+    false,
+  );
+  expect(available.additions.hasWorkspaceDeclaration(SERVER)).toBe(true);
+  expect(available.additions.hasWorkspaceDeclaration('other')).toBe(false);
+
+  const disabled = setup(
+    new Map([[TOOL_ID, { ...binding, available: false }]]),
+  );
+  expect(disabled.additions.hasAvailableWorkspaceDeclaration(SERVER)).toBe(
+    false,
+  );
+  expect(disabled.additions.hasWorkspaceDeclaration(SERVER)).toBe(true);
+
+  const operatorId = 'mcp__other__lookup';
+  const operatorDeclaration: ModelToolDeclaration = {
+    id: operatorId,
+    description: 'Other lookup.',
+    inputSchema: { type: 'object', properties: {} },
+  };
+  const operator = setup(
+    new Map([
+      [
+        operatorId,
+        { declaration: operatorDeclaration, executor: makeTool(operatorId) },
+      ],
+    ]),
+    {},
+    ['mcp__*'],
+  );
+  expect(operator.additions.hasOperatorDeclaration(SERVER)).toBe(false);
+  expect(operator.additions.hasOperatorDeclaration('other')).toBe(true);
+
+  const workspaceOnly = setup(new Map([[TOOL_ID, binding]]));
+  expect(workspaceOnly.additions.hasOperatorDeclaration(SERVER)).toBe(false);
+});
 
 describe('AttemptToolAdditions', () => {
   it('inserts an admitted declaration into the bound tool record', async () => {
@@ -239,6 +290,7 @@ describe('AttemptToolAdditions', () => {
     const state = setup();
     await state.additions.add(SERVER, [makeTool()]);
     state.additions.disableAll();
+    expect(state.boundExecutables.get(TOOL_ID)?.available).toBe(false);
 
     const executor = state.additions.executorFor(TOOL_ID);
     if (executor === undefined) throw new Error('expected retained executor');

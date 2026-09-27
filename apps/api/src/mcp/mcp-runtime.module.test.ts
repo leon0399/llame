@@ -11,7 +11,7 @@ import {
   McpRuntimeModule,
 } from './mcp-runtime.module';
 import { McpRuntimeService } from './mcp-runtime.service';
-
+import { WorkspaceMcpClients } from './workspace-mcp-clients';
 describe('McpRuntimeModule', () => {
   it('keeps the default production runtime inert over the frozen empty definition map', async () => {
     const moduleRef = await Test.createTestingModule({
@@ -93,6 +93,7 @@ describe('McpRuntimeModule', () => {
       provide: DYNAMIC_TOOL_EXECUTOR_RESOLVER,
       useExisting: McpRuntimeService,
     });
+    expect(workerProviders).toContain(WorkspaceMcpClients);
   });
 
   it('creates one runtime per Nest application graph', async () => {

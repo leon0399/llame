@@ -8,14 +8,16 @@ import {
   type ToolAvailabilityEntry,
   type TurnToolCandidate,
 } from './turn-tool-catalog';
-import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
 import { unavailableExecutor } from '../runs/snapshot-tool-execution';
+import { asciiCaseFoldToolId, isToolId, matchesAllowedToolId } from './tool-id';
+import { parseMcpToolId } from '../mcp/tool-id';
 import { type Tool } from './types';
 
 export type AttemptToolBinding = {
   readonly declaration: ModelToolDeclaration;
   readonly executor: Tool;
   readonly server?: string;
+  readonly available?: boolean;
 };
 
 export type AttemptToolRefusal = {
@@ -173,6 +175,7 @@ function bindAddition(
     declaration: retained?.declaration ?? addition.declaration,
     executor: addition.tool,
     server,
+    available: true,
   });
   if (!(addition.id in record)) {
     record[addition.id] = options.createTool(addition.declaration);
@@ -201,8 +204,30 @@ export class AttemptToolAdditions {
     return this.options.boundExecutables.get(id)?.executor;
   }
 
+  hasAvailableWorkspaceDeclaration(server: string): boolean {
+    for (const binding of this.options.boundExecutables.values()) {
+      if (binding.server === server && binding.available !== false) return true;
+    }
+    return false;
+  }
+
   get addedDeclarations(): ReadonlyArray<ModelToolDeclaration> {
     return [...this.addedDeclarationsById.values()];
+  }
+
+  hasOperatorDeclaration(server: string): boolean {
+    for (const [id, binding] of this.options.boundExecutables) {
+      if (binding.server !== undefined) continue;
+      const parsed = parseMcpToolId(id);
+      if (parsed.success && parsed.serverId === server) return true;
+    }
+    return false;
+  }
+  hasWorkspaceDeclaration(server: string): boolean {
+    for (const binding of this.options.boundExecutables.values()) {
+      if (binding.server === server) return true;
+    }
+    return false;
   }
 
   private plan(
@@ -283,13 +308,13 @@ export class AttemptToolAdditions {
     }
     return this.commit(server, plan, record);
   }
-
   disableAll(): void {
     for (const [id, binding] of this.options.boundExecutables) {
       if (binding.server === undefined) continue;
       this.options.boundExecutables.set(id, {
         ...binding,
         executor: unavailableExecutor(binding.declaration),
+        available: false,
       });
     }
   }

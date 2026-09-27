@@ -234,7 +234,7 @@ implementation layers.
 
 ## 6. `workspace-entry/workspace-mcp`: clients, config, and lifecycle
 
-- [ ] 6.1 Add the per-Chat Workspace MCP client provider keyed by `(chatId, canonical root,
+- [x] 6.1 Add the per-Chat Workspace MCP client provider keyed by `(chatId, canonical root,
 workspace_generation)`. Keep Workspace candidates and executors out of the process-wide
       operator MCP runtime; compose each attempt from the current Chat key with its resolver
       layered over the operator resolver. Implement `.llame/mcp.json` over `.mcp.json` merge,
@@ -243,7 +243,7 @@ workspace_generation)`. Keep Workspace candidates and executors out of the proce
       tools never reach Chat B or another owner; in one process, bind two Chats to Workspaces that
       define the same server id and verify each Chat calls only its own server; and verify another
       process discards stale clients before using a current binding.
-- [ ] 6.2 Implement `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` interpolation from
+- [x] 6.2 Implement `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` interpolation from
       the executing process's environment and filesystem, including llame's own environment;
       resolve relative `{path:…}` from the Workspace root; make unresolved values unavailable
       with a safe diagnostic; never re-scan resolved values or shell-interpret commands/args.
@@ -254,7 +254,7 @@ workspace_generation)`. Keep Workspace candidates and executors out of the proce
       unreadable files, the accepted audited-repository boundary, a literal `Authorization` header
       echoed by a Workspace server being redacted, and that an ambient llame process variable not
       referenced by Workspace config is absent from its stdio child's environment.
-- [ ] 6.3 Implement deferred shadowing: a byte-equal Workspace/operator server id defers when
+- [x] 6.3 Implement deferred shadowing: a byte-equal Workspace/operator server id defers when
       operator tools are already declared in the running attempt, reports
       `shadows from the next Run`, retains operator executors for that attempt, and attempt-start
       composition shadows from the next attempt that composes the live binding, including a retry
@@ -264,7 +264,7 @@ workspace_generation)`. Keep Workspace candidates and executors out of the proce
       `case-only collision with an operator server` and contributes no tools; operator tools are
       unaffected. A failed Workspace server does not shadow. Verify deferred shadowing, the
       case-only collision scenario, and the next-attempt transition.
-- [ ] 6.4 Report every Workspace server's state in the `enter_workspace` result and compose the
+- [x] 6.4 Report every Workspace server's state in the `enter_workspace` result and compose the
       Chat's currently admitted Workspace tools from the start of the next attempt so
       `tool-availability` announces them. Verify malformed files and unsupported transports leave
       entry successful, failed servers are unavailable, a Workspace tool is callable in the
@@ -272,15 +272,15 @@ workspace_generation)`. Keep Workspace candidates and executors out of the proce
       re-added declaration surfaces `available from the next Run` in the entry result, and the
       next attempt starts the generation-matching client set and resolves Workspace tools from the
       live binding at its start rather than from prior attempt state.
-- [ ] 6.5 Update `SPEC.md:132` to document per-process operator MCP clients plus per-Chat
+- [x] 6.5 Update `SPEC.md:132` to document per-process operator MCP clients plus per-Chat
       Workspace MCP clients. Document Workspace MCP config, interpolation, lifetime, generation
       keying, per-Chat resolver isolation, byte-equal deferred shadowing, case-only collision
       unavailability, and the audited-repository assumption in `docs/mcp-tools.md`; add a dated
       `CHANGELOG.md` entry. Run the API checks from 1.9 and web checks from 2.3 for this layer and
       record them in the PR body, which uses `Closes #974`.
-- [ ] 6.6 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
+- [x] 6.6 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
       affected checks before marking ready.
-- [ ] 6.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 6.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before creating `finalize`.
 
 ## 7. `workspace-entry/finalize`: spec sync and archive

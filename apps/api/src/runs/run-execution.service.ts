@@ -153,6 +153,7 @@ import {
   type BoundExecutableTool,
   type DynamicToolExecutorResolver,
   ModelContextExecutionError,
+  constrainDynamicToolResolver,
   resolveBoundExecutableTools,
 } from './snapshot-tool-execution';
 import {
@@ -179,9 +180,10 @@ import {
 } from '../knowledge/knowledge-tool-candidate-resolver';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import {
-  ToolDescriptionRenderError,
-  type TurnToolCandidate,
-} from '../tools/turn-tool-catalog';
+  WorkspaceMcpClients,
+  type WorkspaceMcpKey,
+} from '../mcp/workspace-mcp-clients';
+import { ToolDescriptionRenderError } from '../tools/turn-tool-catalog';
 import {
   MemoryService,
   type MemorySettingsBindingResolver,
@@ -532,6 +534,9 @@ export class RunExecutionService {
     @Optional()
     @Inject(DYNAMIC_TOOL_EXECUTOR_RESOLVER)
     private readonly dynamicToolResolver?: DynamicToolExecutorResolver,
+    @Optional()
+    @Inject(WorkspaceMcpClients)
+    private readonly workspaceMcp?: WorkspaceMcpClients,
   ) {
     this.toolPromptRenderer = createToolPromptRenderer({
       configPath: this.instanceConfig.configPath ?? resolveConfigPath(),
@@ -694,6 +699,9 @@ export class RunExecutionService {
       workspaceChat,
     );
     const workspaceRoot = createWorkspaceRootCell(workspacePreparation.root);
+    const workspaceMcpKey = this.workspaceMcpKey(workspacePreparation);
+    await this.startWorkspaceMcp(input.chatId, workspaceMcpKey);
+    const attemptDynamicResolver = this.attemptDynamicResolver(workspaceMcpKey);
 
     // Explicit `$skill` activation runs BEFORE context assembly, because the
     // instructions it loads are part of the request the model receives on its
@@ -705,7 +713,6 @@ export class RunExecutionService {
       claim.nativeDeliverySequence,
       workspaceRoot,
     );
-
     // Prompt/catalog resolution: the worker resolves both prompt surfaces
     // from the current owner state, admitted catalog, and boot-loaded
     // templates. This replaces the accept-time snapshot binding.
@@ -726,6 +733,7 @@ export class RunExecutionService {
         attemptId,
         workspacePreparation.chat,
         workspacePreparation.root,
+        workspaceMcpKey,
       );
       attemptStagedParts = context.stagedParts;
       attemptRecencyDigestTold = context.recencyDigestTold;
@@ -754,7 +762,10 @@ export class RunExecutionService {
         tools: await resolveBoundExecutableTools(
           context.toolCatalog.declarations,
           undefined,
-          this.dynamicToolResolver,
+          constrainDynamicToolResolver(
+            attemptDynamicResolver,
+            context.toolCatalog.sourceById ?? new Map(),
+          ),
         ),
       };
 
@@ -809,9 +820,13 @@ export class RunExecutionService {
     }
     const { system, messages, untitled, tools: executableTools } = prepared;
     const boundExecutables = new Map<string, AttemptToolBinding>(
-      executableTools.map(({ declaration, executor }) => [
+      executableTools.map(({ declaration, executor, server }) => [
         declaration.id,
-        { declaration, executor },
+        {
+          declaration,
+          executor,
+          ...(server !== undefined && { server, available: true }),
+        },
       ]),
     );
 
@@ -948,6 +963,7 @@ export class RunExecutionService {
       userId: input.userId,
       chatId: input.chatId,
       workspaceRoot,
+      workspaceMcp: this.workspaceMcp,
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
@@ -959,7 +975,6 @@ export class RunExecutionService {
       queryEmbedder: this.queryEmbedder,
       permissionPolicy: this.permissionPolicy,
     };
-
     const { maxStepsPerRun, callTimeoutSeconds } =
       this.instanceConfig.config.tools;
 
@@ -1355,6 +1370,10 @@ export class RunExecutionService {
       });
     }
 
+    const endWorkspaceAttempt = this.beginWorkspaceAttempt(
+      input.chatId,
+      workspaceMcpKey,
+    );
     try {
       return client.streamText({
         onRequestUsage: (usage) => {
@@ -1477,6 +1496,7 @@ export class RunExecutionService {
           persistReasoning(reasoningDeltas.push(text, Date.now()));
         },
         onError: async ({ error }) => {
+          endWorkspaceAttempt();
           removeParentAbortListener();
           if (parentAbortSettlement) {
             await parentAbortSettlement;
@@ -1561,6 +1581,7 @@ export class RunExecutionService {
           );
         },
         onFinish: async ({ text, usage, finishReason, stepCount }) => {
+          endWorkspaceAttempt();
           removeParentAbortListener();
           if (parentAbortSettlement) {
             await parentAbortSettlement;
@@ -1703,6 +1724,7 @@ export class RunExecutionService {
         },
       });
     } catch (error) {
+      endWorkspaceAttempt();
       removeParentAbortListener();
       // A synchronous throw from streamText (provider/config validation before
       // any callback can fire) would otherwise strand the claimed run at
@@ -1765,6 +1787,53 @@ export class RunExecutionService {
     });
   }
 
+  private beginWorkspaceAttempt(
+    chatId: string,
+    key: WorkspaceMcpKey | undefined,
+  ): () => void {
+    const clients = this.workspaceMcp;
+    if (clients === undefined) return () => {};
+    if (key !== undefined) clients.beginAttempt(key);
+    let ended = false;
+    return () => {
+      if (ended) return;
+      ended = true;
+      clients.endAttempt(chatId);
+    };
+  }
+
+  private async startWorkspaceMcp(
+    chatId: string,
+    key: WorkspaceMcpKey | undefined,
+  ): Promise<void> {
+    if (this.workspaceMcp === undefined) return;
+    if (key === undefined) {
+      await this.workspaceMcp.stopForChat(chatId);
+      return;
+    }
+    await this.workspaceMcp.startForChat(key);
+  }
+
+  private attemptDynamicResolver(
+    key: WorkspaceMcpKey | undefined,
+  ): DynamicToolExecutorResolver | undefined {
+    if (key === undefined || this.workspaceMcp === undefined) {
+      return this.dynamicToolResolver;
+    }
+    return this.workspaceMcp.resolverFor(key, this.dynamicToolResolver);
+  }
+
+  private workspaceMcpKey(
+    preparation: WorkspacePreparation,
+  ): WorkspaceMcpKey | undefined {
+    const root = preparation.root;
+    const chat = preparation.chat;
+    const generation = chat?.workspaceGeneration;
+    if (root === undefined || chat === undefined || generation === undefined) {
+      return undefined;
+    }
+    return { chatId: chat.id, root, generation };
+  }
   private async prepareWorkspace(
     input: ExecuteRunInput,
     nativeDeliverySequence: number,
@@ -1776,6 +1845,7 @@ export class RunExecutionService {
     if (root === undefined || root === null || executorId === undefined) {
       return { root: undefined, chat };
     }
+
     if (executorId === null || generation === undefined) {
       return { root: undefined, chat };
     }
@@ -1797,6 +1867,7 @@ export class RunExecutionService {
       throw new RunNotRunnableError(input.runId);
     }
     if (detached === 'detached') {
+      await this.workspaceMcp?.stopForChat(input.chatId);
       return {
         root: undefined,
         chat:
@@ -1811,7 +1882,6 @@ export class RunExecutionService {
               },
       };
     }
-
     // A concurrent enter/exit won the generation compare-and-set. Do not
     // reuse the root that failed this attempt's checks.
     return { root: undefined, chat };
@@ -2779,6 +2849,7 @@ export class RunExecutionService {
     attemptId: string,
     workspaceChat: Chat | undefined,
     workspaceRoot: string | undefined,
+    workspaceMcpKey: WorkspaceMcpKey | undefined,
   ): Promise<PreparedAttemptContext> {
     return this.tenantDb.runAs(input.userId, (tx) =>
       this.prepareAttemptContextInTransaction(
@@ -2787,6 +2858,7 @@ export class RunExecutionService {
         attemptId,
         workspaceChat,
         workspaceRoot,
+        workspaceMcpKey,
       ),
     );
   }
@@ -2797,6 +2869,7 @@ export class RunExecutionService {
     attemptId: string,
     workspaceChat: Chat | undefined,
     workspaceRoot: string | undefined,
+    workspaceMcpKey: WorkspaceMcpKey | undefined,
   ): Promise<PreparedAttemptContext> {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
@@ -2809,7 +2882,12 @@ export class RunExecutionService {
     );
     let catalog: AttemptToolCatalog;
     try {
-      catalog = await this.composeAttemptCatalog(tx, input, promptInputs);
+      catalog = await this.composeAttemptCatalog(
+        tx,
+        input,
+        promptInputs,
+        workspaceMcpKey,
+      );
     } catch (error) {
       if (error instanceof ToolDescriptionRenderError) {
         throw new ModelContextExecutionError(
@@ -3065,6 +3143,7 @@ export class RunExecutionService {
     tx: Db,
     input: ExecuteRunInput,
     prompt: AttemptPromptInputs,
+    workspaceMcpKey: WorkspaceMcpKey | undefined,
   ): Promise<AttemptToolCatalog> {
     const allowedToolRules = this.instanceConfig.config.tools.allowed;
     const callTimeoutSeconds =
@@ -3074,8 +3153,14 @@ export class RunExecutionService {
       ownerUserId: input.userId,
       allowedToolRules,
     });
-    const dynamicCandidates: ReadonlyArray<TurnToolCandidate> =
-      this.mcpRuntime.snapshotCandidates();
+    const operatorCandidates = this.mcpRuntime.snapshotCandidates();
+    const dynamicCandidates =
+      workspaceMcpKey !== undefined && this.workspaceMcp !== undefined
+        ? this.workspaceMcp.snapshotCandidates(
+            workspaceMcpKey,
+            operatorCandidates,
+          )
+        : operatorCandidates;
     return composeAttemptToolCatalog({
       allowedToolRules,
       callTimeoutSeconds,

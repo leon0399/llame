@@ -135,6 +135,34 @@ describe('McpRuntimeService', () => {
     runtime.onModuleInit();
     expect(clientFactory).toHaveBeenCalledOnce();
   });
+  it('waits for initial discovery when start is awaited', async () => {
+    const pending = deferred<McpDiscoveryResult>();
+    const client = fakeClient(vi.fn(() => pending.promise));
+    const runtime = new McpRuntimeService(servers('web'), {
+      clientFactory: vi.fn(() => Promise.resolve(client)),
+      random: () => 0.5,
+    });
+
+    const starting = runtime.start();
+    await flushAsync();
+    expect(client.discover).toHaveBeenCalledOnce();
+    let settled = false;
+    void starting.then(() => {
+      settled = true;
+    });
+    await flushAsync();
+    expect(settled).toBe(false);
+
+    pending.resolve(discovery(discoveredTool('web', 'lookup')));
+    await starting;
+    expect(runtime.snapshotCandidates()).toEqual([
+      expect.objectContaining({
+        source: { type: 'mcp', serverId: 'web' },
+        state: 'available',
+      }),
+    ]);
+    await runtime.onModuleDestroy();
+  });
 
   it('clamps a non-finite refresh jitter to the earliest refresh', async () => {
     vi.useFakeTimers();
@@ -633,6 +661,39 @@ describe('McpRuntimeService', () => {
 
     const offline = new McpRuntimeService(servers('web'));
     expect(offline.snapshotCandidates()).toEqual([]);
+
+    await runtime.onModuleDestroy();
+  });
+  it('filters candidates to the requested MCP server', async () => {
+    const runtime = new McpRuntimeService(servers('web', 'docs'), {
+      clientFactory: vi.fn<McpRuntimeClientFactory>(({ serverId }) =>
+        Promise.resolve(
+          fakeClient(
+            vi.fn(() =>
+              Promise.resolve(discovery(discoveredTool(serverId, 'lookup'))),
+            ),
+          ),
+        ),
+      ),
+      random: () => 0.5,
+    });
+
+    runtime.onModuleInit();
+    await flushAsync();
+
+    expect(runtime.snapshotCandidatesForServer('web')).toEqual([
+      expect.objectContaining({
+        source: { type: 'mcp', serverId: 'web' },
+        state: 'available',
+      }),
+    ]);
+    expect(runtime.snapshotCandidatesForServer('docs')).toEqual([
+      expect.objectContaining({
+        source: { type: 'mcp', serverId: 'docs' },
+        state: 'available',
+      }),
+    ]);
+    expect(runtime.snapshotCandidatesForServer('missing')).toEqual([]);
 
     await runtime.onModuleDestroy();
   });
