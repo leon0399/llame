@@ -410,7 +410,6 @@ describe('Workspace MCP production integration', () => {
           inputSchema: z.object({}),
           execute: () => ({ status: 'success' as const }),
         }),
-        persist: () => Promise.resolve(true),
       });
       const record = {};
       additions.bindToolRecord(record);
@@ -419,7 +418,6 @@ describe('Workspace MCP production integration', () => {
         nativeExecutorId: 'integration-worker',
         nativeDeliverySequence: seeded.deliverySequence,
         toolCallId: 'enter-workspace',
-        toolStep: 1,
         userId,
         chatId,
         tenantDb,
@@ -570,7 +568,6 @@ describe('Workspace MCP production integration', () => {
         nativeExecutorId: 'integration-worker',
         nativeDeliverySequence: seeded.deliverySequence,
         toolCallId: 'enter-malformed',
-        toolStep: 1,
         userId,
         chatId,
         tenantDb,

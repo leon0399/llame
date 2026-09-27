@@ -96,7 +96,6 @@ function additions(binding?: AttemptToolBinding): AttemptToolAdditions {
       classification: 'unverified',
       inputSchema: z.object({}),
     }),
-    persist: () => Promise.resolve(true),
   });
 }
 
@@ -248,7 +247,7 @@ describe('WorkspaceMcpClients', () => {
       executor: operatorTool(id),
     });
 
-    const state = await provider.addToAttempt(current, additionsHandle, 1);
+    const state = await provider.addToAttempt(current, additionsHandle);
     expect(state.servers).toEqual([
       { id: 'web', state: 'available', reason: 'shadows from the next Run' },
     ]);

@@ -201,11 +201,7 @@ async function workspaceMcpServers(
     );
   }
   if (context.toolAdditions === undefined) return state.servers;
-  const added = await clients.addToAttempt(
-    key,
-    context.toolAdditions,
-    context.toolStep ?? 0,
-  );
+  const added = await clients.addToAttempt(key, context.toolAdditions);
   return added.servers;
 }
 

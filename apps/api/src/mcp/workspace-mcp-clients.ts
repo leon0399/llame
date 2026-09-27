@@ -216,13 +216,12 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   async addToAttempt(
     key: WorkspaceMcpKey,
     additions: AttemptToolAdditions,
-    step: number,
   ): Promise<WorkspaceMcpEntryState> {
     const record = this.records.get(keyString(key));
     if (record === undefined) return { key, servers: [] };
     record.lastUsed = this.now();
     const statuses = this.describe(record).servers.map((status) =>
-      this.addServerToAttempt(record, status, additions, step),
+      this.addServerToAttempt(record, status, additions),
     );
     return { key, servers: await Promise.all(statuses) };
   }
@@ -395,7 +394,6 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     record: ClientSet,
     status: WorkspaceMcpServerState,
     additions: AttemptToolAdditions,
-    step: number,
   ): Promise<WorkspaceMcpServerState> {
     if (status.state !== 'available') return status;
     if (this.operator.snapshotServerIds().some((id) => id === status.id)) {
@@ -412,7 +410,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
         candidate.state === 'available' ? [candidate.tool] : [],
       );
     if (tools.length === 0) return status;
-    const result = await additions.add(status.id, tools, step);
+    const result = await additions.add(status.id, tools);
     return this.statusAfterAddition(status, result);
   }
 
