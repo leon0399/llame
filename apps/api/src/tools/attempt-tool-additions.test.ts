@@ -2,7 +2,6 @@ import { tool, type ToolSet } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
-import { canonicalJson } from '../canonical-json';
 import { toFlexibleSchema } from './schema-utils';
 import {
   AttemptToolAdditions,
@@ -102,7 +101,6 @@ describe('AttemptToolAdditions', () => {
     const state = setup();
 
     await state.additions.add(SERVER, [first]);
-    state.additions.disableAll();
     const before = state.boundExecutables.get(TOOL_ID);
     const result = await state.additions.add(SERVER, [changed]);
 
@@ -111,10 +109,21 @@ describe('AttemptToolAdditions', () => {
       availableFromNextRun: [TOOL_ID],
       refused: [],
     });
-    expect(state.boundExecutables.get(TOOL_ID)).toEqual(before);
+    const retained = state.boundExecutables.get(TOOL_ID);
+    expect(retained?.declaration).toEqual(before?.declaration);
+    expect(retained?.executor).not.toBe(before?.executor);
+    const executor = state.additions.executorFor(TOOL_ID);
+    if (executor === undefined) throw new Error('expected retained executor');
     expect(
-      canonicalJson(state.boundExecutables.get(TOOL_ID)?.declaration),
-    ).toContain('Look up a value.');
+      await executor.execute(
+        { userId: 'u', chatId: 'c', tenantDb: { runAs: vi.fn() } },
+        {},
+      ),
+    ).toEqual({
+      status: 'error',
+      type: 'not_available',
+      message: `Tool "${TOOL_ID}" is not available.`,
+    });
   });
 
   it('refuses a declaration that collides by ASCII case with a retained id', async () => {

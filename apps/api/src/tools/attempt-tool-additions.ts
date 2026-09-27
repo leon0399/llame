@@ -90,7 +90,7 @@ function isServerToolId(id: string, server: string): boolean {
 function retainedConflict(
   id: string,
   declaration: ModelToolDeclaration,
-  boundExecutables: ReadonlyMap<string, AttemptToolBinding>,
+  boundExecutables: Map<string, AttemptToolBinding>,
 ): PlanDecision | undefined {
   const foldedId = asciiCaseFoldToolId(id);
   const collidingId = [...boundExecutables.keys()].find(
@@ -106,11 +106,19 @@ function retainedConflict(
     };
   }
   const retained = boundExecutables.get(id);
+  const declarationChanged =
+    retained !== undefined &&
+    canonicalJson(retained.declaration) !== canonicalJson(declaration);
   if (
     retained !== undefined &&
-    (retained.server === undefined ||
-      canonicalJson(retained.declaration) !== canonicalJson(declaration))
+    (retained.server === undefined || declarationChanged)
   ) {
+    if (declarationChanged) {
+      boundExecutables.set(id, {
+        ...retained,
+        executor: unavailableExecutor(retained.declaration),
+      });
+    }
     return { kind: 'available_next_run', id };
   }
   return undefined;
@@ -178,6 +186,10 @@ function bindAddition(
  */
 export class AttemptToolAdditions {
   private toolRecord: ToolSet | undefined;
+  private readonly addedDeclarationsById = new Map<
+    string,
+    ModelToolDeclaration
+  >();
 
   constructor(private readonly options: AttemptToolAdditionsOptions) {}
 
@@ -187,6 +199,10 @@ export class AttemptToolAdditions {
 
   executorFor(id: string): Tool | undefined {
     return this.options.boundExecutables.get(id)?.executor;
+  }
+
+  get addedDeclarations(): ReadonlyArray<ModelToolDeclaration> {
+    return [...this.addedDeclarationsById.values()];
   }
 
   private plan(
@@ -222,6 +238,7 @@ export class AttemptToolAdditions {
     record: ToolSet,
   ): AttemptToolAdditionResult {
     const added = plan.planned.map((addition) => {
+      this.addedDeclarationsById.set(addition.id, addition.declaration);
       bindAddition(this.options, record, server, addition);
       return addition.id;
     });

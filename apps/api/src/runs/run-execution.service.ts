@@ -1691,7 +1691,10 @@ export class RunExecutionService {
               chatId: input.chatId,
               userId: input.userId,
               system,
-              toolDeclarations: prepared.toolDeclarations,
+              toolDeclarations: [
+                ...prepared.toolDeclarations,
+                ...toolAdditions.addedDeclarations,
+              ],
               ...(effort !== undefined && { effort }),
               untitled,
               userMessage: input.userMessage,

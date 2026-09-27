@@ -3306,6 +3306,16 @@ describe('RunExecutionService executeRun — tool loop', () => {
         ]),
       );
       expect(executeAdded).toHaveBeenCalledTimes(1);
+
+      await vi.waitFor(() => {
+        const compactInput = execution.maybeCompact.mock.calls.at(-1)?.[0];
+        expect(compactInput).toBeDefined();
+        expect(compactInput?.toolDeclarations).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ id: MID_RUN_ADDED_ID }),
+          ]),
+        );
+      });
       const addedEvents = appended.filter((entry) => {
         const payload = entry.payload;
         return isRecord(payload) && payload.toolName === MID_RUN_ADDED_ID;
