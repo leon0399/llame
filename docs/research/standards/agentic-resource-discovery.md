@@ -25,6 +25,9 @@ sources:
   - id: ai-catalog-format
     resource: "https://github.com/Agent-Card/ai-catalog/blob/04a99cd1ac9a20dd6586c6196e87f5e4570303b1/specification/ai-catalog.md#L90-L162"
     title: "AI Catalog document format"
+  - id: ai-catalog-discovery
+    resource: "https://github.com/Agent-Card/ai-catalog/blob/04a99cd1ac9a20dd6586c6196e87f5e4570303b1/specification/ai-catalog.md#L1217-L1245"
+    title: "AI Catalog location and well-known URI"
   - id: ai-catalog-trust
     resource: "https://github.com/Agent-Card/ai-catalog/blob/04a99cd1ac9a20dd6586c6196e87f5e4570303b1/specification/ai-catalog.md#L491-L1000"
     title: "AI Catalog Trust Manifest"
@@ -46,7 +49,8 @@ sources:
   `specVersion: "1.0"`[^ai-catalog-readme][^ai-catalog-governance]
 
 Two layers of the same idea. **AI Catalog** is a static, nestable envelope
-(`application/ai-catalog+json` at `/.well-known/ai-catalog.json`) listing
+(`application/ai-catalog+json`, servable from any URL, with
+`/.well-known/ai-catalog.json` as an optional discovery location[^ai-catalog-discovery]) listing
 heterogeneous artifacts: A2A Agent Cards, MCP Server Cards, Agent Skills and
 plugin bundles, each by `url` or inline `data`[^ai-catalog-format]. **ARD** adds
 search: its own entry format at `/.well-known/ard.json`, registries that ingest
@@ -65,10 +69,13 @@ the catalog locations.
    binding[^ard-how].
 3. **Scores.** An ARD search `score` is relevance only; the spec says it is not
    a trust or safety score.
-4. **Trust.** AI Catalog's optional Trust Manifest binds a media type, URL and
-   digest under a detached JWS over JCS, with keys from DID, JWKS, SPIFFE or
-   DNS; verification still needs an out-of-band trust
-   anchor[^ai-catalog-trust]. ARD delegates signing to the declared framework.
+4. **Trust.** AI Catalog's Trust Manifest is optional, and a manifest may carry
+   attestations or provenance without a signature. A signed one must include a
+   `subject` with the media type and digest; `subject.url` is optional, so an
+   inline `data` artifact is bound by its canonical digest alone. The detached
+   JWS is over JCS, with keys from DID, JWKS, SPIFFE or DNS; verification still
+   needs an out-of-band trust anchor[^ai-catalog-trust]. ARD delegates signing
+   to the declared framework.
 5. **MCP Registry.** `server.json` and the registry's REST API are a separate,
    MCP-specific package index[^mcp-server-json]; a catalog can point at MCP
    artifacts but does not replace it.
@@ -100,3 +107,5 @@ identity proves integrity, not publisher authenticity.
 [^ai-catalog-governance]: [AI Catalog governance](https://github.com/Agent-Card/ai-catalog/blob/04a99cd1ac9a20dd6586c6196e87f5e4570303b1/GOVERNANCE.md)
 
 [^mcp-server-json]: [MCP Registry server.json](https://github.com/modelcontextprotocol/registry/blob/bf4e88cbe8d1a635c06144ccea1d24cb52fa6186/docs/reference/server-json/generic-server-json.md)
+
+[^ai-catalog-discovery]: [AI Catalog location and well-known URI](https://github.com/Agent-Card/ai-catalog/blob/04a99cd1ac9a20dd6586c6196e87f5e4570303b1/specification/ai-catalog.md#L1217-L1245)

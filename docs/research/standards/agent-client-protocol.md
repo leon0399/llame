@@ -19,6 +19,9 @@ sources:
   - id: acp-v1-session
     resource: "https://agentclientprotocol.com/protocol/v1/session-setup"
     title: "ACP v1 session setup"
+  - id: acp-v1-session-list
+    resource: "https://agentclientprotocol.com/protocol/v1/session-list"
+    title: "ACP v1 session list"
   - id: acp-v2-draft
     resource: "https://agentclientprotocol.com/announcements/acp-v2-draft"
     title: "ACP v2 draft announcement"
@@ -34,6 +37,9 @@ sources:
   - id: acp-v2-methods
     resource: "https://github.com/agentclientprotocol/agent-client-protocol/blob/15219ed70b6cfc19a0951b2a7e9272ed1d23640f/schema/v2/meta.json"
     title: "ACP v2 draft method table"
+  - id: acp-v2-schema
+    resource: "https://github.com/agentclientprotocol/agent-client-protocol/blob/15219ed70b6cfc19a0951b2a7e9272ed1d23640f/schema/v2/schema.json#L6274-L6320"
+    title: "ACP v2 draft ResumeSessionRequest"
 ---
 
 # ACP (Agent Client Protocol)
@@ -59,9 +65,12 @@ newline-delimited JSON over stdio[^acp-v1-overview].
    the agent reads, writes and executes inside the client's environment. The v2
    draft drops that surface in favor of MCP.
 5. **Session management.** v1 already declares `session/load` (replay),
-   `session/resume`, `session/list` and `session/close`, with resume and close
-   advertised as capabilities. The v2 draft drops `session/load` and folds
-   replay into `resume` through cursors[^acp-v1-methods][^acp-v2-methods].
+   `session/resume`, `session/list` and `session/close`[^acp-v1-methods],
+   each gated by its own advertised capability: `loadSession`,
+   `sessionCapabilities.resume` and `sessionCapabilities.close`
+   [^acp-v1-session], and `sessionCapabilities.list`[^acp-v1-session-list].
+   The v2 draft drops `session/load`[^acp-v2-methods] and replays through a
+   `replayFrom` cursor on `session/resume`[^acp-v2-schema].
 6. **Remote.** Streamable HTTP and WebSocket transports are an RFD, not
    stable[^acp-remote-rfd].
 7. **Adopters.** goose, Gemini CLI, OpenCode, OpenHands, Cline, and adapters
@@ -101,3 +110,7 @@ replay.
 [^acp-v1-methods]: [ACP v1 method table](https://github.com/agentclientprotocol/agent-client-protocol/blob/15219ed70b6cfc19a0951b2a7e9272ed1d23640f/schema/v1/meta.json)
 
 [^acp-v2-methods]: [ACP v2 draft method table](https://github.com/agentclientprotocol/agent-client-protocol/blob/15219ed70b6cfc19a0951b2a7e9272ed1d23640f/schema/v2/meta.json)
+
+[^acp-v1-session-list]: [ACP v1 session list](https://agentclientprotocol.com/protocol/v1/session-list)
+
+[^acp-v2-schema]: [ACP v2 draft ResumeSessionRequest](https://github.com/agentclientprotocol/agent-client-protocol/blob/15219ed70b6cfc19a0951b2a7e9272ed1d23640f/schema/v2/schema.json#L6274-L6320)
