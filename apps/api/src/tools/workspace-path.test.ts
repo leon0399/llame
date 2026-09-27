@@ -27,6 +27,13 @@ describe('workspace path projection', () => {
     expect(isWorkspaceRelative('vault://notes/file')).toBe(false);
   });
 
+  it('does not treat file: aliases as workspace-relative', () => {
+    expect(isWorkspaceRelative('file:/etc/passwd')).toBe(false);
+    expect(isWorkspaceRelative('file:///etc/passwd')).toBe(false);
+    expect(isWorkspaceRelative('FILE:/x')).toBe(false);
+    expect(isWorkspaceRelative('file:')).toBe(false);
+  });
+
   it('commits root changes and claims one transition per model step', () => {
     const cell = createWorkspaceRootCell('/work/old');
 

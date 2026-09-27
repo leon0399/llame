@@ -2,6 +2,8 @@ import { posix } from 'node:path';
 
 import { parsePathScheme } from '@workspace/native-file-tools';
 
+import { isFileAlias } from './permissions/file-alias';
+
 export type WorkspaceRootCell = {
   current(): string | undefined;
   commit(root: string | undefined): void;
@@ -37,5 +39,9 @@ export function resolveWorkspacePath(root: string, value: string): string {
 }
 
 export function isWorkspaceRelative(value: string): boolean {
-  return !value.startsWith('/') && parsePathScheme(value) === undefined;
+  return (
+    !value.startsWith('/') &&
+    !isFileAlias(value) &&
+    parsePathScheme(value) === undefined
+  );
 }

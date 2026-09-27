@@ -89,6 +89,30 @@ symlink can bypass them, and there is no executor-level guard.
 See [Workspace MCP](mcp-tools.md#workspace-mcp) for configuration
 precedence, interpolation, client lifetime, and redaction limits.
 
+## `file://` aliases
+
+`read`, `edit`, and `write` accept `file://` and RFC 8089 minimal `file:`
+URLs as local-path aliases. Accepted forms are
+`file:///absolute/path`, `file://localhost/absolute/path` (localhost is
+case-insensitive), and `file:/absolute/path`. The scheme is ASCII
+case-insensitive, so `FILE:///x` works.
+
+Percent escapes decode once to bytes and then strict UTF-8; `.` and `..` retain
+host-path semantics. `%3A` decodes to `:` and follows host selector rules after
+a literal-path probe first; there is no escaped literal-colon form. Selectors
+work the same way, so `file:///path:10-12` is equivalent to `/path:10-12`.
+
+This is POSIX-only: `file:///C:/x` means `/C:/x`; drive handling is not
+supported, and `file://C:/x` is refused as remote. A literal space, including
+a trailing space, is a legal POSIX filename and is retained.
+
+Aliases are refused before filesystem access for a non-local authority, missing
+path, a literal query (`?`), fragment (`#`), backslash, C0 control or DEL,
+malformed or non-UTF-8 escape, `%2F`, or `%00`. Results report the decoded host path, never
+the submitted URL. A valid alias binds the Run exactly as an absolute path
+does; Workspace root does not affect them. Permission allows match the decoded
+host path, not the URL form, so prefer `^/path/` over `^file:///path/`.
+
 ## `kb://` locators
 
 `read`, `edit`, and `write` accept `kb://<knowledgeSpaceId>/<path>[:selector]`;
