@@ -325,6 +325,36 @@ describe('WorkspaceMcpClients', () => {
     await provider.onModuleDestroy();
     await runtime.stop();
   });
+  it('reports changed retained Workspace declarations as next-Run additions', async () => {
+    const { runtime } = operatorRuntime();
+    const { provider } = workspaceProvider(runtime, () => [
+      config('web', 'workspace'),
+    ]);
+    const current = key('chat-1', '/workspace');
+    await provider.startForChat(current);
+    const id = 'mcp__web__search';
+    const state = await provider.addToAttempt(
+      current,
+      additions({
+        declaration: {
+          id,
+          description: 'Old Workspace declaration.',
+          inputSchema: emptySchema,
+        },
+        executor: operatorTool(id),
+        server: 'web',
+      }),
+    );
+    expect(state.servers).toEqual([
+      {
+        id: 'web',
+        state: 'available',
+        reason: 'available from the next Run',
+      },
+    ]);
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
 
   it('closes a client whose start races with Chat stop', async () => {
     const { runtime } = operatorRuntime();
