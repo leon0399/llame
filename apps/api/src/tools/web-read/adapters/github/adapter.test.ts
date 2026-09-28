@@ -512,6 +512,126 @@ describe('GitHub thread adapter', () => {
       fatal: aborted,
     });
   });
+  it('returns a fatal outcome when a later review page hits a redirect limit', async () => {
+    const reviewsPage1 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=1`;
+    const reviewsPage2 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=2`;
+    const tooManyRedirects: WebFetchFailure = {
+      type: 'too_many_redirects',
+      message: 'The server redirected too many times.',
+    };
+    const routes = pullRoutes(
+      new Map([
+        [
+          reviewsPage1,
+          [
+            response(
+              Array.from({ length: 100 }, (_, index) => review(index + 1)),
+            ),
+          ],
+        ],
+        [reviewsPage2, [tooManyRedirects]],
+      ]),
+    );
+    const { io, requests } = scriptedIo(routes);
+
+    const outcome = await createGithubAdapter(config(), {
+      apiOrigin: API_ORIGIN,
+    }).read(new URL(PULL_SOURCE), io);
+
+    expect(requests.map(({ url }) => url)).toStrictEqual([
+      `${API_ORIGIN}/repos/acme/project/pulls/12`,
+      `${API_ORIGIN}/repos/acme/project/issues/12/comments?per_page=100&page=1`,
+      reviewsPage1,
+      reviewsPage2,
+    ]);
+    expect(outcome).toStrictEqual({
+      kind: 'failed',
+      failure: 'transport',
+      fatal: tooManyRedirects,
+    });
+  });
+
+  it('continues loading other sections after a malformed later review page', async () => {
+    const reviewsPage1 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=1`;
+    const reviewsPage2 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=2`;
+    const reviewCommentsUrl = `${API_ORIGIN}/repos/acme/project/pulls/12/comments?per_page=100&page=1`;
+    const filesUrl = `${API_ORIGIN}/repos/acme/project/pulls/12/files?per_page=100&page=1`;
+    const checksUrl = `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=1`;
+    const routes = pullRoutes(
+      new Map([
+        [
+          reviewsPage1,
+          [
+            response(
+              Array.from({ length: 100 }, (_, index) => review(index + 1)),
+            ),
+          ],
+        ],
+        [reviewsPage2, [response({ malformed: true })]],
+        [reviewCommentsUrl, [response([reviewComment(5)])]],
+        [
+          filesUrl,
+          [
+            response([
+              {
+                filename: 'src/app.ts',
+                status: 'modified',
+                additions: 2,
+                deletions: 1,
+              },
+            ]),
+          ],
+        ],
+        [
+          checksUrl,
+          [
+            response({
+              total_count: 1,
+              check_runs: [checkRun('lint', 'completed', 'success')],
+            }),
+          ],
+        ],
+      ]),
+    );
+    const { io } = scriptedIo(routes);
+
+    const outcome = await createGithubAdapter(config(), {
+      apiOrigin: API_ORIGIN,
+    }).read(new URL(PULL_SOURCE), io);
+
+    expect(outcome).toMatchObject({ kind: 'rendered' });
+    if (outcome.kind === 'rendered') {
+      expect(outcome.notes).toStrictEqual(['reviews omitted: parse']);
+      expect(outcome.content).toContain('## Review Comments (1)');
+      expect(outcome.content).toContain('## Files (1)');
+      expect(outcome.content).toContain('Checks: 1 passed');
+    }
+  });
+
+  it('falls through when primary numbers differ without issuing secondary requests', async () => {
+    const issuePrimary = `${API_ORIGIN}/repos/acme/project/issues/12`;
+    const pullPrimary = `${API_ORIGIN}/repos/acme/project/pulls/12`;
+    const issueRun = scriptedIo(
+      new Map([[issuePrimary, [response({ ...issuePayload(), number: 13 })]]]),
+    );
+    const pullRun = scriptedIo(
+      pullRoutes(
+        new Map([[pullPrimary, [response({ ...pullPayload(), number: 13 })]]]),
+      ),
+    );
+    const adapter = createGithubAdapter(config(), { apiOrigin: API_ORIGIN });
+
+    await expect(
+      adapter.read(new URL(ISSUE_SOURCE), issueRun.io),
+    ).resolves.toStrictEqual({ kind: 'failed', failure: 'parse' });
+    await expect(
+      adapter.read(new URL(PULL_SOURCE), pullRun.io),
+    ).resolves.toStrictEqual({ kind: 'failed', failure: 'parse' });
+    expect(issueRun.requests.map(({ url }) => url)).toStrictEqual([
+      issuePrimary,
+    ]);
+    expect(pullRun.requests.map(({ url }) => url)).toStrictEqual([pullPrimary]);
+  });
 
   it('reports loaded checks and the remainder after a malformed later page', async () => {
     const page1 = `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=1`;

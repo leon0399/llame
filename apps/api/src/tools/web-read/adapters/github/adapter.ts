@@ -270,8 +270,12 @@ function finish(
   document: GithubIssueDocument | GithubPullDocument,
   context: RequestContext,
 ): WebAdapterOutcome {
-  if (context.halted?.type === 'aborted') {
-    return { kind: 'failed', failure: 'transport', fatal: context.halted };
+  if (context.halted !== undefined && context.halted.type !== 'call_timeout') {
+    return {
+      kind: 'failed',
+      failure: classifyFetchFailure(context.halted),
+      fatal: context.halted,
+    };
   }
   return {
     kind: 'rendered',

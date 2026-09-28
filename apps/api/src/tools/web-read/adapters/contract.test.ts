@@ -442,6 +442,12 @@ describe('adapter primary failure fatality', () => {
     ).toBe(true);
     expect(
       isFatalAdapterFailure({
+        type: 'parse',
+        message: 'The adapter could not parse the response.',
+      }),
+    ).toBe(false);
+    expect(
+      isFatalAdapterFailure({
         type: 'too_many_redirects',
         message: 'The server redirected too many times.',
       }),
