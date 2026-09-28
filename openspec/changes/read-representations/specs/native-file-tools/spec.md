@@ -733,7 +733,9 @@ The ancestor chain is context: when the chain together with the first
 in-scope entry does not fit the shared serialized result cap or the
 2,000-line ceiling, the chain SHALL be omitted whole, so a continuation read
 always advances. The omission is silent: `truncated` and `nextOffset` report
-only in-scope output that was cut.
+only in-scope output that was cut. A scope that holds no entry after its
+chain is omitted SHALL return a successful outline with empty content and a
+null shown range.
 Frontmatter lines and the
 root excerpt appear only when their source lines lie in scope. A scope that
 begins past the source's last line SHALL fail as an ordinary range past the
@@ -753,9 +755,9 @@ end does. No comma-separated scope SHALL be accepted.
 
 #### Scenario: An ancestor chain larger than the result is omitted
 
-- **WHEN** a setext heading whose text runs 3,000 lines encloses line 3,500 and the model reads `:outline:3500-3600`
-- **THEN** the outline contains the in-scope lines without the ancestor chain
-- **AND** `truncated` is false when every in-scope entry fit, and a continuation read never repeats the same result
+- **WHEN** a root setext heading has text on lines 1 through 3,000 and its `===` underline on line 3,001, its section holds `first body` on line 3,003, `## In scope` on line 3,550, and `scope body` on line 3,552, and the model reads `:outline:3500-3600`
+- **THEN** the outline is `3550: ## In scope` and `3552: scope body`, without the omitted chain
+- **AND** `truncated` is false, and an unscoped outline of the same file that is cut at the 2,000-line ceiling continues through `:outline:<nextOffset + 1>-M` without repeating a result
 
 #### Scenario: A scope past the end is refused
 
@@ -778,7 +780,8 @@ is decided. The scan SHALL stop once the lines through the scope end are decided
 or the result budget is spent. Outline output
 SHALL obey the shared serialized result cap and 2,000-line ceiling; when it is
 cut, `truncated` SHALL be true and `nextOffset` SHALL be the zero-based index
-of the first omitted entry's source line, as every read result's
+of the first omitted entry's source line, where an entry is one emitted line,
+so an outline is cut between lines and never inside one, as every read result's
 `nextOffset` is, so `:outline:<nextOffset + 1>-M` continues it against
 the source observed by that later call. An adapter document the web plane
 truncated at its document bound SHALL fail with `representation_too_large`
