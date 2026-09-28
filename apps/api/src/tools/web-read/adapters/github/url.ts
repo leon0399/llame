@@ -11,15 +11,8 @@ export type GithubRepositoryTarget = {
   readonly repo: string;
 };
 
-export type GithubTreeTarget = {
-  readonly kind: 'tree';
-  readonly owner: string;
-  readonly repo: string;
-  readonly segments: ReadonlyArray<string>;
-};
-
-export type GithubBlobTarget = {
-  readonly kind: 'blob';
+export type GithubPathTarget = {
+  readonly kind: 'tree' | 'blob';
   readonly owner: string;
   readonly repo: string;
   readonly segments: ReadonlyArray<string>;
@@ -35,8 +28,7 @@ export type GithubCommitTarget = {
 export type GithubTarget =
   | GithubThreadTarget
   | GithubRepositoryTarget
-  | GithubTreeTarget
-  | GithubBlobTarget
+  | GithubPathTarget
   | GithubCommitTarget;
 
 const OWNER_PATTERN = '[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})';
@@ -52,6 +44,36 @@ const CODE_PATH = new RegExp(
 );
 const COMMIT_SHA = /^[0-9a-fA-F]{7,40}$/u;
 const INVALID_SEGMENT = /[\\\p{Cc}]/u;
+const RESERVED_ROOT_NAMES = {
+  about: true,
+  apps: true,
+  codespaces: true,
+  collections: true,
+  'customer-stories': true,
+  enterprise: true,
+  enterprises: true,
+  explore: true,
+  features: true,
+  issues: true,
+  login: true,
+  logout: true,
+  marketplace: true,
+  new: true,
+  notifications: true,
+  organizations: true,
+  orgs: true,
+  pricing: true,
+  pulls: true,
+  readme: true,
+  security: true,
+  search: true,
+  settings: true,
+  signup: true,
+  sponsors: true,
+  topics: true,
+  trending: true,
+  users: true,
+} as const satisfies Readonly<Record<string, true>>;
 
 /** Matches canonical public GitHub locators claimed by the native adapter. */
 export function parseGithubUrl(source: URL): GithubTarget | undefined {
@@ -70,6 +92,9 @@ export function parseGithubUrl(source: URL): GithubTarget | undefined {
 
   const root = ROOT_PATH.exec(source.pathname);
   if (root !== null) {
+    if (RESERVED_ROOT_NAMES[root[1].toLowerCase()] === true) {
+      return undefined;
+    }
     return { kind: 'repository', owner: root[1], repo: root[2] };
   }
 
@@ -100,7 +125,7 @@ function parseCodePath(match: RegExpExecArray): GithubTarget | undefined {
 
   const segments = decodeSegments(suffix, kind === 'tree');
   if (segments === undefined) return undefined;
-  if (kind === 'tree' && segments.length >= 1) {
+  if (kind === 'tree') {
     return { kind, owner: match[1], repo: match[2], segments };
   }
   if (kind === 'blob' && segments.length >= 2) {
@@ -119,13 +144,10 @@ function decodeSegments(
   }
   if (rawSegments.length === 0) return undefined;
 
-  const segments: Array<string> = [];
-  for (const rawSegment of rawSegments) {
-    const segment = decodeSegment(rawSegment);
-    if (segment === undefined) return undefined;
-    segments.push(segment);
-  }
-  return segments;
+  const segments = rawSegments.map(decodeSegment);
+  return segments.every((segment): segment is string => segment !== undefined)
+    ? segments
+    : undefined;
 }
 
 function decodeSegment(rawSegment: string): string | undefined {
@@ -135,10 +157,14 @@ function decodeSegment(rawSegment: string): string | undefined {
   } catch {
     return undefined;
   }
-  return segment === '' ||
-    segment === '.' ||
-    segment === '..' ||
-    INVALID_SEGMENT.test(segment)
-    ? undefined
-    : segment;
+  const components = segment.split('/');
+  return components.every(
+    (component) =>
+      component !== '' &&
+      component !== '.' &&
+      component !== '..' &&
+      !INVALID_SEGMENT.test(component),
+  )
+    ? segment
+    : undefined;
 }

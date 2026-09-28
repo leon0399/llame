@@ -1,19 +1,10 @@
 import { z } from 'zod';
 
 import type { GithubFile } from './document';
+import { FILE_WIRE, parseGithub, toGithubFile } from './payload';
+import type { GithubTreeEntry } from './code-document';
 
-export type GithubBlobPayload = {
-  readonly content: string;
-  readonly encoding: string;
-  readonly size?: number;
-};
-
-export type GithubTreePayload = {
-  readonly entries: ReadonlyArray<{
-    readonly path: string;
-    readonly type: 'blob' | 'tree' | 'commit';
-  }>;
-};
+export type GithubBlobPayload = z.infer<typeof BLOB_WIRE>;
 
 export type GithubRepositoryPayload = {
   readonly description: string | null;
@@ -30,9 +21,7 @@ export type GithubCommitPayload = {
   readonly files: ReadonlyArray<GithubFile>;
 };
 
-export type GithubMatchingRef = {
-  readonly ref: string;
-};
+export type GithubMatchingRef = z.infer<typeof MATCHING_REF_WIRE>;
 
 const BLOB_WIRE = z.object({
   content: z.string(),
@@ -56,21 +45,12 @@ const REPOSITORY_WIRE = z.object({
   language: z.string().nullable().optional(),
 });
 
-const FILE_WIRE = z.object({
-  filename: z.string(),
-  status: z.string(),
-  additions: z.number().int(),
-  deletions: z.number().int(),
-  previous_filename: z.string().optional(),
-});
-
 const COMMIT_AUTHOR_WIRE = z
   .object({
     name: z.string(),
     date: z.string(),
   })
-  .nullable()
-  .optional();
+  .nullable();
 
 const COMMIT_WIRE = z.object({
   sha: z.string(),
@@ -82,6 +62,7 @@ const COMMIT_WIRE = z.object({
   files: z.array(FILE_WIRE).optional(),
 });
 
+const COMMIT_FILES_WIRE = z.object({ files: z.array(FILE_WIRE) });
 const MATCHING_REF_WIRE = z.object({ ref: z.string() });
 
 export type GithubBlobResult =
@@ -100,16 +81,16 @@ export function parseGithubBlob(body: string): GithubBlobResult | undefined {
   return result.success ? { kind: 'blob', payload: result.data } : undefined;
 }
 
-export function parseGithubTree(body: string): GithubTreePayload | undefined {
-  const result = parseJson(TREE_WIRE, body);
-  if (!result) return undefined;
-  return { entries: result.tree };
+export function parseGithubTree(
+  body: string,
+): ReadonlyArray<GithubTreeEntry> | undefined {
+  return parseGithub(TREE_WIRE, body)?.tree;
 }
 
 export function parseGithubRepository(
   body: string,
 ): GithubRepositoryPayload | undefined {
-  const result = parseJson(REPOSITORY_WIRE, body);
+  const result = parseGithub(REPOSITORY_WIRE, body);
   if (!result) return undefined;
   return {
     description: result.description ?? null,
@@ -122,48 +103,27 @@ export function parseGithubRepository(
 export function parseGithubCommit(
   body: string,
 ): GithubCommitPayload | undefined {
-  const result = parseJson(COMMIT_WIRE, body);
-  if (!result || result.commit.author === undefined) return undefined;
+  const result = parseGithub(COMMIT_WIRE, body);
+  if (!result) return undefined;
   const author = result.author?.login ?? result.commit.author?.name;
-  if (author === undefined) return undefined;
+  if (author === undefined || result.commit.author === null) return undefined;
   return {
     sha: result.sha,
     message: result.commit.message,
     author,
-    authoredAt: result.commit.author?.date ?? '',
+    authoredAt: result.commit.author.date,
     files: result.files?.map(toGithubFile) ?? [],
   };
+}
+
+export function parseGithubCommitFiles(
+  body: string,
+): ReadonlyArray<GithubFile> | undefined {
+  return parseGithub(COMMIT_FILES_WIRE, body)?.files.map(toGithubFile);
 }
 
 export function parseGithubMatchingRefs(
   body: string,
 ): ReadonlyArray<GithubMatchingRef> | undefined {
-  const result = parseJson(z.array(MATCHING_REF_WIRE), body);
-  return result?.map(({ ref }) => ({ ref }));
-}
-
-function parseJson<T>(schema: z.ZodType<T>, body: string): T | undefined {
-  try {
-    const result = schema.safeParse(JSON.parse(body));
-    return result.success ? result.data : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function toGithubFile(file: z.infer<typeof FILE_WIRE>): GithubFile {
-  return file.previous_filename === undefined
-    ? {
-        filename: file.filename,
-        status: file.status,
-        additions: file.additions,
-        deletions: file.deletions,
-      }
-    : {
-        filename: file.filename,
-        status: file.status,
-        additions: file.additions,
-        deletions: file.deletions,
-        previousFilename: file.previous_filename,
-      };
+  return parseGithub(z.array(MATCHING_REF_WIRE), body);
 }

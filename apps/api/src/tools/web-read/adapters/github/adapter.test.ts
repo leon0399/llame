@@ -1,73 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import type {
-  WebFetchFailure,
-  WebRequestInit,
-  WebResponse,
-} from '../../http-client';
-import type { WebAdapterIo } from '../contract';
+import type { WebFetchFailure } from '../../http-client';
 import { createGithubAdapter } from './adapter';
-import type { GithubWebAdapterConfig } from '../../../../instance-config/llame-config';
+import {
+  API_ORIGIN,
+  config,
+  response,
+  scriptedIo,
+  type JsonObject,
+  type Reply,
+} from './test-io';
 
-type Reply = WebResponse | WebFetchFailure;
-type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonObject
-  | Array<JsonValue>;
-type JsonObject = { readonly [key: string]: JsonValue };
-type RecordedRequest = {
-  readonly url: string;
-  readonly init: WebRequestInit | undefined;
-};
-type ScriptedIo = {
-  readonly io: WebAdapterIo;
-  readonly requests: Array<RecordedRequest>;
-};
-
-const API_ORIGIN = 'http://127.0.0.1:43123';
 const ISSUE_SOURCE = 'https://github.com/acme/project/issues/12';
 const PULL_SOURCE = 'https://github.com/acme/project/pull/12';
 
-function config(token?: string): GithubWebAdapterConfig {
-  return token === undefined
-    ? { id: 'github', use: 'github' }
-    : { id: 'github', use: 'github', token };
-}
-
-function response(value: JsonValue): WebResponse {
-  return {
-    finalUrl: `${API_ORIGIN}/response`,
-    contentType: 'application/json',
-    body: JSON.stringify(value),
-  };
-}
-
-function scriptedIo(
-  routes: ReadonlyMap<string, ReadonlyArray<Reply>>,
-): ScriptedIo {
-  const requests: Array<RecordedRequest> = [];
-  const remaining = new Map(
-    [...routes].map(([url, replies]) => [url, [...replies]]),
-  );
-  return {
-    requests,
-    io: {
-      fetch: (url, init) => {
-        requests.push({ url, init });
-        const replies = remaining.get(url);
-        if (replies === undefined || replies.length === 0) {
-          throw new Error(`unexpected request ${url}`);
-        }
-        const reply = replies.shift();
-        if (reply === undefined) throw new Error(`empty reply ${url}`);
-        return Promise.resolve(reply);
-      },
-    },
-  };
-}
 function issuePayload() {
   return {
     number: 12,

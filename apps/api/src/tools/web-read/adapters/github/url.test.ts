@@ -91,6 +91,8 @@ describe('parseGithubUrl', () => {
     const unclaimed = [
       'https://github.com/o/r/tree/',
       'https://github.com/o/r/tree/main//src',
+      'https://github.com/o/r/tree/main/a%2F..%2Fb',
+      'https://github.com/o/r/blob/main/%2E%2E%2Fx',
       'https://github.com/o/r/tree/main/%5C/src',
       'https://github.com/o/r/tree/main/%00/src',
       'https://github.com/o/r/tree/main/%09/src',
@@ -116,20 +118,55 @@ describe('parseGithubUrl', () => {
     }
   });
 
-  it('leaves unsupported GitHub shapes and hosts unclaimed', () => {
+  it('leaves unsupported GitHub shapes unclaimed', () => {
     const unclaimed = [
-      'http://github.com/o/r',
       'https://github.com/o/r/',
       'https://github.com/o/r/raw/main/file',
       'https://github.com/o/r/compare/main...next',
-      'https://raw.githubusercontent.com/o/r/main/file',
-      'https://github.enterprise.test/o/r/tree/main',
-      'https://user:secret@github.com/o/r/tree/main',
-      'https://github.com:444/o/r/tree/main',
     ];
     for (const source of unclaimed) {
       expect(parseGithubUrl(new URL(source))).toBeUndefined();
     }
+  });
+  it('leaves GitHub reserved top-level paths unclaimed', () => {
+    const reserved = [
+      'about',
+      'apps',
+      'codespaces',
+      'collections',
+      'customer-stories',
+      'enterprise',
+      'enterprises',
+      'explore',
+      'features',
+      'issues',
+      'login',
+      'logout',
+      'marketplace',
+      'new',
+      'notifications',
+      'organizations',
+      'orgs',
+      'pricing',
+      'pulls',
+      'readme',
+      'security',
+      'search',
+      'settings',
+      'signup',
+      'sponsors',
+      'topics',
+      'trending',
+      'users',
+    ];
+    for (const name of reserved) {
+      expect(
+        parseGithubUrl(new URL(`https://github.com/${name}/value`)),
+      ).toBeUndefined();
+    }
+    expect(
+      parseGithubUrl(new URL('https://github.com/Topics/value')),
+    ).toBeUndefined();
   });
 });
 
@@ -192,8 +229,8 @@ describe('parseGithubUrl threads', () => {
       'https://github.com/o/r/projects/1',
       'https://github.com/o/r/discussions/1',
       'https://github.com/search?q=issue',
-      'https://gist.github.com/o/1',
-      'https://raw.githubusercontent.com/o/r/main/file',
+      'https://github.com/o/../issues/1',
+      'https://github.com/o/./issues/1',
       'https://github.enterprise.test/o/r/issues/1',
       'https://github.com/o/r/issues/1/comments',
     ];

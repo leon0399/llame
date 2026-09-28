@@ -1,51 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import type {
-  WebFetchFailure,
-  WebRequestInit,
-  WebResponse,
-} from '../../http-client';
-import type { WebAdapterIo } from '../contract';
-import type { GithubWebAdapterConfig } from '../../../../instance-config/llame-config';
+import type { WebFetchFailure, WebResponse } from '../../http-client';
+import { MAX_ADAPTER_DOCUMENT_BYTES } from '../contract';
 import { createGithubAdapter } from './adapter';
-
-type Reply = WebResponse | WebFetchFailure;
-type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonObject
-  | ReadonlyArray<JsonValue>;
-type JsonObject = { readonly [key: string]: JsonValue };
-type BlobWire = {
-  readonly content: string;
-  readonly encoding: string;
-  readonly size?: number;
-};
-type ScriptedIo = {
-  readonly io: WebAdapterIo;
-  readonly requests: Array<{
-    readonly url: string;
-    readonly init: WebRequestInit | undefined;
-  }>;
-};
-
-const API_ORIGIN = 'http://127.0.0.1:43123';
-const MAX_BODY = 5 * 1024 * 1024;
-
-function config(token?: string): GithubWebAdapterConfig {
-  return token === undefined
-    ? { id: 'github', use: 'github' }
-    : { id: 'github', use: 'github', token };
-}
-function response(value: JsonValue | BlobWire): WebResponse {
-  return {
-    finalUrl: `${API_ORIGIN}/response`,
-    contentType: 'application/json',
-    body: JSON.stringify(value) ?? '',
-  };
-}
+import {
+  API_ORIGIN,
+  config,
+  response,
+  scriptedIo,
+  type JsonObject,
+  type Reply,
+} from './test-io';
 
 function failure(
   httpStatus: number,
@@ -60,37 +25,12 @@ function failure(
   return result;
 }
 
-function scriptedIo(
-  routes: ReadonlyMap<string, ReadonlyArray<Reply>>,
-): ScriptedIo {
-  const requests: Array<{
-    readonly url: string;
-    readonly init: WebRequestInit | undefined;
-  }> = [];
-  const remaining = new Map(
-    [...routes].map(([url, replies]) => [url, [...replies]]),
-  );
-  return {
-    requests,
-    io: {
-      fetch: (url, init) => {
-        requests.push({ url, init });
-        const replies = remaining.get(url);
-        if (replies === undefined || replies.length === 0) {
-          throw new Error(`unexpected request ${url}`);
-        }
-        const reply = replies.shift();
-        if (reply === undefined) throw new Error(`empty reply ${url}`);
-        return Promise.resolve(reply);
-      },
-    },
-  };
-}
-
 function blobResponse(content: string, size?: number): WebResponse {
   const bytes = Buffer.from(content);
+  const encoded = bytes.toString('base64');
+  const wrapped = encoded.match(/.{1,60}/gu)?.join('\n') ?? '';
   return response({
-    content: bytes.toString('base64'),
+    content: wrapped,
     encoding: 'base64',
     size: size ?? bytes.byteLength,
   });
@@ -100,28 +40,31 @@ function treeResponse(entries: ReadonlyArray<JsonObject>): WebResponse {
   return response({ tree: entries });
 }
 
+async function readGithub(
+  source: string,
+  routes: ReadonlyMap<string, ReadonlyArray<Reply>>,
+) {
+  const run = scriptedIo(routes);
+  const outcome = await createGithubAdapter(config(), {
+    apiOrigin: API_ORIGIN,
+  }).read(new URL(source), run.io);
+  return { outcome, urls: run.requests.map(({ url }) => url) };
+}
 function renderedContent(
   outcome: Awaited<ReturnType<ReturnType<typeof createGithubAdapter>['read']>>,
 ): string {
   if (outcome.kind !== 'rendered') throw new Error('expected rendered outcome');
   return outcome.content;
 }
-
 describe('GitHub code adapter', () => {
   it('fetches a blob once and preserves exact UTF-8 text', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=main`;
-    const run = scriptedIo(new Map([[url, [blobResponse('one\ntwo\n')]]]));
-
-    const outcome = await createGithubAdapter(config(), {
-      apiOrigin: API_ORIGIN,
-    }).read(
-      new URL('https://github.com/acme/project/blob/main/src/a.ts'),
-      run.io,
+    const { outcome, urls } = await readGithub(
+      'https://github.com/acme/project/blob/main/src/a.ts',
+      new Map([[url, [blobResponse('one\ntwo\n')]]]),
     );
 
-    expect(run.requests.map(({ url: requestUrl }) => requestUrl)).toStrictEqual(
-      [url],
-    );
+    expect(urls).toStrictEqual([url]);
     expect(renderedContent(outcome)).toBe('one\ntwo\n');
   });
 
@@ -150,13 +93,9 @@ describe('GitHub code adapter', () => {
           ? { content, encoding }
           : { content, encoding, size };
       const url = `${API_ORIGIN}/repos/acme/project/contents/file.bin?ref=main`;
-      const run = scriptedIo(new Map([[url, [response(payload)]]]));
-
-      const outcome = await createGithubAdapter(config(), {
-        apiOrigin: API_ORIGIN,
-      }).read(
-        new URL('https://github.com/acme/project/blob/main/file.bin'),
-        run.io,
+      const { outcome } = await readGithub(
+        'https://github.com/acme/project/blob/main/file.bin',
+        new Map([[url, [response(payload)]]]),
       );
 
       expect(outcome).toStrictEqual({ kind: 'failed', failure: 'binary' });
@@ -165,7 +104,8 @@ describe('GitHub code adapter', () => {
 
   it('classifies a declared oversized blob before decoding', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/large.bin?ref=main`;
-    const run = scriptedIo(
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project/blob/main/large.bin',
       new Map([
         [
           url,
@@ -173,18 +113,11 @@ describe('GitHub code adapter', () => {
             response({
               content: Buffer.from('x').toString('base64'),
               encoding: 'base64',
-              size: MAX_BODY + 1,
+              size: MAX_ADAPTER_DOCUMENT_BYTES + 1,
             }),
           ],
         ],
       ]),
-    );
-
-    const outcome = await createGithubAdapter(config(), {
-      apiOrigin: API_ORIGIN,
-    }).read(
-      new URL('https://github.com/acme/project/blob/main/large.bin'),
-      run.io,
     );
 
     expect(outcome).toStrictEqual({ kind: 'failed', failure: 'too_large' });
@@ -194,7 +127,8 @@ describe('GitHub code adapter', () => {
     const initial = `${API_ORIGIN}/repos/acme/project/contents/foo/src/a.ts?ref=feature`;
     const lookup = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
     const retry = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature%2Ffoo`;
-    const run = scriptedIo(
+    const { outcome, urls } = await readGithub(
+      'https://github.com/acme/project/blob/feature/foo/src/a.ts',
       new Map([
         [initial, [failure(404)]],
         [
@@ -210,18 +144,7 @@ describe('GitHub code adapter', () => {
       ]),
     );
 
-    const outcome = await createGithubAdapter(config(), {
-      apiOrigin: API_ORIGIN,
-    }).read(
-      new URL('https://github.com/acme/project/blob/feature/foo/src/a.ts'),
-      run.io,
-    );
-
-    expect(run.requests.map(({ url }) => url)).toStrictEqual([
-      initial,
-      lookup,
-      retry,
-    ]);
+    expect(urls).toStrictEqual([initial, lookup, retry]);
     expect(renderedContent(outcome)).toBe('branch');
   });
 
@@ -230,7 +153,8 @@ describe('GitHub code adapter', () => {
     const heads = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
     const tags = `${API_ORIGIN}/repos/acme/project/git/matching-refs/tags/feature`;
     const retry = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature%2Ffoo`;
-    const run = scriptedIo(
+    const { outcome, urls } = await readGithub(
+      'https://github.com/acme/project/blob/feature/foo/src/a.ts',
       new Map([
         [initial, [failure(404)]],
         [heads, [response([{ ref: 'refs/heads/feature-old' }])]],
@@ -239,102 +163,102 @@ describe('GitHub code adapter', () => {
       ]),
     );
 
-    const outcome = await createGithubAdapter(config(), {
-      apiOrigin: API_ORIGIN,
-    }).read(
-      new URL('https://github.com/acme/project/blob/feature/foo/src/a.ts'),
-      run.io,
-    );
-
-    expect(run.requests.map(({ url }) => url)).toStrictEqual([
-      initial,
-      heads,
-      tags,
-      retry,
-    ]);
+    expect(urls).toStrictEqual([initial, heads, tags, retry]);
     expect(renderedContent(outcome)).toBe('tag');
   });
-
   it('keeps the first successful ref when a tag shadows a branch', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/x/README.md?ref=v1`;
-    const run = scriptedIo(new Map([[url, [blobResponse('tag wins')]]]));
-
-    const outcome = await createGithubAdapter(config(), {
-      apiOrigin: API_ORIGIN,
-    }).read(
-      new URL('https://github.com/acme/project/blob/v1/x/README.md'),
-      run.io,
+    const { outcome, urls } = await readGithub(
+      'https://github.com/acme/project/blob/v1/x/README.md',
+      new Map([[url, [blobResponse('tag wins')]]]),
     );
 
-    expect(run.requests.map(({ url: requestUrl }) => requestUrl)).toStrictEqual(
-      [url],
-    );
+    expect(urls).toStrictEqual([url]);
     expect(renderedContent(outcome)).toBe('tag wins');
   });
 
   it('uses a forty-character SHA without matching-ref lookups', async () => {
     const sha = '0123456789abcdef0123456789abcdef01234567';
     const url = `${API_ORIGIN}/repos/acme/project/contents/file.ts?ref=${sha}`;
-    const run = scriptedIo(new Map([[url, [blobResponse('sha')]]]));
-
-    const outcome = await createGithubAdapter(config(), {
-      apiOrigin: API_ORIGIN,
-    }).read(
-      new URL(`https://github.com/acme/project/blob/${sha}/file.ts`),
-      run.io,
+    const { outcome, urls } = await readGithub(
+      `https://github.com/acme/project/blob/${sha}/file.ts`,
+      new Map([[url, [blobResponse('sha')]]]),
     );
 
-    expect(run.requests.map(({ url: requestUrl }) => requestUrl)).toStrictEqual(
-      [url],
-    );
+    expect(urls).toStrictEqual([url]);
     expect(renderedContent(outcome)).toBe('sha');
   });
 
   it('returns status when a tree ref has no path left to split', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main?recursive=1`;
-    const run = scriptedIo(new Map([[url, [failure(404)]]]));
-
-    const outcome = await createGithubAdapter(config(), {
-      apiOrigin: API_ORIGIN,
-    }).read(new URL('https://github.com/acme/project/tree/main'), run.io);
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project/tree/main',
+      new Map([[url, [failure(404)]]]),
+    );
 
     expect(outcome).toStrictEqual({ kind: 'failed', failure: 'status' });
   });
 
-  it('fetches a tree once and passes stripped entries to the renderer', async () => {
+  it('fetches a tree once and passes relative entries to the renderer', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:apps?recursive=1`;
-    const run = scriptedIo(
+    const { outcome, urls } = await readGithub(
+      'https://github.com/acme/project/tree/main/apps',
       new Map([
         [
           url,
           [
             treeResponse([
-              { path: 'apps/api', type: 'tree' },
-              { path: 'apps/api/main.ts', type: 'blob' },
-              { path: 'apps/readme.md', type: 'blob' },
+              { path: 'api', type: 'tree' },
+              { path: 'api/main.ts', type: 'blob' },
+              { path: 'readme.md', type: 'blob' },
             ]),
           ],
         ],
       ]),
     );
 
-    const outcome = await createGithubAdapter(config(), {
-      apiOrigin: API_ORIGIN,
-    }).read(new URL('https://github.com/acme/project/tree/main/apps'), run.io);
-
-    expect(run.requests.map(({ url: requestUrl }) => requestUrl)).toStrictEqual(
-      [url],
-    );
-    expect(renderedContent(outcome)).toBe(
-      'https://github.com/acme/project/tree/main/apps\n  - api/\n    - main.ts\n  - readme.md',
-    );
+    expect(urls).toStrictEqual([url]);
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      content: '',
+      directory: {
+        displayPath: 'https://github.com/acme/project/tree/main/apps',
+        entries: [
+          {
+            name: 'api',
+            kind: 'directory',
+            children: [{ name: 'main.ts', kind: 'file' }],
+          },
+          { name: 'readme.md', kind: 'file' },
+        ],
+      },
+    });
   });
+  it('falls through when the tree response exceeds the body bound', async () => {
+    const url = `${API_ORIGIN}/repos/acme/project/git/trees/main?recursive=1`;
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project/tree/main',
+      new Map([
+        [
+          url,
+          [
+            {
+              type: 'body_too_large',
+              message: 'The response body exceeds the 5 MiB limit.',
+            },
+          ],
+        ],
+      ]),
+    );
 
+    expect(outcome).toStrictEqual({ kind: 'failed', failure: 'too_large' });
+  });
   it('fetches root metadata, tree, and README and notes a README failure', async () => {
     const repository = `${API_ORIGIN}/repos/acme/project`;
     const tree = `${repository}/git/trees/main?recursive=1`;
     const readme = `${repository}/readme`;
-    const run = scriptedIo(
+    const { outcome, urls } = await readGithub(
+      'https://github.com/acme/project',
       new Map([
         [
           repository,
@@ -360,15 +284,7 @@ describe('GitHub code adapter', () => {
       ]),
     );
 
-    const outcome = await createGithubAdapter(config(), {
-      apiOrigin: API_ORIGIN,
-    }).read(new URL('https://github.com/acme/project'), run.io);
-
-    expect(run.requests.map(({ url }) => url)).toStrictEqual([
-      repository,
-      tree,
-      readme,
-    ]);
+    expect(urls).toStrictEqual([repository, tree, readme]);
     expect(outcome).toMatchObject({
       kind: 'rendered',
       notes: ['README omitted: status'],
@@ -379,13 +295,21 @@ describe('GitHub code adapter', () => {
     );
   });
 
-  it('renders commit fields and a diff URL without patch text', async () => {
+  it('renders commit fields and pages every changed file', async () => {
     const sha = 'c91b31c0';
-    const url = `${API_ORIGIN}/repos/acme/project/commits/${sha}`;
+    const firstUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=1`;
+    const secondUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=2`;
+    const firstFiles = Array.from({ length: 100 }, (_, index) => ({
+      filename: `src/a-${index}.ts`,
+      status: 'modified',
+      additions: 2,
+      deletions: 1,
+      patch: '@@ hidden patch',
+    }));
     const run = scriptedIo(
       new Map([
         [
-          url,
+          firstUrl,
           [
             response({
               sha,
@@ -394,13 +318,20 @@ describe('GitHub code adapter', () => {
                 author: { name: 'Alice', date: '2026-01-01T00:00:00Z' },
               },
               author: { login: 'alice' },
+              files: firstFiles,
+            }),
+          ],
+        ],
+        [
+          secondUrl,
+          [
+            response({
               files: [
                 {
-                  filename: 'src/a.ts',
-                  status: 'modified',
-                  additions: 2,
-                  deletions: 1,
-                  patch: '@@ hidden patch',
+                  filename: 'src/last.ts',
+                  status: 'added',
+                  additions: 3,
+                  deletions: 0,
                 },
               ],
             }),
@@ -413,14 +344,57 @@ describe('GitHub code adapter', () => {
       apiOrigin: API_ORIGIN,
     }).read(new URL(`https://github.com/acme/project/commit/${sha}`), run.io);
 
+    expect(run.requests.map(({ url }) => url)).toStrictEqual([
+      firstUrl,
+      secondUrl,
+    ]);
     expect(renderedContent(outcome)).toContain('Fix it');
     expect(renderedContent(outcome)).toContain('Author: alice');
     expect(renderedContent(outcome)).toContain('Date: 2026-01-01T00:00:00Z');
-    expect(renderedContent(outcome)).toContain('- src/a.ts (modified, +2 -1)');
+    expect(renderedContent(outcome)).toContain('- src/last.ts (added, +3 -0)');
     expect(renderedContent(outcome)).toContain(
       'Diff: https://github.com/acme/project/commit/c91b31c0.diff',
     );
     expect(renderedContent(outcome)).not.toContain('hidden patch');
+  });
+
+  it('renders commit files and notes a later files failure', async () => {
+    const sha = 'c91b31c0';
+    const firstUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=1`;
+    const secondUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=2`;
+    const run = scriptedIo(
+      new Map([
+        [
+          firstUrl,
+          [
+            response({
+              sha,
+              commit: {
+                message: 'Fix it',
+                author: { name: 'Alice', date: '2026-01-01T00:00:00Z' },
+              },
+              author: { login: 'alice' },
+              files: Array.from({ length: 100 }, (_, index) => ({
+                filename: `src/a-${index}.ts`,
+                status: 'modified',
+                additions: 2,
+                deletions: 1,
+              })),
+            }),
+          ],
+        ],
+        [secondUrl, [failure(500)]],
+      ]),
+    );
+
+    const outcome = await createGithubAdapter(config(), {
+      apiOrigin: API_ORIGIN,
+    }).read(new URL(`https://github.com/acme/project/commit/${sha}`), run.io);
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['files omitted: status'],
+    });
   });
 
   it('classifies a primary rate limit and carries its reset', async () => {

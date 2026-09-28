@@ -235,6 +235,31 @@ list URLs; Actions, Projects, Discussions, search results, or gists;
 `raw.githubusercontent.com`; Enterprise hosts; or any write URL. Those
 locators stay on the generic ladder without an adapter request or note.
 
+The same entry claims canonical repository-code shapes:
+`https://github.com/{owner}/{repo}`, `/tree/{ref}[/{path}]`,
+`/blob/{ref}/{path}`, and `/commit/{sha}`. It does not claim
+`/commit/{sha}.diff`, `/commit/{sha}.patch`, or any
+`raw.githubusercontent.com` URL; the raw host is never requested.
+
+A blob renders decoded UTF-8 source as plain lines with no heading, so `:N-M`
+addresses source lines. A directory renders the requested level and one child
+level in the host's two-level listing shape. A repository root adds
+`Description`, `Default branch`, `Visibility`, and `Language`, then the root
+listing and `## README`. A commit renders a summary with its message, author,
+timestamp, changed-file statuses and counts, and a `Diff:` URL; it never
+renders patches.
+
+Ref resolution first tries the first segment after `tree/` or `blob/` as the
+ref. On a 404 with path segments remaining, branch and then tag matching can
+resolve a longer ref. A blob or directory costs one API request; a repository
+root costs three. A slash-containing branch costs three requests, and a
+slash-containing tag costs four. A 40-hex SHA skips ref lookup. If a tag
+matching the first segment succeeds before lookup, it shadows a longer branch;
+for example, `/blob/v1/x/README.md` uses tag `v1` even when branch `v1/x`
+exists. This is a documented resolution limit.
+
+Binary or oversized blobs, and tree responses over 5 MiB, fall through.
+
 Issues and pull requests render as a metadata block, the body, and flat
 `###` items for files, reviews, review comments, and comments; no patches or
 event timeline is rendered. For example:

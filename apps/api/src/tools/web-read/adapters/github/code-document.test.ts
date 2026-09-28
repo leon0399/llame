@@ -3,42 +3,15 @@ import { describe, expect, it } from 'vitest';
 import {
   renderGithubCodeDocument,
   type GithubRepositoryDocument,
-  type GithubTreeDocument,
 } from './code-document';
 
-const treeEntries = [
+const repositoryEntries = [
   { path: 'src', type: 'tree' as const },
   { path: 'README.md', type: 'blob' as const },
-  { path: 'zeta.txt', type: 'blob' as const },
   { path: 'src/nested', type: 'tree' as const },
+  { path: 'src/index.ts', type: 'blob' as const },
   { path: 'src/nested/ignored.ts', type: 'blob' as const },
-  { path: 'src/file-a', type: 'blob' as const },
-  { path: 'src/file-b', type: 'blob' as const },
-  { path: 'src/file-c', type: 'blob' as const },
-  { path: 'src/file-d', type: 'blob' as const },
-  { path: 'src/file-e', type: 'blob' as const },
-  { path: 'src/file-f', type: 'blob' as const },
-  { path: 'src/file-g', type: 'blob' as const },
-  { path: 'src/file-h', type: 'blob' as const },
-  { path: 'src/file-i', type: 'blob' as const },
-  { path: 'src/file-j', type: 'blob' as const },
-  { path: 'src/file-k', type: 'blob' as const },
-  { path: 'src/file-l', type: 'blob' as const },
-  { path: 'src/file-m', type: 'blob' as const },
-  { path: 'src/file-n', type: 'blob' as const },
-  { path: 'src/file-o', type: 'blob' as const },
-  { path: 'src/file-p', type: 'blob' as const },
-  { path: 'src/file-q', type: 'blob' as const },
-  { path: 'src/file-r', type: 'blob' as const },
-  { path: 'src/file-s', type: 'blob' as const },
-  { path: 'src/file-t', type: 'blob' as const },
 ] as const;
-
-const treeDocument: GithubTreeDocument = {
-  kind: 'tree',
-  displayPath: 'https://github.com/o/r/tree/main/apps',
-  entries: treeEntries,
-};
 
 const repositoryDocument: GithubRepositoryDocument = {
   kind: 'repository',
@@ -47,43 +20,14 @@ const repositoryDocument: GithubRepositoryDocument = {
   defaultBranch: 'main',
   visibility: 'public',
   language: null,
-  entries: treeEntries,
+  entries: repositoryEntries,
   readme: 'Welcome to the repository.',
 };
 
 describe('renderGithubCodeDocument', () => {
-  it('renders an ordered two-level tree and caps each child at 20 entries', () => {
-    expect(renderGithubCodeDocument(treeDocument))
-      .toBe(`https://github.com/o/r/tree/main/apps
-  - src/
-    - nested/
-    - file-a
-    - file-b
-    - file-c
-    - file-d
-    - file-e
-    - file-f
-    - file-g
-    - file-h
-    - file-i
-    - file-j
-    - file-k
-    - file-l
-    - file-m
-    - file-n
-    - file-o
-    - file-p
-    - file-q
-    - file-r
-    - file-s
-    … 1 more
-  - README.md
-  - zeta.txt`);
-  });
-
-  it('renders repository metadata, listing, and README', () => {
-    expect(renderGithubCodeDocument(repositoryDocument))
-      .toBe(`Description: A repository for examples.
+  it('renders repository metadata, native listing, and README', () => {
+    expect(renderGithubCodeDocument(repositoryDocument)).toBe(
+      `Description: A repository for examples.
 Default branch: main
 Visibility: public
 Language: none
@@ -91,32 +35,13 @@ Language: none
 https://github.com/o/r
   - src/
     - nested/
-    - file-a
-    - file-b
-    - file-c
-    - file-d
-    - file-e
-    - file-f
-    - file-g
-    - file-h
-    - file-i
-    - file-j
-    - file-k
-    - file-l
-    - file-m
-    - file-n
-    - file-o
-    - file-p
-    - file-q
-    - file-r
-    - file-s
-    … 1 more
+    - index.ts
   - README.md
-  - zeta.txt
 
 ## README
 
-Welcome to the repository.`);
+Welcome to the repository.`,
+    );
   });
 
   it('renders repository metadata when tree and README are unavailable', () => {

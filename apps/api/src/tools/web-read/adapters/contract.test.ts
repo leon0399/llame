@@ -182,6 +182,30 @@ describe('dispatchWebAdapters', () => {
       render: { content: 'partial', notes: [note] },
     });
   });
+
+  it('passes a directory payload through adapter dispatch', async () => {
+    const directory = {
+      displayPath: SOURCE,
+      entries: [{ name: 'src', kind: 'directory' as const, children: [] }],
+    };
+    const result = await dispatchWebAdapters(
+      new URL(SOURCE),
+      [
+        adapter('github', true, {
+          kind: 'rendered',
+          content: '',
+          directory,
+          notes: [],
+        }),
+      ],
+      { fetch: () => Promise.resolve(response('unused')) },
+    );
+
+    expect(result).toMatchObject({
+      kind: 'rendered',
+      render: { content: '', directory },
+    });
+  });
   it('omits provenance and notes fields when neither is present', async () => {
     const result = await dispatchWebAdapters(
       new URL(SOURCE),

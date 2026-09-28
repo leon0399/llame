@@ -2,9 +2,11 @@ import {
   NativeFileError,
   applySelectorSuffix,
   measureNativeModelOutput,
+  renderCollectedDirectory,
   selectMultiRangeLines,
   selectSourceLines,
   splitSourceLines,
+  type DirectorySuccess,
   type ReadSuccess,
   type ReadTarget,
 } from '@workspace/native-file-tools';
@@ -12,10 +14,14 @@ import { type UnknownRecord } from '@workspace/runtime-safety';
 
 import { type WebLocator } from './locator';
 import { type WebAdapterProvenance } from './adapters/contract';
-import { type WebRender, type WebRenderMethod } from './pipeline';
+import {
+  type WebDirectory,
+  type WebRender,
+  type WebRenderMethod,
+} from './pipeline';
 
 /** The native read success object, extended with the web envelope. */
-export type WebReadSuccess = ReadSuccess & UnknownRecord;
+export type WebReadSuccess = (ReadSuccess | DirectorySuccess) & UnknownRecord;
 
 type WebReadFailure = {
   readonly status: 'error';
@@ -65,6 +71,9 @@ export function buildWebReadResult(
       ...applySelectorSuffix(locator.url, locator.selector),
       reserveCodeUnits: measureNativeModelOutput(envelope),
     };
+    if (render.directory !== undefined) {
+      return buildDirectoryReadResult(target, envelope, render.directory);
+    }
     // A comma request needs the multi-range walk: the render is text in
     // hand, so it cannot go through the file-backed stream reader, and
     // `selectSourceLines` serves one window.
@@ -80,13 +89,58 @@ export function buildWebReadResult(
       type: error.type,
       // `NativeFileError` defaults its message to its type, which tells the
       // model nothing; only wording the thrower chose is worth passing on,
-      // and only a selector failure earns selector guidance.
       message:
         error.message === error.type && error.type === 'invalid_selector'
-          ? selectorFailureMessage(render.content, locator.selector)
+          ? selectorFailureMessage(selectorContent(render), locator.selector)
           : error.message,
     };
   }
+}
+
+function buildDirectoryReadResult(
+  target: ReadTarget,
+  envelope: WebResultEnvelope,
+  directory: WebDirectory,
+): WebReadSuccess | WebReadFailure {
+  if (target.raw) {
+    return {
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'The :raw selector is not supported for directory reads.',
+    };
+  }
+  if (target.ranges !== undefined) {
+    return {
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'Comma-separated selectors are not supported for directory reads.',
+    };
+  }
+  const options = {
+    displayPath: target.path,
+    reserveCodeUnits: measureNativeModelOutput(envelope),
+    ...(target.offset > 0 && { offset: target.offset }),
+    ...(target.limit !== undefined && { limit: target.limit }),
+  };
+  const result = renderCollectedDirectory(
+    directory.displayPath,
+    directory.entries,
+    options,
+  );
+  if (result.status === 'error') {
+    return { status: 'error', type: result.type, message: result.message };
+  }
+  return { ...result, ...envelope };
+}
+
+function selectorContent(render: WebRender): string {
+  if (render.directory === undefined) return render.content;
+  const result = renderCollectedDirectory(
+    render.directory.displayPath,
+    render.directory.entries,
+  );
+  return result.status === 'success' ? result.content : '';
 }
 
 /**

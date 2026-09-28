@@ -1,3 +1,8 @@
+import {
+  renderCollectedDirectory,
+  type DirectoryListingEntry,
+} from '@workspace/native-file-tools';
+
 import { appendFiles, type GithubFile } from './document';
 
 /** Path relative to the requested directory (or repository root), as GitHub's
@@ -20,12 +25,6 @@ export type GithubRepositoryDocument = {
   readonly readme?: string;
 };
 
-export type GithubTreeDocument = {
-  readonly kind: 'tree';
-  readonly displayPath: string;
-  readonly entries: ReadonlyArray<GithubTreeEntry>;
-};
-
 export type GithubCommitDocument = {
   readonly kind: 'commit';
   readonly sha: string;
@@ -38,25 +37,45 @@ export type GithubCommitDocument = {
 
 export type GithubCodeDocument =
   | GithubRepositoryDocument
-  | GithubTreeDocument
   | GithubCommitDocument;
 
-const DIRECTORY_CHILD_CAP = 20;
-
-type TreeLevels = {
-  readonly root: Array<GithubTreeEntry>;
-  readonly children: Map<string, Array<GithubTreeEntry>>;
-};
-
 export function renderGithubCodeDocument(document: GithubCodeDocument): string {
-  switch (document.kind) {
-    case 'repository':
-      return renderRepository(document);
-    case 'tree':
-      return renderTree(document.displayPath, document.entries).join('\n');
-    case 'commit':
-      return renderCommit(document);
+  return document.kind === 'repository'
+    ? renderRepository(document)
+    : renderCommit(document);
+}
+
+/**
+ * Converts GitHub's flat recursive paths into the entries expected by the
+ * native directory renderer. Deeper descendants are intentionally omitted.
+ */
+export function toGithubDirectoryEntries(
+  entries: ReadonlyArray<GithubTreeEntry>,
+): ReadonlyArray<DirectoryListingEntry> {
+  const roots = new Map<string, DirectoryListingEntry>();
+  const children = new Map<string, Array<DirectoryListingEntry>>();
+  for (const entry of entries) {
+    const segments = entry.path.split('/');
+    if (segments.length === 1) {
+      roots.set(segments[0], {
+        name: segments[0],
+        kind: entry.type === 'tree' ? 'directory' : 'file',
+      });
+      continue;
+    }
+    if (segments.length !== 2) continue;
+    const siblings = children.get(segments[0]) ?? [];
+    siblings.push({
+      name: segments[1],
+      kind: entry.type === 'tree' ? 'directory' : 'file',
+    });
+    children.set(segments[0], siblings);
   }
+  return [...roots.values()].map((entry) =>
+    entry.kind === 'directory'
+      ? { ...entry, children: children.get(entry.name) ?? [] }
+      : entry,
+  );
 }
 
 function renderRepository(document: GithubRepositoryDocument): string {
@@ -69,14 +88,26 @@ function renderRepository(document: GithubRepositoryDocument): string {
   ];
   const listing =
     document.entries === undefined
-      ? []
-      : renderTree(document.displayPath, document.entries);
-  lines.push(...listing);
+      ? undefined
+      : renderGithubListing(document.displayPath, document.entries);
+  if (listing !== undefined) lines.push(listing);
   if (document.readme !== undefined) {
-    if (listing.length > 0) lines.push('');
+    if (listing !== undefined) lines.push('');
     lines.push('## README', '', document.readme);
   }
   return lines.join('\n').trim();
+}
+
+function renderGithubListing(
+  displayPath: string,
+  entries: ReadonlyArray<GithubTreeEntry>,
+): string {
+  const result = renderCollectedDirectory(
+    displayPath,
+    toGithubDirectoryEntries(entries),
+    { displayPath },
+  );
+  return result.status === 'success' ? result.content.trimEnd() : '';
 }
 
 function renderCommit(document: GithubCommitDocument): string {
@@ -91,70 +122,4 @@ function renderCommit(document: GithubCommitDocument): string {
   appendFiles(lines, document.files);
   lines.push('', `Diff: ${document.diffUrl}`);
   return lines.join('\n').trim();
-}
-
-function renderTree(
-  displayPath: string,
-  entries: ReadonlyArray<GithubTreeEntry>,
-): Array<string> {
-  if (entries.length === 0) return [displayPath, '(empty directory)'];
-
-  const { root, children } = collectTreeLevels(entries);
-  const lines: Array<string> = [displayPath];
-  for (const entry of root) {
-    lines.push(formatTreeEntry(entry, '  '));
-    if (entry.type !== 'tree') continue;
-    appendChildEntries(lines, children.get(entry.path));
-  }
-  return lines;
-}
-
-function collectTreeLevels(
-  entries: ReadonlyArray<GithubTreeEntry>,
-): TreeLevels {
-  const root: Array<GithubTreeEntry> = [];
-  const children = new Map<string, Array<GithubTreeEntry>>();
-  for (const entry of entries) {
-    const segments = entry.path.split('/');
-    if (segments.length === 1) {
-      root.push(entry);
-      continue;
-    }
-    if (segments.length !== 2) continue;
-    const parent = segments[0];
-    const siblings = children.get(parent) ?? [];
-    siblings.push(entry);
-    children.set(parent, siblings);
-  }
-  root.sort(compareTreeEntries);
-  for (const siblings of children.values()) siblings.sort(compareTreeEntries);
-  return { root, children };
-}
-
-function appendChildEntries(
-  lines: Array<string>,
-  entries: ReadonlyArray<GithubTreeEntry> | undefined,
-): void {
-  if (entries === undefined) return;
-  for (const entry of entries.slice(0, DIRECTORY_CHILD_CAP)) {
-    lines.push(formatTreeEntry(entry, '    '));
-  }
-  if (entries.length > DIRECTORY_CHILD_CAP) {
-    lines.push(`    … ${entries.length - DIRECTORY_CHILD_CAP} more`);
-  }
-}
-
-function compareTreeEntries(
-  left: GithubTreeEntry,
-  right: GithubTreeEntry,
-): number {
-  const leftDirectory = left.type === 'tree' ? 0 : 1;
-  const rightDirectory = right.type === 'tree' ? 0 : 1;
-  if (leftDirectory !== rightDirectory) return leftDirectory - rightDirectory;
-  return left.path.localeCompare(right.path);
-}
-
-function formatTreeEntry(entry: GithubTreeEntry, indent: string): string {
-  const name = entry.path.split('/').pop() ?? entry.path;
-  return `${indent}- ${name}${entry.type === 'tree' ? '/' : ''}`;
 }

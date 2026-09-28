@@ -1,14 +1,19 @@
 import type { GithubWebAdapterConfig } from '../../../../instance-config/llame-config';
-import type { WebFetchFailure, WebRequestInit } from '../../http-client';
+import type { WebRequestInit } from '../../http-client';
 import {
-  classifyFetchFailure,
-  isFatalAdapterFailure,
-  omissionNote,
-  rateLimitReset,
   type WebAdapter,
   type WebAdapterIo,
   type WebAdapterOutcome,
 } from '../contract';
+import {
+  PARSE_FAILURE,
+  finishRendered,
+  primaryFailure,
+  recordSecondaryFailure,
+  repoPath,
+  requestJson,
+  type GithubRequestContext,
+} from './request';
 import {
   countGithubChecks,
   parseCheckPage,
@@ -35,21 +40,7 @@ import { readGithubCode } from './code';
 
 export const GITHUB_API_ORIGIN = 'https://api.github.com';
 const PAGE_SIZE = 100;
-const PARSE_FAILURE: WebFetchFailure = {
-  type: 'parse',
-  message: 'The GitHub response was not valid JSON.',
-};
-
-type JsonResult =
-  | { readonly kind: 'ok'; readonly body: string }
-  | { readonly kind: 'failed'; readonly failure: WebFetchFailure };
-type RequestContext = {
-  readonly io: WebAdapterIo;
-  readonly init: WebRequestInit;
-  readonly apiOrigin: string;
-  readonly notes: Array<string>;
-  halted?: WebFetchFailure;
-};
+type RequestContext = GithubRequestContext;
 type PageStep<T> = (
   body: string,
   page: number,
@@ -129,17 +120,7 @@ async function readGithubThread(
 ): Promise<WebAdapterOutcome> {
   const context: RequestContext = { io, init, apiOrigin, notes: [] };
   const primary = await requestJson(primaryUrl(target, apiOrigin), context);
-  if (primary.kind === 'failed') {
-    const result: WebAdapterOutcome = {
-      kind: 'failed',
-      failure: classifyFetchFailure(primary.failure),
-    };
-    const reset = rateLimitReset(primary.failure);
-    const outcome = reset === undefined ? result : { ...result, reset };
-    return isFatalAdapterFailure(primary.failure)
-      ? { ...outcome, fatal: primary.failure }
-      : outcome;
-  }
+  if (primary.kind === 'failed') return primaryFailure(primary.failure);
   return target.kind === 'issue'
     ? renderIssue(target, primary.body, context)
     : renderPull(target, primary.body, context);
@@ -307,38 +288,7 @@ function finish(
   document: GithubIssueDocument | GithubPullDocument,
   context: RequestContext,
 ): WebAdapterOutcome {
-  if (context.halted !== undefined && context.halted.type !== 'call_timeout') {
-    return {
-      kind: 'failed',
-      failure: classifyFetchFailure(context.halted),
-      fatal: context.halted,
-    };
-  }
-  return {
-    kind: 'rendered',
-    content: renderGithubDocument(document),
-    notes: context.notes,
-  };
-}
-
-function recordSecondaryFailure(
-  section: string,
-  failure: WebFetchFailure,
-  context: RequestContext,
-): void {
-  context.notes.push(omissionNote(section, failure));
-  if (isFatalAdapterFailure(failure)) context.halted = failure;
-}
-async function requestJson(
-  url: string,
-  context: RequestContext,
-): Promise<JsonResult> {
-  if (context.halted !== undefined) {
-    return { kind: 'failed', failure: context.halted };
-  }
-  const fetched = await context.io.fetch(url, context.init);
-  if ('type' in fetched) return { kind: 'failed', failure: fetched };
-  return { kind: 'ok', body: fetched.body };
+  return finishRendered(renderGithubDocument(document), context);
 }
 
 function requestInit(
@@ -367,8 +317,4 @@ function threadPath(
 
 function checkRunsPath(target: GithubThreadTarget, headSha: string): string {
   return `${repoPath(target)}/commits/${encodeURIComponent(headSha)}/check-runs`;
-}
-
-function repoPath(target: GithubThreadTarget): string {
-  return `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`;
 }

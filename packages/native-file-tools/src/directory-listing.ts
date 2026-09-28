@@ -36,7 +36,7 @@ type EntryKind = "directory" | "file" | "symlink" | "special";
 /** What a link can lead to when the listing names its target kind. */
 type LinkTargetKind = "directory" | "file";
 
-type DirEntry = {
+export type DirEntry = {
   name: string;
   kind: EntryKind;
   /** A link's target kind; absent when the link dangles, leads to a special
@@ -47,7 +47,7 @@ type DirEntry = {
   target?: string;
 };
 
-type ChildDir = {
+export type ChildDir = {
   name: string;
   entries: Array<DirEntry>;
   totalCount: number;
@@ -75,6 +75,30 @@ export type DirectoryListingOptions = {
    *  which is what keeps a resolved host path out of a Knowledge listing. */
   linkTargets?: boolean;
 };
+export function renderCollectedDirectoryParts(
+  targetPath: string,
+  rootEntries: ReadonlyArray<DirEntry>,
+  children: ReadonlyArray<ChildDir>,
+  options?: DirectoryListingOptions,
+): DirectorySuccess | DirectoryFailure {
+  const roots = [...rootEntries];
+  roots.sort(compareEntries);
+  if (roots.length > DIRECTORY_TRAVERSAL_BUDGET) {
+    return {
+      status: "error",
+      type: "directory_too_large",
+      message: `Directory contains ${roots.length} entries, exceeding the ${DIRECTORY_TRAVERSAL_BUDGET} entry budget.`,
+      count: roots.length,
+    };
+  }
+
+  const header = options?.displayPath ?? targetPath;
+  const cap = resultBudget(options ?? {});
+  if (options?.offset !== undefined || options?.limit !== undefined) {
+    return renderFlatListing(header, roots, options, cap);
+  }
+  return renderTreeListing(header, roots, [...children], cap);
+}
 
 export type DirectoryFailure = {
   status: "error";
@@ -119,7 +143,7 @@ function formatLink(entry: DirEntry, indent: string): string {
   return `${line}? -> ${entry.target}`;
 }
 
-function compareEntries(a: DirEntry, b: DirEntry): number {
+export function compareEntries(a: DirEntry, b: DirEntry): number {
   const aDir = a.kind === "directory" ? 0 : 1;
   const bDir = b.kind === "directory" ? 0 : 1;
   if (aDir !== bDir) return aDir - bDir;
