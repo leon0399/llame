@@ -368,11 +368,14 @@ scoping and fails the text gate on binaries; `gh` introduces process and
 credential behavior outside the read HTTP contract; per-child contents costs
 `1 + N` requests where the recursive tree costs one and gives exact counts.
 
-**Consequence:** Every directory costs one request, the root three. A
-repository whose subtree JSON exceeds 5 MiB (on the order of 20,000 entries;
-GitHub's own cut-off is 100,000 entries or 7 MB) falls through to the generic
-ladder; a fallback to per-child requests is added only if a real repository
-needs it. The model browses root → `tree/main/src` → `blob/main/src/a.ts`
+**Consequence:** Every directory costs one request, the root three. Two
+bounds apply in order. The host per-directory entry budget (10,000 entries at
+the requested level) binds first: a non-root directory over it ends with the
+host's `directory_too_large`, and an over-budget root keeps its metadata and
+README with a `tree omitted: too_large` note. A subtree whose JSON exceeds
+5 MiB (on the order of 20,000 entries in total; GitHub's own cut-off is
+100,000 entries or 7 MB) falls through to the generic ladder as `too_large`.
+A fallback to per-child requests is added only if a real repository needs it. The model browses root → `tree/main/src` → `blob/main/src/a.ts`
 inside the adapter.
 
 ### D11: Resolve refs containing `/` by trying first, then `matching-refs`

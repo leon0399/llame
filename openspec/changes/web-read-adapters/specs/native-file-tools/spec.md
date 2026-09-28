@@ -888,7 +888,11 @@ the requested level and one child level, and render the host directory
 listing shape: the requested level, then each child directory's first 20
 entries in order followed by `… N more`, with the same `… N entries`,
 truncation, and range-selector rules as a host directory read. A response
-over 5 MiB SHALL be `too_large` and fall through. A symlink entry (mode
+over 5 MiB SHALL be `too_large` and fall through. A non-root directory whose
+requested level exceeds the host per-directory entry budget SHALL end the
+call with the host's `directory_too_large` error, exactly as a host directory
+read does; that is a directory-read outcome, not an adapter failure, and it
+does not fall through. A symlink entry (mode
 `120000`) SHALL render with the host symlink marker as `- name@`, and a
 submodule entry (mode `160000`) with the host special marker as `- name?`.
 The repository root SHALL
@@ -946,6 +950,14 @@ to split SHALL be a `status` failure.
 - **WHEN** a recursive tree response has entries of mode `120000` and `160000`
 - **THEN** the symlink renders as `- name@` and the submodule as `- name?`
 - **AND** neither renders as a plain file line
+
+#### Scenario: An over-budget directory ends like a host directory
+
+- **WHEN** `https://github.com/o/r/tree/main/big` has more top-level entries
+  than the host per-directory entry budget and its tree response is under 5 MiB
+- **THEN** the call ends with `directory_too_large`, as a host directory read
+  over the budget does
+- **AND** no fall-through to the generic ladder occurs
 
 #### Scenario: An over-budget root omits only its listing
 
