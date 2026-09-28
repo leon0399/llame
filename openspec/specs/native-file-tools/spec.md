@@ -1067,7 +1067,7 @@ request would connect to SHALL additionally be judged under the
 address-admission requirement below. Availability and
 restriction for the web SHALL come only from the `read` permission group's
 `path` clauses: a prefix allow admits the web, and a prefix or domain reject
-removes a host. No web tool id, `tools.allowed` entry, configuration block, or
+removes a host. Every `read` permission-group evaluation this capability performs over a web locator or a resolved address, including the per-hop redirect and address admissions below, governs an attempt whose effective permission mode is `default`; an attempt whose effective mode is `bypass` admits it without evaluating a `read` group, as `tool-call-permissions` defines. No web tool id, `tools.allowed` entry, configuration block, or
 advertisement condition SHALL be added; a process that does not advertise
 `read` SHALL NOT reach a URL through it. Each call SHALL fetch afresh: no
 response or render SHALL be cached, and a later selector read of the same
