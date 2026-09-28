@@ -61,12 +61,7 @@ export function selectSourceLines(
   mediaType?: string,
 ): ReadSuccess {
   if (target.ranges !== undefined) throw new NativeFileError("invalid_input");
-  if (
-    mediaType === "text/markdown" &&
-    target.offset > 0 &&
-    !target.raw &&
-    !target.outline
-  )
+  if (mediaType === "text/markdown" && target.offset > 0 && !target.raw)
     return selectMarkdownSourceLines(source, target);
   const lines = splitSourceLines(source);
   if (

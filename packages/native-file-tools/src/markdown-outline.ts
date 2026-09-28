@@ -1,8 +1,12 @@
 import { NativeFileError, type ReadTarget } from "./path";
-import { createMarkdownScanner, type MarkdownLine } from "./markdown-structure";
 import {
-  createMarkdownAncestorTracker,
-  type MarkdownHeadingUnit,
+  createMarkdownScanner,
+  type MarkdownHeading,
+  type MarkdownLine,
+} from "./markdown-structure";
+import {
+  MarkdownAncestorTracker,
+  type NativeEntry,
 } from "./markdown-ancestors";
 import { isDelimiter } from "./markdown-syntax";
 import { measureNativeModelOutput } from "./serialization";
@@ -14,8 +18,6 @@ import {
 } from "./source-lines";
 
 const MAX_OUTLINE_LINE_UNITS = 120;
-
-type NativeEntry = { line: number; text: string };
 
 type FrontmatterState = {
   keyCount: number;
@@ -45,11 +47,8 @@ class MarkdownOutlineReader {
   private readonly startLine: number;
   private readonly endLine: number | undefined;
   private readonly scoped: boolean;
-  private readonly tracker = createMarkdownAncestorTracker();
-  private readonly excerpts = new Map<
-    MarkdownHeadingUnit["heading"],
-    NativeEntry
-  >();
+  private readonly tracker = new MarkdownAncestorTracker();
+  private readonly excerpts = new WeakMap<MarkdownHeading, NativeEntry>();
   private frontmatter: FrontmatterState | undefined;
   private sourceLineCount = 0;
   private emittedLines = 0;

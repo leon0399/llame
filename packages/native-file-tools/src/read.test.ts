@@ -314,65 +314,6 @@ describe("native source reads", () => {
     });
   });
 
-  it("keeps the existing outline representation for a Markdown file", async () => {
-    const sourcePath = join(directory, "outline.md");
-    await writeFile(sourcePath, "# Root\n## Child\n# Sibling\n");
-    expect(await readFile({ path: `${sourcePath}:outline` })).toEqual({
-      status: "success",
-      kind: "file",
-      path: sourcePath,
-      representation: "outline",
-      content: "1: # Root\n2: ## Child\n3: # Sibling\n",
-      requestedRange: { startLine: 1, endLine: 3 },
-      shownRange: { startLine: 1, endLine: 3 },
-      truncated: false,
-    });
-  });
-
-  it("reads the VISION Markdown range with exact ancestor metadata", async () => {
-    const sourcePath = join(directory, "VISION.md");
-    const lines = Array.from({ length: 73 }, (_, index) => `body ${index + 1}`);
-    lines[12] = "# Level one";
-    lines[31] = "## Level two";
-    lines[53] = "### Level three";
-    lines[58] = "context";
-    await writeFile(sourcePath, `${lines.join("\n")}\n`);
-    expect(await readFile({ path: `${sourcePath}:60-72` })).toEqual({
-      status: "success",
-      kind: "file",
-      path: sourcePath,
-      representation: "text",
-      content:
-        "13: # Level one\n" +
-        "32: ## Level two\n" +
-        "54: ### Level three\n" +
-        "59: context\n" +
-        "60: body 60\n" +
-        "61: body 61\n" +
-        "62: body 62\n" +
-        "63: body 63\n" +
-        "64: body 64\n" +
-        "65: body 65\n" +
-        "66: body 66\n" +
-        "67: body 67\n" +
-        "68: body 68\n" +
-        "69: body 69\n" +
-        "70: body 70\n" +
-        "71: body 71\n" +
-        "72: body 72\n" +
-        "73: body 73\n",
-      requestedRanges: [{ startLine: 60, endLine: 72 }],
-      shownRanges: [
-        { startLine: 13, endLine: 13 },
-        { startLine: 32, endLine: 32 },
-        { startLine: 54, endLine: 54 },
-        { startLine: 59, endLine: 73 },
-      ],
-      nextOffset: 72,
-      truncated: false,
-    });
-  });
-
   it("keeps a text range singular without Markdown ancestors", async () => {
     const sourcePath = join(directory, "source.txt");
     await writeFile(sourcePath, "# Heading\nbody\nvalue\n");

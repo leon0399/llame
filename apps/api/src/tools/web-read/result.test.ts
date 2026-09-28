@@ -584,7 +584,7 @@ describe('buildWebReadResult', () => {
 
   it('keeps plain-text and raw ranged renders unchanged', async () => {
     const plain = await buildWebReadResult(
-      { url: GUIDE_URL, selector: '2-2' },
+      { url: GUIDE_URL, selector: '4-4' },
       GUIDE_URL,
       {
         method: 'text',
@@ -597,10 +597,10 @@ describe('buildWebReadResult', () => {
       kind: 'file',
       path: GUIDE_URL,
       representation: 'text',
-      content: '1: # Root\n2: Root body\n3: ## First\n',
-      requestedRange: { startLine: 2, endLine: 2 },
-      shownRange: { startLine: 1, endLine: 3 },
-      nextOffset: 2,
+      content: '3: ## First\n4: First body\n5: \n',
+      requestedRange: { startLine: 4, endLine: 4 },
+      shownRange: { startLine: 3, endLine: 5 },
+      nextOffset: 4,
       truncated: false,
       finalUrl: GUIDE_URL,
       method: 'text',

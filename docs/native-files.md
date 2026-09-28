@@ -284,9 +284,11 @@ contains only the requested interval; `shownRanges` includes the ancestor and
 context intervals, merging adjacent intervals. If no ancestor line is
 emitted, singular `requestedRange` and `shownRange` remain unchanged. A
 comma-separated request is plural as usual; each merged passage gets the
-chain for its first requested line, deduplicated by source line against every
-earlier emitted passage or chain, with output kept in source order. Ancestors
-never enter `requestedRanges`.
+chain for its first requested line. A chain emits only heading lines before
+its passage's first shown line, and a chain line that would precede content
+already emitted is skipped, so output stays in source order. Lines are
+deduplicated by source line against every earlier emitted passage or chain.
+Ancestors never enter `requestedRanges`.
 
 For example, if `VISION.md` has `# Level one` at line 13, `## Level two` at
 line 32, and `### Level three` at line 54, a read of `VISION.md:60-72`
@@ -308,17 +310,19 @@ The scanner sees only the lines through the selected window's end and is
 ended there; it never reads past that window. A role still undecided at the
 boundary counts as a non-heading, including an open paragraph that might
 become a setext heading and an unclosed line-one `---` block, which is
-replayed as Markdown.
+replayed as Markdown. CPU for a large-offset Markdown read scales with the
+offset because every skipped line is parsed.
 
 Ancestor lines count against the shared 2,000-line ceiling and serialized
-result bound. If the chain and the passage's first requested line do not fit,
-whole heading units are dropped from the outermost end first until the
-deepest remaining heading fits. A setext heading's text lines and underline
-are one unit. If even the deepest heading does not fit, the chain is silently
-absent and the passage window is still returned when it can fit. `nextOffset`
-continues to identify the next requested source line, never an ancestor line;
-a continuation at `nextOffset + 1` computes a fresh chain, so a heading may
-reappear.
+result bound. If the chain plus the N-1 context line (when shown) and line N
+do not fit, whole heading units are dropped from the outermost end first until
+the deepest remaining heading fits. An oversized outer heading is an
+unrenderable unit and is skipped during trimming. A setext heading's text
+lines and underline are one unit. If even the deepest heading is
+unrenderable or does not fit, the chain is silently absent and the passage
+window is still returned when it can fit. `nextOffset` continues to identify
+the next requested source line, never an ancestor line; a continuation at
+`nextOffset + 1` computes a fresh chain, so a heading may reappear.
 
 `:raw`, `:outline`, directory reads, unselected reads, empty files, and
 non-Markdown sources remain unchanged. Ancestors are chosen only after the

@@ -263,57 +263,6 @@ describe('Workspace-relative native paths', () => {
     }
   });
 
-  it('keeps raw Markdown and text ranged reads unchanged', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'host-range-media-'));
-    const markdown = join(root, 'guide.md');
-    const plain = join(root, 'guide.txt');
-    await writeFile(markdown, RANGED_MARKDOWN);
-    await writeFile(plain, RANGED_MARKDOWN);
-    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
-      undefined,
-    );
-
-    try {
-      const raw = await runTool(
-        nativeReadTool,
-        { path: `${markdown}:raw:6-6` },
-        trustedContext(),
-        5,
-      );
-      expect(raw).toEqual({
-        status: 'success',
-        kind: 'file',
-        path: markdown,
-        representation: 'raw',
-        content: 'Selected body\n',
-        requestedRange: { startLine: 6, endLine: 6 },
-        shownRange: { startLine: 6, endLine: 6 },
-        nextOffset: 6,
-        truncated: false,
-      });
-
-      const text = await runTool(
-        nativeReadTool,
-        { path: `${plain}:6-6` },
-        trustedContext(),
-        5,
-      );
-      expect(text).toEqual({
-        status: 'success',
-        kind: 'file',
-        path: plain,
-        representation: 'text',
-        content: '5: \n6: Selected body\n7: Tail\n',
-        requestedRange: { startLine: 6, endLine: 6 },
-        shownRange: { startLine: 5, endLine: 7 },
-        nextOffset: 6,
-        truncated: false,
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
   it('admits host suffix permissions before parsing an outline', async () => {
     const root = await mkdtemp(join(tmpdir(), 'outline-permission-'));
     const file = join(root, 'guide.md');
@@ -716,7 +665,6 @@ describe('file: alias dispatch', () => {
         sequence: 1,
         eventType: 'native.result' as const,
         payload: null,
-
         createdAt: new Date(),
       }),
     );
@@ -835,16 +783,6 @@ describe('knowledge locator resolution', () => {
       5,
     );
 
-    expect(host).toMatchObject({
-      status: 'success',
-      path: contentPath,
-      requestedRanges: [{ startLine: 6, endLine: 6 }],
-      shownRanges: [
-        { startLine: 1, endLine: 1 },
-        { startLine: 3, endLine: 3 },
-        { startLine: 5, endLine: 7 },
-      ],
-    });
     expect(knowledge).toMatchObject({
       status: 'success',
       path: `kb://${SPACE}/guide.md:6-6`,

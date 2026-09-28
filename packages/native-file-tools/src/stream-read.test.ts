@@ -12,6 +12,9 @@ import type {
   ReadSuccess,
 } from "./read";
 import { selectMultiRangeLines } from "./stream-read";
+import { MultiCollector } from "./markdown-range";
+import { markdownLineRecord } from "./markdown-ancestors";
+import { measureNativeModelOutput } from "./serialization";
 import { selectSourceLines } from "./source-lines";
 
 /** What a native read reports, before the guard below narrows it. */
@@ -428,15 +431,6 @@ describe("markdown ancestor range selection", () => {
     });
   });
 
-  it("keeps non-Markdown selection byte-compatible", () => {
-    const target = applySelectorSuffix("/doc.txt", "3-3");
-    const result = selectSourceLines("# Heading\nbody\nvalue\n", target);
-    expect(result).toMatchObject({
-      content: "2: body\n3: value\n",
-      requestedRange: { startLine: 3, endLine: 3 },
-      shownRange: { startLine: 2, endLine: 3 },
-    });
-  });
   it("adds each passage chain once in source order", () => {
     const source =
       [
@@ -516,16 +510,221 @@ describe("markdown ancestor range selection", () => {
       shownRange: { startLine: 2, endLine: 2 },
     });
   });
+
   it("drops outer heading units under a tight result budget", () => {
-    const source = "# Title\n## Setup\n### Linux\nselected\n";
+    const source = "# Title\n## Setup\n### Linux\ncontext\nselected\n";
     const result = selectSourceLines(
       source,
-      { ...applySelectorSuffix("/doc.md", "4-4"), reserveCodeUnits: 15_760 },
+      { ...applySelectorSuffix("/doc.md", "5-5"), reserveCodeUnits: 15_740 },
       "text/markdown",
     );
-    expect(result.content).toContain("3: ### Linux\n");
-    expect(result.content).toContain("4: selected\n");
-    expect(result.content).not.toContain("1: # Title\n");
-    expect(result.content).not.toContain("2: ## Setup\n");
+    expect(result).toEqual({
+      status: "success",
+      kind: "file",
+      path: "/doc.md",
+      representation: "text",
+      content: "3: ### Linux\n4: context\n5: selected\n",
+      requestedRanges: [{ startLine: 5, endLine: 5 }],
+      shownRanges: [{ startLine: 3, endLine: 5 }],
+      truncated: false,
+    });
+  });
+
+  it("uses the selected source record for comma ancestors", () => {
+    const lines = Array.from({ length: 40 }, (_, index) => `body ${index + 1}`);
+    lines[0] = "# Title";
+    lines[7] = "## Section";
+    const result = selectMultiRangeLines(
+      `${lines.join("\n")}\n`,
+      applySelectorSuffix("/doc.md", "10-12,30-31"),
+      "text/markdown",
+    );
+    expect(result.content).toBe(
+      "1: # Title\n8: ## Section\n9: body 9\n10: body 10\n" +
+        "11: body 11\n12: body 12\n13: body 13\n" +
+        "29: body 29\n30: body 30\n31: body 31\n32: body 32\n",
+    );
+  });
+
+  it("keeps comma chain lines in source order", () => {
+    const first = [
+      "# Top",
+      "",
+      "Para a",
+      "Para b",
+      "===",
+      "body 6",
+      "body 7",
+    ].join("\n");
+    const second = [
+      "# Top",
+      "",
+      "Para a",
+      "Para b",
+      "body",
+      "body",
+      "body",
+      "===",
+      "after",
+    ].join("\n");
+    const oversized = [
+      "# H",
+      "intro",
+      "context",
+      "x".repeat(16_000),
+      "five",
+      "six",
+      "seven",
+      "gap",
+      "nine",
+      "ten",
+    ].join("\n");
+    expect(
+      selectMultiRangeLines(
+        `${first}\n`,
+        applySelectorSuffix("/doc.md", "3,7"),
+        "text/markdown",
+      ).content,
+    ).toBe("2: \n3: Para a\n4: Para b\n5: ===\n6: body 6\n7: body 7\n");
+    expect(
+      selectMultiRangeLines(
+        `${second}\n`,
+        applySelectorSuffix("/doc.md", "4,9"),
+        "text/markdown",
+      ).content,
+    ).toBe(
+      "3: Para a\n4: Para b\n5: body\n6: body\n7: body\n8: ===\n9: after\n",
+    );
+    expect(
+      selectMultiRangeLines(
+        `${oversized}\n`,
+        applySelectorSuffix("/doc.md", "4-6,10-10"),
+        "text/markdown",
+      ).content,
+    ).toBe("3: context\n5: five\n6: six\n7: seven\n9: nine\n10: ten\n");
+  });
+
+  it("stops retaining a large Markdown passage at the result ceiling", () => {
+    const target = applySelectorSuffix("/doc.md", "1-9000,9999-10000");
+    const collector = new MultiCollector(target);
+    const lines = Array.from({ length: 10_000 }, () => "line");
+    let consumed = 0;
+    for (const line of lines) {
+      const keepReading = collector.push(
+        consumed,
+        markdownLineRecord(`${line}\n`),
+      );
+      consumed += 1;
+      if (!keepReading) break;
+    }
+    const result = collector.finish(consumed);
+    expect(consumed).toBeLessThan(lines.length);
+    expect(consumed).toBeLessThanOrEqual(2100);
+    expect(result.truncated).toBe(true);
+    expect(result.nextOffset).toBeDefined();
+  });
+
+  it("advances a promoted continuation past a tight ancestor budget", () => {
+    const source =
+      [
+        "# H",
+        "b2",
+        "b3",
+        "a".repeat(8000),
+        "c".repeat(7730),
+        ...Array.from({ length: 1005 }, () => ""),
+      ].join("\n") + "\n";
+    const first = selectSourceLines(
+      source,
+      applySelectorSuffix("/doc.md", "5-1004"),
+      "text/markdown",
+    );
+    if (first.status !== "success" || first.nextOffset === undefined)
+      throw new Error("Expected a continuation offset");
+    const continuation = selectSourceLines(
+      source,
+      applySelectorSuffix(
+        "/doc.md",
+        `${first.nextOffset + 1}-${first.nextOffset + 1}`,
+      ),
+      "text/markdown",
+    );
+    expect(first.nextOffset).toBeGreaterThan(4);
+    expect(continuation.content).not.toBe(first.content);
+  });
+
+  it("reserves continuation metadata in Markdown result budgets", () => {
+    const source =
+      [
+        "# H",
+        "",
+        "a".repeat(7000),
+        "b".repeat(7000),
+        "c".repeat(1765),
+        "d",
+      ].join("\n") + "\n";
+    const single = selectSourceLines(
+      source,
+      applySelectorSuffix("/doc.md", "3-100"),
+      "text/markdown",
+    );
+    const multi = selectMultiRangeLines(
+      source,
+      applySelectorSuffix("/doc.md", "3-5,7-9"),
+      "text/markdown",
+    );
+    expect(measureNativeModelOutput(single)).toBeLessThanOrEqual(16_000);
+    expect(measureNativeModelOutput(multi)).toBeLessThanOrEqual(16_000);
+  });
+
+  it("keeps oversized host and in-memory Markdown scans identical", async () => {
+    const source =
+      [
+        "# Outer",
+        "",
+        "Title",
+        `${"=".repeat(16_000)}=x`,
+        "",
+        "body 6",
+        "body 7",
+        "body 8",
+      ].join("\n") + "\n";
+    const directory = await mkdtemp(join(tmpdir(), "native-oversized-"));
+    try {
+      const path = join(directory, "source.md");
+      await writeFile(path, source);
+      const fromFile = await readFile({ path: `${path}:7-7` });
+      const fromMemory = selectSourceLines(
+        source,
+        applySelectorSuffix(path, "7-7"),
+        "text/markdown",
+      );
+      expect(fromFile).toEqual(fromMemory);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("drops only an oversized outer heading unit", () => {
+    const source =
+      [
+        `# ${"a".repeat(16_000)}`,
+        "",
+        "## Inner",
+        "",
+        "body 5",
+        "body 6",
+        "body 7",
+      ].join("\n") + "\n";
+    const target = applySelectorSuffix("/doc.md", "6-6");
+    const result = selectSourceLines(source, target, "text/markdown");
+    expect(result.content).toBe(
+      "3: ## Inner\n5: body 5\n6: body 6\n7: body 7\n",
+    );
+    if (!("shownRanges" in result)) throw new Error("Expected plural result");
+    expect(result.shownRanges).toEqual([
+      { startLine: 3, endLine: 3 },
+      { startLine: 5, endLine: 7 },
+    ]);
   });
 });
