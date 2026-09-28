@@ -151,26 +151,51 @@ headings remain distinct occurrences.
 
 ### D5: Existing unaffected reads remain unchanged
 
-**Decision:** The ancestor decision is bypassed for `:raw` and `:raw:<ranges>`, `:outline`, directories, unselected reads, empty files, and every non-Markdown media type. Raw reads continue to return verbatim source bytes, outline reads retain their own ancestor and excerpt rules, and directory selectors remain listing selectors. `streamFileWindow` already separates outline, multi-range, and single-range dispatch (`packages/native-file-tools/src/stream-read.ts:519-542`), while web directory and outline refusals are assembled before ordinary selection (`apps/api/src/tools/web-read/result.ts:97-163`).
+**Decision:** The ancestor decision is bypassed for `:raw` and `:raw:<ranges>`,
+`:outline`, directories, unselected reads, empty files, every non-Markdown
+media type, and post-edit previews produced by `edit` or `write`. Raw reads
+continue to return verbatim source bytes, outline reads retain their own
+ancestor and excerpt rules, directory selectors remain listing selectors, and
+mutation previews remain ordinary mutation results. `streamFileWindow` already
+separates outline, multi-range, and single-range dispatch
+(`packages/native-file-tools/src/stream-read.ts:519-542`), web directory and
+outline refusals are assembled before ordinary selection
+(`apps/api/src/tools/web-read/result.ts:97-163`), and `describeMutation` calls
+`selectSourceLines` without a media type
+(`packages/native-file-tools/src/mutate.ts:143-172`).
 
 **Alternatives rejected:**
 
-- Applying ancestors to raw output. Raw content is the source-preserving input used by edit workflows; generated prefixes would change bytes.
-- Replacing the outline ancestor rule with the ordinary range rule. Outline scope has a different output contract and deliberately includes its own excerpts.
-- Adding context or ancestors to directory listings. Directory entries do not have Markdown sections, and the listing contract already forbids context lines.
-- Guessing Markdown from body text for unsupported media. Media type is source metadata, not content sniffing; non-Markdown behavior must stay unchanged until a declared reader exists.
+- Applying ancestors to raw output. Raw content is the source-preserving input
+  used by edit workflows; generated prefixes would change bytes.
+- Applying ancestors to mutation previews. A preview describes the post-edit
+  result and has no source media type, so making it Markdown-aware would make
+  mutation output differ from the ordinary mutation contract.
+- Replacing the outline ancestor rule with the ordinary range rule. Outline
+  scope has a different output contract and deliberately includes its own
+  excerpts.
+- Adding context or ancestors to directory listings. Directory entries do not
+  have Markdown sections, and the listing contract already forbids context
+  lines.
+- Guessing Markdown from body text for unsupported media. Media type is source
+  metadata, not content sniffing; non-Markdown behavior must stay unchanged
+  until a declared reader exists.
 
-**Consequence:** The change is a clean cutover at the Markdown range reader, with no compatibility aliases or special output markers.
+**Consequence:** The change is a clean cutover at the Markdown range reader,
+with no compatibility aliases or special output markers. Mutation previews do
+not promote their singular `shownRange`.
 
-### D6: Bounds preserve requested-line progress
+### D6: Bounds preserve existing continuation semantics
 
 **Decision:** Ancestor lines count against the shared 2,000-line ceiling and
-serialized result cap. Admission tests the chain together with its first
-requested line and applies the outermost-heading overflow rule in D8. A chain
-never changes which requested source line `nextOffset` names. A continuation
-at `nextOffset + 1` recomputes the chain for its new first requested line, so
-an ancestor may reappear across continuations just as context lines can. The
-existing caps and budget reservation are defined in
+serialized result cap. Admission tests the chain together with all mandatory
+output through the first requested line N: the N-1 context line when it is
+shown and not already emitted, plus line N. It applies the outermost-heading
+overflow rule in D8. `nextOffset` keeps its existing meaning for single- and
+multi-range reads and never identifies a line emitted only as an ancestor. A
+continuation at `nextOffset + 1` recomputes the chain for its new first
+requested line, so an ancestor may reappear across continuations just as
+context lines can. The existing caps and budget reservation are defined in
 `packages/native-file-tools/src/source-lines.ts:1-9`.
 
 **Alternatives rejected:**
@@ -179,7 +204,7 @@ existing caps and budget reservation are defined in
   the contract that already includes content, metadata, and authority
   envelopes.
 - Advancing `nextOffset` to an ancestor line. Ancestors are navigation context,
-  not requested work; doing so would make a retry reread or skip requested
+  not requested work; doing so would make a retry reread or skip selected
   source lines.
 - Carrying a chain across continuation calls. A continuation is a new execution
   against potentially changed source; recomputing it follows existing
@@ -200,8 +225,11 @@ paragraph that might become a setext heading and an unclosed line-one `---`
 block are replayed as Markdown rather than resolved with later input. Web
 renders are already in memory before the same selector path
 (`apps/api/src/tools/web-read/result.ts:97-123`), so host and web produce the
-same ancestors for the same text and window. Read cost is unchanged from
-today's forward scan.
+same ancestors for the same text and window. The I/O walk is unchanged, but
+every skipped line before the window is parsed by the scanner, so CPU for a
+large-offset Markdown read scales with the offset. An open root paragraph
+spanning that prefix is buffered in the same memory shape that `:outline`
+already accepts under its no-input-ceiling bound.
 
 **Alternatives rejected:**
 
@@ -248,12 +276,14 @@ test root-heading ancestry.
 ### D8: Ancestor overflow drops outermost headings first
 
 **Decision:** Ancestor lines count against the shared 2,000-line ceiling and
-serialized result cap. When the complete chain plus the first requested line
-does not fit, whole heading units are removed from the outermost end until the
-deepest remaining heading plus that requested line fits. A setext heading's
-text lines and underline are one unit. If even the deepest heading does not
-fit, no chain is emitted. Remaining headings stay in source order. A trimmed
-or absent chain is silent and carries no flag field.
+serialized result cap. When the complete chain plus all mandatory output
+through the first requested line N does not fit, including the N-1 context line
+when it is shown and not already emitted and line N, whole heading units are
+removed from the outermost end until the deepest remaining heading plus that
+mandatory output fits. A setext heading's text lines and underline are one unit.
+If even the deepest heading does not fit, no chain is emitted. Remaining
+headings stay in source order. A trimmed or absent chain is silent and carries
+no flag field.
 
 **Alternatives rejected:**
 
@@ -315,10 +345,10 @@ ancestors are extra context, not a completeness signal.
 
 ## Risks / Trade-offs
 
-- **[Risk]** A large-offset file read scans many source lines before it can emit a small window. **Mitigation:** keep the existing streaming line source, bounded scanner state, abort signal, and result caps; this is the same forward walk as today and does not add lookahead or an input-sized cache.
+- **[Risk]** A large-offset Markdown read scans many source lines before it can emit a small window. **Mitigation:** the I/O walk remains the existing forward walk, but the scanner parses skipped lines; document the CPU scaling with offset, retain bounded scanner state and the existing result caps, and accept the open-paragraph buffer shape already permitted by `:outline`.
 - **[Risk]** A deferred Markdown role remains undecided at the window end and would differ if later lines were read. **Mitigation:** end the scanner at the window boundary, classify the undecided line as non-heading for this read, and test open setext paragraphs and unclosed line-one `---` blocks on both host and web paths.
-- **[Risk]** A heading chain consumes enough of the shared budget to change truncation or continuation. **Mitigation:** drop complete outermost heading units first, preserve requested-line `nextOffset`, keep omission silent, and cover the 2,000-line and serialized-cap boundaries with focused tests.
-- **[Risk]** A single-range consumer assumes singular fields and mishandles an ancestor-aware result. **Mitigation:** use the existing `ReadSuccess` union, promote only when an ancestor is emitted, and test host, Knowledge, Skill, and web envelopes at the public result boundary.
+- **[Risk]** A heading chain consumes enough of the shared budget to change truncation or continuation. **Mitigation:** admit all mandatory output through N, drop complete outermost heading units first, preserve existing `nextOffset` semantics, keep omission silent, and cover the 2,000-line and serialized-cap boundaries with focused tests.
+- **[Risk]** A single-range consumer assumes singular fields and mishandles an ancestor-aware result. **Mitigation:** use the existing `ReadSuccess` union, promote only when an ancestor is emitted, and test host, Knowledge, Skill, web, and mutation-preview envelopes at the public result boundary.
 - **[Risk]** Scanner state disagrees between ordinary ranges and `:outline`. **Mitigation:** extract one ancestor tracker beside the scanner and keep the differential scanner suite as the structural oracle.
 - **[Risk]** Heading or web-render text contains prompt-injection instructions. **Mitigation:** emit source verbatim as untrusted tool output, preserve Knowledge notices and web provenance, and never route parsed text into authority or tool selection.
 - **[Risk]** A missing or incorrect web media label makes Markdown behavior differ by ladder stage. **Mitigation:** pass the existing label through ordinary selectors and add focused tests for Markdown, `text/plain`, and raw renders.

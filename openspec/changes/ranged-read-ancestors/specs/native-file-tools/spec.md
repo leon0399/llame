@@ -106,7 +106,7 @@ intervals that overlap or sit adjacent. Raw multi-range requests SHALL NOT
 expand context. A comma-separated request SHALL report plural range fields
 even if normalization and expansion leave one interval.
 
-For a Markdown source, each merged expanded passage SHALL prepend the direct ancestor heading lines for that passage's first requested line, shallowest first, deduplicated against every line already shown by earlier passages and chains, and output SHALL remain in source order. `requestedRanges` SHALL exclude ancestor lines, while `shownRanges` SHALL include them.
+For a non-raw, non-outline Markdown source, each merged expanded passage SHALL prepend the direct ancestor heading lines for that passage's first requested line, shallowest first, deduplicated against every line already shown by earlier passages and chains, and output SHALL remain in source order. `requestedRanges` SHALL exclude ancestor lines, while `shownRanges` SHALL include them.
 Absolute literal-path precedence and scheme-specific authorization SHALL apply
 before reading as for existing selectors. Directory comma selectors SHALL fail
 with `invalid_selector`; ordinary directory selectors SHALL remain unchanged.
@@ -138,8 +138,9 @@ line that cannot fit on retry. It SHALL be absent when no selected line remains.
 A caller SHALL resume by trimming `requestedRanges` at `nextOffset + 1` and
 re-running sort, merge, and expansion on the trimmed request, rather than
 reading a continuous interval through gaps. Context lines MAY reappear across
-retries, as in single-range continuations. Single-range result fields and
-continuation SHALL remain unchanged.
+retries, as in single-range continuations. Single-range continuation SHALL
+remain unchanged, and single-range result fields remain singular unless the
+ranged Markdown ancestor rule promotes them.
 
 #### Scenario: Touching expansions merge into one block
 
@@ -231,13 +232,15 @@ merged passage using that passage's first requested line, deduplicate by source
 line, and keep the content in source order.
 
 Ancestor lines SHALL count against the shared 2,000-line ceiling and serialized
-result bound. If a passage's complete chain together with its first requested
-line does not fit, whole headings SHALL be dropped from the outermost end until
-the deepest remaining heading plus that requested line fits. A setext heading's
-text lines and underline SHALL be dropped as one unit. If even the deepest
-heading does not fit, no chain SHALL be emitted and the passage window SHALL
-still be returned when it can fit. `nextOffset` SHALL continue to name the next
-requested source line, never an ancestor line. A continuation at
+result bound. If a passage's complete chain plus all mandatory output through
+the first requested line N does not fit, including the N-1 context line when it
+is shown and not already emitted and line N, whole headings SHALL be dropped
+from the outermost end until the deepest remaining heading plus that mandatory
+output fits. A setext heading's text lines and underline SHALL be dropped as
+one unit. If even the deepest heading does not fit, no chain SHALL be emitted
+and the passage window SHALL still be returned when it can fit. `nextOffset`
+keeps its existing meaning for single- and multi-range reads and never
+identifies a line emitted only as an ancestor. A continuation at
 `nextOffset + 1` SHALL calculate a fresh chain, so an ancestor MAY reappear
 across continuations. A trimmed or absent chain SHALL be silent and SHALL NOT
 add a flag field.
@@ -255,7 +258,8 @@ and web renders labeled `text/markdown`, after existing permission admission
 and source resolution. It SHALL preserve each source's existing identity,
 Knowledge attribution and untrusted-content notice, web provenance, and
 execution-time coordinates. `:raw`, `:outline`, directory reads, unselected
-reads, empty files, and non-Markdown reads SHALL remain unchanged.
+reads, empty files, non-Markdown reads, and `edit`/`write` post-edit previews
+SHALL remain unchanged. Mutation previews SHALL not receive ancestor headings.
 
 #### Scenario: A ranged read prepends its enclosing headings
 
@@ -297,6 +301,18 @@ reads, empty files, and non-Markdown reads SHALL remain unchanged.
 - **THEN** the read returns its existing context-expanded content
 - **AND** it retains singular `requestedRange` and `shownRange` fields and emits no ancestor line
 
+#### Scenario: A ranged read without ancestors keeps singular fields
+
+- **WHEN** an ordinary Markdown read starts at line 1 and a separate `:60-72` read has an enclosing heading chain
+- **THEN** the line-1 read keeps singular `requestedRange` and `shownRange` fields with no ancestor headings
+- **AND** the `:60-72` read reports plural `requestedRanges` and `shownRanges` fields when its chain is emitted
+
+#### Scenario: An edit preview of a Markdown file has no ancestors
+
+- **WHEN** `edit` or `write` produces a post-edit preview for a Markdown file whose changed region has an enclosing heading
+- **THEN** the preview retains its existing context and line-range behavior without ancestor headings
+- **AND** the mutation result does not promote its singular `shownRange`
+
 #### Scenario: Non-Markdown `.txt` remains unchanged
 
 - **WHEN** an ordinary range selects content from a `.txt` file with heading-looking lines
@@ -330,7 +346,7 @@ reads, empty files, and non-Markdown reads SHALL remain unchanged.
 
 #### Scenario: Outermost headings are dropped first when a chain does not fit
 
-- **WHEN** the chain is `# Title`, `## Setup`, and `### Linux`, and the shared budget fits only one heading line plus the first requested line
+- **WHEN** the chain is `# Title`, `## Setup`, and `### Linux`, and the shared budget fits only one heading line plus all mandatory output through the first requested line, including a shown and not already emitted N-1 context line and line N
 - **THEN** the result emits `### Linux` and the requested passage, without `# Title` or `## Setup`
 - **AND** whole setext headings are dropped as units, and if even the deepest heading cannot fit the passage window still returns when it can without emitting a chain
 
