@@ -118,8 +118,8 @@ async function buildWebFileResult(
   // `selectSourceLines` serves one window.
   const read =
     target.ranges === undefined
-      ? selectSourceLines(render.content, target)
-      : selectMultiRangeLines(render.content, target);
+      ? selectSourceLines(render.content, target, render.mediaType)
+      : selectMultiRangeLines(render.content, target, render.mediaType);
   return { ...read, ...envelope };
 }
 

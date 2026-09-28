@@ -1,9 +1,9 @@
 import { NativeFileError, type ReadTarget } from "./path";
+import { createMarkdownScanner, type MarkdownLine } from "./markdown-structure";
 import {
-  createMarkdownScanner,
-  type MarkdownHeading,
-  type MarkdownLine,
-} from "./markdown-structure";
+  createMarkdownAncestorTracker,
+  type MarkdownHeadingUnit,
+} from "./markdown-ancestors";
 import { isDelimiter } from "./markdown-syntax";
 import { measureNativeModelOutput } from "./serialization";
 import {
@@ -16,12 +16,6 @@ import {
 const MAX_OUTLINE_LINE_UNITS = 120;
 
 type NativeEntry = { line: number; text: string };
-
-type HeadingState = {
-  heading: MarkdownHeading;
-  lines: Array<NativeEntry>;
-  excerpt?: NativeEntry;
-};
 
 type FrontmatterState = {
   keyCount: number;
@@ -51,7 +45,11 @@ class MarkdownOutlineReader {
   private readonly startLine: number;
   private readonly endLine: number | undefined;
   private readonly scoped: boolean;
-  private readonly headings: Array<HeadingState> = [];
+  private readonly tracker = createMarkdownAncestorTracker();
+  private readonly excerpts = new Map<
+    MarkdownHeadingUnit["heading"],
+    NativeEntry
+  >();
   private frontmatter: FrontmatterState | undefined;
   private sourceLineCount = 0;
   private emittedLines = 0;
@@ -85,7 +83,10 @@ class MarkdownOutlineReader {
     lines: AsyncIterable<string> | Iterable<string>,
   ): Promise<SingleReadSuccess> {
     const scanner = createMarkdownScanner({
-      onLine: (line) => this.handleLine(line),
+      onLine: (line) => {
+        this.tracker.accept(line);
+        return this.handleLine(line);
+      },
     });
     for await (const line of lines) {
       if (!scanner.push(line)) break;
@@ -111,13 +112,6 @@ class MarkdownOutlineReader {
     if (this.endLine !== undefined && line.line > this.endLine) {
       this.stopped = true;
       return false;
-    }
-    if (
-      !this.scopeStarted &&
-      line.line === this.startLine &&
-      line.heading?.line === line.line
-    ) {
-      this.prepareHeadingBoundary(line.heading);
     }
     if (
       !this.startScope(
@@ -159,12 +153,6 @@ class MarkdownOutlineReader {
     return this.startScope(line.line);
   }
 
-  private prepareHeadingBoundary(heading: MarkdownHeading): void {
-    while ((this.headings.at(-1)?.heading.depth ?? 0) >= heading.depth) {
-      this.headings.pop();
-    }
-  }
-
   private startScope(line: number, firstEntry?: NativeEntry): boolean {
     if (!this.scoped || this.scopeStarted || line < this.startLine) return true;
     this.scopeStarted = true;
@@ -178,15 +166,14 @@ class MarkdownOutlineReader {
 
   private ancestorEntries(): Array<NativeEntry> {
     const entries: Array<NativeEntry> = [];
-    for (const state of this.headings) {
-      for (const entry of state.lines) {
-        if (entry.line >= this.startLine) break;
-        entries.push(entry);
+    for (const unit of this.tracker.current()) {
+      for (const line of unit.lines) {
+        if (line.line >= this.startLine) break;
+        entries.push({ line: line.line, text: line.text });
       }
-      const excerpt = state.excerpt;
-      if (excerpt !== undefined && excerpt.line < this.startLine) {
+      const excerpt = this.excerpts.get(unit.heading);
+      if (excerpt !== undefined && excerpt.line < this.startLine)
         entries.push(excerpt);
-      }
     }
     return entries;
   }
@@ -222,31 +209,21 @@ class MarkdownOutlineReader {
 
   private handleHeading(line: MarkdownLine): boolean {
     const heading = line.heading;
-    if (heading === undefined) return true;
-    let state = this.headings.at(-1);
-    if (heading.line === line.line) {
-      this.prepareHeadingBoundary(heading);
-      state = { heading, lines: [] };
-      this.headings.push(state);
-    } else if (state?.heading !== heading) {
-      return true;
-    }
-    if (state === undefined) return true;
-    const entry = { line: line.line, text: line.text };
-    state.lines.push(entry);
-    return this.emitSource(entry);
+    const current = this.tracker.current().at(-1);
+    if (heading === undefined || current?.heading !== heading) return true;
+    return this.emitSource({ line: line.line, text: line.text });
   }
 
   private handleContent(line: MarkdownLine): boolean {
     const entry = { line: line.line, text: line.text };
-    if (this.headings.length === 0) {
+    const current = this.tracker.current().at(-1);
+    if (current === undefined) {
       if (this.rootExcerptSeen) return true;
       this.rootExcerptSeen = true;
       return this.emitSource(entry);
     }
-    const state = this.headings.at(-1);
-    if (state === undefined || state.excerpt !== undefined) return true;
-    state.excerpt = entry;
+    if (this.excerpts.has(current.heading)) return true;
+    this.excerpts.set(current.heading, entry);
     if (!this.isInScope(entry.line)) return true;
     if (!this.startScope(entry.line, entry)) return false;
     return this.appendSource(entry);

@@ -61,6 +61,16 @@ function webReadExecutor(
 let fetchDouble: Mock<TestFetch>;
 
 const MARKDOWN = '# Guide\n\nA publisher-provided body for agents.\n';
+const RANGED_MARKDOWN =
+  [
+    '# Root',
+    'Root body',
+    '## Details',
+    'Details intro',
+    '',
+    'Selected body',
+    'Tail',
+  ].join('\n') + '\n';
 
 /** A markup body whose lines are told apart by name, so a read that converts
  *  and numbers it cannot be confused with one that returns it verbatim. */
@@ -398,7 +408,7 @@ describe('web locator dispatch', () => {
     // conversion would hand back the markup's own fourth and fifth lines.
     expect(result).toHaveProperty(
       'content',
-      expect.stringMatching(/^3: A paragraph of enough words/u),
+      expect.stringMatching(/^1: ## Guide\n3: A paragraph of enough words/u),
     );
     expect(result).toHaveProperty(
       'content',
@@ -408,9 +418,65 @@ describe('web locator dispatch', () => {
       status: 'success',
       representation: 'text',
       method: 'readability',
-      requestedRange: { startLine: 4, endLine: 5 },
+      requestedRanges: [{ startLine: 4, endLine: 5 }],
+      shownRanges: [
+        { startLine: 1, endLine: 1 },
+        { startLine: 3, endLine: 6 },
+      ],
     });
+    expect(result).not.toHaveProperty('requestedRange');
+    expect(result).not.toHaveProperty('shownRange');
     expect(fixture.requests[0]).toEqual({ method: 'GET', path: '/guide' });
+  });
+
+  it('prepends ancestors for a negotiated Markdown ranged read', async () => {
+    respondWith(RANGED_MARKDOWN, 'text/markdown; charset=utf-8');
+    const url = fixtureUrl('/guide');
+    const result = await nativeReadTool.execute(webContext(), {
+      path: `${url}:6-6`,
+    });
+
+    expect(result).toEqual({
+      status: 'success',
+      kind: 'file',
+      path: url,
+      representation: 'text',
+      content: '1: # Root\n3: ## Details\n5: \n6: Selected body\n7: Tail\n',
+      requestedRanges: [{ startLine: 6, endLine: 6 }],
+      shownRanges: [
+        { startLine: 1, endLine: 1 },
+        { startLine: 3, endLine: 3 },
+        { startLine: 5, endLine: 7 },
+      ],
+      nextOffset: 6,
+      truncated: false,
+      finalUrl: url,
+      method: 'negotiated',
+    });
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
+  });
+
+  it('does not add ancestors to a negotiated plain-text ranged read', async () => {
+    respondWith(RANGED_MARKDOWN, 'text/plain; charset=utf-8');
+    const url = fixtureUrl('/guide');
+    const result = await nativeReadTool.execute(webContext(), {
+      path: `${url}:6-6`,
+    });
+
+    expect(result).toEqual({
+      status: 'success',
+      kind: 'file',
+      path: url,
+      representation: 'text',
+      content: '5: \n6: Selected body\n7: Tail\n',
+      requestedRange: { startLine: 6, endLine: 6 },
+      shownRange: { startLine: 5, endLine: 7 },
+      nextOffset: 6,
+      truncated: false,
+      finalUrl: url,
+      method: 'negotiated',
+    });
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
   });
 
   it.each([

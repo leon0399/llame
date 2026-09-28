@@ -888,21 +888,27 @@ describe('web read over a fixture server', () => {
       status: 'success',
       representation: 'text',
       method: 'readability',
-      requestedRange: { startLine: 5, endLine: 10 },
-      shownRange: { startLine: 4, endLine: 11 },
+      requestedRanges: [{ startLine: 5, endLine: 10 }],
+      shownRanges: [
+        { startLine: 1, endLine: 1 },
+        { startLine: 4, endLine: 11 },
+      ],
       truncated: false,
+      nextOffset: 10,
     });
+    expect(selected).not.toHaveProperty('requestedRange');
+    expect(selected).not.toHaveProperty('shownRange');
     // The locator is reported with its selector stripped, as a local read
     // reports the path.
     expect(selected).toHaveProperty('path', urlOf('/article'));
     expect(selected).toHaveProperty('finalUrl', urlOf('/article'));
     expect(selected).not.toHaveProperty('notes');
 
-    // The window is the rendered text's lines 5-10 with one context line each
-    // side, so it can only match a selector applied to the render.
+    // The ancestor line is followed by the rendered text's lines 4-11:
+    // context line 4, requested lines 5-10, and context line 11.
     const renderedLines = contentOf(full).split('\n');
     expect(contentOf(selected)).toBe(
-      `${renderedLines.slice(3, 11).join('\n')}\n`,
+      `${renderedLines[0]}\n${renderedLines.slice(3, 11).join('\n')}\n`,
     );
     // No cache: the second read issues its own request and its own suffix
     // probe, both of which answer exactly as they did the first time.

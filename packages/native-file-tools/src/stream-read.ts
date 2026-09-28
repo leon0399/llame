@@ -1,6 +1,12 @@
 import { open, type FileHandle } from "node:fs/promises";
 import { NativeFileError, openFlags, type ReadTarget } from "./path";
 import { fileMediaType, outlineReader } from "./representations";
+import { createMarkdownMultiCollector } from "./markdown-range";
+import {
+  createMarkdownSingleCollector,
+  markdownLineRecord,
+  type MarkdownLineRecord,
+} from "./markdown-ancestors";
 import {
   appendMultiReadLine,
   appendReadLine,
@@ -101,57 +107,49 @@ function lineBodyAndTerminator(fragment: string) {
   return { body: fragment, terminator: "" };
 }
 
+type SourceLineRecord = MarkdownLineRecord;
+
 function consumeOversizedFragment(
   fragment: string,
   state: SourceLineState,
-  preserveOversized: boolean,
-): string | null {
+): SourceLineRecord | null {
   const { body, terminator } = lineBodyAndTerminator(fragment);
-  if (preserveOversized) appendDroppedTail(body, state);
+  appendDroppedTail(body, state);
   if (terminator === "") return null;
-  const line = preserveOversized
-    ? appendPreservedTail(state, terminator)
-    : null;
+  const scanned = appendPreservedTail(state, terminator);
   resetSourceLine(state);
-  return line;
+  return { scanned, rendered: undefined };
 }
 
 function takeSourceFragment(
   fragment: string,
   state: SourceLineState,
-  preserveOversized: boolean,
-): string | undefined | null {
-  if (state.oversized)
-    return consumeOversizedFragment(fragment, state, preserveOversized);
+): SourceLineRecord | undefined | null {
+  if (state.oversized) return consumeOversizedFragment(fragment, state);
   if (state.partial.length + fragment.length <= MAX_RESULT_CODE_UNITS) {
     state.partial += fragment;
     if (!fragment.endsWith("\n")) return null;
     const line = state.partial;
     resetSourceLine(state);
-    return line;
+    return { scanned: line, rendered: line };
   }
   const { body, terminator } = lineBodyAndTerminator(fragment);
   const combined = state.partial + body;
   state.oversized = true;
   state.partial = combined.slice(0, MAX_RESULT_CODE_UNITS);
-  if (preserveOversized) {
-    state.closerCarry = state.partial.slice(-CLOSER_OVERLAP);
-    appendDroppedTail(combined.slice(MAX_RESULT_CODE_UNITS), state);
-    if (terminator === "") return null;
-    const line = appendPreservedTail(state, terminator);
-    resetSourceLine(state);
-    return line;
-  }
-  if (terminator !== "") resetSourceLine(state);
-  return undefined;
+  state.closerCarry = state.partial.slice(-CLOSER_OVERLAP);
+  appendDroppedTail(combined.slice(MAX_RESULT_CODE_UNITS), state);
+  if (terminator === "") return null;
+  const scanned = appendPreservedTail(state, terminator);
+  resetSourceLine(state);
+  return { scanned, rendered: undefined };
 }
 
 /** Undefined marks a source line too large to fit any tool result. */
-async function* sourceLines(
+export async function* sourceLineRecords(
   file: FileHandle,
   signal: AbortSignal | undefined,
-  preserveOversized = false,
-): AsyncGenerator<string | undefined> {
+): AsyncGenerator<SourceLineRecord> {
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   const buffer = Buffer.allocUnsafe(64 * 1024);
   const state: SourceLineState = {
@@ -162,8 +160,6 @@ async function* sourceLines(
     droppedClosers: [],
   };
   while (true) {
-    // A cancelled or timed-out call must stop reading, not merely stop being
-    // awaited: without this the loop keeps consuming a file no one will read.
     signal?.throwIfAborted();
     const { bytesRead } = await file.read(buffer);
     let text: string;
@@ -175,16 +171,25 @@ async function* sourceLines(
       throw new NativeFileError("invalid_utf8");
     }
     for (const fragment of splitSourceLines(text)) {
-      const line = takeSourceFragment(fragment, state, preserveOversized);
-      if (line !== null) yield line;
+      const line = takeSourceFragment(fragment, state);
+      if (line !== null && line !== undefined) yield line;
     }
     if (bytesRead === 0) break;
   }
   if (state.oversized) {
-    if (preserveOversized) yield appendPreservedTail(state, "");
+    yield { scanned: appendPreservedTail(state, ""), rendered: undefined };
   } else if (state.partial.length > 0) {
-    yield state.partial;
+    yield { scanned: state.partial, rendered: state.partial };
   }
+}
+
+async function* sourceLines(
+  file: FileHandle,
+  signal: AbortSignal | undefined,
+  preserveOversized = false,
+): AsyncGenerator<string | undefined> {
+  for await (const record of sourceLineRecords(file, signal))
+    yield preserveOversized ? record.scanned : record.rendered;
 }
 
 async function* outlineSourceLines(
@@ -194,6 +199,36 @@ async function* outlineSourceLines(
   for await (const line of sourceLines(file, signal, true)) {
     if (line !== undefined) yield line;
   }
+}
+
+async function collectMarkdownWindow(
+  file: FileHandle,
+  target: ReadTarget,
+  signal: AbortSignal | undefined,
+): Promise<ReadSuccess> {
+  const collector = createMarkdownSingleCollector(target);
+  let count = 0;
+  for await (const line of sourceLineRecords(file, signal)) {
+    const keepReading = collector.push(count, line);
+    count += 1;
+    if (!keepReading) break;
+  }
+  return collector.finish(count);
+}
+
+async function collectMarkdownMultiWindow(
+  file: FileHandle,
+  target: ReadTarget,
+  signal: AbortSignal | undefined,
+): Promise<MultiReadSuccess> {
+  const collector = createMarkdownMultiCollector(target);
+  let count = 0;
+  for await (const line of sourceLineRecords(file, signal)) {
+    const keepReading = collector.push(count, line);
+    count += 1;
+    if (!keepReading) break;
+  }
+  return collector.finish(count);
 }
 
 async function collectWindow(
@@ -505,8 +540,19 @@ function* memorySourceLines(source: string): Generator<string | undefined> {
 export function selectMultiRangeLines(
   source: string,
   target: ReadTarget,
+  mediaType?: string,
 ): MultiReadSuccess {
   if (target.ranges === undefined) throw new NativeFileError("invalid_input");
+  if (mediaType === "text/markdown" && !target.raw && !target.outline) {
+    const collector = createMarkdownMultiCollector(target);
+    let count = 0;
+    for (const line of splitSourceLines(source)) {
+      const keepReading = collector.push(count, markdownLineRecord(line));
+      count += 1;
+      if (!keepReading) break;
+    }
+    return collector.finish(count);
+  }
   const walk = startMultiRangeWalk(target);
   for (const text of memorySourceLines(source)) {
     const step = stepMultiRangeWalk(walk, text, target);
@@ -528,13 +574,19 @@ export async function streamFileWindow(
   try {
     if (!(await file.stat()).isFile())
       throw new NativeFileError("not_regular_file");
+    const mediaType = fileMediaType(source.hostPath);
     if (target.outline)
-      return await outlineReader(fileMediaType(source.hostPath))(
+      return await outlineReader(mediaType)(
         outlineSourceLines(file, source.signal),
         target,
       );
-    return target.ranges !== undefined
-      ? await collectMultiWindow(file, target, source.signal)
+    if (target.ranges !== undefined) {
+      return mediaType === "text/markdown" && !target.raw
+        ? await collectMarkdownMultiWindow(file, target, source.signal)
+        : await collectMultiWindow(file, target, source.signal);
+    }
+    return mediaType === "text/markdown" && target.offset > 0 && !target.raw
+      ? await collectMarkdownWindow(file, target, source.signal)
       : await collectWindow(file, target, source.signal);
   } finally {
     await file.close();

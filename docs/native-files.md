@@ -264,6 +264,71 @@ by writing `$review`. Without that selection its body and resource reads return
 ## Calls
 
 - `read({ path: "/absolute/file.md:10-20" })` returns lines 10 through 20, plus one live line of context on either side when available. `:10+11` selects the same requested range. `:raw` and `:raw:10-20` return verbatim source, without line numbers or added context. Existing literal filenames take precedence over selector syntax. Comma-separated ranges such as `:4-5,7-8` read several passages in one bounded call: ranges sort, merge, grow one context line per side, and merge again when the grown windows touch, so `:4-5,7-8` renders lines 3 through 9. `:raw:4-5,7-8` stays verbatim without context. Up to 64 ranges per read. Multi-range results report `requestedRanges` (the merged request) and `shownRanges` (emitted lines); a truncated read reports a zero-based `nextOffset` — trim `requestedRanges` at `nextOffset + 1` and re-read. A file read on an absolute path reports `realPath`, the canonical absolute path, when a symbolic link in the path or in one of its components makes it differ from the normalized path as given; `realPath` counts within the result bound, and the header and line numbering stay those of the path as given. A directory listing never carries it, and neither does a `kb://` or `skill://` read.
+
+### Ranged Markdown ancestors
+
+An ordinary ranged read of a `text/markdown` source prepends the direct
+root-heading chain that contains each passage's first requested source line,
+shallowest first. This applies to host paths, `file://`, `kb://`, `skill://`,
+and web renders labeled `text/markdown`; the preceding context line does not
+choose the chain. Each heading contributes only its own source lines, in source
+order, with an ordinary `N:` prefix followed by a space: an ATX heading
+contributes one line, and a setext heading contributes all of its text lines
+and its underline verbatim. No excerpt line or outline 120-code-unit cut is
+added, and lines already emitted by the passage window or an earlier chain
+are not repeated.
+
+For a single range, emitting at least one ancestor promotes the result to the
+existing plural `requestedRanges` and `shownRanges` shape. `requestedRanges`
+contains only the requested interval; `shownRanges` includes the ancestor and
+context intervals, merging adjacent intervals. If no ancestor line is
+emitted, singular `requestedRange` and `shownRange` remain unchanged. A
+comma-separated request is plural as usual; each merged passage gets the
+chain for its first requested line, deduplicated by source line against every
+earlier emitted passage or chain, with output kept in source order. Ancestors
+never enter `requestedRanges`.
+
+For example, if `VISION.md` has `# Level one` at line 13, `## Level two` at
+line 32, and `### Level three` at line 54, a read of `VISION.md:60-72`
+includes the ordinary context lines at 59 and 73:
+
+```text
+13: # Level one
+32: ## Level two
+54: ### Level three
+59: <context line>
+60: ... through 72: <requested lines>
+73: <context line>
+```
+
+The result reports `requestedRanges: [{startLine: 60, endLine: 72}]` and
+`shownRanges` covering `{13,13}`, `{32,32}`, `{54,54}`, and `{59,73}`.
+
+The scanner sees only the lines through the selected window's end and is
+ended there; it never reads past that window. A role still undecided at the
+boundary counts as a non-heading, including an open paragraph that might
+become a setext heading and an unclosed line-one `---` block, which is
+replayed as Markdown.
+
+Ancestor lines count against the shared 2,000-line ceiling and serialized
+result bound. If the chain and the passage's first requested line do not fit,
+whole heading units are dropped from the outermost end first until the
+deepest remaining heading fits. A setext heading's text lines and underline
+are one unit. If even the deepest heading does not fit, the chain is silently
+absent and the passage window is still returned when it can fit. `nextOffset`
+continues to identify the next requested source line, never an ancestor line;
+a continuation at `nextOffset + 1` computes a fresh chain, so a heading may
+reappear.
+
+`:raw`, `:outline`, directory reads, unselected reads, empty files, and
+non-Markdown sources remain unchanged. Ancestors are chosen only after the
+existing source resolution and permission admission, so permissions, source
+identity, Knowledge attribution and untrusted-content notice, web provenance,
+and result envelopes are unchanged. Heading lines and their coordinates are
+untrusted, execution-time navigation metadata rather than a snapshot, hash,
+lock, or authority token; a later read reauthorizes and rereads the current
+source.
+
 - `read({ path: "/absolute/directory" })` returns a depth-2 listing:
   directories first, then files, sorted by name under the host collation. A
   symbolic link sorts among the files by name whatever its target kind.
