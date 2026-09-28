@@ -100,10 +100,11 @@ documentation reading only; nothing was run.
 
 The [OMP memory study](../long-term-memory/2026-09-28-omp-memory.md)
 traces [OMP's](./oh-my-pi.md) `local` summary pipeline, `learn` capture and
-Mnemopi retrieval backend at `v18.2.10`, and measures the `local` pipeline on one
-live installation: extraction coverage, provider refusals, per-worktree scopes and
-lessons lost to the injection cap. Mnemopi is source-only. It maps the queue,
-frozen-snapshot and recall-scoring ideas to llame's Knowledge and recall work.
+Mnemopi retrieval backend at `v18.2.10`, plus the Hindsight client and its server, and measures
+the `local` pipeline on one live installation: extraction coverage, provider
+refusals, per-worktree scopes and lessons lost to the injection cap. Mnemopi and
+Hindsight are source-only. It maps the queue, frozen-snapshot, recall-scoring and
+observation ideas to llame's Knowledge and recall work.
 
 Read the ranked index first, then open individual references as needed.
 

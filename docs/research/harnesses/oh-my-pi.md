@@ -165,7 +165,7 @@ sources:
     title: "Local memory pipeline and injection"
   - id: llame-omp-local-memory
     resource: "../long-term-memory/2026-09-28-omp-memory.md"
-    title: "OMP memory: local pipeline, Mnemopi and a live installation"
+    title: "OMP memory: local pipeline, Mnemopi, Hindsight and a live installation"
 ---
 
 # oh-my-pi
@@ -292,13 +292,16 @@ session through a head–tail cut, three sessions were refused by the extraction
 model, worktree scopes never consolidated, and about 73% of captured lessons fell
 outside the injection cap. It also traces the Mnemopi retrieval backend from
 source: transcript slices and extracted facts in SQLite, recalled on the first
-turn by vector, full-text, importance and recency scoring. It maps the queue,
-frozen-snapshot and scoring ideas to llame and advises against copying the
-extraction window.[^llame-omp-local-memory]
+turn by vector, full-text, importance and recency scoring. It traces the
+Hindsight client and its Postgres server as well: structured fact extraction,
+model-written observations, four-channel recall fused by reciprocal rank, and
+mental models re-answered through reflect. It maps the queue, frozen-snapshot and
+scoring ideas to llame and advises against copying the extraction
+window.[^llame-omp-local-memory]
 
 [^omp-local-memory-20260928]: [Local memory pipeline and injection](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts)
 
-[^llame-omp-local-memory]: [OMP memory: local pipeline, Mnemopi and a live installation](../long-term-memory/2026-09-28-omp-memory.md)
+[^llame-omp-local-memory]: [OMP memory: local pipeline, Mnemopi, Hindsight and a live installation](../long-term-memory/2026-09-28-omp-memory.md)
 
 [^omp-find-cascade-20260924]: [Semantic find cascade](https://github.com/can1357/oh-my-pi/blob/5fccbd0deee820049afa492dc3112272b163126f/packages/coding-agent/src/tools/jfind/cascade.ts)
 

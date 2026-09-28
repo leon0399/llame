@@ -1,4 +1,4 @@
-# OMP memory: local pipeline, Mnemopi and a live installation
+# OMP memory: local pipeline, Mnemopi, Hindsight and a live installation
 
 Surveyed 2026-09-28. Noncanonical: evidence and transfer ideas, not a decision.
 
@@ -211,15 +211,17 @@ and the `@oh-my-pi/pi-mnemopi` package, and the claims about dormant code and
 
 Mnemopi is the retrieval design. Instead of injecting one consolidated document,
 it stores transcript slices and facts in SQLite and recalls a ranked handful for
-each query.
+each query. The three backends side by side, with Hindsight covered in the next
+section:
 
-|                   | `local`                                                  | Mnemopi                                                |
-| ----------------- | -------------------------------------------------------- | ------------------------------------------------------ |
-| Enters the prompt | consolidated summary and lessons, same for every session | up to 8 memories recalled for the session's first turn |
-| Model calls       | stage 1 per idle session, phase 2 per scope, at startup  | fact extraction per retained slice                     |
-| Consolidation     | model-written `MEMORY.md` and skills                     | deterministic concatenation into episodes              |
-| Tools             | `learn`                                                  | `recall`, `retain`, `reflect`, `memory_edit`, `learn`  |
-| Embeddings        | none                                                     | local fastembed in a child process                     |
+|                   | `local`                                                  | Mnemopi                                                | Hindsight                                                                          |
+| ----------------- | -------------------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| Runs              | in the OMP process                                       | in the OMP process                                     | on a separate server                                                               |
+| Enters the prompt | consolidated summary and lessons, same for every session | up to 8 memories recalled for the session's first turn | cached mental models plus up to 1,024 tokens recalled for the first turn           |
+| Model calls       | stage 1 per idle session, phase 2 per scope, at startup  | fact extraction per retained slice                     | server-side extraction per chunk, background consolidation, reflect loops          |
+| Consolidation     | model-written `MEMORY.md` and skills                     | deterministic concatenation into episodes              | model-written observations with proof counts; mental models re-run through reflect |
+| Tools             | `learn`                                                  | `recall`, `retain`, `reflect`, `memory_edit`, `learn`  | `recall`, `retain`, `reflect`, `learn`                                             |
+| Embeddings        | none                                                     | local fastembed in a child process                     | server-side, with a cross-encoder reranker                                         |
 
 **N1 — Storage and scope.** The shared database is
 `memories/mnemopi/mnemopi.db`. The default `per-project` scope writes a sibling
@@ -328,20 +330,130 @@ Documentation disagreements specific to Mnemopi:
   preview, and `providers.memoryModel` is a legacy key migrated into the `memory`
   role.
 
+## Hindsight backend
+
+Source only, like Mnemopi. Two read-only subagent passes traced the OMP client
+at `v18.2.10` and the Hindsight server at
+[`26981c6b`](https://github.com/vectorize-io/hindsight/tree/26981c6b4e00bcc391a49c1f418e758dbae80171)
+(MIT), and the redaction, queue-disposal, consolidation, tenancy and default-model
+claims were spot-checked directly. OMP does not pin a server version, so the
+server findings describe current upstream, not necessarily what a given
+installation runs.
+
+Hindsight is the service design. OMP is a thin HTTP client; extraction,
+embeddings, linking, consolidation and synthesis all happen on the server.
+
+**H1 — Scope is a bank plus a project tag.** The default bank is `omp`. The
+default `per-project-tagged` mode keeps one bank, writes a `project:<label>` tag,
+and recalls with `tags_match=any`, so untagged global memories stay visible. The
+label is the lowercased basename of the repository's primary checkout, so
+worktrees fold together
+([bank.ts L1–L99](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/hindsight/bank.ts#L1-L99)).
+Two repositories with the same basename therefore share a tag.
+
+**H2 — Automatic retain sends conversation text only.** Every 3 user turns, the
+default `full-session` mode resends the whole session under document id
+`sessionId`, which the server treats as an upsert that replaces the document's
+earlier facts and links; `last-turn` mode sends the last 5 turns under a new id
+([state.ts L332–L430](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/hindsight/state.ts#L332-L430),
+[fact_storage.py L209–L371](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-api-slim/hindsight_api/engine/retain/fact_storage.py#L209-L371)).
+Only user text and assistant text blocks are sent; tool calls, tool results and
+thinking blocks are dropped
+([transcript.ts L1–L72](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/hindsight/transcript.ts#L1-L72)).
+No file under `src/hindsight/` applies secret redaction, so anything pasted into
+a prompt leaves the machine unredacted.
+
+**H3 — Explicit retains are fire-and-forget.** `retain` and `learn` batch at 16
+items or after a 5-second debounce and flush at `agent_end`. A failed batch is
+dropped with a UI warning, and the queue's own `dispose` discards pending items
+([state.ts L23–L183](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/hindsight/state.ts#L23-L183)).
+
+**H4 — First-turn injection is ordered for the prompt cache.** Recall uses the
+latest prompt (800-character cap), budget `mid`, `max_tokens` 1,024 and types
+`world` and `experience`, under a generation counter that discards stale results.
+The prompt places static instructions first, then cached mental models, then the
+volatile `<memories>` block, so the stable prefix survives
+([state.ts L431–L461](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/hindsight/state.ts#L431-L461),
+[backend.ts L80–L114](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/hindsight/backend.ts#L80-L114)).
+Compaction runs one more recall.
+
+**H5 — Mental models are standing questions.** OMP seeds three:
+`user-preferences` (600 tokens), `project-conventions` and `project-decisions`
+(800 each)
+([seeds.json](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/hindsight/seeds.json)).
+On the server a mental model is a stored `source_query` whose answer is produced
+by reflect and refreshed asynchronously, with history
+([memory_engine.py L17800–L18080](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-api-slim/hindsight_api/engine/memory_engine.py#L17800-L18080)).
+The client caches them, caps injection at 16,000 characters, and waits at most
+1.5 seconds for them on the first turn.
+
+**H6 — Server retain extracts structured facts.** Text is chunked at 3,000
+characters and each chunk gets one structured extraction call at temperature 0.1.
+The prompt asks for what, when, where, who and why, classifies each fact as
+`world` or `experience`, resolves relative dates, and emits entities and causal
+links
+([fact_extraction.py L1027–L1148](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-api-slim/hindsight_api/engine/retain/fact_extraction.py#L1027-L1148)).
+Facts are embedded, entities resolved against the bank, and temporal, semantic,
+entity and causal links written. Storage is PostgreSQL with pgvector (HNSW by
+default) and GIN-indexed tag arrays
+([models.py L89–L193](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-api-slim/hindsight_api/models.py#L89-L193)).
+
+**H7 — Consolidation writes observations.** A background job after retain feeds
+new facts to a model in batches of 8 and creates or updates `observation` rows
+that carry a proof count, the source memory ids and a change history.
+Near-duplicates above 0.97 similarity go to a merge verdict
+([consolidator.py L1–L16](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-api-slim/hindsight_api/engine/consolidation/consolidator.py#L1-L16),
+[config.py L1740–L1760](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-api-slim/hindsight_api/config.py#L1740-L1760)).
+
+**H8 — Recall fuses four channels without a generative model.** Semantic vector,
+keyword, graph traversal over the links and an optional temporal window are fused
+by reciprocal-rank fusion with k = 60, then reranked by a local
+`cross-encoder/ms-marco-MiniLM-L-6-v2` over at most 300 candidates, with recency,
+temporal and proof-count multipliers
+([fusion.py L10–L101](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-api-slim/hindsight_api/engine/search/fusion.py#L10-L101),
+[config.py L1211–L1312](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-api-slim/hindsight_api/config.py#L1211-L1312)).
+The default embedding model is `BAAI/bge-small-en-v1.5` (384 dimensions).
+
+**H9 — Reflect is a read-only agent loop.** It searches mental models,
+observations and raw facts for up to 10 tool iterations, within 100,000 context
+tokens and 300 seconds, and writes nothing back. Bank "disposition" traits
+(skepticism, literalism, empathy, default 3) shape its prompt
+([memory_engine.py L15556–L15623](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-api-slim/hindsight_api/engine/memory_engine.py#L15556-L15623)).
+The default model provider is OpenAI.
+
+**H10 — Tenancy is a PostgreSQL schema chosen by an extension.** A tenant
+extension maps a request to a schema; inside it, banks are separated by
+application `bank_id` predicates, not row-level security. The default extension
+authenticates nothing and returns schema `public`; the API-key extension checks
+one shared key and returns one schema
+([tenant.py L1–L78](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-api-slim/hindsight_api/extensions/builtin/tenant.py#L1-L78)).
+Per-user isolation needs a custom extension and trust in every query's bank
+filter.
+
+**H11 — Benchmarks are upstream claims.** Upstream reports 92.0% on LoCoMo and
+94.6% on LongMemEval for `v0.4.19`, and moved those suites to an external harness
+([agent-memory-benchmark.mdx L92–L138](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-docs/blog/2026-03-23-agent-memory-benchmark.mdx#L92-L138)).
+Not reproduced here.
+
+Documentation disagreement specific to Hindsight:
+
+- **D8** — The guide says session disposal drains queued retains; only the
+  backend's clear and rebuild paths flush first, and the queue's own `dispose`
+  discards pending items (H3)
+  ([memory.md L150](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/docs/memory.md#L150)).
+
 ## Other backends
 
 Selecting a backend is exclusive
 ([resolve.ts](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memory-backend/resolve.ts)).
-**Hindsight** is a remote bank: recall on the first turn under a generation check
-against races, retention every three user turns, server-side "mental models", and
-recall framed as background rather than instructions. **Sharpshooter** extracts
+**Sharpshooter** extracts
 a delta from each user prompt with exact-quote evidence, then admits it into
 `architecture.md`, `product.md` or `style.md` only for a regression, a subtle
 constraint or a repeated correction, capped at 120 lines per file
 ([consolidate.ts L99–L174](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/sharpshooter/consolidate.ts#L99-L174)).
 One gap: `redact.ts` covers AWS, GitHub, npm, Slack, Google and JWT shapes plus
-keyword-delimited runs, but the Hindsight `learn` path and managed-skill bodies
-bypass it
+keyword-delimited runs; the Hindsight client (H2) and managed-skill bodies bypass
+it
 ([learn.ts L94–L97](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/tools/learn.ts#L94-L97)).
 
 ## Transfer to llame
@@ -381,12 +493,25 @@ bypass it
   instead of deleting. That is the shape recoverable Knowledge writes need.
   Extracting from user text only avoids reasoning refusals and keeps assistant
   guesses out of memory, at the cost of facts the assistant discovered.
+- **T10 — Hindsight is the closest architectural match, not a drop-in.** It is a
+  multi-bank Postgres and pgvector service with tag-scoped recall, which is
+  llame's shape. Its observations (proof count, source ids, history) and mental
+  models (standing questions re-answered after consolidation) are the most
+  developed form of the semantic-fact layer VISION defers. Adopting it as a
+  service would put an unauthenticated-by-default server, application-level bank
+  filters and unredacted transcripts beside llame's RLS boundary; study the
+  observation and mental-model shapes instead.
+- **T11 — Recall should not need a generative model.** Hindsight and Mnemopi both
+  recall with fusion and a local reranker or linear scoring, and spend model
+  calls only on writes and synthesis. That keeps recall cheap enough to run on
+  every first turn; llame's `search_conversations` already has this property.
 
 ## Method and limits
 
-Source claims are from reading `v18.2.10` with five read-only subagent passes and
-direct spot checks of the cited ranges. Live numbers come from one workstation's
-database and files; stage-1 coverage was recomputed with a Python port of the
-filter and 60/40 truncation, not by instrumenting OMP. The refusal cause in O3 is
-inferred, not reproduced. Mnemopi was not run, so its recall quality is unknown.
+Source claims are from reading `v18.2.10` with seven read-only subagent passes and
+direct spot checks of the cited ranges; the Hindsight server was read at
+`26981c6b`. Live numbers come from one workstation's database and files; stage-1
+coverage was recomputed with a Python port of the filter and 60/40 truncation,
+not by instrumenting OMP. The refusal cause in O3 is inferred, not reproduced.
+Mnemopi and Hindsight were not run, so their recall quality is unknown.
 No model quality or cost measurement was made.
