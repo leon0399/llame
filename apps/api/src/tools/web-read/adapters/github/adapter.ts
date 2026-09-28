@@ -26,7 +26,12 @@ import {
   type GithubIssueDocument,
   type GithubPullDocument,
 } from './document';
-import { parseGithubThreadUrl, type GithubThreadTarget } from './url';
+import {
+  parseGithubUrl,
+  type GithubTarget,
+  type GithubThreadTarget,
+} from './url';
+import { readGithubCode } from './code';
 
 export const GITHUB_API_ORIGIN = 'https://api.github.com';
 const PAGE_SIZE = 100;
@@ -67,8 +72,7 @@ type PullListSpec<T> = {
   readonly parse: (body: string) => ReadonlyArray<T> | undefined;
   readonly context: RequestContext;
 };
-
-/** Creates the native GitHub thread adapter. */
+/** Creates the native GitHub adapter. */
 export function createGithubAdapter(
   config: GithubWebAdapterConfig,
   options: { readonly apiOrigin?: string } = {},
@@ -78,10 +82,43 @@ export function createGithubAdapter(
   return {
     id: config.id,
     route: 'native',
-    match: (source) => parseGithubThreadUrl(source) !== undefined,
-    read: (source, io) =>
-      readGithubThread(parseGithubThreadUrl(source)!, io, apiOrigin, init),
+    match: (source) => parseGithubUrl(source) !== undefined,
+    read: (source, io) => {
+      const target = parseGithubUrl(source);
+      return target === undefined
+        ? Promise.resolve<WebAdapterOutcome>({
+            kind: 'failed',
+            failure: 'parse',
+          })
+        : readGithubTarget(target, source, { io, apiOrigin, init });
+    },
   };
+}
+
+function readGithubTarget(
+  target: GithubTarget,
+  source: URL,
+  options: {
+    readonly io: WebAdapterIo;
+    readonly apiOrigin: string;
+    readonly init: WebRequestInit;
+  },
+): Promise<WebAdapterOutcome> {
+  if (isGithubThreadTarget(target)) {
+    return readGithubThread(
+      target,
+      options.io,
+      options.apiOrigin,
+      options.init,
+    );
+  }
+  return readGithubCode(target, { source, ...options });
+}
+
+function isGithubThreadTarget(
+  target: GithubTarget,
+): target is GithubThreadTarget {
+  return target.kind === 'issue' || target.kind === 'pull';
 }
 
 async function readGithubThread(
