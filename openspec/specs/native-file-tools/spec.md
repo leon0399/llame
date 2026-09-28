@@ -1069,7 +1069,7 @@ request would connect to SHALL additionally be judged under the
 address-admission requirement below. Availability and
 restriction for the web SHALL come only from the `read` permission group's
 `path` clauses: a prefix allow admits the web, and a prefix or domain reject
-removes a host. No web tool id, `tools.allowed` entry, configuration block, or
+removes a host. This web-availability rule governs a `default`-mode attempt; under `bypass` the web is reachable without a `path` allow, as this capability's Purpose states. No web tool id, `tools.allowed` entry, configuration block, or
 advertisement condition SHALL be added; a process that does not advertise
 `read` SHALL NOT reach a URL through it. Each call SHALL fetch afresh: no
 response or render SHALL be cached, and a later selector read of the same
