@@ -113,8 +113,10 @@ matching depend on body content and makes `:raw` ambiguous; the latter would
 bypass the existing shared session and address admission.
 
 **Consequence:** A source URL is admitted once before matching, but every
-adapter-derived URL is admitted again. Generic behavior remains observable
-when nothing claims or when an adapter fails. The `file-locator` and
+adapter-derived URL is admitted again. The generic ladder runs when nothing
+claims or when every claiming adapter fails; it is skipped when an adapter
+renders text, and when an adapter returns a directory read, whose host
+directory result, including `directory_too_large`, ends the call. The `file-locator` and
 `read-representations` changes can compose around this stage without knowing
 site protocol details.
 

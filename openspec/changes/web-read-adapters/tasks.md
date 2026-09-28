@@ -97,14 +97,17 @@ closes nothing.
 Branch `web-read-adapters/github-code`, parent
 `web-read-adapters/github-threads`. Owns the repository root, `/tree`,
 `/blob`, and `/commit` shapes, ref resolution through `matching-refs`, the
-recursive tree fetch and two-level listing renderer, blob decoding and
-binary/size fallthrough, the commit view, and fixture coverage. Estimated
+recursive tree fetch and two-level listing renderer, the adapter
+directory-result seam (a pure `renderCollectedDirectory` export from
+`@workspace/native-file-tools` and the `WebRender.directory` branch in
+`apps/api/src/tools/web-read/result.ts`), blob decoding and binary/size
+fallthrough, the commit view, and fixture coverage. Estimated
 about 1,500 authored lines. This layer carries `Closes #939` only after its
 narrowed acceptance is recorded.
 
 - [ ] 4.1 [github-code] Extend the grammar to `/o/r`, `/tree/{ref}[/path]`, `/blob/{ref}/path`, and `/commit/{sha}`; implement the contents blob request with base64 decoding, line-for-line rendering without a heading, and `binary`/`too_large` fallthrough; verify `:N-M` addresses source lines, path segments cannot traverse or alter API paths, and `raw.githubusercontent.com` is never requested.
 - [ ] 4.2 [github-code] Implement ref resolution: first segment tried as the ref, `matching-refs/heads` then `/tags` on a `404` with segments remaining, the segment-boundary rule, longest match, the 40-hex SHA shortcut, and `status` fallthrough with nothing left to split; verify the `feature/foo` branch and tag fixtures, the request counts in `design.md` D11, and the documented tag-shadows-branch scenario.
-- [ ] 4.3 [github-code] Implement the one-request recursive tree fetch for directories and the root, local filtering to two levels, and rendering in the host directory listing shape with `… N more`, `… N entries`, truncation, and range-selector rules; verify a fixture directory renders identically to the equivalent host directory listing, mode `120000` and `160000` entries render as `- name@` and `- name?`, an over-budget root renders metadata and README with the `tree omitted: too_large` note, an over-budget non-root directory ends with `directory_too_large` without a listing or fall-through (the directory-read seam from the contract requirement is built in this layer), and a response over 5 MiB falls through as `too_large`.
+- [ ] 4.3 [github-code] Implement the one-request recursive tree fetch for directories and the root, local filtering to two levels, and rendering in the host directory listing shape with `… N more`, `… N entries`, truncation, and range-selector rules; verify a fixture directory renders identically to the equivalent host directory listing, mode `120000` and `160000` entries render as `- name@` and `- name?`, an over-budget root renders metadata and README with the `tree omitted: too_large` note, an over-budget non-root directory ends with `directory_too_large` without a listing or fall-through (this layer builds the directory-result seam named in its ownership paragraph: the `renderCollectedDirectory` export and the `result.ts` directory branch), and a response over 5 MiB falls through as `too_large`.
 - [ ] 4.4 [github-code] Implement the repository root (metadata lines, root listing, decoded README) and the commit view (message, author, timestamp, file list, `Diff:` line, no patches); verify request counts and that `/commit/{sha}.diff` stays unclaimed and readable through the generic ladder.
 - [ ] 4.5 [github-code] Add focused integration and renderer tests for root, tree, blob, commit, slash refs, and binary/too-large; update `docs/web-read.md` and the dated `CHANGELOG.md`/`ROADMAP.md` records.
 - [ ] 4.6 [github-code] Before closing #939, post the narrowing comment that moves `#L10-L40` to #927, review-thread resolution state and `reviewDecision` to #996, and list URLs to #995, and records the REST shape as the shipped acceptance; keep `Closes #939` blocked until the comment exists.
