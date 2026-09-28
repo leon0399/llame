@@ -85,10 +85,10 @@ owns spec synchronization, checked task history, and archive movement only.
 Estimated under 200 authored lines with rename-detected archive movement. It
 closes no issue and MUST NOT repair application code.
 
-- [ ] 4.1 Use `$gh-stack` to enter `read-representations/finalize` from the published, reviewed, CI-green `outline` head; verify all parser and outline tasks are checked and the immediate parent is correct before any spec synchronization.
-- [ ] 4.2 Run `$openspec-sync-specs` for `native-file-tools`; if a later change on `master` modified the web-locator or adapter-contract requirement, reconcile by hand first, preserving both complete canonical scenario sets, then verify the synchronized canonical diff and the representation grammar.
-- [ ] 4.3 Verify archive readiness with `pnpm exec openspec status --change read-representations --json`, `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; stop on any incomplete artifact or unchecked pre-archive task.
-- [ ] 4.4 Run `$openspec-archive-change` only after readiness is proved, then verify the archive preserves checked task history, the final specs contain the synchronized representation requirements, and no application fix entered the finalize diff.
+- [x] 4.1 Use `$gh-stack` to enter `read-representations/finalize` from the published, reviewed, CI-green `outline` head; verify all parser and outline tasks are checked and the immediate parent is correct before any spec synchronization.
+- [x] 4.2 Run `$openspec-sync-specs` for `native-file-tools`; if a later change on `master` modified the web-locator or adapter-contract requirement, reconcile by hand first, preserving both complete canonical scenario sets, then verify the synchronized canonical diff and the representation grammar.
+- [x] 4.3 Verify archive readiness with `pnpm exec openspec status --change read-representations --json`, `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; stop on any incomplete artifact or unchecked pre-archive task.
+- [x] 4.4 Run `$openspec-archive-change` only after readiness is proved, then verify the archive preserves checked task history, the final specs contain the synchronized representation requirements, and no application fix entered the finalize diff.
 
 Post-archive gates, not pre-archive prerequisites: publish the finalize draft
 with `$gh-stack` under existing authorization, self-review its actual
