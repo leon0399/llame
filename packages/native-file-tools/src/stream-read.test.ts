@@ -633,23 +633,31 @@ describe("markdown ancestor range selection", () => {
   });
 
   it("matches text retention and rollback for large comma ranges", async () => {
-    const source = `${Array.from({ length: 5000 }, () => "").join("\n")}\n`;
+    const blank = "\n".repeat(5000);
     const directory = await mkdtemp(join(tmpdir(), "native-retention-"));
     try {
-      const markdownPath = join(directory, "source.md");
-      const textPath = join(directory, "source.txt");
-      await writeFile(markdownPath, source);
-      await writeFile(textPath, source);
-      for (const selector of ["1-1499,3000-4500", "1-1000,2000-3000"]) {
-        const markdown = asMulti(
-          await readFile({ path: `${markdownPath}:${selector}` }),
+      // Same-length names keep the serialized budgets identical.
+      await writeFile(join(directory, "notes.md"), blank);
+      await writeFile(join(directory, "note.txt"), blank);
+      await writeFile(join(directory, "head.md"), `# H\n${blank.slice(1)}`);
+      const cases = [
+        ["notes.md", "1-1499,3000-4500", 1500, 2998],
+        ["note.txt", "1-1499,3000-4500", 1500, 2998],
+        ["notes.md", "1-1000,2000-3000", 1001, 1998],
+        ["note.txt", "1-1000,2000-3000", 1001, 1998],
+        ["notes.md", "1-2500,4000-4010", 2000, 2000],
+        ["note.txt", "1-2500,4000-4010", 2000, 2000],
+        ["head.md", "3-2500,4000-4010", 2000, 2000],
+      ] as const;
+      for (const [name, selector, endLine, nextOffset] of cases) {
+        const result = asMulti(
+          await readFile({ path: `${join(directory, name)}:${selector}` }),
         );
-        const text = asMulti(
-          await readFile({ path: `${textPath}:${selector}` }),
-        );
-        expect(markdown.shownRanges).toEqual(text.shownRanges);
-        expect(markdown.nextOffset).toBe(text.nextOffset);
-        expect(markdown.truncated).toBe(text.truncated);
+        expect(result).toMatchObject({
+          shownRanges: [{ startLine: 1, endLine }],
+          nextOffset,
+          truncated: true,
+        });
       }
     } finally {
       await rm(directory, { recursive: true, force: true });
