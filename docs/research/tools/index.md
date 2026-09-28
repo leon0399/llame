@@ -10,7 +10,7 @@ supply capabilities or transform inputs/results; the hosting harness owns the
 agent execution context and tool-use loop.
 
 [Agentic runtimes and orchestration hosts](../harnesses/index.md) and
-[format specifications](../formats/index.md) have separate indexes. Calling an
+[protocols and format standards](../standards/index.md) have separate indexes. Calling an
 LLM, exposing MCP tools or keeping a local session file does not by itself make
 a component an agentic harness.
 
