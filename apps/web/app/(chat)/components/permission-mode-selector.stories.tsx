@@ -105,12 +105,14 @@ export const BothModes: Story = {
     await userEvent.click(trigger);
     const menu = within(document.body);
     await expect(
-      menu.getByText("Applies the operator tool policy."),
+      await menu.findByText("Applies the operator tool policy."),
     ).toBeTruthy();
     await expect(
-      menu.getByText("Skips tool-permission checks for this chat."),
+      await menu.findByText("Skips tool-permission checks for this chat."),
     ).toBeTruthy();
-    await userEvent.click(menu.getByRole("menuitemradio", { name: /Bypass/ }));
+    await userEvent.click(
+      await menu.findByRole("menuitemradio", { name: /Bypass/ }),
+    );
     await waitFor(async () => {
       const bypassTrigger = canvas.getByRole("button", {
         name: "Permission mode, Bypass",

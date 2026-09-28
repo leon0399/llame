@@ -26,9 +26,11 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 - Bounded tool loop: `search_conversations`, optional line-ranged
   `conversation_read`, and operator-configured MCP tools authorized by the
   instance permission policy.
-- Owners can select a per-Run `default` or `bypass` permission mode when the
-  operator exposes it through ordered `tools.permissionModes` (default
-  `["default"]`).
+- Owners select a per-Run `default` or `bypass` permission mode from a control
+  beside the prompt input when the operator exposes more than one through
+  ordered `tools.permissionModes` (default `["default"]`); the choice applies to
+  the sending chat only and is never persisted, and a bypassed Run's usage badge
+  carries a `Bypass` segment.
 - Optional native host file tools: selector-based `read`, exact `edit`, and
   create-or-replace `write`, with durable mutation fencing, plus host `bash`
   with per-call literal `cwd` and additive `env`, fresh processes, and bounded

@@ -7,6 +7,7 @@
  * state and the engine's send-error recovery path.
  */
 
+import type { ChatTransport, UIMessage } from "ai";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -37,6 +38,20 @@ import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
 import type { ChatMessagesResponse } from "@/lib/services/chat/history";
 
+type SendMessageInput = {
+  text: string;
+};
+
+type ChatUseOptions = {
+  id: string;
+  onError?: (error: unknown) => void;
+  transport: ChatTransport<UIMessage>;
+};
+
+type SentChatRequestBody = {
+  permissionMode?: string;
+};
+
 const mocks = vi.hoisted(() => ({
   // SAFETY: widening the initial `undefined` into the captured-callback slot;
   // the send path assigns the real handler before any test reads it.
@@ -51,23 +66,36 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@ai-sdk/react", () => ({
-  useChat: (options: {
-    messages?: Array<unknown>;
-    onError?: (error: unknown) => void;
-  }) => {
+  useChat: (options: ChatUseOptions) => {
     mocks.capturedOnError = options.onError;
     return {
       error: undefined,
-      messages: options.messages ?? [],
+      messages: [],
       resumeStream: vi.fn(),
-      sendMessage: mocks.sendMessage,
+      sendMessage: (message: SendMessageInput) => {
+        mocks.sendMessage(message);
+        void options.transport
+          .sendMessages({
+            abortSignal: undefined,
+            chatId: options.id,
+            messageId: undefined,
+            messages: [
+              {
+                id: "test-message",
+                parts: [{ type: "text", text: message.text }],
+                role: "user",
+              },
+            ],
+            trigger: "submit-message",
+          })
+          .catch(() => undefined);
+      },
       setMessages: vi.fn(),
       status: "ready",
       stop: vi.fn(),
     };
   },
 }));
-
 import { ActiveRunsProvider } from "@/contexts/active-runs-context";
 import { ChatProvider } from "@/contexts/chat-context";
 
@@ -99,6 +127,7 @@ const EMPTY_HISTORY: ChatMessagesResponse = {
 };
 
 let fetchMock: Mock<typeof fetch>;
+let permissionModesResponse: PermissionModesResponse;
 
 function chatPageTree(queryClient: QueryClient, chatId: string) {
   window.history.replaceState(window.history.state, "", `/chat/${chatId}`);
@@ -139,6 +168,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  permissionModesResponse = PERMISSION_MODES_RESPONSE;
   fetchMock = stubFetch();
   fetchMock.mockImplementation(async (input) => {
     const request = input instanceof Request ? input : new Request(input);
@@ -146,7 +176,7 @@ beforeEach(() => {
     if (pathname === "/api/v1/me/runs") return jsonResponse([]);
     if (pathname === "/api/v1/models") return jsonResponse(MODELS_RESPONSE);
     if (pathname === "/api/v1/permission-modes") {
-      return jsonResponse(PERMISSION_MODES_RESPONSE);
+      return jsonResponse(permissionModesResponse);
     }
     if (pathname.endsWith("/messages")) return jsonResponse(EMPTY_HISTORY);
     throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
@@ -191,6 +221,43 @@ describe("ChatPage permission mode state", () => {
     });
   });
 
+  it("reconciles a stored mode withdrawn from the listing", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+      },
+    });
+    render(chatPageTree(queryClient, CHAT_ONE));
+
+    const trigger = await screen.findByRole("button", {
+      name: "Permission mode, Default",
+    });
+    await user.click(trigger);
+    await user.click(
+      await screen.findByRole("menuitemradio", { name: /Bypass/ }),
+    );
+    await screen.findByRole("button", {
+      name: "Permission mode, Bypass",
+    });
+
+    permissionModesResponse = { modes: [{ value: "default" }] };
+    await queryClient.invalidateQueries({ queryKey: permissionModesQueryKey });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Permission mode, Bypass" }),
+      ).toBeNull();
+    });
+
+    permissionModesResponse = PERMISSION_MODES_RESPONSE;
+    await queryClient.invalidateQueries({ queryKey: permissionModesQueryKey });
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Permission mode, Default" }),
+      ).toBeTruthy();
+    });
+  });
+
   it("resets an unavailable mode and refetches the mode listing", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({
@@ -213,9 +280,32 @@ describe("ChatPage permission mode state", () => {
     });
 
     const input = screen.getByPlaceholderText("What would you like to know?");
+    const sendButton = screen.getByRole("button", { name: "Send message" });
+    await waitFor(() => {
+      // SAFETY: the composer's send control is a native <button>; reading
+      // `.disabled` confirms the send path is enabled before the click.
+      expect((sendButton as HTMLButtonElement).disabled).toBe(false);
+    });
     await user.type(input, "follow-up");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
-
+    await user.click(sendButton);
+    await waitFor(async () => {
+      const messageRequest = fetchMock.mock.calls
+        .map(([input]) =>
+          input instanceof Request ? input : new Request(input),
+        )
+        .find(
+          (request) =>
+            request.method === "POST" &&
+            new URL(request.url).pathname.endsWith("/messages"),
+        );
+      if (!messageRequest) {
+        throw new Error("chat send request was not emitted");
+      }
+      // SAFETY: the transport emits this JSON envelope; this narrowed type
+      // reads only the optional permission mode field under test.
+      const body = (await messageRequest.clone().json()) as SentChatRequestBody;
+      expect(body.permissionMode).toBe("bypass");
+    });
     const requestsBeforeError = fetchMock.mock.calls.filter(([input]) => {
       const request = input instanceof Request ? input : new Request(input);
       return new URL(request.url).pathname === "/api/v1/permission-modes";

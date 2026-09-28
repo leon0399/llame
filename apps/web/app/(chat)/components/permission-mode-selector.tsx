@@ -13,7 +13,10 @@ import {
 } from "@workspace/ui/components/dropdown-menu";
 
 import { type PermissionMode, useChatContext } from "@/contexts/chat-context";
-import { usePermissionModesQuery } from "@/lib/services/permission-modes/queries";
+import {
+  usePermissionModesQuery,
+  type PermissionModesResponse,
+} from "@/lib/services/permission-modes/queries";
 
 type PermissionModeDetails = {
   title: string;
@@ -82,6 +85,25 @@ function PermissionModeTrigger({
 }
 
 /**
+ * Resets a chat's stored selection to `default` when the operator withdraws
+ * the selected mode from the listing, so the transport stops sending a mode
+ * the composer can no longer show.
+ */
+function useReconcileWithdrawnMode(
+  chatId: string,
+  modes: PermissionModesResponse["modes"] | undefined,
+) {
+  const { getPermissionMode, setPermissionMode } = useChatContext();
+  const selectedMode = getPermissionMode(chatId);
+  React.useEffect(() => {
+    if (modes === undefined || selectedMode === "default") return;
+    if (!modes.some(({ value }) => value === selectedMode)) {
+      setPermissionMode(chatId, "default");
+    }
+  }, [chatId, modes, selectedMode, setPermissionMode]);
+}
+
+/**
  * Per-chat tool permission mode. The operator controls which modes appear in
  * the listing; with only the safe default enabled, the composer has no control
  * to show.
@@ -92,11 +114,13 @@ export function PermissionModeSelector({
   const [open, setOpen] = React.useState(false);
   const { getPermissionMode, setPermissionMode } = useChatContext();
   const modesQuery = usePermissionModesQuery();
-
   const modes = modesQuery.data?.modes;
+  const selectedMode = getPermissionMode(chatId);
+
+  useReconcileWithdrawnMode(chatId, modes);
+
   if (modes === undefined || modes.length < 2) return null;
 
-  const selectedMode = getPermissionMode(chatId);
   const selectedDetails = PERMISSION_MODE_DETAILS[selectedMode];
 
   return (
