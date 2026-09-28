@@ -759,6 +759,12 @@ end does. No comma-separated scope SHALL be accepted.
 - **THEN** the outline is `3550: ## In scope` and `3552: scope body`, without the omitted chain
 - **AND** `truncated` is false, and an unscoped outline of the same file that is cut at the 2,000-line ceiling continues through `:outline:<nextOffset + 1>-M` without repeating a result
 
+#### Scenario: A scope with no entry returns an empty outline
+
+- **WHEN** the model reads `:outline:3500` of that file, whose line 3,500 lies in the heading's section body
+- **THEN** the result is a successful outline with empty content, a null shown range, and `truncated: false`
+- **AND** it carries no `nextOffset`
+
 #### Scenario: A scope past the end is refused
 
 - **WHEN** the model reads `:outline:500-600` of a 120-line file
