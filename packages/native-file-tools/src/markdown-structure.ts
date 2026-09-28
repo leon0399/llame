@@ -9,10 +9,11 @@
  * Memory is the open container chain (capped at MAX_CONTAINER_DEPTH), the
  * open-heading stack, and the lines whose meaning a later line decides: an
  * open root paragraph (a setext underline may turn it into a heading), the
- * text of any paragraph that opens with `[` (link reference definitions
- * decide where a setext heading starts), and the lines after a line-one
- * `---` until a closer makes them frontmatter or `end()` replays them as
- * Markdown. Those lines are reported only once decided.
+ * text of a paragraph whose first line may still open a link reference
+ * definition (definitions decide where a setext heading starts), and the
+ * lines after a line-one `---` until a closer makes them frontmatter or
+ * `end()` replays them as Markdown. Those lines are reported only once
+ * decided.
  */
 
 import {
@@ -24,6 +25,7 @@ import {
   continues,
   type Cursor,
   definitionLineCount,
+  mayOpenDefinition,
   expandTabs,
   fenceOpen,
   HTML_CLOSE,
@@ -90,8 +92,9 @@ type Paragraph = {
   root: boolean;
   /** Entries of a root paragraph's lines, one per physical line. */
   lines: Array<Entry>;
-  /** Stripped line text of a paragraph that opens with `[`; link reference
-   *  definitions decide whether and where a setext underline applies. */
+  /** Stripped line text while the first line may still open a link reference
+   *  definition; definitions decide whether and where a setext underline
+   *  applies. */
   definitionText: Array<string> | undefined;
 };
 
@@ -521,7 +524,7 @@ class Scanner implements MarkdownScanner {
         type: "paragraph",
         root: this.containers.length === 0,
         lines: [],
-        definitionText: text.startsWith("[") ? [] : undefined,
+        definitionText: mayOpenDefinition(text) ? [] : undefined,
       };
       this.addParagraphLine(entry, text);
       return;

@@ -105,6 +105,17 @@ function labelEnd(text: string, start: number): number {
   return -1;
 }
 
+/** Whether a paragraph's first line can still open a link reference
+ *  definition. A label closed without a following `:`, or one that already
+ *  failed on this line, settles the question, so the paragraph need not keep
+ *  its text; only a label still open at the line's end leaves it undecided. */
+export function mayOpenDefinition(line: string): boolean {
+  if (!line.startsWith("[")) return false;
+  const end = labelEnd(line, 0);
+  if (end >= 0) return line[end] === ":";
+  return !/[[\]]/u.test(line.slice(1).replaceAll(/\\./gu, ""));
+}
+
 function destinationEnd(text: string, start: number): number {
   if (text[start] === "<") {
     const match = /^<(?:[^<>\n\\]|\\.)*>/.exec(text.slice(start));
