@@ -30,6 +30,17 @@ const MODELS = [
       cacheInvalidatedByEffortChange: false,
     },
   },
+  {
+    id: "system:openai:gpt-5",
+    source: "system" as const,
+    name: "GPT-5",
+    contextWindowTokens: 400_000,
+    reasoning: {
+      effortLevels: [{ value: "high" }],
+      defaultEffort: "high",
+      cacheInvalidatedByEffortChange: false,
+    },
+  },
 ];
 
 // jsdom has no ResizeObserver; Base UI's Popper-based HoverCard content
@@ -201,6 +212,38 @@ describe("buildUsageLine", () => {
         .find((s) => s.header === "Cost & model")
         ?.rows.find((r) => r.label === "at effort"),
     ).toEqual({ label: "at effort", value: "Extra High" });
+  });
+  it("marks a bypassed turn after effort and before latency", () => {
+    const result = line({
+      modelId: "system:openai:gpt-5",
+      effort: "high",
+      permissionMode: "bypass",
+      latencyMs: 900,
+    });
+    expect(result?.text).toBe("GPT-5 · high · Bypass · 900ms");
+    expect(result?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-5" },
+        { label: "at effort", value: "high" },
+        { label: "permission mode", value: "Bypass" },
+      ],
+    });
+  });
+
+  it("leaves a turn without a permission mode unchanged", () => {
+    const result = line({
+      modelId: "system:openai:gpt-5",
+      effort: "high",
+      latencyMs: 900,
+    });
+    expect(result?.text).toBe("GPT-5 · high · 900ms");
+    expect(result?.text).not.toContain("Bypass");
+    expect(
+      result?.sections
+        .find((section) => section.header === "Cost & model")
+        ?.rows.map((row) => row.label),
+    ).not.toContain("permission mode");
   });
 
   it("falls back to the raw effort token when unlabeled or unknown", () => {

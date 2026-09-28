@@ -399,6 +399,48 @@ export const CacheWriteUsage: Story = {
   },
 };
 
+const BYPASS_USAGE_MESSAGE: UIMessage = {
+  id: "assistant-bypass-usage",
+  role: "assistant",
+  metadata: {
+    usage: {
+      modelId: GPT_4O_MODEL.id,
+      effort: "high",
+      permissionMode: "bypass",
+      latencyMs: 900,
+      status: "completed",
+    },
+  },
+  parts: [{ type: "text", text: "A turn that bypassed tool permissions." }],
+};
+
+/**
+ * A completed turn whose effective permission mode was bypass: the compact
+ * badge marks it and the expanded Cost & model section repeats the mode.
+ *
+ * @summary bypassed usage is marked in the badge and detail
+ */
+export const BypassUsage: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: BYPASS_USAGE_MESSAGE,
+    availableModels: [GPT_4O_MODEL],
+  },
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(
+      () =>
+        canvas.getByRole("button", {
+          name: "Message usage: GPT-4o · high · Bypass · 900ms",
+        }),
+      { timeout: 15_000 },
+    );
+    await userEvent.hover(trigger);
+
+    const permissionModeRow = await revealedUsageRow("permission mode");
+    await expect(permissionModeRow).toHaveTextContent("Bypass");
+  },
+};
+
 const INCOMPLETE_USAGE_MESSAGE: UIMessage = {
   id: "assistant-incomplete-usage",
   role: "assistant",

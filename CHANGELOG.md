@@ -9,6 +9,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   returned on Run and context-receipt responses, while effective bypass is
   recorded as `usage.permissionMode: "bypass"` in assistant usage
   ([#977](https://github.com/leon0399/llame/issues/977)).
+- The chat composer now shows a permission-mode selector when the operator
+  enables more than one mode. The choice is per chat, sent only when `bypass`,
+  and reset to `default` if the API reports the mode is no longer available; a
+  bypassed turn shows a `Bypass` marker in its usage badge
+  ([#977](https://github.com/leon0399/llame/issues/977)).
 
 - Native GitHub issue and pull-request reads render complete, paged thread
   views through the configured `github` web adapter, with partial sections and

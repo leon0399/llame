@@ -67,6 +67,31 @@ describe("prepareSendMessagesRequest", () => {
     expect(body).not.toHaveProperty("effort");
   });
 
+  it("sends a selected permission mode verbatim", () => {
+    // SAFETY: same excess-property mismatch as above — the fixture message
+    // carries a `role` field beyond `Pick<UIMessage, "id" | "parts">`.
+    const { body } = prepareSendMessagesRequest({
+      modelId: "system:openai:reasoner",
+      permissionMode: "bypass",
+      messages: [{ id: "m1", role: "user", parts: [] }],
+    } as never);
+    expect(body.permissionMode).toBe("bypass");
+  });
+
+  it.each([undefined, "default"])(
+    "omits the permission mode field for %p",
+    (permissionMode) => {
+      // SAFETY: same excess-property mismatch as above — the fixture message
+      // carries a `role` field beyond `Pick<UIMessage, "id" | "parts">`.
+      const { body } = prepareSendMessagesRequest({
+        modelId: "system:openai:reasoner",
+        permissionMode,
+        messages: [{ id: "m1", role: "user", parts: [] }],
+      } as never);
+      expect(body).not.toHaveProperty("permissionMode");
+    },
+  );
+
   it("rejects an empty message list", () => {
     // SAFETY: this fixture omits the required `modelId` on purpose — it
     // proves the empty-messages runtime check throws before that field is

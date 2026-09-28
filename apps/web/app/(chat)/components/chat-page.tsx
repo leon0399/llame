@@ -307,6 +307,7 @@ function ChatSessionBody({
         onInspectContext={dialog.setInspectedRunId}
       />
       <ChatComposer
+        chatId={chatId}
         input={composer.input}
         onInputChange={composer.setInput}
         onSubmit={composer.handleSubmit}

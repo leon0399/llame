@@ -14,8 +14,9 @@ import {
   isToolUIPart,
   type UIMessage,
 } from "ai";
-import type { QueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
+import { useChatContext, type PermissionMode } from "@/contexts/chat-context";
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 import { authAwareFetch } from "@/lib/api/fetch";
 import {
@@ -27,6 +28,7 @@ import {
 import { chatQueryKeys } from "@/lib/services/chat/queries";
 import { pinQueryKeys } from "@/lib/services/pins/queries";
 import { hasModelId, useModelsQuery } from "@/lib/services/models/queries";
+import { permissionModesQueryKey } from "@/lib/services/permission-modes/queries";
 import { adoptServerHistory } from "@/lib/services/chat/history";
 import {
   notificationLabel,
@@ -78,13 +80,15 @@ export function useChatModelSelection(
   return { availableModels, modelSendUnavailableReason, modelReadyForSend };
 }
 
-/** The model and effort a request must carry, read from the transport's
- *  latest-value mirrors when a request is prepared — that read happens in an
- *  event-time callback, never while the component renders, which is why it
- *  lives here and not inside the options object the transport is built from. */
+/** The model, effort, and permission mode a request must carry, read from the
+ * transport's latest-value mirrors when a request is prepared — that read
+ * happens in an event-time callback, never while the component renders, which
+ * is why it lives here and not inside the options object the transport is
+ * built from. */
 function resolveSendSelections(
   modelRef: RefObject<string | undefined>,
   effortRef: RefObject<string | undefined>,
+  permissionModeRef: RefObject<PermissionMode>,
 ) {
   const modelId = modelRef.current;
   if (modelId === undefined) {
@@ -93,7 +97,11 @@ function resolveSendSelections(
     // never be built without a model.
     throw new Error(NO_MODEL_SELECTED_ERROR);
   }
-  return { modelId, effort: effortRef.current };
+  return {
+    modelId,
+    effort: effortRef.current,
+    permissionMode: permissionModeRef.current,
+  };
 }
 
 /** The `DefaultChatTransport` instance, id-stable per `chatId`. */
@@ -102,6 +110,7 @@ export function useChatSendTransport(
   selectedModel: string | undefined,
   selectedEffort: string | undefined,
 ) {
+  const { getPermissionMode } = useChatContext();
   // useChat (@ai-sdk/react) creates its Chat once per chatId and NEVER adopts a
   // new `transport` instance afterwards (it only recreates on an id change).
   // Closing the transport over `selectedModel` therefore froze it at the
@@ -117,6 +126,9 @@ export function useChatSendTransport(
   // assignment with the ref's creation — writing the two separately is how
   // effort came to be silently omitted from every send.
   const selectedEffortRef = useLatestRef(selectedEffort);
+  // Permission mode is keyed by this chat id; mirror its latest selection so
+  // the id-stable transport reads the mode chosen immediately before sending.
+  const selectedPermissionModeRef = useLatestRef(getPermissionMode(chatId));
 
   return useMemo(
     () =>
@@ -127,15 +139,19 @@ export function useChatSendTransport(
         prepareSendMessagesRequest: (options) =>
           prepareSendMessagesRequest({
             ...options,
-            ...resolveSendSelections(selectedModelRef, selectedEffortRef),
+            ...resolveSendSelections(
+              selectedModelRef,
+              selectedEffortRef,
+              selectedPermissionModeRef,
+            ),
           }),
         prepareReconnectToStreamRequest,
       }),
-    // The two refs are listed for the exhaustive-deps rule's benefit only: a
-    // ref object is stable for the component's life, so including them cannot
+    // The refs are listed for the exhaustive-deps rule's benefit only: a ref
+    // object is stable for the component's life, so including them cannot
     // rebuild the transport. `chatId` remains the sole real trigger — which is
     // the whole point, since useChat never adopts a new transport instance.
-    [chatId, selectedModelRef, selectedEffortRef],
+    [chatId, selectedModelRef, selectedEffortRef, selectedPermissionModeRef],
   );
 }
 
@@ -183,6 +199,35 @@ export function useChatRefresh(chatId: string, queryClient: QueryClient) {
   return { refreshChatData, refreshChatMessages, refreshChatBinding };
 }
 
+type ApiErrorBody = {
+  readonly code?: unknown;
+};
+
+function isObjectValue(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+function toEnvelope(value: unknown): ApiErrorBody | undefined {
+  if (!isObjectValue(value)) return undefined;
+  // SAFETY: JSON.parse returns unknown; this cast is narrowed to an object,
+  // and callers only read the optional code field.
+  return value as ApiErrorBody;
+}
+
+function parseErrorEnvelope(text: string): ApiErrorBody | undefined {
+  try {
+    return toEnvelope(JSON.parse(text));
+  } catch {
+    return undefined;
+  }
+}
+
+function isPermissionModeUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const body = parseErrorEnvelope(error.message);
+  return body?.code === "permission_mode_not_available";
+}
+
 type UseChatEngineArgs = {
   chatId: string;
   chatMessages: Array<UIMessage>;
@@ -194,82 +239,80 @@ type UseChatEngineArgs = {
   refreshChatData: () => void;
 };
 
+/** A stream that ended by abort/disconnect/error is NOT a completed turn: a
+ *  page reload aborts the in-flight fetch, and treating that as finish cleared
+ *  the recorded draft id during teardown — destroying the refresh-resume path
+ *  this slice adds (found via CI trace diagnostics). The run survives
+ *  server-side; the reloaded page recovers the sent route and resumes it. */
+function handleChatFinish(
+  status: { isAbort: boolean; isDisconnect: boolean; isError: boolean },
+  args: UseChatEngineArgs,
+): void {
+  if (status.isAbort || status.isDisconnect || status.isError) {
+    if (args.onTargetSendInterrupted()) {
+      args.refreshChatData();
+      return;
+    }
+    args.onSendFailed();
+    args.refreshChatData();
+    return;
+  }
+  // The user watched this finish → drop it from the active-run registry so the
+  // background poll can't fire a stale "reply ready" if they navigate away. A
+  // target callback already consumed by an interruption is a late duplicate.
+  if (!args.onFinished()) return;
+  args.untrackChat(args.chatId);
+  args.refreshChatData();
+}
+
+/** Do NOT untrack here: onError fires for a client-visible fetch/stream error
+ *  (e.g. a transient disconnect), but the durable run may still be executing
+ *  server-side (#50) — leave it tracked so the background poll resolves its
+ *  true terminal status. A rejected send whose mode is no longer available
+ *  (422) resets this chat to default and refetches the listing. */
+function handleChatError(
+  error: unknown,
+  args: UseChatEngineArgs,
+  queryClient: QueryClient,
+  setPermissionMode: (chatId: string, mode: PermissionMode) => void,
+): void {
+  if (isPermissionModeUnavailableError(error)) {
+    void queryClient.invalidateQueries({ queryKey: permissionModesQueryKey });
+    setPermissionMode(args.chatId, "default");
+  }
+  if (args.onTargetSendInterrupted()) {
+    args.refreshChatData();
+    return;
+  }
+  args.onSendFailed();
+  args.refreshChatData();
+}
+
 /** The `useChat` call itself, wired to the run-tracking and refresh
  *  callbacks it drives. Placement matters: this must stay a hook called
  *  directly from `ChatSessionContent`'s own render (never moved into a
  *  child component), so `useChat`'s per-`chatId` `Chat` instance keeps
  *  living on this component's fiber. */
-export function useChatEngine({
-  chatId,
-  chatMessages,
-  transport,
-  onFinished,
-  onTargetSendInterrupted,
-  onSendFailed,
-  untrackChat,
-  refreshChatData,
-}: UseChatEngineArgs) {
+export function useChatEngine(args: UseChatEngineArgs) {
+  const queryClient = useQueryClient();
+  const { setPermissionMode } = useChatContext();
+
   return useChat({
-    id: chatId,
-    messages: chatMessages,
+    id: args.chatId,
+    messages: args.chatMessages,
     generateId: safeRandomUUID,
-    transport,
+    transport: args.transport,
     // Resume-on-refresh (#49): reconnect only after owner-scoped history has
-    // proved the chat exists. A fresh/sending draft never probes early; a
-    // `?draft=sent` recovery first waits for the bounded history query. This
-    // prevents a speculative 204 from racing persistence while still using
-    // the same Chat instance for live error recovery.
-    // The SDK's own `resume` effect is deliberately NOT used (see
-    // `useChatHistorySync`'s resume effect): it has no cleanup and no
-    // re-entrancy guard, so React Strict Mode's double-invoked mount effect
-    // calls resumeStream() twice on the same Chat instance. Two concurrent
-    // makeRequest() calls then race on the shared `activeResponse`, which the
-    // first one clears in its finally — the second dereferences it and
-    // throws (#260), and each accumulates its own message state, duplicating
-    // the answer (#259).
+    // proved the chat exists. The SDK's own `resume` effect is deliberately
+    // NOT used (see `useChatHistorySync`'s resume effect): it has no cleanup
+    // and no re-entrancy guard, so React Strict Mode's double-invoked mount
+    // effect calls resumeStream() twice on the same Chat instance, racing two
+    // makeRequest() calls on the shared `activeResponse` (#260) and
+    // duplicating the answer (#259).
     resume: false,
-    // A completed turn proves the chat exists server-side. The session owner
-    // removes the draft marker without routing or remounting, then this refresh
-    // lets durable history replace the live projection under stable React keys.
-    onFinish: ({ isAbort, isDisconnect, isError }) => {
-      // A stream that ended by abort/disconnect/error is NOT a completed
-      // turn: a page reload aborts the in-flight fetch, and treating that as
-      // finish cleared the recorded draft id during teardown — destroying the
-      // refresh-resume path this slice exists to add (found via CI trace
-      // diagnostics). The run itself survives server-side; the reloaded page
-      // recovers the canonical sent route and resumes it.
-      if (isAbort || isDisconnect || isError) {
-        if (onTargetSendInterrupted()) {
-          refreshChatData();
-          return;
-        }
-        onSendFailed();
-        refreshChatData();
-        return;
-      }
-      // The user watched this finish → drop it from the active-run registry so
-      // the background poll can't fire a stale "reply ready" if they navigate
-      // away right after. A target callback that was already consumed by an
-      // interruption is a late duplicate and must remain tracked.
-      if (!onFinished()) return;
-      untrackChat(chatId);
-      refreshChatData();
-    },
-    // Do NOT untrack here: onError fires for a client-visible fetch/stream
-    // error (e.g. a transient disconnect), but the durable run may still be
-    // executing server-side regardless of what the client saw (#50) — like
-    // the abort/disconnect/error branch of onFinish above, leave the run
-    // tracked so the background poll can resolve its true terminal status
-    // (completed/failed/expired) instead of silently forgetting a run that
-    // might still complete.
-    onError: () => {
-      if (onTargetSendInterrupted()) {
-        refreshChatData();
-        return;
-      }
-      onSendFailed();
-      refreshChatData();
-    },
+    onFinish: (status) => handleChatFinish(status, args),
+    onError: (error) =>
+      handleChatError(error, args, queryClient, setPermissionMode),
   });
 }
 

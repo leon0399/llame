@@ -61,6 +61,7 @@ export type TurnUsage = {
   reasoningTokens?: number;
   modelId?: string;
   effort?: string;
+  permissionMode?: "bypass";
   latencyMs?: number;
   costUsd?: number | null;
   status?: string;
@@ -100,6 +101,7 @@ type RawTurnUsage = {
   reasoningTokens?: unknown;
   modelId?: unknown;
   effort?: unknown;
+  permissionMode?: unknown;
   latencyMs?: unknown;
   costUsd?: unknown;
   status?: unknown;
@@ -127,6 +129,8 @@ export function parseTurnUsage(metadata: unknown): TurnUsage | null {
     reasoningTokens: num(u.reasoningTokens),
     modelId: isString(u.modelId) ? u.modelId : undefined,
     effort: isString(u.effort) ? u.effort : undefined,
+    permissionMode:
+      u.permissionMode === "bypass" ? ("bypass" as const) : undefined,
     latencyMs: num(u.latencyMs),
     costUsd: u.costUsd === null ? null : num(u.costUsd),
     status: isString(u.status) ? u.status : undefined,
@@ -302,6 +306,7 @@ function buildBadgeText(
       label,
       ctx.modelName,
       ctx.effortDisplay ?? null,
+      usage.permissionMode === "bypass" ? "Bypass" : null,
       usage.latencyMs !== undefined ? formatLatency(usage.latencyMs) : null,
       ctx.lowerBoundPrefix !== "" ? totalTokensText : null,
       badgeCostText,
@@ -407,6 +412,9 @@ function buildCostSection(
   if (ctx.effortDisplay !== undefined) {
     rows.push({ label: "at effort", value: ctx.effortDisplay });
   }
+  if (usage.permissionMode === "bypass") {
+    rows.push({ label: "permission mode", value: "Bypass" });
+  }
   if (ctx.totalTokensText !== undefined) {
     rows.push({ label: "Total tokens", value: ctx.totalTokensText });
   }
@@ -472,11 +480,12 @@ function UsageSectionColumn({ section }: { section: UsageSection }) {
             "flex items-center justify-between gap-4.5 text-xs",
             // Subset and qualifier rows sit beneath the row they qualify:
             // cached input and cache writes beneath Input, reasoning beneath
-            // Output, effort beneath Model.
+            // Output, effort and permission mode beneath Model.
             (row.label === "of which cached" ||
               row.label === "of which cache write" ||
               row.label === "of which reasoning" ||
-              row.label === "at effort") &&
+              row.label === "at effort" ||
+              row.label === "permission mode") &&
               "pl-3.5",
           )}
         >

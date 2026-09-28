@@ -2,6 +2,8 @@
 
 import { useState, createContext, useContext } from "react";
 
+export type PermissionMode = "default" | "bypass";
+
 export interface ChatContextType {
   // `undefined` = no model chosen yet (models still loading / none available).
   // The send path requires a concrete `string`, so the compiler forces callers
@@ -13,6 +15,8 @@ export interface ChatContextType {
   // the api apply the model's own default.
   selectedEffort: string | undefined;
   setSelectedEffort: (effort: string | undefined) => void;
+  getPermissionMode: (chatId: string) => PermissionMode;
+  setPermissionMode: (chatId: string, mode: PermissionMode) => void;
 }
 
 const ChatContext = createContext<ChatContextType>({
@@ -24,6 +28,10 @@ const ChatContext = createContext<ChatContextType>({
   setSelectedEffort: () => {
     throw new Error("setSelectedEffort is not implemented");
   },
+  getPermissionMode: () => "default",
+  setPermissionMode: () => {
+    throw new Error("setPermissionMode is not implemented");
+  },
 });
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
@@ -33,6 +41,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [selectedEffort, setSelectedEffort] = useState<string | undefined>(
     undefined,
   );
+  const [permissionModes, setPermissionModes] = useState<
+    Record<string, PermissionMode>
+  >({});
+
+  const getPermissionMode = (chatId: string): PermissionMode =>
+    permissionModes[chatId] ?? "default";
+  const setPermissionMode = (chatId: string, mode: PermissionMode): void => {
+    setPermissionModes((current) => ({ ...current, [chatId]: mode }));
+  };
 
   return (
     <ChatContext.Provider
@@ -41,6 +58,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setSelectedModel,
         selectedEffort,
         setSelectedEffort,
+        getPermissionMode,
+        setPermissionMode,
       }}
     >
       {children}
