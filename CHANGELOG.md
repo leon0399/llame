@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-28
 
+- Native GitHub issue and pull-request reads render complete, paged thread
+  views through the configured `github` web adapter, with partial sections and
+  rate-limit notes when secondary requests fail
+  ([#939](https://github.com/leon0399/llame/issues/939)).
+
 - Native web reads gain an ordered, opt-in adapter stage between source
   admission and the generic ladder, and the first adapter: an operator-declared
   `rewrite` that fetches a claimed URL from one validated origin and renders it

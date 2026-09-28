@@ -38,6 +38,7 @@ import {
   InterpolationError,
   interpolateString,
   interpolateStringWithSubstitutions,
+  WHOLE_VALUE_TOKEN_PATTERN,
 } from '@workspace/config-interpolation';
 import { createModelPromptLoader } from './prompt-loader';
 import { compileRegexMatcher } from '../tools/permissions/matcher';
@@ -200,7 +201,7 @@ function resolveToolsConfig(
     maxStepsPerRun: resolveToolNumber(raw, 'maxStepsPerRun', env),
     callTimeoutSeconds: resolveToolNumber(raw, 'callTimeoutSeconds', env),
     promptFiles: resolveToolPromptFiles(raw),
-    webAdapters: resolveWebAdaptersConfig(raw),
+    webAdapters: resolveWebAdaptersConfig(raw, env),
   };
   if (nativeExecutorId) tools.nativeExecutorId = nativeExecutorId;
   return tools;
@@ -208,6 +209,7 @@ function resolveToolsConfig(
 
 function resolveWebAdaptersConfig(
   raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
 ): ReadonlyArray<WebAdapterConfig> {
   const value = raw?.tools?.webAdapters;
   if (value === undefined) return BUILT_IN_DEFAULTS.tools.webAdapters;
@@ -215,7 +217,7 @@ function resolveWebAdaptersConfig(
   const resolved = new Array<WebAdapterConfig>();
   const seenIds = new Set<string>();
   for (const entry of value) {
-    resolved.push(resolveWebAdapterEntry(entry, seenIds));
+    resolved.push(resolveWebAdapterEntry(entry, seenIds, env));
   }
   return resolved;
 }
@@ -223,6 +225,7 @@ function resolveWebAdaptersConfig(
 function resolveWebAdapterEntry(
   value: RawWebAdapterEntry,
   seenIds: Set<string>,
+  env: NodeJS.ProcessEnv,
 ): WebAdapterConfig {
   const { id } = value;
   const entryPath = `tools.webAdapters[${id}]`;
@@ -231,6 +234,13 @@ function resolveWebAdapterEntry(
     throw new InstanceConfigError(`${entryPath}.id: duplicate adapter id`);
   }
   seenIds.add(id);
+
+  if (value.use === 'github') {
+    const token = resolveGithubToken(value.token, `${entryPath}.token`, env);
+    return token === undefined
+      ? { id, use: 'github' }
+      : { id, use: 'github', token };
+  }
 
   const hosts = resolveWebAdapterHosts(value.hosts, entryPath);
   const pathPattern = resolveWebAdapterPathPattern(
@@ -242,6 +252,26 @@ function resolveWebAdapterEntry(
     return { id, use: 'rewrite', hosts, target };
   }
   return { id, use: 'rewrite', hosts, pathPattern, target };
+}
+
+function resolveGithubToken(
+  token: string | undefined,
+  configPath: string,
+  env: NodeJS.ProcessEnv,
+): string | undefined {
+  if (token === undefined) return undefined;
+  if (!WHOLE_VALUE_TOKEN_PATTERN.test(token)) {
+    throw new InstanceConfigError(
+      `${configPath}: must be a whole-value {env:}/{path:} token`,
+    );
+  }
+  const resolved = resolveInterpolatedString(token, configPath, env).trim();
+  if (resolved === '') {
+    throw new InstanceConfigError(
+      `${configPath}: must resolve to a nonblank string`,
+    );
+  }
+  return resolved;
 }
 
 function assertAdapterFieldLiteral(value: string, configPath: string): void {

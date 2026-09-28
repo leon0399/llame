@@ -34,9 +34,22 @@ export type WebResponse = {
   readonly link?: string;
 };
 
+export type WebRequestInit = {
+  /** Replaces the default Accept header for this request chain. */
+  readonly accept?: string;
+  /** Authorization is sent only to this origin and is dropped after a cross-origin hop. */
+  readonly authorization?: { readonly origin: string; readonly value: string };
+};
+
 export type WebFetchFailure = {
   readonly type: string;
   readonly message: string;
+  readonly httpStatus?: number;
+  readonly rateLimit?: {
+    readonly remaining?: string;
+    readonly reset?: string;
+    readonly retryAfter?: string;
+  };
   /** A refused hop's locator, origin and path only, bounded and stripped;
    *  present on `permission_denied` and nothing else. */
   readonly rejectedUrl?: string;
@@ -77,7 +90,10 @@ export type WebFetchOptions = {
  */
 export type WebFetchSession = {
   /** Fetches one locator, following its redirects, inside the call's budget. */
-  readonly fetch: (url: string) => Promise<WebResponse | WebFetchFailure>;
+  readonly fetch: (
+    url: string,
+    init?: WebRequestInit,
+  ) => Promise<WebResponse | WebFetchFailure>;
   /** Releases the deadline, caller listener, and per-request agents. */
   readonly dispose: () => void;
 };
@@ -164,9 +180,10 @@ async function readDocumentResponse(
   response: UndiciResponse,
   locator: string,
   deadline: CallDeadline,
+  init?: WebRequestInit,
 ): Promise<WebResponse | WebFetchFailure> {
   const contentType = contentTypeOf(response.headers.get('content-type'));
-  const refusal = await refusalFor(response, contentType);
+  const refusal = await refusalFor(response, contentType, init);
   if (refusal !== undefined) return refusal;
   const body = await readCappedBody(response, deadline);
   if (body.kind === 'failure') return body.failure;
@@ -282,21 +299,44 @@ function contentLengthOf(headers: UndiciHeaders): number | undefined {
   return Number(declared);
 }
 
+function boundedHeader(
+  headers: UndiciHeaders,
+  name: string,
+): string | undefined {
+  const value = headers.get(name);
+  if (value === null || value === '') return undefined;
+  return boundedEcho(value);
+}
+
+function rateLimitOf(headers: UndiciHeaders): WebFetchFailure['rateLimit'] {
+  const remaining = boundedHeader(headers, 'x-ratelimit-remaining');
+  const reset = boundedHeader(headers, 'x-ratelimit-reset');
+  const retryAfter = boundedHeader(headers, 'retry-after');
+  return {
+    ...(remaining !== undefined && { remaining }),
+    ...(reset !== undefined && { reset }),
+    ...(retryAfter !== undefined && { retryAfter }),
+  };
+}
+
 function statusFailure(
   status: number,
   headers: UndiciHeaders,
+  init?: WebRequestInit,
 ): WebFetchFailure {
   const retryAfter = status === 429 ? headers.get('retry-after') : null;
-  if (retryAfter === null || retryAfter === '') {
-    return {
-      type: 'http_status',
-      message: `The server answered HTTP ${status}.`,
-    };
-  }
-  return {
-    type: 'http_status',
-    message: `The server answered HTTP ${status}; retry after ${boundedEcho(retryAfter)}.`,
-  };
+  const failure: WebFetchFailure =
+    retryAfter === null || retryAfter === ''
+      ? {
+          type: 'http_status',
+          message: `The server answered HTTP ${status}.`,
+        }
+      : {
+          type: 'http_status',
+          message: `The server answered HTTP ${status}; retry after ${boundedEcho(retryAfter)}.`,
+        };
+  if (init === undefined) return failure;
+  return { ...failure, httpStatus: status, rateLimit: rateLimitOf(headers) };
 }
 
 async function cancelBody(response: UndiciResponse): Promise<void> {
@@ -310,10 +350,11 @@ async function cancelBody(response: UndiciResponse): Promise<void> {
 async function refusalFor(
   response: UndiciResponse,
   contentType: ContentType,
+  init?: WebRequestInit,
 ): Promise<WebFetchFailure | undefined> {
   if (!response.ok) {
     await cancelBody(response);
-    return statusFailure(response.status, response.headers);
+    return statusFailure(response.status, response.headers, init);
   }
   if (!TEXT_MEDIA_TYPE.test(contentType.mediaType)) {
     await cancelBody(response);
@@ -449,12 +490,78 @@ export function createWebFetchSession(
   };
   const connections = createConnectionPlanner(deps);
   return {
-    fetch: (url) => fetchLocator(url, { options, deps, budget, connections }),
+    fetch: (url, init) =>
+      fetchLocator(url, { options, deps, budget, connections }, init),
     dispose: () => {
       budget.deadline.dispose();
       connections.dispose();
     },
   };
+}
+
+function withoutAuthorization(init: WebRequestInit): WebRequestInit {
+  return init.accept === undefined ? {} : { accept: init.accept };
+}
+
+function hasMatchingOrigin(
+  url: string,
+  authorization: NonNullable<WebRequestInit['authorization']>,
+): boolean {
+  try {
+    return new URL(url).origin === new URL(authorization.origin).origin;
+  } catch {
+    return false;
+  }
+}
+
+type AuthorizationState = {
+  readonly init?: WebRequestInit;
+  currentOrigin: string;
+  allowed: boolean;
+  requestInit?: WebRequestInit;
+};
+
+function createAuthorizationState(
+  url: string,
+  init: WebRequestInit | undefined,
+): AuthorizationState {
+  const allowed =
+    init?.authorization !== undefined &&
+    hasMatchingOrigin(url, init.authorization);
+  return {
+    init,
+    currentOrigin: new URL(url).origin,
+    allowed,
+    requestInit:
+      init === undefined || allowed ? init : withoutAuthorization(init),
+  };
+}
+
+function advanceAuthorization(
+  state: AuthorizationState,
+  nextLocator: string,
+): void {
+  const nextOrigin = new URL(nextLocator).origin;
+  if (state.allowed && nextOrigin !== state.currentOrigin) {
+    state.allowed = false;
+    if (state.init !== undefined) {
+      state.requestInit = withoutAuthorization(state.init);
+    }
+  }
+  state.currentOrigin = nextOrigin;
+}
+
+function redactAuthorization(
+  failure: WebFetchFailure,
+  init: WebRequestInit | undefined,
+): WebFetchFailure {
+  const value = init?.authorization?.value;
+  if (value === undefined || value === '') return failure;
+  let message = failure.message;
+  for (const part of value.split(/\s+/u)) {
+    if (part !== '') message = message.replaceAll(part, '[redacted]');
+  }
+  return message === failure.message ? failure : { ...failure, message };
 }
 
 /** Fetches one locator and the hops it answers with. A redirect status is
@@ -464,30 +571,40 @@ export function createWebFetchSession(
 async function fetchLocator(
   url: string,
   context: FetchLocatorContext,
+  init?: WebRequestInit,
 ): Promise<WebResponse | WebFetchFailure> {
   let locator = url;
+  const authorization = createAuthorizationState(url, init);
   for (;;) {
     const outcome = await context.connections.request(
       locator,
       context.options,
       context.budget.deadline,
+      authorization.requestInit,
     );
-    if (outcome.kind === 'failure') return outcome.failure;
+    if (outcome.kind === 'failure')
+      return redactAuthorization(outcome.failure, init);
     if (outcome.kind === 'address_refused') {
       return addressRefusal(url, outcome.locator);
     }
     const response = outcome.response;
-    if (REDIRECT_STATUSES.includes(response.status)) {
-      const hop = await followRedirect(
+    if (!REDIRECT_STATUSES.includes(response.status)) {
+      const result = await readDocumentResponse(
         response,
         locator,
-        context.deps,
-        context.budget,
+        context.budget.deadline,
+        authorization.requestInit,
       );
-      if ('failure' in hop) return hop.failure;
-      locator = hop.next;
-      continue;
+      return 'type' in result ? redactAuthorization(result, init) : result;
     }
-    return readDocumentResponse(response, locator, context.budget.deadline);
+    const hop = await followRedirect(
+      response,
+      locator,
+      context.deps,
+      context.budget,
+    );
+    if ('failure' in hop) return redactAuthorization(hop.failure, init);
+    advanceAuthorization(authorization, hop.next);
+    locator = hop.next;
   }
 }

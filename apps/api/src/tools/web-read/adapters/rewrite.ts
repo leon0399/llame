@@ -1,4 +1,4 @@
-import { type WebAdapterConfig } from '../../../instance-config/llame-config';
+import { type RewriteWebAdapterConfig } from '../../../instance-config/llame-config';
 import { compileRegexMatcher } from '../../permissions/matcher';
 import type { WebFetchFailure } from '../http-client';
 import {
@@ -16,7 +16,9 @@ import {
 import { renderWebDocument } from '../pipeline';
 
 /** Creates one validated operator rewrite route. */
-export function createRewriteAdapter(config: WebAdapterConfig): WebAdapter {
+export function createRewriteAdapter(
+  config: RewriteWebAdapterConfig,
+): WebAdapter {
   const target = parseRewriteTarget(config.target);
   if ('error' in target) {
     throw new Error(`Invalid rewrite target for adapter "${config.id}".`);

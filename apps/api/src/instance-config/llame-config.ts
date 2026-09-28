@@ -375,14 +375,20 @@ export type RawModelEntry = {
  * leaf with its own runtime check. Extending `Record<string, unknown>` keeps
  * this assignable everywhere a plain parsed-JSON record is still expected.
  */
-/** The still-uninterpolated rewrite adapter entry once schema-validated. */
-export type RawWebAdapterEntry = {
-  id: string;
-  use: 'rewrite';
-  hosts: Array<string>;
-  pathPattern?: string;
-  target: string;
-};
+/** The still-uninterpolated web adapter entry once schema-validated. */
+export type RawWebAdapterEntry =
+  | {
+      id: string;
+      use: 'rewrite';
+      hosts: Array<string>;
+      pathPattern?: string;
+      target: string;
+    }
+  | {
+      id: string;
+      use: 'github';
+      token?: string;
+    };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
 export type RawToolsConfig = {
@@ -412,7 +418,13 @@ export type RewriteWebAdapterConfig = {
   readonly target: string;
 };
 
-export type WebAdapterConfig = RewriteWebAdapterConfig;
+export type GithubWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'github';
+  readonly token?: string;
+};
+
+export type WebAdapterConfig = RewriteWebAdapterConfig | GithubWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

@@ -198,6 +198,113 @@ The runbook example entry is:
 }
 ```
 
+### GitHub adapter
+
+Add a `github` entry to `tools.webAdapters` to render canonical GitHub
+issues and pull requests through GitHub's API:
+
+```jsonc
+{
+  "id": "github",
+  "use": "github",
+  "token": "{env:GITHUB_READ_TOKEN}",
+}
+```
+
+`token` is optional, but when present it MUST be a whole-value interpolation
+token such as `{env:GITHUB_READ_TOKEN}`; a literal token is rejected at boot.
+Without a token, the adapter sends no `Authorization` header and private
+repositories are not readable. A configured token is instance-wide authority:
+every owner on the instance can address every repository visible to that token.
+It is the operator's attestation, not tenant isolation. Use a fine-grained,
+read-only token with the smallest repository scope that serves the instance.
+
+The adapter claims only these canonical HTTPS shapes (query and fragment do not
+change the claim):
+
+- `https://github.com/{owner}/{repo}/issues/{number}`
+- `https://github.com/{owner}/{repo}/pull/{number}`
+
+The owner is an alphanumeric name with up to 39 characters and hyphens after
+the first character; the repository is 1-100 characters from
+`A-Z`, `a-z`, `0-9`, `.`, `_`, and `-` (but not `.` or `..`); and the number is
+1-10 decimal digits with no leading zero. The adapter does not claim
+`/pull/{number}.diff`, `/pull/{number}.patch`, `/pull/{number}/files`,
+`/pull/{number}/commits`, or `/pull/{number}/checks`; `/issues` and `/pulls`
+list URLs; Actions, Projects, Discussions, search results, or gists;
+`raw.githubusercontent.com`; Enterprise hosts; or any write URL. Those
+locators stay on the generic ladder without an adapter request or note.
+
+An issue loads its primary record and every comments page before rendering:
+`# Issue #N: title`, metadata for `State`, optional `State reason`, `Author`,
+`Created`, `Updated`, `Labels`, and `URL`, then `## Body` and
+`## Comments (n)`. Each comment is a flat `### author · timestamp` item with
+`ID`, `URL`, and its body. A pull request similarly loads every page of
+comments, reviews, review comments, changed files, and check runs. Its metadata
+has `State`, `Draft`, `Author`, `Base`, `Head`, latest-per-reviewer `Reviews`,
+returned `Merge state`, `Checks`, `Created`, `Updated`, `Labels`, `URL`, and
+`Diff`, followed by `## Body`, `## Files (n)`, `## Reviews (n)`,
+`## Review Comments (n)`, and `## Comments (n)`. Files show status and
+added/deleted counts; review comments also show `Reply to` (when
+present), `Location`, and `Side`. Items remain flat at `###` depth, and no
+patch text or event timeline is included.
+
+For example, an abbreviated pull-request view looks like:
+
+```text
+# Pull Request #12: Improve parser
+
+State: open
+Draft: false
+Reviews: 2 approved, 1 changes requested (latest per reviewer)
+Merge state: clean
+Checks: 14 passed, 1 failed (lint), 2 pending
+...
+## Files (3)
+- src/parser.ts (modified, +12 -4)
+...
+## Review Comments (1)
+### alice · 2026-09-28T10:00:00Z
+ID: 7
+Location: src/parser.ts:42
+URL: https://github.com/o/r/pull/12#discussion_r7
+...
+```
+
+All lists are loaded sequentially in 100-item pages before rendering, subject
+to the shared call deadline and document bound. Check runs use
+`filter=latest&per_page=100` and load until GitHub's `total_count`; counts cover
+the endpoint's at-most-1000 most recent check suites. The rendered document is
+paged with the ordinary `:N-M` selector, and each read refetches it. `Checks:`
+reports passed, failed (with failing names), and pending counts. With no runs
+it reports `Checks: none`; if the first check-runs page fails, lacks a numeric
+`total_count`, or cannot be parsed, it reports `Checks: unavailable`. If a
+later page does not arrive, it reports loaded counts plus `N not loaded`.
+
+A failed secondary page keeps the sections already loaded and adds an omission
+note such as `review comments omitted: rate_limit`. A `rate_limit` is a 429,
+or a 403 with `x-ratelimit-remaining: 0` or `retry-after`; when
+`x-ratelimit-reset` is available, the note also says
+`resets <ISO-8601>`. The section is one of `comments`, `reviews`, or
+`review comments`; it can also be `files` or `check runs`. Primary failures
+fall through to the generic ladder without exposing the response body, and
+rate limits are not retried.
+
+The GitHub adapter's API locator is a separately admitted derived locator. With
+a domain allowlist, add a `read` clause for the regex
+`^https://api\.github\.com/` (JSONC spelling:
+`^https://api\\.github\\.com/`) or the adapter falls through with
+`permission`; allowing only the source `github.com` is not enough. The adapter
+never requests `patch-diff.githubusercontent.com`; allow that host only when
+separately reading the `Diff:` URL through the generic ladder. A token is sent
+only to `api.github.com`, stripped on a cross-origin redirect, and never sent
+to a source host or rewrite target.
+
+Unauthenticated GitHub permits 60 requests per hour per egress IP, shared by
+every owner using that egress. Configure a token for long threads or when the
+instance shares an egress address with other users; paging a long thread
+otherwise spends the same shared quota on every page.
+
 Each adapter target is a derived locator admitted independently by the `read`
 group before I/O as kind `adapter`; its redirect hops are admitted under the
 same rules.

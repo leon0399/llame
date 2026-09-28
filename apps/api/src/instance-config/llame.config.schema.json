@@ -565,38 +565,65 @@
           "type": "array",
           "description": "Ordered, explicit replacement list of operator-configured web adapters. Absent and an empty array both enable no adapters; entries are tried in file order.",
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "description": "One operator-configured rewrite adapter. Its target is a literal http(s) origin plus a path/query template; no request headers or secret fields are accepted.",
-            "required": ["id", "use", "hosts", "target"],
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 56,
-                "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One operator-configured rewrite adapter. Its target is a literal http(s) origin plus a path/query template; no request headers or secret fields are accepted.",
+                "required": ["id", "use", "hosts", "target"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["rewrite"],
+                    "description": "Adapter implementation. This layer supports only the generic rewrite route."
+                  },
+                  "hosts": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "type": "string", "minLength": 1 },
+                    "description": "Exact canonical source hostnames (lowercase, without a port)."
+                  },
+                  "pathPattern": {
+                    "type": "string",
+                    "description": "Optional bounded RE2-compatible regular expression searched against the canonical source path."
+                  },
+                  "target": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Literal http(s) origin plus a path/query template using only {path} and {query} placeholders."
+                  }
+                }
               },
-              "use": {
-                "type": "string",
-                "enum": ["rewrite"],
-                "description": "Adapter implementation. This layer supports only the generic rewrite route."
-              },
-              "hosts": {
-                "type": "array",
-                "minItems": 1,
-                "items": { "type": "string", "minLength": 1 },
-                "description": "Exact canonical source hostnames (lowercase, without a port)."
-              },
-              "pathPattern": {
-                "type": "string",
-                "description": "Optional bounded RE2-compatible regular expression searched against the canonical source path."
-              },
-              "target": {
-                "type": "string",
-                "minLength": 1,
-                "description": "Literal http(s) origin plus a path/query template using only {path} and {query} placeholders."
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native GitHub adapter. It reads issue and pull request threads from api.github.com; an optional token must be a whole-value {env:}/{path:} interpolation token.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["github"],
+                    "description": "Adapter implementation for GitHub issue and pull request URLs."
+                  },
+                  "token": {
+                    "type": "string",
+                    "description": "Optional GitHub credential. Boot accepts only a whole-value {env:}/{path:} interpolation token."
+                  }
+                }
               }
-            }
+            ]
           }
         }
       }

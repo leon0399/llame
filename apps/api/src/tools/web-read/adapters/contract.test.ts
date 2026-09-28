@@ -12,6 +12,7 @@ import {
   classifyFetchFailure,
   dispatchWebAdapters,
   isFatalAdapterFailure,
+  omissionNote,
   MAX_ADAPTER_DOCUMENT_BYTES,
   type WebAdapter,
   type WebAdapterFailure,
@@ -313,6 +314,33 @@ describe('classifyFetchFailure', () => {
       'rate_limit',
     ],
     [
+      {
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { remaining: '0' },
+      },
+      'rate_limit',
+    ],
+    [
+      {
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { retryAfter: '120' },
+      },
+      'rate_limit',
+    ],
+    [
+      {
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { reset: '1700000000' },
+      },
+      'status',
+    ],
+    [
       { type: 'http_status', message: 'The server answered HTTP 500.' },
       'status',
     ],
@@ -323,6 +351,31 @@ describe('classifyFetchFailure', () => {
 
   it.each(cases)('maps %s to %s', (failure, expected) => {
     expect(classifyFetchFailure(failure)).toBe(expected);
+  });
+});
+describe('omissionNote', () => {
+  it('formats a numeric rate-limit reset as ISO time', () => {
+    expect(
+      omissionNote('review comments', {
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { remaining: '0', reset: '1700000000' },
+      }),
+    ).toBe(
+      'review comments omitted: rate_limit, resets 2023-11-14T22:13:20.000Z',
+    );
+  });
+
+  it('omits reset text when no numeric reset is available', () => {
+    expect(
+      omissionNote('comments', {
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { remaining: '0' },
+      }),
+    ).toBe('comments omitted: rate_limit');
   });
 });
 
