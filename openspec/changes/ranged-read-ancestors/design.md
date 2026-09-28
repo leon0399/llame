@@ -117,10 +117,14 @@ the passage, and deduplicates every source line against all earlier emitted
 passage and chain lines. It preserves source order. `requestedRanges` remains
 the pre-expansion request; `shownRanges` includes context and ancestor lines.
 If a later passage's ancestor heading is not already shown, it is inserted
-immediately before that passage. A heading that encloses a later requested
-start but lies before an earlier passage's requested start also encloses the
-earlier start, so an unshown later ancestor cannot need to appear before an
-earlier passage.
+immediately before that passage. Only a heading's lines before the passage's
+first shown line are emitted as its chain; lines at or after it are the
+window's own lines or follow it. A heading that encloses a later requested
+start and lies before an earlier passage usually encloses the earlier start as
+well, but the earlier passage may not have emitted it (its chain was trimmed,
+or a later line settled the heading only after that passage), so a chain line
+that would precede content already emitted is skipped rather than emitted out
+of source order.
 
 The existing multi-range walk is shared by file and in-memory sources and
 already owns sorted/merged intervals, whole-range rollback, the line ceiling,

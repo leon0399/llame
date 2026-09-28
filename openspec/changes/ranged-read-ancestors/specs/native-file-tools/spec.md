@@ -355,7 +355,9 @@ ancestor lines and the ordinary context-expanded window, merging adjacent
 intervals. A range with no emitted ancestor SHALL retain the singular result
 shape. Comma-separated reads SHALL apply this rule independently to every
 merged passage using that passage's first requested line, deduplicate by source
-line, and keep the content in source order.
+line, and keep the content in source order: a chain emits only heading lines
+before its passage's first shown line, and a chain line that would precede
+content already emitted SHALL be skipped.
 
 Ancestor lines SHALL count against the shared 2,000-line ceiling and serialized
 result bound. If a passage's complete chain plus all mandatory output through
