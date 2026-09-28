@@ -649,8 +649,8 @@ printed. Heading text SHALL be source-derived and untrusted.
 #### Scenario: Container headings are excluded
 
 - **WHEN** `- # in list` and `> ## in quote` precede `# Real` at line 3 of a three-line Markdown file
-- **THEN** the outline contains only `3: # Real`
-- **AND** no entry is produced for the list-item or blockquote heading
+- **THEN** the outline contains `1: - # in list` as the root excerpt, because a list item is a content line, and `3: # Real` as the only heading entry
+- **AND** no heading entry is produced for the list-item or blockquote heading
 
 #### Scenario: A thematic break is not a setext underline
 
@@ -720,13 +720,15 @@ no closed line-one block is ordinary Markdown.
 
 ### Requirement: Outline scope prepends the direct ancestors
 
-`:outline:N-M` (and `:outline:N` for `N-N`, `:outline:N+K` for `N` through
-`N+K`) SHALL restrict the emitted lines to those whose source line lies in the
+`:outline:N-M` (and `:outline:N` for `N-N`, `:outline:N+K` for the `K` lines
+from `N`, as ordinary `:N+K` selects) SHALL restrict the emitted lines to those whose source line lies in the
 scope, and SHALL prepend the direct ancestor chain of source line `N`: the
 root headings whose sections contain `N`, from the shallowest to the deepest,
 each rendered as an in-scope heading is (its heading lines and its excerpt
 line) restricted to lines before `N`, because lines from `N` on follow the
 in-scope rule, and each omitted when its own lines already lie in scope.
+The ancestor chain is context: when it does not fit the result bounds on its
+own, it SHALL be omitted whole, so a continuation read always advances.
 Frontmatter lines and the
 root excerpt appear only when their source lines lie in scope. A scope that
 begins past the source's last line SHALL fail as an ordinary range past the

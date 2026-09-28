@@ -329,7 +329,9 @@ lines in the scope, preceded by the direct ancestor chain of line `N`: the
 root headings whose sections contain `N`, shallowest first, rendered like
 in-scope headings but restricted to their lines before `N` (a heading line or
 excerpt at or after `N` follows the in-scope rule, which keeps the output in
-source order), each omitted when already in scope. Frontmatter and the
+source order), each omitted when already in scope. A chain that does not
+fit the result bounds on its own is omitted whole, because a continuation
+read that re-emitted it would never advance. Frontmatter and the
 root excerpt appear only when in scope. A scope starting past the last line
 fails as an ordinary range past the end does. This is the query the later
 ancestor-context change makes on ranged reads; it is built and tested here
