@@ -48,7 +48,7 @@ initialized before the scaffold was written.
 - [x] 1.7 Surface every changed decision from the review round to Leo in the proposal PR body and rerun strict validation, Product Markdown lint, and the canonical delta proof on the revised artifacts; the GitHub-bot review of the ready proposal (1.10) serves as the independent adversarial pass
 - [x] 1.8 Complete Leo's explicit review and approval of the published proposal revision; record the approved revision and any rejected findings without treating local readiness as approval
 - [x] 1.9 After publication authorization, publish the proposal draft with `$gh-stack`, self-review the actual parent-relative PR diff, and mark it ready only after the proposal evidence and accepted review fixes are current
-- [ ] 1.10 After the proposal is ready, complete the GitHub-bot review and current-head CI loop on the published PR, resolve every actionable finding, and verify the expected approval before creating `ranged-read-ancestors/reader`
+- [x] 1.10 After the proposal is ready, complete the GitHub-bot review and current-head CI loop on the published PR, resolve every actionable finding, and verify the expected approval before creating `ranged-read-ancestors/reader`
 
 ## 2. Reader layer implementation
 
