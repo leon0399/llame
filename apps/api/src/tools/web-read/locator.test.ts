@@ -87,6 +87,40 @@ describe('parseWebLocator', () => {
     });
   });
 
+  it('recognizes outline selectors before the numeric fallback', () => {
+    expect(parseWebLocator('https://h/doc.md:outline')).toEqual({
+      url: 'https://h/doc.md',
+      selector: 'outline',
+    });
+    expect(parseWebLocator('https://h:88/doc.md:outline:5-9')).toEqual({
+      url: 'https://h:88/doc.md',
+      selector: 'outline:5-9',
+    });
+    const result = parseWebLocator('https://h/doc.md:outline:1,3');
+    if (!('type' in result)) throw new Error('expected selector failure');
+    expect(result.type).toBe('invalid_selector');
+    expect(result.message).toEqual(expect.any(String));
+  });
+
+  it('keeps raw-first precedence for an outline-looking path', () => {
+    expect(parseWebLocator('https://h/doc.md:outline:raw')).toEqual({
+      url: 'https://h/doc.md:outline',
+      selector: 'raw',
+    });
+  });
+
+  it('keeps outline text in queries and fragments out of selectors', () => {
+    expect(parseWebLocator('https://h:88/doc.md?value=:outline')).toEqual({
+      url: 'https://h:88/doc.md?value=:outline',
+    });
+    expect(parseWebLocator('https://h:88/doc.md#value=:outline')).toEqual({
+      url: 'https://h:88/doc.md',
+    });
+    expect(parseWebLocator('https://h:88')).toEqual({
+      url: 'https://h:88/',
+    });
+  });
+
   it('keeps a query colon out of the selector grammar and cuts a fragment', () => {
     // Every query locator here is its own serialization, so each one is
     // fetched as written: the colon is URL text, never a selector that

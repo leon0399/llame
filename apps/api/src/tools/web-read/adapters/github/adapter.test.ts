@@ -213,6 +213,7 @@ describe('GitHub thread adapter', () => {
     expect(outcome).toMatchObject({ kind: 'rendered' });
     if (outcome.kind === 'rendered') {
       expect(outcome.content).toContain('## Comments (230)');
+      expect(outcome.mediaType).toBe('text/markdown');
       expect(outcome.content).toContain('ID: 230');
       expect(outcome.content).toContain(
         'URL: https://github.com/acme/project/issues/12#issuecomment-230',

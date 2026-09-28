@@ -26,6 +26,7 @@ import {
   splitSourceLines,
 } from "./read";
 import type { MultiReadSuccess, SingleReadSuccess } from "./source-lines";
+import { OUTLINE_UNSUPPORTED_MESSAGE } from "./representations";
 import { measureNativeModelOutput } from "./serialization";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -269,6 +270,92 @@ describe("native source reads", () => {
       status: "success",
       kind: "directory",
       path: directory,
+    });
+  });
+
+  it("returns the deterministic outline for a Markdown file", async () => {
+    const lines = Array<string>(16).fill("");
+    lines[0] = "# Guide";
+    lines[2] = "Intro sentence.";
+    lines[4] = "## Install";
+    lines[6] = "```bash";
+    lines[8] = "```";
+    lines[11] = "## Use";
+    lines[13] = "### Flags";
+    lines[15] = "Flag text.";
+    await writeFile(join(directory, "guide.md"), `${lines.join("\n")}\n`);
+    const result = await readFile({
+      path: `${join(directory, "guide.md")}:outline`,
+    });
+    expect(result).toMatchObject({
+      status: "success",
+      kind: "file",
+      representation: "outline",
+      content:
+        "1: # Guide\n3: Intro sentence.\n5: ## Install\n7: ```bash\n12: ## Use\n14: ### Flags\n16: Flag text.\n",
+      requestedRange: { startLine: 1, endLine: 16 },
+      shownRange: { startLine: 1, endLine: 16 },
+      truncated: false,
+    });
+  });
+
+  it.each(["mdx", "txt", "json"])(
+    "rejects outline for a .%s source",
+    async (extension) => {
+      const sourcePath = join(directory, `source.${extension}`);
+      await writeFile(sourcePath, "# Heading\n");
+      expect(await readFile({ path: `${sourcePath}:outline` })).toEqual({
+        status: "error",
+        type: "invalid_selector",
+        message: OUTLINE_UNSUPPORTED_MESSAGE,
+      });
+    },
+  );
+
+  it("rejects outline for a directory", async () => {
+    expect(await readFile({ path: `${directory}:outline` })).toEqual({
+      status: "error",
+      type: "invalid_selector",
+      message: "The :outline member is not supported for directory reads.",
+    });
+  });
+
+  it("uses the resolved host extension for readResolvedFile outline", async () => {
+    const hostPath = join(directory, "SKILL.md");
+    await writeFile(hostPath, "# Skill\n");
+    const result = await readResolvedFile(hostPath, {
+      displayPath: join(directory, "skill"),
+      selector: "outline",
+    });
+    expect(result).toMatchObject({
+      status: "success",
+      path: join(directory, "skill"),
+      representation: "outline",
+      content: "1: # Skill\n",
+    });
+  });
+
+  it("leaves ordinary and raw reads unchanged for a Markdown source", async () => {
+    const sourcePath = join(directory, "same.md");
+    await writeFile(sourcePath, "# Heading\nbody\n");
+    expect(await readFile({ path: sourcePath })).toMatchObject({
+      representation: "text",
+      content: "1: # Heading\n2: body\n",
+    });
+    expect(await readFile({ path: `${sourcePath}:raw` })).toMatchObject({
+      representation: "raw",
+      content: "# Heading\nbody\n",
+    });
+  });
+
+  it("recognizes and cuts an oversized Markdown heading", async () => {
+    const sourcePath = join(directory, "large.md");
+    await writeFile(sourcePath, `# ${"x".repeat(MAX_RESULT_CODE_UNITS + 1)}\n`);
+    const result = await readFile({ path: `${sourcePath}:outline` });
+    expect(result).toMatchObject({
+      status: "success",
+      representation: "outline",
+      content: `1: # ${"x".repeat(118)}…\n`,
     });
   });
   it("reads a bounded range from a source larger than one MiB", async () => {

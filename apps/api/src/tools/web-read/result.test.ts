@@ -1,5 +1,6 @@
 import {
   measureNativeModelOutput,
+  OUTLINE_UNSUPPORTED_MESSAGE,
   renderCollectedDirectory,
   type DirectoryListingEntry,
 } from '@workspace/native-file-tools';
@@ -52,8 +53,8 @@ function oversizedDirectory() {
 }
 
 describe('buildWebReadResult', () => {
-  it('assembles the native read result with the web envelope', () => {
-    const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
+  it('assembles the native read result with the web envelope', async () => {
+    const result = await buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
       method: 'negotiated',
       content: '# Guide\n\nBody text\n',
     });
@@ -77,16 +78,20 @@ describe('buildWebReadResult', () => {
     expect(JSON.stringify(result)).not.toContain('text/markdown');
   });
 
-  it('matches the native directory renderer, including a selector', () => {
+  it('matches the native directory renderer, including a selector', async () => {
     const directory = {
       displayPath: DIRECTORY_URL,
       entries: directoryEntries,
     };
-    const full = buildWebReadResult({ url: DIRECTORY_URL }, DIRECTORY_URL, {
-      method: 'adapter',
-      content: '',
-      directory,
-    });
+    const full = await buildWebReadResult(
+      { url: DIRECTORY_URL },
+      DIRECTORY_URL,
+      {
+        method: 'adapter',
+        content: '',
+        directory,
+      },
+    );
     expect(full).toEqual({
       status: 'success',
       kind: 'directory',
@@ -125,7 +130,7 @@ describe('buildWebReadResult', () => {
     }
     expect(full.content).toContain('… 1 more');
 
-    const selected = buildWebReadResult(
+    const selected = await buildWebReadResult(
       { url: DIRECTORY_URL, selector: '1-1' },
       DIRECTORY_URL,
       { method: 'adapter', content: '', directory },
@@ -170,13 +175,13 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('rejects selectors unsupported for directory results', () => {
+  it('rejects selectors unsupported for directory results', async () => {
     const directory = {
       displayPath: DIRECTORY_URL,
       entries: directoryEntries,
     };
     expect(
-      buildWebReadResult(
+      await buildWebReadResult(
         { url: DIRECTORY_URL, selector: 'raw' },
         DIRECTORY_URL,
         { method: 'adapter', content: '', directory },
@@ -187,7 +192,7 @@ describe('buildWebReadResult', () => {
       message: 'The :raw selector is not supported for directory reads.',
     });
     expect(
-      buildWebReadResult(
+      await buildWebReadResult(
         { url: DIRECTORY_URL, selector: '1-2,4-5' },
         DIRECTORY_URL,
         { method: 'adapter', content: '', directory },
@@ -200,8 +205,8 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('counts directory lines when a selector is malformed', () => {
-    const result = buildWebReadResult(
+  it('counts directory lines when a selector is malformed', async () => {
+    const result = await buildWebReadResult(
       { url: DIRECTORY_URL, selector: '0' },
       DIRECTORY_URL,
       {
@@ -221,7 +226,7 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('applies a positive offset to a directory selector', () => {
+  it('applies a positive offset to a directory selector', async () => {
     const directory = {
       displayPath: DIRECTORY_URL,
       entries: ['a', 'b', 'c'].map((name) => ({
@@ -229,7 +234,7 @@ describe('buildWebReadResult', () => {
         kind: 'file' as const,
       })),
     };
-    const result = buildWebReadResult(
+    const result = await buildWebReadResult(
       { url: DIRECTORY_URL, selector: '2-2' },
       DIRECTORY_URL,
       { method: 'adapter', content: '', directory },
@@ -242,7 +247,7 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('applies a limit to the first directory selector', () => {
+  it('applies a limit to the first directory selector', async () => {
     const directory = {
       displayPath: DIRECTORY_URL,
       entries: ['a', 'b', 'c'].map((name) => ({
@@ -250,7 +255,7 @@ describe('buildWebReadResult', () => {
         kind: 'file' as const,
       })),
     };
-    const result = buildWebReadResult(
+    const result = await buildWebReadResult(
       { url: DIRECTORY_URL, selector: '1-1' },
       DIRECTORY_URL,
       { method: 'adapter', content: '', directory },
@@ -263,9 +268,9 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('returns an oversized directory failure without the web envelope', () => {
+  it('returns an oversized directory failure without the web envelope', async () => {
     expect(
-      buildWebReadResult({ url: DIRECTORY_URL }, DIRECTORY_URL, {
+      await buildWebReadResult({ url: DIRECTORY_URL }, DIRECTORY_URL, {
         method: 'adapter',
         content: '',
         directory: oversizedDirectory(),
@@ -278,13 +283,17 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('reports no rendered text when a large directory selector cannot render', () => {
+  it('reports no rendered text when a large directory selector cannot render', async () => {
     expect(
-      buildWebReadResult({ url: DIRECTORY_URL, selector: '0' }, DIRECTORY_URL, {
-        method: 'adapter',
-        content: '',
-        directory: oversizedDirectory(),
-      }),
+      await buildWebReadResult(
+        { url: DIRECTORY_URL, selector: '0' },
+        DIRECTORY_URL,
+        {
+          method: 'adapter',
+          content: '',
+          directory: oversizedDirectory(),
+        },
+      ),
     ).toEqual({
       status: 'error',
       type: 'invalid_selector',
@@ -292,8 +301,8 @@ describe('buildWebReadResult', () => {
         'The selector :0 selected no line of this page, which rendered no text.',
     });
   });
-  it('includes adapter provenance in the web envelope', () => {
-    const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
+  it('includes adapter provenance in the web envelope', async () => {
+    const result = await buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
       method: 'adapter',
       content: 'adapter body\n',
       adapter: {
@@ -312,9 +321,115 @@ describe('buildWebReadResult', () => {
       },
     });
   });
+  it('outlines Markdown while retaining web provenance', async () => {
+    const result = await buildWebReadResult(
+      { url: GUIDE_URL, selector: 'outline' },
+      'https://cdn.example.test/guide.md',
+      {
+        method: 'alternate',
+        content: '# Guide\n\nIntro\n\n## Details\n\nBody\n',
+        mediaType: 'text/markdown',
+        adapter: {
+          id: 'reader',
+          route: 'rewrite',
+          origin: 'https://reader.example.test',
+        },
+        notes: ['from adapter'],
+      },
+    );
 
-  it('reports the locator as path and the response as finalUrl', () => {
-    const result = buildWebReadResult(
+    expect(result).toMatchObject({
+      status: 'success',
+      representation: 'outline',
+      finalUrl: 'https://cdn.example.test/guide.md',
+      method: 'alternate',
+      adapter: {
+        id: 'reader',
+        route: 'rewrite',
+        origin: 'https://reader.example.test',
+      },
+      notes: ['from adapter'],
+    });
+    expect(result).toHaveProperty(
+      'content',
+      '1: # Guide\n3: Intro\n5: ## Details\n7: Body\n',
+    );
+    expect(result).not.toHaveProperty('mediaType');
+    expect(result).not.toHaveProperty('contentType');
+  });
+
+  it('rejects outline for unsupported web media', async () => {
+    const result = await buildWebReadResult(
+      { url: GUIDE_URL, selector: 'outline' },
+      GUIDE_URL,
+      {
+        method: 'text',
+        content: '{"key":"value"}\n',
+        mediaType: 'application/json',
+      },
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: OUTLINE_UNSUPPORTED_MESSAGE,
+    });
+  });
+
+  it('rejects outline for web directories', async () => {
+    const result = await buildWebReadResult(
+      { url: DIRECTORY_URL, selector: 'outline' },
+      DIRECTORY_URL,
+      {
+        method: 'adapter',
+        content: '',
+        directory: {
+          displayPath: DIRECTORY_URL,
+          entries: directoryEntries,
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'The :outline member is not supported for directory reads.',
+    });
+  });
+
+  it('rejects outline of a truncated adapter but keeps plain reads', async () => {
+    const render = {
+      method: 'adapter' as const,
+      content: '# Guide\n\nBody\n',
+      mediaType: 'text/markdown',
+      truncated: true,
+    };
+    const outline = await buildWebReadResult(
+      { url: GUIDE_URL, selector: 'outline' },
+      GUIDE_URL,
+      render,
+    );
+    const plain = await buildWebReadResult(
+      { url: GUIDE_URL },
+      GUIDE_URL,
+      render,
+    );
+
+    expect(outline).toEqual({
+      status: 'error',
+      type: 'representation_too_large',
+      message:
+        "The adapter document was cut at the web read's document bound, so an outline would omit structure; read it without :outline.",
+    });
+    expect(plain).toMatchObject({
+      status: 'success',
+      content: '1: # Guide\n2: \n3: Body\n',
+      method: 'adapter',
+    });
+  });
+
+  it('reports the locator as path and the response as finalUrl', async () => {
+    const result = await buildWebReadResult(
       { url: GUIDE_URL },
       'https://cdn.example.test/guide',
       { method: 'text', content: 'hello\n' },
@@ -326,9 +441,9 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('reports a winning probe’s finalUrl instead of the page’s', () => {
+  it('reports a winning probe’s finalUrl instead of the page’s', async () => {
     const probeUrl = 'https://cdn.example.test/guide.md';
-    const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
+    const result = await buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
       method: 'alternate',
       content: '# Guide\n\nFrom the probe.\n',
       finalUrl: probeUrl,
@@ -342,8 +457,8 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('applies a line selector to the rendered text', () => {
-    const result = buildWebReadResult(
+  it('applies a line selector to the rendered text', async () => {
+    const result = await buildWebReadResult(
       { url: GUIDE_URL, selector: '10-20' },
       GUIDE_URL,
       { method: 'readability', content: renderedLines(30) },
@@ -367,8 +482,8 @@ describe('buildWebReadResult', () => {
     );
   });
 
-  it('applies a comma selector to the rendered text', () => {
-    const result = buildWebReadResult(
+  it('applies a comma selector to the rendered text', async () => {
+    const result = await buildWebReadResult(
       { url: GUIDE_URL, selector: '4-5,7-8' },
       GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
@@ -391,8 +506,8 @@ describe('buildWebReadResult', () => {
     expect(result).not.toHaveProperty('shownRange');
   });
 
-  it('merges touching comma ranges into one requested range and block', () => {
-    const result = buildWebReadResult(
+  it('merges touching comma ranges into one requested range and block', async () => {
+    const result = await buildWebReadResult(
       { url: GUIDE_URL, selector: '4-5,6-7' },
       GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
@@ -405,8 +520,8 @@ describe('buildWebReadResult', () => {
     expect(result).toHaveProperty('content', readWindow(3, 8));
   });
 
-  it('clips a comma selector whose later range starts past EOF', () => {
-    const result = buildWebReadResult(
+  it('clips a comma selector whose later range starts past EOF', async () => {
+    const result = await buildWebReadResult(
       { url: GUIDE_URL, selector: '2-3,99-100' },
       GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
@@ -423,8 +538,8 @@ describe('buildWebReadResult', () => {
     expect(result).not.toHaveProperty('nextOffset');
   });
 
-  it('rolls a later comma range back when the render exhausts the bound', () => {
-    const result = buildWebReadResult(
+  it('rolls a later comma range back when the render exhausts the bound', async () => {
+    const result = await buildWebReadResult(
       { url: GUIDE_URL, selector: '1-200,400-500' },
       GUIDE_URL,
       { method: 'readability', content: renderedLines(600) },
@@ -440,8 +555,8 @@ describe('buildWebReadResult', () => {
     );
   });
 
-  it('returns raw comma ranges verbatim', () => {
-    const result = buildWebReadResult(
+  it('returns raw comma ranges verbatim', async () => {
+    const result = await buildWebReadResult(
       { url: GUIDE_URL, selector: 'raw:4-5,7-8' },
       GUIDE_URL,
       { method: 'readability', content: renderedLines(12) },
@@ -464,8 +579,8 @@ describe('buildWebReadResult', () => {
     );
   });
 
-  it('returns the raw body untouched for a :raw locator', () => {
-    const result = buildWebReadResult(
+  it('returns the raw body untouched for a :raw locator', async () => {
+    const result = await buildWebReadResult(
       { url: GUIDE_URL, selector: 'raw' },
       GUIDE_URL,
       { method: 'raw', content: '<p>a</p>\nmore\n' },
@@ -479,9 +594,9 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('reserves the envelope before the shared bound truncates the render', () => {
+  it('reserves the envelope before the shared bound truncates the render', async () => {
     const notes = ['The page could not be converted.'];
-    const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
+    const result = await buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
       method: 'readability',
       content: renderedLines(1200),
       notes,
@@ -503,8 +618,8 @@ describe('buildWebReadResult', () => {
     );
   });
 
-  it('omits notes when the render reports none', () => {
-    const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
+  it('omits notes when the render reports none', async () => {
+    const result = await buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
       method: 'text',
       content: '{}\n',
       notes: [],
@@ -512,11 +627,11 @@ describe('buildWebReadResult', () => {
     expect(result).not.toHaveProperty('notes');
   });
 
-  it('tells the model how long the render was when the selector missed', () => {
+  it('tells the model how long the render was when the selector missed', async () => {
     // A page's length is unknown until it is read, so the bare error type
     // left the model guessing at a second selector. The count it must select
     // within is the one fact the failure can supply.
-    const result = buildWebReadResult(
+    const result = await buildWebReadResult(
       { url: GUIDE_URL, selector: '5000-5010' },
       GUIDE_URL,
       { method: 'text', content: 'only one line\n' },
@@ -529,7 +644,7 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('propagates a failure that is not the reader’s own', () => {
+  it('propagates a failure that is not the reader’s own', async () => {
     // The catch maps the reader's own refusals and nothing else: a defect
     // raised while the render is read must surface, not be dressed as a read
     // failure the model would report as the page's answer.
@@ -539,13 +654,13 @@ describe('buildWebReadResult', () => {
         throw new Error('the render never produced text');
       },
     } satisfies WebRender;
-    expect(() =>
+    await expect(
       buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, failing),
-    ).toThrow('the render never produced text');
+    ).rejects.toThrow('the render never produced text');
   });
 
-  it('names no range when the render has no lines', () => {
-    const result = buildWebReadResult(
+  it('names no range when the render has no lines', async () => {
+    const result = await buildWebReadResult(
       { url: GUIDE_URL, selector: '2-3' },
       GUIDE_URL,
       { method: 'text', content: '' },

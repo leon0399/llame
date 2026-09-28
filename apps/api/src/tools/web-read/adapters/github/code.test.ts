@@ -82,16 +82,36 @@ function renderedContent(
   return outcome.content;
 }
 describe('GitHub code adapter', () => {
-  it('fetches a blob once and preserves exact UTF-8 text', async () => {
-    const url = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=main`;
+  it('fetches a Markdown blob once and preserves exact UTF-8 text', async () => {
+    const url = `${API_ORIGIN}/repos/acme/project/contents/README.md?ref=main`;
     const { outcome, urls } = await readGithub(
-      'https://github.com/acme/project/blob/main/src/a.ts',
+      'https://github.com/acme/project/blob/main/README.md',
       new Map([[url, [blobResponse('one\ntwo\n')]]]),
     );
 
     expect(urls).toStrictEqual([url]);
     expect(renderedContent(outcome)).toBe('one\ntwo\n');
+    if (outcome.kind !== 'rendered') {
+      throw new Error('expected rendered outcome');
+    }
+    expect(outcome.mediaType).toBe('text/markdown');
   });
+
+  it.each([{ path: 'data.json' }, { path: 'component.mdx' }])(
+    'leaves $path without an outline media type',
+    async ({ path }) => {
+      const url = `${API_ORIGIN}/repos/acme/project/contents/${path}?ref=main`;
+      const { outcome } = await readGithub(
+        `https://github.com/acme/project/blob/main/${path}`,
+        new Map([[url, [blobResponse('content')]]]),
+      );
+
+      if (outcome.kind !== 'rendered') {
+        throw new Error('expected rendered outcome');
+      }
+      expect(outcome.mediaType).toBeUndefined();
+    },
+  );
 
   it.each([
     {
@@ -451,6 +471,10 @@ describe('GitHub code adapter', () => {
         ],
       },
     });
+    if (outcome.kind !== 'rendered') {
+      throw new Error('expected rendered outcome');
+    }
+    expect(outcome.mediaType).toBeUndefined();
   });
   it('returns parse when a tree response has no tree array', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:apps?recursive=1`;
@@ -560,6 +584,10 @@ describe('GitHub code adapter', () => {
       kind: 'rendered',
       notes: ['README omitted: status'],
     });
+    if (outcome.kind !== 'rendered') {
+      throw new Error('expected rendered outcome');
+    }
+    expect(outcome.mediaType).toBe('text/markdown');
     expect(renderedContent(outcome)).toContain('Description: A project');
     expect(renderedContent(outcome)).toContain(
       'https://github.com/acme/project\n  - src/',

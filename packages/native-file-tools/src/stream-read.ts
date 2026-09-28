@@ -1,5 +1,6 @@
 import { open, type FileHandle } from "node:fs/promises";
 import { NativeFileError, openFlags, type ReadTarget } from "./path";
+import { fileMediaType, outlineReader } from "./representations";
 import {
   appendMultiReadLine,
   appendReadLine,
@@ -14,15 +15,64 @@ import {
   type ReadSuccess,
 } from "./source-lines";
 
+type SourceLineState = {
+  partial: string;
+  oversized: boolean;
+  prefix: string;
+  emitted?: string;
+  hasOutput: boolean;
+};
+
+function emitSourceFragment(
+  fragment: string,
+  state: SourceLineState,
+  preserveOversized: boolean,
+): void {
+  state.hasOutput = false;
+  state.emitted = undefined;
+  if (
+    !state.oversized &&
+    state.partial.length + fragment.length > MAX_RESULT_CODE_UNITS
+  ) {
+    state.oversized = true;
+    if (preserveOversized) {
+      let body = fragment;
+      if (fragment.endsWith("\r\n")) body = fragment.slice(0, -2);
+      else if (fragment.endsWith("\n")) body = fragment.slice(0, -1);
+      state.prefix = (state.partial + body).slice(0, MAX_RESULT_CODE_UNITS);
+    } else {
+      state.hasOutput = true;
+    }
+  }
+  if (!state.oversized) state.partial += fragment;
+  if (!fragment.endsWith("\n")) return;
+  if (!state.oversized) {
+    state.emitted = state.partial;
+    state.hasOutput = true;
+  } else if (preserveOversized) {
+    const terminator = fragment.endsWith("\r\n") ? "\r\n" : "\n";
+    state.emitted = `${state.prefix}${terminator}`;
+    state.hasOutput = true;
+  }
+  state.partial = "";
+  state.oversized = false;
+  state.prefix = "";
+}
+
 /** Undefined marks a source line too large to fit any tool result. */
 async function* sourceLines(
   file: FileHandle,
   signal: AbortSignal | undefined,
+  preserveOversized = false,
 ): AsyncGenerator<string | undefined> {
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   const buffer = Buffer.allocUnsafe(64 * 1024);
-  let partial = "";
-  let oversized = false;
+  const state: SourceLineState = {
+    partial: "",
+    oversized: false,
+    prefix: "",
+    hasOutput: false,
+  };
   while (true) {
     // A cancelled or timed-out call must stop reading, not merely stop being
     // awaited: without this the loop keeps consuming a file no one will read.
@@ -37,22 +87,25 @@ async function* sourceLines(
       throw new NativeFileError("invalid_utf8");
     }
     for (const fragment of splitSourceLines(text)) {
-      if (
-        !oversized &&
-        partial.length + fragment.length > MAX_RESULT_CODE_UNITS
-      ) {
-        oversized = true;
-        yield undefined;
-      }
-      if (!oversized) partial += fragment;
-      if (!fragment.endsWith("\n")) continue;
-      if (!oversized) yield partial;
-      partial = "";
-      oversized = false;
+      emitSourceFragment(fragment, state, preserveOversized);
+      if (state.hasOutput) yield state.emitted;
     }
     if (bytesRead === 0) break;
   }
-  if (partial.length > 0 && !oversized) yield partial;
+  if (state.oversized) {
+    if (preserveOversized) yield state.prefix;
+  } else if (state.partial.length > 0) {
+    yield state.partial;
+  }
+}
+
+async function* outlineSourceLines(
+  file: FileHandle,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<string> {
+  for await (const line of sourceLines(file, signal, true)) {
+    if (line !== undefined) yield line;
+  }
 }
 
 async function collectWindow(
@@ -387,6 +440,11 @@ export async function streamFileWindow(
   try {
     if (!(await file.stat()).isFile())
       throw new NativeFileError("not_regular_file");
+    if (target.outline)
+      return await outlineReader(fileMediaType(source.hostPath))(
+        outlineSourceLines(file, source.signal),
+        target,
+      );
     return target.ranges !== undefined
       ? await collectMultiWindow(file, target, source.signal)
       : await collectWindow(file, target, source.signal);

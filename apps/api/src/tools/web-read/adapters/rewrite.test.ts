@@ -79,10 +79,34 @@ describe('rewrite web adapter reads', () => {
     expect(outcome).toMatchObject({
       kind: 'rendered',
       content: 'plain content',
+      mediaType: 'text/plain',
       origin: 'https://x.pcstyle.dev',
       notes: [
         'content came through the operator-configured origin https://x.pcstyle.dev',
       ],
+    });
+  });
+  it('forwards the inner Markdown media type', async () => {
+    const outcome = await createRewriteAdapter(BASE_CONFIG).read(
+      new URL('https://x.com/article'),
+      ioFor(response('# Guide\n', 'text/markdown'), []),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      mediaType: 'text/markdown',
+    });
+  });
+
+  it('forwards the inner JSON media type', async () => {
+    const outcome = await createRewriteAdapter(BASE_CONFIG).read(
+      new URL('https://x.com/article'),
+      ioFor(response('{"ok":true}', 'application/json'), []),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      mediaType: 'application/json',
     });
   });
 

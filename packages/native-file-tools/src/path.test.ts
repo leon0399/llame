@@ -26,6 +26,47 @@ describe("native read selectors", () => {
     });
   });
 
+  it.each([
+    ["outline", { offset: 0, raw: false, outline: true }],
+    ["outline:5", { offset: 4, limit: 1, raw: false, outline: true }],
+    ["outline:5-9", { offset: 4, limit: 5, raw: false, outline: true }],
+    ["outline:5+3", { offset: 4, limit: 3, raw: false, outline: true }],
+  ])("normalizes %s", async (selector, target) => {
+    const path = join(directory, "notes");
+    expect(await resolveReadTarget(`${path}:${selector}`)).toEqual({
+      path,
+      ...target,
+    });
+  });
+
+  it("keeps raw precedence for a path ending in outline", async () => {
+    const path = join(directory, "a.md:outline");
+    expect(await resolveReadTarget(`${path}:raw`)).toEqual({
+      path,
+      offset: 0,
+      raw: true,
+    });
+  });
+
+  it.each(["outline:1,3", "outline:", "outline:x", "raw:outline"])(
+    "rejects invalid outline selector %s",
+    async (selector) => {
+      await expect(
+        resolveReadTarget(`${directory}/notes:${selector}`),
+      ).rejects.toMatchObject({ type: "invalid_selector" });
+    },
+  );
+
+  it("prefers an existing literal outline-selector filename", async () => {
+    const path = join(directory, "notes:outline");
+    await writeFile(path, "literal");
+    expect(await resolveReadTarget(path)).toEqual({
+      path,
+      offset: 0,
+      raw: false,
+    });
+  });
+
   it("prefers an existing literal selector filename", async () => {
     const path = join(directory, "notes:0-3");
     await writeFile(path, "literal");

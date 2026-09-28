@@ -89,8 +89,9 @@ function adapter(
 function renderedOutcome(
   content: string,
   notes: ReadonlyArray<string> = [],
+  mediaType?: string,
 ): WebAdapterOutcome {
-  return { kind: 'rendered', content, notes };
+  return { kind: 'rendered', content, mediaType, notes };
 }
 
 function failedOutcome(failure: WebAdapterFailure): WebAdapterOutcome {
@@ -130,7 +131,11 @@ describe('dispatchWebAdapters', () => {
       [
         adapter('first', true, failedOutcome('status')),
         {
-          ...adapter('second', true, renderedOutcome('adapter text')),
+          ...adapter(
+            'second',
+            true,
+            renderedOutcome('adapter text', [], 'text/markdown'),
+          ),
           route: 'rewrite',
         },
       ],
@@ -142,6 +147,7 @@ describe('dispatchWebAdapters', () => {
       render: {
         method: 'adapter',
         content: 'adapter text',
+        mediaType: 'text/markdown',
         finalUrl: SOURCE,
         adapter: { id: 'second', route: 'rewrite' },
         notes: ['web adapter "first" fell through: status'],
@@ -194,6 +200,7 @@ describe('dispatchWebAdapters', () => {
         adapter('github', true, {
           kind: 'rendered',
           content: '',
+          mediaType: undefined,
           directory,
           notes: [],
         }),
@@ -222,6 +229,8 @@ describe('dispatchWebAdapters', () => {
         adapter: { id: 'plain', route: 'native' },
       },
     });
+    if (result.kind !== 'rendered') throw new Error('expected rendered result');
+    expect(result.render.truncated).toBeUndefined();
   });
 
   it('reports a rewrite origin only when the rewrite outcome provides one', async () => {
@@ -233,6 +242,7 @@ describe('dispatchWebAdapters', () => {
           ...adapter('rewrite', true, {
             kind: 'rendered',
             content: 'rewritten',
+            mediaType: undefined,
             origin,
             notes: [],
           }),
@@ -248,6 +258,7 @@ describe('dispatchWebAdapters', () => {
           ...adapter('native', true, {
             kind: 'rendered',
             content: 'native',
+            mediaType: undefined,
             origin,
             notes: [],
           }),
@@ -284,7 +295,7 @@ describe('dispatchWebAdapters', () => {
       new TextEncoder().encode(result.render.content).byteLength,
     ).toBeLessThanOrEqual(MAX_ADAPTER_DOCUMENT_BYTES);
     expect(result.render.content.endsWith('\n')).toBe(true);
-    expect(result.render.notes).toContain('document truncated: too_large');
+    expect(result.render.truncated).toBe(true);
   });
   it('keeps a non-empty UTF-8 prefix when no newline fits the limit', async () => {
     const content = 'é'.repeat(MAX_ADAPTER_DOCUMENT_BYTES);
@@ -300,7 +311,7 @@ describe('dispatchWebAdapters', () => {
     expect(
       new TextEncoder().encode(result.render.content).byteLength,
     ).toBeLessThanOrEqual(MAX_ADAPTER_DOCUMENT_BYTES);
-    expect(result.render.notes).toContain('document truncated: too_large');
+    expect(result.render.truncated).toBe(true);
   });
 
   it('does not include a newline beyond the retained byte window', async () => {
@@ -316,8 +327,8 @@ describe('dispatchWebAdapters', () => {
     expect(new TextEncoder().encode(result.render.content).byteLength).toBe(
       MAX_ADAPTER_DOCUMENT_BYTES,
     );
+    expect(result.render.truncated).toBe(true);
   });
-
   it('returns a fatal primary failure without trying later adapters', async () => {
     let laterMatched = false;
     const fatal: WebFetchFailure = {

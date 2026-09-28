@@ -29,7 +29,8 @@ export class NativeFileError extends Error {
       | "old_text_ambiguous"
       | "outcome_unknown"
       | "executor_unavailable"
-      | "directory_too_large",
+      | "directory_too_large"
+      | "representation_too_large",
     message?: string,
   ) {
     super(message ?? type);
@@ -45,6 +46,8 @@ export type ReadTarget = {
   offset: number;
   limit?: number;
   raw: boolean;
+  /** Markdown outline representation request. */
+  outline?: boolean;
   directory?: boolean;
   /** Room withheld from the shared result cap for a caller's envelope. */
   reserveCodeUnits?: number;
@@ -219,7 +222,7 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
  * ranges this shape admits but the bounds do not.
  */
 const SELECTOR_SUFFIX =
-  /^(?:raw(?::\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)?|\d+(?:[-+]\d+)?(?:,\d+(?:[-+]\d+)?)*)$/u;
+  /^(?:raw(?::\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)?|outline(?::\d+(?:[-+]\d+)?)?|\d+(?:[-+]\d+)?(?:,\d+(?:[-+]\d+)?)*)$/u;
 
 export function isSelectorSuffix(value: string): boolean {
   return SELECTOR_SUFFIX.test(value);
@@ -232,8 +235,19 @@ export function applySelectorSuffix(
 ): ReadTarget {
   if (selector === undefined) return { path, offset: 0, raw: false };
   if (selector === "raw") return { path, offset: 0, raw: true };
+  if (selector === "outline")
+    return { path, offset: 0, raw: false, outline: true };
   if (!isSelectorSuffix(selector))
     throw new NativeFileError("invalid_selector");
+  const outline = /^outline:(.*)$/u.exec(selector);
+  if (outline) {
+    return {
+      path,
+      ...parseRange(outline[1]),
+      raw: false,
+      outline: true,
+    };
+  }
   const raw = /^raw:(.*)$/u.exec(selector);
   if (raw) return applyRangedSelector(path, raw[1], true);
   return applyRangedSelector(path, selector, false);
@@ -269,6 +283,12 @@ function parseSelector(input: string): ReadTarget {
   if (raw) {
     const suffix = raw[1] === undefined ? "raw" : `raw:${raw[1]}`;
     return applySelectorSuffix(input.slice(0, raw.index), suffix);
+  }
+  const outline = /:outline(?::([^:/]*))?$/.exec(input);
+  if (outline) {
+    const suffix =
+      outline[1] === undefined ? "outline" : `outline:${outline[1]}`;
+    return applySelectorSuffix(input.slice(0, outline.index), suffix);
   }
   const colon = input.lastIndexOf(":");
   return colon > input.lastIndexOf("/")

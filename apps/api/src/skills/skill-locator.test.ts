@@ -15,6 +15,10 @@ describe('parseSkillLocator', () => {
       catalog: true,
       selector: '1-50',
     });
+    expect(parseSkillLocator(':outline')).toEqual({
+      catalog: true,
+      selector: 'outline',
+    });
   });
 
   it('addresses the package root, its directory, and a resource', () => {
@@ -45,6 +49,18 @@ describe('parseSkillLocator', () => {
     });
   });
 
+  it('preserves outline selectors on package roots and resources', () => {
+    expect(parseSkillLocator('pdf:outline')).toEqual({
+      name: 'pdf',
+      selector: 'outline',
+    });
+    expect(parseSkillLocator('pdf/ref.md:outline:2-4')).toEqual({
+      name: 'pdf',
+      relativePath: 'ref.md',
+      selector: 'outline:2-4',
+    });
+  });
+
   it('decodes resource segments exactly once', () => {
     expect(parseSkillLocator('pdf/references/a%20b.md')).toEqual({
       name: 'pdf',
@@ -66,6 +82,12 @@ describe('parseSkillLocator', () => {
     'pdf:raw/x',
     'pdf/a%2Fb',
     'pdf/%ZZ',
+    ':outline:1,3',
+    'pdf:outline:1,3',
+    'pdf/ref.md:outline:1,3',
+    'pdf:outline:raw',
+    'pdf:raw:outline',
+    'pdf:outline:',
   ])('rejects the malformed locator %s', (rest) => {
     expect(parseSkillLocator(rest)).toBeUndefined();
   });

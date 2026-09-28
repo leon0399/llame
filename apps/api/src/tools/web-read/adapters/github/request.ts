@@ -53,7 +53,12 @@ export function finishRendered(
   if (context.halted !== undefined && context.halted.type !== 'call_timeout') {
     return primaryFailure(context.halted);
   }
-  return { kind: 'rendered', content, notes: context.notes };
+  return {
+    kind: 'rendered',
+    content,
+    mediaType: 'text/markdown',
+    notes: context.notes,
+  };
 }
 
 export function primaryFailure(failure: WebFetchFailure): WebAdapterOutcome {

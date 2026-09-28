@@ -212,6 +212,7 @@ describe('renderWebDocument', () => {
 
     expect(render.method).toBe('negotiated');
     expect(render.content).toBe(body);
+    expect(render.mediaType).toBe('text/markdown');
     expect(render.notes).toBeUndefined();
   });
 
@@ -229,6 +230,8 @@ describe('renderWebDocument', () => {
 
     expect(markdown.method).toBe('negotiated');
     expect(markdown.content).toBe(body);
+    expect(markdown.mediaType).toBe('text/markdown');
+    expect(html.mediaType).toBe('text/markdown');
     expect(html.method).toBe('readability');
     expect(html.content).toContain('## Negotiation');
   });
@@ -243,6 +246,7 @@ describe('renderWebDocument', () => {
     expect(render.method).toBe('negotiated');
     expect(render.content).toBe(body);
     expect(render.notes).toBeUndefined();
+    expect(render.mediaType).toBe('text/plain');
   });
 
   it('returns a JSON body unchanged as text', () => {
@@ -254,6 +258,7 @@ describe('renderWebDocument', () => {
 
     expect(render.method).toBe('text');
     expect(render.content).toBe(body);
+    expect(render.mediaType).toBe('application/json');
   });
 
   it('returns an application/xml body unchanged as text', () => {
@@ -264,6 +269,7 @@ describe('renderWebDocument', () => {
 
     expect(render.method).toBe('text');
     expect(render.content).toBe(RSS_XML);
+    expect(render.mediaType).toBe('application/xml');
   });
 
   it('returns a text/xml body unchanged as text', () => {
@@ -273,6 +279,7 @@ describe('renderWebDocument', () => {
 
     expect(render.method).toBe('text');
     expect(render.content).toBe(NOTE_XML);
+    expect(render.mediaType).toBe('text/xml');
   });
 
   it('renders an application/xhtml+xml document with Readability', () => {
@@ -283,6 +290,7 @@ describe('renderWebDocument', () => {
 
     expect(render.method).toBe('readability');
     expect(render.content).toContain('## An XHTML document renders locally');
+    expect(render.mediaType).toBe('text/markdown');
     expect(render.content).toContain('extracts the article with Readability');
     expect(render.content).not.toContain('<article>');
   });
@@ -469,6 +477,7 @@ describe('renderWebDocument', () => {
 
     expect(render.method).toBe('raw');
     expect(render.content).toBe(ARTICLE_HTML);
+    expect(render.mediaType).toBeUndefined();
     expect(render.notes).toBeUndefined();
   });
 
@@ -480,6 +489,7 @@ describe('renderWebDocument', () => {
     expect(render.method).toBe('raw');
     expect(render.content).toBe('   \n ');
     expect(render.notes).toHaveLength(1);
+    expect(render.mediaType).toBeUndefined();
     expect(render.notes?.[0]).toMatch(/could not be converted/i);
   });
 });
@@ -608,6 +618,7 @@ describe('renderWebContent', () => {
 
     expect(render.method).toBe('alternate');
     expect(render.content).toBe(PUBLISHER_MARKDOWN);
+    expect(render.mediaType).toBe('text/markdown');
     expect(render.finalUrl).toBe(alternate);
     expect(harness.requested).toEqual([alternate]);
   });
@@ -822,6 +833,7 @@ describe('renderWebContent', () => {
 
     expect(render.method).toBe('md-suffix');
     expect(render.content).toBe(PUBLISHER_MARKDOWN);
+    expect(render.mediaType).toBe('text/markdown');
     expect(render.finalUrl).toBe(candidate);
     expect(harness.requested).toEqual([candidate]);
   });
@@ -967,6 +979,7 @@ describe('renderWebContent', () => {
     // defect, so the walk still decides.
     expect(render.method).toBe('llms-txt');
     expect(render.content).toBe(LLMS_TXT);
+    expect(render.mediaType).toBe('text/markdown');
     expect(harness.requested).toEqual([candidate, `${pageUrl}/llms.txt`]);
   });
 
@@ -1055,6 +1068,7 @@ describe('renderWebContent', () => {
 
     expect(render.method).toBe('llms-txt');
     expect(render.content).toBe(LLMS_TXT);
+    expect(render.mediaType).toBe('text/markdown');
     expect(render.finalUrl).toBe(root);
     expect(harness.requested).toEqual([
       `${pageUrl}.md`,

@@ -17,7 +17,7 @@ type ReadSuccessBase = {
   /** Canonical host path when it differs from the given one. Both result
    *  constructors copy it before measuring, so it counts against the cap. */
   realPath?: string;
-  representation: "text" | "raw";
+  representation: "text" | "raw" | "outline";
   content: string;
   nextOffset?: number;
   truncated: boolean;
@@ -143,7 +143,7 @@ export function emptyReadResult(
     status: "success",
     kind: "file",
     path: target.path,
-    representation: target.raw ? "raw" : "text",
+    representation: target.outline ? "outline" : target.raw ? "raw" : "text",
     content: "",
     requestedRange:
       endLine === 0 ? null : { startLine: target.offset + 1, endLine },
@@ -178,7 +178,7 @@ export function emptyMultiReadResult(target: ReadTarget): MultiReadSuccess {
     status: "success",
     kind: "file",
     path: target.path,
-    representation: target.raw ? "raw" : "text",
+    representation: target.outline ? "outline" : target.raw ? "raw" : "text",
     content: "",
     requestedRanges: (target.ranges ?? []).map((range) => ({
       startLine: range.offset + 1,

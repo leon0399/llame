@@ -164,6 +164,12 @@ function runListing(
   hostPath: string,
   target: ReadTarget,
 ): Promise<DirectorySuccess | DirectoryFailure> | FileFailure {
+  if (target.outline)
+    return {
+      status: "error",
+      type: "invalid_selector",
+      message: "The :outline member is not supported for directory reads.",
+    };
   if (target.raw)
     return {
       status: "error",

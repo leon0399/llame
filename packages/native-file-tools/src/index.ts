@@ -17,16 +17,33 @@ export {
   DIRECTORY_TRAVERSAL_BUDGET,
   DIRECTORY_CHILD_CAP,
 } from "./read";
+export {
+  outlineReader,
+  fileMediaType,
+  OUTLINE_UNSUPPORTED_MESSAGE,
+} from "./representations";
+export { outlineMarkdown } from "./markdown-outline";
+export {
+  createMarkdownScanner,
+  scanMarkdownStructure,
+} from "./markdown-structure";
 export { renderCollectedDirectory } from "./collected-directory";
 export type {
   NativeReadOptions,
   ReadSuccess,
+  SingleReadSuccess,
   FileFailure,
   LineRange,
   MultiReadSuccess,
   DirectorySuccess,
   DirectoryFailure,
 } from "./read";
+export type { OutlineReader } from "./representations";
+export type {
+  MarkdownSpan,
+  MarkdownLine,
+  MarkdownHeading,
+} from "./markdown-structure";
 export type { DirectoryListingEntry } from "./collected-directory";
 export { selectMultiRangeLines } from "./stream-read";
 export {

@@ -30,6 +30,10 @@ export type WebRenderMethod = (typeof WEB_RENDER_METHODS)[number];
 export type WebRender = {
   readonly method: WebRenderMethod;
   readonly content: string;
+  /** Internal source type used to select a representation reader. */
+  readonly mediaType?: string;
+  /** True only when an adapter document was cut at the web body bound. */
+  readonly truncated?: boolean;
   readonly directory?: WebDirectory;
   /** The final URL of the probe response that produced the content, present
    *  only when a probe won; a probe that followed redirects reports where it
@@ -237,6 +241,7 @@ async function firstDecisiveProbe(
       return {
         method: PROBE_METHODS[kind],
         content: fetched.body,
+        mediaType: 'text/markdown',
         finalUrl: fetched.finalUrl,
       };
     }
@@ -443,9 +448,19 @@ export function renderWebDocument(
 
   const path = bodyPath(response);
   if (path === 'negotiated') {
-    return { method: 'negotiated', content: response.body };
+    return {
+      method: 'negotiated',
+      content: response.body,
+      mediaType: responseMediaType(response),
+    };
   }
-  if (path === 'text') return { method: 'text', content: response.body };
+  if (path === 'text') {
+    return {
+      method: 'text',
+      content: response.body,
+      mediaType: responseMediaType(response),
+    };
+  }
 
   // linkedom cannot build a document from an empty body, and there is nothing
   // to convert, so the raw fallback is taken without parsing.
@@ -468,7 +483,7 @@ export function renderWebDocument(
  * returned unchanged as text.
  */
 function bodyPath(response: WebResponse): BodyPath {
-  const mediaType = response.contentType.split(';', 1)[0].trim().toLowerCase();
+  const mediaType = responseMediaType(response);
   if (mediaType === 'text/markdown' || mediaType === 'text/plain') {
     return 'negotiated';
   }
@@ -477,6 +492,10 @@ function bodyPath(response: WebResponse): BodyPath {
   }
 
   return 'text';
+}
+
+function responseMediaType(response: WebResponse): string {
+  return response.contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
 }
 
 /**
@@ -498,7 +517,11 @@ function renderPage(response: WebResponse, page: ParsedWebDocument): WebRender {
     convertToMarkdown(article?.content ?? page.bodyHtml),
   );
   if (passesQualityGate(converted)) {
-    return { method: 'readability', content: converted };
+    return {
+      method: 'readability',
+      content: converted,
+      mediaType: 'text/markdown',
+    };
   }
 
   return unconverted(response, converted);
