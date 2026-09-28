@@ -427,12 +427,6 @@ SHALL remain unchanged. Mutation previews SHALL not receive ancestor headings.
 - **THEN** the read returns its existing context-expanded content
 - **AND** it retains singular `requestedRange` and `shownRange` fields and emits no ancestor line
 
-#### Scenario: A ranged read without ancestors keeps singular fields
-
-- **WHEN** an ordinary Markdown read starts at line 1 and a separate `:60-72` read has an enclosing heading chain
-- **THEN** the line-1 read keeps singular `requestedRange` and `shownRange` fields with no ancestor headings
-- **AND** the `:60-72` read reports plural `requestedRanges` and `shownRanges` fields when its chain is emitted
-
 #### Scenario: An edit preview of a Markdown file has no ancestors
 
 - **WHEN** `edit` or `write` produces a post-edit preview for a Markdown file whose changed region has an enclosing heading
