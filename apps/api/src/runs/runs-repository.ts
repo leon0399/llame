@@ -33,6 +33,7 @@ import {
   type TurnToolAvailabilityEntry,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import type { PermissionMode } from '../tools/permissions/permission-mode';
 
 type TerminalRunStatus = Extract<
   RunStatus,
@@ -103,6 +104,8 @@ export class RunsRepository {
     modelId: string;
     /** Resolved at accept time. Absent stores NULL: the run sends no effort. */
     effort?: string | undefined;
+    /** Accepted at message time; absent lets the database default to `default`. */
+    permissionMode?: PermissionMode | undefined;
   }): Promise<Run> {
     const values: typeof runs.$inferInsert = {
       chatId: input.chatId,
@@ -111,6 +114,9 @@ export class RunsRepository {
       modelId: input.modelId,
     };
     if (input.effort !== undefined) values.effort = input.effort;
+    if (input.permissionMode !== undefined) {
+      values.permissionMode = input.permissionMode;
+    }
     if (input.id !== undefined) values.id = input.id;
 
     const [created] = await this.db.insert(runs).values(values).returning();

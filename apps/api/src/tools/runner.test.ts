@@ -555,6 +555,39 @@ describe('runTool permission gate', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it('admits a rejected call under bypass and records the process decision', async () => {
+    const execute = vi.fn(() => ({ status: 'success' as const, value: 'x' }));
+    const decisions: Array<unknown> = [];
+    const result = await runTool(
+      { ...echoTool, execute },
+      { value: 'blocked' },
+      {
+        ...contextWith({
+          echo: {
+            allow: true,
+            reject: [{ field: 'value', literal: 'blocked' }],
+          },
+        }),
+        permissionMode: 'bypass' as const,
+      },
+      5,
+      (decision) => {
+        decisions.push(decision);
+      },
+    );
+
+    expect(result).toEqual({ status: 'success', value: 'x' });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(decisions).toEqual([
+      {
+        policyId: 'test-policy',
+        decision: 'allow',
+        reason: 'permission_mode_bypass',
+        reference: null,
+      },
+    ]);
+  });
+
   it('matches submitted values, not schema defaults', async () => {
     const tool: Tool = {
       ...echoTool,

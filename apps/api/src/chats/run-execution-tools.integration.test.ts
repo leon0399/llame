@@ -28,6 +28,10 @@ import {
 } from 'ai';
 import { createHash } from 'node:crypto';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
+import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
+import type { CompiledPolicy } from '../tools/permissions/types';
+import type { PermissionMode } from '../tools/permissions/permission-mode';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -138,6 +142,10 @@ const testModelEntry: SystemModelCatalogEntry = {
   systemPromptSource: 'project_default',
   referencesSkills: false,
 };
+const RECOMMENDED_POLICY = compileToolPermissionMap(
+  PORTABLE_TOOL_PERMISSIONS,
+  'portable-test-policy',
+);
 
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
   resolve: () =>
@@ -480,10 +488,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
   let tenantDb: TenantDbService;
   let userId: string;
 
-  function serviceWithTools(overrides?: {
+  type ServiceWithToolsOverrides = {
     maxStepsPerRun?: number;
     allowed?: Array<string>;
     nativeExecutorId?: string;
+    permissionModes?: ReadonlyArray<PermissionMode>;
+    permissionPolicy?: CompiledPolicy;
     skillCatalog?: SkillCatalogPort;
     skillDirectories?: ReadonlyArray<string>;
     modelReferencesSkills?: boolean;
@@ -493,7 +503,62 @@ describeIfDb('executeRun tool-loop persistence', () => {
     embedDispatch?: ChatEmbedDispatcher;
     dynamicToolResolver?: DynamicToolExecutorResolver;
     dynamicCandidates?: ReadonlyArray<TurnToolCandidate>;
-  }): RunExecutionService {
+  };
+
+  function resolveServiceWithTools(
+    overrides: ServiceWithToolsOverrides | undefined,
+  ) {
+    const resolved = overrides ?? {};
+    const allowed = resolved.allowed ?? ['search_conversations'];
+    const policyAllowed = resolved.allowed ?? [];
+    const instanceConfig: InstanceConfigReader = {
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        skills: {
+          directories:
+            resolved.skillDirectories ?? BUILT_IN_DEFAULTS.skills.directories,
+        },
+        tools: {
+          nativeExecutorId: resolved.nativeExecutorId,
+          allowed,
+          permissions: BUILT_IN_DEFAULTS.tools.permissions,
+          permissionModes: resolved.permissionModes ?? ['default'],
+          webAdapters: [],
+          maxStepsPerRun:
+            resolved.maxStepsPerRun ?? BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
+          callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
+        },
+      },
+    };
+    const models: ModelSelectionValidator = {
+      validateModelSelection: vi.fn().mockReturnValue({
+        ...testModelEntry,
+        referencesSkills: resolved.modelReferencesSkills ?? false,
+      }),
+      resolveEffortSelection: vi.fn().mockReturnValue(undefined),
+    };
+    return {
+      instanceConfig,
+      models,
+      searchIndex: resolved.searchIndex ?? new SearchIndexService(tenantDb),
+      reindexDispatch: resolved.reindexDispatch ?? noopReindexDispatch(),
+      knowledgeResolver: resolved.knowledgeResolver ?? knowledgeResolver,
+      skillCatalog: resolved.skillCatalog ?? noopSkillCatalog(),
+      embedDispatch: resolved.embedDispatch ?? noopEmbedDispatch(),
+      permissionPolicy:
+        resolved.permissionPolicy ??
+        compileTestPermissionPolicy([
+          ...getRegisteredToolIds(),
+          ...policyAllowed,
+        ]),
+      snapshotCandidates: () => resolved.dynamicCandidates ?? [],
+      dynamicToolResolver: resolved.dynamicToolResolver,
+    };
+  }
+
+  function serviceWithTools(
+    overrides?: ServiceWithToolsOverrides,
+  ): RunExecutionService {
     const noopCompaction: CompactionCapability = {
       maybeCompact: async () => {},
       // Never exercised by this suite: every seeded context fits the mock
@@ -506,54 +571,27 @@ describeIfDb('executeRun tool-loop persistence', () => {
       },
     };
     const noopTitles: TitleCapability = { maybeGenerateTitle: async () => {} };
-    const instanceConfig: InstanceConfigReader = {
-      config: {
-        ...BUILT_IN_DEFAULTS,
-        skills: {
-          directories:
-            overrides?.skillDirectories ?? BUILT_IN_DEFAULTS.skills.directories,
-        },
-        tools: {
-          nativeExecutorId: overrides?.nativeExecutorId,
-          allowed: overrides?.allowed ?? ['search_conversations'],
-          permissions: BUILT_IN_DEFAULTS.tools.permissions,
-          maxStepsPerRun:
-            overrides?.maxStepsPerRun ?? BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
-          callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
-          webAdapters: [],
-        },
-      },
-    };
-    const models: ModelSelectionValidator = {
-      validateModelSelection: vi.fn().mockReturnValue({
-        ...testModelEntry,
-        referencesSkills: overrides?.modelReferencesSkills ?? false,
-      }),
-      resolveEffortSelection: vi.fn().mockReturnValue(undefined),
-    };
+    const resolved = resolveServiceWithTools(overrides);
     return new RunExecutionService(
       tenantDb,
       noopCompaction,
       noopTitles,
-      instanceConfig,
-      overrides?.searchIndex ?? new SearchIndexService(tenantDb),
-      overrides?.reindexDispatch ?? noopReindexDispatch(),
-      overrides?.knowledgeResolver ?? knowledgeResolver,
-      overrides?.skillCatalog ?? noopSkillCatalog(),
-      overrides?.embedDispatch ?? noopEmbedDispatch(),
+      resolved.instanceConfig,
+      resolved.searchIndex,
+      resolved.reindexDispatch,
+      resolved.knowledgeResolver,
+      resolved.skillCatalog,
+      resolved.embedDispatch,
       noopQueryEmbedder(),
-      compileTestPermissionPolicy([
-        ...getRegisteredToolIds(),
-        ...(overrides?.allowed ?? []),
-      ]),
-      models,
+      resolved.permissionPolicy,
+      resolved.models,
       new SystemPromptsService(),
       { resolvePromptUser: vi.fn().mockResolvedValue(undefined) },
       knowledgeCandidates,
-      { snapshotCandidates: () => overrides?.dynamicCandidates ?? [] },
+      { snapshotCandidates: resolved.snapshotCandidates },
       new MemoryService(tenantDb),
       new RecencyDigestService(tenantDb),
-      overrides?.dynamicToolResolver,
+      resolved.dynamicToolResolver,
     );
   }
 
@@ -596,7 +634,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
-  async function seedBoundRun(key = `worker-${crypto.randomUUID()}`) {
+  async function seedBoundRun(
+    key = `worker-${crypto.randomUUID()}`,
+    permissionMode: PermissionMode = 'default',
+  ) {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const seeded = await tenantDb.runAs(userId, async (tx) => {
@@ -617,6 +658,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         messageId,
         userId,
         modelId: `test:${key}`,
+        permissionMode,
       });
       return { userMessage, run };
     });
@@ -3887,5 +3929,862 @@ describeIfDb('executeRun tool-loop persistence', () => {
     expect(JSON.stringify(assistant?.parts)).toContain('hit the step limit');
 
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
+  });
+  it('keeps the accepted permission mode out of model context', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-28T12:00:00.000Z'));
+
+    const service = serviceWithTools({
+      allowed: ['search_conversations'],
+      permissionModes: ['default', 'bypass'],
+    });
+    const defaultSeeded = await seedBoundRun(
+      'permission-mode-context-isolation',
+      'default',
+    );
+    const bypassSeeded = await seedBoundRun(
+      'permission-mode-context-isolation',
+      'bypass',
+    );
+    const calls: Array<ModelStreamInput> = [];
+    const model = new MockLanguageModelV3({
+      doStream: () => Promise.resolve(textResponse('context is unchanged')),
+    });
+
+    try {
+      const defaultResult = await executeSeeded(
+        defaultSeeded,
+        service,
+        recordingMockClient(model, calls),
+      );
+      await defaultResult.consumeStream?.();
+      const bypassResult = await executeSeeded(
+        bypassSeeded,
+        service,
+        recordingMockClient(model, calls),
+      );
+      await bypassResult.consumeStream?.();
+
+      expect(calls).toHaveLength(2);
+      expect(model.doStreamCalls).toHaveLength(2);
+      const defaultRequest = calls[0];
+      const bypassRequest = calls[1];
+      if (defaultRequest === undefined || bypassRequest === undefined) {
+        throw new Error('Expected both model requests to be recorded');
+      }
+      expect(defaultRequest.system).toEqual(expect.any(String));
+      expect(bypassRequest.system).toBe(defaultRequest.system);
+      expect(bypassRequest.messages).toEqual(defaultRequest.messages);
+      expect(model.doStreamCalls[1]?.prompt).toEqual(
+        model.doStreamCalls[0]?.prompt,
+      );
+
+      const [defaultReceipts, bypassReceipts, defaultRun, bypassRun] =
+        await tenantDb.runAs(userId, async (tx) => {
+          const receipts = new SystemPromptReceiptsRepository(tx);
+          const runs = new RunsRepository(tx);
+          return [
+            await receipts.findByOwnedRun(defaultSeeded.run.id, userId),
+            await receipts.findByOwnedRun(bypassSeeded.run.id, userId),
+            await runs.findById(defaultSeeded.run.id, userId),
+            await runs.findById(bypassSeeded.run.id, userId),
+          ] as const;
+        });
+      expect(defaultReceipts).toHaveLength(1);
+      expect(bypassReceipts).toHaveLength(1);
+      expect(
+        bypassReceipts.map(({ source, systemPrompt, promptHash }) => ({
+          source,
+          systemPrompt,
+          promptHash,
+        })),
+      ).toEqual(
+        defaultReceipts.map(({ source, systemPrompt, promptHash }) => ({
+          source,
+          systemPrompt,
+          promptHash,
+        })),
+      );
+      if (
+        defaultRun === undefined ||
+        bypassRun === undefined ||
+        defaultRun.contextItems === null ||
+        defaultRun.contextItems === undefined ||
+        bypassRun.contextItems === null ||
+        bypassRun.contextItems === undefined
+      ) {
+        throw new Error('Expected both Runs to persist context items');
+      }
+      expect(bypassRun.contextItems).toEqual(defaultRun.contextItems);
+
+      for (const request of calls) {
+        expect(JSON.stringify(request)).not.toContain('bypass');
+      }
+      for (const item of [
+        ...defaultRun.contextItems,
+        ...bypassRun.contextItems,
+      ]) {
+        expect(item.text).not.toContain('bypass');
+      }
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${defaultSeeded.chatId}`;
+      await sql`DELETE FROM chats WHERE id = ${bypassSeeded.chatId}`;
+      vi.useRealTimers();
+    }
+  });
+
+  it('bypasses a recommended-policy Bash reject and records the decision before tool.started', async () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), 'permission-mode-bash-'));
+    const seeded = await seedBoundRun(
+      `permission-bypass-bash-${crypto.randomUUID()}`,
+      'bypass',
+    );
+    const service = serviceWithTools({
+      allowed: ['bash'],
+      nativeExecutorId: 'permission-mode-test-host',
+      permissionModes: ['default', 'bypass'],
+      permissionPolicy: RECOMMENDED_POLICY,
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? jsonToolCallResponse('permission-bypass-bash', 'bash', {
+                command: 'git reset --hard HEAD',
+                cwd,
+              })
+            : textResponse('The bypassed command was attempted.'),
+        );
+      },
+    });
+
+    try {
+      const result = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await result.consumeStream?.();
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const callEvents = events.filter(
+        (event) =>
+          isRecord(event.payload) &&
+          event.payload.toolCallId === 'permission-bypass-bash',
+      );
+      expect(callEvents.map((event) => event.eventType)).toEqual([
+        'tool.requested',
+        'tool.started',
+        'native.attempt',
+        'native.result',
+        'tool.completed',
+      ]);
+      expect(callEvents[0]?.payload).toMatchObject({
+        permission: {
+          policyId: 'portable-test-policy',
+          decision: 'allow',
+          reason: 'permission_mode_bypass',
+          reference: null,
+        },
+      });
+      expect(callEvents[0]?.sequence).toBeLessThan(
+        callEvents[1]?.sequence ?? Number.POSITIVE_INFINITY,
+      );
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+      );
+      const assistant = messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.inReplyTo === seeded.userMessage.id,
+      );
+      if (assistant === undefined) {
+        throw new Error('Expected a settled bypass assistant message');
+      }
+      expect(assistant.usage).toMatchObject({ permissionMode: 'bypass' });
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects the same Bash call in a default Run under the recommended policy', async () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), 'permission-mode-default-'));
+    const seeded = await seedBoundRun(
+      `permission-default-bash-${crypto.randomUUID()}`,
+      'default',
+    );
+    const service = serviceWithTools({
+      allowed: ['bash'],
+      nativeExecutorId: 'permission-mode-test-host',
+      permissionModes: ['default', 'bypass'],
+      permissionPolicy: RECOMMENDED_POLICY,
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? jsonToolCallResponse('permission-default-bash', 'bash', {
+                command: 'git reset --hard HEAD',
+                cwd,
+              })
+            : textResponse('The default policy rejected the command.'),
+        );
+      },
+    });
+
+    try {
+      const result = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await result.consumeStream?.();
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const callEvents = events.filter(
+        (event) =>
+          isRecord(event.payload) &&
+          event.payload.toolCallId === 'permission-default-bash',
+      );
+      expect(callEvents.map((event) => event.eventType)).toEqual([
+        'tool.requested',
+        'tool.completed',
+      ]);
+      expect(callEvents[0]?.payload).toMatchObject({
+        permission: {
+          policyId: 'portable-test-policy',
+          decision: 'reject',
+          reason: 'explicit_reject',
+        },
+      });
+      expect(callEvents[1]?.payload).toMatchObject({
+        output: { status: 'error', type: 'permission_denied' },
+      });
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('downgrades an accepted bypass Run when the worker has not enabled bypass', async () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), 'permission-mode-downgrade-'));
+    const seeded = await seedBoundRun(
+      `permission-downgraded-bash-${crypto.randomUUID()}`,
+      'bypass',
+    );
+    const service = serviceWithTools({
+      allowed: ['bash'],
+      nativeExecutorId: 'permission-mode-test-host',
+      permissionModes: ['default'],
+      permissionPolicy: RECOMMENDED_POLICY,
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? jsonToolCallResponse('permission-downgraded-bash', 'bash', {
+                command: 'git reset --hard HEAD',
+                cwd,
+              })
+            : textResponse('The worker applied its default policy.'),
+        );
+      },
+    });
+
+    try {
+      const result = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await result.consumeStream?.();
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const callEvents = events.filter(
+        (event) =>
+          isRecord(event.payload) &&
+          event.payload.toolCallId === 'permission-downgraded-bash',
+      );
+      expect(callEvents.map((event) => event.eventType)).toEqual([
+        'tool.requested',
+        'tool.completed',
+      ]);
+      expect(callEvents[0]?.payload).toMatchObject({
+        permission: {
+          policyId: 'portable-test-policy',
+          decision: 'reject',
+          reason: 'explicit_reject',
+        },
+      });
+      expect(callEvents[1]?.payload).toMatchObject({
+        output: { status: 'error', type: 'permission_denied' },
+      });
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+      );
+      const assistant = messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.inReplyTo === seeded.userMessage.id,
+      );
+      if (assistant === undefined) {
+        throw new Error('Expected a settled downgraded assistant message');
+      }
+      expect(assistant.usage).not.toHaveProperty('permissionMode');
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('detaches a bypass-entered Workspace on the next default Run re-check', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'permission-mode-workspace-'));
+    const seeded = await seedBoundRun(
+      `permission-bypass-workspace-${crypto.randomUUID()}`,
+      'bypass',
+    );
+    const service = serviceWithTools({
+      allowed: ['enter_workspace'],
+      nativeExecutorId: 'permission-mode-test-host',
+      permissionModes: ['default', 'bypass'],
+      permissionPolicy: RECOMMENDED_POLICY,
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? jsonToolCallResponse(
+                'permission-bypass-enter-workspace',
+                'enter_workspace',
+                { path: root },
+              )
+            : textResponse('Workspace entered without the policy.'),
+        );
+      },
+    });
+
+    try {
+      const first = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await first.consumeStream?.();
+      await waitFor(async () => {
+        const chat = await tenantDb.runAs(userId, (tx) =>
+          new ChatsRepository(tx).findById(seeded.chatId, userId),
+        );
+        return chat?.workspaceRoot === root;
+      });
+
+      const bound = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(seeded.chatId, userId),
+      );
+      expect(bound).toMatchObject({
+        workspaceRoot: root,
+        workspaceExecutorId: 'permission-mode-test-host',
+      });
+
+      const next = await tenantDb.runAs(userId, async (tx) => {
+        const userMessage = await new MessagesRepository(tx).create({
+          chatId: seeded.chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'continue in the workspace' }],
+        });
+        const run = await new RunsRepository(tx).create({
+          chatId: seeded.chatId,
+          messageId: userMessage.id,
+          userId,
+          modelId: `test:permission-default-recheck-${crypto.randomUUID()}`,
+          permissionMode: 'default' as const,
+        });
+        return { ...seeded, userMessage, run };
+      });
+      const nextResult = await executeSeeded(
+        next,
+        service,
+        createMockModelClient(
+          new MockLanguageModelV3({
+            doStream: () =>
+              Promise.resolve(textResponse('The default Run continued.')),
+          }),
+        ),
+      );
+      await nextResult.consumeStream?.();
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(next.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      const detached = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(seeded.chatId, userId),
+      );
+      expect(detached).toMatchObject({
+        workspaceRoot: null,
+        workspaceExecutorId: null,
+      });
+      const nextRun = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(next.run.id, userId),
+      );
+      expect(nextRun?.contextItems).toContainEqual(
+        expect.objectContaining({
+          producer: 'workspace',
+          form: 'notice',
+          text: expect.stringContaining('permission_rejected'),
+        }),
+      );
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a bound Workspace on the next bypass Run re-check', async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), 'permission-mode-workspace-keep-'),
+    );
+    const seeded = await seedBoundRun(
+      `permission-bypass-workspace-keep-${crypto.randomUUID()}`,
+      'bypass',
+    );
+    const service = serviceWithTools({
+      allowed: ['enter_workspace'],
+      nativeExecutorId: 'permission-mode-test-host',
+      permissionModes: ['default', 'bypass'],
+      permissionPolicy: RECOMMENDED_POLICY,
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? jsonToolCallResponse(
+                'permission-bypass-enter-workspace-keep',
+                'enter_workspace',
+                { path: root },
+              )
+            : textResponse('Workspace entered without the policy.'),
+        );
+      },
+    });
+
+    try {
+      const first = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await first.consumeStream?.();
+      await waitFor(async () => {
+        const chat = await tenantDb.runAs(userId, (tx) =>
+          new ChatsRepository(tx).findById(seeded.chatId, userId),
+        );
+        return chat?.workspaceRoot === root;
+      });
+
+      const next = await tenantDb.runAs(userId, async (tx) => {
+        const userMessage = await new MessagesRepository(tx).create({
+          chatId: seeded.chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'continue under bypass' }],
+        });
+        const run = await new RunsRepository(tx).create({
+          chatId: seeded.chatId,
+          messageId: userMessage.id,
+          userId,
+          modelId: `test:permission-bypass-recheck-${crypto.randomUUID()}`,
+          permissionMode: 'bypass' as const,
+        });
+        return { ...seeded, userMessage, run };
+      });
+      const nextResult = await executeSeeded(
+        next,
+        service,
+        createMockModelClient(
+          new MockLanguageModelV3({
+            doStream: () =>
+              Promise.resolve(textResponse('The bypass Run continued.')),
+          }),
+        ),
+      );
+      await nextResult.consumeStream?.();
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(next.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      const kept = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(seeded.chatId, userId),
+      );
+      expect(kept).toMatchObject({
+        workspaceRoot: root,
+        workspaceExecutorId: 'permission-mode-test-host',
+      });
+      const nextRun = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(next.run.id, userId),
+      );
+      expect(nextRun).toBeDefined();
+      expect(nextRun?.contextItems ?? []).not.toContainEqual(
+        expect.objectContaining({
+          producer: 'workspace',
+          form: 'notice',
+          text: expect.stringContaining('permission_rejected'),
+        }),
+      );
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('detaches a bound Workspace with tool_not_allowed on the next bypass Run', async () => {
+    const root = mkdtempSync(
+      path.join(tmpdir(), 'permission-mode-workspace-tool-not-allowed-'),
+    );
+    const seeded = await seedBoundRun(
+      `permission-bypass-workspace-tool-not-allowed-${crypto.randomUUID()}`,
+      'bypass',
+    );
+    const binder = serviceWithTools({
+      allowed: ['enter_workspace'],
+      nativeExecutorId: 'permission-mode-test-host',
+      permissionModes: ['default', 'bypass'],
+      permissionPolicy: RECOMMENDED_POLICY,
+    });
+    const recheck = serviceWithTools({
+      allowed: [],
+      nativeExecutorId: 'permission-mode-test-host',
+      permissionModes: ['default', 'bypass'],
+      permissionPolicy: RECOMMENDED_POLICY,
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? jsonToolCallResponse(
+                'permission-bypass-enter-workspace-tool-not-allowed',
+                'enter_workspace',
+                { path: root },
+              )
+            : textResponse('Workspace entered under bypass.'),
+        );
+      },
+    });
+
+    try {
+      const first = await executeSeeded(
+        seeded,
+        binder,
+        createMockModelClient(model),
+      );
+      await first.consumeStream?.();
+      await waitFor(async () => {
+        const chat = await tenantDb.runAs(userId, (tx) =>
+          new ChatsRepository(tx).findById(seeded.chatId, userId),
+        );
+        return chat?.workspaceRoot === root;
+      });
+
+      const next = await tenantDb.runAs(userId, async (tx) => {
+        const userMessage = await new MessagesRepository(tx).create({
+          chatId: seeded.chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [
+            {
+              type: 'text',
+              text: 'continue with enter_workspace disallowed',
+            },
+          ],
+        });
+        const run = await new RunsRepository(tx).create({
+          chatId: seeded.chatId,
+          messageId: userMessage.id,
+          userId,
+          modelId: `test:permission-bypass-tool-not-allowed-${crypto.randomUUID()}`,
+          permissionMode: 'bypass' as const,
+        });
+        return { ...seeded, userMessage, run };
+      });
+      const nextResult = await executeSeeded(
+        next,
+        recheck,
+        createMockModelClient(
+          new MockLanguageModelV3({
+            doStream: () =>
+              Promise.resolve(textResponse('The bypass Run completed.')),
+          }),
+        ),
+      );
+      await nextResult.consumeStream?.();
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(next.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      const detached = await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).findById(seeded.chatId, userId),
+      );
+      expect(detached).toMatchObject({
+        workspaceRoot: null,
+        workspaceExecutorId: null,
+      });
+      const nextRun = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(next.run.id, userId),
+      );
+      expect(nextRun).toBeDefined();
+      expect(nextRun?.contextItems).toContainEqual(
+        expect.objectContaining({
+          producer: 'workspace',
+          form: 'notice',
+          text: expect.stringContaining('tool_not_allowed'),
+        }),
+      );
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('applies the runs.permission_mode database default when a run is created without one', async () => {
+    const chatId = crypto.randomUUID();
+    const created = await tenantDb.runAs(userId, async (tx) => {
+      await new ChatsRepository(tx).createIfAbsent({
+        id: chatId,
+        ownerUserId: userId,
+        title: 'Default permission mode',
+      });
+      const userMessage = await new MessagesRepository(tx).create({
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: 'no mode supplied' }],
+      });
+      return new RunsRepository(tx).create({
+        chatId,
+        messageId: userMessage.id,
+        userId,
+        modelId: 'test:permission-default-db',
+      });
+    });
+
+    try {
+      expect(created.permissionMode).toBe('default');
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${chatId}`;
+    }
+  });
+
+  it('keeps Knowledge Space owner checks active for a bypass read', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'permission-mode-knowledge-'));
+    const foreignOwnerId = crypto.randomUUID();
+    const foreignContent = `foreign-secret-${crypto.randomUUID()}`;
+    await sql`
+      INSERT INTO users (id, name, email)
+      VALUES (${foreignOwnerId}, 'Foreign Knowledge Owner', ${`foreign-${foreignOwnerId}@test.com`})
+    `;
+    const knowledgeSpaceService = new KnowledgeSpaceService(
+      tenantDb,
+      new KnowledgeSpaceLocalResolver(root),
+    );
+    const runtimeResolver = new KnowledgeToolRuntimeResolver(
+      knowledgeSpaceService,
+    );
+    const space = await knowledgeSpaceService.provisionForOwner(foreignOwnerId);
+    const relativePath = 'notes/foreign.md';
+    const hostPath = path.join(root, space.id, ...relativePath.split('/'));
+    mkdirSync(path.dirname(hostPath), { recursive: true });
+    writeFileSync(hostPath, foreignContent, 'utf8');
+    const locator = `kb://${space.id}/${relativePath}`;
+    const seeded = await seedBoundRun(
+      `permission-bypass-foreign-knowledge-${crypto.randomUUID()}`,
+      'bypass',
+    );
+    const service = serviceWithTools({
+      allowed: ['read'],
+      permissionModes: ['default', 'bypass'],
+      permissionPolicy: RECOMMENDED_POLICY,
+      knowledgeResolver: runtimeResolver,
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? jsonToolCallResponse('permission-foreign-read', 'read', {
+                path: locator,
+              })
+            : textResponse('The foreign Space was refused.'),
+        );
+      },
+    });
+
+    try {
+      const result = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await result.consumeStream?.();
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const callEvents = events.filter(
+        (event) =>
+          isRecord(event.payload) &&
+          event.payload.toolCallId === 'permission-foreign-read',
+      );
+      expect(callEvents.map((event) => event.eventType)).toEqual([
+        'tool.requested',
+        'tool.started',
+        'tool.completed',
+      ]);
+      expect(callEvents[0]?.payload).toMatchObject({
+        permission: {
+          policyId: 'portable-test-policy',
+          decision: 'allow',
+          reason: 'permission_mode_bypass',
+          reference: null,
+        },
+      });
+      expect(callEvents[2]?.payload).toMatchObject({
+        output: { status: 'error', type: 'knowledge_space_not_found' },
+      });
+      expect(JSON.stringify(callEvents[2]?.payload)).not.toContain(
+        foreignContent,
+      );
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      await sql`DELETE FROM users WHERE id = ${foreignOwnerId}`;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a tool outside tools.allowed unavailable under bypass', async () => {
+    const seeded = await seedBoundRun(
+      `permission-bypass-allowlist-${crypto.randomUUID()}`,
+      'bypass',
+    );
+    const calls: Array<ModelStreamInput> = [];
+    const service = serviceWithTools({
+      allowed: ['bash'],
+      nativeExecutorId: 'permission-mode-test-host',
+      permissionModes: ['default', 'bypass'],
+      permissionPolicy: RECOMMENDED_POLICY,
+    });
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? unlistedToolCallResponse('search_conversations', 'budget')
+            : textResponse('The unavailable tool was not executed.'),
+        );
+      },
+    });
+
+    try {
+      const result = await executeSeeded(
+        seeded,
+        service,
+        recordingMockClient(model, calls),
+      );
+      await result.consumeStream?.();
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      expect(Object.keys(calls[0]?.tools ?? {})).not.toContain(
+        'search_conversations',
+      );
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+      const callEvents = events.filter(
+        (event) =>
+          isRecord(event.payload) && event.payload.toolCallId === 'call-bad',
+      );
+      expect(callEvents.map((event) => event.eventType)).toEqual([
+        'tool.requested',
+        'tool.completed',
+      ]);
+      expect(callEvents[0]?.payload).not.toHaveProperty('permission');
+      expect(callEvents[1]?.payload).toMatchObject({
+        output: { status: 'error' },
+      });
+
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+      );
+      const assistant = messages.find(
+        (message) =>
+          message.role === 'assistant' &&
+          message.inReplyTo === seeded.userMessage.id,
+      );
+      expect(assistant?.parts).toContainEqual(
+        expect.objectContaining({
+          type: 'tool-search_conversations',
+          outcome: 'not_available',
+        }),
+      );
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+    }
   });
 });

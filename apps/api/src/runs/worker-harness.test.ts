@@ -62,6 +62,7 @@ const run: Run = {
   startedAt: null,
   finishedAt: null,
   effort: null,
+  permissionMode: 'default' as const,
 };
 
 /** The three `useValue` payloads bootWorkerHarness overrides, in override order. */

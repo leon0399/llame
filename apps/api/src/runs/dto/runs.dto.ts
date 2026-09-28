@@ -9,6 +9,10 @@ import {
   type RunStatus,
   type RunContextItem,
 } from '../../db/schema';
+import {
+  PERMISSION_MODES,
+  type PermissionMode,
+} from '../../tools/permissions/permission-mode';
 
 /** Query for the run-event replay cursor (SPEC §9.4). */
 export class ListRunEventsQuery {
@@ -57,6 +61,12 @@ export class RunResponse {
       'a receipt of what ran, never recomputed from current configuration.',
   })
   effort?: string;
+
+  @ApiProperty({
+    enum: PERMISSION_MODES,
+    description: 'Accepted permission mode for this run.',
+  })
+  permissionMode!: PermissionMode;
 
   @ApiProperty({ enum: runStatus.enumValues })
   status!: RunStatus;
@@ -110,6 +120,12 @@ export class ContextReceiptResponse {
       'accepted. Absent when the run carried none.',
   })
   effort?: string;
+
+  @ApiProperty({
+    enum: PERMISSION_MODES,
+    description: 'Accepted permission mode for this run.',
+  })
+  permissionMode!: PermissionMode;
 
   @ApiPropertyOptional({
     description: 'Active execution attempt identity, if any.',
@@ -208,6 +224,7 @@ export function toRunResponse(run: Run): RunResponse {
     chatId: run.chatId,
     messageId: run.messageId,
     modelId: run.modelId,
+    permissionMode: run.permissionMode,
     ...(run.effort !== null && { effort: run.effort }),
     status: run.status,
     error: run.error,
@@ -236,6 +253,7 @@ export function toContextReceiptResponse(
 
   return {
     modelId: run.modelId,
+    permissionMode: run.permissionMode,
     ...(run.effort !== null && { effort: run.effort }),
     ...(run.activeAttemptId !== null && {
       activeAttemptId: run.activeAttemptId,

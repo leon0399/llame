@@ -15,6 +15,7 @@ import {
   ModelConfigurationError,
   EffortNotAvailableError,
   ModelNotAvailableError,
+  PermissionModeNotAvailableError,
   ModelsService,
 } from './models.service';
 
@@ -160,6 +161,13 @@ function createService(overrides: {
 }
 
 describe('ModelsService', () => {
+  it('exposes the exact unavailable permission mode error contract', () => {
+    const error = new PermissionModeNotAvailableError('bypass');
+
+    expect(error.message).toBe("Permission mode 'bypass' is not available.");
+    expect(error.code).toBe('permission_mode_not_available');
+    expect(error.statusCode).toBe(422);
+  });
   beforeEach(() => {
     createOpenAIModelClientMock.mockClear();
     createOpenAICompletionsModelClientMock.mockClear();

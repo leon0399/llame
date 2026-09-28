@@ -11,8 +11,9 @@ import {
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { type Tool, type ToolContext, type ToolResult } from './types';
-import { evaluatePermission } from './permissions/evaluator';
+import { admitPermission } from './permissions/admit';
 import { isBashCommandField } from './permissions/bash-command-field';
+import { evaluatePermission } from './permissions/evaluator';
 import { declaredStringProperties } from './permissions/declared-fields';
 import { nativeFileProjection } from './permissions/locator-projection';
 import { permissionDeniedResult } from './permissions/messages';
@@ -198,29 +199,29 @@ function evaluateToolPermission(
   args: SubmittedToolArguments,
   context: ToolContext,
 ): PermissionDecision | undefined {
-  const policy = context.permissionPolicy;
-  if (policy === undefined) return undefined;
-  const root = context.workspaceRoot?.current();
-  const workspace = projectWorkspaceArguments(tool, args, root);
-  const options = {
-    toolId: tool.id,
-    args: workspace.args,
-    isFlexibleWhitespaceField: (field: string) =>
-      isBashCommandField(tool.id, field),
-    validFields: mcpDeclaredStringFields(tool),
-    projectFieldValue: nativeFileProjection(tool.id, root),
-  };
-  if (workspace.changed) return evaluatePermission(policy, options);
+  return admitPermission(context, (policy) => {
+    const root = context.workspaceRoot?.current();
+    const workspace = projectWorkspaceArguments(tool, args, root);
+    const options = {
+      toolId: tool.id,
+      args: workspace.args,
+      isFlexibleWhitespaceField: (field: string) =>
+        isBashCommandField(tool.id, field),
+      validFields: mcpDeclaredStringFields(tool),
+      projectFieldValue: nativeFileProjection(tool.id, root),
+    };
+    if (workspace.changed) return evaluatePermission(policy, options);
 
-  const submitted = evaluatePermission(policy, {
-    ...options,
-    args,
-    projectFieldValue: undefined,
+    const submitted = evaluatePermission(policy, {
+      ...options,
+      args,
+      projectFieldValue: undefined,
+    });
+    if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
+      return submitted;
+    }
+    return evaluatePermission(policy, options);
   });
-  if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
-    return submitted;
-  }
-  return evaluatePermission(policy, options);
 }
 
 /**

@@ -10,6 +10,7 @@
 import type { BillingMode } from '../models/model-client';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { type ToolPermissionMap } from '../tools/permissions/types';
+import type { PermissionMode } from '../tools/permissions/permission-mode';
 
 /**
  * Executable provider client implementations (providers-and-models-as-code,
@@ -477,6 +478,12 @@ export type LlameConfig = {
      * by `allowed`; permission rules never change tool visibility.
      */
     permissions: ToolPermissionMap;
+    /**
+     * Ordered list of per-Run permission modes the operator enables. Default:
+     * `['default']`; enabling `bypass` lets a Run skip every
+     * `tools.permissions` evaluation instance-wide.
+     */
+    permissionModes: ReadonlyArray<PermissionMode>;
     /** Hard step cap for the tool-calling loop. */
     maxStepsPerRun: number;
     /** Global per-tool-call timeout, in seconds (a tool may override at registration). */
@@ -563,6 +570,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   tools: {
     allowed: [],
     permissions: {},
+    permissionModes: ['default'],
     maxStepsPerRun: 100,
     callTimeoutSeconds: 120,
     promptFiles: {},

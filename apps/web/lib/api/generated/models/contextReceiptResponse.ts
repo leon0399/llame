@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1
  */
 import type { AttemptReceiptResponse } from "./attemptReceiptResponse";
+import type { ContextReceiptResponsePermissionMode } from "./contextReceiptResponsePermissionMode";
 import type { ContextReceiptResponseState } from "./contextReceiptResponseState";
 
 export interface ContextReceiptResponse {
@@ -13,6 +14,8 @@ export interface ContextReceiptResponse {
   modelId: string;
   /** Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. */
   effort?: string;
+  /** Accepted permission mode for this run. */
+  permissionMode: ContextReceiptResponsePermissionMode;
   /** Active execution attempt identity, if any. */
   activeAttemptId?: string;
   /** Completed (winning) attempt identity, if the run completed successfully. */

@@ -475,6 +475,9 @@
     //     "target": "https://x.pcstyle.dev{path}"
     //   }
     // ],
+    // Enabling "bypass" makes per-Run permission bypass available instance-wide;
+    // omit this property (default ["default"]) to keep bypass unavailable.
+    // "permissionModes": ["default", "bypass"],
     // Optional whole-file replacements for llame-owned tool descriptions,
     // keyed by registered tool id (bash, conversation_read, edit, enter_workspace,
     // exit_workspace, knowledge_search, read, search_conversations, write); MCP ids are

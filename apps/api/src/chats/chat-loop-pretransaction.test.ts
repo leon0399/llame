@@ -7,6 +7,7 @@ import {
   ModelConfigurationError,
   EffortNotAvailableError,
   ModelNotAvailableError,
+  PermissionModeNotAvailableError,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { type RunAborter } from '../runs/run-abort-registry';
@@ -116,6 +117,21 @@ describe('ChatLoopService pre-transaction guards', () => {
     await expect(
       service.createMessageStream({ ...input, effort: 'ludicrous' }),
     ).rejects.toBeInstanceOf(EffortNotAvailableError);
+    expect(runAs).not.toHaveBeenCalled();
+    expect(dispatchRun).not.toHaveBeenCalled();
+  });
+
+  it('rejects a disabled permission mode before opening a tenant transaction or dispatching', async () => {
+    const { service, runAs, dispatchRun } = makeService();
+
+    await expect(
+      service.createMessageStream({ ...input, permissionMode: 'bypass' }),
+    ).rejects.toMatchObject({
+      constructor: PermissionModeNotAvailableError,
+      mode: 'bypass',
+      code: 'permission_mode_not_available',
+      statusCode: 422,
+    });
     expect(runAs).not.toHaveBeenCalled();
     expect(dispatchRun).not.toHaveBeenCalled();
   });

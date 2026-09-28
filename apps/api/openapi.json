@@ -2646,6 +2646,37 @@
         "summary": "",
         "tags": ["org-units"]
       }
+    },
+    "/api/v1/permission-modes": {
+      "get": {
+        "operationId": "listPermissionModes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionModesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["permission-modes"]
+      }
     }
   },
   "info": {
@@ -3141,6 +3172,11 @@
             "type": "string",
             "description": "Reasoning effort for this turn. Must be one of the selected model's `reasoning.effortLevels[].value`; omit to use its `defaultEffort`. Matched byte-exactly — not case-folded."
           },
+          "permissionMode": {
+            "type": "string",
+            "enum": ["default", "bypass"],
+            "description": "Permission mode for this turn; omit for default."
+          },
           "message": {
             "$ref": "#/components/schemas/CreateMessageBodyDto"
           }
@@ -3442,6 +3478,11 @@
             "type": "string",
             "description": "Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. An opaque provider token — a receipt of what ran, never recomputed from current configuration."
           },
+          "permissionMode": {
+            "type": "string",
+            "enum": ["default", "bypass"],
+            "description": "Accepted permission mode for this run."
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -3485,6 +3526,7 @@
           "chatId",
           "messageId",
           "modelId",
+          "permissionMode",
           "status",
           "error",
           "createdAt",
@@ -3573,6 +3615,11 @@
             "type": "string",
             "description": "Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none."
           },
+          "permissionMode": {
+            "type": "string",
+            "enum": ["default", "bypass"],
+            "description": "Accepted permission mode for this run."
+          },
           "activeAttemptId": {
             "type": "string",
             "description": "Active execution attempt identity, if any."
@@ -3598,7 +3645,13 @@
             "type": "string"
           }
         },
-        "required": ["modelId", "state", "receipts", "createdAt"]
+        "required": [
+          "modelId",
+          "permissionMode",
+          "state",
+          "receipts",
+          "createdAt"
+        ]
       },
       "UpdateRunDto": {
         "type": "object",
@@ -4253,6 +4306,28 @@
           }
         },
         "required": ["role", "viaOrgUnitId", "inherited"]
+      },
+      "PermissionModeResponse": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "enum": ["default", "bypass"]
+          }
+        },
+        "required": ["value"]
+      },
+      "PermissionModesResponse": {
+        "type": "object",
+        "properties": {
+          "modes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PermissionModeResponse"
+            }
+          }
+        },
+        "required": ["modes"]
       }
     }
   }

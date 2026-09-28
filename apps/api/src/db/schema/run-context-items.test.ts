@@ -39,6 +39,7 @@ describe('per-run context-item record', () => {
       completedAttemptId: null,
       turnToolAvailability: null,
       effort: null,
+      permissionMode: 'default' as const,
       status: 'completed',
       workerId: null,
       cancelRequestedAt: null,

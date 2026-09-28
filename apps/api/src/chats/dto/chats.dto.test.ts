@@ -184,6 +184,26 @@ describe('CreateMessageDto', () => {
     ).resolves.toMatchObject({ effort: undefined });
   });
 
+  it('accepts the closed permission-mode enum and rejects malformed values', async () => {
+    const modelId = 'system:openai:gpt-5.4-mini';
+
+    for (const permissionMode of ['default', 'bypass']) {
+      await expect(
+        pipe.transform({ modelId, permissionMode, message }, metadata),
+      ).resolves.toMatchObject({ permissionMode });
+    }
+
+    for (const permissionMode of ['yolo', '', ' ', null, 7, {}]) {
+      await expect(
+        pipe.transform({ modelId, permissionMode, message }, metadata),
+      ).rejects.toMatchObject({ status: 400 });
+    }
+
+    await expect(
+      pipe.transform({ modelId, message }, metadata),
+    ).resolves.toMatchObject({ permissionMode: undefined });
+  });
+
   it('rejects a blank, null, or non-string effort', async () => {
     const modelId = 'system:openai:gpt-5.4-mini';
 

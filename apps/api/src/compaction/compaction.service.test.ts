@@ -107,6 +107,7 @@ const sourceRun: Run = {
   startedAt: now,
   finishedAt: now,
   effort: null,
+  permissionMode: 'default' as const,
 };
 
 const sourceReceipt: SystemPromptReceipt = {

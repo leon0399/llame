@@ -36,12 +36,13 @@ export type PermissionDecisionReason =
   | 'no_allow'
   | 'invalid_field'
   | 'input_limit'
-  | 'matched_allow';
+  | 'matched_allow'
+  | 'permission_mode_bypass';
 
-/** The reasons that describe a rejection; `matched_allow` is allow-only. */
+/** The reasons that describe a rejection; allow-only reasons are excluded. */
 export type PermissionRejectionReason = Exclude<
   PermissionDecisionReason,
-  'matched_allow'
+  'matched_allow' | 'permission_mode_bypass'
 >;
 
 export interface PermissionClauseReference {
@@ -53,16 +54,15 @@ export interface PermissionClauseReference {
 
 /**
  * A trusted, safe admission decision. Discriminated on `decision` so a reject
- * can never carry the allow-only `matched_allow` reason and vice versa. It
- * already contains only safe provenance (opaque policy id, decision, static
- * reason, bounded clause reference) — nothing here needs to be stripped before
- * persistence.
+ * can never carry an allow-only reason and vice versa. It already contains
+ * only safe provenance (opaque policy id, decision, static reason, bounded
+ * clause reference) — nothing here needs to be stripped before persistence.
  */
 export type PermissionDecision =
   | {
       readonly policyId: string;
       readonly decision: 'allow';
-      readonly reason: 'matched_allow';
+      readonly reason: 'matched_allow' | 'permission_mode_bypass';
       readonly reference: PermissionClauseReference | null;
     }
   | {

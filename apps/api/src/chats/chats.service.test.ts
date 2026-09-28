@@ -843,6 +843,7 @@ describe('ChatsService message windows, updates and forks', () => {
       userId: ownerUserId,
       modelId: 'system:openai:public-model',
       effort: null,
+      permissionMode: 'default' as const,
       status: 'running_model',
       workerId: null,
       activeAttemptId: null,

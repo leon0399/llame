@@ -74,7 +74,7 @@ Current roles are `owner`, `admin`, `maintainer`, `member`, `viewer`, `guest`, a
 
 ### 7.5 Approvals
 
-Operator allow/reject tool-call permissions ship: a startup-loaded `tools.permissions` policy is evaluated at the shared execution gate and a rejection is a non-fatal `permission_denied` observation. An interactive approval workflow does not ship (#778). Authentication, RLS, tool classification, the static `tools.allowed` availability gate, and native effect fencing remain mandatory.
+Operator allow/reject tool-call permissions ship: a startup-loaded `tools.permissions` policy is evaluated at the shared execution gate and a rejection is a non-fatal `permission_denied` observation. A per-Run `default | bypass` permission mode also ships, gated by `tools.permissionModes` (default `["default"]`); `bypass` skips `tools.permissions` evaluation while the other mandatory controls remain. An interactive approval workflow does not ship (#778). Authentication, RLS, tool classification, the static `tools.allowed` availability gate, and native effect fencing remain mandatory.
 
 ## 9. Chats and durable Runs
 
@@ -267,8 +267,10 @@ sources admit `read` without admitting absolute-path host authority. See
 when `tools.nativeExecutorId` is configured and `bash` is allowlisted. The host
 runs the model's shell text as `bash -c` under the host OS user. This is
 explicit host authority, not tenant isolation: the model cannot select the
-executor, network mode, or permission mode. A future managed Sandbox adapter
-and a separate permission proposal may strengthen isolation.
+executor or network mode. The owner, not the model, selects the Run's
+`default` or `bypass` permission mode per send; that mode is never model-visible.
+A future managed Sandbox adapter and a separate permission proposal may
+strengthen isolation.
 
 Before starting a command, the host records a durable `native.attempt` in the
 Run event log and records a `native.result` after settlement. If a worker is

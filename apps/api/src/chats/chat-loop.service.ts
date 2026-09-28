@@ -22,8 +22,10 @@ import {
 import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,
+  PermissionModeNotAvailableError,
   type ModelSelectionValidator,
 } from '../models/models.service';
+import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { type MessagePart } from './context-builder';
 import { isRecord } from '@workspace/runtime-safety';
@@ -73,7 +75,7 @@ export type ChatMessageInput = {
 
 /**
  * Accept-time inputs for the binding transaction: user identity, chat,
- * selected model/effort, and the sanitized message. Prompt rendering,
+ * selected model/effort/mode, and the sanitized message. Prompt rendering,
  * tool-catalog composition, and context-item derivation are resolved by
  * the executing worker at attempt time, not here.
  */
@@ -83,6 +85,8 @@ export type PersistUserMessageAndRunInput = {
   modelId: string;
   /** Resolved at accept time; absent means "send no effort parameter". */
   effort: string | undefined;
+  /** Validated at accept time and persisted on the Run. */
+  permissionMode: PermissionMode;
   message: ChatMessageInput;
   targetRunId: string;
 };
@@ -97,6 +101,7 @@ type CreateRunForMessageInput = {
   chatId: string;
   modelId: string;
   effort: string | undefined;
+  permissionMode: PermissionMode;
   targetRunId: string;
 };
 
@@ -114,6 +119,8 @@ type CreateMessageStreamInput = {
   modelId: string;
   /** Requested by the caller; absent resolves the model's `defaultEffort`. */
   effort?: string;
+  /** Requested by the caller; absent resolves to the default permission mode. */
+  permissionMode?: PermissionMode;
   message: ChatMessageInput;
   abortSignal?: AbortSignal;
 };
@@ -154,6 +161,12 @@ export class ChatLoopService {
     // Resolved from the already-validated model, so an unavailable model is
     // reported without the effort ever being considered.
     const effort = this.models.resolveEffortSelection(model, input.effort);
+    const permissionMode: PermissionMode = input.permissionMode ?? 'default';
+    if (
+      !this.instanceConfig.config.tools.permissionModes.includes(permissionMode)
+    ) {
+      throw new PermissionModeNotAvailableError(permissionMode);
+    }
     // Validate BEFORE any database work: a rejected message must not cost a
     // transaction, and input that was invalid anyway stays a 400.
     const message = this.sanitizeAndValidateMessage(input.message);
@@ -166,6 +179,7 @@ export class ChatLoopService {
         userId: input.userId,
         modelId: input.modelId,
         effort,
+        permissionMode,
         message,
         targetRunId,
       });
@@ -242,7 +256,7 @@ export class ChatLoopService {
    * Accepted-turn binding transaction: chat admission, single-flight,
    * user-message persistence, Run creation, and the run.created event.
    * Prompt rendering and tool-catalog composition are deferred to the
-   * worker — this transaction establishes only the accepted user/model/effort
+   * worker — this transaction establishes only the accepted user/model/effort/mode
    * identity and the durable Run record.
    */
   private async persistUserMessageAndRun(
@@ -441,6 +455,7 @@ export class ChatLoopService {
           userId: input.userId,
           modelId: input.modelId,
           effort: input.effort,
+          permissionMode: input.permissionMode,
         }),
       );
     } catch (error) {

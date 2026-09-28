@@ -703,6 +703,74 @@ describe('Workspace host tools', () => {
     expect(enter).not.toHaveBeenCalled();
   });
 
+  it('admits submitted and canonical paths under bypass with recorded provenance', async () => {
+    const alias = join(root, 'alias');
+    const target = join(root, 'target');
+    await mkdir(target);
+    await symlink(target, alias);
+    const decisions: Array<unknown> = [];
+    const admitted: Array<unknown> = [];
+    const permissionPolicy = compileToolPermissionMap(
+      {
+        enter_workspace: {
+          allow: true,
+          reject: true,
+        },
+      },
+      'workspace-test',
+    );
+    const enter = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'enter')
+      .mockResolvedValue({
+        status: 'bound',
+        previousRoot: null,
+        generation: 1,
+      });
+
+    const result = await runTool(
+      enterWorkspaceTool,
+      { path: alias },
+      context({
+        permissionPolicy,
+        permissionMode: 'bypass' as const,
+        onDerivedDecision: (decision) => decisions.push(decision),
+      }),
+      5,
+      (decision) => {
+        admitted.push(decision);
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      root: target,
+      state: 'bound',
+    });
+    expect(admitted).toEqual([
+      {
+        policyId: 'workspace-test',
+        decision: 'allow',
+        reason: 'permission_mode_bypass',
+        reference: null,
+      },
+    ]);
+    expect(decisions).toEqual([
+      {
+        kind: 'canonical',
+        url: target,
+        decision: {
+          policyId: 'workspace-test',
+          decision: 'allow',
+          reason: 'permission_mode_bypass',
+          reference: null,
+        },
+      },
+    ]);
+    expect(enter).toHaveBeenCalledWith(
+      expect.objectContaining({ root: target }),
+    );
+  });
+
   it('binds when both submitted and canonical paths are allowed', async () => {
     const alias = join(root, 'alias');
     const target = join(root, 'target');

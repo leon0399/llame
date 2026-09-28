@@ -1,3 +1,4 @@
+import { admitPermission } from '../permissions/admit';
 import { evaluatePermission } from '../permissions/evaluator';
 import { nativeFileProjection } from '../permissions/locator-projection';
 import { type PermissionDecision } from '../permissions/types';
@@ -78,19 +79,16 @@ export type AdmitAddress = (address: string, locator: string) => boolean;
  * and therefore fails closed without reporting one.
  */
 export function createAddressAdmission(context: ToolContext): AdmitAddress {
-  const policy = context.permissionPolicy;
   const projectFieldValue = nativeFileProjection('read');
   const report = context.onDerivedDecision;
   const reportedRefusals = new Set<string>();
 
   return (address, locator) => {
-    if (policy === undefined) return false;
-
-    const decision = evaluateLocatorPermission(
-      policy,
-      locator,
-      projectFieldValue,
+    const decision = admitPermission(context, (policy) =>
+      evaluateLocatorPermission(policy, locator, projectFieldValue),
     );
+    if (decision === undefined) return false;
+
     const refused =
       decision.decision === 'reject' &&
       (decision.reason === 'explicit_reject' ||
@@ -147,14 +145,13 @@ const NO_POLICY: PermissionDecision = {
 export function createDerivedAdmission(
   context: ToolContext,
 ): AdmitDerivedLocator {
-  const policy = context.permissionPolicy;
   const projectFieldValue = nativeFileProjection('read');
   const report = context.onDerivedDecision;
   return (kind, url) => {
     const decision =
-      policy === undefined
-        ? NO_POLICY
-        : evaluateLocatorPermission(policy, url, projectFieldValue);
+      admitPermission(context, (policy) =>
+        evaluateLocatorPermission(policy, url, projectFieldValue),
+      ) ?? NO_POLICY;
     report?.({ kind, url, decision });
     return decision;
   };
