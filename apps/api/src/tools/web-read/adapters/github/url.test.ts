@@ -1,11 +1,188 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseGithubThreadUrl } from './url';
+import { parseGithubUrl } from './url';
 
-describe('parseGithubThreadUrl', () => {
+describe('parseGithubUrl', () => {
+  it('claims repository roots, trees, blobs, and commits', () => {
+    expect(
+      parseGithubUrl(new URL('https://github.com/acme/project')),
+    ).toStrictEqual({
+      kind: 'repository',
+      owner: 'acme',
+      repo: 'project',
+    });
+    expect(
+      parseGithubUrl(
+        new URL(
+          'https://github.com/acme/project/tree/feature/foo/src?tab=tree#read',
+        ),
+      ),
+    ).toStrictEqual({
+      kind: 'tree',
+      owner: 'acme',
+      repo: 'project',
+      segments: ['feature', 'foo', 'src'],
+    });
+    expect(
+      parseGithubUrl(
+        new URL('https://github.com/acme/project/blob/main/src/index.ts'),
+      ),
+    ).toStrictEqual({
+      kind: 'blob',
+      owner: 'acme',
+      repo: 'project',
+      segments: ['main', 'src', 'index.ts'],
+    });
+    expect(
+      parseGithubUrl(
+        new URL('https://github.com/acme/project/commit/C91B31C0?diff=split'),
+      ),
+    ).toStrictEqual({
+      kind: 'commit',
+      owner: 'acme',
+      repo: 'project',
+      sha: 'C91B31C0',
+    });
+  });
+
+  it('decodes each tree and blob segment once without splitting encoded slashes', () => {
+    expect(
+      parseGithubUrl(
+        new URL(
+          'https://github.com/o/r/tree/main/src%2Fgenerated/index%252Ets',
+        ),
+      ),
+    ).toStrictEqual({
+      kind: 'tree',
+      owner: 'o',
+      repo: 'r',
+      segments: ['main', 'src/generated', 'index%2Ets'],
+    });
+    expect(
+      parseGithubUrl(new URL('https://github.com/o/r/tree/main/')),
+    ).toStrictEqual({
+      kind: 'tree',
+      owner: 'o',
+      repo: 'r',
+      segments: ['main'],
+    });
+  });
+
+  it('enforces the seven-to-forty hexadecimal SHA bounds', () => {
+    expect(
+      parseGithubUrl(new URL(`https://github.com/o/r/commit/${'a'.repeat(7)}`)),
+    ).toMatchObject({ kind: 'commit', sha: 'a'.repeat(7) });
+    expect(
+      parseGithubUrl(
+        new URL(`https://github.com/o/r/commit/${'A'.repeat(40)}`),
+      ),
+    ).toMatchObject({ kind: 'commit', sha: 'A'.repeat(40) });
+    expect(
+      parseGithubUrl(new URL(`https://github.com/o/r/commit/${'a'.repeat(6)}`)),
+    ).toBeUndefined();
+    expect(
+      parseGithubUrl(
+        new URL(`https://github.com/o/r/commit/${'a'.repeat(41)}`),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('rejects invalid segments and incomplete code paths', () => {
+    const unclaimed = [
+      'https://github.com/o/r/tree',
+      'https://github.com/o/r/tree/',
+      'https://github.com/o/r/tree/main//src',
+      'https://github.com/o/r/tree/main/a%2F..%2Fb',
+      'https://github.com/o/r/blob/main/%2E%2E%2Fx',
+      'https://github.com/o/r/tree/main/%5C/src',
+      'https://github.com/o/r/tree/main/%00/src',
+      'https://github.com/o/r/tree/main/%09/src',
+      'https://github.com/o/r/tree/main/%7F/src',
+      'https://github.com/o/r/tree/main/%80/src',
+      'https://github.com/o/r/tree/main/%',
+      'https://github.com/o/r/blob/main',
+      'https://github.com/o/r/blob/main/src/',
+      'https://github.com/o/r/blob/main//src',
+      'https://github.com/o/r/commit/abcdefg.diff',
+      'https://github.com/o/r/commit/abcdefg.patch',
+    ];
+    for (const source of unclaimed) {
+      expect(parseGithubUrl(new URL(source))).toBeUndefined();
+    }
+
+    for (const segment of ['%2E', '%2E%2E']) {
+      const source = new URL('https://github.com/o/r');
+      Object.defineProperty(source, 'pathname', {
+        value: `/o/r/tree/main/${segment}/src`,
+      });
+      expect(parseGithubUrl(source)).toBeUndefined();
+    }
+  });
+  it('only allows a trailing slash for tree paths', () => {
+    expect(
+      parseGithubUrl(new URL('https://github.com/o/r/blob/main/src/')),
+    ).toBeUndefined();
+    expect(
+      parseGithubUrl(new URL('https://github.com/o/r/tree/main/src/')),
+    ).toMatchObject({ kind: 'tree', segments: ['main', 'src'] });
+  });
+
+  it('leaves unsupported GitHub shapes unclaimed', () => {
+    const unclaimed = [
+      'https://github.com/o/r/',
+      'https://github.com/o/r/raw/main/file',
+      'https://github.com/o/r/compare/main...next',
+    ];
+    for (const source of unclaimed) {
+      expect(parseGithubUrl(new URL(source))).toBeUndefined();
+    }
+  });
+  it('leaves GitHub reserved top-level paths unclaimed', () => {
+    const reserved = [
+      'about',
+      'apps',
+      'codespaces',
+      'collections',
+      'customer-stories',
+      'enterprise',
+      'enterprises',
+      'explore',
+      'features',
+      'issues',
+      'login',
+      'logout',
+      'marketplace',
+      'new',
+      'notifications',
+      'organizations',
+      'orgs',
+      'pricing',
+      'pulls',
+      'readme',
+      'security',
+      'search',
+      'settings',
+      'signup',
+      'sponsors',
+      'topics',
+      'trending',
+      'users',
+    ];
+    for (const name of reserved) {
+      expect(
+        parseGithubUrl(new URL(`https://github.com/${name}/value`)),
+      ).toBeUndefined();
+    }
+    expect(
+      parseGithubUrl(new URL('https://github.com/Topics/value')),
+    ).toBeUndefined();
+  });
+});
+
+describe('parseGithubUrl threads', () => {
   it('claims canonical issues and pull requests while ignoring query and fragment', () => {
     expect(
-      parseGithubThreadUrl(
+      parseGithubUrl(
         new URL(
           'https://github.com/acme/project/issues/12?tab=comments#issue-1',
         ),
@@ -17,7 +194,7 @@ describe('parseGithubThreadUrl', () => {
       number: 12,
     });
     expect(
-      parseGithubThreadUrl(new URL('https://github.com/acme/project/pull/34')),
+      parseGithubUrl(new URL('https://github.com/acme/project/pull/34')),
     ).toStrictEqual({
       kind: 'pull',
       owner: 'acme',
@@ -28,12 +205,12 @@ describe('parseGithubThreadUrl', () => {
 
   it('accepts the specified owner, repository, and number boundaries', () => {
     expect(
-      parseGithubThreadUrl(
+      parseGithubUrl(
         new URL('https://github.com/A-0/._repo-1/issues/1234567890'),
       ),
     ).toBeDefined();
     expect(
-      parseGithubThreadUrl(
+      parseGithubUrl(
         new URL(
           `https://github.com/${'a'.repeat(39)}/${'r'.repeat(100)}/pull/1`,
         ),
@@ -49,8 +226,6 @@ describe('parseGithubThreadUrl', () => {
       'https://github.com/-owner/r/issues/1',
       `https://github.com/${'a'.repeat(40)}/r/issues/1`,
       `https://github.com/o/${'r'.repeat(101)}/issues/1`,
-      'https://github.com/o/./issues/1',
-      'https://github.com/o/../issues/1',
       'https://github.com/o/r/issues/1/',
       'https://github.com/o/r/pull/1.diff',
       'https://github.com/o/r/pull/1.patch',
@@ -63,24 +238,22 @@ describe('parseGithubThreadUrl', () => {
       'https://github.com/o/r/projects/1',
       'https://github.com/o/r/discussions/1',
       'https://github.com/search?q=issue',
-      'https://gist.github.com/o/1',
-      'https://raw.githubusercontent.com/o/r/main/file',
+      'https://github.com/o/../issues/1',
+      'https://github.com/o/./issues/1',
       'https://github.enterprise.test/o/r/issues/1',
       'https://github.com/o/r/issues/1/comments',
     ];
     for (const source of unclaimed) {
-      expect(parseGithubThreadUrl(new URL(source))).toBeUndefined();
+      expect(parseGithubUrl(new URL(source))).toBeUndefined();
     }
   });
 
   it('rejects a non-default port and userinfo', () => {
     expect(
-      parseGithubThreadUrl(new URL('https://github.com:444/o/r/issues/1')),
+      parseGithubUrl(new URL('https://github.com:444/o/r/issues/1')),
     ).toBeUndefined();
     expect(
-      parseGithubThreadUrl(
-        new URL('https://user:secret@github.com/o/r/issues/1'),
-      ),
+      parseGithubUrl(new URL('https://user:secret@github.com/o/r/issues/1')),
     ).toBeUndefined();
   });
 });

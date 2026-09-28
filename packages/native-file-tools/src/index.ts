@@ -17,6 +17,7 @@ export {
   DIRECTORY_TRAVERSAL_BUDGET,
   DIRECTORY_CHILD_CAP,
 } from "./read";
+export { renderCollectedDirectory } from "./collected-directory";
 export type {
   NativeReadOptions,
   ReadSuccess,
@@ -26,6 +27,7 @@ export type {
   DirectorySuccess,
   DirectoryFailure,
 } from "./read";
+export type { DirectoryListingEntry } from "./collected-directory";
 export { selectMultiRangeLines } from "./stream-read";
 export {
   editFile,

@@ -5,7 +5,11 @@ import type {
   WebRequestInit,
   WebResponse,
 } from '../http-client';
-import { CANDIDATE_FAILURES, type WebRender } from '../pipeline';
+import {
+  CANDIDATE_FAILURES,
+  type WebDirectory,
+  type WebRender,
+} from '../pipeline';
 import { createGithubAdapter } from './github/adapter';
 import { createRewriteAdapter } from './rewrite';
 
@@ -45,6 +49,7 @@ export type WebAdapterOutcome =
       readonly content: string;
       readonly origin?: string;
       readonly notes: ReadonlyArray<string>;
+      readonly directory?: WebDirectory;
     }
   | {
       readonly kind: 'failed';
@@ -188,28 +193,40 @@ export async function dispatchWebAdapters(
       continue;
     }
 
-    const bounded = truncateAdapterDocument(outcome.content);
-    const notes = [...fallthroughNotes, ...outcome.notes];
-    if (bounded.truncated) notes.push('document truncated: too_large');
-    const provenance: WebAdapterProvenance = {
-      id: adapter.id,
-      route: adapter.route,
-      ...(adapter.route === 'rewrite' &&
-        outcome.origin !== undefined && { origin: outcome.origin }),
+    return {
+      kind: 'rendered',
+      render: renderAdapter(source, adapter, outcome, fallthroughNotes),
     };
-    const render: WebRender = {
-      method: 'adapter',
-      content: bounded.content,
-      finalUrl: source.href,
-      ...(notes.length > 0 && { notes }),
-      adapter: provenance,
-    };
-    return { kind: 'rendered', render };
   }
 
   return { kind: 'fallthrough', notes: fallthroughNotes };
 }
 
+function renderAdapter(
+  source: URL,
+  adapter: WebAdapter,
+  outcome: Extract<WebAdapterOutcome, { kind: 'rendered' }>,
+  fallthroughNotes: ReadonlyArray<string>,
+): WebRender {
+  const bounded = truncateAdapterDocument(outcome.content);
+  const notes = [...fallthroughNotes, ...outcome.notes];
+  if (bounded.truncated) notes.push('document truncated: too_large');
+  return {
+    method: 'adapter',
+    content: bounded.content,
+    finalUrl: source.href,
+    ...(notes.length > 0 && { notes }),
+    adapter: {
+      id: adapter.id,
+      route: adapter.route,
+      ...(adapter.route === 'rewrite' &&
+        outcome.origin !== undefined && { origin: outcome.origin }),
+    },
+    ...(outcome.directory !== undefined && {
+      directory: outcome.directory,
+    }),
+  };
+}
 function truncateAdapterDocument(content: string) {
   const buffer = new Uint8Array(MAX_ADAPTER_DOCUMENT_BYTES);
   const { read } = new TextEncoder().encodeInto(content, buffer);

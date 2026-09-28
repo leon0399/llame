@@ -7,6 +7,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   rate-limit notes when secondary requests fail
   ([#939](https://github.com/leon0399/llame/issues/939)).
 
+- Native GitHub repository-code reads render source blobs, two-level directory
+  listings, repository metadata with README, and commit summaries with `Diff:`
+  links but no patches; binary and oversized content falls through
+  ([#939](https://github.com/leon0399/llame/issues/939)).
+
 - Native web reads gain an ordered, opt-in adapter stage between source
   admission and the generic ladder, and the first adapter: an operator-declared
   `rewrite` that fetches a claimed URL from one validated origin and renders it

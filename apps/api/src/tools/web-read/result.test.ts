@@ -1,4 +1,8 @@
-import { measureNativeModelOutput } from '@workspace/native-file-tools';
+import {
+  measureNativeModelOutput,
+  renderCollectedDirectory,
+  type DirectoryListingEntry,
+} from '@workspace/native-file-tools';
 import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
 
 import { type WebRender } from './pipeline';
@@ -22,6 +26,29 @@ function readWindow(first: number, last: number, raw = false): string {
     (_, index) =>
       `${raw ? '' : `${first + index}: `}line ${first + index} ${'x'.repeat(60)}\n`,
   ).join('');
+}
+
+const DIRECTORY_URL = 'https://github.com/o/r/tree/main/apps';
+const directoryEntries: ReadonlyArray<DirectoryListingEntry> = [
+  {
+    name: 'src',
+    kind: 'directory',
+    children: 'abcdefghijklmnopqrstu'.split('').map((name) => ({
+      name: `file-${name}`,
+      kind: 'file' as const,
+    })),
+  },
+  { name: 'README.md', kind: 'file' },
+];
+
+function oversizedDirectory() {
+  return {
+    displayPath: DIRECTORY_URL,
+    entries: Array.from({ length: 10_001 }, (_, index) => ({
+      name: `file-${index}`,
+      kind: 'file' as const,
+    })),
+  };
 }
 
 describe('buildWebReadResult', () => {
@@ -48,6 +75,222 @@ describe('buildWebReadResult', () => {
     expect(result).not.toHaveProperty('contentType');
     expect(result).not.toHaveProperty('markdownTokens');
     expect(JSON.stringify(result)).not.toContain('text/markdown');
+  });
+
+  it('matches the native directory renderer, including a selector', () => {
+    const directory = {
+      displayPath: DIRECTORY_URL,
+      entries: directoryEntries,
+    };
+    const full = buildWebReadResult({ url: DIRECTORY_URL }, DIRECTORY_URL, {
+      method: 'adapter',
+      content: '',
+      directory,
+    });
+    expect(full).toEqual({
+      status: 'success',
+      kind: 'directory',
+      path: DIRECTORY_URL,
+      content: `${DIRECTORY_URL}
+  - src/
+    - file-a
+    - file-b
+    - file-c
+    - file-d
+    - file-e
+    - file-f
+    - file-g
+    - file-h
+    - file-i
+    - file-j
+    - file-k
+    - file-l
+    - file-m
+    - file-n
+    - file-o
+    - file-p
+    - file-q
+    - file-r
+    - file-s
+    - file-t
+    … 1 more
+  - README.md
+`,
+      truncated: false,
+      finalUrl: DIRECTORY_URL,
+      method: 'adapter',
+    });
+    if (full.status !== 'success' || full.kind !== 'directory') {
+      throw new Error('expected a full directory result');
+    }
+    expect(full.content).toContain('… 1 more');
+
+    const selected = buildWebReadResult(
+      { url: DIRECTORY_URL, selector: '1-1' },
+      DIRECTORY_URL,
+      { method: 'adapter', content: '', directory },
+    );
+    expect(selected).toEqual({
+      status: 'success',
+      kind: 'directory',
+      path: DIRECTORY_URL,
+      content: `${DIRECTORY_URL}
+  - src/
+`,
+      truncated: true,
+      nextOffset: 1,
+      finalUrl: DIRECTORY_URL,
+      method: 'adapter',
+    });
+  });
+
+  it('reports collected directories beyond the host traversal budget', () => {
+    const rootEntries = Array.from({ length: 10_001 }, (_, index) => ({
+      name: `file-${index}`,
+      kind: 'file' as const,
+    }));
+    expect(renderCollectedDirectory(DIRECTORY_URL, rootEntries)).toEqual({
+      status: 'error',
+      type: 'directory_too_large',
+      message:
+        'Directory contains 10001 entries, exceeding the 10000 entry budget.',
+      count: 10_001,
+    });
+
+    const childEntries = Array.from({ length: 10_001 }, (_, index) => ({
+      name: `file-${index}`,
+      kind: 'file' as const,
+    }));
+    const child = renderCollectedDirectory(DIRECTORY_URL, [
+      { name: 'big', kind: 'directory', children: childEntries },
+    ]);
+    expect(child).toMatchObject({
+      status: 'success',
+      content: `${DIRECTORY_URL}\n  - big/\n    … 10001 entries\n`,
+    });
+  });
+
+  it('rejects selectors unsupported for directory results', () => {
+    const directory = {
+      displayPath: DIRECTORY_URL,
+      entries: directoryEntries,
+    };
+    expect(
+      buildWebReadResult(
+        { url: DIRECTORY_URL, selector: 'raw' },
+        DIRECTORY_URL,
+        { method: 'adapter', content: '', directory },
+      ),
+    ).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'The :raw selector is not supported for directory reads.',
+    });
+    expect(
+      buildWebReadResult(
+        { url: DIRECTORY_URL, selector: '1-2,4-5' },
+        DIRECTORY_URL,
+        { method: 'adapter', content: '', directory },
+      ),
+    ).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'Comma-separated selectors are not supported for directory reads.',
+    });
+  });
+
+  it('counts directory lines when a selector is malformed', () => {
+    const result = buildWebReadResult(
+      { url: DIRECTORY_URL, selector: '0' },
+      DIRECTORY_URL,
+      {
+        method: 'adapter',
+        content: '',
+        directory: {
+          displayPath: DIRECTORY_URL,
+          entries: directoryEntries,
+        },
+      },
+    );
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The selector :0 selected no line of this page, which rendered 24 lines numbered from 1. Write :N, :N-M, or :N+K within 1-24, or omit the selector to read from the start.',
+    });
+  });
+
+  it('applies a positive offset to a directory selector', () => {
+    const directory = {
+      displayPath: DIRECTORY_URL,
+      entries: ['a', 'b', 'c'].map((name) => ({
+        name,
+        kind: 'file' as const,
+      })),
+    };
+    const result = buildWebReadResult(
+      { url: DIRECTORY_URL, selector: '2-2' },
+      DIRECTORY_URL,
+      { method: 'adapter', content: '', directory },
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      content: `${DIRECTORY_URL}\n  - b\n`,
+      truncated: true,
+      nextOffset: 2,
+    });
+  });
+
+  it('applies a limit to the first directory selector', () => {
+    const directory = {
+      displayPath: DIRECTORY_URL,
+      entries: ['a', 'b', 'c'].map((name) => ({
+        name,
+        kind: 'file' as const,
+      })),
+    };
+    const result = buildWebReadResult(
+      { url: DIRECTORY_URL, selector: '1-1' },
+      DIRECTORY_URL,
+      { method: 'adapter', content: '', directory },
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      content: `${DIRECTORY_URL}\n  - a\n`,
+      truncated: true,
+      nextOffset: 1,
+    });
+  });
+
+  it('returns an oversized directory failure without the web envelope', () => {
+    expect(
+      buildWebReadResult({ url: DIRECTORY_URL }, DIRECTORY_URL, {
+        method: 'adapter',
+        content: '',
+        directory: oversizedDirectory(),
+      }),
+    ).toEqual({
+      status: 'error',
+      type: 'directory_too_large',
+      message:
+        'Directory contains 10001 entries, exceeding the 10000 entry budget.',
+    });
+  });
+
+  it('reports no rendered text when a large directory selector cannot render', () => {
+    expect(
+      buildWebReadResult({ url: DIRECTORY_URL, selector: '0' }, DIRECTORY_URL, {
+        method: 'adapter',
+        content: '',
+        directory: oversizedDirectory(),
+      }),
+    ).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The selector :0 selected no line of this page, which rendered no text.',
+    });
   });
   it('includes adapter provenance in the web envelope', () => {
     const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {

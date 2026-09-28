@@ -1,3 +1,4 @@
+import type { DirectoryListingEntry } from '@workspace/native-file-tools';
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
@@ -20,11 +21,16 @@ export const WEB_RENDER_METHODS = [
   'raw',
 ] as const;
 
+export type WebDirectory = {
+  readonly displayPath: string;
+  readonly entries: ReadonlyArray<DirectoryListingEntry>;
+};
 export type WebRenderMethod = (typeof WEB_RENDER_METHODS)[number];
 
 export type WebRender = {
   readonly method: WebRenderMethod;
   readonly content: string;
+  readonly directory?: WebDirectory;
   /** The final URL of the probe response that produced the content, present
    *  only when a probe won; a probe that followed redirects reports where it
    *  landed. A render of the page's own response carries none, because that

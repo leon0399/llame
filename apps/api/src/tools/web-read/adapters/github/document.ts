@@ -195,7 +195,7 @@ function formatChecks(checks: GithubChecks): string {
   return parts.length === 0 ? 'none' : parts.join(', ');
 }
 
-function appendFiles(
+export function appendFiles(
   lines: Array<string>,
   files: ReadonlyArray<GithubFile>,
 ): void {

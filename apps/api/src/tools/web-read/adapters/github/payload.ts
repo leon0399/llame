@@ -80,7 +80,7 @@ const REVIEW_COMMENT_WIRE = COMMENT_WIRE.extend({
     .nullish()
     .transform((value) => value ?? null),
 });
-const FILE_WIRE = z.object({
+export const FILE_WIRE = z.object({
   filename: z.string(),
   status: z.string(),
   additions: z.number().int(),
@@ -237,22 +237,24 @@ export function parseFilesPage(
   body: string,
 ): ReadonlyArray<GithubFile> | undefined {
   const files = parseGithub(z.array(FILE_WIRE), body);
-  return files?.map((file) =>
-    file.previous_filename === undefined
-      ? {
-          filename: file.filename,
-          status: file.status,
-          additions: file.additions,
-          deletions: file.deletions,
-        }
-      : {
-          filename: file.filename,
-          status: file.status,
-          additions: file.additions,
-          deletions: file.deletions,
-          previousFilename: file.previous_filename,
-        },
-  );
+  return files?.map(toGithubFile);
+}
+
+export function toGithubFile(file: z.infer<typeof FILE_WIRE>): GithubFile {
+  return file.previous_filename === undefined
+    ? {
+        filename: file.filename,
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+      }
+    : {
+        filename: file.filename,
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        previousFilename: file.previous_filename,
+      };
 }
 
 export function parseCheckPage(
