@@ -81,8 +81,8 @@ the projected host path. An invalid file alias SHALL remain unchanged in
 projection and SHALL be refused by permission admission or by native locator
 validation; the permission evaluator SHALL not turn it into a filesystem path.
 Each derived locator a web read issues, meaning a
-redirect hop, an announced alternate, a suffix candidate, or an `llms.txt`
-candidate, SHALL be evaluated against the `read` group as if the model had
+redirect hop, an announced alternate, a suffix candidate, an `llms.txt`
+candidate, or an adapter request, SHALL be evaluated against the `read` group as if the model had
 submitted it — a hop is a different resource, so it earns its own allow
 rather than inheriting one. A hop locator is the `Location` value resolved
 against the redirecting request's URL by the WHATWG URL parser and serialized
@@ -90,9 +90,11 @@ as its `href`, so it is canonical in the same way (lowercase host,
 internationalized host as punycode, default port dropped, empty path as `/`,
 path and query percent-escapes normalized to a fixed point with unreserved
 characters decoded, fragment dropped so the matched text is the
-URL the next request uses). A derived locator is decided through the same
-evaluator and the same projection, with no trusted context and no relaxation
-carried over from the admitted call or from an earlier derived locator.
+URL the next request uses). An adapter locator SHALL be the canonical target actually requested by the
+adapter, never an operator secret or an unbounded raw template. A derived
+locator is decided through the same evaluator and the same projection, with no
+trusted context and no relaxation carried over from the admitted call or from
+an earlier derived locator.
 
 Each address a web request would connect to SHALL additionally be evaluated
 against the `read` group as an address locator: the requested locator with its
@@ -250,6 +252,19 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 - **THEN** projection returns the submitted text unchanged and the call is rejected as `no_allow` with `permission_denied` before native validation
 - **AND** under a whole-tool allow, the same submitted locator reaches native validation and returns `invalid_path`
 
+#### Scenario: An adapter request earns independent admission
+
+- **WHEN** a source URL is admitted by `^https://github\.com/` but the GitHub adapter derives `https://api.github.com/repos/o/r/readme`
+- **AND** the `read` group has no allow for `api.github.com`
+- **THEN** the adapter request is rejected before I/O
+- **AND** the source read can fall through without treating the source allow as API authority
+
+#### Scenario: A rewrite target is decided as its derived locator
+
+- **WHEN** an enabled rewrite turns an admitted x.com source into `https://x.pcstyle.dev/jack/status/20`
+- **THEN** policy decides the canonical target before its request
+- **AND** a reject for that target prevents the request while leaving generic source fallthrough available
+
 ### Requirement: Literals and regex have explicit bounded text semantics
 
 Literal clauses SHALL perform case-sensitive substring matching with regex metacharacters treated literally. For native Bash `command` values only, each maximal run of whitespace in a literal SHALL match one or more ECMAScript whitespace characters, including tabs, newlines, Unicode spaces, and the byte-order-mark character. This SHALL apply when an all-fields reject visits `command`; other Bash fields and all other tool values SHALL preserve whitespace exactly. No shell parsing, tokenization, unquoting, executable resolution, or command-equivalence analysis SHALL occur.
@@ -399,9 +414,10 @@ with its result. The existing `tool.requested` rule SHALL continue to cover
 the call decision rather than each derived-locator record. A refused address
 that a request would have connected to SHALL be recorded the same way, as a
 derived-locator decision of kind `address` carrying its static reason and,
-when one matched, its clause reference; the address and its address locator
-SHALL NOT be recorded, and an admitted address SHALL NOT produce a record. One
-record SHALL be kept per distinct refused address and decision per call, and at
+when one matched, its clause reference; an adapter request SHALL use kind
+`adapter` and carry no target secret, resolved address, or credential value.
+The address and its address locator SHALL NOT be recorded, and an admitted
+address SHALL NOT produce a record. One record SHALL be kept per distinct refused address and decision per call, and at
 most 16 `address` records per call, the first 16 in order, under a bound of
 their own, so address records never displace the records of hops and probe
 candidates.
@@ -418,7 +434,9 @@ whether resolved or given as an IP literal, SHALL NOT be issued; on the call's o
 call with `status: "error"` and `type: "permission_denied"` with the fixed
 refused-address message below, a refused hop carrying `rejectedUrl` as a hop
 rejection does, and no result field or message SHALL carry an address the
-host resolved to. The model SHALL observe the
+host resolved to. A refused adapter request SHALL not produce a model-visible
+error body: its decision is stored, its bounded failure note is attached to
+adapter fallthrough, and the next adapter or ladder candidate may run. The model SHALL observe the
 error and continue subject to existing Run limits. The decision SHALL be durably recorded on `tool.requested` before any `tool.started` event or executor dispatch, and carried through completion, abort settlement, and durable transcript reconstruction into stored tool-part metadata. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.
 
 The model-visible message SHALL use one of these fixed templates. It SHALL NOT interpolate rule text, matching fragments, field names, private paths, operator-authored explanations, clause references, policy IDs, or secret
@@ -516,6 +534,13 @@ Tool call stopped by operator permissions. Every address of the target host was 
 - **WHEN** every address of the submitted locator is refused
 - **THEN** the call returns `status: "error"` and `type: "permission_denied"` with the fixed refused-address message and no `rejectedUrl`
 - **AND** no connection is opened and the Run continues with other permitted work
+
+#### Scenario: An adapter refusal is recorded without leaking its target
+
+- **WHEN** a matched adapter's derived request is refused by the `read` group before I/O
+- **THEN** trusted tool activity records an `adapter` decision with the call's policy identity and the adapter's own reason and clause reference
+- **AND** the target URL, token, and matched secret are absent from model-visible output and stored provenance
+- **AND** the adapter falls through without a model-visible status body
 
 ### Requirement: Recommended portable policy with explicit replacement
 
