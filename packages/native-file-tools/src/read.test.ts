@@ -355,6 +355,33 @@ describe("native source reads", () => {
     expect(result.content).not.toContain("# Hidden");
     expect(result.content).toContain("5: # Shown\n");
   });
+
+  it.each([
+    [
+      "a tilde fence closer",
+      "~~~\n" + "~".repeat(20_000) + "\n# Hidden\n~~~\n# Shown\n",
+      "1: ~~~\n3: # Hidden\n4: ~~~\n",
+    ],
+    [
+      "an equals setext underline",
+      "Title\n" + "=".repeat(20_000) + "\n# Kept\n",
+      `1: Title\n2: ${"=".repeat(120)}…\n3: # Kept\n`,
+    ],
+    [
+      "a dash setext underline",
+      "Title\n" + "-".repeat(20_000) + "\n# Kept\n",
+      `1: Title\n2: ${"-".repeat(120)}…\n3: # Kept\n`,
+    ],
+  ])(
+    "keeps %s recognized past the oversized cut",
+    async (_, content, outline) => {
+      const sourcePath = join(directory, "large-marker.md");
+      await writeFile(sourcePath, content);
+      const result = await readFile({ path: `${sourcePath}:outline` });
+      assertFileSuccess(result);
+      expect(result.content).toBe(outline);
+    },
+  );
   it("keeps an oversized HTML block closer visible to the outline scanner", async () => {
     const sourcePath = join(directory, "large-script.md");
     await writeFile(
