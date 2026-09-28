@@ -10,8 +10,8 @@ import {
 } from '@workspace/native-file-tools';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
-import { type WebResponse } from './http-client';
 import { type WebLocator } from './locator';
+import { type WebAdapterProvenance } from './adapters/contract';
 import { type WebRender, type WebRenderMethod } from './pipeline';
 
 /** The native read success object, extended with the web envelope. */
@@ -24,22 +24,24 @@ type WebReadFailure = {
 };
 
 /** The fields a web read adds to the native read result. `notes` is added
- *  only when the render reported something, so an empty list is absent. */
+ * only when the render reported something, so an empty list is absent. */
 type WebResultEnvelope = {
   finalUrl: string;
   method: WebRenderMethod;
+  adapter?: WebAdapterProvenance;
   notes?: ReadonlyArray<string>;
 };
 
 /** The envelope reports where the content came from: a probe that won names
  *  its own response's URL, and every other render names the call's. */
 function webResultEnvelope(
-  response: WebResponse,
+  finalUrl: string,
   render: WebRender,
 ): WebResultEnvelope {
   const envelope: WebResultEnvelope = {
-    finalUrl: render.finalUrl ?? response.finalUrl,
+    finalUrl: render.finalUrl ?? finalUrl,
     method: render.method,
+    ...(render.adapter !== undefined && { adapter: render.adapter }),
   };
   const notes = render.notes ?? [];
   if (notes.length > 0) envelope.notes = notes;
@@ -54,10 +56,10 @@ function webResultEnvelope(
  */
 export function buildWebReadResult(
   locator: WebLocator,
-  response: WebResponse,
+  finalUrl: string,
   render: WebRender,
 ): WebReadSuccess | WebReadFailure {
-  const envelope = webResultEnvelope(response, render);
+  const envelope = webResultEnvelope(finalUrl, render);
   try {
     const target: ReadTarget = {
       ...applySelectorSuffix(locator.url, locator.selector),

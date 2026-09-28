@@ -23,6 +23,25 @@ const READ_POLICY = compileToolPermissionMap(
   { read: { allow: true } },
   'test-policy',
 );
+const REWRITE_ADAPTER = {
+  id: 'reader',
+  use: 'rewrite',
+  hosts: ['example.test'],
+  target: 'https://reader.example.test{path}',
+} as const;
+const SOURCE_ONLY_POLICY = compileToolPermissionMap(
+  {
+    read: {
+      allow: [
+        {
+          field: 'path',
+          regex: String.raw`^https://example\.test/guide$`,
+        },
+      ],
+    },
+  },
+  'source-only-policy',
+);
 const TEST_ADDRESS = [{ address: '93.184.216.34', family: 4 }] as const;
 const resolvePublicAddress: ResolveHost = () => Promise.resolve(TEST_ADDRESS);
 
@@ -196,6 +215,7 @@ describe('web locator dispatch', () => {
       method: 'negotiated',
     });
     expect(JSON.stringify(result)).toContain('publisher-provided body');
+    expect(result).not.toHaveProperty('notes');
     expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
   });
 
@@ -408,6 +428,91 @@ describe('web locator dispatch', () => {
       method: 'negotiated',
     });
     expect(fetchDouble.mock.calls[0]?.[0]).toBe('https://example.test/guide');
+  });
+  it('dispatches a claimed rewrite before fetching the source', async () => {
+    const source = 'https://example.test/guide';
+    const execute = webReadExecutor();
+
+    const result = await execute(
+      webContext({ webAdapters: [REWRITE_ADAPTER] }),
+      { operation: 'read', input: { path: source } },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'adapter',
+      finalUrl: source,
+      adapter: {
+        id: 'reader',
+        route: 'rewrite',
+        origin: 'https://reader.example.test',
+      },
+    });
+    expect(fetchDouble).toHaveBeenCalledTimes(1);
+    expect(fetchDouble.mock.calls[0]?.[0]).toBe(
+      'https://reader.example.test/guide',
+    );
+  });
+
+  it('falls through a refused adapter target before reading the source', async () => {
+    const source = 'https://example.test/guide';
+    const execute = webReadExecutor();
+
+    const result = await execute(
+      webContext({
+        permissionPolicy: SOURCE_ONLY_POLICY,
+        webAdapters: [REWRITE_ADAPTER],
+      }),
+      { operation: 'read', input: { path: source } },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'negotiated',
+      finalUrl: source,
+      notes: ['web adapter "reader" fell through: permission'],
+    });
+    expect(fetchDouble).toHaveBeenCalledTimes(1);
+    expect(fetchDouble.mock.calls[0]?.[0]).toBe(source);
+  });
+
+  it('preserves notes returned by the injected renderer', async () => {
+    const render = vi.fn(renderWebContent);
+    render.mockResolvedValue({
+      method: 'text',
+      content: 'rendered body',
+      notes: ['render note'],
+    });
+    const execute = webReadExecutor({ renderWebContent: render });
+
+    const result = await execute(webContext(), {
+      operation: 'read',
+      input: { path: 'https://example.test/guide' },
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      notes: ['render note'],
+    });
+  });
+  it('does not dispatch a claimed adapter for a raw read', async () => {
+    const source = 'https://example.test/guide';
+    const execute = webReadExecutor();
+
+    const result = await execute(
+      webContext({ webAdapters: [REWRITE_ADAPTER] }),
+      { operation: 'read', input: { path: `${source}:raw` } },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'raw',
+      finalUrl: source,
+    });
+    expect(result).not.toHaveProperty('adapter');
+    expect(result).not.toHaveProperty('notes');
+    expect(fetchDouble).toHaveBeenCalledTimes(1);
+    expect(fetchDouble.mock.calls[0]?.[0]).toBe(source);
   });
 
   it('does not start the render when the fetch resolves after the Run aborted', async () => {

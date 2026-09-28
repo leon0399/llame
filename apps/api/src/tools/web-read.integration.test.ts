@@ -963,6 +963,396 @@ describe('web read over a fixture server', () => {
     ]);
   });
 });
+describe('web adapters', () => {
+  type AdapterConfig = NonNullable<ToolContext['webAdapters']>[number];
+
+  const SOURCE_RAW_BODY = 'Source body that must bypass the rewrite origin.\n';
+  const CHALLENGE_BODY =
+    '<!doctype html><html><body><p>ADAPTER_CHALLENGE_SECRET</p></body></html>';
+  const STATUS_BODY = 'ADAPTER_STATUS_SECRET';
+  const SOURCE_FAILURE_BODY = 'SOURCE_403_SECRET';
+  const DELIMITER_QUERY = 'value=%2F%3F%23%40';
+
+  let fixture: AddressFixture;
+  let route: AddressFixtureRoute;
+
+  const defaultRoute: AddressFixtureRoute = (address, request, response) => {
+    const requestUrl = request.url ?? '';
+    if (address === '127.0.0.1') {
+      if (requestUrl === '/raw') {
+        send(response, 200, 'text/plain; charset=utf-8', SOURCE_RAW_BODY);
+        return;
+      }
+      if (requestUrl.endsWith('.md') || requestUrl.includes('/llms.txt')) {
+        send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
+        return;
+      }
+      send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+      return;
+    }
+    send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
+  };
+
+  beforeAll(async () => {
+    route = defaultRoute;
+    fixture = await startAddressFixture((address, request, response) =>
+      route(address, request, response),
+    );
+  });
+
+  afterAll(async () => {
+    if (fixture) await fixture.close();
+  });
+
+  beforeEach(() => {
+    fixture.requests.length = 0;
+    fixture.sockets['127.0.0.1'].length = 0;
+    fixture.sockets['127.0.0.2'].length = 0;
+    route = defaultRoute;
+  });
+
+  const sourceUrl = (path: string): string =>
+    `http://source.test:${fixture.port}${path}`;
+  const rewriteOrigin = (): string => `http://rewrite.test:${fixture.port}`;
+
+  const resolve: ResolveHost = (hostname) => {
+    if (hostname === 'source.test') {
+      return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        { address: '127.0.0.1', family: 4 },
+      ]);
+    }
+    if (hostname === 'rewrite.test') {
+      return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        { address: '127.0.0.2', family: 4 },
+      ]);
+    }
+    return Promise.reject(
+      new Error(`The adapter fixture received an unexpected host: ${hostname}`),
+    );
+  };
+
+  const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+
+  const rewrite = (
+    id: string,
+    pathPattern: string | undefined,
+    target = `${rewriteOrigin()}{path}`,
+  ): AdapterConfig => {
+    const config: AdapterConfig = {
+      id,
+      use: 'rewrite',
+      hosts: ['source.test'],
+      target,
+    };
+    return pathPattern === undefined ? config : { ...config, pathPattern };
+  };
+
+  const read = (
+    path: string,
+    webAdapters: ReadonlyArray<AdapterConfig> = [],
+    overrides: Partial<ToolContext> = {},
+  ): Promise<ToolResult> =>
+    execute(
+      webContext({
+        permissionPolicy: ADMIT_EVERY_LOCATOR,
+        ...overrides,
+        webAdapters,
+      }),
+      { operation: 'read', input: { path } },
+    );
+
+  it('bypasses a claimed rewrite origin for :raw', async () => {
+    const result = await read(`${sourceUrl('/raw')}:raw`, [
+      rewrite('raw', '^/raw$'),
+    ]);
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'raw',
+      content: SOURCE_RAW_BODY,
+      finalUrl: sourceUrl('/raw'),
+    });
+    expect(result).not.toHaveProperty('adapter');
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([{ address: '127.0.0.1', path: '/raw' }]);
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+  });
+
+  it('dispatches a claimed rewrite through the local render stages', async () => {
+    route = (address, request, response) => {
+      if (address === '127.0.0.2' && request.url === '/claimed') {
+        send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+        return;
+      }
+      defaultRoute(address, request, response);
+    };
+
+    const source = sourceUrl('/claimed');
+    const result = await read(source, [rewrite('reader', '^/claimed$')]);
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'adapter',
+      adapter: {
+        id: 'reader',
+        route: 'rewrite',
+        origin: rewriteOrigin(),
+      },
+      finalUrl: source,
+      notes: [
+        `content came through the operator-configured origin ${rewriteOrigin()}`,
+      ],
+    });
+    expect(contentOf(result)).toContain(
+      'Adapter pipelines for agent web reads',
+    );
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([{ address: '127.0.0.2', path: '/claimed' }]);
+  });
+
+  it('uses a claimed rewrite when the source would answer 403', async () => {
+    route = (address, request, response) => {
+      if (address === '127.0.0.1' && request.url === '/source-fails') {
+        send(response, 403, 'text/plain; charset=utf-8', SOURCE_FAILURE_BODY);
+        return;
+      }
+      if (address === '127.0.0.2' && request.url === '/source-fails') {
+        send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+        return;
+      }
+      defaultRoute(address, request, response);
+    };
+
+    const source = sourceUrl('/source-fails');
+    const result = await read(source, [rewrite('reader', '^/source-fails$')]);
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'adapter',
+      adapter: {
+        id: 'reader',
+        route: 'rewrite',
+        origin: rewriteOrigin(),
+      },
+      finalUrl: source,
+    });
+    expect(contentOf(result)).toContain(
+      'Adapter pipelines for agent web reads',
+    );
+    expect(JSON.stringify(result)).not.toContain(SOURCE_FAILURE_BODY);
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([{ address: '127.0.0.2', path: '/source-fails' }]);
+  });
+
+  it('leaves an unclaimed path identical to a read without adapters', async () => {
+    const source = sourceUrl('/unclaimed');
+    const configured = await read(source, [rewrite('reader', '^/claimed$')]);
+    const plain = await read(source);
+
+    expect(configured).toStrictEqual(plain);
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([
+      { address: '127.0.0.1', path: '/unclaimed' },
+      { address: '127.0.0.1', path: '/unclaimed.md' },
+      { address: '127.0.0.1', path: '/unclaimed' },
+      { address: '127.0.0.1', path: '/unclaimed.md' },
+    ]);
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+  });
+
+  it('falls through a rewrite origin status failure without exposing its body', async () => {
+    route = (address, request, response) => {
+      if (address === '127.0.0.2' && request.url === '/status') {
+        send(response, 500, 'text/plain; charset=utf-8', STATUS_BODY);
+        return;
+      }
+      defaultRoute(address, request, response);
+    };
+
+    const result = await read(sourceUrl('/status'), [
+      rewrite('status', '^/status$'),
+    ]);
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'readability',
+      notes: [`web adapter "status" fell through: status`],
+    });
+    expect(contentOf(result)).toContain(
+      'Adapter pipelines for agent web reads',
+    );
+    expect(JSON.stringify(result)).not.toContain(STATUS_BODY);
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([
+      { address: '127.0.0.2', path: '/status' },
+      { address: '127.0.0.1', path: '/status' },
+      { address: '127.0.0.1', path: '/status.md' },
+    ]);
+  });
+
+  it('falls through a renderer-rejected rewrite body without exposing it', async () => {
+    route = (address, request, response) => {
+      if (address === '127.0.0.2' && request.url === '/parse') {
+        send(response, 200, 'text/html; charset=utf-8', CHALLENGE_BODY);
+        return;
+      }
+      defaultRoute(address, request, response);
+    };
+
+    const result = await read(sourceUrl('/parse'), [
+      rewrite('challenge', '^/parse$'),
+    ]);
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'readability',
+      notes: [`web adapter "challenge" fell through: parse`],
+    });
+    expect(contentOf(result)).toContain(
+      'Adapter pipelines for agent web reads',
+    );
+    expect(JSON.stringify(result)).not.toContain('ADAPTER_CHALLENGE_SECRET');
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([
+      { address: '127.0.0.2', path: '/parse' },
+      { address: '127.0.0.1', path: '/parse' },
+      { address: '127.0.0.1', path: '/parse.md' },
+    ]);
+  });
+
+  it('records and reports a derived permission refusal without requesting the origin', async () => {
+    const decisions: Array<{
+      readonly kind: string;
+      readonly decision: {
+        readonly decision: string;
+        readonly reason: string;
+      };
+    }> = [];
+    const policy = compileToolPermissionMap(
+      {
+        read: {
+          allow: [
+            {
+              field: 'path',
+              regex: String.raw`^http://source\.test:${fixture.port}/`,
+            },
+          ],
+        },
+      },
+      'adapter-permission-policy',
+    );
+
+    const result = await read(
+      sourceUrl('/permission'),
+      [rewrite('permission', '^/permission$')],
+      {
+        permissionPolicy: policy,
+        onDerivedDecision: (decision) => decisions.push(decision),
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'readability',
+      notes: [`web adapter "permission" fell through: permission`],
+    });
+    expect(contentOf(result)).toContain(
+      'Adapter pipelines for agent web reads',
+    );
+    const adapterDecision = decisions.find(({ kind }) => kind === 'adapter');
+    if (adapterDecision === undefined) {
+      throw new Error('The adapter permission decision was not recorded.');
+    }
+    expect(adapterDecision.decision.decision).toBe('reject');
+    expect(adapterDecision.decision.reason).toBe('no_allow');
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+    expect(
+      fixture.requests.some(({ address }) => address === '127.0.0.2'),
+    ).toBe(false);
+  });
+
+  it('falls through when the rewrite origin address is refused', async () => {
+    const decisions: Array<{
+      readonly kind: string;
+      readonly decision: {
+        readonly decision: string;
+        readonly reason: string;
+      };
+    }> = [];
+    const policy = addressRejectPolicy(
+      String.raw`^http://127\.0\.0\.2:${fixture.port}/address$`,
+    );
+
+    const result = await read(
+      sourceUrl('/address'),
+      [rewrite('address', '^/address$')],
+      {
+        permissionPolicy: policy,
+        onDerivedDecision: (decision) => decisions.push(decision),
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'readability',
+      notes: [`web adapter "address" fell through: address`],
+    });
+    expect(contentOf(result)).toContain(
+      'Adapter pipelines for agent web reads',
+    );
+    const addressDecision = decisions.find(({ kind }) => kind === 'address');
+    if (addressDecision === undefined) {
+      throw new Error('The adapter address decision was not recorded.');
+    }
+    expect(addressDecision.decision.decision).toBe('reject');
+    expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+    expect(
+      fixture.requests.some(({ address }) => address === '127.0.0.2'),
+    ).toBe(false);
+  });
+
+  it('preserves delimiter data in rewrite path and query placeholders', async () => {
+    route = (address, request, response) => {
+      if (
+        address === '127.0.0.2' &&
+        (request.url ?? '').startsWith('/a&admin=1?q=')
+      ) {
+        send(response, 200, 'text/markdown; charset=utf-8', MARKDOWN_BODY);
+        return;
+      }
+      defaultRoute(address, request, response);
+    };
+
+    const source = `${sourceUrl('/a&admin=1')}?${DELIMITER_QUERY}`;
+    const target = `${rewriteOrigin()}{path}?q={query}`;
+    const expectedTargetPath = `/a&admin=1?q=${encodeURIComponent(
+      new URL(source).search.slice(1),
+    )}`;
+    const result = await read(source, [
+      rewrite('delimiters', '^/a&admin=1$', target),
+    ]);
+
+    expect(result).toMatchObject({
+      status: 'success',
+      method: 'adapter',
+      adapter: {
+        id: 'delimiters',
+        route: 'rewrite',
+        origin: rewriteOrigin(),
+      },
+      finalUrl: source,
+    });
+    expect(
+      fixture.requests.map(({ address, path }) => ({ address, path })),
+    ).toEqual([{ address: '127.0.0.2', path: expectedTargetPath }]);
+  });
+});
 
 describe('web read address admission over loopback fixtures', () => {
   let fixture: AddressFixture;

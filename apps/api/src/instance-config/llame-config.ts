@@ -375,7 +375,22 @@ export type RawModelEntry = {
  * leaf with its own runtime check. Extending `Record<string, unknown>` keeps
  * this assignable everywhere a plain parsed-JSON record is still expected.
  */
+/** The still-uninterpolated rewrite adapter entry once schema-validated. */
+export type RawWebAdapterEntry = {
+  id: string;
+  use: 'rewrite';
+  hosts: Array<string>;
+  pathPattern?: string;
+  target: string;
+};
+
+/** Schema-validated composite fields consumed from the raw tools block. */
+export type RawToolsConfig = {
+  webAdapters?: Array<RawWebAdapterEntry>;
+};
+
 export interface RawInstanceConfig extends Record<string, unknown> {
+  tools?: RawToolsConfig;
   mcpServers?: Record<string, RawMcpServerEntry>;
   knowledge?: RawKnowledgeConfig;
   skills?: RawSkillsConfig;
@@ -385,6 +400,19 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   embeddingModels?: Array<RawEmbeddingModelEntry>;
   search?: RawSearchConfig;
 }
+
+export type RewriteWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'rewrite';
+  /** Exact canonical hostnames (lowercase, no port). */
+  readonly hosts: ReadonlyArray<string>;
+  /** Optional RE2-compatible regex matched against the canonical path. */
+  readonly pathPattern?: string;
+  /** Literal http(s) origin + path/query template; `{path}` and `{query}` only. */
+  readonly target: string;
+};
+
+export type WebAdapterConfig = RewriteWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {
@@ -443,6 +471,8 @@ export type LlameConfig = {
     callTimeoutSeconds: number;
     /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs; null falls through to packaged defaults. */
     promptFiles?: Readonly<Record<string, string | null>>;
+    /** Ordered operator-configured web adapters. Absent means no adapters. */
+    webAdapters: ReadonlyArray<WebAdapterConfig>;
   };
   /** Operator-managed remote Streamable HTTP servers. Default: empty. */
   mcpServers: Readonly<Record<string, McpServerConfig>>;
@@ -524,6 +554,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
     maxStepsPerRun: 100,
     callTimeoutSeconds: 120,
     promptFiles: {},
+    webAdapters: [],
   },
   mcpServers: {},
   knowledge: {},

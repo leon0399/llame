@@ -4310,17 +4310,23 @@ describe('RunExecutionService executeRun — tool loop', () => {
       reason: 'explicit_reject',
       reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
     };
-    // A web read's derived-decision list is bounded at 26, so 30 decisions
-    // land as 26 records, each keeping the kind of locator it judged.
+    // Adapter decisions have a separate bound from the 26 generic probes.
     let captured: ToolContext | undefined;
     const execute = vi.fn((context: ToolContext) => {
       captured = context;
       const sink = context.onDerivedDecision;
+      for (let index = 0; index < 18; index += 1) {
+        sink?.({
+          kind: index === 0 ? 'hop' : 'adapter',
+          url: `https://example.test/derived-${index}`,
+          decision: index === 0 ? rejected : allowed,
+        });
+      }
       for (let index = 0; index < 30; index += 1) {
         sink?.({
-          kind: index === 0 ? 'hop' : 'alternate',
-          url: `https://example.test/hop-${index}`,
-          decision: index === 0 ? rejected : allowed,
+          kind: 'alternate',
+          url: `https://example.test/alternate-${index}`,
+          decision: allowed,
         });
       }
 
@@ -4340,6 +4346,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
     );
     const expected: ReadonlyArray<DerivedDecisionRecord> = [
       { ...rejected, kind: 'hop' },
+      ...Array.from({ length: 16 }, () => ({
+        ...allowed,
+        kind: 'adapter' as const,
+      })),
       ...Array.from({ length: 25 }, () => ({
         ...allowed,
         kind: 'alternate' as const,
@@ -4441,16 +4451,14 @@ describe('RunExecutionService executeRun — tool loop', () => {
     const execute = vi.fn((context: ToolContext) => {
       const admitAddress = createAddressAdmission(context);
       const admitHop = createDerivedAdmission(context);
-      for (let index = 1; index <= 27; index += 1) {
+      for (let index = 1; index <= 30; index += 1) {
         const address = `10.0.0.${index}`;
         expect(admitAddress(address, `https://${address}/private`)).toBe(false);
+      }
+      for (let index = 1; index <= 30; index += 1) {
         expect(admitHop('hop', 'https://example.test/blocked')).toStrictEqual(
           rejected,
         );
-      }
-      for (let index = 28; index <= 30; index += 1) {
-        const address = `10.0.0.${index}`;
-        expect(admitAddress(address, `https://${address}/private`)).toBe(false);
       }
       admittedAddress = admitAddress(
         '93.184.216.34',
@@ -4471,11 +4479,11 @@ describe('RunExecutionService executeRun — tool loop', () => {
       { ...toolOptions, permissionPolicy },
     );
     const expected: ReadonlyArray<DerivedDecisionRecord> = [
-      ...Array.from({ length: 16 }, () => [
-        { ...rejected, kind: 'address' as const },
-        { ...rejected, kind: 'hop' as const },
-      ]).flat(),
-      ...Array.from({ length: 10 }, () => ({
+      ...Array.from({ length: 16 }, () => ({
+        ...rejected,
+        kind: 'address' as const,
+      })),
+      ...Array.from({ length: 26 }, () => ({
         ...rejected,
         kind: 'hop' as const,
       })),

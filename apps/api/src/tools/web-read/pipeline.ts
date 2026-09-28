@@ -2,14 +2,15 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
-
 import type { AdmitDerivedLocator, DerivedLocatorKind } from './admission';
 import type { WebFetchFailure, WebResponse } from './http-client';
 import { canonicalHref } from './locator';
+import type { WebAdapterProvenance } from './adapters/contract';
 
 /** Every adapter a web read can report, in pipeline order. Declared as values
  *  so a caller can enumerate them; the union is derived from this list. */
 export const WEB_RENDER_METHODS = [
+  'adapter',
   'negotiated',
   'alternate',
   'md-suffix',
@@ -30,6 +31,7 @@ export type WebRender = {
    *  response's URL is the call's `finalUrl` already. */
   readonly finalUrl?: string;
   readonly notes?: ReadonlyArray<string>;
+  readonly adapter?: WebAdapterProvenance;
 };
 
 /** One request of the call, bounded by the same client as the first. */
@@ -43,7 +45,10 @@ export type WebPipelineDeps = {
 };
 
 /** The kinds the pipeline derives itself; a hop is the hop loop's. */
-type ProbeKind = Exclude<DerivedLocatorKind, 'hop' | 'address' | 'canonical'>;
+type ProbeKind = Exclude<
+  DerivedLocatorKind,
+  'hop' | 'address' | 'canonical' | 'adapter'
+>;
 
 /** The `method` a winning probe reports, which names the adapter that won. */
 const PROBE_METHODS: Record<ProbeKind, WebRenderMethod> = {
@@ -180,24 +185,8 @@ async function publisherMarkdown(
   );
 }
 
-/** The failures that answer for one candidate alone, by the types the client
- *  reports: the site has nothing at that locator, refuses its content type or
- *  size, the transport to it failed, it answered no headers before the bound
- *  the client arms for its own request expired, it answered a redirect the
- *  client cannot follow, or a redirect it did answer named a hop the `read`
- *  group refused. Each is that candidate's own bad answer — the header bound
- *  is re-armed for every request, so a host that accepts TCP and stays silent
- *  spends only its own allowance; a redirect without a followable `Location`
- *  is that response's defect; and a refused hop is the candidate's own, since
- *  the candidate itself is admitted before its request, so the only locator of
- *  its chain the group can refuse is one it redirects to — so the next
- *  candidate decides. The call's own request chain is never among them: the
- *  executor fetches the submitted locator and the hops it follows, so a
- *  refusal there ends the read before a candidate is derived.
- *  Every other failure spends a bound of the call — its 30-second deadline,
- *  its redirect budget, or the caller's abort — and is the call's, from every
- *  probe. */
-const CANDIDATE_FAILURES = {
+/** Failures a candidate answers for itself; the caller's own bounds are not candidates. */
+export const CANDIDATE_FAILURES = {
   http_status: true,
   unsupported_content_type: true,
   body_too_large: true,
@@ -205,7 +194,7 @@ const CANDIDATE_FAILURES = {
   headers_timeout: true,
   invalid_redirect: true,
   permission_denied: true,
-};
+} as const;
 
 /**
  * Probes one kind's candidates in order and returns the first winning render,

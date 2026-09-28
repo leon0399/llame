@@ -3,9 +3,24 @@ import { promises as dns } from 'node:dns';
 import { fetch as undiciFetch } from 'undici';
 
 import { type ToolContext, type ToolResult } from '../types';
-import { createAddressAdmission, createDerivedAdmission } from './admission';
-import { type ResolveHost, createWebFetchSession } from './http-client';
+import {
+  createAddressAdmission,
+  createDerivedAdmission,
+  type AdmitDerivedLocator,
+} from './admission';
+import {
+  type ResolveHost,
+  type WebFetchFailure,
+  type WebFetchSession,
+  createWebFetchSession,
+} from './http-client';
 import { parseWebLocator, type WebLocator } from './locator';
+import {
+  createWebAdapters,
+  dispatchWebAdapters,
+  type WebAdapterDispatch,
+  type WebAdapterIo,
+} from './adapters/contract';
 import { renderWebContent } from './pipeline';
 import { buildWebReadResult } from './result';
 
@@ -58,14 +73,16 @@ export const realWebReadDeps: WebReadDeps = {
   resolve: resolveHost,
 };
 
-/** The failure the client reports for a caller abort, repeated for the window
- *  the client's own deadline cannot cover: the session is disposed with the
- *  call, so an abort that lands after the fetch resolved and before the render
- *  starts is visible only to this guard. */
-const ABORTED: ToolResult = {
-  status: 'error',
+/** The failure the client reports for a caller abort. */
+const ABORTED_FAILURE: WebFetchFailure = {
   type: 'aborted',
   message: 'The web read was cancelled.',
+};
+
+/** The result returned when a caller abort lands before synchronous rendering. */
+const ABORTED: ToolResult = {
+  status: 'error',
+  ...ABORTED_FAILURE,
 };
 
 /**
@@ -108,11 +125,50 @@ async function fetchAndRender(
   userAgent: string,
   deps: WebReadDeps,
 ): Promise<ToolResult> {
-  // One session per call: the 30-second bound and the 20-hop budget cover the
-  // first request, every hop it answers with, and every probe the pipeline
-  // issues, so a page cannot spend a fresh budget per derived locator.
   const admit = createDerivedAdmission(context);
-  const session = deps.createWebFetchSession(
+  const session = createSession(context, userAgent, deps, admit);
+  try {
+    const raw = isRawSelector(locator.selector);
+    let notes: ReadonlyArray<string> = [];
+    if (!raw) {
+      const adapters = await dispatchFor(context, locator.url, session, admit);
+      if (adapters.kind === 'fatal') {
+        return { status: 'error', ...adapters.failure };
+      }
+      if (adapters.kind === 'rendered') {
+        return deps.buildWebReadResult(locator, locator.url, adapters.render);
+      }
+      notes = adapters.notes;
+    }
+    const response = await session.fetch(locator.url);
+    if ('type' in response) return { status: 'error', ...response };
+    // Do not start synchronous rendering after a caller abort.
+    if (context.abortSignal?.aborted === true) return ABORTED;
+    const render = await deps.renderWebContent(
+      response,
+      { raw },
+      { fetch: session.fetch, admit },
+    );
+    if ('type' in render) return { status: 'error', ...render };
+    // The envelope drops an empty notes list, so an unclaimed read is unchanged.
+    return deps.buildWebReadResult(locator, response.finalUrl, {
+      ...render,
+      notes: [...notes, ...(render.notes ?? [])],
+    });
+  } finally {
+    session.dispose();
+  }
+}
+
+function createSession(
+  context: ToolContext,
+  userAgent: string,
+  deps: WebReadDeps,
+  admit: AdmitDerivedLocator,
+): WebFetchSession {
+  // One session per call: its 30-second bound and 20-hop budget cover adapter
+  // requests, the source request, every redirect, and every generic probe.
+  return deps.createWebFetchSession(
     {
       userAgent,
       signal: context.abortSignal,
@@ -125,23 +181,33 @@ async function fetchAndRender(
       resolve: deps.resolve ?? resolveHost,
     },
   );
-  try {
-    const response = await session.fetch(locator.url);
-    if ('type' in response) return { status: 'error', ...response };
-    // The render below runs synchronously over a body of up to 5 MiB, where no
-    // abort can interrupt it, so a call the Run has already given up on must
-    // not start that render.
-    if (context.abortSignal?.aborted === true) return ABORTED;
-    const render = await deps.renderWebContent(
-      response,
-      { raw: isRawSelector(locator.selector) },
-      { fetch: session.fetch, admit },
-    );
-    if ('type' in render) return { status: 'error', ...render };
-    return deps.buildWebReadResult(locator, response, render);
-  } finally {
-    session.dispose();
-  }
+}
+
+async function dispatchFor(
+  context: ToolContext,
+  sourceUrl: string,
+  session: WebFetchSession,
+  admit: AdmitDerivedLocator,
+): Promise<WebAdapterDispatch> {
+  const adapterIo: WebAdapterIo = {
+    fetch: async (url) => {
+      if (admit('adapter', url).decision === 'reject') {
+        return {
+          type: 'permission_denied',
+          message: 'The adapter target was refused by operator permissions.',
+        };
+      }
+      const result = await session.fetch(url);
+      // A caller abort can land after an adapter response resolves; do not
+      // let a synchronous adapter render start in that case.
+      return context.abortSignal?.aborted ? ABORTED_FAILURE : result;
+    },
+  };
+  return dispatchWebAdapters(
+    new URL(sourceUrl),
+    createWebAdapters(context.webAdapters ?? []),
+    adapterIo,
+  );
 }
 
 /** `:raw` skips every probe and conversion. The selector excludes its

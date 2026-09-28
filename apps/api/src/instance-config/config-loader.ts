@@ -29,6 +29,8 @@ import {
   type RawInstanceConfig,
   type RawMcpServerEntry,
   type RawModelEntry,
+  type RawWebAdapterEntry,
+  type WebAdapterConfig,
 } from './llame-config';
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import { getConfigValidator } from './schema';
@@ -38,6 +40,8 @@ import {
   interpolateStringWithSubstitutions,
 } from '@workspace/config-interpolation';
 import { createModelPromptLoader } from './prompt-loader';
+import { compileRegexMatcher } from '../tools/permissions/matcher';
+import { parseRewriteTarget } from '../tools/web-read/adapters/rewrite-target';
 import { getRegisteredToolIds } from '../tools/registry';
 import {
   type PermissionClause,
@@ -196,9 +200,103 @@ function resolveToolsConfig(
     maxStepsPerRun: resolveToolNumber(raw, 'maxStepsPerRun', env),
     callTimeoutSeconds: resolveToolNumber(raw, 'callTimeoutSeconds', env),
     promptFiles: resolveToolPromptFiles(raw),
+    webAdapters: resolveWebAdaptersConfig(raw),
   };
   if (nativeExecutorId) tools.nativeExecutorId = nativeExecutorId;
   return tools;
+}
+
+function resolveWebAdaptersConfig(
+  raw: RawInstanceConfig | undefined,
+): ReadonlyArray<WebAdapterConfig> {
+  const value = raw?.tools?.webAdapters;
+  if (value === undefined) return BUILT_IN_DEFAULTS.tools.webAdapters;
+
+  const resolved = new Array<WebAdapterConfig>();
+  const seenIds = new Set<string>();
+  for (const entry of value) {
+    resolved.push(resolveWebAdapterEntry(entry, seenIds));
+  }
+  return resolved;
+}
+
+function resolveWebAdapterEntry(
+  value: RawWebAdapterEntry,
+  seenIds: Set<string>,
+): WebAdapterConfig {
+  const { id } = value;
+  const entryPath = `tools.webAdapters[${id}]`;
+  assertAdapterFieldLiteral(id, `${entryPath}.id`);
+  if (seenIds.has(id)) {
+    throw new InstanceConfigError(`${entryPath}.id: duplicate adapter id`);
+  }
+  seenIds.add(id);
+
+  const hosts = resolveWebAdapterHosts(value.hosts, entryPath);
+  const pathPattern = resolveWebAdapterPathPattern(
+    value.pathPattern,
+    `${entryPath}.pathPattern`,
+  );
+  const target = resolveWebAdapterTarget(value.target, `${entryPath}.target`);
+  if (pathPattern === undefined) {
+    return { id, use: 'rewrite', hosts, target };
+  }
+  return { id, use: 'rewrite', hosts, pathPattern, target };
+}
+
+function assertAdapterFieldLiteral(value: string, configPath: string): void {
+  if (INTERPOLATION_TOKEN_SYNTAX.test(value)) {
+    throw new InstanceConfigError(
+      `${configPath}: interpolation syntax is not allowed`,
+    );
+  }
+}
+
+function resolveWebAdapterHosts(
+  value: Array<string>,
+  entryPath: string,
+): Array<string> {
+  for (const [index, host] of value.entries()) {
+    const hostPath = `${entryPath}.hosts[${index}]`;
+    assertAdapterFieldLiteral(host, hostPath);
+    let canonicalHost = '';
+    try {
+      canonicalHost = new URL(`https://${host}`).hostname;
+    } catch {
+      // The shared error below names the operator field without echoing parser details.
+    }
+    if (host.endsWith('.') || canonicalHost !== host) {
+      throw new InstanceConfigError(
+        `${hostPath}: must be a canonical lowercase hostname without a port`,
+      );
+    }
+  }
+  return value;
+}
+
+function resolveWebAdapterPathPattern(
+  value: string | undefined,
+  configPath: string,
+): string | undefined {
+  if (value === undefined) return undefined;
+  assertAdapterFieldLiteral(value, configPath);
+  try {
+    compileRegexMatcher(value, configPath);
+  } catch (error) {
+    throw new InstanceConfigError(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  return value;
+}
+
+function resolveWebAdapterTarget(value: string, configPath: string): string {
+  assertAdapterFieldLiteral(value, configPath);
+  const parsedTarget = parseRewriteTarget(value);
+  if ('error' in parsedTarget) {
+    throw new InstanceConfigError(`${configPath}: ${parsedTarget.error}`);
+  }
+  return value;
 }
 
 /**

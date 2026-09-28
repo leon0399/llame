@@ -10,6 +10,7 @@ import {
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { type WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
+import { type WebAdapterConfig } from '../instance-config/llame-config';
 import { type CompiledPolicy } from './permissions/types';
 import { type WorkspaceRootCell } from './workspace-path';
 import { type AttemptToolAdditions } from './attempt-tool-additions';
@@ -102,6 +103,8 @@ export interface ToolContext {
    * or replace it.
    */
   readonly permissionPolicy?: CompiledPolicy;
+  /** Ordered, boot-validated web adapters enabled by instance configuration. */
+  readonly webAdapters?: ReadonlyArray<WebAdapterConfig>;
   /** Attempt-scoped Workspace root; changes become visible at the next model step. */
   readonly workspaceRoot?: WorkspaceRootCell;
   /** Trusted handle for adding Workspace declarations during this attempt. */
