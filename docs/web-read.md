@@ -245,8 +245,6 @@ A blob renders decoded UTF-8 source as plain lines with no heading, so `:N-M`
 addresses source lines. A directory renders the requested level and one child
 level in the host's two-level listing shape, including its `:N-M` selector and
 elision rules; a symlink renders as `- name@` and a submodule as `- name?`.
-When GitHub reports the recursive tree as truncated, the listing carries the
-note `tree truncated by GitHub: listing is partial`. A repository root adds
 `Description`, `Default branch`, `Visibility`, and `Language`, then the root
 listing and `## README`. A commit renders a summary with its message, author,
 timestamp, changed-file statuses and counts, and a `Diff:` URL; it never

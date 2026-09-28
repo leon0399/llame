@@ -145,21 +145,16 @@ async function loadRootTree(
     recordSecondaryFailure('tree', result.failure, context);
     return undefined;
   }
-  const tree = parseGithubTree(result.body);
-  if (tree === undefined) {
+  const entries = parseGithubTree(result.body);
+  if (entries === undefined) {
     recordSecondaryFailure('tree', PARSE_FAILURE, context);
     return undefined;
   }
-  if (tree.truncated) {
-    context.notes.push('tree truncated by GitHub: listing is partial');
-  }
-  if (
-    toGithubDirectoryEntries(tree.entries).length > DIRECTORY_TRAVERSAL_BUDGET
-  ) {
+  if (toGithubDirectoryEntries(entries).length > DIRECTORY_TRAVERSAL_BUDGET) {
     context.notes.push('tree omitted: too_large');
     return undefined;
   }
-  return tree.entries;
+  return entries;
 }
 
 async function loadReadme(
@@ -193,17 +188,14 @@ async function readTree(
     ),
   );
   if (resolved.kind === 'failed') return primaryFailure(resolved.failure);
-  const tree = parseGithubTree(resolved.body);
-  if (tree === undefined) return { kind: 'failed', failure: 'parse' };
-  if (tree.truncated) {
-    context.notes.push('tree truncated by GitHub: listing is partial');
-  }
+  const entries = parseGithubTree(resolved.body);
+  if (entries === undefined) return { kind: 'failed', failure: 'parse' };
   return {
     kind: 'rendered',
     content: '',
     directory: {
       displayPath: context.source.href,
-      entries: toGithubDirectoryEntries(tree.entries),
+      entries: toGithubDirectoryEntries(entries),
     },
     notes: context.notes,
   };
