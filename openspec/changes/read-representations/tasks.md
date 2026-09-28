@@ -54,7 +54,7 @@ removal because `outline` is not advertised until the next layer.
 - [x] 2.4 Make the differential suite pass: the scanner's root-heading lines equal mdast's over every CommonMark spec example (tab markers decoded) and fixture, after the two normalizations design D5 names (masked frontmatter, setext start after mdast definition nodes); record any spec example excluded and why in the test file; verify the suite is part of the package's focused test command.
 - [x] 2.5 Prove the parser layer with affected package focused tests, typecheck/lint where defined, `pnpm format:check`, `pnpm lint:markdown`, and `git diff --check`; do not run unrelated project-wide suites.
 - [x] 2.6 Complete parser-layer self-review against `REVIEW_GUIDE.md`, checking dependency scope (dev-only), scanner memory (container and heading stacks plus only the deferred lines design D5 names), source-coordinate preservation, and the absence of authority or index coupling; fix accepted findings in new commits and rerun focused checks before draft -> ready.
-- [ ] 2.7 After ready, complete the GitHub review/CI loop for the parser layer on the current head with zero actionable unresolved feedback before creating `outline`.
+- [x] 2.7 After ready, complete the GitHub review/CI loop for the parser layer on the current head with zero actionable unresolved feedback before creating `outline`.
 
 ## 3. Outline layer
 
