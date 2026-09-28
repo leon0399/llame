@@ -2207,14 +2207,14 @@ and SHALL state that the source path reaches that origin.
 
 A representation SHALL be selected from a closed, compile-time table keyed by
 the admitted content's media type and the requested member. The table SHALL
-hold the existing `raw` member and the `outline` member at introduction; it
+hold the `raw` and `outline` members; it
 SHALL NOT be runtime-configurable, operator-loadable, or dynamically imported.
 A member SHALL belong to one of two output classes: a `:` member returns
 verbatim source lines with a shown range (`raw` without generated line
 prefixes, as raw reads always have, and `outline` with the ordinary
 line-number prefixes), and a future `?` member would return transformed
 content with no prefixes and no shown range; no `?` member and no `?` grammar
-exists in this change. With no member named, reading SHALL remain unchanged. A member
+exists yet. With no member named, reading SHALL remain unchanged. A member
 requested for a media type the table does not map SHALL fail with
 `invalid_selector` naming the member's accepted media types, and the ordinary
 read of that source SHALL remain available.
