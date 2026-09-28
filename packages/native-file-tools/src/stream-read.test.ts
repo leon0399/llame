@@ -12,8 +12,6 @@ import type {
   ReadSuccess,
 } from "./read";
 import { selectMultiRangeLines } from "./stream-read";
-import { MultiCollector } from "./markdown-range";
-import { markdownLineRecord } from "./markdown-ancestors";
 import { measureNativeModelOutput } from "./serialization";
 import { selectSourceLines } from "./source-lines";
 
@@ -634,24 +632,40 @@ describe("markdown ancestor range selection", () => {
     );
   });
 
-  it("stops retaining a large Markdown passage at the result ceiling", () => {
-    const target = applySelectorSuffix("/doc.md", "1-9000,9999-10000");
-    const collector = new MultiCollector(target);
-    const lines = Array.from({ length: 10_000 }, () => "line");
-    let consumed = 0;
-    for (const line of lines) {
-      const keepReading = collector.push(
-        consumed,
-        markdownLineRecord(`${line}\n`),
-      );
-      consumed += 1;
-      if (!keepReading) break;
+  it("matches text retention and rollback for large comma ranges", async () => {
+    const source = `${Array.from({ length: 5000 }, () => "").join("\n")}\n`;
+    const directory = await mkdtemp(join(tmpdir(), "native-retention-"));
+    try {
+      const markdownPath = join(directory, "source.md");
+      const textPath = join(directory, "source.txt");
+      await writeFile(markdownPath, source);
+      await writeFile(textPath, source);
+      for (const selector of ["1-1499,3000-4500", "1-1000,2000-3000"]) {
+        const markdown = asMulti(
+          await readFile({ path: `${markdownPath}:${selector}` }),
+        );
+        const text = asMulti(
+          await readFile({ path: `${textPath}:${selector}` }),
+        );
+        expect(markdown.shownRanges).toEqual(text.shownRanges);
+        expect(markdown.nextOffset).toBe(text.nextOffset);
+        expect(markdown.truncated).toBe(text.truncated);
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
-    const result = collector.finish(consumed);
-    expect(consumed).toBeLessThan(lines.length);
-    expect(consumed).toBeLessThanOrEqual(2100);
-    expect(result.truncated).toBe(true);
-    expect(result.nextOffset).toBeDefined();
+  });
+
+  it("does not truncate a comma read with exactly 2,000 selected lines", () => {
+    const source = "\n".repeat(2000);
+    const result = selectMultiRangeLines(
+      source,
+      applySelectorSuffix("/doc.md", "1-999,1001-1999"),
+      "text/markdown",
+    );
+    expect(result.truncated).toBe(false);
+    expect(result).not.toHaveProperty("nextOffset");
+    expect(result.shownRanges).toEqual([{ startLine: 1, endLine: 2000 }]);
   });
 
   it("advances a promoted continuation past a tight ancestor budget", () => {

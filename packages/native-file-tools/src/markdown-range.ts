@@ -21,6 +21,7 @@ type Passage = {
   firstRequested: number;
   lines: Array<PassageLine>;
   oversizedAt?: number;
+  cut?: boolean;
 };
 type MultiState = {
   result: MultiReadSuccess;
@@ -122,8 +123,14 @@ function emitPassageLines(
 }
 
 function emitPassage(context: PassageContext): boolean {
-  const { passage, selected, tracker, state, target } = context;
+  const { passage, selected, tracker, state, target, passageIndex } = context;
   const saved = snapshot(state);
+  if (passage.cut && passageIndex > 0) {
+    restore(state, saved);
+    state.result.truncated = true;
+    state.result.nextOffset = passage.range.offset;
+    return false;
+  }
   const shown = new Set([
     ...state.emittedLines,
     ...passage.lines.map(({ index }) => index + 1),
@@ -203,7 +210,33 @@ export class MultiCollector {
       onLine: (line) => this.tracker.accept(line),
     });
   }
-
+  private retainSelectedLine(
+    passage: Passage,
+    index: number,
+    line: MarkdownLineRecord,
+  ): boolean {
+    if (line.rendered === undefined) return true;
+    if (this.retainedLines >= MAX_READ_LINES) {
+      passage.cut = true;
+      this.haltedAt = index;
+      this.stopped = true;
+      return false;
+    }
+    passage.lines.push({ index, record: line });
+    this.selected.set(index, line);
+    this.retainedLines += 1;
+    this.retainedCodeUnits += renderSourceLine(line.rendered, index).length;
+    if (
+      this.retainedCodeUnits >
+      MAX_RESULT_CODE_UNITS - (this.target.reserveCodeUnits ?? 0)
+    ) {
+      passage.cut = true;
+      this.haltedAt = index + 1;
+      this.stopped = true;
+      return false;
+    }
+    return true;
+  }
   push(index: number, line: MarkdownLineRecord): boolean {
     if (this.stopped) return false;
     this.scanner.push(line.scanned);
@@ -217,21 +250,11 @@ export class MultiCollector {
     const passage = this.passages[this.activePassage];
     if (passage !== undefined && index >= passage.range.offset) {
       if (line.rendered === undefined) passage.oversizedAt ??= index;
-      else {
-        passage.lines.push({ index, record: line });
-        this.selected.set(index, line);
-        this.retainedLines += 1;
-        this.retainedCodeUnits += renderSourceLine(line.rendered, index).length;
-        if (
-          this.retainedLines >= MAX_READ_LINES ||
-          this.retainedCodeUnits >
-            MAX_RESULT_CODE_UNITS - (this.target.reserveCodeUnits ?? 0)
-        ) {
-          this.haltedAt = index + 1;
-          this.stopped = true;
-          return false;
-        }
-      }
+      else if (
+        line.rendered !== undefined &&
+        !this.retainSelectedLine(passage, index, line)
+      )
+        return false;
       if (
         this.activePassage === this.passages.length - 1 &&
         index >= passage.range.offset + passage.range.limit - 1
