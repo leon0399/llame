@@ -662,7 +662,12 @@ under the existing web contract. A native permission error on the submitted
 source request chain SHALL end the call; a permission error on an adapter
 chain SHALL disqualify only that adapter. Adapter failures SHALL NOT return a
 response body to the model. A successful adapter SHALL use the result
-provenance requirement, including the source URL as `finalUrl`.
+provenance requirement, including the source URL as `finalUrl`. A successful
+adapter MAY return a directory read instead of text; it SHALL be rendered
+through the host directory-read path with the call's selector and result
+budget, and whatever that path returns, including the host's
+`directory_too_large` refusal, SHALL be the call's result with no adapter
+note and no fall-through.
 
 #### Scenario: Matching does no network work
 
@@ -700,6 +705,13 @@ provenance requirement, including the source URL as `finalUrl`.
 - **WHEN** a source URL is claimed by a configured adapter and the selector is `:raw`
 - **THEN** no adapter request is issued
 - **AND** the final response body follows the generic raw contract
+
+#### Scenario: A directory result follows the host directory path
+
+- **WHEN** an adapter succeeds with a directory read whose requested level
+  exceeds the host per-directory entry budget
+- **THEN** the call returns the host's `directory_too_large` refusal
+- **AND** no adapter note is added and the generic ladder does not run
 
 #### Scenario: A rewrite result identifies its origin
 
