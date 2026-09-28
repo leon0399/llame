@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "oh-my-pi"
-description: "Primary coding implementation reference for capabilities and tool behavior"
+description: "Primary reference for agentic capabilities and tool shape"
 resource: "https://github.com/can1357/oh-my-pi/tree/d49918fab2dba3986927f2d46721629ed0f3a02c"
 observed:
   date: "2026-09-21"
@@ -160,15 +160,22 @@ sources:
   - id: llame-semantic-find-judge
     resource: "../tool-harness/2026-09-24-semantic-find-judge/report.md"
     title: "OMP find, jegrep and general llame applications"
+  - id: omp-local-memory-20260928
+    resource: "https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts"
+    title: "Local memory pipeline and injection"
+  - id: llame-omp-local-memory
+    resource: "../long-term-memory/2026-09-28-omp-memory.md"
+    title: "OMP memory: local pipeline, Mnemopi, Hindsight and a live installation"
 ---
 
 # oh-my-pi
 
 - **Stack:** Bun/TypeScript coding agent with Rust support crates; MIT
 
-OMP is llame's primary implementation reference for coding capabilities and tool
-behavior. Consult it first for coding-specific decisions; [OpenClaw](./openclaw.md)
-remains the broad alpha capability reference. llame's specs remain authoritative.
+OMP is llame's primary reference for agentic capabilities and tool shape: the
+agent loop, tool contracts and behavior, and coding capabilities. Consult it first
+for those decisions; [OpenClaw](./openclaw.md) remains the reference for broader
+product behavior. llame's specs remain authoritative.
 OMP forks [pi-mono](./pi-mono.md), which covers the inherited session tree,
 provider wrappers, and hook registry.
 
@@ -265,6 +272,37 @@ of its published benchmark. Offline probes expose shortlist omissions,
 clipped-line coverage and failure/accounting edge cases. Applications extend to
 chat evidence, code, admitted tools, skills and future Run/artifact sources;
 scores never establish authority or exhaustive coverage.[^llame-semantic-find-judge]
+
+## Memory
+
+**Scoped observation:** 2026-09-28, release `v18.2.10`
+(`da58b16f424273605795435a6753778f422baff3`); the older whole-document baseline
+is unchanged.
+
+The `local` backend distills idle past sessions at startup into `MEMORY.md`, a
+short summary and generated skills, while the `learn` tool and an optional
+detached capture agent append explicit lessons. The summary and lessons enter the
+next session as one capped block. Lessons are snapshotted per session so writes
+do not churn the prompt-cache prefix, but a consolidation finishing mid-session
+rebuilds the prompt with the new summary. Queue state lives in SQLite with leases, heartbeats and
+source watermarks.[^omp-local-memory-20260928]
+
+The [source and live-installation study](../long-term-memory/2026-09-28-omp-memory.md)
+measures the costs on one workstation: stage 1 saw a median 1.8% of each
+session through a head–tail cut, three sessions were refused by the extraction
+model, worktree scopes never consolidated, and about 73% of captured lessons fell
+outside the injection cap. It also traces the Mnemopi retrieval backend from
+source: transcript slices and extracted facts in SQLite, recalled on the first
+turn by vector, full-text, importance and recency scoring. It traces the
+Hindsight client and its Postgres server as well: structured fact extraction,
+model-written observations, four-channel recall fused by reciprocal rank, and
+mental models re-answered through reflect. It maps the queue, lesson-snapshot and
+scoring ideas to llame and advises against copying the extraction
+window.[^llame-omp-local-memory]
+
+[^omp-local-memory-20260928]: [Local memory pipeline and injection](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts)
+
+[^llame-omp-local-memory]: [OMP memory: local pipeline, Mnemopi, Hindsight and a live installation](../long-term-memory/2026-09-28-omp-memory.md)
 
 [^omp-find-cascade-20260924]: [Semantic find cascade](https://github.com/can1357/oh-my-pi/blob/5fccbd0deee820049afa492dc3112272b163126f/packages/coding-agent/src/tools/jfind/cascade.ts)
 

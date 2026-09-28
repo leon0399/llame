@@ -110,8 +110,8 @@ Upstream of [oh-my-pi](./oh-my-pi.md), which forks it. Listed by OpenCode Go
 as a validated client[^packages-web-src-content-docs-go-mdx-l104-l120], and the
 gateway reads `x-opencode-session` for routing and
 metrics[^packages-console-app-src-routes-zen-util-handler-ts-l125-l131]. Study
-it for the mechanisms OMP inherited unchanged; OMP remains the primary coding
-reference.
+it for the mechanisms OMP inherited unchanged; OMP remains the primary agentic
+and tool-shape reference.
 
 **Study**
 
