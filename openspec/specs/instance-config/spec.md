@@ -1125,9 +1125,9 @@ have the shape `{ id, use: "rewrite", hosts, pathPattern?, target }`, where
 the same bounded matcher `tools.permissions` uses, searched unanchored
 against the canonical path, and `target` is a literal `http` or `https`
 origin followed by a path/query template. The target SHALL contain no
-userinfo or fragment, and placeholders SHALL appear only in the path or
-query portion: `{path}` expands
-to the canonical path as-is and `{query}` expands to
+userinfo or fragment. `{path}` SHALL appear only in the path portion and
+expands to the canonical path as-is; `{query}` SHALL appear only in the path
+or query portion and expands to
 `encodeURIComponent` of the canonical query without `?`. No other placeholder
 is permitted.
 Unknown fields, unknown uses, duplicate ids, invalid targets, malformed
@@ -1139,7 +1139,7 @@ interpolation token; a literal token SHALL fail boot rather than be treated as
 redacted. The loader SHALL reuse the existing single-pass interpolation and
 redaction behavior for secret fields.
 
-#### Scenario: Explicit replacement disables defaults
+#### Scenario: An explicit empty list enables no adapter
 
 - **WHEN** the file sets `tools.webAdapters: []`
 - **THEN** no adapter is enabled
