@@ -251,7 +251,7 @@ than widening this one.
 
 - **WHEN** the model reads an authorized Markdown file without a member
 - **THEN** the result uses the existing text representation and line-numbered source content
-- **AND** no outline is appended or inferred; a ranged Markdown read may prepend ancestors under the ranged Markdown ancestor requirement.
+- **AND** no outline is appended or inferred; a ranged Markdown read prepends its ancestor headings under the ranged Markdown ancestor requirement.
 
 #### Scenario: An unsupported media type names the accepted types
 
