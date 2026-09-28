@@ -735,8 +735,8 @@ end does. No comma-separated scope SHALL be accepted.
 #### Scenario: A scope shows the headings it contains and what encloses them
 
 - **WHEN** a file holds `# Title` at line 1, `## Setup` at line 30, `### Linux` at line 44, `### macOS` at line 70, and `## Use` at line 100, and the model reads `:outline:60-90`
-- **THEN** the outline is `1: # Title`, `30: ## Setup`, then `70: ### macOS` with their excerpt lines
-- **AND** `44: ### Linux` and `100: ## Use` are absent
+- **THEN** the outline is the ancestor chain of line 60, `1: # Title`, `30: ## Setup`, and `44: ### Linux` with their excerpt lines before line 60, then `70: ### macOS` with its excerpt line
+- **AND** `100: ## Use` is absent because line 100 lies outside the scope
 
 #### Scenario: A single line answers with its ancestors
 

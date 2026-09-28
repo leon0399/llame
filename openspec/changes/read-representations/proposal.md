@@ -164,7 +164,7 @@ envelopes, and permission behavior stay on the shipped `read` surface.
   heading shows its underline; lines over 120 code units end in `…`.
 - A file with `# Title` at line 1, `## Setup` at line 30, `### Linux` at
   line 44, `### macOS` at line 70, and `## Use` at line 100 answers
-  `:outline:60-90` with lines 1, 30, and 70 (plus excerpts) and `:outline:65`
+  `:outline:60-90` with lines 1, 30, 44, and 70 (plus excerpts) and `:outline:65`
   with lines 1, 30, and 44. Headings in fenced, indented, list, blockquote,
   and HTML blocks produce no entry.
 - Duplicate heading text never chooses a section by name; each occurrence is
