@@ -54,9 +54,11 @@ YAML keys, converted documents) plug in at compile time.
   or JSON parser, no malformed-frontmatter note; an unclosed opener is
   ordinary Markdown.
 - Scan Markdown in one forward pass with a block-level state machine in the
-  native package, holding only the open-heading stack and the lines to emit,
-  so file sources have no input ceiling. `mdast-util-from-markdown` is a
-  dev-only oracle in a differential test suite over the CommonMark spec
+  native package, holding the open container and heading stacks and only the
+  lines a later line must decide (an open root paragraph a setext underline
+  may turn into a heading, and the lines after a line-one `---` until its
+  closer), so file sources have no input ceiling. `mdast-util-from-markdown`
+  is a dev-only oracle in a differential test suite over the CommonMark spec
   examples and repository fixtures; no runtime parser dependency is added.
   The pass stops after the scope or the result budget. A truncated outline
   reports `nextOffset` as the source line of the first omitted entry.

@@ -739,10 +739,13 @@ end does. No comma-separated scope SHALL be accepted.
 ### Requirement: Outline output obeys explicit bounds
 
 The Markdown reader SHALL scan the source in one forward pass, holding only
-the open-heading stack, block state, and the lines it will emit, so a file
-source SHALL have no input size ceiling beyond the abort signal; a web body
-and an adapter document keep the web plane's 5 MiB bounds. The scan SHALL stop
-once the scope end has passed or the result budget is spent. Outline output
+the open container and heading stacks, the lines it will emit, and the lines
+whose meaning a later line decides (an open root paragraph that a setext
+underline may turn into a heading, and the lines after a line-one `---` until
+its closer), so a file source SHALL have no input size ceiling beyond the
+abort signal; a web body and an adapter document keep the web plane's 5 MiB
+bounds. The scan SHALL stop once the lines through the scope end are decided
+or the result budget is spent. Outline output
 SHALL obey the shared serialized result cap and 2,000-line ceiling; when it is
 cut, `truncated` SHALL be true and `nextOffset` SHALL be the source line of
 the first omitted entry, so `:outline:<nextOffset>-M` continues it against

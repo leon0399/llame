@@ -178,22 +178,37 @@ plain read of the same locator returns; `:raw` keeps skipping them.
 ### D5: A streaming block scanner, with mdast as the test oracle
 
 **Decision:** `packages/native-file-tools/src/markdown-structure.ts` is a
-hand-written CommonMark block-level state machine that yields root-level
-spans in one forward pass. Its API:
+hand-written CommonMark block-level state machine that runs in one forward
+pass. It is push-based, so an async file stream can feed it, and reports
+two streams: every native line once, in source order, with its decided role,
+and root-level spans as each one closes. Its API:
 
 ```ts
-type MarkdownSpan = {
-  kind: "heading" | "frontmatter";
+type MarkdownHeading = {
   depth: number; // 1-6 for headings, 0 for frontmatter
   line: number; // one-based first source line
   headEnd: number; // one-based last heading line (the setext underline)
-  endLine: number; // one-based last source line of the section
   label: string; // verbatim first source line
 };
+type MarkdownSpan = MarkdownHeading & {
+  kind: "heading" | "frontmatter";
+  endLine: number; // one-based last source line of the section
+};
+type MarkdownLine = {
+  line: number;
+  text: string; // the native line as pushed
+  role: "blank" | "content" | "heading" | "frontmatter";
+  heading?: MarkdownHeading; // the root heading a heading line belongs to
+};
+
+createMarkdownScanner({
+  onLine?: (line: MarkdownLine) => boolean | void, // false stops the scan
+  onSpan?: (span: MarkdownSpan) => boolean | void, // close order
+}): { push(nativeLine: string): boolean; end(): void };
 
 scanMarkdownStructure(
   lines: Iterable<string>,
-  onSpan: (span: MarkdownSpan) => boolean, // false stops the scan
+  onSpan: (span: MarkdownSpan) => boolean | void,
 ): void;
 ```
 
@@ -207,10 +222,15 @@ no inline parsing: heading lines are emitted verbatim, so link text, code
 spans, and images need no normalization. Positions use the native LF line
 model from `splitSourceLines`.
 
-Memory is the open-heading stack (at most 6), block state, and whatever the
-consumer keeps: the outline keeps only the lines it will emit, bounded by the
-result cap, and stops the scan after the scope end or when the budget is
-spent; #544 keeps one record per heading.
+Memory is the open container chain (capped at 64 levels, beyond which
+container markers read as paragraph text, so hostile nesting cannot make a
+line quadratic), the open-heading stack, and the lines whose meaning a later
+line decides: an open root paragraph, which a setext underline may turn into
+a heading, and the lines after a line-one `---` until a closer makes them
+frontmatter or the end of input replays them as Markdown. Those lines are
+reported only once decided, so a consumer that stops after a scope end stops
+once the lines before it are decided. The outline keeps only the lines it
+will emit, bounded by the result cap; #544 keeps one record per heading.
 
 Conformance is proved by a differential suite: `mdast-util-from-markdown`
 (already in the lockfile, MIT) becomes a dev dependency of the native package
@@ -309,7 +329,8 @@ against the primitive without touching the ordinary read path.
 
 **Decision:** File sources have no input ceiling; the abort signal and the
 shared 2,000-line and 16,000-code-unit result caps bound the call, and the
-scan stops after the scope end or when the budget is spent. A truncated
+scan stops once the lines through the scope end are decided or the budget
+is spent. A truncated
 outline sets `truncated` and reports `nextOffset` as the source line of the
 first omitted entry, so `:outline:<nextOffset>-M` continues against the
 source observed then. Web bodies and adapter documents keep the web plane's
