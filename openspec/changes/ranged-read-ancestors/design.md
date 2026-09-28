@@ -18,7 +18,7 @@ The implementation therefore adds one source-independent ancestor decision betwe
 - Reuse the scanner and outline ancestor rule for file-backed and in-memory single- and multi-range reads.
 - Preserve the existing context-line semantics, selector precedence, bounds, continuation, source identity, permission admission, and web or Knowledge envelopes.
 - Make the result shape unambiguous when shown lines are non-contiguous, without adding a new metadata family.
-- Keep the implementation bounded by the existing line and serialized-result caps and by the scanner's deferred-run behavior.
+- Keep the implementation bounded by the existing line and serialized-result caps and by the range window's scanner cutoff.
 
 **Non-Goals:**
 
@@ -42,45 +42,112 @@ The implementation therefore adds one source-independent ancestor decision betwe
 
 **Consequence:** A plain unscoped read still starts at line 1 and has no enclosing heading to add. `:raw`, `:outline`, and non-Markdown results remain on their existing paths.
 
-### D2: The chain is heading source lines only
+### D2: The chain is heading source lines for requested line N
 
-**Decision:** For each passage, the chain is the root heading stack whose sections contain the passage's first shown source line, shallowest first. Each heading contributes its own source lines only, rendered with the ordinary `N:` prefix followed by one space. An ATX heading contributes one line. A setext heading contributes its text line or lines and its underline. The chain is verbatim and is not shortened, synthesized, or supplemented with a section excerpt. The first shown line is the context-expanded window start, so a heading already present in that window is not repeated. The source line and heading state come from the scanner primitive and the outline's existing heading stack (`packages/native-file-tools/src/markdown-structure.ts:44-82`, `packages/native-file-tools/src/markdown-outline.ts:162-191`).
+**Decision:** For each passage, the chain is the root heading stack whose
+sections contain the passage's first requested source line N, shallowest first.
+The preceding context line at N-1 remains shown but does not select headings.
+Each heading contributes all of its own source lines only, rendered with the
+ordinary `N:` prefix followed by one space. An ATX heading contributes one line.
+A setext heading contributes all of its text lines plus its underline, verbatim.
+The chain is not shortened, synthesized, or supplemented with a section
+excerpt. A heading line already shown by the context-expanded window or an
+earlier chain is not repeated. The source line and heading state come from the
+scanner primitive and the outline's existing heading stack
+(`packages/native-file-tools/src/markdown-structure.ts:44-82`,
+`packages/native-file-tools/src/markdown-outline.ts:162-191`).
 
 **Alternatives rejected:**
 
-- Excerpt lines in ancestors. Excerpts describe the first body line of an outline section, not the heading chain. Adding them would repeat content from a later read and make the chain depend on a different outline presentation rule.
-- The outline's 120-code-unit cut. Ordinary reads are verbatim source reads, and cutting a heading would make the prefix unsuitable for `edit`-style source navigation. The shared result cap still decides whether a complete line fits.
-- Synthesized `#` text or normalized heading labels. Coordinates and original syntax are already available; generated labels could lose setext depth, spacing, or prompt-bound source text.
-- A heading-name selector. It would add a second addressing grammar and is not needed to make the selected range self-describing.
+- The first shown line. A context line can sit in the previous section, such as
+  `## A` immediately above a window whose requested line N is `## B`; using
+  N-1 would select the wrong chain.
+- Excerpt lines in ancestors. Excerpts describe the first body line of an
+  outline section, not the heading chain. Adding them would repeat content from
+  a later read and make the chain depend on a different outline presentation
+  rule.
+- The outline's 120-code-unit cut. Ordinary reads are verbatim source reads,
+  and cutting a heading would make the prefix unsuitable for `edit`-style
+  source navigation. The shared result cap still decides whether a complete
+  line fits.
+- Synthesized `#` text or normalized heading labels. Coordinates and original
+  syntax are already available; generated labels could lose setext depth,
+  spacing, or prompt-bound source text.
+- A heading-name selector. It would add a second addressing grammar and is not
+  needed to make the selected range self-describing.
 
-**Consequence:** Heading lines are navigation hints and untrusted source data. No excerpt line consumes a shown interval on behalf of an ancestor.
+**Consequence:** Heading lines are navigation hints and untrusted source data.
+No excerpt line consumes a shown interval on behalf of an ancestor.
 
 ### D3: Ancestors use the existing plural result shape
 
-**Decision:** When at least one ancestor line is prepended to a single-range result, the result is represented as the existing multi-range shape: `requestedRanges` contains the one requested interval, and `shownRanges` contains the ancestor intervals and the context-expanded window. Adjacent shown lines merge, including a multi-line setext heading and an ancestor adjacent to the preceding or following context line. The requested interval never includes context or ancestors. If no ancestor is emitted, the current singular object is returned byte for byte. The type distinction and existing plural fields are in `packages/native-file-tools/src/source-lines.ts:12-36`.
+**Decision:** When at least one ancestor line is prepended to a single-range
+result, the result is represented as the existing multi-range shape:
+`requestedRanges` contains the one requested interval, and `shownRanges`
+contains the ancestor intervals and the context-expanded window. Adjacent
+shown lines merge, including all text lines plus the underline of a setext
+ancestor and an ancestor adjacent to the preceding or following context line.
+Setext ancestor lines remain verbatim. The requested interval never includes
+context or ancestors. If no ancestor is emitted, the current singular object is
+returned byte for byte. The type distinction and existing plural fields are in
+`packages/native-file-tools/src/source-lines.ts:12-36`.
 
 **Alternatives rejected:**
 
-- A new `context` or `ancestors` array beside singular ranges. It would make consumers understand two incompatible range descriptions and would not describe deduplicated source intervals as one ordered result.
-- Keeping singular fields and encoding a discontiguous shown range as its first and last line. That would claim lines were emitted through gaps and would make continuation unsafe.
-- Always returning plural fields. The brief preserves the current no-ancestor result contract, including unselected and non-Markdown reads; changing those callers adds compatibility churn without a behavioral need.
+- A new `context` or `ancestors` array beside singular ranges. It would make
+  consumers understand two incompatible range descriptions and would not
+  describe deduplicated source intervals as one ordered result.
+- Keeping singular fields and encoding a discontiguous shown range as its first
+  and last line. That would claim lines were emitted through gaps and would make
+  continuation unsafe.
+- Always returning plural fields. The brief preserves the current no-ancestor
+  result contract, including unselected and non-Markdown reads; changing those
+  callers adds compatibility churn without a behavioral need.
 
-**Consequence:** Result construction needs one explicit promotion point from single to plural. Existing envelope measurement sees the same `content`, range metadata, and truncation fields; no envelope field changes.
+**Consequence:** Result construction needs one explicit promotion point from
+single to plural. Existing envelope measurement sees the same `content`, range
+metadata, and truncation fields; no envelope field changes.
 
 ### D4: Comma reads expand and deduplicate per passage
 
-**Decision:** A comma request keeps the current merged requested intervals and context expansion. For each resulting passage, the implementation obtains the ancestor chain for that passage's first shown line, emits the chain before the passage, and deduplicates every source line against all earlier emitted passage and chain lines. It preserves source order. `requestedRanges` remains the pre-expansion request; `shownRanges` includes context and ancestor lines. If a later passage's ancestor heading is not already shown, it is inserted immediately before that passage. A heading that encloses a later start but lies before an earlier passage's start also encloses the earlier start, so an unshown later ancestor cannot need to appear before an earlier passage.
+**Decision:** A comma request keeps the current merged requested intervals and
+context expansion. For each resulting passage, the implementation obtains the
+ancestor chain for that passage's first requested line N, emits the chain before
+the passage, and deduplicates every source line against all earlier emitted
+passage and chain lines. It preserves source order. `requestedRanges` remains
+the pre-expansion request; `shownRanges` includes context and ancestor lines.
+If a later passage's ancestor heading is not already shown, it is inserted
+immediately before that passage. A heading that encloses a later requested
+start but lies before an earlier passage's requested start also encloses the
+earlier start, so an unshown later ancestor cannot need to appear before an
+earlier passage.
 
-The existing multi-range walk is shared by file and in-memory sources and already owns sorted/merged intervals, whole-range rollback, the line ceiling, and `nextOffset` (`packages/native-file-tools/src/stream-read.ts:275-365`, `packages/native-file-tools/src/stream-read.ts:473-517`). Ancestor admission will sit at the passage boundary rather than treating ancestors as requested lines.
+The existing multi-range walk is shared by file and in-memory sources and
+already owns sorted/merged intervals, whole-range rollback, the line ceiling,
+and `nextOffset` (`packages/native-file-tools/src/stream-read.ts:275-365`,
+`packages/native-file-tools/src/stream-read.ts:473-517`). Ancestor admission
+will sit at the passage boundary rather than treating ancestors as requested
+lines.
 
 **Alternatives rejected:**
 
-- Ancestors only for the first range. It would make a disjoint second passage lose the section identity the feature exists to provide.
-- A chain per raw input member before merging. Normalization already defines passages; duplicating chains before merge would repeat lines and make output depend on selector spelling.
-- A separate output block for each chain. The existing content contract is one source-ordered block with shown intervals; adding block markers would be generated content with no source coordinate.
-- Supporting only one requested range. Issue #1018 explicitly includes comma reads, and the repository already has a bounded multi-range path (`packages/native-file-tools/src/stream-read.ts:473-517`).
+- The first shown line. A context line can sit in the previous section, so it
+  can select a chain unrelated to the passage's requested start.
+- Ancestors only for the first range. It would make a disjoint second passage
+  lose the section identity the feature exists to provide.
+- A chain per raw input member before merging. Normalization already defines
+  passages; duplicating chains before merge would repeat lines and make output
+  depend on selector spelling.
+- A separate output block for each chain. The existing content contract is one
+  source-ordered block with shown intervals; adding block markers would be
+  generated content with no source coordinate.
+- Supporting only one requested range. Issue #1018 explicitly includes comma
+  reads, and the repository already has a bounded multi-range path
+  (`packages/native-file-tools/src/stream-read.ts:473-517`).
 
-**Consequence:** A later chain can never reorder an earlier passage. Deduplication is by source line coordinate, not heading text, so duplicate headings remain distinct occurrences.
+**Consequence:** A later chain can never reorder an earlier passage.
+Deduplication is by source line coordinate, not heading text, so duplicate
+headings remain distinct occurrences.
 
 ### D5: Existing unaffected reads remain unchanged
 
@@ -95,56 +162,143 @@ The existing multi-range walk is shared by file and in-memory sources and alread
 
 **Consequence:** The change is a clean cutover at the Markdown range reader, with no compatibility aliases or special output markers.
 
-### D6: Bounds omit a complete chain, then preserve progress
+### D6: Bounds preserve requested-line progress
 
-**Decision:** Ancestor lines count against the shared 2,000-line ceiling and serialized result cap. Before emitting a passage, the implementation tests the complete chain together with that passage's first shown source line. If that group cannot fit, it omits the entire chain and still emits the passage window when possible. A chain is never partially emitted. `nextOffset` continues to identify the next requested source line, never an ancestor line. A continuation at `nextOffset + 1` recomputes the chain for its new first shown line, so an ancestor may reappear across continuations just as context lines can. The existing caps and budget reservation are defined in `packages/native-file-tools/src/source-lines.ts:1-9`, and the outline already admits or omits an ancestor chain as a unit (`packages/native-file-tools/src/markdown-outline.ts:194-220`).
-
-**Alternatives rejected:**
-
-- Truncating a chain at the cap. A partial chain would falsely describe the section and could leave a continuation stuck on an already emitted heading.
-- Charging ancestors outside the shared cap. That would let the result exceed the contract that already includes content, metadata, and authority envelopes.
-- Advancing `nextOffset` to an ancestor line. Ancestors are navigation context, not requested work; doing so would make a retry reread or skip requested source lines.
-- Carrying a chain across continuation calls. A continuation is a new execution against potentially changed source; recomputing it follows existing execution-time semantics and guarantees progress.
-
-**Consequence:** A result with an omitted chain has no emitted ancestors and retains the singular shape when it is a single request. A result with an emitted chain promotes to plural fields even if only one requested passage exists.
-
-### D7: Scanning cost is accepted and remains bounded by deferred decisions
-
-**Decision:** File sources already walk from line 1 to the selected offset rather than seeking to a line (`packages/native-file-tools/src/stream-read.ts:199-224`). The added work is the scanner's CPU over those lines and the small open-heading state; it does not add a cache, random-access index, or whole-file buffer. A scanner may consume lines beyond the requested window when an open root paragraph, link-reference definition paragraph, or line-one `---` opener has not yet settled the role of lines before the window. It stops once the relevant decisions are settled or the existing result budget and line ceiling force a bounded result. Web renders are already in memory before selection (`apps/api/src/tools/web-read/result.ts:97-123`).
+**Decision:** Ancestor lines count against the shared 2,000-line ceiling and
+serialized result cap. Admission tests the chain together with its first
+requested line and applies the outermost-heading overflow rule in D8. A chain
+never changes which requested source line `nextOffset` names. A continuation
+at `nextOffset + 1` recomputes the chain for its new first requested line, so
+an ancestor may reappear across continuations just as context lines can. The
+existing caps and budget reservation are defined in
+`packages/native-file-tools/src/source-lines.ts:1-9`.
 
 **Alternatives rejected:**
 
-- Caching ancestor indexes. A cache would add invalidation and stale-coordinate behavior to a read path that currently observes source content per call; the issue does not require repeated-read acceleration.
-- A whole-file loader. It would turn a streaming file read into an input-sized allocation and contradict the scanner's purpose for large files.
-- A fixed scan cutoff at the requested end. Deferred Markdown blocks can make a line's structural role undecidable at that boundary, producing incorrect ancestors.
-- A new large-offset error. The existing forward scan is the accepted source behavior; introducing a new refusal would make valid ranges depend on their offset rather than their result.
+- Charging ancestors outside the shared cap. That would let the result exceed
+  the contract that already includes content, metadata, and authority
+  envelopes.
+- Advancing `nextOffset` to an ancestor line. Ancestors are navigation context,
+  not requested work; doing so would make a retry reread or skip requested
+  source lines.
+- Carrying a chain across continuation calls. A continuation is a new execution
+  against potentially changed source; recomputing it follows existing
+  execution-time semantics and guarantees progress.
 
-**Consequence:** High offsets can consume more CPU than a small window, but memory remains flat apart from scanner state and emitted output. Focused tests must cover deferred runs and a large offset.
+**Consequence:** A trimmed or absent chain is silent. There is no completeness
+flag because ancestors are extra context, not a commitment to a complete
+outline.
 
-### D8: One shared ancestor tracker serves outline and ranges
+### D7: The scanner ends at the range window
 
-**Decision:** Extract the ancestor-stack responsibility currently held in `packages/native-file-tools/src/markdown-outline.ts:162-191` into `packages/native-file-tools/src/markdown-structure.ts` beside `createMarkdownScanner`. The shared tracker consumes the scanner's native line stream, records each heading's verbatim source lines and open section depth, and exposes the direct heading chain for a source line. The outline reader continues to add its outline-specific excerpts and scope filtering; ordinary range readers request heading lines only. File and in-memory range selection use the same tracker interface.
+**Decision:** A ranged read never reads past its selected window. File sources
+already walk from line 1 through the requested offset and stop at the bounded
+window (`packages/native-file-tools/src/stream-read.ts:199-224`). The Markdown
+scanner is fed through the window end and then ended. If a line's role is still
+undecided at that boundary, it counts as not a heading for this read: an open
+paragraph that might become a setext heading and an unclosed line-one `---`
+block are replayed as Markdown rather than resolved with later input. Web
+renders are already in memory before the same selector path
+(`apps/api/src/tools/web-read/result.ts:97-123`), so host and web produce the
+same ancestors for the same text and window. Read cost is unchanged from
+today's forward scan.
 
 **Alternatives rejected:**
 
-- A second ancestor tracker in the range selector. It would duplicate heading-stack semantics and let outline and ordinary reads disagree on setext or duplicate-heading boundaries.
-- A general runtime registry or plugin interface. There is one Markdown implementation and the compile-time representation table is already the extension point; a registry would violate the repository's smallest-complete-design rule.
-- A full AST parser for every read. The shipped scanner is one-pass and reports native lines and heading metadata (`packages/native-file-tools/src/markdown-structure.ts:44-82`); a whole-document AST would consume memory unrelated to the selected result.
+- Read until the scanner settles every deferred block. A 200 MiB file with no
+  blank line could be read in full for a 15-line request.
+- Capped lookahead. It adds another arbitrary rule and remains inexact when the
+  deferred block extends past the cap.
 
-**Consequence:** Parser behavior remains in the native package, while source authorities only feed admitted lines. The shared helper is the single place to test root-heading ancestry.
+**Consequence:** The implementation has no lookahead, input-sized cache, or
+large-offset refusal. A boundary-undecided line simply cannot contribute a
+heading to this result.
+
+### Shared tracker placement
+
+**Decision:** Extract the ancestor-stack responsibility currently held in
+`packages/native-file-tools/src/markdown-outline.ts:162-191` into
+`packages/native-file-tools/src/markdown-structure.ts` beside
+`createMarkdownScanner`. The shared tracker consumes the scanner's native line
+stream, records each heading's verbatim source lines and open section depth,
+and exposes the direct heading chain for a requested source line. The outline
+reader continues to add its outline-specific excerpts and scope filtering;
+ordinary range readers request heading lines only. File and in-memory range
+selection use the same tracker interface.
+
+**Alternatives rejected:**
+
+- A second ancestor tracker in the range selector. It would duplicate
+  heading-stack semantics and let outline and ordinary reads disagree on setext
+  or duplicate-heading boundaries.
+- A general runtime registry or plugin interface. There is one Markdown
+  implementation and the compile-time representation table is already the
+  extension point; a registry would violate the repository's smallest-complete
+  design rule.
+- A full AST parser for every read. The shipped scanner is one-pass and reports
+  native lines and heading metadata
+  (`packages/native-file-tools/src/markdown-structure.ts:44-82`); a
+  whole-document AST would consume memory unrelated to the selected result.
+
+**Consequence:** Parser behavior remains in the native package, while source
+authorities only feed admitted lines. The shared helper is the single place to
+test root-heading ancestry.
+
+### D8: Ancestor overflow drops outermost headings first
+
+**Decision:** Ancestor lines count against the shared 2,000-line ceiling and
+serialized result cap. When the complete chain plus the first requested line
+does not fit, whole heading units are removed from the outermost end until the
+deepest remaining heading plus that requested line fits. A setext heading's
+text lines and underline are one unit. If even the deepest heading does not
+fit, no chain is emitted. Remaining headings stay in source order. A trimmed
+or absent chain is silent and carries no flag field.
+
+**Alternatives rejected:**
+
+- Drop the whole chain. It discards useful deepest context even when one or more
+  heading units fit.
+- Cut the innermost heading. A partial or missing deepest heading makes the
+  selected section less useful and can leave an outer heading without its
+  immediate context.
+- Split a setext heading between its text and underline. The two lines are one
+  syntactic heading and must remain a unit.
+
+**Consequence:** A result may carry a shorter but still source-ordered chain.
+Only a result that emits at least one ancestor promotes to plural range fields;
+an absent chain leaves the ordinary single-range shape.
 
 ### D9: Source envelopes, permissions, and media labels stay outside the reader
 
-**Decision:** The reader runs only after source resolution and permission admission. It receives decoded lines, a display identity, the selector, and the source media type; it does not resolve a path, issue a request, inspect credentials, or mutate an envelope. Host and scheme-specific callers retain their existing result fields. The web path continues to build its envelope first and merge it after selection (`apps/api/src/tools/web-read/result.ts:47-59`, `apps/api/src/tools/web-read/result.ts:67-124`). The web caller passes the render's existing `mediaType` to the ordinary selectors, so Markdown ladder stages and adapter documents are eligible while `text/plain` and raw content are not.
+**Decision:** The reader runs only after source resolution and permission
+admission. It receives decoded lines, a display identity, the selector, and the
+source media type; it does not resolve a path, issue a request, inspect
+credentials, or mutate an envelope. Host and scheme-specific callers retain
+their existing result fields. The web path continues to build its envelope
+first and merge it after selection (`apps/api/src/tools/web-read/result.ts:47-59`,
+`apps/api/src/tools/web-read/result.ts:67-124`). The web caller passes the
+render's existing `mediaType` to the ordinary selectors, so Markdown ladder
+stages and adapter documents are eligible while `text/plain` and raw content
+are not.
 
 **Alternatives rejected:**
 
-- Letting the reader infer authority from a display path. A display path is model-facing data, not permission identity.
-- Parsing before admission. A denied path must fail before content is opened or scanned, as the existing resolver boundary guarantees (`packages/native-file-tools/src/read.ts:117-133`).
-- Adding a media type to the public result envelope. The label selects a reader internally; exposing it would change unrelated result contracts.
-- Treating every web render as Markdown. The rendered document's label is the source of truth; plain text and raw HTML must not gain heading behavior by accident.
+- Letting the reader infer authority from a display path. A display path is
+  model-facing data, not permission identity.
+- Parsing before admission. A denied path must fail before content is opened or
+  scanned, as the existing resolver boundary guarantees
+  (`packages/native-file-tools/src/read.ts:117-133`).
+- Adding a media type to the public result envelope. The label selects a reader
+  internally; exposing it would change unrelated result contracts.
+- Treating every web render as Markdown. The rendered document's label is the
+  source of truth; plain text and raw HTML must not gain heading behavior by
+  accident.
 
-**Consequence:** The implementation changes the web selector call signatures and native range helpers, not authority or envelope code. Knowledge retains its Space attribution and untrusted-content notice because the selector result is still wrapped by its existing resolver.
+**Consequence:** The implementation changes the web selector call signatures
+and native range helpers, not authority or envelope code. Knowledge retains its
+Space attribution and untrusted-content notice because the selector result is
+still wrapped by its existing resolver. A trimmed or absent chain is silent;
+ancestors are extra context, not a completeness signal.
 
 ### D10: Coordinates remain execution-time navigation hints
 
@@ -160,8 +314,9 @@ The existing multi-range walk is shared by file and in-memory sources and alread
 
 ## Risks / Trade-offs
 
-- **[Risk]** A large-offset file read scans many source lines before it can emit a small window. **Mitigation:** keep the existing streaming line source, bounded scanner state, abort signal, and result caps; do not add an input-sized cache.
-- **[Risk]** A heading chain consumes enough of the shared budget to change truncation or continuation. **Mitigation:** admit chains atomically, omit a chain rather than truncating it, preserve requested-line `nextOffset`, and cover the 2,000-line and serialized-cap boundaries with focused tests.
+- **[Risk]** A large-offset file read scans many source lines before it can emit a small window. **Mitigation:** keep the existing streaming line source, bounded scanner state, abort signal, and result caps; this is the same forward walk as today and does not add lookahead or an input-sized cache.
+- **[Risk]** A deferred Markdown role remains undecided at the window end and would differ if later lines were read. **Mitigation:** end the scanner at the window boundary, classify the undecided line as non-heading for this read, and test open setext paragraphs and unclosed line-one `---` blocks on both host and web paths.
+- **[Risk]** A heading chain consumes enough of the shared budget to change truncation or continuation. **Mitigation:** drop complete outermost heading units first, preserve requested-line `nextOffset`, keep omission silent, and cover the 2,000-line and serialized-cap boundaries with focused tests.
 - **[Risk]** A single-range consumer assumes singular fields and mishandles an ancestor-aware result. **Mitigation:** use the existing `ReadSuccess` union, promote only when an ancestor is emitted, and test host, Knowledge, Skill, and web envelopes at the public result boundary.
 - **[Risk]** Scanner state disagrees between ordinary ranges and `:outline`. **Mitigation:** extract one ancestor tracker beside the scanner and keep the differential scanner suite as the structural oracle.
 - **[Risk]** Heading or web-render text contains prompt-injection instructions. **Mitigation:** emit source verbatim as untrusted tool output, preserve Knowledge notices and web provenance, and never route parsed text into authority or tool selection.

@@ -28,7 +28,7 @@ SHALL NOT be treated as a relative or literal filename. For regular-file reads, 
 one preceding and one following source line (context lines) when available, and the extended
 lines SHALL appear in the same `content` block as the requested lines.
 
-For an ordinary ranged read of a `text/markdown` source, `content` SHALL also prepend the direct ancestor heading lines specified by the ranged Markdown ancestor requirement. When at least one ancestor line is emitted, a single-range result SHALL report plural `requestedRanges` and `shownRanges` fields instead of singular fields. For single-range reads, result
+For an ordinary ranged read of a `text/markdown` source, `content` SHALL also prepend the direct ancestor heading lines for the passage's first requested line, as specified by the ranged Markdown ancestor requirement. When at least one ancestor line is emitted, a single-range result SHALL report plural `requestedRanges` and `shownRanges` fields instead of singular fields. For single-range reads, result
 details SHALL identify requested and shown ranges, representation, path, and
 common truncation state. For an `outline` result, `content` SHALL consist of
 verbatim source lines carrying the ordinary line-number prefixes, chosen by the
@@ -106,7 +106,7 @@ intervals that overlap or sit adjacent. Raw multi-range requests SHALL NOT
 expand context. A comma-separated request SHALL report plural range fields
 even if normalization and expansion leave one interval.
 
-For a Markdown source, each merged expanded passage SHALL prepend the direct ancestor heading lines of that passage's first shown source line, shallowest first, deduplicated against every line already shown by earlier passages and chains, and output SHALL remain in source order. `requestedRanges` SHALL exclude ancestor lines, while `shownRanges` SHALL include them.
+For a Markdown source, each merged expanded passage SHALL prepend the direct ancestor heading lines for that passage's first requested line, shallowest first, deduplicated against every line already shown by earlier passages and chains, and output SHALL remain in source order. `requestedRanges` SHALL exclude ancestor lines, while `shownRanges` SHALL include them.
 Absolute literal-path precedence and scheme-specific authorization SHALL apply
 before reading as for existing selectors. Directory comma selectors SHALL fail
 with `invalid_selector`; ordinary directory selectors SHALL remain unchanged.
@@ -212,13 +212,14 @@ continuation SHALL remain unchanged.
 
 An ordinary, non-`:raw`, non-`:outline` ranged `read` of a `text/markdown`
 source SHALL prepend the direct root-heading ancestor chain of each passage's
-first shown source line, shallowest first. Each ancestor SHALL be rendered from
-its own source lines with the ordinary one-based `N:` prefix followed by a space. An ATX heading
-contributes its heading line; a setext heading contributes its text line or lines
-and underline. The chain SHALL be verbatim, SHALL NOT include an excerpt line,
-and SHALL NOT apply the outline reader's 120-code-unit cut. A heading line
-already shown by the context-expanded window or an earlier chain SHALL NOT be
-repeated.
+first requested source line N, shallowest first. The preceding context line at
+N-1 remains shown but does not select headings. Each ancestor SHALL be rendered
+from its own source lines with the ordinary one-based `N:` prefix followed by a
+space. An ATX heading contributes its heading line; a setext heading
+contributes all of its text lines plus its underline, verbatim. The chain SHALL
+NOT include an excerpt line and SHALL NOT apply the outline reader's 120-code-
+unit cut. A heading line already shown by the context-expanded window or an
+earlier chain SHALL NOT be repeated.
 
 A single-range result that emits at least one ancestor line SHALL use the plural
 `requestedRanges` and `shownRanges` fields. Its `requestedRanges` SHALL contain
@@ -226,18 +227,28 @@ only the requested source interval, while its `shownRanges` SHALL contain the
 ancestor lines and the ordinary context-expanded window, merging adjacent
 intervals. A range with no emitted ancestor SHALL retain the singular result
 shape. Comma-separated reads SHALL apply this rule independently to every
-merged passage, deduplicate by source line, and keep the content in source
-order.
+merged passage using that passage's first requested line, deduplicate by source
+line, and keep the content in source order.
 
 Ancestor lines SHALL count against the shared 2,000-line ceiling and serialized
-result bound. If a passage's complete chain together with its first shown source
-line does not fit, the chain SHALL be omitted as a whole and the passage window
-SHALL still be returned when it can fit. `nextOffset` SHALL continue to name
-the next requested source line, never an ancestor line. A continuation at
+result bound. If a passage's complete chain together with its first requested
+line does not fit, whole headings SHALL be dropped from the outermost end until
+the deepest remaining heading plus that requested line fits. A setext heading's
+text lines and underline SHALL be dropped as one unit. If even the deepest
+heading does not fit, no chain SHALL be emitted and the passage window SHALL
+still be returned when it can fit. `nextOffset` SHALL continue to name the next
+requested source line, never an ancestor line. A continuation at
 `nextOffset + 1` SHALL calculate a fresh chain, so an ancestor MAY reappear
-across continuations. The scanner MAY consume source lines beyond the requested
-window while it settles a deferred Markdown block decision, subject to the
-same bounded deferred-run behavior as outline reads.
+across continuations. A trimmed or absent chain SHALL be silent and SHALL NOT
+add a flag field.
+
+A ranged read SHALL never read past its requested window. The Markdown scanner
+SHALL end at the window end; a line whose role is undecided at that boundary
+SHALL count as not a heading for this read. An open paragraph that might become
+a setext heading and an unclosed line-one `---` block SHALL be replayed as
+Markdown rather than resolved with later input. The same window-end rule SHALL
+apply to web renders, so host and web produce the same ancestors for the same
+text and window.
 
 The rule SHALL apply uniformly to host paths, `file://`, `kb://`, `skill://`,
 and web renders labeled `text/markdown`, after existing permission admission
@@ -262,11 +273,11 @@ reads, empty files, and non-Markdown reads SHALL remain unchanged.
 
 - **AND** the result reports `requestedRanges: [{startLine: 60, endLine: 72}]` and `shownRanges` covering `{13,13}`, `{32,32}`, `{54,54}`, and `{59,73}`
 
-#### Scenario: Setext ancestor lines use one merged shown interval
+#### Scenario: Setext ancestors retain all text lines and the underline
 
-- **WHEN** the first shown line of a Markdown passage is enclosed by a setext heading whose text occupies line 10 and underline occupies line 11
-- **THEN** both source lines are emitted verbatim before the passage
-- **AND** the two adjacent ancestor lines appear as one `{startLine: 10, endLine: 11}` interval in `shownRanges`
+- **WHEN** the first requested line of a Markdown passage is enclosed by a setext heading whose text occupies lines 9 and 10 and whose underline occupies line 11
+- **THEN** all three source lines are emitted verbatim before the passage
+- **AND** the three adjacent ancestor lines appear as one `{startLine: 9, endLine: 11}` interval in `shownRanges`
 
 #### Scenario: An ancestor adjacent to the context line merges
 
@@ -276,8 +287,8 @@ reads, empty files, and non-Markdown reads SHALL remain unchanged.
 
 #### Scenario: A window starting on a heading does not repeat it
 
-- **WHEN** the first shown line of a Markdown range is itself a heading already present in the selected window
-- **THEN** the direct ancestor chain is emitted before the window
+- **WHEN** the requested line of a Markdown range is itself a heading already present in the selected window
+- **THEN** the direct ancestor chain selected by that requested line is emitted before the window
 - **AND** that heading source line appears only once
 
 #### Scenario: No enclosing heading keeps the singular shape
@@ -314,14 +325,14 @@ reads, empty files, and non-Markdown reads SHALL remain unchanged.
 #### Scenario: A continuation at `nextOffset + 1` gets its own chain
 
 - **WHEN** a truncated Markdown range returns a `nextOffset` inside a section and the caller retries from `nextOffset + 1`
-- **THEN** the retry emits the direct ancestor chain for the retry's first shown line when it fits
+- **THEN** the retry emits the direct ancestor chain for the retry's first requested line when it fits
 - **AND** the retry does not treat the earlier result's chain as carried state
 
-#### Scenario: A chain that does not fit is omitted and the window still returns
+#### Scenario: Outermost headings are dropped first when a chain does not fit
 
-- **WHEN** a Markdown passage's complete ancestor chain plus its first shown line cannot fit the shared line or serialized-result bound
-- **THEN** the complete chain is omitted rather than partially emitted
-- **AND** the context-expanded passage window is returned when it fits and continuation still advances by requested source lines
+- **WHEN** the chain is `# Title`, `## Setup`, and `### Linux`, and the shared budget fits only one heading line plus the first requested line
+- **THEN** the result emits `### Linux` and the requested passage, without `# Title` or `## Setup`
+- **AND** whole setext headings are dropped as units, and if even the deepest heading cannot fit the passage window still returns when it can without emitting a chain
 
 #### Scenario: Web Markdown renders get ancestors and web `text/plain` does not
 
