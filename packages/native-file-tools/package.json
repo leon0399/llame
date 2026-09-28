@@ -19,6 +19,8 @@
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "@workspace/config-typescript": "workspace:*",
+    "commonmark-spec": "0.31.2",
+    "mdast-util-from-markdown": "2.0.2",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",
