@@ -245,10 +245,10 @@ A blob renders decoded UTF-8 source as plain lines with no heading, so `:N-M`
 addresses source lines. A directory renders the requested level and one child
 level in the host's two-level listing shape, including its `:N-M` selector and
 elision rules; a symlink renders as `- name@` and a submodule as `- name?`.
-`Description`, `Default branch`, `Visibility`, and `Language`, then the root
-listing and `## README`. A commit renders a summary with its message, author,
-timestamp, changed-file statuses and counts, and a `Diff:` URL; it never
-renders patches.
+A repository root renders `Description`, `Default branch`, `Visibility`, and
+`Language`, then the root listing and `## README`. A commit renders a summary
+with its message, author, timestamp, changed-file statuses and counts, and a
+`Diff:` URL; it never renders patches.
 
 Ref resolution first tries the first segment after `tree/` or `blob/` as the
 ref. On a 404 with path segments remaining, branch and then tag matching can

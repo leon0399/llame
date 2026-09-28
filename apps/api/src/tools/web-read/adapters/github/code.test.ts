@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { DIRECTORY_TRAVERSAL_BUDGET } from '@workspace/native-file-tools';
 
 import type { WebFetchFailure, WebResponse } from '../../http-client';
 import { MAX_ADAPTER_DOCUMENT_BYTES } from '../contract';
@@ -449,6 +450,44 @@ describe('GitHub code adapter', () => {
           { name: 'readme.md', kind: 'file' },
         ],
       },
+    });
+  });
+  it('returns parse when a tree response has no tree array', async () => {
+    const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:apps?recursive=1`;
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project/tree/main/apps',
+      new Map([[url, [response({})]]]),
+    );
+
+    expect(outcome).toStrictEqual({ kind: 'failed', failure: 'parse' });
+  });
+
+  it('renders a tree with more than the traversal budget', async () => {
+    const source = 'https://github.com/acme/project/tree/main/apps';
+    const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:apps?recursive=1`;
+    const entries = Array.from(
+      { length: DIRECTORY_TRAVERSAL_BUDGET + 1 },
+      (_, index) => ({ path: `file-${index}`, type: 'blob' }),
+    );
+    const { outcome } = await readGithub(
+      source,
+      new Map([[url, [treeResponse(entries)]]]),
+    );
+
+    if (outcome.kind !== 'rendered' || outcome.directory === undefined) {
+      throw new Error('expected rendered directory');
+    }
+    expect(outcome.directory.displayPath).toBe(source);
+    expect(outcome.directory.entries).toHaveLength(
+      DIRECTORY_TRAVERSAL_BUDGET + 1,
+    );
+    expect(outcome.directory.entries).toContainEqual({
+      name: 'file-0',
+      kind: 'file',
+    });
+    expect(outcome.directory.entries).toContainEqual({
+      name: `file-${DIRECTORY_TRAVERSAL_BUDGET}`,
+      kind: 'file',
     });
   });
 
