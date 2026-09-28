@@ -226,7 +226,9 @@ Memory is the open container chain (capped at 64 levels, beyond which
 container markers read as paragraph text, so hostile nesting cannot make a
 line quadratic), the open-heading stack, and the lines whose meaning a later
 line decides: an open root paragraph, which a setext underline may turn into
-a heading, and the lines after a line-one `---` until a closer makes them
+a heading; the text of a paragraph whose first line may still open a link
+reference definition, because definitions decide where a setext heading
+starts; and the lines after a line-one `---` until a closer makes them
 frontmatter or the end of input replays them as Markdown. Those lines are
 reported only once decided, so a consumer that stops after a scope end stops
 once the lines before it are decided. The outline keeps only the lines it

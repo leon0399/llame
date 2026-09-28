@@ -56,7 +56,8 @@ YAML keys, converted documents) plug in at compile time.
 - Scan Markdown in one forward pass with a block-level state machine in the
   native package, holding the open container and heading stacks and only the
   lines a later line must decide (an open root paragraph a setext underline
-  may turn into a heading, and the lines after a line-one `---` until its
+  may turn into a heading, a paragraph whose first line may open a link
+  reference definition, and the lines after a line-one `---` until its
   closer), so file sources have no input ceiling. `mdast-util-from-markdown`
   is a dev-only oracle in a differential test suite over the CommonMark spec
   examples and repository fixtures; no runtime parser dependency is added.
