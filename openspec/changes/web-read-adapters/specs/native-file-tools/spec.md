@@ -890,9 +890,9 @@ lines. NUL bytes, invalid UTF-8, an `encoding` of `none`, empty content for a
 large file, or a declared size over the body bound SHALL be a `binary` or
 `too_large` failure that falls through; binary bytes SHALL never be presented
 as text. A commit SHALL request `/repos/{owner}/{repo}/commits/{sha}` and
-render message, author, timestamp, every changed file with its status and
-counts, loaded in pages of 100 up to 3,000 files (beyond which the list is
-cut with the omission note `files omitted: too_large`), and `Diff: https://github.com/{owner}/{repo}/commit/{sha}.diff`; it
+render message, author, timestamp, the changed files with their status and
+counts (loaded in pages of 100; the first 3,000 files are listed, and a longer
+list is cut with the omission note `files omitted: too_large`), and `Diff: https://github.com/{owner}/{repo}/commit/{sha}.diff`; it
 SHALL NOT render patches.
 
 A directory SHALL request one
@@ -990,7 +990,7 @@ to split SHALL be a `status` failure.
 #### Scenario: A commit renders a summary with a Diff line
 
 - **WHEN** the model reads `https://github.com/o/r/commit/c91b31c0`
-- **THEN** the text has the message, author, timestamp, and every changed file with counts
+- **THEN** the text has the message, author, timestamp, and each changed file with counts, up to 3,000 files
 - **AND** `Diff: https://github.com/o/r/commit/c91b31c0.diff` is present and no patch text is rendered
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
@@ -1018,6 +1018,12 @@ keep the source URL as `finalUrl`, report `method: "adapter"` with route
 configured origin. The runbook example SHALL be
 `https://x.pcstyle.dev{path}` for `x.com` and `twitter.com` status paths,
 and SHALL state that the source path reaches that origin.
+
+#### Scenario: A commit over 3,000 files lists the first 3,000
+
+- **WHEN** a commit changes more than 3,000 files
+- **THEN** the first 3,000 files are listed with counts from pages of 100
+- **AND** the omission note `files omitted: too_large` states that the list is cut
 
 #### Scenario: A declared rewrite renders an x.com source
 

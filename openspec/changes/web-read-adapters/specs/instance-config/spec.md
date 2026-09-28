@@ -88,8 +88,8 @@ redaction behavior for secret fields.
 
 - **WHEN** the file sets `tools.webAdapters: []`
 - **THEN** no adapter is enabled
-- **AND** a matching URL uses only the generic ladder, with no third-party
-  origin contacted
+- **AND** a matching URL uses only the generic ladder, with no adapter origin
+  contacted
 
 #### Scenario: Declared rewrite is the only third-party contact
 

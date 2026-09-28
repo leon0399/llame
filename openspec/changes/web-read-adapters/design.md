@@ -360,7 +360,9 @@ The repository root renders `Description`, `Default branch`,
 `Visibility`, and `Language` lines from `GET /repos/{o}/{r}`, then the
 two-level root listing, then `## README` from `GET /repos/{o}/{r}/readme`
 decoded. A commit requests `GET /repos/{o}/{r}/commits/{sha}` and renders
-message, author, timestamp, a file list with counts, and
+message, author, timestamp, a file list with counts (pages of 100, cut at
+3,000 files with a `files omitted: too_large` note, which bounds a single commit
+read to 30 file-page requests), and
 `Diff: https://github.com/{o}/{r}/commit/{sha}.diff`; patches are not
 rendered.
 
@@ -371,7 +373,7 @@ credential behavior outside the read HTTP contract; per-child contents costs
 `1 + N` requests where the recursive tree costs one and gives exact counts.
 
 **Consequence:** Every directory costs one request, the root three. Two
-bounds apply. Among tree responses that stay under 5 MiB, the host
+bounds apply to trees. Among tree responses that stay under 5 MiB, the host
 per-directory entry budget (10,000 entries at the requested level) binds
 first: a non-root directory over it ends with the
 host's `directory_too_large`, and an over-budget root keeps its metadata and
