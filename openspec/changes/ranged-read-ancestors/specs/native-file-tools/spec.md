@@ -346,7 +346,9 @@ space. An ATX heading contributes its heading line; a setext heading
 contributes all of its text lines plus its underline, verbatim. The chain SHALL
 NOT include an excerpt line and SHALL NOT apply the outline reader's 120-code-
 unit cut. A heading line already shown by the context-expanded window or an
-earlier chain SHALL NOT be repeated.
+earlier chain SHALL NOT be repeated. A heading whose own lines include line N,
+such as a setext heading whose text line or underline is requested, is N's own
+heading and SHALL NOT be emitted as N's ancestor.
 
 A single-range result that emits at least one ancestor line SHALL use the plural
 `requestedRanges` and `shownRanges` fields. Its `requestedRanges` SHALL contain
@@ -357,7 +359,10 @@ shape. Comma-separated reads SHALL apply this rule independently to every
 merged passage using that passage's first requested line, deduplicate by source
 line, and keep the content in source order: a chain emits only heading lines
 before its passage's first shown line, and a chain line that would precede
-content already emitted SHALL be skipped.
+content already emitted SHALL be skipped. A chain heading whose earlier lines
+an earlier passage already emitted therefore contributes only its remaining
+lines, which directly follow those emitted lines, so a setext heading's text
+lines and underline are never separated by other output.
 
 Ancestor lines SHALL count against the shared 2,000-line ceiling and serialized
 result bound. If a passage's complete chain plus all mandatory output through
@@ -411,6 +416,12 @@ SHALL remain unchanged. Mutation previews SHALL not receive ancestor headings.
 - **THEN** all three source lines are emitted verbatim before the passage
 - **AND** the three adjacent ancestor lines appear as one `{startLine: 9, endLine: 11}` interval in `shownRanges`
 
+#### Scenario: A requested line inside a setext heading is not its own ancestor
+
+- **WHEN** the first requested line of a Markdown range is a text line of a setext heading that begins before the preceding context line
+- **THEN** that heading's earlier text lines are not emitted as ancestors
+- **AND** only the headings enclosing that setext heading are prepended
+
 #### Scenario: An ancestor adjacent to the context line merges
 
 - **WHEN** an ancestor heading is immediately before the preceding context line for a requested Markdown range
@@ -459,6 +470,12 @@ SHALL remain unchanged. Mutation previews SHALL not receive ancestor headings.
 - **THEN** each passage is preceded by its direct ancestor chain, in source order
 - **AND** the shared root heading is emitted once, while each distinct child heading is emitted once before its own passage
 - **AND** `requestedRanges` excludes all ancestor lines and `shownRanges` includes them
+
+#### Scenario: A setext ancestor straddling an earlier passage continues it
+
+- **WHEN** an earlier passage of a comma-separated Markdown read shows a setext heading's leading text lines but not its underline, and that heading encloses a later passage's first requested line
+- **THEN** the later passage's chain emits only the heading's unshown remaining lines, directly after the earlier passage's last line
+- **AND** no heading line is repeated or emitted out of source order
 
 #### Scenario: A continuation at `nextOffset + 1` gets its own chain
 

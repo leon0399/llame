@@ -116,15 +116,21 @@ ancestor chain for that passage's first requested line N, emits the chain before
 the passage, and deduplicates every source line against all earlier emitted
 passage and chain lines. It preserves source order. `requestedRanges` remains
 the pre-expansion request; `shownRanges` includes context and ancestor lines.
-If a later passage's ancestor heading is not already shown, it is inserted
-immediately before that passage. Only a heading's lines before the passage's
+A later passage's ancestor lines that are not already shown and follow the
+last emitted line are inserted immediately before that passage. Only a heading's lines before the passage's
 first shown line are emitted as its chain; lines at or after it are the
 window's own lines or follow it. A heading that encloses a later requested
 start and lies before an earlier passage usually encloses the earlier start as
 well, but the earlier passage may not have emitted it (its chain was trimmed,
 or a later line settled the heading only after that passage), so a chain line
 that would precede content already emitted is skipped rather than emitted out
-of source order.
+of source order. Skipping stays per line rather than per heading unit: a
+heading that straddles the last emitted line has that line among its own, so
+its remaining lines directly continue it, and dropping the whole unit would
+instead leave the earlier passage's partial heading text without its
+underline and the later passage without that ancestor. A heading whose lines
+include N itself (a requested setext text line or underline) is N's own
+heading, not an ancestor.
 
 The existing multi-range walk is shared by file and in-memory sources and
 already owns sorted/merged intervals, whole-range rollback, the line ceiling,
