@@ -735,6 +735,12 @@ importers:
       '@workspace/config-typescript':
         specifier: workspace:*
         version: link:../config-typescript
+      commonmark-spec:
+        specifier: 0.31.2
+        version: 0.31.2
+      mdast-util-from-markdown:
+        specifier: 2.0.2
+        version: 2.0.2(supports-color@8.1.1)
       oxlint:
         specifier: 'catalog:'
         version: 1.82.0(oxlint-tsgolint@7.0.2001)
@@ -5687,6 +5693,9 @@ packages:
 
   commondir@1.0.1:
     resolution: {integrity: sha512-W9pAhw0ja1Edb5GVdIF1mjZw/ASI0AlShXM83UUGe2DVr5TdAPEA1OA8m/g8zWp9x6On7gqufY+FatDbC3MDQg==}
+
+  commonmark-spec@0.31.2:
+    resolution: {integrity: sha512-vXKxmclzJPymhOJYD26G0oBjVmIcKC8p5m2DvHIq1A1btr1m0r0dT/PzRA5/nwxUbCAPedMNPEoiQE+zvuOcOw==}
 
   compare-versions@6.1.1:
     resolution: {integrity: sha512-4hm4VPpIecmlg59CHXnRDnqGplJFrbLG4aFEl5vl6cK1u76ws3LLvX7ikFnTDl5vo39sjWD6AaDPYodJp/NNHg==}
@@ -14426,6 +14435,8 @@ snapshots:
       esprima: 4.0.1
 
   commondir@1.0.1: {}
+
+  commonmark-spec@0.31.2: {}
 
   compare-versions@6.1.1: {}
 
