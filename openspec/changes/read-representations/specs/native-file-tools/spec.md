@@ -573,7 +573,9 @@ document that precedes the first root heading and is not itself a heading line
 for an ATX heading; every text line plus the underline for a setext heading)
 followed by the first non-blank line of its section that is not a heading
 line, whatever that line is. A heading immediately followed by another heading
-or by the end of the document has no excerpt line. Every emitted line SHALL be
+or by the end of the document has no excerpt line. Each native line SHALL be
+emitted at most once, even when a lone CR lets it hold more than one root
+heading. Every emitted line SHALL be
 the source line verbatim, cut at 120 UTF-16 code units with a trailing `…` when
 longer; the only text the outline generates is that marker and the
 frontmatter elision line. The output SHALL contain no synthesized heading
@@ -727,8 +729,11 @@ root headings whose sections contain `N`, from the shallowest to the deepest,
 each rendered as an in-scope heading is (its heading lines and its excerpt
 line) restricted to lines before `N`, because lines from `N` on follow the
 in-scope rule, and each omitted when its own lines already lie in scope.
-The ancestor chain is context: when it does not fit the result bounds on its
-own, it SHALL be omitted whole, so a continuation read always advances.
+The ancestor chain is context: when the chain together with the first
+in-scope entry does not fit the shared serialized result cap or the
+2,000-line ceiling, the chain SHALL be omitted whole, so a continuation read
+always advances. The omission is silent: `truncated` and `nextOffset` report
+only in-scope output that was cut.
 Frontmatter lines and the
 root excerpt appear only when their source lines lie in scope. A scope that
 begins past the source's last line SHALL fail as an ordinary range past the
@@ -745,6 +750,12 @@ end does. No comma-separated scope SHALL be accepted.
 - **WHEN** the model reads `:outline:65` of that file
 - **THEN** the outline is `1: # Title`, `30: ## Setup`, `44: ### Linux` with their excerpt lines
 - **AND** nothing after line 65 is emitted
+
+#### Scenario: An ancestor chain larger than the result is omitted
+
+- **WHEN** a setext heading whose text runs 3,000 lines encloses line 3,500 and the model reads `:outline:3500-3600`
+- **THEN** the outline contains the in-scope lines without the ancestor chain
+- **AND** `truncated` is false when every in-scope entry fit, and a continuation read never repeats the same result
 
 #### Scenario: A scope past the end is refused
 
