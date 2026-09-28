@@ -21,11 +21,13 @@ YAML keys, converted documents) plug in at compile time.
 - Add a content-reader boundary after source resolution, authorization, and
   content acquisition and before shared selector paging, result bounds, and
   source envelopes. Readers are a compile-time table keyed by media type and
-  member. A reader receives only admitted decoded text, source display
-  identity, and the selector's scope; it cannot resolve authority, open a
-  path, issue a request, or alter Knowledge, Skill, or web attribution. A `:`
-  member returns verbatim source lines with the ordinary prefixes; a future
-  `?` member would return transformed content, and none exists here.
+  member. A reader receives only admitted decoded text as a sequence of native
+  lines, which a file source feeds as it reads, plus source display identity
+  and the selector's scope; it cannot resolve authority, open a path, issue a
+  request, or alter Knowledge, Skill, or web attribution. A `:` member returns
+  verbatim source lines (`raw` unprefixed as today, `outline` with the
+  ordinary prefixes); a future `?` member would return transformed content,
+  and none exists here.
 - Derive the media type from the source, never from the body: a code-owned
   extension table for files (`.md`, `.markdown`, `.mdown`, `.mkd`; `.mdx`
   excluded), the ladder stage for web renders, and a new required media-type
@@ -62,8 +64,10 @@ YAML keys, converted documents) plug in at compile time.
   is a dev-only oracle in a differential test suite over the CommonMark spec
   examples and repository fixtures; no runtime parser dependency is added.
   The pass stops after the scope or the result budget. A truncated outline
-  reports `nextOffset` as the source line of the first omitted entry.
-- Keep `representation_too_large` for one case: an adapter document the web
+  reports the zero-based `nextOffset` of the first omitted entry's source
+  line, like every read result.
+- Add `representation_too_large` to the closed native error union for one
+  case: an adapter document the web
   plane already cut at its 5 MiB bound has no outline, because an outline of
   a cut document would omit structure silently. Directories, the skill
   catalog, and unsupported media types return `invalid_selector` naming the
@@ -111,11 +115,13 @@ envelopes, and permission behavior stay on the shipped `read` surface.
   through the reader seam after the source-specific resolvers and the web
   pipeline run. Existing dispatch and envelopes are preserved.
 - A source-independent Markdown structure module lives in
-  `packages/native-file-tools/src/markdown-structure.ts`. It exposes a flat
-  source-ordered span list (`line`, `endLine`, `depth`, `kind`, `label`) and
-  the frontmatter span. #544 can consume it for indexing, and the ancestor
-  context follow-up for ranged reads queries it, without either depending on
-  outline output.
+  `packages/native-file-tools/src/markdown-structure.ts`. Its push-based
+  scanner reports each native line once with a decided role and root heading
+  and frontmatter spans (`line`, `headEnd`, `endLine`, `depth`, `kind`,
+  `label`) as they close. The outline reader consumes the line stream; #544
+  can consume the spans for indexing, and the ancestor-context follow-up for
+  ranged reads uses the line stream's open-heading state, without either
+  depending on outline output.
 - `apps/api/src/tools/web-read/adapters/contract.ts` gains a required media
   type on the rendered outcome; the GitHub adapter labels its renders and
   decoded blobs, and the rewrite adapter forwards its inner render's type
@@ -183,5 +189,7 @@ envelopes, and permission behavior stay on the shipped `read` surface.
 
 - The differential suite must show the block scanner agrees with
   `mdast-util-from-markdown` on root-heading lines over the CommonMark spec
-  examples before the parser layer is published. A disagreement is a scanner
-  defect to fix in that layer, not a design revision.
+  examples before the parser layer is published, after masking closed
+  frontmatter (not CommonMark syntax) and starting a setext heading after the
+  link reference definitions mdast places before it. A remaining disagreement
+  is a scanner defect to fix in that layer, not a design revision.

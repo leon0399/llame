@@ -81,7 +81,8 @@ does not map returns `invalid_selector` naming the member's accepted media
 types.
 
 Members belong to one of two output classes. A `:` member (`raw`, `outline`)
-returns verbatim source lines with the ordinary prefixes and a shown range. A
+returns verbatim source lines and a shown range: `raw` without generated
+prefixes, as raw reads always have, and `outline` with the ordinary prefixes. A
 `?` member would return transformed content with no prefixes and no shown
 range; none exists in this change and its grammar is not defined. The class
 is a property of the reader so that a later `jq` reader over
@@ -128,8 +129,10 @@ an outline is an ordinary selector line on the same locator.
 
 ### D3: A pure reader over decoded text, before shared paging
 
-**Decision:** The reader receives admitted decoded text, the source display
-identity, and the selector's scope. It returns the lines to emit. It has no
+**Decision:** The reader receives admitted decoded text as a sequence of
+native lines, which a file source feeds as it reads rather than decoding the
+whole file first, plus the source display identity and the selector's scope.
+It returns the lines to emit. It has no
 authority resolver, filesystem port, network port, permission callback, owner
 identity, or envelope mutator. The shared result code bounds the lines; the
 source executor merges its normal envelope afterwards. A successful outline
@@ -237,11 +240,18 @@ will emit, bounded by the result cap; #544 keeps one record per heading.
 Conformance is proved by a differential suite: `mdast-util-from-markdown`
 (already in the lockfile, MIT) becomes a dev dependency of the native package
 and the suite asserts that the scanner's root-heading lines equal mdast's
-over the CommonMark spec examples and the repository fixtures (ATX, setext,
+over the CommonMark spec examples, with their `→` tab markers decoded to real
+tabs, and the repository fixtures (ATX, setext,
 duplicates, fenced and indented code, HTML blocks, list and blockquote
 headings, closed and unclosed frontmatter, lone CR, CRLF, trailing LF, two
-headings on one native line). A disagreement is a scanner defect fixed in the
-parser layer.
+headings on one native line, a leading byte order mark). Two normalizations
+precede the comparison: a closed line-one frontmatter block is masked with
+spaces, because frontmatter is not CommonMark and example 96 would otherwise
+read it as setext, and a setext heading mdast starts at the link reference
+definitions before it starts on the line after them. A remaining
+disagreement is a scanner defect fixed in the parser layer. A leading U+FEFF
+on line 1 is ignored for recognition, as micromark ignores it, and stays in
+the reported text.
 
 **Alternatives rejected:**
 
@@ -256,7 +266,9 @@ parser layer.
   indentation; the state machine is the difference.
 
 **Consequence:** No runtime parser dependency; no input ceiling for file
-sources; one primitive for three consumers.
+sources beyond the deferred runs named above. The outline reads the line
+stream, #544 reads spans, and the ancestor-context follow-up reads the line
+stream's open-heading state.
 
 ### D6: Output is verbatim prefixed source lines
 
@@ -292,7 +304,8 @@ match) is excluded from heading recognition and shown as its two delimiter
 lines plus every column-zero key line, meaning a line whose first character
 is not whitespace, `#`, or `-`. Indented lines, comments, and sequence items
 are omitted. After 32 key lines, one generated line
-`[… N more frontmatter lines]` replaces the rest. No YAML, TOML, or JSON
+`[… N more frontmatter lines]` replaces the rest; it has no line-number
+prefix and no source coordinate, so it never extends the shown range. No YAML, TOML, or JSON
 parse; a block that would not parse shows its lines like any other, with no
 note. An unclosed opener is ordinary Markdown.
 
@@ -314,7 +327,9 @@ property-heavy vault note from spending the outline on metadata.
 **Decision:** `:outline:N-M` (and `:outline:N`, `:outline:N+K`) emits only
 lines in the scope, preceded by the direct ancestor chain of line `N`: the
 root headings whose sections contain `N`, shallowest first, rendered like
-in-scope headings, each omitted when already in scope. Frontmatter and the
+in-scope headings but restricted to their lines before `N` (a heading line or
+excerpt at or after `N` follows the in-scope rule, which keeps the output in
+source order), each omitted when already in scope. Frontmatter and the
 root excerpt appear only when in scope. A scope starting past the last line
 fails as an ordinary range past the end does. This is the query the later
 ancestor-context change makes on ranged reads; it is built and tested here
@@ -332,14 +347,14 @@ against the primitive without touching the ordinary read path.
 **Decision:** File sources have no input ceiling; the abort signal and the
 shared 2,000-line and 16,000-code-unit result caps bound the call, and the
 scan stops once the lines through the scope end are decided or the budget
-is spent. A truncated
-outline sets `truncated` and reports `nextOffset` as the source line of the
-first omitted entry, so `:outline:<nextOffset>-M` continues against the
-source observed then. Web bodies and adapter documents keep the web plane's
-5 MiB bounds; an adapter document the web plane already cut fails
-`representation_too_large` with no partial outline, because an outline of a
-cut document would omit structure silently. `representation_too_large` stays
-in the closed `NativeFileError` union for that case.
+is spent. A truncated outline sets `truncated` and reports the zero-based
+`nextOffset` of the first omitted entry's source line, as every read result
+does, so `:outline:<nextOffset + 1>-M` continues against the source observed
+then. Web bodies and adapter documents keep the web plane's 5 MiB bounds; an
+adapter document the web plane already cut fails `representation_too_large`
+with no partial outline, because an outline of a cut document would omit
+structure silently. `representation_too_large` is a new member of the closed
+`NativeFileError` union for that case.
 
 **Alternatives rejected:**
 
@@ -370,7 +385,7 @@ is never a selector.
 
 Ranged reads of structured files will prepend the direct ancestor chain of
 the requested range and, for code, enclosing declarations. That change
-consumes `scanMarkdownStructure` (D5) and the ancestor query (D8) as they
+consumes the scanner's line stream (D5) and the ancestor query (D8) as they
 are; what it adds is a result-envelope change for a non-contiguous shown
 range and its rendering, which are its own proposal. Nothing in this change
 needs to move for it.

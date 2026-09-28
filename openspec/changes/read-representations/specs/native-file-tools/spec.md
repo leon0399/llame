@@ -500,10 +500,11 @@ the admitted content's media type and the requested member. The table SHALL
 hold the existing `raw` member and the `outline` member at introduction; it
 SHALL NOT be runtime-configurable, operator-loadable, or dynamically imported.
 A member SHALL belong to one of two output classes: a `:` member returns
-verbatim source lines with the ordinary line-number prefixes (`raw` and
-`outline`), and a future `?` member would return transformed content with no
-prefixes and no shown range; no `?` member and no `?` grammar exists in this
-change. With no member named, reading SHALL remain unchanged. A member
+verbatim source lines with a shown range (`raw` without generated line
+prefixes, as raw reads always have, and `outline` with the ordinary
+line-number prefixes), and a future `?` member would return transformed
+content with no prefixes and no shown range; no `?` member and no `?` grammar
+exists in this change. With no member named, reading SHALL remain unchanged. A member
 requested for a media type the table does not map SHALL fail with
 `invalid_selector` naming the member's accepted media types, and the ordinary
 read of that source SHALL remain available.
@@ -517,10 +518,12 @@ representation-eligible type; a web ladder result by its stage —
 `text/markdown` and for `alternate`, `md-suffix`, `readability`, and
 `llms-txt`, the served type for `text` and for a `negotiated` `text/plain`
 body, and none for `raw`; a web adapter result by the label the adapter
-contract requires. A reader SHALL receive only the admitted decoded content,
-the source display identity, and the selector's source scope, and SHALL NOT
-change source admission, permission projection, owner resolution, executor
-binding, request policy, or the source-specific result envelope. Readers over
+contract requires. A reader SHALL receive only the admitted decoded content as
+a sequence of native lines, the source display identity, and the selector's
+source scope; a file source SHALL feed those lines as it reads them rather
+than decoding the whole file first. A reader SHALL NOT change source
+admission, permission projection, owner resolution, executor binding, request
+policy, or the source-specific result envelope. Readers over
 bytes rather than decoded text SHALL define their own input contract rather
 than widening this one.
 
@@ -556,7 +559,7 @@ than widening this one.
 
 #### Scenario: A directory or catalog is not an outline document
 
-- **WHEN** the model requests `:outline` on a host, `file://`, `kb://`, or `skill://` directory, or on `skill://`
+- **WHEN** the model requests `:outline` on a host, `file://`, `kb://`, or `skill://` directory, on `skill://`, or on a web read whose adapter returned a directory result
 - **THEN** the tool returns `invalid_selector`
 - **AND** it does not reinterpret the listing as headings or return a listing page as outline content
 
@@ -615,7 +618,9 @@ The outline SHALL recognize CommonMark ATX headings and setext headings only
 at the root document level, outside fenced code blocks, indented code blocks,
 frontmatter, and HTML blocks. Headings nested in list items or blockquotes
 SHALL NOT produce entries. An ATX heading starts at its ATX line. A setext
-heading starts at its first text line and includes its underline line. A
+heading starts at its first text line and includes its underline line. One
+leading U+FEFF on line 1 SHALL be ignored for recognition, as CommonMark
+ignores it, and SHALL stay in the emitted line, which remains verbatim. A
 heading's section SHALL begin at its first heading line and end at the line
 immediately before the next root heading whose depth is less than or equal to
 its own, or at the source's last line; a deeper heading remains inside the
@@ -653,6 +658,12 @@ printed. Heading text SHALL be source-derived and untrusted.
 - **THEN** no heading is produced
 - **AND** `Two` immediately followed by `---` is a depth-two setext heading
 
+#### Scenario: A leading byte order mark is ignored for recognition
+
+- **WHEN** a Markdown file begins with U+FEFF followed by `# Title` on line 1
+- **THEN** line 1 is a root heading and the outline emits it verbatim, byte order mark included
+- **AND** a line-one `---` preceded by U+FEFF still opens frontmatter
+
 ### Requirement: Frontmatter is shown as authored key lines
 
 Only a block that starts at line 1 with `---` and closes with a later `---`
@@ -665,7 +676,8 @@ that begins at column zero with a character other than whitespace, `#`, or
 `-`. Indented lines, comments, and sequence items SHALL NOT be emitted. After
 32 key lines the outline SHALL emit one generated line
 `[… N more frontmatter lines]` in place of the rest, where N counts the omitted
-key lines. No YAML, TOML, or JSON parsing SHALL be performed and no note SHALL
+key lines; that line carries no line-number prefix and no source coordinate
+and does not extend the shown range. No YAML, TOML, or JSON parsing SHALL be performed and no note SHALL
 be emitted for a block that would not parse. An unclosed line-one opener SHALL
 NOT be frontmatter and SHALL be parsed as ordinary Markdown; a later `---` with
 no closed line-one block is ordinary Markdown.
@@ -712,8 +724,10 @@ no closed line-one block is ordinary Markdown.
 `N+K`) SHALL restrict the emitted lines to those whose source line lies in the
 scope, and SHALL prepend the direct ancestor chain of source line `N`: the
 root headings whose sections contain `N`, from the shallowest to the deepest,
-each rendered exactly as an in-scope heading, excerpt line included, and each
-omitted when its own lines already lie in scope. Frontmatter lines and the
+each rendered as an in-scope heading is (its heading lines and its excerpt
+line) restricted to lines before `N`, because lines from `N` on follow the
+in-scope rule, and each omitted when its own lines already lie in scope.
+Frontmatter lines and the
 root excerpt appear only when their source lines lie in scope. A scope that
 begins past the source's last line SHALL fail as an ordinary range past the
 end does. No comma-separated scope SHALL be accepted.
@@ -745,11 +759,14 @@ underline may turn into a heading, a paragraph whose first line may open a
 link reference definition, and the lines after a line-one `---` until its
 closer), so a file source SHALL have no input size ceiling beyond the
 abort signal; a web body and an adapter document keep the web plane's 5 MiB
-bounds. The scan SHALL stop once the lines through the scope end are decided
+bounds. A source that is one undecided run, such as a single paragraph with
+no blank line or a line-one `---` that never closes, is held until that run
+is decided. The scan SHALL stop once the lines through the scope end are decided
 or the result budget is spent. Outline output
 SHALL obey the shared serialized result cap and 2,000-line ceiling; when it is
-cut, `truncated` SHALL be true and `nextOffset` SHALL be the source line of
-the first omitted entry, so `:outline:<nextOffset>-M` continues it against
+cut, `truncated` SHALL be true and `nextOffset` SHALL be the zero-based index
+of the first omitted entry's source line, as every read result's
+`nextOffset` is, so `:outline:<nextOffset + 1>-M` continues it against
 the source observed by that later call. An adapter document the web plane
 truncated at its document bound SHALL fail with `representation_too_large`
 and SHALL return no partial outline, because an outline of a cut document
@@ -760,15 +777,15 @@ source.
 
 #### Scenario: A large file is outlined in one pass
 
-- **WHEN** the model requests `:outline:40000-41000` of a 200 MiB Markdown file
+- **WHEN** the model requests `:outline:40000-41000` of a 200 MiB Markdown file of ordinary blank-line-separated sections
 - **THEN** the outline is returned without the file being loaded whole
 - **AND** an ordinary range read of that file is unchanged
 
 #### Scenario: A long outline reports continuation
 
 - **WHEN** the outline exceeds the shared line or serialized result bound
-- **THEN** the result reports `truncated: true` and `nextOffset` as the source line of the first omitted entry
-- **AND** a read of `:outline:<nextOffset>-M` continues from that entry
+- **THEN** the result reports `truncated: true` and `nextOffset` as the zero-based index of the first omitted entry's source line
+- **AND** a read of `:outline:<nextOffset + 1>-M` continues from that entry
 
 #### Scenario: A truncated adapter document has no outline
 
