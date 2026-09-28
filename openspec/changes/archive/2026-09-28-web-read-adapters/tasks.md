@@ -111,7 +111,7 @@ narrowed acceptance is recorded.
 - [x] 4.4 [github-code] Implement the repository root (metadata lines, root listing, decoded README) and the commit view (message, author, timestamp, file list loaded in pages of 100 with a `files omitted: too_large` note once GitHub's 3,000-file limit is reached, `Diff:` line, no patches); verify request counts, the note at exactly 3,000 files and its absence below, and that `/commit/{sha}.diff` stays unclaimed and readable through the generic ladder.
 - [x] 4.5 [github-code] Add focused integration and renderer tests for root, tree, blob, commit, slash refs, and binary/too-large; update `docs/web-read.md` and the dated `CHANGELOG.md`/`ROADMAP.md` records.
 - [x] 4.6 [github-code] Before closing #939, post the narrowing comment that moves `#L10-L40` to #927, review-thread resolution state and `reviewDecision` to #996, and list URLs to #995, and records the REST shape as the shipped acceptance; keep `Closes #939` blocked until the comment exists.
-- [ ] 4.7 [github-code] Re-measure the layer, self-review its actual parent-relative diff (SR), fix accepted findings with new commits, publish with `$gh-stack`, and complete the GitHub review/CI (GR) loop; only then use `Closes #939` in the PR body.
+- [x] 4.7 [github-code] Re-measure the layer, self-review its actual parent-relative diff (SR), fix accepted findings with new commits, publish with `$gh-stack`, and complete the GitHub review/CI (GR) loop; only then use `Closes #939` in the PR body.
 
 ## 5. Finalize layer
 
@@ -120,8 +120,12 @@ Owns only canonical spec synchronization, task records, and archive movement;
 never application fixes. Estimated under 200 authored lines with rename
 detection. Enter this branch before any sync command.
 
-- [ ] 5.1 [finalize] Use `$gh-stack` to create `web-read-adapters/finalize` from the reviewed, CI-green `github-code` layer; verify every implementation task and issue-closing PR is complete and no sibling conflict remains before synchronization.
-- [ ] 5.2 [finalize] Run `$openspec-sync-specs` for `native-file-tools`, `instance-config`, and `tool-call-permissions`; reconcile any sibling edits requirement-by-requirement, preserving all approved adapter scenarios, the file-locator architecture ownership, and the read-representations representation boundary. Verify `pnpm exec openspec status --change web-read-adapters --json` reports all artifacts complete.
-- [ ] 5.3 [finalize] Verify archive readiness: every task is checked, MODIFIED requirements still contain the canonical scenarios plus approved edits, no application/docs fix is being smuggled into finalize, and authored size is within budget; run `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
-- [ ] 5.4 [finalize] Run `$openspec-archive-change` only after readiness, then verify the archive preserves checked history and passes the final OpenSpec, Product Markdown, and Any change rows: strict specs/all validation, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
-- [ ] 5.5 [finalize] After archive movement, self-review the actual finalize diff (SR), publish the draft with `$gh-stack`, complete the post-archive GitHub review/CI (GR) monitoring loop, recheck stack bases and terminal checks, and request Leo's explicit merge permission; finalize closes no issue.
+- [x] 5.1 [finalize] Use `$gh-stack` to create `web-read-adapters/finalize` from the reviewed, CI-green `github-code` layer; verify every implementation task and issue-closing PR is complete and no sibling conflict remains before synchronization.
+- [x] 5.2 [finalize] Run `$openspec-sync-specs` for `native-file-tools`, `instance-config`, and `tool-call-permissions`; reconcile any sibling edits requirement-by-requirement, preserving all approved adapter scenarios, the file-locator architecture ownership, and the read-representations representation boundary. Verify `pnpm exec openspec status --change web-read-adapters --json` reports all artifacts complete.
+- [x] 5.3 [finalize] Verify archive readiness: every task is checked, MODIFIED requirements still contain the canonical scenarios plus approved edits, no application/docs fix is being smuggled into finalize, and authored size is within budget; run `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
+- [x] 5.4 [finalize] Run `$openspec-archive-change` only after readiness, then verify the archive preserves checked history and passes the final OpenSpec, Product Markdown, and Any change rows: strict specs/all validation, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+
+Post-archive gates, not checklist tasks: self-review the actual finalize diff
+(SR), publish the draft with `$gh-stack`, mark it ready only after SR, run the
+GitHub review/current-head CI loop (GR), recheck stack bases and terminal
+checks, and request Leo's explicit merge permission. Finalize closes no issue.

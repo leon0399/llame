@@ -1049,6 +1049,13 @@ selector grammar, and userinfo, which SHALL fail with `invalid_path` so the
 tool never sends credentials the model embedded in a URL, and whose message
 SHALL NOT echo them.
 
+After the submitted locator is admitted and canonicalized, the read SHALL
+consider the ordered, code-owned web adapters before the generic HTML and text
+ladder. A matching adapter SHALL be selected without network I/O. `:raw` SHALL
+bypass every adapter and retain the raw-response behavior below. An adapter SHALL
+not add a tool id, a second permission group, or a different source authority.
+An adapter target is another derived locator and SHALL be admitted in its own right.
+
 Because the text requested is no longer always the text submitted, the
 permission decision SHALL be taken over both: any reject clause matching
 either the submitted locator or its normalized form SHALL refuse the call, so
@@ -1195,7 +1202,12 @@ SHALL additionally carry the `Retry-After` value when the response supplies
 one. A status error SHALL NOT return the response body and SHALL NOT report
 response headers other than that `Retry-After` delay. A redirect answer to a
 probe request SHALL be followed under the shared redirect rules before any
-terminal status is judged. A probe request (an
+terminal status is judged. An adapter request or its redirect chain whose
+status, content type, or transport fails SHALL disqualify that adapter without
+failing the call. Adapter requests share the 30-second call deadline, 5 MiB
+per-response bound, and 20-hop redirect bound; the rendered adapter document
+SHALL also be capped at 5 MiB, with no separate adapter request-count cap. A
+probe request (an
 alternate, a suffix candidate, or an `llms.txt` candidate) whose terminal
 response answers a non-2xx status, or a refused content type, or which fails
 on a bound of its own (a headers timeout, an oversized body, a transport
@@ -1256,7 +1268,9 @@ A web read SHALL accept only text bodies: `text/*` media types,
 `application/json`, `application/xml`, and any type whose subtype carries a
 `+json` or `+xml` suffix. `text/markdown` SHALL be handled as Markdown. Every
 other content type SHALL fail with `unsupported_content_type` naming the
-received type, and its body SHALL NOT be returned as content. Only a
+received type, and its body SHALL NOT be returned as content. An adapter
+response with a refused content type SHALL disqualify that adapter with a
+bounded `content_type` note and SHALL not fail the source call. Only a
 declared HTML type — `text/html` or `application/xhtml+xml` — SHALL be
 rendered. A `text/plain` body SHALL be returned as served whatever it
 contains, because a conversion guesses at structure and guessing on a body
@@ -1294,6 +1308,8 @@ first 2 KiB of the body, else as UTF-8.
 
 ### Requirement: Web HTML reads prefer publisher Markdown
 
+The generic ladder begins only after matching adapters produce no result.
+
 The first request for a page SHALL send `Accept: text/markdown,
 text/plain;q=0.9, text/html;q=0.8, */*;q=0.5`, so a publisher that serves
 Markdown or plain text for agents is used without a second request or a
@@ -1329,6 +1345,8 @@ candidate without failing the call, while a spent call bound fails it. A candida
 NOT become the content, and a fetched candidate SHALL NOT be searched for
 further alternates
 or suffixes.
+An adapter request is also a derived locator and SHALL use the same admission,
+address, and shared-bound checks before it is issued.
 
 #### Scenario: Negotiated Markdown wins without a second request
 
@@ -1355,7 +1373,7 @@ or suffixes.
 
 - **WHEN** an alternate or suffix URL answers 404, serves `application/pdf`, returns an HTML error page, or returns a body of 40 characters
 - **THEN** that candidate is not returned as the content and the call does not fail
-- **AND** the next adapter in order decides the content
+- **AND** the next ladder stage in order decides the content
 
 #### Scenario: A low-quality candidate is rejected
 
@@ -1448,8 +1466,11 @@ content-type rule.
 
 A web read SHALL follow 301, 302, 303, 307, and 308 responses on any host,
 up to 20 in total per call, and SHALL request each hop with the same bounds
-and headers as the first, sending no cookie, `Authorization`, or other
-credential on any request. The hop locator SHALL be the `Location` value
+and non-credential headers as the first. The submitted source request and
+generic probes SHALL send no cookie, `Authorization`, or other credential. The
+GitHub adapter MAY send its token only to `https://api.github.com` and a
+same-origin API hop; it SHALL be removed before any cross-origin hop. The hop
+locator SHALL be the `Location` value
 resolved against the redirecting request's URL by the WHATWG URL parser and
 serialized as its `href`, so a relative `Location` becomes absolute and the
 serialization is what policy sees: lowercase host, an internationalized host
@@ -1458,8 +1479,10 @@ percent-encoded and normalized as for a submitted locator. A fragment SHALL be d
 before admission and before the request, so the text policy matches is
 exactly the URL the next request uses. A redirect status without a parsable
 `Location`, or a resolved locator that carries userinfo or a scheme other
-than `http` or `https`, SHALL fail the call with `invalid_redirect` before
-any request and SHALL NOT name the target. Before a hop's request is sent, the `read`
+than `http` or `https`, SHALL fail the source request chain with
+`invalid_redirect` before any request and SHALL NOT name the target. The same
+condition on an adapter chain SHALL disqualify that adapter before its target
+request. Before a hop's request is sent, the `read`
 permission group SHALL be evaluated against that locator as if the model had
 submitted it, through the same evaluator and the same projection the call
 used. A rejected hop on the call's own request chain SHALL end the call with
@@ -1471,19 +1494,21 @@ control characters removed, and whose message is the fixed hop template;
 the rejected target's body SHALL NEVER be read. A rejected hop inside a
 probe's own redirect chain SHALL disqualify that candidate instead, under the
 adapter rule, so a page cannot end a read of itself through a redirect it
-announced. When the
+announced. A rejected hop inside an adapter chain SHALL disqualify that adapter.
+When the
 redirect budget is exhausted the call SHALL fail with `too_many_redirects`
 and SHALL issue no further request. The result SHALL name the URL of the
 response that produced the content as `finalUrl` and SHALL NOT enumerate the
 hop chain: when a publisher-Markdown probe won, that is the probe's own
-final URL, including any redirect it followed, rather than the page's.
+final URL, including any redirect it followed, rather than the page's. An
+adapter result instead reports its source URL as `finalUrl`.
 The `read` tool description SHALL state that redirects are
 followed and that `finalUrl` reports where the content came from, so the
 model does not re-fetch a page to learn its location. A hop admitted on its text
 SHALL then connect only to the addresses the address-admission requirement
 admits; a hop whose every address is refused SHALL end the call on the call's
-own request chain and disqualify only the candidate on a probe's chain, as
-that requirement states.
+own request chain and disqualify only the candidate on a probe's chain or the
+adapter on an adapter chain, as that requirement states.
 
 #### Scenario: A cross-host hop is followed when policy admits it
 
@@ -1538,7 +1563,8 @@ that requirement states.
 Before each request a web read issues (the submitted locator, a redirect hop,
 an announced alternate, a suffix candidate, or an `llms.txt` candidate) and
 after that locator's own text is admitted, the tool SHALL determine the
-addresses the request may connect to. A host that is an IP literal SHALL be its
+addresses the request may connect to. An adapter request SHALL use this same
+address resolution and pinning before it is issued. A host that is an IP literal SHALL be its
 own single address. Any other host SHALL be resolved through the system
 resolver, so hosts files and the platform's name service apply as they do for
 every other process of the host, at most once per call: a later request of
@@ -1576,7 +1602,8 @@ On the call's own request chain (the submitted locator or one of its redirect
 hops) the call SHALL end with `status: "error"`, `type: "permission_denied"`,
 and the fixed refused-address message, and a refused hop SHALL also carry its
 hostname locator as `rejectedUrl` under the hop rules; on a probe's chain only
-that candidate SHALL be disqualified. No result, message, or note SHALL carry
+that candidate SHALL be disqualified. An adapter chain whose addresses are
+all refused SHALL disqualify only that adapter. No result, message, or note SHALL carry
 a resolved address. Each distinct refused address SHALL be recorded as a
 derived-locator decision of kind `address` under the provenance requirement of
 `tool-call-permissions`.
@@ -1639,14 +1666,20 @@ the requested and shown range or ranges, `nextOffset`, `truncated`, and `path`
 as the locator with its selector stripped, as a local read reports it —
 extended with `finalUrl` and `method`, plus `notes` only when
 the tool has something to report. `method` SHALL be one of `negotiated`,
-`alternate`, `md-suffix`, `readability`, `llms-txt`, `text`, or `raw`, and
-SHALL name the adapter that produced the returned content. The result SHALL
+`alternate`, `md-suffix`, `readability`, `llms-txt`, `text`, `raw`, or
+`adapter`, and SHALL name the ladder stage or adapter that produced the returned content.
+For `method: "adapter"`, the result SHALL carry an `adapter` object with its
+stable `id` and `route` (`native` or `rewrite`); `origin` SHALL be present only
+for `rewrite`. The adapter result SHALL keep `finalUrl` equal to the source URL,
+not its derived request target, and notes SHALL identify delegated content and
+its origin when applicable. The result SHALL
 NOT carry a `url` field, a `contentType` field, a `markdownTokens` field, a
 text header before the content, or a metadata frontmatter block. Line
 selectors SHALL apply to the rendered text exactly as to a local file, with
 the existing context, range, `nextOffset`, and truncation rules, and the
 rendered text SHALL be measured against the existing native read result bound,
-which SHALL reserve space for `path`, `finalUrl`, `method`, and `notes` before
+which SHALL reserve space for `path`, `finalUrl`, `method`, `adapter`, and
+`notes` before
 truncating content. A web read SHALL NOT carry `realPath`. A selector read of
 a locator read earlier SHALL refetch and rerender, and the tool SHALL NOT
 promise that two reads of the same URL return the same text.
@@ -1674,3 +1707,429 @@ promise that two reads of the same URL return the same text.
 - **WHEN** the model reads the same locator twice, the second time with a different selector
 - **THEN** two requests are issued and the second result reports the content the server returned then
 - **AND** no cached render or stored snapshot is reused
+
+#### Scenario: Adapter provenance preserves the source identity
+
+- **WHEN** a declared rewrite entry renders `https://x.com/jack/status/20` through `https://x.pcstyle.dev`
+- **THEN** the result has `method: "adapter"`, `finalUrl: "https://x.com/jack/status/20"`, and an adapter object with route `rewrite` and origin `https://x.pcstyle.dev`
+- **AND** its notes state that the content came through the configured origin
+
+### Requirement: Web adapter contract is ordered, admitted, and fallible
+
+The web adapter plane SHALL be a static, code-owned ordered list selected by
+`tools.webAdapters`; an absent setting SHALL enable no adapter. Every entry
+SHALL provide a pure synchronous `match` over the canonical source URL, a
+stable `id`, and one route kind, `native` or `rewrite`. A native route SHALL
+contact only fixed first-party origins; a rewrite route SHALL contact only its
+operator-declared target origin. Matching SHALL occur only after the source
+locator passes the submitted and normalized `read` permission checks and
+SHALL precede the generic ladder. A URL an adapter's `match` accepts is
+claimed by that adapter; a URL every `match` rejects is unclaimed and SHALL
+reach the generic ladder with no adapter request and no note. `:raw` SHALL
+bypass every adapter.
+
+Every request an adapter derives SHALL pass the same `read`-group admission,
+address resolution and pinning, 10-second header bound, 30-second call bound,
+5 MiB per-response body bound, and redirect rules as the generic web path.
+There SHALL be no adapter request-count cap; the rendered adapter document
+SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
+credential; it SHALL be sent only to `https://api.github.com` and SHALL be
+removed before any cross-origin hop. An adapter SHALL never widen the source
+permission or bypass address admission.
+
+A claimed URL whose primary request is refused before I/O, answers a non-2xx
+status, is rate-limited, cannot be parsed, or renders empty SHALL yield a
+bounded note naming the adapter and one failure category — `permission`,
+`address`, `status`, `rate_limit`, `transport`, `parse`, `empty`, `binary`,
+`too_large`, or `content_type` — and SHALL fall through to the next claiming
+adapter, then the generic ladder. A claimed URL whose primary request
+succeeded and whose later request for the same document fails, or whose call
+deadline or document bound is reached, SHALL render the content that arrived
+and attach one note per missing section naming its category. A spent shared
+call bound or caller abort before the primary request SHALL end the call
+under the existing web contract. A native permission error on the submitted
+source request chain SHALL end the call; a permission error on an adapter
+chain SHALL disqualify only that adapter. Adapter failures SHALL NOT return a
+response body to the model. A successful adapter SHALL use the result
+provenance requirement, including the source URL as `finalUrl`. A successful
+adapter MAY return a directory read instead of text; it SHALL be rendered
+through the host directory-read path with the call's selector and result
+budget, and whatever that path returns, including the host's
+`directory_too_large` refusal, SHALL be the call's result with no adapter
+note and no fall-through.
+
+#### Scenario: Matching does no network work
+
+- **WHEN** a canonical `github.com` issue URL is passed to the adapter list
+- **THEN** the GitHub adapter claims it from URL shape alone
+- **AND** no request occurs before the derived API locator is admitted
+
+#### Scenario: An unclaimed URL is untouched
+
+- **WHEN** no configured adapter's `match` accepts the admitted source URL
+- **THEN** the generic ladder runs exactly as it does without adapters
+- **AND** the result carries no adapter note and no `adapter` object
+
+#### Scenario: A rejected adapter request falls through
+
+- **WHEN** a claimed adapter derives `https://api.github.com/repos/o/r/issues/1`
+- **AND** the `read` group rejects that API origin
+- **THEN** no request is issued to `api.github.com`
+- **AND** a note names the adapter and `permission`, after which the generic ladder may run
+
+#### Scenario: A status or parse failure falls through without its body
+
+- **WHEN** a claimed adapter's primary request answers a non-2xx status, a recognized rate limit, malformed data, or an empty render
+- **THEN** the response body is not returned to the model
+- **AND** the adapter records a bounded failure note and the next candidate may render the source
+
+#### Scenario: A secondary request failure renders partial content with a note
+
+- **WHEN** an adapter's primary request succeeded and a later request for the same document fails or the call deadline is reached
+- **THEN** the content that arrived is rendered
+- **AND** each missing section carries one omission note naming its category
+
+#### Scenario: Raw mode skips all adapters
+
+- **WHEN** a source URL is claimed by a configured adapter and the selector is `:raw`
+- **THEN** no adapter request is issued
+- **AND** the final response body follows the generic raw contract
+
+#### Scenario: A directory result follows the host directory path
+
+- **WHEN** an adapter succeeds with a directory read whose requested level
+  exceeds the host per-directory entry budget
+- **THEN** the call returns the host's `directory_too_large` refusal
+- **AND** no adapter note is added and the generic ladder does not run
+
+#### Scenario: A rewrite result identifies its origin
+
+- **WHEN** a rewrite adapter succeeds through its declared origin
+- **THEN** the result preserves the source URL as `finalUrl`
+- **AND** `method: "adapter"`, an adapter object with route `rewrite` and that origin, and a provenance note identify it
+
+### Requirement: GitHub native adapter reads issues and pull requests
+
+A configured `github` adapter SHALL claim canonical `github.com/{owner}/{repo}/issues/{number}`
+and `github.com/{owner}/{repo}/pull/{number}` locators. Owner segments SHALL
+match `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`; repo segments SHALL match
+`^[A-Za-z0-9._-]{1,100}$` and SHALL not be `.` or `..`; numbers SHALL match
+`^[1-9][0-9]{0,9}$`. `/pull/{number}.diff`, `/pull/{number}.patch`,
+`/pull/{number}/files`, `/pull/{number}/commits`, `/pull/{number}/checks`,
+the `/issues` and `/pulls` lists, Actions, Projects, Discussions, search,
+gists, `raw.githubusercontent.com`, Enterprise hosts, and every write URL
+SHALL be unclaimed. The adapter SHALL use only `GET` requests to
+`https://api.github.com` with `Accept: application/vnd.github+json`.
+
+An issue SHALL request `/repos/{owner}/{repo}/issues/{number}` and every
+page of `/repos/{owner}/{repo}/issues/{number}/comments`. A pull request
+SHALL request `/repos/{owner}/{repo}/pulls/{number}` and every page of
+`/repos/{owner}/{repo}/issues/{number}/comments`,
+`/repos/{owner}/{repo}/pulls/{number}/reviews`,
+`/repos/{owner}/{repo}/pulls/{number}/comments`, and
+`/repos/{owner}/{repo}/pulls/{number}/files`, and every page of
+`/repos/{owner}/{repo}/commits/{head_sha}/check-runs` requested with
+`filter=latest&per_page=100`. The whole document
+SHALL be loaded before rendering, subject to the shared call deadline and the
+5 MiB document bound; the model SHALL page the rendered text with the ordinary
+`:N-M` selector, and each read SHALL refetch.
+
+The issue view SHALL render `# Issue #{number}: {title}`, then the lines
+`State`, `State reason` (when present), `Author`, `Created`, `Updated`,
+`Labels`, and `URL`, then `## Body` with the body or `No description
+provided.`, then `## Comments ({n})`. The pull request view SHALL render
+`# Pull Request #{number}: {title}`, then `State`, `Draft`, `Author`, `Base`,
+`Head`, `Reviews` as latest-per-reviewer counts (for example
+`Reviews: 2 approved, 1 changes requested (latest per reviewer)`),
+`Merge state` as the `mergeable_state` value returned, including `unknown`,
+`Checks:` as counts from all check-runs pages requested with
+`filter=latest&per_page=100` (for example
+`Checks: 14 passed, 1 failed (lint), 2 pending`); the counts cover what the
+endpoint returns, which GitHub limits to the 1000 most recent check suites.
+If a check-runs page after the first does not arrive, the `Checks:` line
+SHALL state the loaded counts plus `total_count` minus the loaded runs as
+`{n} not loaded` (for example
+`Checks: 97 passed, 1 failed (lint), 2 pending, 40 not loaded`); if the first
+check-runs page does not arrive, the line SHALL render as
+`Checks: unavailable`. A page that answers but cannot be parsed, or a first
+page without a numeric `total_count`, SHALL count as not arriving. Either case
+SHALL add an omission note naming check runs and its failure category. Then `Created`,
+`Updated`, `Labels`, `URL`, and `Diff: https://github.com/{owner}/{repo}/pull/{number}.diff`,
+then `## Body`, `## Files ({n})` listing every changed file with its status
+and added/deleted counts, `## Reviews ({n})`, `## Review Comments ({n})`, and
+`## Comments ({n})`. Every comment, review, and review comment SHALL be one
+`### {author} · {timestamp}` heading at the same depth in source order,
+followed by `ID`, `Reply to` (when the item answers another), `Location
+{path}:{line}` and `Side` (review comments), `State` (reviews, the review's
+own state such as `APPROVED`), and `URL` lines, then the body.
+No `Review decision` line, patch text, or event timeline SHALL be rendered;
+minimized comments SHALL render like any other comment.
+
+Without a configured token, requests SHALL carry no credential and private
+repositories SHALL not be claimed as readable. An optional operator token
+SHALL be interpolated as a secret and sent only to `api.github.com`; it SHALL
+never be sent to a rewrite target, a source host, or a redirected origin. The
+token is instance-wide authority: every owner on the instance can address any
+repository visible to that token. `429`, or `403` with
+`x-ratelimit-remaining: 0` or with `retry-after`, SHALL be classified as
+`rate_limit` with reset information when `x-ratelimit-reset` is also
+available; `x-ratelimit-reset` alone SHALL not classify a response. Rate
+limits are not permission errors and SHALL not be retried.
+
+#### Scenario: An issue renders in the fixed layout with every comment
+
+- **WHEN** the model reads `https://github.com/o/r/issues/12` and the issue has 230 comments
+- **THEN** the adapter requests the issue and all three comment pages
+- **AND** the rendered text has the title line, the metadata lines, `## Body`, and `## Comments (230)` with one `###` item per comment carrying `ID` and `URL`
+
+#### Scenario: A pull request view carries Reviews, Checks, and Diff lines
+
+- **WHEN** the model reads `https://github.com/o/r/pull/12`
+- **THEN** the metadata block has `Reviews:` counts per latest review,
+  `Merge state` as returned, `Checks:` counts from all check-runs pages
+  requested with `filter=latest&per_page=100`, and `Diff: https://github.com/o/r/pull/12.diff`
+- **AND** the `## Review Comments` items carry `Reply to` and `Location` lines
+  instead of nested headings
+
+#### Scenario: An unauthenticated GitHub read sends no token
+
+- **WHEN** no GitHub token is configured and the model reads a public issue
+- **THEN** the API request has no `Authorization` header
+- **AND** the result is still eligible for the native adapter
+
+#### Scenario: A token is never sent to another origin
+
+- **WHEN** a token-backed GitHub API response redirects to another origin or a rewrite entry is next considered
+- **THEN** no request to that other origin carries the GitHub token
+- **AND** the redirected or rewrite request is either unauthenticated or disqualified
+
+#### Scenario: An instance token has accepted cross-owner authority
+
+- **WHEN** an operator configures a token that can read private repositories and two different llame owners address repositories
+- **THEN** both URLs are evaluated under the token's instance-wide authority
+- **AND** the runbook identifies this as operator attestation, not tenant isolation
+
+#### Scenario: Rate limit falls through with a note
+
+- **WHEN** GitHub answers a claimed primary request with `403` and `x-ratelimit-remaining: 0`, or with `429` and `x-ratelimit-reset: 123`
+- **THEN** the adapter records a `rate_limit` note with the reset information when available
+- **AND** it returns no response body and does not retry, allowing the generic ladder to run
+
+#### Scenario: A secondary page failure renders a partial pull request
+
+- **WHEN** the pull request request succeeded and the third review-comment page answers `403` with `x-ratelimit-remaining: 0`
+- **THEN** the metadata, body, files, reviews, loaded review comments, and comments are rendered
+- **AND** a note states that review comments were omitted with `rate_limit` and the reset time
+
+#### Scenario: Check runs load every page and report an unloaded remainder
+
+- **WHEN** a pull request's check-runs `total_count` is 140 at
+  `filter=latest&per_page=100` and the second check-runs page fails after the
+  first arrives
+- **THEN** both check-runs pages are requested and the 100 loaded runs are
+  counted
+- **AND** the `Checks:` line ends with `40 not loaded` and an omission note
+  names check runs
+
+#### Scenario: A failed first check-runs page renders the line as unavailable
+
+- **WHEN** the pull request request succeeds and the first check-runs page
+  fails
+- **THEN** the pull request renders with `Checks: unavailable`, never with
+  invented zero counts
+- **AND** an omission note names check runs and the failure category
+
+#### Scenario: An unparsable check-runs page counts as not arriving
+
+- **WHEN** the first check-runs page answers `200` without a numeric
+  `total_count`, or a later check-runs page answers `200` with a body that
+  cannot be parsed
+- **THEN** the first case renders `Checks: unavailable` and the second renders
+  the loaded counts plus the `total_count` remainder from the first page
+- **AND** the omission note names check runs with the `parse` category
+
+#### Scenario: Private content without a token is not claimed
+
+- **WHEN** an unauthenticated GitHub API response does not expose a private repository resource
+- **THEN** the adapter falls through without claiming private content
+- **AND** no API error body is returned to the model
+
+#### Scenario: Unsupported GitHub shapes are unclaimed
+
+- **WHEN** the source is `/pull/12.diff`, `/pull/12/files`, an `/issues` or `/pulls` list, an Actions log, a Project, a Discussion, a search result, a gist, an Enterprise host, or a write URL
+- **THEN** the adapter does not claim it and issues no request and no note
+- **AND** the generic ladder handles the source exactly as before
+
+### Requirement: GitHub native adapter reads repository code
+
+A configured `github` adapter SHALL claim canonical
+`github.com/{owner}/{repo}` repository roots, `/tree/{ref}[/{path}]`,
+`/blob/{ref}/{path}`, and `/commit/{sha}` locators, with the owner and repo
+grammars above and commit SHAs matching `^[0-9a-fA-F]{7,40}$`. Ref and path
+segments SHALL be decoded once, SHALL be non-empty, not `.` or `..`, and free
+of `\`, NUL, and control characters, and SHALL be re-encoded with
+`encodeURIComponent` when building an API URL. Every request SHALL be a `GET`
+to `https://api.github.com`; `raw.githubusercontent.com` SHALL never be
+requested.
+
+A blob SHALL request `/repos/{owner}/{repo}/contents/{path}?ref={ref}` with
+the ref passed through `URLSearchParams`, base64-decode `content`, and render
+valid UTF-8 text line-for-line without a heading, so `:N-M` addresses source
+lines. NUL bytes, invalid UTF-8, an `encoding` of `none`, empty content for a
+large file, or a declared size over the body bound SHALL be a `binary` or
+`too_large` failure that falls through; binary bytes SHALL never be presented
+as text. A commit SHALL request `/repos/{owner}/{repo}/commits/{sha}` and
+render message, author, timestamp, the changed files with their status and
+counts, loaded in pages of 100 until a short page; GitHub lists at most 3,000
+files for a commit, so a list that reaches 3,000 files SHALL carry the note
+`files omitted: too_large` marking it as possibly incomplete. The rendered
+commit is paged with `:N-M` like any adapter document. The view SHALL also render `Diff: https://github.com/{owner}/{repo}/commit/{sha}.diff`; it
+SHALL NOT render patches.
+
+A directory SHALL request one
+`/repos/{owner}/{repo}/git/trees/{ref}:{path}?recursive=1` (the root:
+`/repos/{owner}/{repo}/git/trees/{ref}?recursive=1`), filter the result to
+the requested level and one child level, and render the host directory
+listing shape: the requested level, then each child directory's first 20
+entries in order followed by `… N more`, with the same `… N entries`,
+truncation, and range-selector rules as a host directory read. A response
+over 5 MiB SHALL be `too_large` and fall through. A non-root directory whose
+requested level exceeds the host per-directory entry budget SHALL end the
+call with the host's `directory_too_large` error, exactly as a host directory
+read does; that is a directory-read outcome, not an adapter failure, and it
+does not fall through. A symlink entry (mode
+`120000`) SHALL render with the host symlink marker as `- name@`, and a
+submodule entry (mode `160000`) with the host special marker as `- name?`.
+The repository root SHALL
+additionally request `/repos/{owner}/{repo}` and render `Description`,
+`Default branch`, `Visibility`, and `Language` lines before the listing, then
+`## README` with the decoded `/repos/{owner}/{repo}/readme` content. When the
+root's top-level entries exceed the host listing's per-directory entry budget
+(the same count a host directory read bounds; child-level samples do not
+count), the root SHALL render its metadata and README without the listing and
+carry the section omission note `tree omitted: too_large`; this is a
+render-time omission note, not an adapter failure, and nothing falls through.
+
+Because a locator does not mark where a ref ends, the adapter SHALL try the
+first segment after `tree/` or `blob/` as the ref. On a `404` with segments
+remaining, it SHALL request `/repos/{owner}/{repo}/git/matching-refs/heads/{segment}`
+and, when that yields no acceptable candidate, `/git/matching-refs/tags/{segment}`;
+a candidate is acceptable only when it equals the remaining locator text or
+is followed by `/` in it; the longest acceptable candidate SHALL be used and
+the contents or tree request retried. A 40-character hexadecimal first
+segment SHALL be treated as a SHA without a lookup. A `404` with nothing left
+to split SHALL be a `status` failure.
+
+#### Scenario: A public blob preserves source lines
+
+- **WHEN** the model reads `https://github.com/o/r/blob/main/src/a.ts`
+- **THEN** the adapter contacts only the admitted `api.github.com` contents endpoint, once
+- **AND** the rendered file text is line-for-line so a trailing `:10-20` selector addresses source lines
+
+#### Scenario: A binary or too-large blob falls through
+
+- **WHEN** the GitHub contents object reports binary bytes, invalid UTF-8, `encoding: "none"`, empty large-file content, or a size above the body bound
+- **THEN** the adapter records `binary` or `too_large` and returns no file text
+- **AND** the source may continue through the generic ladder
+
+#### Scenario: A branch containing a slash resolves through matching refs
+
+- **WHEN** the model reads `https://github.com/o/r/blob/feature/foo/src/a.ts` and `feature/foo` is a branch
+- **THEN** the contents request for ref `feature` answers `404`, `matching-refs/heads/feature` returns `refs/heads/feature/foo`, and the contents request is retried with `ref=feature/foo` and path `src/a.ts`
+- **AND** a candidate such as `feature-old` is not accepted because it is not followed by `/` in the locator
+
+#### Scenario: A tag shadowing a branch returns the tag's file
+
+- **WHEN** tag `v1` and branch `v1/x` both contain `x/README.md` and the model reads `/blob/v1/x/README.md`
+- **THEN** the first contents request at ref `v1` succeeds and the tag's file is returned
+- **AND** this documented limit is not treated as an error
+
+#### Scenario: A directory renders as a two-level listing
+
+- **WHEN** the model reads `https://github.com/o/r/tree/main/apps`
+- **THEN** one recursive tree request is issued and the listing shows the `apps` entries and each child directory's first 20 entries followed by `… N more`
+- **AND** a `:1-10` selector and the result truncation behave as on a host directory
+
+#### Scenario: Symlinks and submodules keep host markers
+
+- **WHEN** a recursive tree response has entries of mode `120000` and `160000`
+- **THEN** the symlink renders as `- name@` and the submodule as `- name?`
+- **AND** neither renders as a plain file line
+
+#### Scenario: An over-budget directory ends like a host directory
+
+- **WHEN** `https://github.com/o/r/tree/main/big` has more top-level entries
+  than the host per-directory entry budget and its tree response is under 5 MiB
+- **THEN** the call ends with `directory_too_large`, as a host directory read
+  over the budget does
+- **AND** no fall-through to the generic ladder occurs
+
+#### Scenario: An over-budget root omits only its listing
+
+- **WHEN** a repository root has more top-level entries than the host
+  per-directory entry budget
+- **THEN** the metadata lines and `## README` render
+- **AND** the listing is replaced by the omission note `tree omitted: too_large`
+  and no fall-through occurs
+
+#### Scenario: A repository root renders metadata, listing, and README
+
+- **WHEN** the model reads `https://github.com/o/r`
+- **THEN** the repository, tree, and readme endpoints are each requested once
+- **AND** the text has `Description`, `Default branch`, `Visibility`, and `Language` lines, the two-level root listing, and `## README`
+
+#### Scenario: A commit renders a summary with a Diff line
+
+- **WHEN** the model reads `https://github.com/o/r/commit/c91b31c0`
+- **THEN** the text has the message, author, timestamp, and each changed file with counts, up to 3,000 files
+- **AND** `Diff: https://github.com/o/r/commit/c91b31c0.diff` is present and no patch text is rendered
+
+#### Scenario: A commit at GitHub's file limit is marked
+
+- **WHEN** a commit's file pages reach 3,000 files
+- **THEN** all loaded files are rendered with counts and the view is paged with `:N-M`
+- **AND** the note `files omitted: too_large` marks the list as possibly incomplete
+
+### Requirement: Operator rewrite adapters are validated and opt-in
+
+A `rewrite` adapter entry SHALL be enabled only when an operator declares it.
+Its `hosts` SHALL be exact canonical host matches. Its optional
+`pathPattern` SHALL be an RE2-compatible regular expression compiled by the
+same bounded matcher `tools.permissions` uses, searched unanchored against
+the canonical path. Its `target` SHALL be a literal `http` or `https` origin
+containing no placeholder, userinfo, or fragment, followed by a path/query
+template in which only `{path}` and `{query}` occur: `{path}` is allowed only
+in the path and inserts the canonical source path as-is; `{query}` inserts
+`encodeURIComponent` of the canonical query without its `?`. Boot SHALL
+reject any other placeholder, a placeholder in the scheme, host, or port,
+`{path}` in the query, a
+non-http(s) target, userinfo, a fragment, a malformed template, or an invalid,
+oversized, or unsupported `pathPattern`. Per call the target SHALL be rebuilt
+from the template, revalidated against the declared origin and literal path
+prefix, admitted, and address-pinned, then fetched once through the
+negotiated/text or Readability stages only; no alternate, suffix, or
+`llms.txt` probe SHALL run,
+and a raw, challenge, or failed render SHALL fall through. The result SHALL
+keep the source URL as `finalUrl`, report `method: "adapter"` with route
+`rewrite` and the declared origin, and note that content came through the
+configured origin. The runbook example SHALL be
+`https://x.pcstyle.dev{path}` for `x.com` and `twitter.com` status paths,
+and SHALL state that the source path reaches that origin.
+
+#### Scenario: A declared rewrite renders an x.com source
+
+- **WHEN** a rewrite with hosts `x.com` and `twitter.com` and target `https://x.pcstyle.dev{path}` is declared and the model reads `https://x.com/jack/status/20`
+- **THEN** `https://x.pcstyle.dev/jack/status/20` is admitted and address-pinned before one fetch through the local stages
+- **AND** the result keeps `https://x.com/jack/status/20` as `finalUrl` and names `https://x.pcstyle.dev`
+
+#### Scenario: A rewrite is off unless declared
+
+- **WHEN** no rewrite entry matches a source host
+- **THEN** no rewrite target is contacted
+- **AND** other configured adapters or the generic ladder may run
+
+#### Scenario: Placeholder data cannot alter the target shape
+
+- **WHEN** the source is `https://x.com/a&admin=1` or its query contains `/`, `?`, `#`, or `@`
+- **THEN** the rebuilt target keeps the declared origin and literal path prefix and the inserted text remains data
+- **AND** a rebuilt target that leaves the declared origin is refused before any request
