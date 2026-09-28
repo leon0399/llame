@@ -300,11 +300,13 @@ describe("markdown outline reader", () => {
       content: "3550: ## In scope\n3552: scope body\n",
       truncated: false,
     });
-    await expect(read(source, "outline:3500")).resolves.toMatchObject({
+    const empty = await read(source, "outline:3500");
+    expect(empty).toMatchObject({
       content: "",
       shownRange: null,
       truncated: false,
     });
+    expect(empty).not.toHaveProperty("nextOffset");
     let result = await read(source);
     const seen = new Set<number>();
     while (result.truncated && result.nextOffset !== undefined) {
