@@ -217,9 +217,10 @@ heading to this result.
 ### Shared tracker placement
 
 **Decision:** Extract the ancestor-stack responsibility currently held in
-`packages/native-file-tools/src/markdown-outline.ts:162-191` into
-`packages/native-file-tools/src/markdown-structure.ts` beside
-`createMarkdownScanner`. The shared tracker consumes the scanner's native line
+`packages/native-file-tools/src/markdown-outline.ts:162-191` into a new
+`packages/native-file-tools/src/markdown-ancestors.ts` that consumes
+`createMarkdownScanner`; `markdown-structure.ts` is already at the repository's
+file-length limit, so the tracker sits in its own module. The shared tracker consumes the scanner's native line
 stream, records each heading's verbatim source lines and open section depth,
 and exposes the direct heading chain for a requested source line. The outline
 reader continues to add its outline-specific excerpts and scope filtering;
