@@ -282,8 +282,9 @@ is unchanged.
 The `local` backend distills idle past sessions at startup into `MEMORY.md`, a
 short summary and generated skills, while the `learn` tool and an optional
 detached capture agent append explicit lessons. The summary and lessons enter the
-next session as one capped block, frozen per session so writes do not churn the
-prompt-cache prefix. Queue state lives in SQLite with leases, heartbeats and
+next session as one capped block. Lessons are snapshotted per session so writes
+do not churn the prompt-cache prefix, but a consolidation finishing mid-session
+rebuilds the prompt with the new summary. Queue state lives in SQLite with leases, heartbeats and
 source watermarks.[^omp-local-memory-20260928]
 
 The [source and live-installation study](../long-term-memory/2026-09-28-omp-memory.md)
@@ -295,7 +296,7 @@ source: transcript slices and extracted facts in SQLite, recalled on the first
 turn by vector, full-text, importance and recency scoring. It traces the
 Hindsight client and its Postgres server as well: structured fact extraction,
 model-written observations, four-channel recall fused by reciprocal rank, and
-mental models re-answered through reflect. It maps the queue, frozen-snapshot and
+mental models re-answered through reflect. It maps the queue, lesson-snapshot and
 scoring ideas to llame and advises against copying the extraction
 window.[^llame-omp-local-memory]
 

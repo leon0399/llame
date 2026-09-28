@@ -20,8 +20,10 @@ OMP's default memory (`local`) is two independent channels that never block a tu
    with `autoContinue`, a detached agent is asked to capture lessons after a
    tool-heavy turn.
 
-Both surface in the next session as one capped `Memory Guidance` block, frozen for
-the session so it does not churn the prompt-cache prefix. The design is cheap and
+Both surface in the next session as one capped `Memory Guidance` block. The
+lessons are snapshotted for the session, so a `learn` write never churns the
+prompt-cache prefix; the summary is not, and a consolidation that finishes after
+the session starts rebuilds the prompt (M6, D2). The design is cheap and
 unobtrusive. On this machine, its measured weakness is coverage: the extractor
 saw a median 1.8% of each session, and about 73% of captured lessons never reach
 the prompt.
@@ -96,7 +98,7 @@ same scope; losing ownership aborts the write
 ([index.ts L555–L599](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L555-L599)).
 The previous `MEMORY.md` is not an input.
 
-**M6 — Injection is capped, shared and frozen.** The summary is truncated first;
+**M6 — Injection is capped and shared; only lessons are frozen.** The summary is truncated first;
 lessons get whatever remains of `summaryInjectionTokenLimit` (5,000 approximate
 tokens at 4 characters per token), cut with the same 60/40 head–tail rule
 ([index.ts L211–L231](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L211-L231)).
@@ -460,12 +462,13 @@ it
 
 - **T1 — The two-channel split fits llame's direction.** Batch distillation after
   a chat goes idle, plus an explicit capture tool, matches the "self-improving
-  context through recoverable writes" goal in [VISION.md](../../../VISION.md).
+  context through recoverable writes" direction in [README.md](../../../README.md).
   OMP's `jobs` table with lease, heartbeat and watermark maps directly onto a
   pg-boss job keyed by chat, with the watermark on the chat's last message.
-- **T2 — Freeze the injected snapshot per Chat.** OMP's per-session cache is the
-  same answer llame reached for the recency digest: bind once, never churn the
-  cached prefix on a write. D2 shows the cost of breaking that rule.
+- **T2 — Freeze the injected snapshot per Chat.** OMP's per-session lesson
+  snapshot is the same answer llame reached for the recency digest: bind once,
+  never churn the cached prefix on a write. OMP's summary refresh (D2) shows the
+  cost of making an exception.
 - **T3 — Do not copy the extraction window.** Extract from compaction
   checkpoints or bounded segments of stored `messages.parts`, not a head–tail cut
   of serialized JSON. Strip reasoning parts, provider signatures and receipts
