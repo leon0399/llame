@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "OpenClaw"
-description: "Primary alpha implementation reference for capabilities and behavior"
+description: "Primary alpha implementation reference for broader product behavior"
 resource: "https://github.com/openclaw/openclaw"
 observed:
   date: "2026-09-21"
@@ -148,10 +148,14 @@ sources:
 
 - **Stack:** TypeScript; multi-channel gateway; Markdown memory; SQLite session/transcript state and search
 
-Primary alpha reference for capability behavior, with concrete routing, memory, and transcript-search implementations. High confidence in the cited mechanisms; llame retains canonical Chat/Run identity and its own storage contracts.
+Primary alpha reference for product behavior outside the agent loop, with concrete routing, memory, and transcript-search implementations. High confidence in the cited mechanisms; llame retains canonical Chat/Run identity and its own storage contracts.
 
-For coding capabilities and tool behavior, [OMP (oh-my-pi)](./oh-my-pi.md) has
-primary reference priority.
+For agentic capabilities and tool shape, including coding, [OMP (oh-my-pi)](./oh-my-pi.md)
+has primary reference priority.
+
+Execution placement (tool sandboxes, Crabbox cloud workers, and paired-device
+session hosting) is studied separately in the
+[OpenClaw execution-placement study](../product-vision/2026-09-27-openclaw-sandboxes-and-cloud-workers.md).
 
 **Study**
 

@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "oh-my-pi"
-description: "Primary coding implementation reference for capabilities and tool behavior"
+description: "Primary reference for agentic capabilities and tool shape"
 resource: "https://github.com/can1357/oh-my-pi/tree/d49918fab2dba3986927f2d46721629ed0f3a02c"
 observed:
   date: "2026-09-21"
@@ -166,9 +166,10 @@ sources:
 
 - **Stack:** Bun/TypeScript coding agent with Rust support crates; MIT
 
-OMP is llame's primary implementation reference for coding capabilities and tool
-behavior. Consult it first for coding-specific decisions; [OpenClaw](./openclaw.md)
-remains the broad alpha capability reference. llame's specs remain authoritative.
+OMP is llame's primary reference for agentic capabilities and tool shape: the
+agent loop, tool contracts and behavior, and coding capabilities. Consult it first
+for those decisions; [OpenClaw](./openclaw.md) remains the reference for broader
+product behavior. llame's specs remain authoritative.
 OMP forks [pi-mono](./pi-mono.md), which covers the inherited session tree,
 provider wrappers, and hook registry.
 

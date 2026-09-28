@@ -18,11 +18,13 @@ SPEC, OpenSpec, and shipped code win any disagreement with notes here. This bund
 records upstream repositories and in-repo deep dives only. Refresh a local clone
 for line-level work via the `librarian` skill.
 
-During alpha, **[OpenClaw](./openclaw.md) is the primary upstream implementation
-reference for broad capabilities and behavior**. **[OMP (oh-my-pi)](./oh-my-pi.md)
-is the primary reference for coding capabilities and tool behavior**. Consult OMP
-first for coding-specific decisions and OpenClaw first for other capability
-areas, then use the remaining references for targeted alternatives. Adapt their
+During alpha, **[OMP (oh-my-pi)](./oh-my-pi.md) is the primary reference for
+agentic capabilities and tool shape**: the agent loop, tool contracts and
+behavior, and coding capabilities. **[OpenClaw](./openclaw.md) is the primary
+upstream implementation reference for broader product behavior** outside that
+loop, such as channel routing, memory, and transcript search. Consult OMP first
+for agentic and tool decisions and OpenClaw first for other capability areas,
+then use the remaining references for targeted alternatives. Adapt their
 behavior to llame's ownership, lifecycle, provenance, and isolation contracts;
 llame's specs remain authoritative.
 
@@ -88,18 +90,26 @@ and OpenClaw's stable/dynamic system-prompt split against llame's single
 automatic breakpoint for [#972](https://github.com/leon0399/llame/issues/972).
 It measures no cache-hit rates.
 
+The [OpenClaw execution-placement study](../product-vision/2026-09-27-openclaw-sandboxes-and-cloud-workers.md)
+traces [OpenClaw's](./openclaw.md) tool sandboxes, Crabbox cloud workers and
+paired-device session hosting, then compares them with the
+[local-node research](../product-vision/2026-08-21-local-nodes-workspaces-and-distributed-execution.md)
+for [#756](https://github.com/leon0399/llame/issues/756) and
+[#758](https://github.com/leon0399/llame/issues/758). It records source and
+documentation reading only; nothing was run.
+
 Read the ranked index first, then open individual references as needed.
 
 ## Index
 
 Ordered by implementation relevance during llame's alpha: breadth of reusable
 capability behavior and fit with the meta-harness architecture come first,
-followed by focused mechanisms and cautionary comparisons. OpenClaw's and OMP's
+followed by focused mechanisms and cautionary comparisons. OMP's and OpenClaw's
 priorities are project decisions; the remaining order is a moderate-confidence
 assessment.
 
-1. [OpenClaw](./openclaw.md) — Primary alpha implementation reference for capabilities and behavior
-2. [oh-my-pi](./oh-my-pi.md) — Primary coding implementation reference for capabilities and tool behavior
+1. [oh-my-pi](./oh-my-pi.md) — Primary reference for agentic capabilities and tool shape
+2. [OpenClaw](./openclaw.md) — Primary alpha implementation reference for broader product behavior
 3. [qwen-audio-agent](./qwen-audio-agent.md) — Host-owned sessions with ACP/A2A peer execution
 4. [Orca](./orca.md) — Two-tier peer-agent adapters (SDK/app-server versus PTY), durable session records with provider-native resume, and a bypass-by-default permission posture
 5. [OpenCode](./opencode.md) — TypeScript coding harness; provider, session, and permission boundaries
