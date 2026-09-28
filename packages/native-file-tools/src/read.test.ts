@@ -336,6 +336,25 @@ describe("native source reads", () => {
       content: `1: # ${"x".repeat(118)}…\n`,
     });
   });
+  it("keeps a dropped backtick from opening a fence", async () => {
+    const sourcePath = join(directory, "large-info.md");
+    const content = "```" + "x".repeat(20_000) + "`\n\n# Heading\n";
+    await writeFile(sourcePath, content);
+    const result = await readFile({ path: `${sourcePath}:outline` });
+    assertFileSuccess(result);
+    expect(result.content).toContain("3: # Heading\n");
+  });
+
+  it("keeps a dropped non-space from closing a fence", async () => {
+    const sourcePath = join(directory, "large-closer.md");
+    const content =
+      "```\n" + "`".repeat(20_000) + "x\n# Hidden\n```\n# Shown\n";
+    await writeFile(sourcePath, content);
+    const result = await readFile({ path: `${sourcePath}:outline` });
+    assertFileSuccess(result);
+    expect(result.content).not.toContain("# Hidden");
+    expect(result.content).toContain("5: # Shown\n");
+  });
   it("keeps an oversized HTML block closer visible to the outline scanner", async () => {
     const sourcePath = join(directory, "large-script.md");
     await writeFile(

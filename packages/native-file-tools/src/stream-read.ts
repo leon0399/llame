@@ -15,30 +15,82 @@ import {
   type ReadSuccess,
 } from "./source-lines";
 
-const HTML_CLOSER = /<\/(?:script|pre|textarea|style)>|-->|\?>|\]\]>|>/giu;
-const CLOSER_OVERLAP = 10;
+const HTML_CLOSERS = [
+  "</script>",
+  "</pre>",
+  "</textarea>",
+  "</style>",
+  "-->",
+  "?>",
+  "]]>",
+  ">",
+] as const;
+const CLOSER_OVERLAP =
+  Math.max(...HTML_CLOSERS.map((closer) => closer.length)) - 1;
 
 type SourceLineState = {
   partial: string;
   oversized: boolean;
   closerCarry: string;
+  droppedSummary: string;
+  droppedClosers: Array<string>;
 };
+
+function summaryCharacter(char: string): string {
+  if (char === " " || char === "\t") return " ";
+  if (
+    char === "`" ||
+    char === "~" ||
+    char === "=" ||
+    char === "-" ||
+    char === "*" ||
+    char === "_"
+  )
+    return char;
+  return "x";
+}
 
 function appendDroppedClosers(dropped: string, state: SourceLineState): void {
   const searchable = state.closerCarry + dropped;
-  for (const match of searchable.matchAll(HTML_CLOSER)) {
-    const closer = match[0];
-    if (closer !== undefined && !state.partial.includes(closer)) {
-      state.partial += closer;
-    }
+  const lowerSearchable = searchable.toLowerCase();
+  for (const closer of HTML_CLOSERS) {
+    if (
+      lowerSearchable.includes(closer) &&
+      !state.droppedClosers.includes(closer)
+    )
+      state.droppedClosers.push(closer);
   }
   state.closerCarry = searchable.slice(-CLOSER_OVERLAP);
+}
+
+function appendDroppedSummary(dropped: string, state: SourceLineState): void {
+  for (const char of dropped) {
+    const summary = summaryCharacter(char);
+    if (!state.droppedSummary.includes(summary))
+      state.droppedSummary += summary;
+  }
+}
+
+function appendDroppedTail(dropped: string, state: SourceLineState): void {
+  // Whole-line decisions depend on character classes and closer substrings.
+  appendDroppedSummary(dropped, state);
+  appendDroppedClosers(dropped, state);
+}
+
+function appendPreservedTail(
+  state: SourceLineState,
+  terminator: string,
+): string {
+  const closers = state.droppedClosers.join("");
+  return `${state.partial}${state.droppedSummary}${closers}${terminator}`;
 }
 
 function resetSourceLine(state: SourceLineState): void {
   state.partial = "";
   state.oversized = false;
   state.closerCarry = "";
+  state.droppedSummary = "";
+  state.droppedClosers.length = 0;
 }
 
 function lineBodyAndTerminator(fragment: string) {
@@ -55,9 +107,11 @@ function consumeOversizedFragment(
   preserveOversized: boolean,
 ): string | null {
   const { body, terminator } = lineBodyAndTerminator(fragment);
-  if (preserveOversized) appendDroppedClosers(body, state);
+  if (preserveOversized) appendDroppedTail(body, state);
   if (terminator === "") return null;
-  const line = preserveOversized ? `${state.partial}${terminator}` : null;
+  const line = preserveOversized
+    ? appendPreservedTail(state, terminator)
+    : null;
   resetSourceLine(state);
   return line;
 }
@@ -82,9 +136,9 @@ function takeSourceFragment(
   state.partial = combined.slice(0, MAX_RESULT_CODE_UNITS);
   if (preserveOversized) {
     state.closerCarry = state.partial.slice(-CLOSER_OVERLAP);
-    appendDroppedClosers(combined.slice(MAX_RESULT_CODE_UNITS), state);
+    appendDroppedTail(combined.slice(MAX_RESULT_CODE_UNITS), state);
     if (terminator === "") return null;
-    const line = `${state.partial}${terminator}`;
+    const line = appendPreservedTail(state, terminator);
     resetSourceLine(state);
     return line;
   }
@@ -104,6 +158,8 @@ async function* sourceLines(
     partial: "",
     oversized: false,
     closerCarry: "",
+    droppedSummary: "",
+    droppedClosers: [],
   };
   while (true) {
     // A cancelled or timed-out call must stop reading, not merely stop being
@@ -125,7 +181,7 @@ async function* sourceLines(
     if (bytesRead === 0) break;
   }
   if (state.oversized) {
-    if (preserveOversized) yield state.partial;
+    if (preserveOversized) yield appendPreservedTail(state, "");
   } else if (state.partial.length > 0) {
     yield state.partial;
   }
