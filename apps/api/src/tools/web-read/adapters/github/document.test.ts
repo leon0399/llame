@@ -264,13 +264,15 @@ The rendered docs look good.`);
     expect(unavailable).toContain('Checks: unavailable');
   });
 
-  it('renders no review decision counts when no review is actionable', () => {
+  it('removes an earlier verdict when a later review is dismissed', () => {
     const document: GithubPullDocument = {
       ...pullDocument,
       reviews: [
+        pullDocument.reviews[0],
         {
-          ...pullDocument.reviews[1],
-          state: 'COMMENTED',
+          ...pullDocument.reviews[0],
+          id: 13,
+          state: 'DISMISSED',
         },
       ],
     };

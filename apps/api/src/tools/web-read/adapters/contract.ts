@@ -49,6 +49,7 @@ export type WebAdapterOutcome =
   | {
       readonly kind: 'failed';
       readonly failure: WebAdapterFailure;
+      readonly reset?: string;
       /** A call-bound or caller-abort failure ends the whole web read. */
       readonly fatal?: WebFetchFailure;
     };
@@ -80,17 +81,11 @@ export function classifyFetchFailure(
     case 'http_status':
       return classifyHttpStatusFailure(failure);
     case 'body_too_large':
-    case 'too_large':
       return 'too_large';
     case 'unsupported_content_type':
-    case 'content_type':
       return 'content_type';
     case 'parse':
       return 'parse';
-    case 'empty':
-      return 'empty';
-    case 'binary':
-      return 'binary';
     default:
       return 'transport';
   }
@@ -116,15 +111,17 @@ function classifyHttpStatusFailure(
   return 'status';
 }
 
+export function rateLimitReset(failure: WebFetchFailure): string | undefined {
+  if (classifyFetchFailure(failure) !== 'rate_limit') return undefined;
+  return resetTimestamp(failure.rateLimit?.reset);
+}
+
 export function omissionNote(
   section: string,
   failure: WebFetchFailure,
 ): string {
   const category = classifyFetchFailure(failure);
-  const reset =
-    category === 'rate_limit'
-      ? resetTimestamp(failure.rateLimit?.reset)
-      : undefined;
+  const reset = rateLimitReset(failure);
   return `${section} omitted: ${category}${
     reset === undefined ? '' : `, resets ${reset}`
   }`;
@@ -183,8 +180,10 @@ export async function dispatchWebAdapters(
       if (outcome.fatal !== undefined) {
         return { kind: 'fatal', failure: outcome.fatal };
       }
+      const reset =
+        outcome.reset === undefined ? '' : `, resets ${outcome.reset}`;
       fallthroughNotes.push(
-        `web adapter "${adapter.id}" fell through: ${outcome.failure}`,
+        `web adapter "${adapter.id}" fell through: ${outcome.failure}${reset}`,
       );
       continue;
     }

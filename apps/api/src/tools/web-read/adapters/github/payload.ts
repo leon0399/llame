@@ -11,14 +11,6 @@ import type {
 } from './document';
 import type { GithubThreadTarget } from './url';
 
-export type GithubJsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | GithubJsonObject
-  | Array<GithubJsonValue>;
-type GithubJsonObject = { readonly [key: string]: GithubJsonValue };
 export type GithubPullPrimary = {
   readonly document: Omit<
     GithubPullDocument,
@@ -36,171 +28,248 @@ export type GithubCheckPage = {
   readonly runs: ReadonlyArray<GithubCheckRun>;
 };
 
-type RawIssueFields = {
-  readonly number: number | undefined;
-  readonly title: string | undefined;
-  readonly state: string | undefined;
-  readonly author: string | undefined;
-  readonly createdAt: string | undefined;
-  readonly updatedAt: string | undefined;
-  readonly labels: ReadonlyArray<string> | undefined;
-  readonly url: string | undefined;
-  readonly stateReason: string | null | undefined;
-  readonly body: string | null | undefined;
-};
-type IssueFields = {
-  readonly number: number;
-  readonly title: string;
-  readonly state: string;
-  readonly author: string;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-  readonly labels: ReadonlyArray<string>;
-  readonly url: string;
-  readonly stateReason: string | null;
-  readonly body: string | null;
-};
-type RawPullFields = {
-  readonly number: number | undefined;
-  readonly title: string | undefined;
-  readonly state: string | undefined;
-  readonly merged: boolean | undefined;
-  readonly draft: boolean | undefined;
-  readonly author: string | undefined;
-  readonly base: string | undefined;
-  readonly head: string | undefined;
-  readonly headSha: string | undefined;
-  readonly mergeableState: string | null | undefined;
-  readonly createdAt: string | undefined;
-  readonly updatedAt: string | undefined;
-  readonly labels: ReadonlyArray<string> | undefined;
-  readonly url: string | undefined;
-  readonly body: string | null | undefined;
-};
-type PullFields = {
-  readonly number: number;
-  readonly title: string;
-  readonly state: 'open' | 'closed';
-  readonly merged: boolean;
-  readonly draft: boolean;
-  readonly author: string;
-  readonly base: string;
-  readonly head: string;
-  readonly headSha: string;
-  readonly mergeableState: string | null;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-  readonly labels: ReadonlyArray<string>;
-  readonly url: string;
-  readonly body: string | null;
-};
+type User = string;
 
-const JSON_VALUE: z.ZodType<GithubJsonValue> = z.lazy(() =>
-  z.union([
-    z.null(),
-    z.boolean(),
-    z.number(),
-    z.string(),
-    z.array(JSON_VALUE),
-    z.record(z.string(), JSON_VALUE),
-  ]),
-);
+const USER: z.ZodType<User> = z
+  .object({ login: z.string() })
+  .nullable()
+  .optional()
+  .transform((user) => user?.login ?? 'ghost');
+const TEXT = z
+  .string()
+  .nullish()
+  .transform((value) => value ?? '');
+const BODY = z
+  .string()
+  .nullish()
+  .transform((value) => value ?? null);
+const NULLABLE = z
+  .string()
+  .nullish()
+  .transform((value) => value ?? null);
+const LABELS = z
+  .array(z.object({ name: z.string() }))
+  .optional()
+  .transform((labels = []) => labels.map(({ name }) => name));
+const COMMENT_WIRE = z.object({
+  id: z.number().int(),
+  user: USER,
+  created_at: z.string(),
+  html_url: z.string(),
+  body: TEXT,
+});
+const REVIEW_WIRE = z.object({
+  id: z.number().int(),
+  user: USER,
+  submitted_at: TEXT,
+  state: z.string(),
+  html_url: z.string(),
+  body: TEXT,
+});
+const REVIEW_COMMENT_WIRE = COMMENT_WIRE.extend({
+  path: z.string(),
+  line: z
+    .number()
+    .int()
+    .nullish()
+    .transform((value) => value ?? null),
+  side: NULLABLE,
+  in_reply_to_id: z
+    .number()
+    .int()
+    .nullish()
+    .transform((value) => value ?? null),
+});
+const FILE_WIRE = z.object({
+  filename: z.string(),
+  status: z.string(),
+  additions: z.number().int(),
+  deletions: z.number().int(),
+  previous_filename: z.string().optional(),
+});
+const ISSUE_WIRE = z.object({
+  number: z.number().int(),
+  title: z.string(),
+  state: z.string(),
+  state_reason: NULLABLE,
+  user: USER,
+  created_at: z.string(),
+  updated_at: z.string(),
+  labels: LABELS,
+  html_url: z.string(),
+  body: BODY,
+});
+const PULL_WIRE = z.object({
+  number: z.number().int(),
+  title: z.string(),
+  state: z.enum(['open', 'closed']),
+  merged: z.boolean(),
+  draft: z.boolean(),
+  user: USER,
+  base: z.object({ ref: z.string() }),
+  head: z.object({ ref: z.string(), sha: z.string() }),
+  mergeable_state: NULLABLE,
+  created_at: z.string(),
+  updated_at: z.string(),
+  labels: LABELS,
+  html_url: z.string(),
+  body: BODY,
+});
+const CHECK_RUN_WIRE = z.object({
+  name: z.string(),
+  status: z.string(),
+  conclusion: NULLABLE,
+});
+const CHECK_PAGE_OPTIONAL = z.object({
+  total_count: z.number().int().optional(),
+  check_runs: z.array(CHECK_RUN_WIRE),
+});
+const CHECK_PAGE_REQUIRED = CHECK_PAGE_OPTIONAL.extend({
+  total_count: z.number().int().nonnegative(),
+});
 
-export function parseGithubJson(text: string): GithubJsonValue | undefined {
+export function parseGithub<T>(
+  schema: z.ZodType<T>,
+  body: string,
+): T | undefined {
   try {
-    return JSON_VALUE.parse(JSON.parse(text));
+    const result = schema.safeParse(JSON.parse(body));
+    return result.success ? result.data : undefined;
   } catch {
     return undefined;
   }
 }
 
 export function parseIssuePayload(
-  value: GithubJsonValue,
+  body: string,
   target: GithubThreadTarget,
 ): Omit<GithubIssueDocument, 'comments'> | undefined {
-  const fields = issueFields(value, target);
-  if (fields === undefined) return undefined;
-  return { kind: 'issue', ...fields };
-}
-
-export function parsePullPayload(
-  value: GithubJsonValue,
-  target: GithubThreadTarget,
-): GithubPullPrimary | undefined {
-  const fields = pullFields(value, target);
-  if (fields === undefined) return undefined;
+  const issue = parseGithub(ISSUE_WIRE, body);
+  if (issue === undefined || issue.number !== target.number) return undefined;
   return {
-    document: pullDocument(fields, target),
-    headSha: fields.headSha,
+    kind: 'issue',
+    number: issue.number,
+    title: issue.title,
+    state: issue.state,
+    stateReason: issue.state_reason,
+    author: issue.user,
+    createdAt: issue.created_at,
+    updatedAt: issue.updated_at,
+    labels: issue.labels,
+    url: issue.html_url,
+    body: issue.body,
   };
 }
 
-function pullDocument(
-  fields: PullFields,
+export function parsePullPayload(
+  body: string,
   target: GithubThreadTarget,
-): GithubPullPrimary['document'] {
+): GithubPullPrimary | undefined {
+  const pull = parseGithub(PULL_WIRE, body);
+  if (pull === undefined || pull.number !== target.number) return undefined;
   return {
-    kind: 'pull',
-    number: fields.number,
-    title: fields.title,
-    state: fields.merged ? 'merged' : fields.state,
-    draft: fields.draft,
-    author: fields.author,
-    base: fields.base,
-    head: fields.head,
-    mergeableState: fields.mergeableState,
-    createdAt: fields.createdAt,
-    updatedAt: fields.updatedAt,
-    labels: fields.labels,
-    url: fields.url,
-    diffUrl: `https://github.com/${target.owner}/${target.repo}/pull/${target.number}.diff`,
-    body: fields.body,
+    document: {
+      kind: 'pull',
+      number: pull.number,
+      title: pull.title,
+      state: pull.merged ? 'merged' : pull.state,
+      draft: pull.draft,
+      author: pull.user,
+      base: pull.base.ref,
+      head: pull.head.ref,
+      mergeableState: pull.mergeable_state,
+      createdAt: pull.created_at,
+      updatedAt: pull.updated_at,
+      labels: pull.labels,
+      url: pull.html_url,
+      diffUrl: `https://github.com/${target.owner}/${target.repo}/pull/${target.number}.diff`,
+      body: pull.body,
+    },
+    headSha: pull.head.sha,
   };
 }
 
 export function parseCommentsPage(
-  value: GithubJsonValue,
+  body: string,
 ): ReadonlyArray<GithubComment> | undefined {
-  return parseItems(value, parseComment);
+  const comments = parseGithub(z.array(COMMENT_WIRE), body);
+  return comments?.map((comment) => ({
+    id: comment.id,
+    author: comment.user,
+    createdAt: comment.created_at,
+    url: comment.html_url,
+    body: comment.body,
+  }));
 }
 
 export function parseReviewsPage(
-  value: GithubJsonValue,
+  body: string,
 ): ReadonlyArray<GithubReview> | undefined {
-  return parseItems(value, parseReview);
+  const reviews = parseGithub(z.array(REVIEW_WIRE), body);
+  return reviews?.map((review) => ({
+    id: review.id,
+    author: review.user,
+    submittedAt: review.submitted_at,
+    state: review.state,
+    url: review.html_url,
+    body: review.body,
+  }));
 }
 
 export function parseReviewCommentsPage(
-  value: GithubJsonValue,
+  body: string,
 ): ReadonlyArray<GithubReviewComment> | undefined {
-  return parseItems(value, parseReviewComment);
+  const comments = parseGithub(z.array(REVIEW_COMMENT_WIRE), body);
+  return comments?.map((comment) => ({
+    id: comment.id,
+    author: comment.user,
+    createdAt: comment.created_at,
+    url: comment.html_url,
+    body: comment.body,
+    path: comment.path,
+    line: comment.line,
+    side: comment.side,
+    inReplyTo: comment.in_reply_to_id,
+  }));
 }
 
 export function parseFilesPage(
-  value: GithubJsonValue,
+  body: string,
 ): ReadonlyArray<GithubFile> | undefined {
-  return parseItems(value, parseFile);
+  const files = parseGithub(z.array(FILE_WIRE), body);
+  return files?.map((file) =>
+    file.previous_filename === undefined
+      ? {
+          filename: file.filename,
+          status: file.status,
+          additions: file.additions,
+          deletions: file.deletions,
+        }
+      : {
+          filename: file.filename,
+          status: file.status,
+          additions: file.additions,
+          deletions: file.deletions,
+          previousFilename: file.previous_filename,
+        },
+  );
 }
 
 export function parseCheckPage(
-  value: GithubJsonValue,
+  body: string,
   requireTotal: boolean,
 ): GithubCheckPage | undefined {
-  if (!isObject(value) || !Array.isArray(value.check_runs)) return undefined;
-  const totalCount = readInteger(value, 'total_count');
-  if (requireTotal && (totalCount === undefined || totalCount < 0))
-    return undefined;
-  const runs: Array<GithubCheckRun> = [];
-  for (const item of value.check_runs) {
-    if (!isObject(item)) return undefined;
-    const name = readString(item, 'name');
-    const status = readString(item, 'status');
-    const conclusion = readNullableString(item, 'conclusion');
-    if (name === undefined || status === undefined || conclusion === undefined)
-      return undefined;
-    runs.push({ name, status, conclusion });
-  }
-  return { totalCount, runs };
+  const schema = requireTotal ? CHECK_PAGE_REQUIRED : CHECK_PAGE_OPTIONAL;
+  const page = parseGithub(schema, body);
+  if (page === undefined) return undefined;
+  return {
+    totalCount: page.total_count,
+    runs: page.check_runs.map((run) => ({
+      name: run.name,
+      status: run.status,
+      conclusion: run.conclusion,
+    })),
+  };
 }
 
 export function countGithubChecks(
@@ -213,7 +282,12 @@ export function countGithubChecks(
   const failed: Array<string> = [];
   for (const run of runs) {
     if (run.status !== 'completed') pending += 1;
-    else if (isPassingConclusion(run.conclusion)) passed += 1;
+    else if (
+      run.conclusion === 'success' ||
+      run.conclusion === 'neutral' ||
+      run.conclusion === 'skipped'
+    )
+      passed += 1;
     else failed.push(run.name);
   }
   return {
@@ -223,282 +297,4 @@ export function countGithubChecks(
     pending,
     notLoaded: Math.max(0, totalCount - runs.length),
   };
-}
-
-function issueFields(
-  value: GithubJsonValue,
-  target: GithubThreadTarget,
-): IssueFields | undefined {
-  if (!isObject(value)) return undefined;
-  const fields: RawIssueFields = {
-    number: readInteger(value, 'number'),
-    title: readString(value, 'title'),
-    state: readString(value, 'state'),
-    author: readAuthor(value),
-    createdAt: readString(value, 'created_at'),
-    updatedAt: readString(value, 'updated_at'),
-    labels: readLabels(value),
-    url: readString(value, 'html_url'),
-    stateReason: readNullableString(value, 'state_reason'),
-    body: readBody(value, 'body'),
-  };
-  return validIssueFields(fields, target) ? fields : undefined;
-}
-
-function validIssueFields(
-  fields: RawIssueFields,
-  target: GithubThreadTarget,
-): fields is IssueFields {
-  return (
-    fields.number === target.number &&
-    fields.title !== undefined &&
-    fields.state !== undefined &&
-    fields.author !== undefined &&
-    fields.createdAt !== undefined &&
-    fields.updatedAt !== undefined &&
-    fields.labels !== undefined &&
-    fields.url !== undefined &&
-    fields.stateReason !== undefined &&
-    fields.body !== undefined
-  );
-}
-
-function pullFields(
-  value: GithubJsonValue,
-  target: GithubThreadTarget,
-): PullFields | undefined {
-  if (!isObject(value)) return undefined;
-  const fields: RawPullFields = {
-    number: readInteger(value, 'number'),
-    title: readString(value, 'title'),
-    state: readString(value, 'state'),
-    merged: readBoolean(value, 'merged'),
-    draft: readBoolean(value, 'draft'),
-    author: readAuthor(value),
-    base: readNestedString(value, 'base', 'ref'),
-    head: readNestedString(value, 'head', 'ref'),
-    headSha: readNestedString(value, 'head', 'sha'),
-    mergeableState: readNullableString(value, 'mergeable_state'),
-    createdAt: readString(value, 'created_at'),
-    updatedAt: readString(value, 'updated_at'),
-    labels: readLabels(value),
-    url: readString(value, 'html_url'),
-    body: readBody(value, 'body'),
-  };
-  return validPullFields(fields, target) ? fields : undefined;
-}
-
-function validPullFields(
-  fields: RawPullFields,
-  target: GithubThreadTarget,
-): fields is PullFields {
-  return (
-    fields.number === target.number &&
-    fields.title !== undefined &&
-    (fields.state === 'open' || fields.state === 'closed') &&
-    fields.merged !== undefined &&
-    fields.draft !== undefined &&
-    fields.author !== undefined &&
-    fields.base !== undefined &&
-    fields.head !== undefined &&
-    fields.headSha !== undefined &&
-    fields.mergeableState !== undefined &&
-    fields.createdAt !== undefined &&
-    fields.updatedAt !== undefined &&
-    fields.labels !== undefined &&
-    fields.url !== undefined &&
-    fields.body !== undefined
-  );
-}
-
-function parseItems<T>(
-  value: GithubJsonValue,
-  parse: (value: GithubJsonValue) => T | undefined,
-): ReadonlyArray<T> | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const items: Array<T> = [];
-  for (const item of value) {
-    const parsed = parse(item);
-    if (parsed === undefined) return undefined;
-    items.push(parsed);
-  }
-  return items;
-}
-
-function parseComment(value: GithubJsonValue): GithubComment | undefined {
-  if (!isObject(value)) return undefined;
-  const id = readInteger(value, 'id');
-  const author = readAuthor(value);
-  const createdAt = readString(value, 'created_at');
-  const url = readString(value, 'html_url');
-  const body = readText(value, 'body');
-  return id === undefined ||
-    author === undefined ||
-    createdAt === undefined ||
-    url === undefined ||
-    body === undefined
-    ? undefined
-    : { id, author, createdAt, url, body };
-}
-
-function parseReview(value: GithubJsonValue): GithubReview | undefined {
-  if (!isObject(value)) return undefined;
-  const id = readInteger(value, 'id');
-  const author = readAuthor(value);
-  const submittedAt = readText(value, 'submitted_at');
-  const state = readString(value, 'state');
-  const url = readString(value, 'html_url');
-  const body = readText(value, 'body');
-  return id === undefined ||
-    author === undefined ||
-    submittedAt === undefined ||
-    state === undefined ||
-    url === undefined ||
-    body === undefined
-    ? undefined
-    : { id, author, submittedAt, state, url, body };
-}
-
-function parseReviewComment(
-  value: GithubJsonValue,
-): GithubReviewComment | undefined {
-  if (!isObject(value)) return undefined;
-  const comment = parseComment(value);
-  const path = readString(value, 'path');
-  const line = readNullableInteger(value, 'line');
-  const side = readNullableString(value, 'side');
-  const inReplyTo = readNullableInteger(value, 'in_reply_to_id');
-  return comment === undefined ||
-    path === undefined ||
-    line === undefined ||
-    side === undefined ||
-    inReplyTo === undefined
-    ? undefined
-    : { ...comment, path, line, side, inReplyTo };
-}
-
-function parseFile(value: GithubJsonValue): GithubFile | undefined {
-  if (!isObject(value)) return undefined;
-  const filename = readString(value, 'filename');
-  const status = readString(value, 'status');
-  const additions = readInteger(value, 'additions');
-  const deletions = readInteger(value, 'deletions');
-  const previousFilename = readNullableString(value, 'previous_filename');
-  if (
-    filename === undefined ||
-    status === undefined ||
-    additions === undefined ||
-    deletions === undefined ||
-    previousFilename === undefined
-  )
-    return undefined;
-  return previousFilename === null
-    ? { filename, status, additions, deletions }
-    : { filename, status, additions, deletions, previousFilename };
-}
-
-function readAuthor(value: GithubJsonObject): string | undefined {
-  const user = value.user;
-  return isObject(user) ? readString(user, 'login') : undefined;
-}
-
-function readNestedString(
-  value: GithubJsonObject,
-  objectKey: string,
-  field: string,
-): string | undefined {
-  const nested = value[objectKey];
-  return isObject(nested) ? readString(nested, field) : undefined;
-}
-
-function readLabels(
-  value: GithubJsonObject,
-): ReadonlyArray<string> | undefined {
-  if (value.labels === undefined) return [];
-  if (!Array.isArray(value.labels)) return undefined;
-  const labels: Array<string> = [];
-  for (const item of value.labels) {
-    if (!isObject(item)) return undefined;
-    const label = readString(item, 'name');
-    if (label === undefined) return undefined;
-    labels.push(label);
-  }
-  return labels;
-}
-
-function readBody(
-  value: GithubJsonObject,
-  key: string,
-): string | null | undefined {
-  if (value[key] === null || value[key] === undefined) return null;
-  return readString(value, key);
-}
-
-function readText(value: GithubJsonObject, key: string): string | undefined {
-  return value[key] === null || value[key] === undefined
-    ? ''
-    : readString(value, key);
-}
-
-function readNullableString(
-  value: GithubJsonObject,
-  key: string,
-): string | null | undefined {
-  return value[key] === null || value[key] === undefined
-    ? null
-    : readString(value, key);
-}
-
-function readNullableInteger(
-  value: GithubJsonObject,
-  key: string,
-): number | null | undefined {
-  return value[key] === null || value[key] === undefined
-    ? null
-    : readInteger(value, key);
-}
-
-function readString(value: GithubJsonObject, key: string): string | undefined {
-  const candidate = value[key];
-  return isJsonString(candidate) ? candidate : undefined;
-}
-
-function readInteger(value: GithubJsonObject, key: string): number | undefined {
-  const candidate = value[key];
-  return isJsonNumber(candidate) ? candidate : undefined;
-}
-
-function readBoolean(
-  value: GithubJsonObject,
-  key: string,
-): boolean | undefined {
-  const candidate = value[key];
-  return isJsonBoolean(candidate) ? candidate : undefined;
-}
-
-function isObject(value: GithubJsonValue): value is GithubJsonObject {
-  return Object.prototype.toString.call(value) === '[object Object]';
-}
-
-function isJsonString(value: GithubJsonValue): value is string {
-  return Object.prototype.toString.call(value) === '[object String]';
-}
-
-function isJsonNumber(value: GithubJsonValue): value is number {
-  return (
-    Object.prototype.toString.call(value) === '[object Number]' &&
-    Number.isInteger(value)
-  );
-}
-
-function isJsonBoolean(value: GithubJsonValue): value is boolean {
-  return Object.prototype.toString.call(value) === '[object Boolean]';
-}
-
-function isPassingConclusion(conclusion: string | null): boolean {
-  return (
-    conclusion === 'success' ||
-    conclusion === 'neutral' ||
-    conclusion === 'skipped'
-  );
 }

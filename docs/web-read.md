@@ -235,39 +235,19 @@ list URLs; Actions, Projects, Discussions, search results, or gists;
 `raw.githubusercontent.com`; Enterprise hosts; or any write URL. Those
 locators stay on the generic ladder without an adapter request or note.
 
-An issue loads its primary record and every comments page before rendering:
-`# Issue #N: title`, metadata for `State`, optional `State reason`, `Author`,
-`Created`, `Updated`, `Labels`, and `URL`, then `## Body` and
-`## Comments (n)`. Each comment is a flat `### author · timestamp` item with
-`ID`, `URL`, and its body. A pull request similarly loads every page of
-comments, reviews, review comments, changed files, and check runs. Its metadata
-has `State`, `Draft`, `Author`, `Base`, `Head`, latest-per-reviewer `Reviews`,
-returned `Merge state`, `Checks`, `Created`, `Updated`, `Labels`, `URL`, and
-`Diff`, followed by `## Body`, `## Files (n)`, `## Reviews (n)`,
-`## Review Comments (n)`, and `## Comments (n)`. Files show status and
-added/deleted counts; review comments also show `Reply to` (when
-present), `Location`, and `Side`. Items remain flat at `###` depth, and no
-patch text or event timeline is included.
-
-For example, an abbreviated pull-request view looks like:
+Issues and pull requests render as a metadata block, the body, and flat
+`###` items for files, reviews, review comments, and comments; no patches or
+event timeline is rendered. For example:
 
 ```text
 # Pull Request #12: Improve parser
-
 State: open
-Draft: false
-Reviews: 2 approved, 1 changes requested (latest per reviewer)
-Merge state: clean
 Checks: 14 passed, 1 failed (lint), 2 pending
 ...
-## Files (3)
-- src/parser.ts (modified, +12 -4)
-...
-## Review Comments (1)
+## Comments (2)
 ### alice · 2026-09-28T10:00:00Z
 ID: 7
-Location: src/parser.ts:42
-URL: https://github.com/o/r/pull/12#discussion_r7
+URL: https://github.com/o/r/pull/12#issuecomment-7
 ...
 ```
 
@@ -282,13 +262,13 @@ it reports `Checks: none`; if the first check-runs page fails, lacks a numeric
 later page does not arrive, it reports loaded counts plus `N not loaded`.
 
 A failed secondary page keeps the sections already loaded and adds an omission
-note such as `review comments omitted: rate_limit`. A `rate_limit` is a 429,
-or a 403 with `x-ratelimit-remaining: 0` or `retry-after`; when
-`x-ratelimit-reset` is available, the note also says
-`resets <ISO-8601>`. The section is one of `comments`, `reviews`, or
-`review comments`; it can also be `files` or `check runs`. Primary failures
-fall through to the generic ladder without exposing the response body, and
-rate limits are not retried.
+note such as `review comments omitted: rate_limit`; the section is one of
+`comments`, `reviews`, `review comments`, `files`, or `check runs`. A
+`rate_limit` is a 429, or a 403 with `x-ratelimit-remaining: 0` or
+`retry-after`; `x-ratelimit-reset` adds `resets <ISO-8601>` to notes when
+present. A primary rate-limit fall-through note includes
+`, resets <ISO-8601>` when that header is available; primary failures expose
+no response body, and rate limits are not retried.
 
 The GitHub adapter's API locator is a separately admitted derived locator. With
 a domain allowlist, add a `read` clause for the regex

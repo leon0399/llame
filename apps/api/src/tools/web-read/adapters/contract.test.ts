@@ -13,6 +13,7 @@ import {
   dispatchWebAdapters,
   isFatalAdapterFailure,
   omissionNote,
+  rateLimitReset,
   MAX_ADAPTER_DOCUMENT_BYTES,
   type WebAdapter,
   type WebAdapterFailure,
@@ -130,6 +131,26 @@ describe('dispatchWebAdapters', () => {
         adapter: { id: 'second', route: 'rewrite' },
         notes: ['web adapter "first" fell through: status'],
       },
+    });
+  });
+  it('keeps a primary rate-limit reset in the fall-through note', async () => {
+    const result = await dispatchWebAdapters(
+      new URL(SOURCE),
+      [
+        adapter('github', true, {
+          kind: 'failed',
+          failure: 'rate_limit',
+          reset: '2023-11-14T22:13:20.000Z',
+        }),
+      ],
+      { fetch: () => Promise.resolve(response('unused')) },
+    );
+
+    expect(result).toStrictEqual({
+      kind: 'fallthrough',
+      notes: [
+        'web adapter "github" fell through: rate_limit, resets 2023-11-14T22:13:20.000Z',
+      ],
     });
   });
 
@@ -376,6 +397,26 @@ describe('omissionNote', () => {
         rateLimit: { remaining: '0' },
       }),
     ).toBe('comments omitted: rate_limit');
+  });
+});
+describe('rateLimitReset', () => {
+  it('returns reset only for classified rate limits', () => {
+    expect(
+      rateLimitReset({
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { remaining: '0', reset: '1700000000' },
+      }),
+    ).toBe('2023-11-14T22:13:20.000Z');
+    expect(
+      rateLimitReset({
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { reset: '1700000000' },
+      }),
+    ).toBeUndefined();
   });
 });
 

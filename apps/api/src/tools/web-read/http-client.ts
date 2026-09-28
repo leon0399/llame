@@ -184,9 +184,9 @@ async function readDocumentResponse(
 ): Promise<WebResponse | WebFetchFailure> {
   const contentType = contentTypeOf(response.headers.get('content-type'));
   const refusal = await refusalFor(response, contentType, init);
-  if (refusal !== undefined) return refusal;
+  if (refusal !== undefined) return redactAuthorization(refusal, init);
   const body = await readCappedBody(response, deadline);
-  if (body.kind === 'failure') return body.failure;
+  if (body.kind === 'failure') return redactAuthorization(body.failure, init);
   const fetched: WebResponse = {
     finalUrl: locator,
     contentType: contentType.value,
@@ -514,41 +514,17 @@ function hasMatchingOrigin(
   }
 }
 
-type AuthorizationState = {
-  readonly init?: WebRequestInit;
-  currentOrigin: string;
-  allowed: boolean;
-  requestInit?: WebRequestInit;
-};
-
-function createAuthorizationState(
+function requestInitForOrigin(
   url: string,
   init: WebRequestInit | undefined,
-): AuthorizationState {
-  const allowed =
-    init?.authorization !== undefined &&
-    hasMatchingOrigin(url, init.authorization);
-  return {
-    init,
-    currentOrigin: new URL(url).origin,
-    allowed,
-    requestInit:
-      init === undefined || allowed ? init : withoutAuthorization(init),
-  };
-}
-
-function advanceAuthorization(
-  state: AuthorizationState,
-  nextLocator: string,
-): void {
-  const nextOrigin = new URL(nextLocator).origin;
-  if (state.allowed && nextOrigin !== state.currentOrigin) {
-    state.allowed = false;
-    if (state.init !== undefined) {
-      state.requestInit = withoutAuthorization(state.init);
-    }
+): WebRequestInit | undefined {
+  if (
+    init?.authorization === undefined ||
+    hasMatchingOrigin(url, init.authorization)
+  ) {
+    return init;
   }
-  state.currentOrigin = nextOrigin;
+  return withoutAuthorization(init);
 }
 
 function redactAuthorization(
@@ -574,29 +550,26 @@ async function fetchLocator(
   init?: WebRequestInit,
 ): Promise<WebResponse | WebFetchFailure> {
   let locator = url;
-  const authorization = createAuthorizationState(url, init);
+  let requestInit = requestInitForOrigin(url, init);
   for (;;) {
     const outcome = await context.connections.request(
       locator,
       context.options,
       context.budget.deadline,
-      authorization.requestInit,
+      requestInit,
     );
     if (outcome.kind === 'failure')
       return redactAuthorization(outcome.failure, init);
-    if (outcome.kind === 'address_refused') {
+    if (outcome.kind === 'address_refused')
       return addressRefusal(url, outcome.locator);
-    }
     const response = outcome.response;
-    if (!REDIRECT_STATUSES.includes(response.status)) {
-      const result = await readDocumentResponse(
+    if (!REDIRECT_STATUSES.includes(response.status))
+      return readDocumentResponse(
         response,
         locator,
         context.budget.deadline,
-        authorization.requestInit,
+        init,
       );
-      return 'type' in result ? redactAuthorization(result, init) : result;
-    }
     const hop = await followRedirect(
       response,
       locator,
@@ -604,7 +577,8 @@ async function fetchLocator(
       context.budget,
     );
     if ('failure' in hop) return redactAuthorization(hop.failure, init);
-    advanceAuthorization(authorization, hop.next);
+    if (new URL(hop.next).origin !== new URL(locator).origin)
+      requestInit = requestInit && { accept: requestInit.accept };
     locator = hop.next;
   }
 }

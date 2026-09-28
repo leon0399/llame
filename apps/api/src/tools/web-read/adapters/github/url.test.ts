@@ -47,6 +47,8 @@ describe('parseGithubThreadUrl', () => {
       'https://github.com/o/r/issues/0',
       'https://github.com/o/r/issues/12345678901',
       'https://github.com/-owner/r/issues/1',
+      `https://github.com/${'a'.repeat(40)}/r/issues/1`,
+      `https://github.com/o/${'r'.repeat(101)}/issues/1`,
       'https://github.com/o/./issues/1',
       'https://github.com/o/../issues/1',
       'https://github.com/o/r/issues/1/',
@@ -69,25 +71,6 @@ describe('parseGithubThreadUrl', () => {
     for (const source of unclaimed) {
       expect(parseGithubThreadUrl(new URL(source))).toBeUndefined();
     }
-  });
-
-  it('rejects invalid owner and repository lengths', () => {
-    expect(
-      parseGithubThreadUrl(
-        new URL(`https://github.com/${'a'.repeat(40)}/r/issues/1`),
-      ),
-    ).toBeUndefined();
-    expect(
-      parseGithubThreadUrl(
-        new URL(`https://github.com/o/${'r'.repeat(101)}/issues/1`),
-      ),
-    ).toBeUndefined();
-    expect(
-      parseGithubThreadUrl(new URL('https://github.com/o/./issues/1')),
-    ).toBeUndefined();
-    expect(
-      parseGithubThreadUrl(new URL('https://github.com/o/../issues/1')),
-    ).toBeUndefined();
   });
 
   it('rejects a non-default port and userinfo', () => {

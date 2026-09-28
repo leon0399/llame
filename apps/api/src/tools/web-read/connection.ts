@@ -206,22 +206,6 @@ async function resolveAndAdmit({
   return { kind: 'admitted', requestUrl, addresses };
 }
 
-function authorizationForRequest(
-  url: string,
-  init: WebRequestInit | undefined,
-): string | undefined {
-  const authorization = init?.authorization;
-  if (authorization === undefined) return undefined;
-  try {
-    if (new URL(url).origin !== new URL(authorization.origin).origin) {
-      return undefined;
-    }
-  } catch {
-    return undefined;
-  }
-  return authorization.value;
-}
-
 async function dispatchRequest({
   url,
   options,
@@ -230,7 +214,7 @@ async function dispatchRequest({
   agent,
   init,
 }: ConnectionDispatchContext): Promise<ConnectionDispatchOutcome> {
-  const authorization = authorizationForRequest(url, init);
+  const authorization = init?.authorization?.value;
   try {
     const response = await fetch(url, {
       method: 'GET',

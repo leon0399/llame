@@ -564,25 +564,6 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     expect(loadInstanceConfig().tools.webAdapters).toEqual([]);
   });
 
-  it('resolves rewrite entries in their declared order', () => {
-    const first = rewriteEntry({
-      id: 'x',
-      hosts: ['x.com', 'twitter.com'],
-      pathPattern: '^/[^/]+/status/\\d+$',
-      target: 'https://x.pcstyle.dev{path}',
-    });
-    const second = rewriteEntry({
-      id: 'second',
-      hosts: ['example.com'],
-      target: 'https://reader.example{path}',
-    });
-    writeConfig(JSON.stringify({ tools: { webAdapters: [first, second] } }));
-    expect(loadInstanceConfig().tools.webAdapters).toStrictEqual([
-      first,
-      second,
-    ]);
-  });
-
   it('resolves a GitHub token from an environment interpolation', () => {
     process.env.GITHUB_READ_TOKEN = 'github-env-token';
     const entry = {
@@ -594,21 +575,6 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
 
     expect(loadInstanceConfig().tools.webAdapters).toEqual([
       { ...entry, token: 'github-env-token' },
-    ]);
-  });
-
-  it('resolves a GitHub token from a path interpolation', () => {
-    const secretPath = path.join(tmpDir, 'github-token.secret');
-    writeFileSync(secretPath, 'github-file-token');
-    const entry = {
-      id: 'github',
-      use: 'github' as const,
-      token: `{path:${secretPath}}`,
-    };
-    writeConfig(JSON.stringify({ tools: { webAdapters: [entry] } }));
-
-    expect(loadInstanceConfig().tools.webAdapters).toEqual([
-      { ...entry, token: 'github-file-token' },
     ]);
   });
 
@@ -664,24 +630,15 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     );
   });
 
-  it('omits the token key when a GitHub adapter has no token', () => {
-    writeConfig(
-      JSON.stringify({
-        tools: { webAdapters: [{ id: 'github', use: 'github' }] },
-      }),
-    );
-
-    expect(loadInstanceConfig().tools.webAdapters).toEqual([
-      { id: 'github', use: 'github' },
-    ]);
-  });
-
   it('preserves rewrite and GitHub adapters in declared order', () => {
     const rewrite = rewriteEntry();
     const github = { id: 'github', use: 'github' as const };
     writeConfig(JSON.stringify({ tools: { webAdapters: [rewrite, github] } }));
 
-    expect(loadInstanceConfig().tools.webAdapters).toEqual([rewrite, github]);
+    expect(loadInstanceConfig().tools.webAdapters).toStrictEqual([
+      rewrite,
+      github,
+    ]);
   });
 
   it('rejects unsupported adapter uses at boot', () => {

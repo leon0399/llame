@@ -104,7 +104,7 @@ function renderIssue(document: GithubIssueDocument): string {
     '',
     '## Body',
     '',
-    formatBody(document.body),
+    formatItemBody(document.body ?? '', 'No description provided.'),
     '',
     `## Comments (${document.comments.length})`,
   );
@@ -132,7 +132,7 @@ function renderPullRequest(document: GithubPullDocument): string {
     '',
     '## Body',
     '',
-    formatBody(document.body),
+    formatItemBody(document.body ?? '', 'No description provided.'),
   ];
   appendFiles(lines, document.files);
   appendReviews(lines, document.reviews);
@@ -144,11 +144,6 @@ function renderPullRequest(document: GithubPullDocument): string {
 
 function formatLabels(labels: ReadonlyArray<string>): string {
   return labels.length === 0 ? 'none' : labels.join(', ');
-}
-
-function formatBody(body: string | null): string {
-  const normalized = normalizeText(body ?? '');
-  return normalized || 'No description provided.';
 }
 
 function normalizeText(value: string): string {
@@ -164,24 +159,28 @@ function formatItemBody(body: string, fallback: string): string {
 }
 
 function formatReviewCounts(reviews: ReadonlyArray<GithubReview>): string {
-  const latest = new Map<string, GithubReview>();
+  const latest = new Map<string, string>();
   for (const review of reviews) {
-    if (review.state !== 'APPROVED' && review.state !== 'CHANGES_REQUESTED')
-      continue;
-    latest.set(review.author, review);
+    if (
+      review.state === 'APPROVED' ||
+      review.state === 'CHANGES_REQUESTED' ||
+      review.state === 'DISMISSED'
+    ) {
+      latest.set(review.author, review.state);
+    }
   }
-  let approved = 0;
-  let changesRequested = 0;
-  for (const review of latest.values()) {
-    if (review.state === 'APPROVED') approved += 1;
-    if (review.state === 'CHANGES_REQUESTED') changesRequested += 1;
-  }
-  if (approved === 0 && changesRequested === 0) return 'none';
-  const counts: Array<string> = [];
-  if (approved > 0) counts.push(`${approved} approved`);
-  if (changesRequested > 0)
-    counts.push(`${changesRequested} changes requested`);
-  return `${counts.join(', ')} (latest per reviewer)`;
+  const states = [...latest.values()];
+  const approved = states.filter((state) => state === 'APPROVED').length;
+  const changesRequested = states.filter(
+    (state) => state === 'CHANGES_REQUESTED',
+  ).length;
+  const counts = [
+    approved > 0 ? `${approved} approved` : '',
+    changesRequested > 0 ? `${changesRequested} changes requested` : '',
+  ].filter(Boolean);
+  return counts.length === 0
+    ? 'none'
+    : `${counts.join(', ')} (latest per reviewer)`;
 }
 
 function formatChecks(checks: GithubChecks): string {
@@ -218,14 +217,15 @@ function appendReviews(
 ): void {
   lines.push('', `## Reviews (${reviews.length})`);
   for (const review of reviews) {
-    appendItemHeader(lines, review.author, review.submittedAt);
-    lines.push(
-      `ID: ${review.id}`,
-      `State: ${review.state}`,
-      `URL: ${review.url}`,
-      '',
-      formatItemBody(review.body, 'No review body.'),
-    );
+    appendItem(lines, review.author, review.submittedAt, {
+      fields: [
+        `ID: ${review.id}`,
+        `State: ${review.state}`,
+        `URL: ${review.url}`,
+      ],
+      body: review.body,
+      fallback: 'No review body.',
+    });
   }
 }
 
@@ -235,17 +235,19 @@ function appendReviewComments(
 ): void {
   lines.push('', `## Review Comments (${comments.length})`);
   for (const comment of comments) {
-    appendItemHeader(lines, comment.author, comment.createdAt);
-    lines.push(`ID: ${comment.id}`);
+    const location =
+      comment.line === null ? comment.path : `${comment.path}:${comment.line}`;
+    const fields = [`ID: ${comment.id}`];
     if (comment.inReplyTo !== null)
-      lines.push(`Reply to: ${comment.inReplyTo}`);
-    lines.push(`Location: ${formatLocation(comment)}`);
-    if (comment.side !== null) lines.push(`Side: ${comment.side}`);
-    lines.push(
-      `URL: ${comment.url}`,
-      '',
-      formatItemBody(comment.body, 'No review comment body.'),
-    );
+      fields.push(`Reply to: ${comment.inReplyTo}`);
+    fields.push(`Location: ${location}`);
+    if (comment.side !== null) fields.push(`Side: ${comment.side}`);
+    fields.push(`URL: ${comment.url}`);
+    appendItem(lines, comment.author, comment.createdAt, {
+      fields,
+      body: comment.body,
+      fallback: 'No review comment body.',
+    });
   }
 }
 
@@ -254,26 +256,30 @@ function appendComments(
   comments: ReadonlyArray<GithubComment>,
 ): void {
   for (const comment of comments) {
-    appendItemHeader(lines, comment.author, comment.createdAt);
-    lines.push(
-      `ID: ${comment.id}`,
-      `URL: ${comment.url}`,
-      '',
-      formatItemBody(comment.body, 'No comment body.'),
-    );
+    appendItem(lines, comment.author, comment.createdAt, {
+      fields: [`ID: ${comment.id}`, `URL: ${comment.url}`],
+      body: comment.body,
+      fallback: 'No comment body.',
+    });
   }
 }
 
-function appendItemHeader(
+function appendItem(
   lines: Array<string>,
   author: string,
   timestamp: string,
+  item: {
+    readonly fields: ReadonlyArray<string>;
+    readonly body: string;
+    readonly fallback: string;
+  },
 ): void {
-  lines.push('', `### ${author} · ${timestamp}`, '');
-}
-
-function formatLocation(comment: GithubReviewComment): string {
-  return comment.line === null
-    ? comment.path
-    : `${comment.path}:${comment.line}`;
+  lines.push(
+    '',
+    `### ${author} · ${timestamp}`,
+    '',
+    ...item.fields,
+    '',
+    formatItemBody(item.body, item.fallback),
+  );
 }

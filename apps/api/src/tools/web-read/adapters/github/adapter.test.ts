@@ -349,6 +349,7 @@ describe('GitHub thread adapter', () => {
     ).resolves.toStrictEqual({
       kind: 'failed',
       failure: 'rate_limit',
+      reset: '1970-01-01T00:02:03.000Z',
     });
   });
 
@@ -455,6 +456,90 @@ describe('GitHub thread adapter', () => {
     }
   });
 
+  it('halts after a fatal secondary failure and notes skipped sections', async () => {
+    const reviewsUrl = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=1`;
+    const timeout: WebFetchFailure = {
+      type: 'call_timeout',
+      message: 'The web read exceeded its 30-second budget.',
+    };
+    const routes = pullRoutes(new Map([[reviewsUrl, [timeout]]]));
+    const { io, requests } = scriptedIo(routes);
+
+    const outcome = await createGithubAdapter(config(), {
+      apiOrigin: API_ORIGIN,
+    }).read(new URL(PULL_SOURCE), io);
+
+    expect(requests.map(({ url }) => url)).toStrictEqual([
+      `${API_ORIGIN}/repos/acme/project/pulls/12`,
+      `${API_ORIGIN}/repos/acme/project/issues/12/comments?per_page=100&page=1`,
+      reviewsUrl,
+    ]);
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: [
+        'reviews omitted: transport',
+        'review comments omitted: transport',
+        'files omitted: transport',
+        'check runs omitted: transport',
+      ],
+    });
+    if (outcome.kind === 'rendered') {
+      expect(outcome.content).toContain('Checks: unavailable');
+    }
+  });
+
+  it('returns a fatal outcome when a secondary request is aborted', async () => {
+    const reviewsUrl = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=1`;
+    const aborted: WebFetchFailure = {
+      type: 'aborted',
+      message: 'The web read was cancelled.',
+    };
+    const routes = pullRoutes(new Map([[reviewsUrl, [aborted]]]));
+    const { io, requests } = scriptedIo(routes);
+
+    const outcome = await createGithubAdapter(config(), {
+      apiOrigin: API_ORIGIN,
+    }).read(new URL(PULL_SOURCE), io);
+
+    expect(requests.map(({ url }) => url)).toStrictEqual([
+      `${API_ORIGIN}/repos/acme/project/pulls/12`,
+      `${API_ORIGIN}/repos/acme/project/issues/12/comments?per_page=100&page=1`,
+      reviewsUrl,
+    ]);
+    expect(outcome).toStrictEqual({
+      kind: 'failed',
+      failure: 'transport',
+      fatal: aborted,
+    });
+  });
+
+  it('reports loaded checks and the remainder after a malformed later page', async () => {
+    const page1 = `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=1`;
+    const page2 = `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=2`;
+    const runs = Array.from({ length: 100 }, (_, index) =>
+      checkRun(`pass-${index}`, 'completed', 'success'),
+    );
+    const routes = pullRoutes(
+      new Map([
+        [page1, [response({ total_count: 140, check_runs: runs })]],
+        [page2, [response({ total_count: 140, check_runs: [{ bad: true }] })]],
+      ]),
+    );
+    const { io } = scriptedIo(routes);
+
+    const outcome = await createGithubAdapter(config(), {
+      apiOrigin: API_ORIGIN,
+    }).read(new URL(PULL_SOURCE), io);
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['check runs omitted: parse'],
+    });
+    if (outcome.kind === 'rendered') {
+      expect(outcome.content).toContain('Checks: 100 passed, 40 not loaded');
+    }
+  });
+
   it('renders checks unavailable when the first page fails or is malformed', async () => {
     const failedPage: WebFetchFailure = {
       type: 'http_status',
@@ -484,6 +569,28 @@ describe('GitHub thread adapter', () => {
     if (failed.kind === 'rendered' && malformed.kind === 'rendered') {
       expect(failed.content).toContain('Checks: unavailable');
       expect(malformed.content).toContain('Checks: unavailable');
+    }
+  });
+
+  it('normalizes null GitHub users to the ghost author', async () => {
+    const commentsUrl = `${API_ORIGIN}/repos/acme/project/issues/12/comments?per_page=100&page=1`;
+    const routes = new Map<string, ReadonlyArray<Reply>>([
+      [
+        `${API_ORIGIN}/repos/acme/project/issues/12`,
+        [response({ ...issuePayload(), user: null })],
+      ],
+      [commentsUrl, [response([{ ...comment(1), user: null }])]],
+    ]);
+    const { io } = scriptedIo(routes);
+
+    const outcome = await createGithubAdapter(config(), {
+      apiOrigin: API_ORIGIN,
+    }).read(new URL(ISSUE_SOURCE), io);
+
+    expect(outcome).toMatchObject({ kind: 'rendered' });
+    if (outcome.kind === 'rendered') {
+      expect(outcome.content).toContain('Author: ghost');
+      expect(outcome.content).toContain('### ghost · 2026-01-03T00:00:00Z');
     }
   });
 

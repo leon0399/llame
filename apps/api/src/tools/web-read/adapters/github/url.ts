@@ -27,9 +27,7 @@ export function parseGithubThreadUrl(
   }
 
   const match = THREAD_PATH.exec(source.pathname);
-  if (match === null || match[2] === '.' || match[2] === '..') {
-    return undefined;
-  }
+  if (match === null) return undefined;
 
   return {
     kind: match[3] === 'issues' ? 'issue' : 'pull',

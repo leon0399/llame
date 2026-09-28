@@ -581,7 +581,7 @@
                   "use": {
                     "type": "string",
                     "enum": ["rewrite"],
-                    "description": "Adapter implementation. This layer supports only the generic rewrite route."
+                    "description": "Adapter implementation for an operator-declared rewrite route."
                   },
                   "hosts": {
                     "type": "array",

@@ -79,19 +79,11 @@ const ABORTED_FAILURE: WebFetchFailure = {
   message: 'The web read was cancelled.',
 };
 
-function failureResult(failure: WebFetchFailure): ToolResult {
-  const visible: WebFetchFailure = {
-    type: failure.type,
-    message: failure.message,
-    ...(failure.rejectedUrl !== undefined && {
-      rejectedUrl: failure.rejectedUrl,
-    }),
-  };
-  return { ...visible, status: 'error' };
-}
-
 /** The result returned when a caller abort lands before synchronous rendering. */
-const ABORTED: ToolResult = failureResult(ABORTED_FAILURE);
+const ABORTED: ToolResult = {
+  status: 'error',
+  ...ABORTED_FAILURE,
+};
 
 /**
  * A web locator is read-only, needs no executor identity, and is fetched by
@@ -141,7 +133,7 @@ async function fetchAndRender(
     if (!raw) {
       const adapters = await dispatchFor(context, locator.url, session, admit);
       if (adapters.kind === 'fatal') {
-        return failureResult(adapters.failure);
+        return { status: 'error', ...adapters.failure };
       }
       if (adapters.kind === 'rendered') {
         return deps.buildWebReadResult(locator, locator.url, adapters.render);
@@ -149,7 +141,7 @@ async function fetchAndRender(
       notes = adapters.notes;
     }
     const response = await session.fetch(locator.url);
-    if ('type' in response) return failureResult(response);
+    if ('type' in response) return { status: 'error', ...response };
     // Do not start synchronous rendering after a caller abort.
     if (context.abortSignal?.aborted === true) return ABORTED;
     const render = await deps.renderWebContent(
@@ -157,7 +149,7 @@ async function fetchAndRender(
       { raw },
       { fetch: session.fetch, admit },
     );
-    if ('type' in render) return failureResult(render);
+    if ('type' in render) return { status: 'error', ...render };
     // The envelope drops an empty notes list, so an unclaimed read is unchanged.
     return deps.buildWebReadResult(locator, response.finalUrl, {
       ...render,

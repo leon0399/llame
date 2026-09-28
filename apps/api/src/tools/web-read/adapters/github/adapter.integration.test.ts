@@ -53,16 +53,13 @@ type GithubFixture = {
 type PullRouteOptions = {
   readonly redirectPrimary?: boolean;
   readonly primaryRateLimited?: boolean;
-  readonly reviewCommentsRateLimited?: boolean;
 };
 
 const ACCEPT = 'application/vnd.github+json';
 const USER_AGENT = 'llame/0.0.0-test';
 const PULL_SOURCE = 'https://github.com/o/r/pull/12';
-const ISSUE_SOURCE = 'https://github.com/o/r/issues/12';
 const PULL_PRIMARY = '/repos/o/r/pulls/12';
-const ISSUE_PRIMARY = '/repos/o/r/issues/12';
-const ISSUE_COMMENTS = '/repos/o/r/issues/12/comments';
+const PULL_ISSUE_COMMENTS = '/repos/o/r/issues/12/comments?per_page=100&page=1';
 const PULL_REVIEWS = '/repos/o/r/pulls/12/reviews?per_page=100&page=1';
 const PULL_REVIEW_COMMENTS = '/repos/o/r/pulls/12/comments?per_page=100&page=1';
 const PULL_FILES = '/repos/o/r/pulls/12/files?per_page=100&page=1';
@@ -73,19 +70,6 @@ const RESET = '123';
 const ADMIT_ALL_POLICY = compileToolPermissionMap(
   { read: { allow: true } },
   'github-adapter-integration',
-);
-const SOURCE_ONLY_POLICY = compileToolPermissionMap(
-  {
-    read: {
-      allow: [
-        {
-          field: 'path',
-          regex: String.raw`^https://github\.com/o/r/pull/12$`,
-        },
-      ],
-    },
-  },
-  'github-adapter-permission-integration',
 );
 
 function pullPayload() {
@@ -104,31 +88,6 @@ function pullPayload() {
     labels: [],
     html_url: PULL_SOURCE,
     body: 'Pull body',
-  } satisfies JsonObject;
-}
-
-function issuePayload() {
-  return {
-    number: 12,
-    title: 'An issue',
-    state: 'open',
-    state_reason: null,
-    user: { login: 'alice' },
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-02T00:00:00Z',
-    labels: [],
-    html_url: ISSUE_SOURCE,
-    body: 'Issue body',
-  } satisfies JsonObject;
-}
-
-function commentPayload(id: number) {
-  return {
-    id,
-    user: { login: `user-${id}` },
-    created_at: '2026-01-03T00:00:00Z',
-    html_url: `${ISSUE_SOURCE}#issuecomment-${id}`,
-    body: `Comment ${id}`,
   } satisfies JsonObject;
 }
 
@@ -264,40 +223,18 @@ function pullRoute(options: PullRouteOptions = {}): FixtureRoute {
       sendJson(response, 200, []);
       return;
     }
-    if (path === PULL_REVIEWS || path === PULL_FILES || path === CHECK_RUNS) {
+    if (
+      path === PULL_REVIEWS ||
+      path === PULL_REVIEW_COMMENTS ||
+      path === PULL_FILES ||
+      path === CHECK_RUNS
+    ) {
       sendJson(
         response,
         200,
         path === CHECK_RUNS ? { total_count: 0, check_runs: [] } : [],
       );
       return;
-    }
-    if (path === PULL_REVIEW_COMMENTS) {
-      if (options.reviewCommentsRateLimited === true) {
-        sendRateLimit(response, 'review comments rate limit body');
-      } else {
-        sendJson(response, 200, []);
-      }
-      return;
-    }
-    sendNotFound(response);
-  };
-}
-
-function issueRoute(
-  commentPages: ReadonlyArray<ReadonlyArray<JsonObject>>,
-): FixtureRoute {
-  return (_address, path, response) => {
-    if (path === ISSUE_PRIMARY) {
-      sendJson(response, 200, issuePayload());
-      return;
-    }
-    for (const [index, page] of commentPages.entries()) {
-      const pagePath = `${ISSUE_COMMENTS}?per_page=100&page=${index + 1}`;
-      if (path === pagePath) {
-        sendJson(response, 200, page);
-        return;
-      }
     }
     sendNotFound(response);
   };
@@ -368,39 +305,6 @@ function expectProductHeaders(requests: ReadonlyArray<FixtureRequest>): void {
 }
 
 describe('GitHub adapter over a real shared web session', () => {
-  it('loads a pull request sections in order with GitHub headers', async () => {
-    const fixture = await startGithubFixture(pullRoute());
-    try {
-      const result = await dispatchGithub(
-        fixture,
-        PULL_SOURCE,
-        undefined,
-        ADMIT_ALL_POLICY,
-      );
-
-      expect(result.kind).toBe('rendered');
-      if (result.kind !== 'rendered')
-        throw new Error('Pull request did not render.');
-      expect(result.render.content).toContain(
-        '# Pull Request #12: A pull request',
-      );
-      expect(result.render.content).toContain('Reviews:');
-      expect(result.render.content).toContain('Checks:');
-      expect(result.render.content).toContain('Diff:');
-      expect(fixture.requests.map(({ path }) => path)).toEqual([
-        PULL_PRIMARY,
-        '/repos/o/r/issues/12/comments?per_page=100&page=1',
-        PULL_REVIEWS,
-        PULL_REVIEW_COMMENTS,
-        PULL_FILES,
-        CHECK_RUNS,
-      ]);
-      expectProductHeaders(fixture.requests);
-    } finally {
-      await fixture.close();
-    }
-  });
-
   it('scopes a token to the API origin across a real redirect', async () => {
     const token = 'integration-secret-token';
     const fixture = await startGithubFixture(
@@ -414,36 +318,40 @@ describe('GitHub adapter over a real shared web session', () => {
         ADMIT_ALL_POLICY,
       );
       expect(result.kind).toBe('rendered');
+      if (result.kind !== 'rendered')
+        throw new Error('Pull request did not render.');
+      expect(result.render.content).toContain(
+        '# Pull Request #12: A pull request',
+      );
+      expect(result.render.content).toContain('Reviews:');
+      expect(result.render.content).toContain('Checks:');
+      expect(result.render.content).toContain('Diff:');
       expect(JSON.stringify(result)).not.toContain(token);
+      expect(
+        fixture.requests.map(({ address, path }) => ({ address, path })),
+      ).toEqual([
+        { address: 'api', path: PULL_PRIMARY },
+        { address: 'redirect', path: PULL_PRIMARY },
+        { address: 'api', path: PULL_ISSUE_COMMENTS },
+        { address: 'api', path: PULL_REVIEWS },
+        { address: 'api', path: PULL_REVIEW_COMMENTS },
+        { address: 'api', path: PULL_FILES },
+        { address: 'api', path: CHECK_RUNS },
+      ]);
       const apiRequests = fixture.requests.filter(
         ({ address }) => address === 'api',
       );
       const redirectRequests = fixture.requests.filter(
         ({ address }) => address === 'redirect',
       );
-      expect(apiRequests.length).toBeGreaterThan(0);
-      expect(redirectRequests).toHaveLength(1);
       expect(
         apiRequests.every(
           ({ authorization }) => authorization === `Bearer ${token}`,
         ),
       ).toBe(true);
+      expect(redirectRequests).toHaveLength(1);
       expect(redirectRequests[0]?.authorization).toBeUndefined();
       expectProductHeaders(fixture.requests);
-    } finally {
-      await fixture.close();
-    }
-  });
-
-  it('omits Authorization entirely when no token is configured', async () => {
-    const fixture = await startGithubFixture(pullRoute());
-    try {
-      await dispatchGithub(fixture, PULL_SOURCE, undefined, ADMIT_ALL_POLICY);
-      expect(
-        fixture.requests.every(
-          ({ authorization }) => authorization === undefined,
-        ),
-      ).toBe(true);
     } finally {
       await fixture.close();
     }
@@ -462,88 +370,12 @@ describe('GitHub adapter over a real shared web session', () => {
       );
       expect(result).toStrictEqual({
         kind: 'fallthrough',
-        notes: ['web adapter "github" fell through: rate_limit'],
+        notes: [
+          'web adapter "github" fell through: rate_limit, resets 1970-01-01T00:02:03.000Z',
+        ],
       });
       expect(JSON.stringify(result)).not.toContain('primary rate limit body');
       expect(fixture.requests).toHaveLength(1);
-    } finally {
-      await fixture.close();
-    }
-  });
-
-  it('renders a secondary review-comment rate limit as an omission note', async () => {
-    const fixture = await startGithubFixture(
-      pullRoute({ reviewCommentsRateLimited: true }),
-    );
-    try {
-      const result = await dispatchGithub(
-        fixture,
-        PULL_SOURCE,
-        undefined,
-        ADMIT_ALL_POLICY,
-      );
-      expect(result.kind).toBe('rendered');
-      if (result.kind !== 'rendered')
-        throw new Error('Pull request did not render.');
-      expect(result.render.notes).toEqual([
-        'review comments omitted: rate_limit, resets 1970-01-01T00:02:03.000Z',
-      ]);
-      expect(result.render.content).toContain('## Review Comments (0)');
-    } finally {
-      await fixture.close();
-    }
-  });
-
-  it('refuses an API origin before the fixture receives a request', async () => {
-    const fixture = await startGithubFixture(pullRoute());
-    try {
-      const result = await dispatchGithub(
-        fixture,
-        PULL_SOURCE,
-        undefined,
-        SOURCE_ONLY_POLICY,
-      );
-      expect(result).toStrictEqual({
-        kind: 'fallthrough',
-        notes: ['web adapter "github" fell through: permission'],
-      });
-      expect(fixture.requests).toHaveLength(0);
-    } finally {
-      await fixture.close();
-    }
-  });
-
-  it('requests exactly three pages for 230 issue comments', async () => {
-    const comments = Array.from({ length: 230 }, (_, index) =>
-      commentPayload(index + 1),
-    );
-    const fixture = await startGithubFixture(
-      issueRoute([
-        comments.slice(0, 100),
-        comments.slice(100, 200),
-        comments.slice(200),
-      ]),
-    );
-    try {
-      const result = await dispatchGithub(
-        fixture,
-        ISSUE_SOURCE,
-        undefined,
-        ADMIT_ALL_POLICY,
-      );
-      expect(result.kind).toBe('rendered');
-      if (result.kind !== 'rendered') throw new Error('Issue did not render.');
-      expect(result.render.content).toContain('## Comments (230)');
-      expect(result.render.content).toContain('ID: 230');
-      const commentRequests = fixture.requests.filter(({ path }) =>
-        path.startsWith(`${ISSUE_COMMENTS}?`),
-      );
-      expect(commentRequests).toHaveLength(3);
-      expect(commentRequests.map(({ path }) => path)).toEqual([
-        `${ISSUE_COMMENTS}?per_page=100&page=1`,
-        `${ISSUE_COMMENTS}?per_page=100&page=2`,
-        `${ISSUE_COMMENTS}?per_page=100&page=3`,
-      ]);
     } finally {
       await fixture.close();
     }

@@ -1,13 +1,10 @@
 import type { GithubWebAdapterConfig } from '../../../../instance-config/llame-config';
-import type {
-  WebFetchFailure,
-  WebRequestInit,
-  WebResponse,
-} from '../../http-client';
+import type { WebFetchFailure, WebRequestInit } from '../../http-client';
 import {
   classifyFetchFailure,
   isFatalAdapterFailure,
   omissionNote,
+  rateLimitReset,
   type WebAdapter,
   type WebAdapterIo,
   type WebAdapterOutcome,
@@ -17,13 +14,11 @@ import {
   parseCheckPage,
   parseCommentsPage,
   parseFilesPage,
-  parseGithubJson,
   parseIssuePayload,
   parsePullPayload,
   parseReviewCommentsPage,
   parseReviewsPage,
   type GithubCheckRun,
-  type GithubJsonValue,
 } from './payload';
 import {
   renderGithubDocument,
@@ -41,7 +36,7 @@ const PARSE_FAILURE: WebFetchFailure = {
 };
 
 type JsonResult =
-  | { readonly kind: 'ok'; readonly value: GithubJsonValue }
+  | { readonly kind: 'ok'; readonly body: string }
   | { readonly kind: 'failed'; readonly failure: WebFetchFailure };
 type RequestContext = {
   readonly io: WebAdapterIo;
@@ -50,16 +45,27 @@ type RequestContext = {
   readonly notes: Array<string>;
   halted?: WebFetchFailure;
 };
-type PageParser<T> = (value: GithubJsonValue) => ReadonlyArray<T> | undefined;
-type PageSpec<T> = {
-  readonly basePath: string;
-  readonly section: string;
-  readonly parse: PageParser<T>;
-  readonly context: RequestContext;
-};
-type CheckLoad = {
-  readonly runs: ReadonlyArray<GithubCheckRun>;
+type PageStep<T> = (
+  body: string,
+  page: number,
+  loaded: number,
+) => PageResult<T> | undefined;
+type PageResult<T> = {
+  readonly items: ReadonlyArray<T>;
+  readonly done?: boolean;
   readonly totalCount?: number;
+};
+type PageSpec<T> = {
+  readonly section: string;
+  readonly path: string;
+  readonly context: RequestContext;
+  readonly step: PageStep<T>;
+};
+type PullListSpec<T> = {
+  readonly section: string;
+  readonly path: string;
+  readonly parse: (body: string) => ReadonlyArray<T> | undefined;
+  readonly context: RequestContext;
 };
 
 /** Creates the native GitHub thread adapter. */
@@ -67,57 +73,68 @@ export function createGithubAdapter(
   config: GithubWebAdapterConfig,
   options: { readonly apiOrigin?: string } = {},
 ): WebAdapter {
-  const apiOrigin = trimTrailingSlash(options.apiOrigin ?? GITHUB_API_ORIGIN);
+  const apiOrigin = options.apiOrigin ?? GITHUB_API_ORIGIN;
   const init = requestInit(config.token, apiOrigin);
   return {
     id: config.id,
     route: 'native',
     match: (source) => parseGithubThreadUrl(source) !== undefined,
-    read: (source, io) => readGithubThread(source, io, apiOrigin, init),
+    read: (source, io) =>
+      readGithubThread(parseGithubThreadUrl(source)!, io, apiOrigin, init),
   };
 }
 
 async function readGithubThread(
-  source: URL,
+  target: GithubThreadTarget,
   io: WebAdapterIo,
   apiOrigin: string,
   init: WebRequestInit,
 ): Promise<WebAdapterOutcome> {
-  const target = parseGithubThreadUrl(source);
-  if (target === undefined) return { kind: 'failed', failure: 'permission' };
   const context: RequestContext = { io, init, apiOrigin, notes: [] };
   const primary = await requestJson(primaryUrl(target, apiOrigin), context);
-  if (primary.kind === 'failed') return primaryFailure(primary.failure);
+  if (primary.kind === 'failed') {
+    const result: WebAdapterOutcome = {
+      kind: 'failed',
+      failure: classifyFetchFailure(primary.failure),
+    };
+    const reset = rateLimitReset(primary.failure);
+    const outcome = reset === undefined ? result : { ...result, reset };
+    return isFatalAdapterFailure(primary.failure)
+      ? { ...outcome, fatal: primary.failure }
+      : outcome;
+  }
   return target.kind === 'issue'
-    ? renderIssue(target, primary.value, context)
-    : renderPull(target, primary.value, context);
+    ? renderIssue(target, primary.body, context)
+    : renderPull(target, primary.body, context);
 }
 
 async function renderIssue(
   target: GithubThreadTarget,
-  value: GithubJsonValue,
+  body: string,
   context: RequestContext,
 ): Promise<WebAdapterOutcome> {
-  const document = parseIssuePayload(value, target);
+  const document = parseIssuePayload(body, target);
   if (document === undefined) return { kind: 'failed', failure: 'parse' };
-  const comments = await loadPaged({
-    basePath: threadPath(target, 'issues', 'comments'),
-    section: 'comments',
-    parse: parseCommentsPage,
-    context,
-  });
-  return rendered({ ...document, comments }, context.notes);
+  const comments = (
+    await loadList({
+      section: 'comments',
+      path: threadPath(target, 'issues', 'comments'),
+      parse: parseCommentsPage,
+      context,
+    })
+  ).items;
+  return finish({ ...document, comments }, context);
 }
 
 async function renderPull(
   target: GithubThreadTarget,
-  value: GithubJsonValue,
+  body: string,
   context: RequestContext,
 ): Promise<WebAdapterOutcome> {
-  const primary = parsePullPayload(value, target);
+  const primary = parsePullPayload(body, target);
   if (primary === undefined) return { kind: 'failed', failure: 'parse' };
   const sections = await loadPullSections(target, primary.headSha, context);
-  return rendered({ ...primary.document, ...sections }, context.notes);
+  return finish({ ...primary.document, ...sections }, context);
 }
 
 async function loadPullSections(
@@ -130,68 +147,62 @@ async function loadPullSections(
     'comments' | 'reviews' | 'reviewComments' | 'files' | 'checks'
   >
 > {
-  const comments = await loadPaged({
-    basePath: threadPath(target, 'issues', 'comments'),
-    section: 'comments',
-    parse: parseCommentsPage,
-    context,
-  });
-  const reviews = await loadPaged({
-    basePath: threadPath(target, 'pulls', 'reviews'),
-    section: 'reviews',
-    parse: parseReviewsPage,
-    context,
-  });
-  const reviewComments = await loadPaged({
-    basePath: threadPath(target, 'pulls', 'comments'),
-    section: 'review comments',
-    parse: parseReviewCommentsPage,
-    context,
-  });
-  const files = await loadPaged({
-    basePath: threadPath(target, 'pulls', 'files'),
-    section: 'files',
-    parse: parseFilesPage,
-    context,
-  });
+  const lists = await loadPullLists(target, context);
   const checks = await loadChecks(target, headSha, context);
-  return { comments, reviews, reviewComments, files, checks };
+  return { ...lists, checks };
 }
 
-function rendered(
-  document: GithubIssueDocument | GithubPullDocument,
-  notes: ReadonlyArray<string>,
-): WebAdapterOutcome {
-  const content = renderGithubDocument(document);
-  return content.trim().length === 0
-    ? { kind: 'failed', failure: 'empty' }
-    : { kind: 'rendered', content, notes };
+async function loadPullLists(
+  target: GithubThreadTarget,
+  context: RequestContext,
+): Promise<
+  Pick<GithubPullDocument, 'comments' | 'reviews' | 'reviewComments' | 'files'>
+> {
+  const comments = (
+    await loadList({
+      section: 'comments',
+      path: threadPath(target, 'issues', 'comments'),
+      parse: parseCommentsPage,
+      context,
+    })
+  ).items;
+  const reviews = (
+    await loadList({
+      section: 'reviews',
+      path: threadPath(target, 'pulls', 'reviews'),
+      parse: parseReviewsPage,
+      context,
+    })
+  ).items;
+  const reviewComments = (
+    await loadList({
+      section: 'review comments',
+      path: threadPath(target, 'pulls', 'comments'),
+      parse: parseReviewCommentsPage,
+      context,
+    })
+  ).items;
+  const files = (
+    await loadList({
+      section: 'files',
+      path: threadPath(target, 'pulls', 'files'),
+      parse: parseFilesPage,
+      context,
+    })
+  ).items;
+  return { comments, reviews, reviewComments, files };
 }
 
-async function loadPaged<T>(spec: PageSpec<T>): Promise<ReadonlyArray<T>> {
-  if (spec.context.halted !== undefined) {
-    spec.context.notes.push(omissionNote(spec.section, spec.context.halted));
-    return [];
-  }
-  const items: Array<T> = [];
-  for (let page = 1; ; page += 1) {
-    const result = await requestJson(
-      `${spec.context.apiOrigin}${spec.basePath}?per_page=${PAGE_SIZE}&page=${page}`,
-      spec.context,
-    );
-    if (result.kind === 'failed') {
-      recordSecondaryFailure(spec.section, result.failure, spec.context);
-      break;
-    }
-    const parsed = spec.parse(result.value);
-    if (parsed === undefined) {
-      recordSecondaryFailure(spec.section, PARSE_FAILURE, spec.context);
-      break;
-    }
-    items.push(...parsed);
-    if (parsed.length < PAGE_SIZE) break;
-  }
-  return items;
+async function loadList<T>(spec: PullListSpec<T>): Promise<PageResult<T>> {
+  return loadPaged({
+    ...spec,
+    step: (body) => {
+      const items = spec.parse(body);
+      return items === undefined
+        ? undefined
+        : { items, done: items.length < PAGE_SIZE };
+    },
+  });
 }
 
 async function loadChecks(
@@ -199,46 +210,74 @@ async function loadChecks(
   headSha: string,
   context: RequestContext,
 ): Promise<GithubChecks> {
-  if (context.halted !== undefined) {
-    context.notes.push(omissionNote('check runs', context.halted));
-    return { kind: 'unavailable' };
-  }
-  const loaded = await requestCheckPages(target, headSha, context);
-  return countGithubChecks(loaded.runs, loaded.totalCount);
+  const page = checkPageStep();
+  const loaded = await loadPaged({
+    section: 'check runs',
+    path: `${checkRunsPath(target, headSha)}?filter=latest`,
+    context,
+    step: page,
+  });
+  return countGithubChecks(loaded.items, loaded.totalCount);
 }
 
-async function requestCheckPages(
-  target: GithubThreadTarget,
-  headSha: string,
-  context: RequestContext,
-): Promise<CheckLoad> {
-  const runs: Array<GithubCheckRun> = [];
+function checkPageStep(): PageStep<GithubCheckRun> {
   let totalCount: number | undefined;
-  const basePath = checkRunsPath(target, headSha);
+  return (body, page, loaded) => {
+    const parsed = parseCheckPage(body, page === 1);
+    if (parsed === undefined) return undefined;
+    if (page === 1) totalCount = parsed.totalCount;
+    if (parsed.runs.length === 0 && loaded < (totalCount ?? 0)) {
+      return undefined;
+    }
+    return {
+      items: parsed.runs,
+      done:
+        totalCount !== undefined && loaded + parsed.runs.length >= totalCount,
+      totalCount,
+    };
+  };
+}
+
+async function loadPaged<T>(spec: PageSpec<T>): Promise<PageResult<T>> {
+  const items: Array<T> = [];
+  let totalCount: number | undefined;
   for (let page = 1; ; page += 1) {
+    if (spec.context.halted !== undefined) {
+      recordSecondaryFailure(spec.section, spec.context.halted, spec.context);
+      break;
+    }
     const result = await requestJson(
-      `${context.apiOrigin}${basePath}?filter=latest&per_page=${PAGE_SIZE}&page=${page}`,
-      context,
+      `${spec.context.apiOrigin}${spec.path}${spec.path.includes('?') ? '&' : '?'}per_page=${PAGE_SIZE}&page=${page}`,
+      spec.context,
     );
     if (result.kind === 'failed') {
-      recordSecondaryFailure('check runs', result.failure, context);
-      return { runs, totalCount };
+      recordSecondaryFailure(spec.section, result.failure, spec.context);
+      break;
     }
-    const parsed = parseCheckPage(result.value, page === 1);
+    const parsed = spec.step(result.body, page, items.length);
     if (parsed === undefined) {
-      recordSecondaryFailure('check runs', PARSE_FAILURE, context);
-      return { runs, totalCount };
+      recordSecondaryFailure(spec.section, PARSE_FAILURE, spec.context);
+      break;
     }
-    if (page === 1) totalCount = parsed.totalCount;
-    runs.push(...parsed.runs);
-    if (totalCount !== undefined && runs.length >= totalCount) {
-      return { runs, totalCount };
-    }
-    if (parsed.runs.length === 0 && totalCount !== undefined) {
-      recordSecondaryFailure('check runs', PARSE_FAILURE, context);
-      return { runs, totalCount };
-    }
+    items.push(...parsed.items);
+    if (parsed.totalCount !== undefined) totalCount = parsed.totalCount;
+    if (parsed.done) return { items, totalCount };
   }
+  return { items, totalCount };
+}
+
+function finish(
+  document: GithubIssueDocument | GithubPullDocument,
+  context: RequestContext,
+): WebAdapterOutcome {
+  if (context.halted?.type === 'aborted') {
+    return { kind: 'failed', failure: 'transport', fatal: context.halted };
+  }
+  return {
+    kind: 'rendered',
+    content: renderGithubDocument(document),
+    notes: context.notes,
+  };
 }
 
 function recordSecondaryFailure(
@@ -249,33 +288,16 @@ function recordSecondaryFailure(
   context.notes.push(omissionNote(section, failure));
   if (isFatalAdapterFailure(failure)) context.halted = failure;
 }
-
 async function requestJson(
   url: string,
   context: RequestContext,
 ): Promise<JsonResult> {
+  if (context.halted !== undefined) {
+    return { kind: 'failed', failure: context.halted };
+  }
   const fetched = await context.io.fetch(url, context.init);
-  if (isFetchFailure(fetched)) return { kind: 'failed', failure: fetched };
-  const value = parseGithubJson(fetched.body);
-  return value === undefined
-    ? { kind: 'failed', failure: PARSE_FAILURE }
-    : { kind: 'ok', value };
-}
-
-function primaryFailure(failure: WebFetchFailure): WebAdapterOutcome {
-  const outcome: WebAdapterOutcome = {
-    kind: 'failed',
-    failure: classifyFetchFailure(failure),
-  };
-  return isFatalAdapterFailure(failure)
-    ? { ...outcome, fatal: failure }
-    : outcome;
-}
-
-function isFetchFailure(
-  value: WebResponse | WebFetchFailure,
-): value is WebFetchFailure {
-  return 'type' in value;
+  if ('type' in fetched) return { kind: 'failed', failure: fetched };
+  return { kind: 'ok', body: fetched.body };
 }
 
 function requestInit(
@@ -289,13 +311,9 @@ function requestInit(
   };
 }
 
-function trimTrailingSlash(origin: string): string {
-  return origin.endsWith('/') ? origin.slice(0, -1) : origin;
-}
-
 function primaryUrl(target: GithubThreadTarget, apiOrigin: string): string {
   const resource = target.kind === 'issue' ? 'issues' : 'pulls';
-  return `${apiOrigin}/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/${resource}/${target.number}`;
+  return `${apiOrigin}${repoPath(target)}/${resource}/${target.number}`;
 }
 
 function threadPath(
@@ -303,9 +321,13 @@ function threadPath(
   resource: string,
   suffix: string,
 ): string {
-  return `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/${resource}/${target.number}/${suffix}`;
+  return `${repoPath(target)}/${resource}/${target.number}/${suffix}`;
 }
 
 function checkRunsPath(target: GithubThreadTarget, headSha: string): string {
-  return `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/commits/${encodeURIComponent(headSha)}/check-runs`;
+  return `${repoPath(target)}/commits/${encodeURIComponent(headSha)}/check-runs`;
+}
+
+function repoPath(target: GithubThreadTarget): string {
+  return `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`;
 }
