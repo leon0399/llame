@@ -307,7 +307,7 @@ address, and shared-bound checks before it is issued.
 
 - **WHEN** an alternate or suffix URL answers 404, serves `application/pdf`, returns an HTML error page, or returns a body of 40 characters
 - **THEN** that candidate is not returned as the content and the call does not fail
-- **AND** the next adapter in order decides the content
+- **AND** the next ladder stage in order decides the content
 
 #### Scenario: A low-quality candidate is rejected
 
@@ -891,13 +891,15 @@ truncation, and range-selector rules as a host directory read. A response
 over 5 MiB SHALL be `too_large` and fall through. A symlink entry (mode
 `120000`) SHALL render with the host symlink marker as `- name@`, and a
 submodule entry (mode `160000`) with the host special marker as `- name?`.
-When GitHub marks the recursive tree `truncated`, the listing SHALL carry the
-note `tree truncated by GitHub: listing is partial`. The repository root SHALL
+The repository root SHALL
 additionally request `/repos/{owner}/{repo}` and render `Description`,
 `Default branch`, `Visibility`, and `Language` lines before the listing, then
-`## README` with the decoded `/repos/{owner}/{repo}/readme` content; a root
-listing over the host listing's entry budget SHALL be omitted with the note
-`tree omitted: too_large` while the metadata and README still render.
+`## README` with the decoded `/repos/{owner}/{repo}/readme` content. When the
+root's top-level entries exceed the host listing's per-directory entry budget
+(the same count a host directory read bounds; child-level samples do not
+count), the root SHALL render its metadata and README without the listing and
+carry the section omission note `tree omitted: too_large`; this is a
+render-time omission note, not an adapter failure, and nothing falls through.
 
 Because a locator does not mark where a ref ends, the adapter SHALL try the
 first segment after `tree/` or `blob/` as the ref. On a `404` with segments
@@ -939,12 +941,19 @@ to split SHALL be a `status` failure.
 - **THEN** one recursive tree request is issued and the listing shows the `apps` entries and each child directory's first 20 entries followed by `… N more`
 - **AND** a `:1-10` selector and the result truncation behave as on a host directory
 
-#### Scenario: A partial or linked tree is marked
+#### Scenario: Symlinks and submodules keep host markers
 
-- **WHEN** GitHub answers a recursive tree request with `truncated: true` and
-  entries of mode `120000` and `160000`
-- **THEN** the listing carries `tree truncated by GitHub: listing is partial`
-- **AND** the symlink renders as `- name@` and the submodule as `- name?`
+- **WHEN** a recursive tree response has entries of mode `120000` and `160000`
+- **THEN** the symlink renders as `- name@` and the submodule as `- name?`
+- **AND** neither renders as a plain file line
+
+#### Scenario: An over-budget root omits only its listing
+
+- **WHEN** a repository root has more top-level entries than the host
+  per-directory entry budget
+- **THEN** the metadata lines and `## README` render
+- **AND** the listing is replaced by the omission note `tree omitted: too_large`
+  and no fall-through occurs
 
 #### Scenario: A repository root renders metadata, listing, and README
 

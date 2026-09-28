@@ -349,8 +349,11 @@ level and one child level, and renders the local directory listing shape: the
 requested level, then each child directory's first 20 entries followed by
 `… N more`, with the same `… N entries`, truncation, and range-selector rules
 as a host directory read. A response over 5 MiB is `too_large` and falls
-through; a `truncated` tree carries `tree truncated by GitHub: listing is
-partial`, and symlink and submodule entries use the host `@` and `?` markers.
+through (GitHub itself truncates only above 7 MB, so its `truncated` flag
+cannot survive that bound), and symlink and submodule entries use the host
+`@` and `?` markers. A root over the host per-directory entry budget keeps
+its metadata and README and replaces the listing with a `tree omitted:
+too_large` note.
 The repository root renders `Description`, `Default branch`,
 `Visibility`, and `Language` lines from `GET /repos/{o}/{r}`, then the
 two-level root listing, then `## README` from `GET /repos/{o}/{r}/readme`
