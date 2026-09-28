@@ -836,7 +836,7 @@ The schema SHALL cover the shape-stable operator settings and SHALL be extended 
 
 - **WHEN** the file omits `tools.webAdapters` while `tools` is otherwise configured
 - **THEN** no adapter is enabled and the URL uses only the generic ladder
-- **AND** no third-party origin is contacted
+- **AND** no adapter origin is contacted
 
 ### Requirement: Operator tool permissions compile before process startup completes
 
@@ -1179,7 +1179,8 @@ redaction behavior for secret fields.
 
 - **WHEN** a rewrite target is non-http(s) such as `file:///tmp/x`, contains
   userinfo such as `https://user:secret@example.test/x`, has a fragment,
-  places `{path}` in its scheme, host, or port, uses an unknown placeholder
+  places `{path}` in its scheme, host, port, or query, uses an unknown
+  placeholder
   such as `{source}`, or has a malformed template
 - **THEN** startup fails naming the entry and `target`
 - **AND** the instance does not start with that rewrite enabled

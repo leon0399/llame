@@ -1860,7 +1860,8 @@ and added/deleted counts, `## Reviews ({n})`, `## Review Comments ({n})`, and
 `## Comments ({n})`. Every comment, review, and review comment SHALL be one
 `### {author} · {timestamp}` heading at the same depth in source order,
 followed by `ID`, `Reply to` (when the item answers another), `Location
-{path}:{line}` and `Side` (review comments), and `URL` lines, then the body.
+{path}:{line}` and `Side` (review comments), `State` (reviews, the review's
+own state such as `APPROVED`), and `URL` lines, then the body.
 No `Review decision` line, patch text, or event timeline SHALL be rendered;
 minimized comments SHALL render like any other comment.
 
@@ -1979,7 +1980,8 @@ large file, or a declared size over the body bound SHALL be a `binary` or
 `too_large` failure that falls through; binary bytes SHALL never be presented
 as text. A commit SHALL request `/repos/{owner}/{repo}/commits/{sha}` and
 render message, author, timestamp, every changed file with its status and
-counts, and `Diff: https://github.com/{owner}/{repo}/commit/{sha}.diff`; it
+counts, loaded in pages of 100 up to 3,000 files (beyond which the list is
+cut with the omission note `files omitted: too_large`), and `Diff: https://github.com/{owner}/{repo}/commit/{sha}.diff`; it
 SHALL NOT render patches.
 
 A directory SHALL request one
@@ -2091,7 +2093,8 @@ containing no placeholder, userinfo, or fragment, followed by a path/query
 template in which only `{path}` and `{query}` occur: `{path}` is allowed only
 in the path and inserts the canonical source path as-is; `{query}` inserts
 `encodeURIComponent` of the canonical query without its `?`. Boot SHALL
-reject any other placeholder, a placeholder in the scheme, host, or port, a
+reject any other placeholder, a placeholder in the scheme, host, or port,
+`{path}` in the query, a
 non-http(s) target, userinfo, a fragment, a malformed template, or an invalid,
 oversized, or unsupported `pathPattern`. Per call the target SHALL be rebuilt
 from the template, revalidated against the declared origin and literal path

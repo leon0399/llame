@@ -436,8 +436,9 @@ refused-address message below, a refused hop carrying `rejectedUrl` as a hop
 rejection does, and no result field or message SHALL carry an address the
 host resolved to. A refused adapter request SHALL not produce a model-visible
 error body: its decision is stored, its bounded failure note is attached to
-adapter fallthrough, and the next adapter or ladder candidate may run. The model SHALL observe the
-error and continue subject to existing Run limits. The decision SHALL be durably recorded on `tool.requested` before any `tool.started` event or executor dispatch, and carried through completion, abort settlement, and durable transcript reconstruction into stored tool-part metadata. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.
+adapter fallthrough, and the next adapter or ladder candidate may run. For a
+refusal that ends the call, the model SHALL observe the error and continue
+subject to existing Run limits. The decision SHALL be durably recorded on `tool.requested` before any `tool.started` event or executor dispatch, and carried through completion, abort settlement, and durable transcript reconstruction into stored tool-part metadata. Required decision persistence failure SHALL prevent execution and follow the existing infrastructure-failure path.
 
 The model-visible message SHALL use one of these fixed templates. It SHALL NOT interpolate rule text, matching fragments, field names, private paths, operator-authored explanations, clause references, policy IDs, or secret
 values; the rejected hop locator travels in the separate `rejectedUrl` field,
