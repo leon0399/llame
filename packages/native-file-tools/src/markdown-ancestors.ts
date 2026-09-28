@@ -247,6 +247,8 @@ function chainGroups(context: AncestorChainContext): Array<ChainGroup> {
   const lastEmittedLine = result.shownRanges.at(-1)?.endLine ?? 0;
   const groups: Array<ChainGroup> = [];
   for (const unit of units) {
+    // A setext heading containing line N is N's own heading, not an ancestor.
+    if ((unit.lines.at(-1)?.line ?? 0) > context.firstRequested) continue;
     const entries: Array<NativeEntry> = [];
     let renderable = true;
     for (const line of unit.lines) {

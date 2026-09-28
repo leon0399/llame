@@ -604,6 +604,36 @@ describe("markdown ancestor range selection", () => {
     ).toBe("3: context\n5: five\n6: six\n7: seven\n9: nine\n10: ten\n");
   });
 
+  it("does not treat a requested line's own setext heading as its ancestor", () => {
+    const source = "# Top\n\nt3\nt4\nt5\n---\nbody\n";
+    expect(
+      selectSourceLines(
+        source,
+        applySelectorSuffix("/doc.md", "5-5"),
+        "text/markdown",
+      ),
+    ).toMatchObject({
+      content: "1: # Top\n4: t4\n5: t5\n6: ---\n",
+      shownRanges: [
+        { startLine: 1, endLine: 1 },
+        { startLine: 4, endLine: 6 },
+      ],
+    });
+  });
+
+  it("continues a setext ancestor straddling an earlier passage", () => {
+    const source = "# Top\n\nintro\n\nt5\nt6\nt7\n---\ns9\n### Sub\nb11\nb12\n";
+    expect(
+      selectMultiRangeLines(
+        source,
+        applySelectorSuffix("/doc.md", "6,12"),
+        "text/markdown",
+      ).content,
+    ).toBe(
+      "1: # Top\n5: t5\n6: t6\n7: t7\n8: ---\n10: ### Sub\n11: b11\n12: b12\n",
+    );
+  });
+
   it("stops retaining a large Markdown passage at the result ceiling", () => {
     const target = applySelectorSuffix("/doc.md", "1-9000,9999-10000");
     const collector = new MultiCollector(target);
