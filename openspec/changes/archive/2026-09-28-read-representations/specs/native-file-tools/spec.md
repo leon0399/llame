@@ -577,7 +577,7 @@ or by the end of the document has no excerpt line. Each native line SHALL be
 emitted at most once, even when a lone CR lets it hold more than one root
 heading. Every emitted line SHALL be
 the source line verbatim, cut at 120 UTF-16 code units with a trailing `…` when
-longer; the only text the outline generates is that marker and the
+longer, backing up one unit rather than splitting a surrogate pair; the only text the outline generates is that marker and the
 frontmatter elision line. The output SHALL contain no synthesized heading
 text, no section end coordinates, no summary, no body excerpt beyond the one
 line, and no heading-name selector. A Markdown document with no root headings
@@ -599,7 +599,7 @@ empty document SHALL return the ordinary empty-file result with null ranges.
 #### Scenario: A long line is cut, not rewritten
 
 - **WHEN** a heading or excerpt line is longer than 120 code units
-- **THEN** the outline emits its first 120 code units followed by `…`
+- **THEN** the outline emits its first 120 code units followed by `…`, or its first 119 when the 120th would split a surrogate pair
 - **AND** a line of exactly 120 code units is emitted whole
 
 #### Scenario: A document without headings shows its opening line
