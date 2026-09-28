@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   renderGithubCodeDocument,
+  toGithubDirectoryEntries,
   type GithubRepositoryDocument,
 } from './code-document';
 
@@ -94,6 +95,84 @@ Date: 2026-09-24T12:00:00Z
 ## Files (2)
 - src/new.ts (added, +10 -0)
 - src/old.ts (modified, +2 -1)
+
+Diff: https://github.com/o/r/commit/c91b31c0.diff`);
+  });
+
+  it('attaches child entries only to directory roots', () => {
+    expect(
+      toGithubDirectoryEntries([
+        { path: 'src', type: 'tree' },
+        { path: 'README.md', type: 'blob' },
+        { path: 'src/index.ts', type: 'blob' },
+      ]),
+    ).toEqual([
+      {
+        name: 'src',
+        kind: 'directory',
+        children: [{ name: 'index.ts', kind: 'file' }],
+      },
+      { name: 'README.md', kind: 'file' },
+    ]);
+  });
+
+  it('keeps README separated when the tree is unavailable', () => {
+    expect(
+      renderGithubCodeDocument({
+        kind: 'repository',
+        displayPath: 'https://github.com/o/r',
+        description: null,
+        defaultBranch: 'main',
+        visibility: 'private',
+        language: null,
+        readme: 'Welcome to the repository.',
+      }),
+    ).toBe(`Description: none
+Default branch: main
+Visibility: private
+Language: none
+
+## README
+
+Welcome to the repository.`);
+  });
+
+  it('omits an oversized repository tree instead of rendering a placeholder', () => {
+    const entries = Array.from({ length: 10_001 }, (_, index) => ({
+      path: `file-${index}`,
+      type: 'blob' as const,
+    }));
+    expect(
+      renderGithubCodeDocument({
+        ...repositoryDocument,
+        entries,
+        readme: undefined,
+      }),
+    ).toBe(`Description: A repository for examples.
+Default branch: main
+Visibility: public
+Language: none`);
+  });
+
+  it('trims whitespace from the end of a commit rendering', () => {
+    expect(
+      renderGithubCodeDocument({
+        kind: 'commit',
+        sha: 'c91b31c0',
+        message: 'Implement the code reader.',
+        author: 'alice',
+        authoredAt: '2026-09-24T12:00:00Z',
+        files: [],
+        diffUrl: 'https://github.com/o/r/commit/c91b31c0.diff\n',
+      }),
+    ).toBe(`# Commit c91b31c0
+
+Implement the code reader.
+
+Author: alice
+Date: 2026-09-24T12:00:00Z
+
+## Files (0)
 
 Diff: https://github.com/o/r/commit/c91b31c0.diff`);
   });

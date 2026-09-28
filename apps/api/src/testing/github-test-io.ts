@@ -2,9 +2,9 @@ import type {
   WebFetchFailure,
   WebRequestInit,
   WebResponse,
-} from '../../http-client';
-import type { GithubWebAdapterConfig } from '../../../../instance-config/llame-config';
-import type { WebAdapterIo } from '../contract';
+} from '../tools/web-read/http-client';
+import type { GithubWebAdapterConfig } from '../instance-config/llame-config';
+import type { WebAdapterIo } from '../tools/web-read/adapters/contract';
 
 export type Reply = WebResponse | WebFetchFailure;
 export type JsonValue =

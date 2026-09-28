@@ -89,6 +89,7 @@ describe('parseGithubUrl', () => {
 
   it('rejects invalid segments and incomplete code paths', () => {
     const unclaimed = [
+      'https://github.com/o/r/tree',
       'https://github.com/o/r/tree/',
       'https://github.com/o/r/tree/main//src',
       'https://github.com/o/r/tree/main/a%2F..%2Fb',
@@ -116,6 +117,14 @@ describe('parseGithubUrl', () => {
       });
       expect(parseGithubUrl(source)).toBeUndefined();
     }
+  });
+  it('only allows a trailing slash for tree paths', () => {
+    expect(
+      parseGithubUrl(new URL('https://github.com/o/r/blob/main/src/')),
+    ).toBeUndefined();
+    expect(
+      parseGithubUrl(new URL('https://github.com/o/r/tree/main/src/')),
+    ).toMatchObject({ kind: 'tree', segments: ['main', 'src'] });
   });
 
   it('leaves unsupported GitHub shapes unclaimed', () => {

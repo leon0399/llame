@@ -70,12 +70,8 @@ export type GithubBlobResult =
   | { readonly kind: 'directory' };
 
 export function parseGithubBlob(body: string): GithubBlobResult | undefined {
-  let value: unknown;
-  try {
-    value = JSON.parse(body);
-  } catch {
-    return undefined;
-  }
+  const value = parseGithub(z.unknown(), body);
+  if (value === undefined) return undefined;
   if (Array.isArray(value)) return { kind: 'directory' };
   const result = BLOB_WIRE.safeParse(value);
   return result.success ? { kind: 'blob', payload: result.data } : undefined;

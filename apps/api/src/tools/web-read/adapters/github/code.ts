@@ -253,10 +253,6 @@ async function loadCommitFiles(
   const files = [...firstFiles];
   if (firstFiles.length < PAGE_SIZE) return files;
   for (let page = 2; files.length < MAX_COMMIT_FILES; page += 1) {
-    if (context.halted !== undefined) {
-      recordSecondaryFailure('files', context.halted, context);
-      break;
-    }
     const result = await requestJson(
       `${context.apiOrigin}${repoPath(target)}/commits/${encodeURIComponent(
         target.sha,
@@ -312,8 +308,7 @@ async function resolveRef(
       : { kind: 'failed', failure: initial.failure };
   }
   const suffix = locator.slice(candidate.ref.length);
-  const pathText = suffix.startsWith('/') ? suffix.slice(1) : suffix;
-  const path = pathText === '' ? [] : pathText.split('/');
+  const path = suffix.split('/').filter((segment) => segment !== '');
   return attempt(candidate.ref, path, request);
 }
 
@@ -366,7 +361,6 @@ function longestCandidate(
   for (const item of refs) {
     if (!item.ref.startsWith(prefix)) continue;
     const candidate = item.ref.slice(prefix.length);
-    if (candidate.length === 0) continue;
     if (locator !== candidate && !locator.startsWith(`${candidate}/`)) continue;
     if (longest === undefined || candidate.length > longest.length) {
       longest = candidate;

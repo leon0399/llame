@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { WebFetchFailure, WebResponse } from '../../http-client';
 import { MAX_ADAPTER_DOCUMENT_BYTES } from '../contract';
 import { createGithubAdapter } from './adapter';
+import { readGithubCode } from './code';
 import {
   API_ORIGIN,
   config,
@@ -10,7 +11,10 @@ import {
   scriptedIo,
   type JsonObject,
   type Reply,
-} from './test-io';
+} from '../../../../testing/github-test-io';
+import { parseGithubBlob } from './code-payload';
+import { parseFilesPage } from './payload';
+import { requestJson } from './request';
 
 function failure(
   httpStatus: number,
@@ -38,6 +42,26 @@ function blobResponse(content: string, size?: number): WebResponse {
 
 function treeResponse(entries: ReadonlyArray<JsonObject>): WebResponse {
   return response({ tree: entries });
+}
+function changedFile(index: number): JsonObject {
+  return {
+    filename: `src/file-${index}.ts`,
+    status: 'modified',
+    additions: 1,
+    deletions: 0,
+  };
+}
+
+function commitPayload(files: ReadonlyArray<JsonObject>): JsonObject {
+  return {
+    sha: 'c91b31c012345678901234567890123456789012',
+    commit: {
+      message: 'Fix it',
+      author: { name: 'Alice', date: '2026-01-01T00:00:00Z' },
+    },
+    author: { login: 'alice' },
+    files,
+  };
 }
 
 async function readGithub(
@@ -122,6 +146,114 @@ describe('GitHub code adapter', () => {
 
     expect(outcome).toStrictEqual({ kind: 'failed', failure: 'too_large' });
   });
+  it('parses directory payloads separately from malformed blobs', () => {
+    expect(parseGithubBlob(JSON.stringify([{ name: 'src' }]))).toStrictEqual({
+      kind: 'directory',
+    });
+    expect(parseGithubBlob('{')).toBeUndefined();
+  });
+
+  it('preserves renamed and ordinary files while parsing file pages', () => {
+    expect(
+      parseFilesPage(
+        JSON.stringify([
+          {
+            filename: 'new.ts',
+            status: 'renamed',
+            additions: 2,
+            deletions: 1,
+            previous_filename: 'old.ts',
+          },
+          {
+            filename: 'same.ts',
+            status: 'modified',
+            additions: 1,
+            deletions: 0,
+          },
+        ]),
+      ),
+    ).toStrictEqual([
+      {
+        filename: 'new.ts',
+        status: 'renamed',
+        additions: 2,
+        deletions: 1,
+        previousFilename: 'old.ts',
+      },
+      { filename: 'same.ts', status: 'modified', additions: 1, deletions: 0 },
+    ]);
+  });
+
+  it('does not fetch after a request context has halted', async () => {
+    const halted = failure(500);
+    const fetch = vi.fn(() => Promise.resolve(response({})));
+    const result = await requestJson('https://api.github.test', {
+      io: { fetch },
+      init: {},
+      apiOrigin: API_ORIGIN,
+      notes: [],
+      halted,
+    });
+
+    expect(result).toStrictEqual({ kind: 'failed', failure: halted });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('accepts a blob declared exactly at the document size bound', async () => {
+    const url = `${API_ORIGIN}/repos/acme/project/contents/file.ts?ref=main`;
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project/blob/main/file.ts',
+      new Map([
+        [
+          url,
+          [
+            response({
+              content: Buffer.from('x').toString('base64'),
+              encoding: 'base64',
+              size: MAX_ADAPTER_DOCUMENT_BYTES,
+            }),
+          ],
+        ],
+      ]),
+    );
+
+    expect(renderedContent(outcome)).toBe('x');
+  });
+
+  it('accepts an empty zero-sized blob', async () => {
+    const url = `${API_ORIGIN}/repos/acme/project/contents/empty.ts?ref=main`;
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project/blob/main/empty.ts',
+      new Map([
+        [url, [response({ content: '', encoding: 'base64', size: 0 })]],
+      ]),
+    );
+
+    expect(renderedContent(outcome)).toBe('');
+  });
+
+  it.each([
+    { label: 'invalid length', content: 'A' },
+    { label: 'invalid prefix', content: '!!QUJD' },
+    { label: 'invalid suffix', content: 'QUJD!!' },
+  ])('rejects base64 with an $label', async ({ content }) => {
+    const url = `${API_ORIGIN}/repos/acme/project/contents/file.bin?ref=main`;
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project/blob/main/file.bin',
+      new Map([[url, [response({ content, encoding: 'base64' })]]]),
+    );
+
+    expect(outcome).toStrictEqual({ kind: 'failed', failure: 'binary' });
+  });
+  it('ignores whitespace while decoding base64', async () => {
+    const url = `${API_ORIGIN}/repos/acme/project/contents/file.ts?ref=main`;
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project/blob/main/file.ts',
+      new Map([[url, [response({ content: 'QU\nJD', encoding: 'base64' })]]]),
+    );
+
+    expect(renderedContent(outcome)).toBe('ABC');
+  });
 
   it('resolves a slash branch in three requests and rejects feature-old', async () => {
     const initial = `${API_ORIGIN}/repos/acme/project/contents/foo/src/a.ts?ref=feature`;
@@ -166,6 +298,91 @@ describe('GitHub code adapter', () => {
     expect(urls).toStrictEqual([initial, heads, tags, retry]);
     expect(renderedContent(outcome)).toBe('tag');
   });
+  it('tries tags when the heads lookup returns not found', async () => {
+    const initial = `${API_ORIGIN}/repos/acme/project/contents/foo/src/a.ts?ref=feature`;
+    const heads = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
+    const tags = `${API_ORIGIN}/repos/acme/project/git/matching-refs/tags/feature`;
+    const retry = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature%2Ffoo`;
+    const { outcome, urls } = await readGithub(
+      'https://github.com/acme/project/blob/feature/foo/src/a.ts',
+      new Map([
+        [initial, [failure(404)]],
+        [heads, [failure(404)]],
+        [tags, [response([{ ref: 'refs/tags/feature/foo' }])]],
+        [retry, [blobResponse('tag after 404')]],
+      ]),
+    );
+
+    expect(urls).toStrictEqual([initial, heads, tags, retry]);
+    expect(renderedContent(outcome)).toBe('tag after 404');
+  });
+
+  it('chooses the longest matching ref regardless of response order', async () => {
+    const initial = `${API_ORIGIN}/repos/acme/project/contents/foo/src/a.ts?ref=feature`;
+    const lookup = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
+    const retry = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature%2Ffoo`;
+    const { outcome, urls } = await readGithub(
+      'https://github.com/acme/project/blob/feature/foo/src/a.ts',
+      new Map([
+        [initial, [failure(404)]],
+        [
+          lookup,
+          [
+            response([
+              { ref: 'refs/heads/feature/foo' },
+              { ref: 'refs/heads/feature' },
+            ]),
+          ],
+        ],
+        [retry, [blobResponse('longest')]],
+      ]),
+    );
+
+    expect(urls).toStrictEqual([initial, lookup, retry]);
+    expect(renderedContent(outcome)).toBe('longest');
+  });
+  it('updates the longest ref after a shorter match', async () => {
+    const initial = `${API_ORIGIN}/repos/acme/project/contents/foo/src/a.ts?ref=feature`;
+    const lookup = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
+    const retry = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature%2Ffoo`;
+    const { outcome, urls } = await readGithub(
+      'https://github.com/acme/project/blob/feature/foo/src/a.ts',
+      new Map([
+        [initial, [failure(404)]],
+        [
+          lookup,
+          [
+            response([
+              { ref: 'refs/heads/feature' },
+              { ref: 'refs/heads/feature/foo' },
+            ]),
+          ],
+        ],
+        [retry, [blobResponse('longer')]],
+      ]),
+    );
+
+    expect(urls).toStrictEqual([initial, lookup, retry]);
+    expect(renderedContent(outcome)).toBe('longer');
+  });
+
+  it('ignores matching refs from another namespace', async () => {
+    const initial = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=feature`;
+    const heads = `${API_ORIGIN}/repos/acme/project/git/matching-refs/heads/feature`;
+    const tags = `${API_ORIGIN}/repos/acme/project/git/matching-refs/tags/feature`;
+    const { outcome, urls } = await readGithub(
+      'https://github.com/acme/project/blob/feature/src/a.ts',
+      new Map([
+        [initial, [failure(404), blobResponse('wrong namespace accepted')]],
+        [heads, [response([{ ref: 'refs/other/feature' }])]],
+        [tags, [failure(404)]],
+      ]),
+    );
+
+    expect(urls).toStrictEqual([initial, heads, tags]);
+    expect(outcome).toStrictEqual({ kind: 'failed', failure: 'status' });
+  });
+
   it('keeps the first successful ref when a tag shadows a branch', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/contents/x/README.md?ref=v1`;
     const { outcome, urls } = await readGithub(
@@ -234,6 +451,20 @@ describe('GitHub code adapter', () => {
       },
     });
   });
+  it('encodes each tree path segment while preserving separators', async () => {
+    const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:src/nested?recursive=1`;
+    const { outcome, urls } = await readGithub(
+      'https://github.com/acme/project/tree/main/src/nested',
+      new Map([[url, [treeResponse([])]]]),
+    );
+
+    expect(urls).toStrictEqual([url]);
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      directory: { entries: [] },
+    });
+  });
+
   it('falls through when the tree response exceeds the body bound', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main?recursive=1`;
     const { outcome } = await readGithub(
@@ -293,6 +524,236 @@ describe('GitHub code adapter', () => {
     expect(renderedContent(outcome)).toContain(
       'https://github.com/acme/project\n  - src/',
     );
+  });
+
+  it('notes a malformed tree while retaining a successful README', async () => {
+    const repository = `${API_ORIGIN}/repos/acme/project`;
+    const tree = `${repository}/git/trees/main?recursive=1`;
+    const readme = `${repository}/readme`;
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project',
+      new Map([
+        [
+          repository,
+          [
+            response({
+              description: 'A project',
+              default_branch: 'main',
+              visibility: 'public',
+              language: 'TypeScript',
+            }),
+          ],
+        ],
+        [tree, [response({ malformed: true })]],
+        [readme, [blobResponse('README text')]],
+      ]),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['tree omitted: parse'],
+    });
+    expect(renderedContent(outcome)).toContain('## README\n\nREADME text');
+    expect(renderedContent(outcome)).not.toContain('  -');
+  });
+
+  it('notes a failed tree request separately from a successful README', async () => {
+    const repository = `${API_ORIGIN}/repos/acme/project`;
+    const tree = `${repository}/git/trees/main?recursive=1`;
+    const readme = `${repository}/readme`;
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project',
+      new Map([
+        [
+          repository,
+          [
+            response({
+              description: null,
+              default_branch: 'main',
+              visibility: 'public',
+              language: null,
+            }),
+          ],
+        ],
+        [tree, [failure(500)]],
+        [readme, [blobResponse('README text')]],
+      ]),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['tree omitted: status'],
+    });
+  });
+
+  it('notes an undecodable README payload', async () => {
+    const repository = `${API_ORIGIN}/repos/acme/project`;
+    const tree = `${repository}/git/trees/main?recursive=1`;
+    const readme = `${repository}/readme`;
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project',
+      new Map([
+        [
+          repository,
+          [
+            response({
+              description: null,
+              default_branch: 'main',
+              visibility: 'public',
+              language: null,
+            }),
+          ],
+        ],
+        [tree, [treeResponse([])]],
+        [
+          readme,
+          [
+            response({
+              content: Buffer.from('text').toString('base64'),
+              encoding: 'none',
+            }),
+          ],
+        ],
+      ]),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['README omitted: binary'],
+    });
+  });
+  it('does not request another page for a short first commit page', async () => {
+    const sha = 'c91b31c0';
+    const firstUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=1`;
+    const { outcome, urls } = await readGithub(
+      `https://github.com/acme/project/commit/${sha}`,
+      new Map([[firstUrl, [response(commitPayload([changedFile(1)]))]]]),
+    );
+
+    expect(urls).toStrictEqual([firstUrl]);
+    expect(renderedContent(outcome)).toContain('src/file-1.ts');
+  });
+
+  it('continues commit pagination after full pages until a short page', async () => {
+    const sha = 'c91b31c0';
+    const urls = [1, 2, 3].map(
+      (page) =>
+        `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=${page}`,
+    );
+    const firstFiles = Array.from({ length: 100 }, (_, index) =>
+      changedFile(index),
+    );
+    const secondFiles = Array.from({ length: 100 }, (_, index) =>
+      changedFile(index + 100),
+    );
+    const { outcome, urls: requested } = await readGithub(
+      `https://github.com/acme/project/commit/${sha}`,
+      new Map([
+        [urls[0], [response(commitPayload(firstFiles))]],
+        [urls[1], [response({ files: secondFiles })]],
+        [urls[2], [response({ files: [changedFile(200)] })]],
+      ]),
+    );
+
+    expect(requested).toStrictEqual(urls);
+    expect(renderedContent(outcome)).toContain('src/file-200.ts');
+  });
+
+  it('notes a malformed later commit file page', async () => {
+    const sha = 'c91b31c0';
+    const firstUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=1`;
+    const secondUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=2`;
+    const { outcome } = await readGithub(
+      `https://github.com/acme/project/commit/${sha}`,
+      new Map([
+        [
+          firstUrl,
+          [
+            response(
+              commitPayload(
+                Array.from({ length: 100 }, (_, index) => changedFile(index)),
+              ),
+            ),
+          ],
+        ],
+        [secondUrl, [response({ malformed: true })]],
+      ]),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['files omitted: parse'],
+    });
+  });
+
+  it('caps a commit at the maximum file count', async () => {
+    const sha = 'c91b31c0';
+    const urls = new Map<string, ReadonlyArray<Reply>>();
+    for (let page = 1; page <= 30; page += 1) {
+      const pageUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=${page}`;
+      const files = Array.from({ length: 100 }, (_, index) =>
+        changedFile((page - 1) * 100 + index),
+      );
+      urls.set(
+        pageUrl,
+        page === 1 ? [response(commitPayload(files))] : [response({ files })],
+      );
+    }
+
+    const { outcome, urls: requested } = await readGithub(
+      `https://github.com/acme/project/commit/${sha}`,
+      urls,
+    );
+
+    expect(requested).toHaveLength(30);
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['files omitted: too_large'],
+    });
+  });
+
+  it('truncates files when a page crosses the maximum count', async () => {
+    const sha = 'c91b31c0';
+    const urls = new Map<string, ReadonlyArray<Reply>>();
+    for (let page = 1; page <= 30; page += 1) {
+      const pageUrl = `${API_ORIGIN}/repos/acme/project/commits/${sha}?per_page=100&page=${page}`;
+      const count = page === 30 ? 101 : 100;
+      const files = Array.from({ length: count }, (_, index) =>
+        changedFile((page - 1) * 100 + index),
+      );
+      urls.set(
+        pageUrl,
+        page === 1 ? [response(commitPayload(files))] : [response({ files })],
+      );
+    }
+
+    const { outcome, urls: requested } = await readGithub(
+      `https://github.com/acme/project/commit/${sha}`,
+      urls,
+    );
+
+    expect(requested).toHaveLength(30);
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['files omitted: too_large'],
+    });
+    expect(renderedContent(outcome)).not.toContain('src/file-3000.ts');
+  });
+
+  it('rejects a code target without a ref segment', async () => {
+    const fetch = vi.fn(() => Promise.resolve(response({})));
+    const outcome = await readGithubCode(
+      { kind: 'blob', owner: 'acme', repo: 'project', segments: [] },
+      {
+        source: new URL('https://github.com/acme/project/blob/main/file.ts'),
+        io: { fetch },
+        apiOrigin: API_ORIGIN,
+        init: {},
+      },
+    );
+
+    expect(outcome).toStrictEqual({ kind: 'failed', failure: 'parse' });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('renders commit fields and pages every changed file', async () => {

@@ -41,6 +41,16 @@ const directoryEntries: ReadonlyArray<DirectoryListingEntry> = [
   { name: 'README.md', kind: 'file' },
 ];
 
+function oversizedDirectory() {
+  return {
+    displayPath: DIRECTORY_URL,
+    entries: Array.from({ length: 10_001 }, (_, index) => ({
+      name: `file-${index}`,
+      kind: 'file' as const,
+    })),
+  };
+}
+
 describe('buildWebReadResult', () => {
   it('assembles the native read result with the web envelope', () => {
     const result = buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
@@ -181,6 +191,78 @@ describe('buildWebReadResult', () => {
       type: 'invalid_selector',
       message:
         'The selector :0 selected no line of this page, which rendered 24 lines numbered from 1. Write :N, :N-M, or :N+K within 1-24, or omit the selector to read from the start.',
+    });
+  });
+
+  it('applies a positive offset to a directory selector', () => {
+    const directory = {
+      displayPath: DIRECTORY_URL,
+      entries: ['a', 'b', 'c'].map((name) => ({
+        name,
+        kind: 'file' as const,
+      })),
+    };
+    const result = buildWebReadResult(
+      { url: DIRECTORY_URL, selector: '2-2' },
+      DIRECTORY_URL,
+      { method: 'adapter', content: '', directory },
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      content: `${DIRECTORY_URL}\n  - b\n`,
+      truncated: true,
+      nextOffset: 2,
+    });
+  });
+
+  it('applies a limit to the first directory selector', () => {
+    const directory = {
+      displayPath: DIRECTORY_URL,
+      entries: ['a', 'b', 'c'].map((name) => ({
+        name,
+        kind: 'file' as const,
+      })),
+    };
+    const result = buildWebReadResult(
+      { url: DIRECTORY_URL, selector: '1-1' },
+      DIRECTORY_URL,
+      { method: 'adapter', content: '', directory },
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      content: `${DIRECTORY_URL}\n  - a\n`,
+      truncated: true,
+      nextOffset: 1,
+    });
+  });
+
+  it('returns an oversized directory failure without the web envelope', () => {
+    expect(
+      buildWebReadResult({ url: DIRECTORY_URL }, DIRECTORY_URL, {
+        method: 'adapter',
+        content: '',
+        directory: oversizedDirectory(),
+      }),
+    ).toEqual({
+      status: 'error',
+      type: 'directory_too_large',
+      message:
+        'Directory contains 10001 entries, exceeding the 10000 entry budget.',
+    });
+  });
+
+  it('reports no rendered text when a large directory selector cannot render', () => {
+    expect(
+      buildWebReadResult({ url: DIRECTORY_URL, selector: '0' }, DIRECTORY_URL, {
+        method: 'adapter',
+        content: '',
+        directory: oversizedDirectory(),
+      }),
+    ).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The selector :0 selected no line of this page, which rendered no text.',
     });
   });
   it('includes adapter provenance in the web envelope', () => {

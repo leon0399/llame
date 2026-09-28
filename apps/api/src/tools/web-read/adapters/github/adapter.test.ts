@@ -9,7 +9,7 @@ import {
   scriptedIo,
   type JsonObject,
   type Reply,
-} from './test-io';
+} from '../../../../testing/github-test-io';
 
 const ISSUE_SOURCE = 'https://github.com/acme/project/issues/12';
 const PULL_SOURCE = 'https://github.com/acme/project/pull/12';

@@ -105,7 +105,6 @@ function renderGithubListing(
   const result = renderCollectedDirectory(
     displayPath,
     toGithubDirectoryEntries(entries),
-    { displayPath },
   );
   return result.status === 'success' ? result.content.trimEnd() : '';
 }
