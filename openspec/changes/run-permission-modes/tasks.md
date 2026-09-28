@@ -50,7 +50,7 @@ Each shipping layer adds its own operator documentation and dated `CHANGELOG.md`
 - [x] 2.5 Update `README.md` for the composer control and add the dated `CHANGELOG.md` entry; this layer's PR carries `Closes #977`; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 2.6 Verify `pnpm --filter web lint`, `typecheck`, and the focused unit tests, and exercise the composer in a browser against a bypass-enabled API: select `bypass`, send a call the policy rejects, observe it execute and the badge show `Bypass`, then reload and observe `default`
 - [x] 2.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 3. `run-permission-modes/finalize` — spec sync and archive
 
