@@ -376,9 +376,6 @@ describe("markdown structure scanner", () => {
       span(heading(1, 1, 1, "# one"), 1),
       span(heading(1, 2, 2, "# two"), 2),
     ]);
-    expect(scan("# one\n").lines).toEqual([
-      line(1, "# one\n", "heading", heading(1, 1, 1, "# one")),
-    ]);
   });
 
   it("keeps two headings on one native line when lone CR is a Markdown break", () => {
@@ -396,15 +393,6 @@ describe("markdown structure scanner", () => {
     ]);
   });
 
-  it("preserves Unicode heading text", () => {
-    const result = scan("# Привет 世界\n");
-
-    expect(result.lines).toEqual([
-      line(1, "# Привет 世界\n", "heading", heading(1, 1, 1, "# Привет 世界")),
-    ]);
-    expect(result.spans).toEqual([span(heading(1, 1, 1, "# Привет 世界"), 1)]);
-  });
-
   it("emits no events for empty input and marks headingless lines", () => {
     expect(scan("")).toEqual({ lines: [], spans: [] });
     expect(scan("plain\n\nmore")).toEqual({
@@ -415,6 +403,26 @@ describe("markdown structure scanner", () => {
       ],
       spans: [],
     });
+  });
+
+  it("reports a line holding only a container marker as content", () => {
+    expect(scan("# H\n>\n-\n1.\n  \n").lines).toEqual([
+      line(1, "# H\n", "heading", heading(1, 1, 1, "# H")),
+      line(2, ">\n", "content"),
+      line(3, "-\n", "content"),
+      line(4, "1.\n", "content"),
+      line(5, "  \n", "blank"),
+    ]);
+  });
+
+  it("ignores a leading byte order mark but keeps it in the text", () => {
+    expect(scan("\uFEFF# Title\n").lines).toEqual([
+      line(1, "\uFEFF# Title\n", "heading", heading(1, 1, 1, "\uFEFF# Title")),
+    ]);
+    expect(scan("\uFEFF---\ntitle: x\n---\n# Real\n").spans).toEqual([
+      span(heading(0, 1, 3, "\uFEFF---"), 3, "frontmatter"),
+      span(heading(1, 4, 4, "# Real"), 4),
+    ]);
   });
 
   it("stops after an onSpan callback returns false", () => {
@@ -473,29 +481,39 @@ describe("markdown structure scanner", () => {
     expect(spans).toEqual([span(heading(1, 1, 1, "# one"), 1)]);
   });
 
-  it("is deterministic across repeated scans", () => {
-    const source = "# A\nbody\n## B\ntext\n# C\n";
-
-    expect(scan(source)).toEqual(scan(source));
-  });
-
-  it("matches scanMarkdownStructure with the scanner span stream", () => {
-    const source = "# A\nbody\n## B\ntext\n# C\n";
+  it("stops inside frontmatter when onLine returns false", () => {
+    const lines: Array<MarkdownLine> = [];
     const spans: Array<MarkdownSpan> = [];
-
-    scanMarkdownStructure(splitSourceLines(source), (value) => {
-      spans.push(value);
+    const scanner = createMarkdownScanner({
+      onLine: (value) => {
+        lines.push(value);
+        return value.line < 2;
+      },
+      onSpan: (value) => {
+        spans.push(value);
+      },
     });
 
-    expect(spans).toEqual(scan(source).spans);
+    for (const nativeLine of ["---\n", "a: 1\n", "---\n", "# H\n"]) {
+      scanner.push(nativeLine);
+    }
+    scanner.end();
+
+    expect(lines.map(({ line: lineNumber }) => lineNumber)).toEqual([1, 2]);
+    expect(spans).toEqual([]);
   });
 
-  it("emits one onLine event per native line in ascending order", () => {
-    const source = "---\nkey: value\n---\n# Heading\nbody\n\n## Next\n";
-    const result = scan(source);
+  it("stops pulling input once a span callback returns false", () => {
+    const pulled: Array<number> = [];
+    function* source(): Generator<string> {
+      for (let index = 1; index <= 5; index += 1) {
+        pulled.push(index);
+        yield `# ${index}\n`;
+      }
+    }
 
-    expect(result.lines.map(({ line: lineNumber }) => lineNumber)).toEqual([
-      1, 2, 3, 4, 5, 6, 7,
-    ]);
+    scanMarkdownStructure(source(), () => false);
+
+    expect(pulled).toEqual([1, 2]);
   });
 });

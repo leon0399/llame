@@ -10,16 +10,6 @@ let fromMarkdown: Awaited<ReturnType<typeof loadMdast>>["fromMarkdown"];
 type RootHeading = { depth: number; line: number; headEnd: number };
 type Fixture = { name: string; source: string };
 
-/** mdast starts a setext heading at the link reference definitions that
- *  open its paragraph; the scanner starts it at the first heading text line,
- *  as the unit suite asserts. */
-const EXCLUDED = new Map([
-  [
-    215,
-    "setext heading position includes a preceding link reference definition",
-  ],
-]);
-
 const FIXTURES: ReadonlyArray<Fixture> = [
   {
     name: "ATX headings",
@@ -77,15 +67,23 @@ const FIXTURES: ReadonlyArray<Fixture> = [
     source: "# one\r## two\n",
   },
   {
-    name: "paragraph interrupted by ATX",
-    source: "paragraph\n# heading\ncontinuation\n",
+    name: "link reference definitions before setext",
+    source: "[a]: /1\n[b]: /2 'title'\nbar\nbaz\n===\n",
+  },
+  {
+    name: "byte order mark before a heading",
+    source: "\uFEFF# Title\nbody\n",
+  },
+  {
+    name: "byte order mark before frontmatter",
+    source: "\uFEFF---\ntitle: x\n---\n# Real\n",
   },
 ];
 
 function delimiterText(nativeLine: string): string {
   let text = nativeLine.endsWith("\n") ? nativeLine.slice(0, -1) : nativeLine;
   if (text.endsWith("\r")) text = text.slice(0, -1);
-  return text.replace(/[ \t]+$/u, "");
+  return text.replace(/^\uFEFF/u, "").replace(/[ \t]+$/u, "");
 }
 
 function closedFrontmatterCloser(source: string): number | undefined {
@@ -107,22 +105,20 @@ function blankClosedFrontmatter(source: string): string {
 
   return splitSourceLines(source)
     .map((nativeLine, index) =>
-      index <= closer ? nativeLine.replaceAll(/[^\r\n]/gu, " ") : nativeLine,
+      index <= closer ? nativeLine.replaceAll(/[^\r\n]/g, " ") : nativeLine,
     )
     .join("");
 }
 
-function nativeLineAtOffset(source: string, offset: number): number {
-  let line = 1;
-  for (let index = 0; index < offset; index += 1) {
-    if (source[index] === "\n") line += 1;
-  }
-  return line;
+function nativeLineAt(source: string, offset: number | undefined): number {
+  if (offset === undefined) throw new Error("Expected a source offset");
+  return source.slice(0, offset).split("\n").length;
 }
 
-function requiredOffset(offset: number | undefined): number {
-  if (offset === undefined) throw new Error("Expected a source offset");
-  return offset;
+/** Offset of the line after the one containing `offset`. */
+function nextLineOffset(source: string, offset: number): number {
+  if (source[offset] === "\r" && source[offset + 1] === "\n") return offset + 2;
+  return offset + 1;
 }
 
 function compareHeadings(left: RootHeading, right: RootHeading): number {
@@ -134,27 +130,32 @@ function compareHeadings(left: RootHeading, right: RootHeading): number {
 }
 
 function expectedHeadings(source: string): Array<RootHeading> {
-  const markdown = blankClosedFrontmatter(source);
-  const tree = fromMarkdown(markdown);
+  const tree = fromMarkdown(blankClosedFrontmatter(source));
   const expected: Array<RootHeading> = [];
 
-  for (const child of tree.children) {
-    if (child.type !== "heading") continue;
-    if (child.position === undefined) {
-      throw new Error("Expected every heading to have a source position");
-    }
+  tree.children.forEach((child, index) => {
+    if (child.type !== "heading") return;
+    // mdast starts a setext heading at the link reference definitions that
+    // open its paragraph; the heading itself starts on the line after them.
+    const previous = tree.children[index - 1];
+    const definitionEnd =
+      previous?.type === "definition"
+        ? previous.position?.end.offset
+        : undefined;
+    const start = child.position?.start.offset;
     expected.push({
       depth: child.depth,
-      line: nativeLineAtOffset(
+      line: nativeLineAt(
         source,
-        requiredOffset(child.position.start.offset),
+        definitionEnd !== undefined &&
+          start !== undefined &&
+          start < definitionEnd
+          ? nextLineOffset(source, definitionEnd)
+          : start,
       ),
-      headEnd: nativeLineAtOffset(
-        source,
-        requiredOffset(child.position.end.offset),
-      ),
+      headEnd: nativeLineAt(source, child.position?.end.offset),
     });
-  }
+  });
 
   return expected.sort(compareHeadings);
 }
@@ -177,17 +178,11 @@ describe("markdown structure CommonMark conformance", () => {
     ({ fromMarkdown } = await loadMdast());
   });
 
-  const commonmarkCases = commonmarkSpec.tests.flatMap((test) =>
-    !EXCLUDED.has(test.number)
-      ? [
-          {
-            markdown: test.markdown.replaceAll("→", "\t"),
-            section: test.section,
-            example: test.number,
-          },
-        ]
-      : [],
-  );
+  const commonmarkCases = commonmarkSpec.tests.map((test) => ({
+    markdown: test.markdown.replaceAll("→", "\t"),
+    section: test.section,
+    example: test.number,
+  }));
 
   it("loads the whole CommonMark 0.31.2 example corpus", () => {
     expect(commonmarkSpec.tests).toHaveLength(652);

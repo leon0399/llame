@@ -5,8 +5,8 @@
  */
 
 export const ATX = /^(#{1,6})(?: +|$)/;
-export const FENCE_OPEN = /^(?:`{3,}(?!.*`)|~{3,})/;
-export const FENCE_CLOSE = /^(?:`{3,}|~{3,})(?= *$)/;
+const FENCE = /^(?:`{3,}|~{3,})/;
+const FENCE_CLOSE = /^(?:`{3,}|~{3,})(?= *$)/;
 export const SETEXT = /^(?:=+|-+) *$/;
 export const THEMATIC = /^(?:(?:\* *){3,}|(?:_ *){3,}|(?:- *){3,})$/;
 const BULLET = /^[*+-]/;
@@ -37,13 +37,25 @@ export const HTML_CLOSE: ReadonlyArray<RegExp> = [
 
 /** Removes the LF terminator and one CR before it. */
 export function stripTerminator(text: string): string {
-  const body = text.endsWith("\n") ? text.slice(0, -1) : text;
-  return body.endsWith("\r") ? body.slice(0, -1) : body;
+  return text.replace(/\r?\n?$/u, "");
 }
 
 export function isDelimiter(text: string, closer: boolean): boolean {
-  const content = stripTerminator(text).replace(/[ \t]+$/, "");
-  return content === "---" || (closer && content === "...");
+  const content = stripTerminator(text);
+  const head = content.slice(0, 3);
+  if (head !== "---" && !(closer && head === "...")) return false;
+  return /^[ \t]*$/u.test(content.slice(3));
+}
+
+/** A fenced code opener; a backtick fence's info string has no backtick. */
+export function fenceOpen(
+  rest: string,
+): { char: string; length: number } | undefined {
+  const run = FENCE.exec(rest)?.[0];
+  if (!run || (run[0] === "`" && rest.includes("`", run.length))) {
+    return undefined;
+  }
+  return { char: run[0] ?? "`", length: run.length };
 }
 
 /** Tabs advance to the next multiple of four columns (CommonMark tab stops). */
@@ -60,11 +72,8 @@ export function htmlStartKind(
   rest: string,
   mayInterruptParagraph: boolean,
 ): number {
-  const last = mayInterruptParagraph ? HTML_OPEN.length : HTML_OPEN.length - 1;
-  for (let index = 0; index < last; index += 1) {
-    if (HTML_OPEN[index]?.test(rest)) return index + 1;
-  }
-  return 0;
+  const kind = HTML_OPEN.findIndex((pattern) => pattern.test(rest)) + 1;
+  return kind === HTML_OPEN.length && !mayInterruptParagraph ? 0 : kind;
 }
 
 function skipSpaceNewline(text: string, start: number): number {
@@ -158,14 +167,10 @@ export function definitionLineCount(lines: Array<string>): number {
     position = end;
   }
   if (position >= text.length) return lines.length;
-  let count = 0;
-  for (let index = 0; index < position; index += 1) {
-    if (text[index] === "\n") count += 1;
-  }
-  return count;
+  return text.slice(0, position).split("\n").length - 1;
 }
 
-export type ListItem = { offset: number; required: number };
+type ListItem = { offset: number; required: number };
 
 export function listItemStart(
   line: string,
