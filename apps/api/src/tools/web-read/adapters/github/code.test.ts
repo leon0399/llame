@@ -12,7 +12,7 @@ import {
   type JsonObject,
   type Reply,
 } from '../../../../testing/github-test-io';
-import { parseGithubBlob } from './code-payload';
+import { parseGithubBlob, parseGithubTree } from './code-payload';
 import { parseFilesPage } from './payload';
 import { requestJson } from './request';
 
@@ -40,8 +40,11 @@ function blobResponse(content: string, size?: number): WebResponse {
   });
 }
 
-function treeResponse(entries: ReadonlyArray<JsonObject>): WebResponse {
-  return response({ tree: entries });
+function treeResponse(
+  entries: ReadonlyArray<JsonObject>,
+  truncated = false,
+): WebResponse {
+  return response({ tree: entries, truncated });
 }
 function changedFile(index: number): JsonObject {
   return {
@@ -151,6 +154,19 @@ describe('GitHub code adapter', () => {
       kind: 'directory',
     });
     expect(parseGithubBlob('{')).toBeUndefined();
+  });
+  it('parses tree modes and GitHub truncation', () => {
+    expect(
+      parseGithubTree(
+        JSON.stringify({
+          tree: [{ path: 'link', mode: '120000', type: 'blob' }],
+          truncated: true,
+        }),
+      ),
+    ).toEqual({
+      entries: [{ path: 'link', mode: '120000', type: 'blob' }],
+      truncated: true,
+    });
   });
 
   it('preserves renamed and ordinary files while parsing file pages', () => {
@@ -451,6 +467,21 @@ describe('GitHub code adapter', () => {
       },
     });
   });
+  it('notes a truncated tree listing', async () => {
+    const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:apps?recursive=1`;
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project/tree/main/apps',
+      new Map([
+        [url, [treeResponse([{ path: 'partial.ts', type: 'blob' }], true)]],
+      ]),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['tree truncated by GitHub: listing is partial'],
+    });
+  });
+
   it('encodes each tree path segment while preserving separators', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:src/nested?recursive=1`;
     const { outcome, urls } = await readGithub(
@@ -524,6 +555,71 @@ describe('GitHub code adapter', () => {
     expect(renderedContent(outcome)).toContain(
       'https://github.com/acme/project\n  - src/',
     );
+  });
+  it('notes a truncated root tree', async () => {
+    const repository = `${API_ORIGIN}/repos/acme/project`;
+    const tree = `${repository}/git/trees/main?recursive=1`;
+    const readme = `${repository}/readme`;
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project',
+      new Map([
+        [
+          repository,
+          [
+            response({
+              description: 'A project',
+              default_branch: 'main',
+              visibility: 'public',
+              language: 'TypeScript',
+            }),
+          ],
+        ],
+        [tree, [treeResponse([{ path: 'src', type: 'tree' }], true)]],
+        [readme, [blobResponse('README text')]],
+      ]),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['tree truncated by GitHub: listing is partial'],
+    });
+    expect(renderedContent(outcome)).toContain('  - src/');
+  });
+
+  it('notes an oversized root tree while retaining the README', async () => {
+    const repository = `${API_ORIGIN}/repos/acme/project`;
+    const tree = `${repository}/git/trees/main?recursive=1`;
+    const readme = `${repository}/readme`;
+    const entries = Array.from({ length: 10_001 }, (_, index) => ({
+      path: `file-${index}`,
+      type: 'blob',
+    }));
+    const { outcome } = await readGithub(
+      'https://github.com/acme/project',
+      new Map([
+        [
+          repository,
+          [
+            response({
+              description: 'A project',
+              default_branch: 'main',
+              visibility: 'public',
+              language: 'TypeScript',
+            }),
+          ],
+        ],
+        [tree, [treeResponse(entries)]],
+        [readme, [blobResponse('README text')]],
+      ]),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['tree omitted: too_large'],
+    });
+    expect(renderedContent(outcome)).toContain('Description: A project');
+    expect(renderedContent(outcome)).toContain('## README\n\nREADME text');
+    expect(renderedContent(outcome)).not.toContain('file-0');
   });
 
   it('notes a malformed tree while retaining a successful README', async () => {

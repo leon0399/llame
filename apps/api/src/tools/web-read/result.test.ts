@@ -82,16 +82,41 @@ describe('buildWebReadResult', () => {
       displayPath: DIRECTORY_URL,
       entries: directoryEntries,
     };
-    const fullHost = renderCollectedDirectory(DIRECTORY_URL, directoryEntries, {
-      displayPath: DIRECTORY_URL,
-    });
     const full = buildWebReadResult({ url: DIRECTORY_URL }, DIRECTORY_URL, {
       method: 'adapter',
       content: '',
       directory,
     });
     expect(full).toEqual({
-      ...fullHost,
+      status: 'success',
+      kind: 'directory',
+      path: DIRECTORY_URL,
+      content: `${DIRECTORY_URL}
+  - src/
+    - file-a
+    - file-b
+    - file-c
+    - file-d
+    - file-e
+    - file-f
+    - file-g
+    - file-h
+    - file-i
+    - file-j
+    - file-k
+    - file-l
+    - file-m
+    - file-n
+    - file-o
+    - file-p
+    - file-q
+    - file-r
+    - file-s
+    - file-t
+    … 1 more
+  - README.md
+`,
+      truncated: false,
       finalUrl: DIRECTORY_URL,
       method: 'adapter',
     });
@@ -100,18 +125,20 @@ describe('buildWebReadResult', () => {
     }
     expect(full.content).toContain('… 1 more');
 
-    const selectedHost = renderCollectedDirectory(
-      DIRECTORY_URL,
-      directoryEntries,
-      { displayPath: DIRECTORY_URL, offset: 0, limit: 1 },
-    );
     const selected = buildWebReadResult(
       { url: DIRECTORY_URL, selector: '1-1' },
       DIRECTORY_URL,
       { method: 'adapter', content: '', directory },
     );
     expect(selected).toEqual({
-      ...selectedHost,
+      status: 'success',
+      kind: 'directory',
+      path: DIRECTORY_URL,
+      content: `${DIRECTORY_URL}
+  - src/
+`,
+      truncated: true,
+      nextOffset: 1,
       finalUrl: DIRECTORY_URL,
       method: 'adapter',
     });

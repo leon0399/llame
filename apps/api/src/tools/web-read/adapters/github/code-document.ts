@@ -10,6 +10,7 @@ import { appendFiles, type GithubFile } from './document';
 export type GithubTreeEntry = {
   readonly path: string;
   readonly type: 'blob' | 'tree' | 'commit';
+  readonly mode?: string;
 };
 
 export type GithubRepositoryDocument = {
@@ -19,7 +20,7 @@ export type GithubRepositoryDocument = {
   readonly defaultBranch: string;
   readonly visibility: string;
   readonly language: string | null;
-  /** undefined when the tree request failed (omission note added by the adapter). */
+  /** undefined when the tree is unavailable (omission note added by the adapter). */
   readonly entries?: ReadonlyArray<GithubTreeEntry>;
   /** undefined when the README request failed or none exists. */
   readonly readme?: string;
@@ -59,7 +60,7 @@ export function toGithubDirectoryEntries(
     if (segments.length === 1) {
       roots.set(segments[0], {
         name: segments[0],
-        kind: entry.type === 'tree' ? 'directory' : 'file',
+        kind: githubEntryKind(entry),
       });
       continue;
     }
@@ -67,7 +68,7 @@ export function toGithubDirectoryEntries(
     const siblings = children.get(segments[0]) ?? [];
     siblings.push({
       name: segments[1],
-      kind: entry.type === 'tree' ? 'directory' : 'file',
+      kind: githubEntryKind(entry),
     });
     children.set(segments[0], siblings);
   }
@@ -76,6 +77,15 @@ export function toGithubDirectoryEntries(
       ? { ...entry, children: children.get(entry.name) ?? [] }
       : entry,
   );
+}
+
+function githubEntryKind(
+  entry: GithubTreeEntry,
+): DirectoryListingEntry['kind'] {
+  if (entry.mode === '120000') return 'symlink';
+  if (entry.type === 'tree') return 'directory';
+  if (entry.type === 'commit' || entry.mode === '160000') return 'special';
+  return 'file';
 }
 
 function renderRepository(document: GithubRepositoryDocument): string {

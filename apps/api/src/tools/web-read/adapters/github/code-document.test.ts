@@ -115,6 +115,24 @@ Diff: https://github.com/o/r/commit/c91b31c0.diff`);
       { name: 'README.md', kind: 'file' },
     ]);
   });
+  it('renders GitHub symlinks and submodules with host markers', () => {
+    const entries = [
+      { path: 'link', type: 'blob' as const, mode: '120000' },
+      { path: 'vendor', type: 'commit' as const, mode: '160000' },
+    ];
+
+    expect(toGithubDirectoryEntries(entries)).toEqual([
+      { name: 'link', kind: 'symlink' },
+      { name: 'vendor', kind: 'special' },
+    ]);
+    expect(
+      renderGithubCodeDocument({
+        ...repositoryDocument,
+        entries,
+        readme: undefined,
+      }),
+    ).toContain('https://github.com/o/r\n  - link@\n  - vendor?');
+  });
 
   it('keeps README separated when the tree is unavailable', () => {
     expect(

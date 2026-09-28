@@ -32,10 +32,12 @@ const BLOB_WIRE = z.object({
 const TREE_ENTRY_WIRE = z.object({
   path: z.string(),
   type: z.enum(['blob', 'tree', 'commit']),
+  mode: z.string().optional(),
 });
 
 const TREE_WIRE = z.object({
   tree: z.array(TREE_ENTRY_WIRE),
+  truncated: z.boolean().optional().default(false),
 });
 
 const REPOSITORY_WIRE = z.object({
@@ -77,10 +79,15 @@ export function parseGithubBlob(body: string): GithubBlobResult | undefined {
   return result.success ? { kind: 'blob', payload: result.data } : undefined;
 }
 
-export function parseGithubTree(
-  body: string,
-): ReadonlyArray<GithubTreeEntry> | undefined {
-  return parseGithub(TREE_WIRE, body)?.tree;
+export type GithubTreePayload = {
+  readonly entries: ReadonlyArray<GithubTreeEntry>;
+  readonly truncated: boolean;
+};
+
+export function parseGithubTree(body: string): GithubTreePayload | undefined {
+  const result = parseGithub(TREE_WIRE, body);
+  if (result === undefined) return undefined;
+  return { entries: result.tree, truncated: result.truncated };
 }
 
 export function parseGithubRepository(

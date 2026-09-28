@@ -11,7 +11,7 @@ import {
 
 export type DirectoryListingEntry = {
   readonly name: string;
-  readonly kind: "directory" | "file";
+  readonly kind: "directory" | "file" | "symlink" | "special";
   readonly children?: ReadonlyArray<DirectoryListingEntry>;
 };
 
