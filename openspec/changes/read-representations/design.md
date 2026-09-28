@@ -253,6 +253,10 @@ disagreement is a scanner defect fixed in the parser layer. A leading U+FEFF
 on line 1 is ignored for recognition, as micromark ignores it, and stays in
 the reported text.
 
+A lone CR is a CommonMark line ending inside one native line, so a native
+line can hold two headings. Spans report both; the line event carries the
+first, and the outline emits that native line once, verbatim.
+
 **Alternatives rejected:**
 
 - `mdast-util-from-markdown` at runtime. Whole-document AST at roughly 10-20×
