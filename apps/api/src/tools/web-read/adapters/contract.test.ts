@@ -10,6 +10,7 @@ import {
 } from '../http-client';
 import {
   classifyFetchFailure,
+  createWebAdapters,
   dispatchWebAdapters,
   isFatalAdapterFailure,
   omissionNote,
@@ -95,6 +96,20 @@ function renderedOutcome(
 function failedOutcome(failure: WebAdapterFailure): WebAdapterOutcome {
   return { kind: 'failed', failure };
 }
+
+describe('createWebAdapters', () => {
+  it('creates a native GitHub adapter with the configured id', () => {
+    const adapters = createWebAdapters([{ id: 'gh', use: 'github' }]);
+    expect(adapters).toHaveLength(1);
+    const adapter = adapters[0];
+    if (adapter === undefined) throw new Error('expected GitHub adapter');
+
+    expect(adapter).toMatchObject({ id: 'gh', route: 'native' });
+    expect(adapter.match(new URL('https://github.com/o/r/issues/1'))).toBe(
+      true,
+    );
+  });
+});
 
 describe('dispatchWebAdapters', () => {
   it('does not fetch or note an unclaimed URL', async () => {

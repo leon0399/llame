@@ -212,6 +212,23 @@ function malformedReviewRoutes(): Map<string, ReadonlyArray<Reply>> {
 }
 
 describe('GitHub thread adapter', () => {
+  it('matches only canonical public GitHub thread URLs', () => {
+    const adapter = createGithubAdapter(config());
+    const cases = [
+      ['https://github.com/o/r/issues/1', true],
+      ['https://github.com/o/r/pull/2', true],
+      ['https://github.com/o/r/pull/2.diff', false],
+      ['https://github.com/o/r/pull/2/files', false],
+      ['https://github.com/o/r/issues', false],
+      ['https://github.com/o/r/actions/runs/3', false],
+      ['https://github.example.com/o/r/pull/2', false],
+      ['https://www.github.com/o/r/pull/2', false],
+    ] as const;
+
+    for (const [source, expected] of cases) {
+      expect(adapter.match(new URL(source))).toBe(expected);
+    }
+  });
   it('requests all three issue comment pages and renders every comment', async () => {
     const comments = [
       Array.from({ length: 100 }, (_, index) => comment(index + 1)),

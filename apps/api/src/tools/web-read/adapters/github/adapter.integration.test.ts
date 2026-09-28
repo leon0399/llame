@@ -71,6 +71,19 @@ const ADMIT_ALL_POLICY = compileToolPermissionMap(
   { read: { allow: true } },
   'github-adapter-integration',
 );
+const SOURCE_ONLY_POLICY = compileToolPermissionMap(
+  {
+    read: {
+      allow: [
+        {
+          field: 'path',
+          regex: String.raw`^https://github\.com/`,
+        },
+      ],
+    },
+  },
+  'github-adapter-source-only',
+);
 
 function pullPayload() {
   return {
@@ -352,6 +365,25 @@ describe('GitHub adapter over a real shared web session', () => {
       expect(redirectRequests).toHaveLength(1);
       expect(redirectRequests[0]?.authorization).toBeUndefined();
       expectProductHeaders(fixture.requests);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it('falls through when the adapter API target is outside the source policy', async () => {
+    const fixture = await startGithubFixture(pullRoute());
+    try {
+      const result = await dispatchGithub(
+        fixture,
+        PULL_SOURCE,
+        undefined,
+        SOURCE_ONLY_POLICY,
+      );
+      expect(result).toStrictEqual({
+        kind: 'fallthrough',
+        notes: ['web adapter "github" fell through: permission'],
+      });
+      expect(fixture.requests).toHaveLength(0);
     } finally {
       await fixture.close();
     }
