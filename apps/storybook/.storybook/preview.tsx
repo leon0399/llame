@@ -25,6 +25,9 @@ sb.mock(import("../../web/lib/services/chat/fork.ts"));
 //   modelDisplayName/hasModelId helpers are re-exported) so model-picker
 //   stories can drive loading/loaded catalogs without a backend.
 sb.mock(import("../../web/lib/services/models/queries.ts"));
+// - permission-modes/queries: stubs the enabled-mode listing so selector
+//   stories can drive default-only, bypass-enabled, and unavailable states.
+sb.mock(import("../../web/lib/services/permission-modes/queries.ts"));
 // - memory queries/mutations: provide controllable settings state and a stable
 // update spy for the Memory settings card without calling an API.
 sb.mock(import("../../web/lib/services/memory/queries.ts"));

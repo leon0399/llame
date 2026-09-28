@@ -7,6 +7,7 @@ import { ButtonGroup } from "@workspace/ui/components/button-group";
 
 import { EffortSelector } from "./effort-selector";
 import { ModelSelector } from "./model-selector";
+import { PermissionModeSelector } from "./permission-mode-selector";
 import {
   PromptInput,
   PromptInputButton,
@@ -139,6 +140,7 @@ type ChatComposerFormProps = {
   modelReadyForSend: boolean;
   pendingStop: boolean;
   disabled: boolean;
+  chatId: string;
 };
 
 function preventWhenDisabled(
@@ -164,6 +166,7 @@ function ChatComposerForm({
   modelReadyForSend,
   pendingStop,
   disabled,
+  chatId,
 }: ChatComposerFormProps) {
   return (
     <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0">
@@ -181,6 +184,7 @@ function ChatComposerForm({
           autoFocus={!disabled}
         />
         <PromptInputToolbar>
+          <PermissionModeSelector chatId={chatId} />
           <ChatComposerControls
             status={status}
             onStop={onStop}
@@ -194,6 +198,7 @@ function ChatComposerForm({
 }
 
 type ChatComposerProps = {
+  chatId: string;
   input: string;
   onInputChange: (value: string) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
@@ -211,6 +216,7 @@ type ChatComposerProps = {
  *  and the send/stop affordance. Split out of `ChatSessionContent` as its
  *  own self-contained region. */
 export function ChatComposer({
+  chatId,
   input,
   onInputChange,
   onSubmit,
@@ -230,6 +236,7 @@ export function ChatComposer({
           </p>
         )}
         <ChatComposerForm
+          chatId={chatId}
           input={input}
           onInputChange={onInputChange}
           onSubmit={onSubmit}

@@ -43,6 +43,7 @@ const meta = {
     ),
   ],
   args: {
+    chatId: "chat-1",
     input: "",
     onInputChange: fn(),
     onSubmit: fn(),

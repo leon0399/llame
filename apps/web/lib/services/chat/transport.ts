@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import type { PermissionModeResponseValue } from "../../api/generated/models";
 import { buildApiUrl } from "../../api/fetch";
 
 type PrepareSendMessagesOptions = {
@@ -10,6 +11,7 @@ type PrepareSendMessagesOptions = {
    * for a model whose vocabulary it has not loaded.
    */
   effort?: string | undefined;
+  permissionMode?: PermissionModeResponseValue;
 };
 
 export const NO_MODEL_SELECTED_ERROR =
@@ -36,6 +38,7 @@ export function prepareSendMessagesRequest({
   messages,
   modelId,
   effort,
+  permissionMode,
 }: PrepareSendMessagesOptions) {
   const lastMessage = messages.at(-1);
   if (!lastMessage) {
@@ -51,6 +54,7 @@ export function prepareSendMessagesRequest({
       // Omitted, never sent as null or "": the api rejects a blank effort with
       // 400 and treats absence as "resolve this model's defaultEffort".
       ...(effort !== undefined && effort.length > 0 && { effort }),
+      ...(permissionMode === "bypass" && { permissionMode }),
       message: {
         id: lastMessage.id,
         parts: lastMessage.parts,
