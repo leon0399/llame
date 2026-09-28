@@ -360,9 +360,9 @@ The repository root renders `Description`, `Default branch`,
 `Visibility`, and `Language` lines from `GET /repos/{o}/{r}`, then the
 two-level root listing, then `## README` from `GET /repos/{o}/{r}/readme`
 decoded. A commit requests `GET /repos/{o}/{r}/commits/{sha}` and renders
-message, author, timestamp, a file list with counts (pages of 100, cut at
-3,000 files with a `files omitted: too_large` note, which bounds a single commit
-read to 30 file-page requests), and
+message, author, timestamp, a file list with counts (pages of 100; GitHub
+lists at most 3,000 files per commit, so reaching that count adds a `files
+omitted: too_large` note marking the list as possibly incomplete), and
 `Diff: https://github.com/{o}/{r}/commit/{sha}.diff`; patches are not
 rendered.
 
