@@ -126,29 +126,16 @@ async function buildWebFileResult(
 function directorySelectorFailure(
   target: ReadTarget,
 ): WebReadFailure | undefined {
-  if (target.outline) {
-    return {
-      status: 'error',
-      type: 'invalid_selector',
-      message: 'The :outline member is not supported for directory reads.',
-    };
-  }
-  if (target.raw) {
-    return {
-      status: 'error',
-      type: 'invalid_selector',
-      message: 'The :raw selector is not supported for directory reads.',
-    };
-  }
-  if (target.ranges !== undefined) {
-    return {
-      status: 'error',
-      type: 'invalid_selector',
-      message:
-        'Comma-separated selectors are not supported for directory reads.',
-    };
-  }
-  return undefined;
+  const message = target.outline
+    ? 'The :outline member is not supported for directory reads.'
+    : target.raw
+      ? 'The :raw selector is not supported for directory reads.'
+      : target.ranges !== undefined
+        ? 'Comma-separated selectors are not supported for directory reads.'
+        : undefined;
+  return message === undefined
+    ? undefined
+    : { status: 'error', type: 'invalid_selector', message };
 }
 
 function buildDirectoryReadResult(

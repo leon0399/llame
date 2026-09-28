@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { applySelectorSuffix, type ReadTarget } from "./path";
 import { outlineMarkdown } from "./markdown-outline";
-import {
-  MAX_READ_LINES,
-  splitSourceLines,
-  type SingleReadSuccess,
-} from "./source-lines";
+import { MAX_READ_LINES, splitSourceLines } from "./source-lines";
+
 import { measureNativeModelOutput } from "./serialization";
 
 function target(
@@ -23,22 +20,8 @@ function read(
   return outlineMarkdown(splitSourceLines(source), target(selector, extra));
 }
 
-function assertSuccess(value: unknown): asserts value is SingleReadSuccess {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("status" in value) ||
-    value.status !== "success"
-  ) {
-    throw new Error("Expected outline success");
-  }
-}
-
 async function* asyncLines(lines: Array<string>): AsyncGenerator<string> {
-  for (const line of lines) {
-    const resolved = await Promise.resolve(line);
-    yield resolved;
-  }
+  for (const line of lines) yield await Promise.resolve(line);
 }
 
 describe("markdown outline reader", () => {
@@ -68,6 +51,12 @@ describe("markdown outline reader", () => {
       requestedRange: { startLine: 1, endLine: 16 },
       shownRange: { startLine: 1, endLine: 16 },
       truncated: false,
+    });
+  });
+
+  it("reports the full scanned range for an unscoped outline", async () => {
+    await expect(read("# A\n\nbody\n\nmore\n\nx\n")).resolves.toMatchObject({
+      requestedRange: { startLine: 1, endLine: 7 },
     });
   });
 
@@ -187,10 +176,17 @@ describe("markdown outline reader", () => {
     });
   });
 
+  it("keeps root excerpts from container lines", async () => {
+    await expect(
+      read("- # in list\n> ## in quote\n# Real\n"),
+    ).resolves.toMatchObject({
+      content: "1: - # in list\n3: # Real\n",
+    });
+  });
+
   it("obeys line and serialized bounds and reports zero-based continuation", async () => {
     const source = "#\n".repeat(MAX_READ_LINES + 4);
     const first = await read(source, "outline", { reserveCodeUnits: -10_000 });
-    assertSuccess(first);
     expect(first.truncated).toBe(true);
     expect(first.nextOffset).toBe(MAX_READ_LINES);
     expect(first.content.split("\n").filter(Boolean)).toHaveLength(
@@ -205,7 +201,6 @@ describe("markdown outline reader", () => {
     const budgeted = await read("# one\n# two\n# three\n", "outline", {
       reserveCodeUnits: 15_800,
     });
-    assertSuccess(budgeted);
     expect(budgeted.truncated).toBe(true);
     expect(budgeted.nextOffset).toBe(0);
     expect(measureNativeModelOutput(budgeted)).toBeLessThanOrEqual(
@@ -214,10 +209,36 @@ describe("markdown outline reader", () => {
     const rangeBudgeted = await read("# H\n" + "\n".repeat(9), "outline", {
       reserveCodeUnits: 15_782,
     });
-    assertSuccess(rangeBudgeted);
     expect(measureNativeModelOutput(rangeBudgeted)).toBeLessThanOrEqual(
       16_000 - 15_782,
     );
+  });
+
+  it("advances continuations past an oversized ancestor chain", async () => {
+    const source =
+      Array.from({ length: 200 }, () => `${"x".repeat(100)}\n`).join("") +
+      "---\n\nbody\n\n## Next\n\nnext body\n";
+    const first = await read(source);
+    expect(first.truncated).toBe(true);
+    let nextOffset = first.nextOffset;
+    expect(nextOffset).toBeDefined();
+    let nextHeadingSeen = false;
+    const sourceLineCount = splitSourceLines(source).length;
+    for (
+      let attempt = 0;
+      attempt < 10 && nextOffset !== undefined;
+      attempt += 1
+    ) {
+      const continuation = await read(
+        source,
+        `outline:${nextOffset + 1}-${sourceLineCount}`,
+      );
+      nextHeadingSeen ||= continuation.content.includes("205: ## Next\n");
+      if (!continuation.truncated) break;
+      expect(continuation.nextOffset).toBeGreaterThan(nextOffset);
+      nextOffset = continuation.nextOffset;
+    }
+    expect(nextHeadingSeen).toBe(true);
   });
 
   it("stops an iterable at the scope end and accepts async lines", async () => {

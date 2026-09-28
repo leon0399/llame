@@ -15,48 +15,81 @@ import {
   type ReadSuccess,
 } from "./source-lines";
 
+const HTML_CLOSER = /<\/(?:script|pre|textarea|style)>|-->|\?>|\]\]>|>/giu;
+const CLOSER_OVERLAP = 10;
+
 type SourceLineState = {
   partial: string;
   oversized: boolean;
-  prefix: string;
-  emitted?: string;
-  hasOutput: boolean;
+  closerCarry: string;
 };
 
-function emitSourceFragment(
+function appendDroppedClosers(dropped: string, state: SourceLineState): void {
+  const searchable = state.closerCarry + dropped;
+  for (const match of searchable.matchAll(HTML_CLOSER)) {
+    const closer = match[0];
+    if (closer !== undefined && !state.partial.includes(closer)) {
+      state.partial += closer;
+    }
+  }
+  state.closerCarry = searchable.slice(-CLOSER_OVERLAP);
+}
+
+function resetSourceLine(state: SourceLineState): void {
+  state.partial = "";
+  state.oversized = false;
+  state.closerCarry = "";
+}
+
+function lineBodyAndTerminator(fragment: string) {
+  if (fragment.endsWith("\r\n"))
+    return { body: fragment.slice(0, -2), terminator: "\r\n" };
+  if (fragment.endsWith("\n"))
+    return { body: fragment.slice(0, -1), terminator: "\n" };
+  return { body: fragment, terminator: "" };
+}
+
+function consumeOversizedFragment(
   fragment: string,
   state: SourceLineState,
   preserveOversized: boolean,
-): void {
-  state.hasOutput = false;
-  state.emitted = undefined;
-  if (
-    !state.oversized &&
-    state.partial.length + fragment.length > MAX_RESULT_CODE_UNITS
-  ) {
-    state.oversized = true;
-    if (preserveOversized) {
-      let body = fragment;
-      if (fragment.endsWith("\r\n")) body = fragment.slice(0, -2);
-      else if (fragment.endsWith("\n")) body = fragment.slice(0, -1);
-      state.prefix = (state.partial + body).slice(0, MAX_RESULT_CODE_UNITS);
-    } else {
-      state.hasOutput = true;
-    }
+): string | null {
+  const { body, terminator } = lineBodyAndTerminator(fragment);
+  if (preserveOversized) appendDroppedClosers(body, state);
+  if (terminator === "") return null;
+  const line = preserveOversized ? `${state.partial}${terminator}` : null;
+  resetSourceLine(state);
+  return line;
+}
+
+function takeSourceFragment(
+  fragment: string,
+  state: SourceLineState,
+  preserveOversized: boolean,
+): string | undefined | null {
+  if (state.oversized)
+    return consumeOversizedFragment(fragment, state, preserveOversized);
+  if (state.partial.length + fragment.length <= MAX_RESULT_CODE_UNITS) {
+    state.partial += fragment;
+    if (!fragment.endsWith("\n")) return null;
+    const line = state.partial;
+    resetSourceLine(state);
+    return line;
   }
-  if (!state.oversized) state.partial += fragment;
-  if (!fragment.endsWith("\n")) return;
-  if (!state.oversized) {
-    state.emitted = state.partial;
-    state.hasOutput = true;
-  } else if (preserveOversized) {
-    const terminator = fragment.endsWith("\r\n") ? "\r\n" : "\n";
-    state.emitted = `${state.prefix}${terminator}`;
-    state.hasOutput = true;
+  const { body, terminator } = lineBodyAndTerminator(fragment);
+  const combined = state.partial + body;
+  state.oversized = true;
+  state.partial = combined.slice(0, MAX_RESULT_CODE_UNITS);
+  if (preserveOversized) {
+    state.closerCarry = state.partial.slice(-CLOSER_OVERLAP);
+    appendDroppedClosers(combined.slice(MAX_RESULT_CODE_UNITS), state);
+    if (terminator === "") return null;
+    const line = `${state.partial}${terminator}`;
+    resetSourceLine(state);
+    return line;
   }
-  state.partial = "";
-  state.oversized = false;
-  state.prefix = "";
+  if (terminator !== "") resetSourceLine(state);
+  return undefined;
 }
 
 /** Undefined marks a source line too large to fit any tool result. */
@@ -70,8 +103,7 @@ async function* sourceLines(
   const state: SourceLineState = {
     partial: "",
     oversized: false,
-    prefix: "",
-    hasOutput: false,
+    closerCarry: "",
   };
   while (true) {
     // A cancelled or timed-out call must stop reading, not merely stop being
@@ -87,13 +119,13 @@ async function* sourceLines(
       throw new NativeFileError("invalid_utf8");
     }
     for (const fragment of splitSourceLines(text)) {
-      emitSourceFragment(fragment, state, preserveOversized);
-      if (state.hasOutput) yield state.emitted;
+      const line = takeSourceFragment(fragment, state, preserveOversized);
+      if (line !== null) yield line;
     }
     if (bytesRead === 0) break;
   }
   if (state.oversized) {
-    if (preserveOversized) yield state.prefix;
+    if (preserveOversized) yield state.partial;
   } else if (state.partial.length > 0) {
     yield state.partial;
   }

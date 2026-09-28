@@ -376,6 +376,50 @@ describe('buildWebReadResult', () => {
     });
   });
 
+  it('rejects outline for a raw web render', async () => {
+    const result = await buildWebReadResult(
+      { url: GUIDE_URL, selector: 'outline' },
+      GUIDE_URL,
+      { method: 'raw', content: '<h1>Guide</h1>\n' },
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: OUTLINE_UNSUPPORTED_MESSAGE,
+    });
+  });
+
+  it('rejects outline for an unlabelled adapter JSON without changing plain reads', async () => {
+    const render: WebRender = {
+      method: 'adapter',
+      content: '{"key":"value"}\n',
+      adapter: { id: 'github', route: 'native' },
+    };
+    const outline = await buildWebReadResult(
+      { url: GUIDE_URL, selector: 'outline' },
+      GUIDE_URL,
+      render,
+    );
+    const plain = await buildWebReadResult(
+      { url: GUIDE_URL },
+      GUIDE_URL,
+      render,
+    );
+
+    expect(outline).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: OUTLINE_UNSUPPORTED_MESSAGE,
+    });
+    expect(plain).toMatchObject({
+      status: 'success',
+      representation: 'text',
+      content: '1: {"key":"value"}\n',
+      method: 'adapter',
+    });
+  });
+
   it('rejects outline for web directories', async () => {
     const result = await buildWebReadResult(
       { url: DIRECTORY_URL, selector: 'outline' },

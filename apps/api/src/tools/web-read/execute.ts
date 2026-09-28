@@ -132,9 +132,15 @@ async function fetchAndRender(
     let notes: ReadonlyArray<string> = [];
     if (!raw) {
       const adapters = await dispatchFor(context, locator.url, session, admit);
-      const adapterResult = await renderAdapterResult(locator, adapters, deps);
-      if (adapterResult !== undefined) return adapterResult;
-      if (adapters.kind === 'fallthrough') notes = adapters.notes;
+      if (adapters.kind === 'fatal')
+        return { status: 'error', ...adapters.failure };
+      if (adapters.kind === 'rendered')
+        return await deps.buildWebReadResult(
+          locator,
+          locator.url,
+          adapters.render,
+        );
+      notes = adapters.notes;
     }
     const response = await session.fetch(locator.url);
     if ('type' in response) return { status: 'error', ...response };
@@ -154,20 +160,6 @@ async function fetchAndRender(
   } finally {
     session.dispose();
   }
-}
-
-async function renderAdapterResult(
-  locator: WebLocator,
-  dispatch: WebAdapterDispatch,
-  deps: WebReadDeps,
-): Promise<ToolResult | undefined> {
-  if (dispatch.kind === 'fatal') {
-    return { status: 'error', ...dispatch.failure };
-  }
-  if (dispatch.kind === 'rendered') {
-    return deps.buildWebReadResult(locator, locator.url, dispatch.render);
-  }
-  return undefined;
 }
 
 function createSession(

@@ -58,9 +58,10 @@ function splitSelector(text: string): SplitLocator {
   }
   const outline = OUTLINE_SELECTOR.exec(text);
   if (outline !== null && opensSelector(text, outline.index)) {
-    const suffix =
-      outline[1] === undefined ? 'outline' : `outline:${outline[1]}`;
-    return { url: text.slice(0, outline.index), selector: suffix };
+    return {
+      url: text.slice(0, outline.index),
+      selector: text.slice(outline.index + 1),
+    };
   }
   const colon = text.lastIndexOf(':');
   if (!opensSelector(text, colon)) return { url: text };

@@ -296,6 +296,7 @@ describe('dispatchWebAdapters', () => {
     ).toBeLessThanOrEqual(MAX_ADAPTER_DOCUMENT_BYTES);
     expect(result.render.content.endsWith('\n')).toBe(true);
     expect(result.render.truncated).toBe(true);
+    expect(result.render.notes).toContain('document truncated: too_large');
   });
   it('keeps a non-empty UTF-8 prefix when no newline fits the limit', async () => {
     const content = 'é'.repeat(MAX_ADAPTER_DOCUMENT_BYTES);
@@ -312,6 +313,7 @@ describe('dispatchWebAdapters', () => {
       new TextEncoder().encode(result.render.content).byteLength,
     ).toBeLessThanOrEqual(MAX_ADAPTER_DOCUMENT_BYTES);
     expect(result.render.truncated).toBe(true);
+    expect(result.render.notes).toContain('document truncated: too_large');
   });
 
   it('does not include a newline beyond the retained byte window', async () => {
@@ -328,6 +330,7 @@ describe('dispatchWebAdapters', () => {
       MAX_ADAPTER_DOCUMENT_BYTES,
     );
     expect(result.render.truncated).toBe(true);
+    expect(result.render.notes).toContain('document truncated: too_large');
   });
   it('returns a fatal primary failure without trying later adapters', async () => {
     let laterMatched = false;

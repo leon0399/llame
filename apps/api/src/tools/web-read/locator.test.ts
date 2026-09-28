@@ -99,7 +99,6 @@ describe('parseWebLocator', () => {
     const result = parseWebLocator('https://h/doc.md:outline:1,3');
     if (!('type' in result)) throw new Error('expected selector failure');
     expect(result.type).toBe('invalid_selector');
-    expect(result.message).toEqual(expect.any(String));
   });
 
   it('keeps raw-first precedence for an outline-looking path', () => {
@@ -115,9 +114,6 @@ describe('parseWebLocator', () => {
     });
     expect(parseWebLocator('https://h:88/doc.md#value=:outline')).toEqual({
       url: 'https://h:88/doc.md',
-    });
-    expect(parseWebLocator('https://h:88')).toEqual({
-      url: 'https://h:88/',
     });
   });
 

@@ -323,7 +323,7 @@ acquisition. The grammar accepts `:raw`, `:raw:<ranges>`, `:outline`,
 `:outline:<N>`, `:outline:<N-M>`, and `:outline:<N+K>`. `<ranges>` uses the
 existing raw-range grammar, including comma-separated ranges; an outline
 scope accepts exactly one range and never a comma list. `:outline:N` means
-source line N only, and `:outline:N+K` means source lines N through N+K.
+source line N only, and `:outline:N+K` means K source lines from N (N through N+K-1).
 Ordinary bounded reads add one preceding and one following live line when
 available; these are called **context lines**. Outline reads do not add
 context lines.
@@ -391,6 +391,10 @@ lines, comments, and sequence items are omitted. After 32 key lines, the
 remaining keys are replaced by one unprefixed generated line, with no source
 coordinate:
 
+```text
+[… 28 more frontmatter lines]
+```
+
 For example, the specification's frontmatter case produces:
 
 ```text
@@ -399,10 +403,6 @@ For example, the specification's frontmatter case produces:
 3: description: Use for GitHub.
 4: ---
 5: # Octocat
-```
-
-```text
-[… 28 more frontmatter lines]
 ```
 
 That elision line does not extend `shownRange`. No YAML, TOML, or JSON parse
@@ -417,15 +417,16 @@ and frontmatter recognition but remains in the emitted source line.
 
 ### Scope, bounds, and continuation
 
-`:outline:N-M` restricts emitted source lines to N through M;
-`:outline:N` is N through N; and `:outline:N+K` is N through N+K. The
-outline prepends the direct ancestor chain of source line N: root headings
+The outline prepends the direct ancestor chain of source line N: root headings
 whose sections contain N, shallowest first. Each ancestor is rendered with
 its heading lines and excerpt, restricted to lines before N, and is omitted
 when its own lines are already in scope. Frontmatter and the root excerpt
-appear only when their source lines are in scope. A scope beginning past the
-last source line fails with `invalid_selector`, as an ordinary out-of-range
-read does. Scope is by source coordinates, not by the number of outline
+appear only when their source lines are in scope. If the ancestor chain of N
+does not fit the result budget or 2,000-line cap on its own, omit the whole
+chain and continue with in-scope lines, so every continuation read makes
+progress. A scope beginning past the last source line fails with
+`invalid_selector`, as an ordinary out-of-range read does.
+Scope is by source coordinates, not by the number of outline
 lines, and outline output has no context lines. `requestedRange` remains the
 normalized source scope (or line 1 through the scanned source end when
 unscoped), while `shownRange` is the first and last emitted source line, or
@@ -456,9 +457,6 @@ outline reader. An unsupported member returns `invalid_selector` with:
 
 > The :outline member reads text/markdown content only; read this source without it.
 
-Thus `.json`, `.mdx`, `.pdf`, `.txt`, and binary files reject `:outline` with
-this error while their ordinary reads remain available.
-
 The web ladder labels `negotiated` with its served type (`text/markdown`
 supports outline; `text/plain` does not), `alternate`, `md-suffix`,
 `readability`, and `llms-txt` as `text/markdown`, `text` with its served
@@ -468,9 +466,6 @@ renders are `text/markdown`; GitHub blobs use the file extension table;
 directory outcomes have no outline type; and a rewrite adapter forwards the
 inner render's label. Unsupported web and adapter results use the same
 `invalid_selector` error, while ordinary reads remain available.
-Thus a web `text` result, a `raw` result, or a negotiated `text/plain`
-result rejects `:outline`, as does an adapter blob whose label is not
-`text/markdown`.
 
 An outline request on a host, `file://`, `kb://`, or `skill://` directory, or
 on a web adapter directory, returns `invalid_selector` with:
@@ -487,21 +482,15 @@ If the web plane cut an adapter document at its 5 MiB document bound,
 > The adapter document was cut at the web read's document bound, so an outline would omit structure; read it without :outline.
 
 The ordinary adapter read still returns its cut document and note.
-`:outline:1,3` is outside the outline grammar: host and web report
-`invalid_selector`, while `kb://` and `skill://` report `invalid_path`.
 
 ### Authority, envelopes, and changing sources
 
 Admission, permission checks, owner resolution, and content acquisition
 finish before media-type derivation or Markdown scanning. A denied submitted
-locator therefore fails like an ordinary read and is never parsed. Outline
-preserves each source's envelope: host and `file://` retain host identity,
-Knowledge retains its locator, Space identity, display name, and untrusted
-content notice, Skill retains its locator, `sourceDirectory`, `resolvedPath`,
-`skillDirectory`, optional `realSkillDirectory`, and `skillPathInstruction`,
-and web retains `path`, `finalUrl`, `method`, any `adapter` object, and
-`notes`. `:outline` runs over the rendered adapter document; `:raw` is the
-only member that bypasses adapters.
+locator therefore fails like an ordinary read and is never parsed. See the
+per-source sections above for the envelope fields retained by each scheme.
+`:outline` runs over the rendered adapter document; `:raw` is the only member
+that bypasses adapters.
 
 Headings, excerpts, frontmatter keys, and every other emitted line remain
 untrusted content. They cannot change tool availability, owner identity,

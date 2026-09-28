@@ -273,44 +273,22 @@ describe("native source reads", () => {
     });
   });
 
-  it("returns the deterministic outline for a Markdown file", async () => {
-    const lines = Array<string>(16).fill("");
-    lines[0] = "# Guide";
-    lines[2] = "Intro sentence.";
-    lines[4] = "## Install";
-    lines[6] = "```bash";
-    lines[8] = "```";
-    lines[11] = "## Use";
-    lines[13] = "### Flags";
-    lines[15] = "Flag text.";
-    await writeFile(join(directory, "guide.md"), `${lines.join("\n")}\n`);
-    const result = await readFile({
-      path: `${join(directory, "guide.md")}:outline`,
-    });
-    expect(result).toMatchObject({
-      status: "success",
-      kind: "file",
-      representation: "outline",
-      content:
-        "1: # Guide\n3: Intro sentence.\n5: ## Install\n7: ```bash\n12: ## Use\n14: ### Flags\n16: Flag text.\n",
-      requestedRange: { startLine: 1, endLine: 16 },
-      shownRange: { startLine: 1, endLine: 16 },
-      truncated: false,
+  it.each([
+    ["mdx", "# Heading\n"],
+    ["txt", "# Heading\n"],
+    ["json", "# Heading\n"],
+    ["xml", "# Heading\n"],
+    ["pdf", "# Heading\n"],
+    ["bin", Buffer.from([0xff, 0x00, 0x01])],
+  ])("rejects outline for a .%s source", async (extension, content) => {
+    const sourcePath = join(directory, `source.${extension}`);
+    await writeFile(sourcePath, content);
+    expect(await readFile({ path: `${sourcePath}:outline` })).toEqual({
+      status: "error",
+      type: "invalid_selector",
+      message: OUTLINE_UNSUPPORTED_MESSAGE,
     });
   });
-
-  it.each(["mdx", "txt", "json"])(
-    "rejects outline for a .%s source",
-    async (extension) => {
-      const sourcePath = join(directory, `source.${extension}`);
-      await writeFile(sourcePath, "# Heading\n");
-      expect(await readFile({ path: `${sourcePath}:outline` })).toEqual({
-        status: "error",
-        type: "invalid_selector",
-        message: OUTLINE_UNSUPPORTED_MESSAGE,
-      });
-    },
-  );
 
   it("rejects outline for a directory", async () => {
     expect(await readFile({ path: `${directory}:outline` })).toEqual({
@@ -357,6 +335,36 @@ describe("native source reads", () => {
       representation: "outline",
       content: `1: # ${"x".repeat(118)}…\n`,
     });
+  });
+  it("keeps an oversized HTML block closer visible to the outline scanner", async () => {
+    const sourcePath = join(directory, "large-script.md");
+    await writeFile(
+      sourcePath,
+      `<script>${"x".repeat(20_000)}</script>\n\n# Heading\n\nbody\n`,
+    );
+    const result = await readFile({ path: `${sourcePath}:outline` });
+    assertFileSuccess(result);
+    expect(result.representation).toBe("outline");
+    expect(result.content).toContain("3: # Heading\n5: body\n");
+    expect(result.content).toMatch(/^1: <script>x+…\n/u);
+  });
+
+  it("finds an oversized HTML closer split across a read chunk", async () => {
+    const sourcePath = join(directory, "split-script.md");
+    const chunkSize = 64 * 1024;
+    const closer = "</script>";
+    const closerStart = chunkSize - 4;
+    const opener = "<script>";
+    const content =
+      opener +
+      "x".repeat(closerStart - opener.length) +
+      closer +
+      "\n\n# Heading\n\nbody\n";
+    await writeFile(sourcePath, content);
+    const result = await readFile({ path: `${sourcePath}:outline` });
+    assertFileSuccess(result);
+    expect(result.representation).toBe("outline");
+    expect(result.content).toContain("3: # Heading\n5: body\n");
   });
   it("reads a bounded range from a source larger than one MiB", async () => {
     await writeFile(path, "prefix\n" + "x\n".repeat(600_000) + "tail\n");

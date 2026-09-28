@@ -447,16 +447,9 @@ export function renderWebDocument(
   if (options.raw) return { method: 'raw', content: response.body };
 
   const path = bodyPath(response);
-  if (path === 'negotiated') {
+  if (path !== 'html') {
     return {
-      method: 'negotiated',
-      content: response.body,
-      mediaType: responseMediaType(response),
-    };
-  }
-  if (path === 'text') {
-    return {
-      method: 'text',
+      method: path,
       content: response.body,
       mediaType: responseMediaType(response),
     };
@@ -495,7 +488,7 @@ function bodyPath(response: WebResponse): BodyPath {
 }
 
 function responseMediaType(response: WebResponse): string {
-  return response.contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+  return response.contentType.split(';', 1)[0].trim().toLowerCase();
 }
 
 /**

@@ -143,7 +143,7 @@ export function emptyReadResult(
     status: "success",
     kind: "file",
     path: target.path,
-    representation: target.outline ? "outline" : target.raw ? "raw" : "text",
+    representation: target.raw ? "raw" : "text",
     content: "",
     requestedRange:
       endLine === 0 ? null : { startLine: target.offset + 1, endLine },
@@ -178,7 +178,7 @@ export function emptyMultiReadResult(target: ReadTarget): MultiReadSuccess {
     status: "success",
     kind: "file",
     path: target.path,
-    representation: target.outline ? "outline" : target.raw ? "raw" : "text",
+    representation: target.raw ? "raw" : "text",
     content: "",
     requestedRanges: (target.ranges ?? []).map((range) => ({
       startLine: range.offset + 1,

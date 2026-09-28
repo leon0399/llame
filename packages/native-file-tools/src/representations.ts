@@ -22,11 +22,8 @@ const OUTLINE_READERS = {
 } as const satisfies Record<string, OutlineReader>;
 
 export function outlineReader(mediaType: string | undefined): OutlineReader {
-  const reader =
-    mediaType === "text/markdown"
-      ? OUTLINE_READERS["text/markdown"]
-      : undefined;
-  if (reader === undefined)
-    throw new NativeFileError("invalid_selector", OUTLINE_UNSUPPORTED_MESSAGE);
-  return reader;
+  for (const [type, reader] of Object.entries(OUTLINE_READERS)) {
+    if (type === mediaType) return reader;
+  }
+  throw new NativeFileError("invalid_selector", OUTLINE_UNSUPPORTED_MESSAGE);
 }

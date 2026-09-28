@@ -286,9 +286,10 @@ function parseSelector(input: string): ReadTarget {
   }
   const outline = /:outline(?::([^:/]*))?$/.exec(input);
   if (outline) {
-    const suffix =
-      outline[1] === undefined ? "outline" : `outline:${outline[1]}`;
-    return applySelectorSuffix(input.slice(0, outline.index), suffix);
+    return applySelectorSuffix(
+      input.slice(0, outline.index),
+      input.slice(outline.index + 1),
+    );
   }
   const colon = input.lastIndexOf(":");
   return colon > input.lastIndexOf("/")

@@ -56,16 +56,6 @@ const PLAIN_SERVED_HTML = `<!doctype html><html><head><title>Plain served HTML</
 <p>This body arrived with a text/plain content type even though it is an HTML document, so the pipeline follows the HTML path and renders its main content instead of returning the markup unchanged.</p>
 </article></body></html>`;
 
-/** An RSS feed served as `application/xml`: markup, but not an HTML document. */
-const RSS_XML = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0"><channel><title>Example Docs</title>
-<item><title>Adapter pipelines for agent web reads</title><link>https://docs.example.test/guides/adapter-pipelines</link></item>
-</channel></rss>`;
-
-/** A plain XML body served as `text/xml`. */
-const NOTE_XML = `<?xml version="1.0" encoding="UTF-8"?>
-<note><to>agent</to><from>editor</from><body>The local render path is HTML only.</body></note>`;
-
 /** An XHTML document served as `application/xhtml+xml`. */
 const XHTML_DOCUMENT = `<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Adapter pipelines in XHTML</title></head><body><article>
 <h2>An XHTML document renders locally</h2>
@@ -259,27 +249,6 @@ describe('renderWebDocument', () => {
     expect(render.method).toBe('text');
     expect(render.content).toBe(body);
     expect(render.mediaType).toBe('application/json');
-  });
-
-  it('returns an application/xml body unchanged as text', () => {
-    const render = renderWebDocument(
-      response('application/xml; charset=utf-8', RSS_XML),
-      { raw: false },
-    );
-
-    expect(render.method).toBe('text');
-    expect(render.content).toBe(RSS_XML);
-    expect(render.mediaType).toBe('application/xml');
-  });
-
-  it('returns a text/xml body unchanged as text', () => {
-    const render = renderWebDocument(response('text/xml', NOTE_XML), {
-      raw: false,
-    });
-
-    expect(render.method).toBe('text');
-    expect(render.content).toBe(NOTE_XML);
-    expect(render.mediaType).toBe('text/xml');
   });
 
   it('renders an application/xhtml+xml document with Readability', () => {

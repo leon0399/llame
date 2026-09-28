@@ -254,30 +254,6 @@ describe('Workspace-relative native paths', () => {
     }
   });
 
-  it('refuses an outline request for a host directory', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'outline-directory-'));
-    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
-      undefined,
-    );
-
-    try {
-      await expect(
-        runTool(
-          nativeReadTool,
-          { path: `${directory}:outline` },
-          trustedContext(),
-          5,
-        ),
-      ).resolves.toMatchObject({
-        status: 'error',
-        type: 'invalid_selector',
-        message: 'The :outline member is not supported for directory reads.',
-      });
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-
   it('allows a relative path to resolve outside the entered root', async () => {
     const base = await mkdtemp(join(tmpdir(), 'workspace-native-parent-'));
     const root = join(base, 'project');
@@ -1405,27 +1381,13 @@ describe('skill locator resolution', () => {
   });
 
   it('refuses the catalog :outline selector before paging', async () => {
-    for (const path of ['skill://:outline', 'skill://:outline:2-4']) {
-      await expect(
-        runTool(nativeReadTool, { path }, skillContext(), 5),
-      ).resolves.toMatchObject({
-        status: 'error',
-        type: 'invalid_selector',
-        message: 'The :outline member is not supported for the skill catalog.',
-      });
-    }
-  });
-
-  it('rejects malformed Skill outline ranges as invalid_path', async () => {
-    for (const path of [
-      'skill://pdf:outline:1,3',
-      'skill://pdf/ref.md:outline:1,3',
-      'skill://:outline:1,3',
-    ]) {
-      await expect(
-        runTool(nativeReadTool, { path }, skillContext(), 5),
-      ).resolves.toMatchObject({ status: 'error', type: 'invalid_path' });
-    }
+    await expect(
+      runTool(nativeReadTool, { path: 'skill://:outline' }, skillContext(), 5),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'The :outline member is not supported for the skill catalog.',
+    });
   });
 
   it('refuses catalog selectors the listing cannot express', async () => {

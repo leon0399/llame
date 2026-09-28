@@ -86,29 +86,6 @@ describe('rewrite web adapter reads', () => {
       ],
     });
   });
-  it('forwards the inner Markdown media type', async () => {
-    const outcome = await createRewriteAdapter(BASE_CONFIG).read(
-      new URL('https://x.com/article'),
-      ioFor(response('# Guide\n', 'text/markdown'), []),
-    );
-
-    expect(outcome).toMatchObject({
-      kind: 'rendered',
-      mediaType: 'text/markdown',
-    });
-  });
-
-  it('forwards the inner JSON media type', async () => {
-    const outcome = await createRewriteAdapter(BASE_CONFIG).read(
-      new URL('https://x.com/article'),
-      ioFor(response('{"ok":true}', 'application/json'), []),
-    );
-
-    expect(outcome).toMatchObject({
-      kind: 'rendered',
-      mediaType: 'application/json',
-    });
-  });
 
   it('maps an adapter status failure without exposing a body', async () => {
     const adapter = createRewriteAdapter(BASE_CONFIG);

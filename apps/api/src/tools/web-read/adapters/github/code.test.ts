@@ -91,27 +91,11 @@ describe('GitHub code adapter', () => {
 
     expect(urls).toStrictEqual([url]);
     expect(renderedContent(outcome)).toBe('one\ntwo\n');
-    if (outcome.kind !== 'rendered') {
-      throw new Error('expected rendered outcome');
-    }
-    expect(outcome.mediaType).toBe('text/markdown');
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      mediaType: 'text/markdown',
+    });
   });
-
-  it.each([{ path: 'data.json' }, { path: 'component.mdx' }])(
-    'leaves $path without an outline media type',
-    async ({ path }) => {
-      const url = `${API_ORIGIN}/repos/acme/project/contents/${path}?ref=main`;
-      const { outcome } = await readGithub(
-        `https://github.com/acme/project/blob/main/${path}`,
-        new Map([[url, [blobResponse('content')]]]),
-      );
-
-      if (outcome.kind !== 'rendered') {
-        throw new Error('expected rendered outcome');
-      }
-      expect(outcome.mediaType).toBeUndefined();
-    },
-  );
 
   it.each([
     {
@@ -470,11 +454,8 @@ describe('GitHub code adapter', () => {
           { name: 'readme.md', kind: 'file' },
         ],
       },
+      mediaType: undefined,
     });
-    if (outcome.kind !== 'rendered') {
-      throw new Error('expected rendered outcome');
-    }
-    expect(outcome.mediaType).toBeUndefined();
   });
   it('returns parse when a tree response has no tree array', async () => {
     const url = `${API_ORIGIN}/repos/acme/project/git/trees/main:apps?recursive=1`;
@@ -583,11 +564,8 @@ describe('GitHub code adapter', () => {
     expect(outcome).toMatchObject({
       kind: 'rendered',
       notes: ['README omitted: status'],
+      mediaType: 'text/markdown',
     });
-    if (outcome.kind !== 'rendered') {
-      throw new Error('expected rendered outcome');
-    }
-    expect(outcome.mediaType).toBe('text/markdown');
     expect(renderedContent(outcome)).toContain('Description: A project');
     expect(renderedContent(outcome)).toContain(
       'https://github.com/acme/project\n  - src/',
