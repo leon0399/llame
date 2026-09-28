@@ -207,6 +207,132 @@ ranged Markdown ancestor rule promotes them.
 - **WHEN** `/tmp/report:5-10,20-30` exists as a regular file and is read
 - **THEN** it is read as the literal filename without applying ranges
 
+### Requirement: Read representations are selected by media type and member
+
+A representation SHALL be selected from a closed, compile-time table keyed by
+the admitted content's media type and the requested member. The table SHALL
+hold the `raw` and `outline` members; it
+SHALL NOT be runtime-configurable, operator-loadable, or dynamically imported.
+A member SHALL belong to one of two output classes: a `:` member returns
+verbatim source lines with a shown range (`raw` without generated line
+prefixes, as raw reads always have, and `outline` with the ordinary
+line-number prefixes), and a future `?` member would return transformed
+content with no prefixes and no shown range; no `?` member and no `?` grammar
+exists yet. With no member named, reading SHALL remain unchanged except that an ordinary ranged Markdown read SHALL prepend the direct ancestor headings under the ranged Markdown ancestor requirement. A member
+requested for a media type the table does not map SHALL fail with
+`invalid_selector` naming the member's accepted media types, and the ordinary
+read of that source SHALL remain available.
+
+The media type SHALL be derived from the source, never from the body's
+appearance: a host, `file://`, `kb://`, or `skill://` regular file by the
+extension table `.md`, `.markdown`, `.mdown`, and `.mkd` to `text/markdown`,
+with `.mdx` excluded and every other extension mapping to no
+representation-eligible type; a web ladder result by its stage —
+`text/markdown` for a `negotiated` response whose `Content-Type` is
+`text/markdown` and for `alternate`, `md-suffix`, `readability`, and
+`llms-txt`, the served type for `text` and for a `negotiated` `text/plain`
+body, and none for `raw`; a web adapter result by the label the adapter
+contract requires. A reader SHALL receive only the admitted decoded content as
+a sequence of native lines, the source display identity, and the selector's
+source scope; a file source SHALL feed those lines as it reads them rather
+than decoding the whole file first. A reader SHALL NOT change source
+admission, permission projection, owner resolution, executor binding, request
+policy, or the source-specific result envelope. Readers over
+bytes rather than decoded text SHALL define their own input contract rather
+than widening this one.
+
+#### Scenario: A Markdown file selects the outline reader
+
+- **WHEN** the model calls `read` with an authorized Markdown file and the `:outline` member
+- **THEN** the result has `representation: "outline"` and contains the deterministic outline
+- **AND** the source is admitted exactly as it is for an ordinary read
+
+#### Scenario: An omitted member keeps the existing read
+
+- **WHEN** the model reads an authorized Markdown file without a member
+- **THEN** the result uses the existing text representation and line-numbered source content
+- **AND** no outline is appended or inferred; a ranged Markdown read may prepend ancestors under the ranged Markdown ancestor requirement.
+
+#### Scenario: An unsupported media type names the accepted types
+
+- **WHEN** the model requests `:outline` for an otherwise readable `.json`, `.mdx`, `.pdf`, `.txt`, or binary file, or for a web read whose result is `text`, `raw`, or a `negotiated` `text/plain` body
+- **THEN** the tool returns `invalid_selector` naming `text/markdown` as the member's accepted media type
+- **AND** an ordinary read of that source is unchanged
+
+#### Scenario: Admission denies the submitted locator before any parse
+
+- **WHEN** permission admission denies the submitted `:outline` locator, including a host rule that matches the suffix-bearing submitted text
+- **THEN** the tool returns the same `permission_denied` result as the ordinary read
+- **AND** no media-type derivation or Markdown scan is attempted
+
+#### Scenario: Web ladder Markdown supports outline
+
+- **WHEN** a web read's result method is `alternate`, `md-suffix`, `readability`, or `llms-txt`, or is `negotiated` with a `text/markdown` response
+- **THEN** `:outline` scans that rendered body and its line numbers refer to the rendered text
+- **AND** the web envelope and provenance remain present
+
+#### Scenario: A directory or catalog is not an outline document
+
+- **WHEN** the model requests `:outline` on a host, `file://`, `kb://`, or `skill://` directory, on `skill://`, or on a web read whose adapter returned a directory result
+- **THEN** the tool returns `invalid_selector`
+- **AND** it does not reinterpret the listing as headings or return a listing page as outline content
+
+### Requirement: Outline output obeys explicit bounds
+
+The Markdown reader SHALL scan the source in one forward pass, holding only
+the open container and heading stacks, the lines it will emit, and the lines
+whose meaning a later line decides (an open root paragraph that a setext
+underline may turn into a heading, a paragraph whose first line may open a
+link reference definition, and the lines after a line-one `---` until its
+closer), so a file source SHALL have no input size ceiling beyond the
+abort signal; a web body and an adapter document keep the web plane's 5 MiB
+bounds. A source that is one undecided run, such as a single paragraph with
+no blank line or a line-one `---` that never closes, is held until that run
+is decided. The scan SHALL stop once the lines through the scope end are decided
+or the result budget is spent. Outline output
+SHALL obey the shared serialized result cap and 2,000-line ceiling; when it is
+cut, `truncated` SHALL be true and `nextOffset` SHALL be the zero-based index
+of the first omitted entry's source line, where an entry is one emitted line,
+so an outline is cut between lines and never inside one, as every read result's
+`nextOffset` is, so `:outline:<nextOffset + 1>-M` continues it against
+the source observed by that later call. An adapter document the web plane
+truncated at its document bound SHALL fail with `representation_too_large`
+and SHALL return no partial outline, because an outline of a cut document
+would omit structure without saying so. Line numbers SHALL use the native LF
+line model that ordinary reads use. A successful outline SHALL not imply a
+source snapshot: a later range read reauthorizes and rereads the current
+source.
+
+#### Scenario: A large file is outlined in one pass
+
+- **WHEN** the model requests `:outline:40000-41000` of a 200 MiB Markdown file of ordinary blank-line-separated sections
+- **THEN** the outline is returned without the file being loaded whole
+- **AND** an ordinary range read of that file follows the ranged Markdown ancestor rule
+
+#### Scenario: A long outline reports continuation
+
+- **WHEN** the outline exceeds the shared line or serialized result bound
+- **THEN** the result reports `truncated: true` and `nextOffset` as the zero-based index of the first omitted entry's source line
+- **AND** a read of `:outline:<nextOffset + 1>-M` continues from that entry
+
+#### Scenario: A truncated adapter document has no outline
+
+- **WHEN** an adapter document was cut at the web plane's 5 MiB document bound and the model requests `:outline`
+- **THEN** the tool returns `representation_too_large`
+- **AND** no partial outline is returned, while the ordinary adapter read still returns its truncated document and note
+
+#### Scenario: Line numbers use the native LF line model
+
+- **WHEN** a Markdown source contains CRLF, a lone CR, and a trailing LF
+- **THEN** outline line numbers count LF delimiters exactly as ordinary native reads count them, keep lone CR inside a line, and add no line for the trailing LF
+- **AND** every emitted prefix is a valid ordinary selector line
+
+#### Scenario: Outline coordinates are execution-time coordinates
+
+- **WHEN** the source changes between an outline call and a later ordinary range read
+- **THEN** the later read uses the current source and may return different text for the old range
+- **AND** neither call claims a snapshot or stale-selection authority
+
 ## ADDED Requirements
 
 ### Requirement: Ranged Markdown reads prepend their ancestor headings
