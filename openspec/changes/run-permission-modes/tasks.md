@@ -57,5 +57,5 @@ Each shipping layer adds its own operator documentation and dated `CHANGELOG.md`
 Enter this layer with `$gh-stack` from the `web` top before `$openspec-sync-specs` writes. Its
 self-review and GitHub review are post-archive gates, not tasks here.
 
-- [ ] 3.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify both pass
+- [x] 3.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify both pass
 - [ ] 3.2 Confirm `openspec status --change run-permission-modes --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
